@@ -188,13 +188,12 @@ class MemoryConsolidationWorker:
         # so every consolidation call recorded ZERO — the largest silent hole
         # in token accounting (Phase 0 / module H).
         #
-        # RECORD ONLY, NEVER BILL: record_cost's deduct hook fires solely when
-        # provider_source=="system" AND current_user_id is set. The worker set
-        # neither current_user_id here (_inject_owner_credentials sets
-        # provider_source only) — so consolidation is fully accounted yet never
-        # charged to the owner's free tier. Do NOT add set_current_user_id in
-        # this path: that would silently drain the owner's system quota for
-        # background work they never initiated (iron rule #15).
+        # RECORD ONLY: cost_records is a token log, not a bill — since the free
+        # tier became a gateway wallet (2026-07-28) nothing in this process
+        # deducts anything. Deliberately still does NOT set current_user_id:
+        # the row stays attributed to the agent, not charged to a person, which
+        # keeps background work the owner never initiated out of their name
+        # (iron rule #15).
         set_cost_context(agent_id, self._db)
         try:
             spec = get_spec(kind)

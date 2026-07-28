@@ -1185,7 +1185,7 @@ _register(
 #
 # user_quotas holds only cumulative scalars (used_input/output_tokens), so a
 # single wrong charge could never be isolated or refunded — the only remedy
-# was a platform-wide reset. quota_repository.atomic_deduct now writes one row
+# was a platform-wide reset. The retired quota repository wrote one row
 # here per deduction. It is NOT wrapped in a DB transaction with the user_quotas
 # UPDATE (the client's transaction() is single-connection and unsafe on this
 # concurrent hot path — see atomic_deduct's docstring): the UPDATE runs first as
@@ -1232,7 +1232,7 @@ _register(
 # revoke) possible. run_id doubles as the gateway key_alias — the only handle
 # needed to revoke — so we never persist the raw usable secret here; key_hash is
 # LiteLLM's non-secret token hash, audit-only. See
-# agent_framework/providers/gateway_key_service.GatewayKeyService.
+# the retired GatewayKeyService.
 _register(
     TableDef(
         name="instance_gateway_session_keys",
@@ -1247,7 +1247,7 @@ _register(
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("revoked_at", "TEXT", "DATETIME(6)"),
             # Set once the run's LiteLLM SpendLogs have been summed and deducted
-            # from the user's free-tier quota (gateway_spend_reconciler). NULL =
+            # from the user's free-tier quota (retired reconciler). NULL =
             # not yet metered; the idempotency guard that stops double-charging.
             Column("metered_at", "TEXT", "DATETIME(6)"),
         ],

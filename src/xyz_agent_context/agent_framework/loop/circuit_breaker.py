@@ -110,14 +110,42 @@ def _looks_transient(text: str) -> bool:
     return any(m in low for m in _TRANSIENT_MARKERS)
 
 
+def _is_out_of_credit(error_type: str, message: str) -> bool:
+    """True when the failure is 'this credential has no money left'.
+
+    Shares the single classifier in ``llm/failure`` rather than keeping a
+    fourth marker list — that module already had to learn the gateway's
+    budget wording so background jobs pause, and two lists would drift.
+    """
+    from xyz_agent_context.agent_framework.llm.failure import (
+        SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+        classify_self_serviceable,
+    )
+
+    return (
+        classify_self_serviceable(error_type, message)
+        == SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE
+    )
+
+
 def classify_agent_error(
     error_type: Optional[str], error_message: Optional[str]
 ) -> ErrorCategory:
     """Classify a failed turn's cause.
 
     Order matters and is deliberate:
-      1. QUOTA — exact error TYPE match (precise; avoids quota-vs-ratelimit
-         substring traps).
+      1. QUOTA — exact error TYPE match, PLUS the narrow insufficient-balance
+         message markers. The type check alone was enough while free-tier
+         exhaustion had its own exception class; since the wallet moved onto
+         the gateway (2026-07-28) exhaustion arrives as a plain HTTP 429 whose
+         only signal is the body ("Budget has been exceeded!"), so a
+         type-only rule silently demoted it to BUSINESS — platform-alert,
+         never a pause, i.e. an exhausted user retrying forever. The markers
+         consulted here are the balance ones only ("insufficient balance",
+         "budget has been exceeded", ...), never "429"/"rate limit", so the
+         quota-vs-ratelimit trap this ordering was built to avoid stays shut —
+         and checking them BEFORE the transient rule is what keeps a budget
+         429 out of the rate-limit bucket.
       2. TRANSIENT — positively identified provider-side signatures (network /
          5xx / rate-limit / overload). Checked BEFORE auth so a message like
          "provider temporarily unavailable" isn't mis-swept into AUTH by the
@@ -131,7 +159,7 @@ def classify_agent_error(
     """
     et = error_type or ""
     msg = error_message or ""
-    if et in _NO_QUOTA_ERROR_TYPES:
+    if et in _NO_QUOTA_ERROR_TYPES or _is_out_of_credit(et, msg):
         return ErrorCategory.QUOTA
     if et in _TRANSIENT_ERROR_TYPES or _looks_transient(msg):
         return ErrorCategory.TRANSIENT

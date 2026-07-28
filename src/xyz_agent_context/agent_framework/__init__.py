@@ -13,7 +13,6 @@
 - providers/  Provider & model catalog system (registry/resolver/readiness,
               system/user/slot services, model catalog+sync+probe, driver/)
 - api_config.py    Cross-cutting per-adapter config dataclasses (root)
-- quota_service.py Cross-cutting quota enforcement gate (root)
 
 This __init__ is also the driver REGISTRATION point (claude_code /
 codex_cli) and the stable public symbol surface — package-level imports

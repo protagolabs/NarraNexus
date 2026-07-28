@@ -174,11 +174,11 @@ function RootRedirect() {
     return <PageFallback />;
   }
   // Only local installs walk the user through provider setup on first
-  // login. The cloud website (cloud-web) starts every account on the
-  // system free-tier quota (SystemProviderService), so a fresh cloud user
-  // can chat immediately — the provider screen confused users who had no
-  // key to enter. They can still add their own provider later from
-  // Settings; the onboarding checklist + quota panel surface that path.
+  // login. On cloud, first login provisions a free-tier provider card
+  // (a $10 gateway wallet), so a fresh account can chat immediately — the
+  // provider screen confused users who had no key to enter. They can still
+  // add their own provider later from Settings; the onboarding checklist +
+  // balance panel surface that path.
   if (needsSetup && mode === 'local') {
     return <Navigate to="/setup" replace />;
   }

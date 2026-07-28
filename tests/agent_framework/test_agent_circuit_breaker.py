@@ -376,3 +376,28 @@ async def test_reset_for_owner_clears_authquota_cooling(db_client):
     n = await reset_for_owner("carol", db=db_client)
     assert n == 1
     assert (await repo.get("cool_auth")).cb_status == CbStatus.ACTIVE.value
+
+
+def test_exhausted_wallet_is_quota_not_business():
+    """Free-tier exhaustion lost its dedicated exception type when the wallet
+    moved onto the gateway: it now arrives as a plain 429 whose only signal is
+    the body. A type-only rule demoted it to BUSINESS — platform-alert, never a
+    pause — i.e. an exhausted user retrying forever."""
+    budget = (
+        "litellm.BudgetExceededError: Budget has been exceeded! "
+        "Key=free::u1 Current cost: 10.02, Max budget: 10.0"
+    )
+    assert classify_agent_error("unknown", budget) == ErrorCategory.QUOTA
+    # Even when the SDK surfaces the 429 as a rate-limit type, the body wins.
+    assert classify_agent_error("RateLimitError", budget) == ErrorCategory.QUOTA
+
+
+def test_a_genuine_rate_limit_is_still_transient():
+    """The guard on the fix above: consulting balance markers must not swallow
+    real 429s, or a throttled provider would pause the agent instead of cooling."""
+    assert classify_agent_error(
+        "RateLimitError", "Error code: 429 - rate limit exceeded"
+    ) == ErrorCategory.TRANSIENT
+    assert classify_agent_error(
+        "unknown", "429 Too Many Requests"
+    ) == ErrorCategory.TRANSIENT

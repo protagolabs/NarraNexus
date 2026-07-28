@@ -274,10 +274,11 @@ class Settings(BaseSettings):
     # production. In local mode an unset value falls back to admin_secret_key.
     transcription_hmac_secret: str = ""
 
-    # System-default NetMind credentials for the cloud free tier. When
-    # present and SystemProviderService is enabled, the transcription
-    # resolver appends NetMind as the last fallback (after user providers
-    # and settings.openai_api_key) without consulting the LLM token quota.
+    # Operator-owned NetMind credentials for cloud TRANSCRIPTION only. Unrelated
+    # to the LLM free tier (that is a gateway wallet since 2026-07-28): STT does
+    # not go through the gateway, so the resolver appends NetMind as the last
+    # fallback here and gates it on the user's wallet balance itself — see
+    # llm/transcription/resolver._has_free_tier_grant.
     system_default_netmind_api_key: str = ""
     system_default_netmind_base_url: str = "https://api.netmind.ai"
 
