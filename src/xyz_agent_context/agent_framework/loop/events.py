@@ -74,6 +74,14 @@ DATA_TYPE_USAGE = "response.usage"
 # tool_call_item remains the authoritative record).
 DATA_TYPE_REPLY_DELTA = "response.reply.delta"
 
+# INTERNAL marker (agent-loop resume R3): a requested CLI-session resume hit
+# a stale handle and the adapter already completed the turn via a same-turn
+# cold retry. Consumed by response_processor (message=None, flags
+# ExecutionState.resume_failed so step_4 clears the stale handle row). It is
+# NEVER surfaced as an ErrorMessage — the user must not perceive the recovery
+# (铁律 #16). Carries no payload fields.
+DATA_TYPE_RESUME_FAILED = "response.resume_failed"
+
 # ---------------------------------------------------------------------------
 # item.type values (run_item_stream_event)
 # ---------------------------------------------------------------------------

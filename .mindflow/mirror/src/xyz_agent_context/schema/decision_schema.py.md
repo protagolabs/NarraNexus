@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-07-25
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — PathExecutionResult 加 resume_failed（resume 化 R3）
+
+`resume_failed: bool = False`——step_3 从 state 无条件透传（即便重试没报新
+cli_session_id 也要透传，step_4 靠它删陈旧句柄）。内部信号，永不面向用户。
+计划里提过的 `resumed` 观测字段**没有加**：观测走 cost_records 的 cache 两列
+推断（V-j），不占 schema。
 
 ## 2026-07-25 — PathExecutionResult 加 CLI 句柄四字段(resume 化 R1)
 

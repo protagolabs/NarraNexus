@@ -8,7 +8,7 @@
 
 import asyncio
 import json
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from pathlib import Path
 
 from loguru import logger
@@ -20,6 +20,7 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
 )
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_ERROR,
+    DATA_TYPE_RESUME_FAILED,
     ITEM_TYPE_TOOL_CALL,
     TYPE_RAW_RESPONSE_EVENT,
     TYPE_RUN_ITEM_STREAM_EVENT,
@@ -30,7 +31,10 @@ from xyz_agent_context.agent_framework.loop.output_transfer import output_transf
 from xyz_agent_context.agent_framework.api_config import claude_config
 from xyz_agent_context.agent_framework.providers.model_catalog import resolve_cli_alias
 from xyz_agent_context.agent_framework.adapters._tool_policy_guard import build_tool_policy_guard
-from xyz_agent_context.agent_framework.adapters.materializer import flatten_for_argv
+from xyz_agent_context.agent_framework.adapters.materializer import (
+    assemble_argv_prompt,
+    split_for_argv,
+)
 
 
 def _oauth_expires_at(blob: str) -> float | None:
@@ -422,6 +426,142 @@ async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float
         return None
 
 
+# Exact stderr phrase the Claude Code CLI emits when `--resume <id>` points
+# at a session it cannot find (E1 T3, measured 2026-07-23). The stale-handle
+# retry keys on this phrase ONLY — other failure modes flow through the
+# existing error paths unchanged.
+_RESUME_STALE_STDERR_PHRASE = "No conversation found"
+
+
+def _stderr_reports_stale_resume(cli_stderr_lines: list[str]) -> bool:
+    """True when the CLI stderr says the resume target session is missing."""
+    return _RESUME_STALE_STDERR_PHRASE in "\n".join(cli_stderr_lines)
+
+
+def _failure_indicates_stale_resume(
+    exc: BaseException, cli_stderr_lines: list[str]
+) -> bool:
+    """True when the failure evidence carries the stale-resume phrase.
+
+    Checks EVERY channel the phrase can arrive on: the captured CLI stderr
+    (where the CLI actually prints it — probe-verified: exit 1 + the phrase
+    on stderr, stdout empty), the exception text, and the exception's
+    ``stderr`` attribute (SDK 0.1.43's ProcessError fills it with a fixed
+    placeholder, but checking is free and future-proof).
+
+    2026-07-25 live gap: a stale ``--resume`` dies in ~450ms; the SDK
+    raises ProcessError off the stdout EOF BEFORE its background stderr
+    pump ever gets scheduled, and teardown then cancels that pump — so the
+    captured stderr was EMPTY and the old stderr-only predicate never
+    fired. ``_drain_stderr_after_failure`` (below) closes that race;
+    this multi-channel check is the belt to its braces.
+    """
+    evidence = "\n".join(
+        [str(exc), str(getattr(exc, "stderr", "") or ""), *cli_stderr_lines]
+    )
+    return _RESUME_STALE_STDERR_PHRASE in evidence
+
+
+async def _drain_stderr_after_failure(
+    cli_stderr_lines: list[str], ticks: int = 4, tick_seconds: float = 0.05
+) -> None:
+    """Give the SDK's background stderr pump a brief window to deliver
+    buffered CLI stderr before teardown cancels it.
+
+    On a fast CLI crash (e.g. stale ``--resume`` exits 1 in ~450ms) the
+    ProcessError surfaces off the stdout EOF while the diagnostic line is
+    still sitting in the stderr pipe; ``transport.close()`` then cancels
+    the pump task and the line is lost — which blinded both the R3
+    stale-resume predicate and the error logs (2026-07-25 live incident).
+    Bounded at ``ticks × tick_seconds`` (~200ms default), error path only —
+    never a run cap (铁律 #14-safe).
+    """
+    for _ in range(ticks):
+        if cli_stderr_lines:
+            return
+        await asyncio.sleep(tick_seconds)
+
+
+# Upper bound for the CLI's own graceful exit after stdin close (natural
+# completion path). This is shutdown housekeeping AFTER the response fully
+# arrived — not an agent-loop cap (铁律 #14-safe). On timeout we fall back
+# to today's SIGTERM teardown.
+_GRACEFUL_CLI_EXIT_SECONDS = 10.0
+
+
+async def _graceful_cli_shutdown(client: Any) -> None:
+    """Let the CLI exit ON ITS OWN before transport teardown SIGTERMs it.
+
+    ``transport.close()`` (inside ``client.disconnect()``) closes stdin and
+    then IMMEDIATELY SIGTERMs the subprocess. The Claude Code CLI writes its
+    session transcript (the user/assistant records ``--resume`` replays)
+    through buffered writers that flush lazily / on clean exit — a SIGTERM
+    right after the last ResultMessage races that flush. Live evidence
+    (2026-07-25): a cold run's session JSONL held ONLY queue-operation +
+    file-history-snapshot records (zero conversation records), so the next
+    turn's ``--resume`` died with "No conversation found"; even healthy
+    R1-era transcripts were missing their FINAL assistant record to the
+    same race.
+
+    Protocol: close stdin (``end_input``) → the CLI finishes housekeeping
+    (transcript + debug-log flush) and exits 0 → bounded wait for that
+    exit. ``transport.close()`` afterwards sees ``returncode`` set and
+    skips the SIGTERM entirely. Best-effort and never raises; on timeout
+    the finally's bounded-SIGTERM/SIGKILL teardown applies exactly as
+    before. Callers must SKIP this on cancellation — a cancelled run keeps
+    today's synchronous teardown.
+
+    Reaches into SDK private attrs (``_transport`` / ``_process``) — the
+    same deliberate tradeoff as the stall probe and the SIGKILL disconnect
+    fallback (re-verified necessary on SDK 0.1.43: ``close()`` has no
+    graceful-exit window).
+    """
+    transport = getattr(client, "_transport", None)
+    if transport is None:
+        return
+    with suppress(Exception):
+        await transport.end_input()
+    process = getattr(transport, "_process", None)
+    if process is None or process.returncode is not None:
+        return
+    try:
+        await asyncio.wait_for(process.wait(), timeout=_GRACEFUL_CLI_EXIT_SECONDS)
+        logger.debug("[ClaudeAgentSDK] CLI exited cleanly after stdin close")
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"[ClaudeAgentSDK] CLI did not exit within "
+            f"{_GRACEFUL_CLI_EXIT_SECONDS}s of stdin close; falling back to "
+            f"transport teardown (SIGTERM)"
+        )
+    except Exception as e:  # noqa: BLE001 — graceful path is best-effort
+        logger.warning(f"[ClaudeAgentSDK] graceful CLI shutdown failed: {e}")
+
+
+def _is_zero_output_error_event(event: dict) -> bool:
+    """True for the ``no_output`` response.error built by
+    ``_zero_output_error_event`` — the zero-message failure shape the
+    stale-resume retry keys on (paired with the stderr phrase check)."""
+    if event.get("type") != TYPE_RAW_RESPONSE_EVENT:
+        return False
+    data = event.get("data") or {}
+    return data.get("type") == DATA_TYPE_ERROR and data.get("error_type") == "no_output"
+
+
+def _resume_failed_marker_event() -> dict:
+    """Build the ``response.resume_failed`` marker event.
+
+    INTERNAL signal only: it tells the orchestrator (response_processor →
+    ExecutionState → step_4) to clear the stale handle row. It is NEVER
+    surfaced as an ErrorMessage — the same-turn cold retry makes the turn
+    fully normal from the user's perspective (铁律 #16: the user must not
+    perceive the resume miss).
+    """
+    return {
+        "type": TYPE_RAW_RESPONSE_EVENT,
+        "data": {"type": DATA_TYPE_RESUME_FAILED},
+    }
+
+
 def _build_claude_mcp_config(
     mcp_servers: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
@@ -472,16 +612,40 @@ class ClaudeAgentSDK:
         
         # Step 0-2: Materialize the structured messages into (system
         # prompt, per-turn user message). The CLI accepts only
-        # `--system-prompt <argv>` + one user input, so chat history
-        # flattens into the prompt text here. The full strategy — argv
-        # char+byte ceilings (Linux MAX_ARG_STRLEN), history budget with
-        # source-aware eviction, truncation markers, and the 115K-chars
-        # rationale (2026-07-03 live diagnosis) — lives in
-        # adapters/materializer.py::flatten_for_argv. NOTE: it POPS the
-        # last message off `messages` (load-bearing for step_3's
-        # fallback, which reads the same list afterwards).
-        system_prompt, this_turn_user_message = flatten_for_argv(messages)
-                
+        # `--system-prompt <argv>` + one user input. The full strategy —
+        # argv char+byte ceilings (Linux MAX_ARG_STRLEN), history budget
+        # with source-aware eviction, truncation markers, and the
+        # 115K-chars rationale (2026-07-03 live diagnosis) — lives in
+        # adapters/materializer.py. NOTE: split_for_argv POPS the last
+        # message off `messages` (load-bearing for step_3's fallback,
+        # which reads the same list afterwards) — exactly once per turn.
+        #
+        # Multi-turn history handling depends on whether upstream handed
+        # us a resumable CLI session (`resume_session_id` rides **kwargs
+        # like disallowed_tools, so the AgentLoopDriver Protocol signature
+        # stays unchanged):
+        #   * cold start (no handle) — append the full conversation history
+        #     to the system prompt, exactly today's behavior;
+        #   * resume — the history already lives in the CLI's session file
+        #     (`options.resume` below), so ONLY the history block is skipped.
+        #     The system prompt itself is still passed every round: module
+        #     instructions may legally change, and a changed prompt merely
+        #     forfeits that turn's cache hit (E1 T4 proved functional safety).
+        # Cross-process `--resume <session_id>` is E1-proven — see
+        # reference/self_notebook/specs/2026-07-23-e1-resume-feasibility.md.
+        resume_session_id = kwargs.get("resume_session_id") or None
+        base_system_prompt, history_entries, this_turn_user_message = (
+            split_for_argv(messages)
+        )
+        # Keep the bare (history-free) prompt + entries in locals: the
+        # stale-handle cold retry below re-assembles the full prompt WITH
+        # the preserved history_entries. The argv ceilings inside
+        # assemble_argv_prompt apply on BOTH paths (a resume-turn system
+        # prompt can overrun argv on its own — belt-and-braces).
+        system_prompt = assemble_argv_prompt(
+            base_system_prompt, [] if resume_session_id else history_entries
+        )
+
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
         # "Native Claude" keeps tool_search on auto (deferred tool loading);
@@ -510,7 +674,8 @@ class ClaudeAgentSDK:
             f"auth_type={claude_config.auth_type}, "
             f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}, "
             f"thinking={getattr(claude_config, 'thinking', '') or 'auto'}, "
-            f"effort={getattr(claude_config, 'reasoning_effort', '') or 'auto'}"
+            f"effort={getattr(claude_config, 'reasoning_effort', '') or 'auto'}, "
+            f"resume={resume_session_id[:12] if resume_session_id else 'cold'}"
         )
         logger.trace("[FULL_SYSTEM_PROMPT]\n{}", system_prompt)
         logger.trace("[USER_PROMPT]\n{}", this_turn_user_message)
@@ -638,6 +803,10 @@ class ClaudeAgentSDK:
                 ],
             },
             disallowed_tools=disallowed_tools,
+            # Resume the CLI session captured on a previous turn (upstream
+            # already validated the handle: narrative / config fingerprint /
+            # working path all match). None = cold start = SDK default.
+            resume=resume_session_id,
         )
         if claude_config.model:
             # CLI family aliases only work on the OAuth/CLI path; raw API
@@ -665,275 +834,376 @@ class ClaudeAgentSDK:
         from xyz_agent_context.settings import settings as _settings
         IDLE_PROBE_SECONDS = max(30, _settings.llm_stall_probe_after_seconds)
 
-        client = None
-        message_count = 0
-        # `message_task` is bound inside the receive loop but referenced
-        # by the outer `finally:` for cleanup — hoist its declaration
-        # here so an early failure (e.g. connect() raising) does not
-        # cause the finally to NameError on the cleanup access.
-        message_task: asyncio.Task | None = None
-        # 去重集合：include_partial_messages=True 时，partial AssistantMessage
-        # 和 complete AssistantMessage 都会携带同一个 ToolUseBlock，导致重复
-        # 的 tool_call_item。通过 tool_call_id 去重，只保留首次出现。
-        seen_tool_call_ids: set[str] = set()
-        try:
-            client = ClaudeSDKClient(options=options)
-            logger.info("[ClaudeAgentSDK] Connecting to Claude Code CLI...")
-            await client.connect()
-            logger.info("[ClaudeAgentSDK] Connected. Sending query...")
-            await client.query(this_turn_user_message)
-            logger.info("[ClaudeAgentSDK] Query sent. Waiting for responses...")
+        async def _run_once(
+            run_options: ClaudeAgentOptions,
+        ) -> AsyncGenerator[dict[str, Any], None]:
+            """One CLI run: connect → query → receive loop → teardown.
 
-            # Race-with-cancel receive loop.
-            #
-            # Previously this loop used ``asyncio.wait_for(__anext__(),
-            # IDLE_TIMEOUT_SECONDS)`` and checked cancellation only after a
-            # message arrived. That meant cancellation issued while a tool
-            # call (e.g. a long-running Bash command) was in flight could
-            # not be detected until the tool returned a message — which
-            # could take tens of seconds or minutes.
-            #
-            # The race pattern below waits on TWO awaitables simultaneously:
-            #   * the next message arriving from Claude Code CLI
-            #   * the cancellation token firing
-            # whichever finishes first wins, and the still-pending one is
-            # cancelled. This brings the Stop-to-loop-exit latency down to
-            # the time it takes a single await round-trip — sub-100 ms on
-            # any realistic host — regardless of what the CLI is doing.
-            response_iter = client.receive_response().__aiter__()
-            # `message_task` (declared at function scope above) lives
-            # ACROSS iterations so a silent-but-alive CLI does not lose
-            # its in-flight `__anext__()`. The outer finally below
-            # cancels it if a message is still in flight on exit.
-            while True:
-                if message_task is None or message_task.done():
-                    message_task = asyncio.create_task(response_iter.__anext__())
-                cancel_task: asyncio.Task | None = None
-                if cancellation is not None:
-                    cancel_task = asyncio.create_task(cancellation.await_cancelled())
-                waiters: list[asyncio.Task] = [message_task]
-                if cancel_task is not None:
-                    waiters.append(cancel_task)
+            Extracted (agent-loop resume R3) so the stale-resume fallback can
+            drive the SAME machinery a second time — cold, with history — in
+            the same turn. This is the pre-extraction Step 2 body verbatim
+            (plus the natural-completion graceful shutdown and the error-path
+            stderr drain); single-run behavior is unchanged.
+            """
+            client = None
+            message_count = 0
+            # `message_task` is bound inside the receive loop but referenced
+            # by the outer `finally:` for cleanup — hoist its declaration
+            # here so an early failure (e.g. connect() raising) does not
+            # cause the finally to NameError on the cleanup access.
+            message_task: asyncio.Task | None = None
+            # 去重集合：include_partial_messages=True 时，partial AssistantMessage
+            # 和 complete AssistantMessage 都会携带同一个 ToolUseBlock，导致重复
+            # 的 tool_call_item。通过 tool_call_id 去重，只保留首次出现。
+            seen_tool_call_ids: set[str] = set()
+            try:
+                client = ClaudeSDKClient(options=run_options)
+                logger.info("[ClaudeAgentSDK] Connecting to Claude Code CLI...")
+                await client.connect()
+                logger.info("[ClaudeAgentSDK] Connected. Sending query...")
+                await client.query(this_turn_user_message)
+                logger.info("[ClaudeAgentSDK] Query sent. Waiting for responses...")
 
-                try:
-                    done, pending = await asyncio.wait(
-                        waiters,
-                        return_when=asyncio.FIRST_COMPLETED,
-                        timeout=IDLE_PROBE_SECONDS,
+                # Race-with-cancel receive loop.
+                #
+                # Previously this loop used ``asyncio.wait_for(__anext__(),
+                # IDLE_TIMEOUT_SECONDS)`` and checked cancellation only after a
+                # message arrived. That meant cancellation issued while a tool
+                # call (e.g. a long-running Bash command) was in flight could
+                # not be detected until the tool returned a message — which
+                # could take tens of seconds or minutes.
+                #
+                # The race pattern below waits on TWO awaitables simultaneously:
+                #   * the next message arriving from Claude Code CLI
+                #   * the cancellation token firing
+                # whichever finishes first wins, and the still-pending one is
+                # cancelled. This brings the Stop-to-loop-exit latency down to
+                # the time it takes a single await round-trip — sub-100 ms on
+                # any realistic host — regardless of what the CLI is doing.
+                response_iter = client.receive_response().__aiter__()
+                # `message_task` (declared at function scope above) lives
+                # ACROSS iterations so a silent-but-alive CLI does not lose
+                # its in-flight `__anext__()`. The outer finally below
+                # cancels it if a message is still in flight on exit.
+                while True:
+                    if message_task is None or message_task.done():
+                        message_task = asyncio.create_task(response_iter.__anext__())
+                    cancel_task: asyncio.Task | None = None
+                    if cancellation is not None:
+                        cancel_task = asyncio.create_task(cancellation.await_cancelled())
+                    waiters: list[asyncio.Task] = [message_task]
+                    if cancel_task is not None:
+                        waiters.append(cancel_task)
+
+                    try:
+                        done, pending = await asyncio.wait(
+                            waiters,
+                            return_when=asyncio.FIRST_COMPLETED,
+                            timeout=IDLE_PROBE_SECONDS,
+                        )
+                    finally:
+                        # cancel_task is per-iteration — always cancel the
+                        # still-pending one. message_task lives across
+                        # iterations; do NOT cancel it here.
+                        if cancel_task is not None and not cancel_task.done():
+                            cancel_task.cancel()
+
+                    if CancellationView(cancellation).requested():
+                        logger.info(
+                            f"[ClaudeAgentSDK] Cancellation detected after "
+                            f"{message_count} messages (mid-wait), stopping"
+                        )
+                        if not message_task.done():
+                            message_task.cancel()
+                        # Suppress message_task exceptions when it was the
+                        # one we cancelled — silently consume so the event
+                        # loop doesn't log "Task exception was never
+                        # retrieved".
+                        with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                            await message_task
+                        message_task = None
+                        break
+
+                    if message_task not in done:
+                        # IDLE_PROBE_SECONDS elapsed with no message and no
+                        # cancellation. Per CLAUDE.md 铁律 #14 we do NOT
+                        # force-stop agent_loop on silence — DeepSeek-V4-Pro
+                        # CoT and other long-thinking models legitimately
+                        # produce minutes-long silent passes. Just probe
+                        # subprocess liveness and continue waiting.
+                        process = (
+                            getattr(getattr(client, "_transport", None), "_process", None)
+                            if client is not None else None
+                        )
+                        cli_returncode = getattr(process, "returncode", None) if process else None
+                        if process is None or cli_returncode is None:
+                            # #7 diagnostic: subprocess alive but silent. Probe the
+                            # provider endpoint out-of-band to tell "model thinking"
+                            # (provider reachable) from "connection dead" (provider
+                            # unreachable). Diagnostic ONLY — we never force-stop
+                            # here (铁律 #14); the per-request API_TIMEOUT_MS + CLI
+                            # retry handle a genuinely dead request at the transport
+                            # layer. Surfacing this lets ops see a stuck slot.
+                            reachable = await _probe_provider_reachable(
+                                getattr(claude_config, "base_url", None),
+                                _settings.llm_stall_probe_timeout_seconds,
+                            )
+                            verdict = (
+                                "provider REACHABLE (model likely thinking)"
+                                if reachable is True
+                                else "provider UNREACHABLE (connection likely dead — "
+                                "API_TIMEOUT_MS + CLI retry should recover/surface)"
+                                if reachable is False
+                                else "provider reachability unknown"
+                            )
+                            logger.warning(
+                                f"[ClaudeAgentSDK] No message for {IDLE_PROBE_SECONDS}s "
+                                f"({message_count} so far); CLI subprocess still alive; "
+                                f"{verdict} — continuing to wait."
+                            )
+                            # KEEP message_task across iterations; loop
+                            # re-awaits it on the next pass.
+                            continue
+                        # The subprocess actually exited — that is a real
+                        # failure, not LLM thinking time.
+                        logger.error(
+                            f"[ClaudeAgentSDK] CLI subprocess exited unexpectedly "
+                            f"(returncode={cli_returncode}) after {message_count} messages "
+                            f"with no in-flight response. Aborting agent loop."
+                        )
+                        if cli_stderr_lines:
+                            logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
+                        if not message_task.done():
+                            message_task.cancel()
+                        message_task = None
+                        raise RuntimeError(
+                            f"Claude Code CLI subprocess exited unexpectedly "
+                            f"(returncode={cli_returncode})."
+                        )
+
+                    try:
+                        message = message_task.result()
+                    except StopAsyncIteration:
+                        message_task = None
+                        break
+                    # message_task has yielded its message; the next loop
+                    # iteration must start a fresh one.
+                    message_task = None
+
+                    message_count += 1
+                    msg_type = type(message).__name__
+                    if message_count <= 5 or message_count % 20 == 0:
+                        logger.debug(f"[ClaudeAgentSDK] Message #{message_count}: {msg_type}")
+                    # 检测 AssistantMessage 的 error 字段（认证失败、额度不足等）
+                    if msg_type == "AssistantMessage" and hasattr(message, 'error') and message.error:
+                        logger.error(f"[ClaudeAgentSDK] Claude API 返回错误: {message.error}")
+                        # Dump CLI stderr + full message repr so we can see which
+                        # field the upstream rejected. Without this the 'error' is
+                        # just 'invalid_request' with no way to diagnose.
+                        if cli_stderr_lines:
+                            logger.error(
+                                "[ClaudeAgentSDK] CLI stderr (last 30 lines):\n"
+                                + "\n".join(cli_stderr_lines[-30:])
+                            )
+                        else:
+                            logger.error(
+                                "[ClaudeAgentSDK] CLI stderr: empty (error came "
+                                "inline via AssistantMessage, not via CLI stderr)"
+                            )
+                        try:
+                            logger.error(
+                                f"[ClaudeAgentSDK] Full message repr: {message!r}"
+                            )
+                        except Exception:
+                            pass
+
+                        # Surface the real provider cause. output_transfer only sees
+                        # the collapsed enum and would emit a black-box "Claude API
+                        # error: unknown", so we build the event here where the
+                        # detail is still in hand — CLI stderr (litellm's token
+                        # counts) or, failing that, the assistant text itself, which
+                        # is where an unreachable-provider 400 body arrives.
+                        #
+                        # Taking this branch also stops output_transfer from
+                        # emitting that same text as an agent_response: an upstream
+                        # "API Error: 400 ..." rendered as the agent's own reply is
+                        # how a billing failure ended up looking like the agent
+                        # talking nonsense to the user.
+                        inline_text = _assistant_error_text(message)
+                        if cli_stderr_lines or inline_text:
+                            yield _inline_assistant_error_event(
+                                message.error, cli_stderr_lines, inline_text
+                            )
+                            continue
+
+                    # output_transfer 返回事件列表（一条消息可能产生多个事件）
+                    events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)
+                    for event in events:
+                        # 对 tool_call_item 按 tool_call_id 去重
+                        item = event.get("item", {}) if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT else {}
+                        if item.get("type") == ITEM_TYPE_TOOL_CALL:
+                            tool_id = item.get("tool_call_id", "")
+                            if tool_id and tool_id in seen_tool_call_ids:
+                                logger.debug(f"[ClaudeAgentSDK] Skipping duplicate tool_call: {tool_id}")
+                                continue
+                            if tool_id:
+                                seen_tool_call_ids.add(tool_id)
+                        yield event
+
+                logger.info(f"[ClaudeAgentSDK] Stream ended. Total messages received: {message_count}")
+                # Natural completion (NOT user cancellation): give the CLI a
+                # clean exit BEFORE the finally's bounded-SIGTERM teardown, so
+                # it flushes the session transcript `--resume` needs next turn
+                # (2026-07-25 regression: transcript lost ALL conversation
+                # records to the immediate SIGTERM). Cancellation keeps
+                # today's fast synchronous teardown — skip straight to finally.
+                if not CancellationView(cancellation).requested():
+                    await _graceful_cli_shutdown(client)
+                if message_count == 0:
+                    logger.error(
+                        "[ClaudeAgentSDK] ⚠️ 收到 0 条消息！可能原因：\n"
+                        "  1. Claude Code 未登录（终端运行 `claude` 完成认证）\n"
+                        "  2. Claude Code CLI 进程崩溃\n"
+                        "  3. API 认证失败或额度耗尽"
                     )
-                finally:
-                    # cancel_task is per-iteration — always cancel the
-                    # still-pending one. message_task lives across
-                    # iterations; do NOT cancel it here.
-                    if cancel_task is not None and not cancel_task.done():
-                        cancel_task.cancel()
-
-                if CancellationView(cancellation).requested():
-                    logger.info(
-                        f"[ClaudeAgentSDK] Cancellation detected after "
-                        f"{message_count} messages (mid-wait), stopping"
-                    )
-                    if not message_task.done():
-                        message_task.cancel()
-                    # Suppress message_task exceptions when it was the
-                    # one we cancelled — silently consume so the event
-                    # loop doesn't log "Task exception was never
-                    # retrieved".
+                    if cli_stderr_lines:
+                        logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                    # Surface the silent void as a real error so response_processor
+                    # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
+                    # instead of the pipeline treating "no messages" as "agent
+                    # chose not to reply" and fabricating a hollow fallback.
+                    yield _zero_output_error_event(cli_stderr_lines)
+            except GeneratorExit:
+                logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
+            except Exception as e:
+                # A fast CLI exit can raise (ProcessError off stdout EOF)
+                # before the SDK's stderr pump ever ran — drain it briefly so
+                # the diagnostic line (e.g. "No conversation found") reaches
+                # cli_stderr_lines for the log below AND for the outer
+                # stale-resume predicate. Bounded ~200ms, error path only.
+                await _drain_stderr_after_failure(cli_stderr_lines)
+                logger.exception(f"Error in agent_loop: {e}")
+                if cli_stderr_lines:
+                    logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                raise
+            finally:
+                # Make sure any still-pending message_task is cancelled and
+                # drained before we tear the client down — otherwise asyncio
+                # will log "Task exception was never retrieved" if it raises.
+                if message_task is not None and not message_task.done():
+                    message_task.cancel()
                     with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
                         await message_task
-                    message_task = None
-                    break
-
-                if message_task not in done:
-                    # IDLE_PROBE_SECONDS elapsed with no message and no
-                    # cancellation. Per CLAUDE.md 铁律 #14 we do NOT
-                    # force-stop agent_loop on silence — DeepSeek-V4-Pro
-                    # CoT and other long-thinking models legitimately
-                    # produce minutes-long silent passes. Just probe
-                    # subprocess liveness and continue waiting.
-                    process = (
-                        getattr(getattr(client, "_transport", None), "_process", None)
-                        if client is not None else None
-                    )
-                    cli_returncode = getattr(process, "returncode", None) if process else None
-                    if process is None or cli_returncode is None:
-                        # #7 diagnostic: subprocess alive but silent. Probe the
-                        # provider endpoint out-of-band to tell "model thinking"
-                        # (provider reachable) from "connection dead" (provider
-                        # unreachable). Diagnostic ONLY — we never force-stop
-                        # here (铁律 #14); the per-request API_TIMEOUT_MS + CLI
-                        # retry handle a genuinely dead request at the transport
-                        # layer. Surfacing this lets ops see a stuck slot.
-                        reachable = await _probe_provider_reachable(
-                            getattr(claude_config, "base_url", None),
-                            _settings.llm_stall_probe_timeout_seconds,
-                        )
-                        verdict = (
-                            "provider REACHABLE (model likely thinking)"
-                            if reachable is True
-                            else "provider UNREACHABLE (connection likely dead — "
-                            "API_TIMEOUT_MS + CLI retry should recover/surface)"
-                            if reachable is False
-                            else "provider reachability unknown"
-                        )
-                        logger.warning(
-                            f"[ClaudeAgentSDK] No message for {IDLE_PROBE_SECONDS}s "
-                            f"({message_count} so far); CLI subprocess still alive; "
-                            f"{verdict} — continuing to wait."
-                        )
-                        # KEEP message_task across iterations; loop
-                        # re-awaits it on the next pass.
-                        continue
-                    # The subprocess actually exited — that is a real
-                    # failure, not LLM thinking time.
-                    logger.error(
-                        f"[ClaudeAgentSDK] CLI subprocess exited unexpectedly "
-                        f"(returncode={cli_returncode}) after {message_count} messages "
-                        f"with no in-flight response. Aborting agent loop."
-                    )
-                    if cli_stderr_lines:
-                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
-                    if not message_task.done():
-                        message_task.cancel()
-                    message_task = None
-                    raise RuntimeError(
-                        f"Claude Code CLI subprocess exited unexpectedly "
-                        f"(returncode={cli_returncode})."
-                    )
-
-                try:
-                    message = message_task.result()
-                except StopAsyncIteration:
-                    message_task = None
-                    break
-                # message_task has yielded its message; the next loop
-                # iteration must start a fresh one.
-                message_task = None
-
-                message_count += 1
-                msg_type = type(message).__name__
-                if message_count <= 5 or message_count % 20 == 0:
-                    logger.debug(f"[ClaudeAgentSDK] Message #{message_count}: {msg_type}")
-                # 检测 AssistantMessage 的 error 字段（认证失败、额度不足等）
-                if msg_type == "AssistantMessage" and hasattr(message, 'error') and message.error:
-                    logger.error(f"[ClaudeAgentSDK] Claude API 返回错误: {message.error}")
-                    # Dump CLI stderr + full message repr so we can see which
-                    # field the upstream rejected. Without this the 'error' is
-                    # just 'invalid_request' with no way to diagnose.
-                    if cli_stderr_lines:
-                        logger.error(
-                            "[ClaudeAgentSDK] CLI stderr (last 30 lines):\n"
-                            + "\n".join(cli_stderr_lines[-30:])
-                        )
-                    else:
-                        logger.error(
-                            "[ClaudeAgentSDK] CLI stderr: empty (error came "
-                            "inline via AssistantMessage, not via CLI stderr)"
-                        )
-                    try:
-                        logger.error(
-                            f"[ClaudeAgentSDK] Full message repr: {message!r}"
-                        )
-                    except Exception:
-                        pass
-
-                    # Surface the real provider cause. output_transfer only sees
-                    # the collapsed enum and would emit a black-box "Claude API
-                    # error: unknown", so we build the event here where the
-                    # detail is still in hand — CLI stderr (litellm's token
-                    # counts) or, failing that, the assistant text itself, which
-                    # is where an unreachable-provider 400 body arrives.
+                if client is not None:
+                    # Bounded disconnect with SIGKILL fallback.
                     #
-                    # Taking this branch also stops output_transfer from
-                    # emitting that same text as an agent_response: an upstream
-                    # "API Error: 400 ..." rendered as the agent's own reply is
-                    # how a billing failure ended up looking like the agent
-                    # talking nonsense to the user.
-                    inline_text = _assistant_error_text(message)
-                    if cli_stderr_lines or inline_text:
-                        yield _inline_assistant_error_event(
-                            message.error, cli_stderr_lines, inline_text
+                    # claude_agent_sdk's transport.close() sends SIGTERM and
+                    # then ``await self._process.wait()`` WITHOUT a timeout.
+                    # If the Claude CLI subprocess hangs in cleanup or
+                    # ignores SIGTERM, the disconnect coroutine never returns
+                    # and the entire agent_loop finally block stalls.
+                    #
+                    # We bound the graceful path to 5 seconds. Beyond that we
+                    # reach into the SDK's transport internals to send SIGKILL
+                    # directly. This is a deliberate violation of the SDK's
+                    # encapsulation; it is the only reliable way to guarantee
+                    # the subprocess is reaped within a finite time window
+                    # when Stop is pressed.
+                    try:
+                        await asyncio.wait_for(client.disconnect(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "[ClaudeAgentSDK] disconnect() did not complete in 5s; "
+                            "force-killing Claude CLI subprocess via SIGKILL"
                         )
-                        continue
-
-                # output_transfer 返回事件列表（一条消息可能产生多个事件）
-                events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)
-                for event in events:
-                    # 对 tool_call_item 按 tool_call_id 去重
-                    item = event.get("item", {}) if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT else {}
-                    if item.get("type") == ITEM_TYPE_TOOL_CALL:
-                        tool_id = item.get("tool_call_id", "")
-                        if tool_id and tool_id in seen_tool_call_ids:
-                            logger.debug(f"[ClaudeAgentSDK] Skipping duplicate tool_call: {tool_id}")
-                            continue
-                        if tool_id:
-                            seen_tool_call_ids.add(tool_id)
-                    yield event
-
-            logger.info(f"[ClaudeAgentSDK] Stream ended. Total messages received: {message_count}")
-            if message_count == 0:
-                logger.error(
-                    "[ClaudeAgentSDK] ⚠️ 收到 0 条消息！可能原因：\n"
-                    "  1. Claude Code 未登录（终端运行 `claude` 完成认证）\n"
-                    "  2. Claude Code CLI 进程崩溃\n"
-                    "  3. API 认证失败或额度耗尽"
-                )
-                if cli_stderr_lines:
-                    logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
-                # Surface the silent void as a real error so response_processor
-                # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
-                # instead of the pipeline treating "no messages" as "agent
-                # chose not to reply" and fabricating a hollow fallback.
-                yield _zero_output_error_event(cli_stderr_lines)
-        except GeneratorExit:
-            logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
-        except Exception as e:
-            logger.exception(f"Error in agent_loop: {e}")
-            if cli_stderr_lines:
-                logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
-            raise
-        finally:
-            # Make sure any still-pending message_task is cancelled and
-            # drained before we tear the client down — otherwise asyncio
-            # will log "Task exception was never retrieved" if it raises.
-            if message_task is not None and not message_task.done():
-                message_task.cancel()
-                with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
-                    await message_task
-            if client is not None:
-                # Bounded disconnect with SIGKILL fallback.
-                #
-                # claude_agent_sdk's transport.close() sends SIGTERM and
-                # then ``await self._process.wait()`` WITHOUT a timeout.
-                # If the Claude CLI subprocess hangs in cleanup or
-                # ignores SIGTERM, the disconnect coroutine never returns
-                # and the entire agent_loop finally block stalls.
-                #
-                # We bound the graceful path to 5 seconds. Beyond that we
-                # reach into the SDK's transport internals to send SIGKILL
-                # directly. This is a deliberate violation of the SDK's
-                # encapsulation; it is the only reliable way to guarantee
-                # the subprocess is reaped within a finite time window
-                # when Stop is pressed.
-                try:
-                    await asyncio.wait_for(client.disconnect(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "[ClaudeAgentSDK] disconnect() did not complete in 5s; "
-                        "force-killing Claude CLI subprocess via SIGKILL"
-                    )
-                    transport = getattr(client, "_transport", None)
-                    process = getattr(transport, "_process", None) if transport else None
-                    if process is not None and process.returncode is None:
-                        with suppress(Exception):
-                            process.kill()
+                        transport = getattr(client, "_transport", None)
+                        process = getattr(transport, "_process", None) if transport else None
+                        if process is not None and process.returncode is None:
                             with suppress(Exception):
-                                await asyncio.wait_for(process.wait(), timeout=2.0)
-                except RuntimeError as e:
-                    if "cancel scope" in str(e):
-                        logger.debug(f"Ignoring cancel scope error during cleanup: {e}")
-                    else:
-                        raise
-                except Exception as e:
-                    logger.warning(f"Error during client disconnect: {e}")
+                                process.kill()
+                                with suppress(Exception):
+                                    await asyncio.wait_for(process.wait(), timeout=2.0)
+                    except RuntimeError as e:
+                        if "cancel scope" in str(e):
+                            logger.debug(f"Ignoring cancel scope error during cleanup: {e}")
+                        else:
+                            raise
+                    except Exception as e:
+                        logger.warning(f"Error during client disconnect: {e}")
 
+        # Drive the run(s). ``aclosing`` keeps subprocess teardown
+        # deterministic: when THIS generator is closed early (cancellation),
+        # the in-flight _run_once is aclosed synchronously — its finally
+        # (bounded disconnect + SIGKILL fallback) runs right away instead of
+        # whenever GC finalizes the inner generator.
+        #
+        # Cold start: exactly one run — today's behavior, byte-identical.
+        if not resume_session_id:
+            async with aclosing(_run_once(options)) as cold_run:
+                async for event in cold_run:
+                    yield event
+            return
+
+        # Resume: one run, plus AT MOST ONE same-turn cold retry when the
+        # handle turns out stale — the run died before producing ANY content
+        # AND the CLI stderr carries the exact "No conversation found" phrase
+        # (E1 T3). This is a startup fallback, not a retry loop (铁律
+        # #14-safe); every other failure mode flows through the existing
+        # error paths unchanged.
+        yielded_any = False
+        stale_handle = False
+        try:
+            async with aclosing(_run_once(options)) as resume_run:
+                async for event in resume_run:
+                    if (
+                        not yielded_any
+                        and _is_zero_output_error_event(event)
+                        and _stderr_reports_stale_resume(cli_stderr_lines)
+                    ):
+                        # Swallow the zero-output error event: the cold retry
+                        # below replaces this run entirely, so downstream —
+                        # and the user (铁律 #16) — must not see a failure.
+                        stale_handle = True
+                        continue
+                    yielded_any = True
+                    yield event
+        except Exception as e:
+            # The CLI run failed outright. Retry ONLY the stale-resume shape:
+            # failed before ANY content AND the phrase appears somewhere in
+            # the failure evidence; any other crash re-raises exactly as
+            # before. Broadened 2026-07-25: a stale --resume dies in ~450ms
+            # as the SDK's ProcessError (exit 1) — NOT our RuntimeError — and
+            # the phrase can miss the stderr callback entirely when the
+            # pump loses the race, so the predicate checks exception text +
+            # exception.stderr + captured stderr (drained in _run_once).
+            if yielded_any or not _failure_indicates_stale_resume(e, cli_stderr_lines):
+                raise
+            stale_handle = True
+
+        if not stale_handle:
+            return
+
+        logger.warning(
+            f"[ClaudeAgentSDK] Stale resume handle "
+            f"(resume={resume_session_id[:12]}, CLI: 'No conversation found') "
+            f"— retrying THIS turn cold with full history"
+        )
+        # Internal marker for the orchestrator: step_4 clears the stale
+        # handle row. NEVER surfaced as an ErrorMessage (铁律 #16).
+        yield _resume_failed_marker_event()
+
+        # First-run stderr served its purpose (the detection above); clear it
+        # so the cold retry's diagnostics aren't polluted with stale-resume
+        # noise. The stderr callback closes over this same list, so clearing
+        # in place re-arms it for the retry.
+        cli_stderr_lines.clear()
+
+        # Re-assemble the prompt WITH the preserved history and run cold —
+        # exactly today's cold-start behavior.
+        options_kwargs["system_prompt"] = assemble_argv_prompt(
+            base_system_prompt, history_entries
+        )
+        options_kwargs["resume"] = None
+        async with aclosing(_run_once(ClaudeAgentOptions(**options_kwargs))) as retry_run:
+            async for event in retry_run:
+                yield event

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — body 新字段 `resume_session_id`（resume 化 R2）
+
+`build_agent_loop_request` 新增 `resume_session_id: Optional[str] = None`，
+body 恒带该键（None = 冷启动）。与 disallowed_tools 完全同型的 per-run 状态。
+旧 executor 容器不认该字段时安全降级：只是不 resume、照常冷启动，功能无损
+（fail-open，无需 lockstep 部署）。上游 [[remote_driver.py]]，下游
+[[executor_service.py]]。测试：tests/agent_runtime/test_resume_protocol_threading.py。
 
 ## 2026-07-24 — body 新字段 `disallowed_tools`（setup-residency B++）
 

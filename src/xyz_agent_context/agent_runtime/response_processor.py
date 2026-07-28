@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
+    DATA_TYPE_RESUME_FAILED,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_PLAN,
@@ -382,6 +383,22 @@ class ResponseProcessor:
                     call_id=str(data.get("call_id", "")),
                     tool_name=str(data.get("tool_name", "")),
                 ),
+            )
+
+        if data_type == DATA_TYPE_RESUME_FAILED:
+            # Internal marker from the Claude adapter: a requested CLI-session
+            # resume hit a stale handle and the SAME turn already re-ran cold
+            # with full history. The turn is normal from the user's viewpoint,
+            # so this is deliberately NOT an ErrorMessage (铁律 #16) — it only
+            # flags ExecutionState so step_4 deletes the stale handle row.
+            logger.warning(
+                "[AGENT-LOOP-RESUME] resume failed (stale handle) — cold retry "
+                "ran in the same turn; step_4 will clear the stored handle"
+            )
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=None,
+                state_update={"method": "mark_resume_failed", "args": {}},
             )
 
         if data_type == DATA_TYPE_ERROR:

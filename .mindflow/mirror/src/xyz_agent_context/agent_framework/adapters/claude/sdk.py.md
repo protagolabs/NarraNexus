@@ -5,6 +5,59 @@ stub: false
 ---
 
 
+## 2026-07-28 — resume 注入 + 跳过历史 + 陈旧句柄同轮冷启动重试 + transcript 冲刷（resume 化 R2/R3，dev 新结构重实现）
+
+旧分支 feat/cli-session-capture 的 be9c8ecd + c40f1ad3 在 dev 新结构上的
+重做。E1 已证伪"SDK 不支持多轮"（spec:
+`reference/self_notebook/specs/2026-07-23-e1-resume-feasibility.md`；SDK
+0.1.43 `ClaudeAgentOptions.resume` → CLI `--resume`，跨进程可用、轮间缓
+存真实命中；DeepSeek × NetMind bearer 亦 PASS——**没有**
+`_is_claude_native` 门禁，resume 对 claude_code 框架下所有模型生效）。
+
+**与旧实现的结构差异**（行为等价，接口换了）：
+- 提示组装不再是本文件私有 `_assemble_system_prompt`，而是
+  [[materializer.py]] 的两阶段 `split_for_argv`（pop 恰好一次）+
+  `assemble_argv_prompt`（预算/驱逐/双上限）；resume 轮
+  `assemble_argv_prompt(base, [])`，冷启动轮传全量 entries；
+  `base_system_prompt` + `history_entries` 留在局部供 R3 重试重组。
+- 取消判断统一走 `CancellationView(cancellation).requested()`（graceful
+  跳过判断也是），事件常量走 [[events.py]]（marker 用
+  `DATA_TYPE_RESUME_FAILED`）。
+
+**R2（注入）**：`resume_session_id = kwargs.get("resume_session_id")`
+（TurnInput.driver_kwargs() 只在非 None 时发键，见 [[turn_input.py]]）；
+upstream（step_3）已做四重校验，适配器不再验。`options_kwargs` 加
+`resume=`（None = SDK 缺省 = 冷启动）。Provider config INFO 行追加
+`resume=<sid 前 12 位|cold>`。**system prompt 每轮照传**（模块指令可合法
+变化，变了只损失当轮缓存，E1 T4 证安全）。
+
+**R3（唯一失败兜底）**：Step 2 主体（dev 现行逻辑逐字保留：race-with-
+cancel 接收循环、inline assistant error 三通道、零输出事件、有界
+disconnect+SIGKILL）提为内嵌 `_run_once(run_options)`。外层驱动：冷启动
+= 恰好一跑；resume = 一跑 + **当且仅当**「零内容失败 + 证据含
+`"No conversation found"`（`_RESUME_STALE_STDERR_PHRASE`，E1 T3 实测）」
+→ 同轮冷启动重试恰好一次：yield `response.resume_failed` marker（内部信
+号，绝不转 ErrorMessage，铁律 #16）→ stderr 列表原地 clear 复位 →
+重组带历史 prompt、`resume=None` 再跑。三处 `async for` 都包
+`aclosing(...)`（提前 close 时 in-flight `_run_once` 的 finally 同步执
+行）。判据 `_failure_indicates_stale_resume` 查三通道（str(exc) /
+exc.stderr / 捕获 stderr）；`_drain_stderr_after_failure`（~200ms，仅错
+误路径）补 stderr pump 输给快崩的竞态。
+
+**transcript 冲刷（c40f1ad3 并入）**：`_graceful_cli_shutdown(client)`——
+自然完成（非取消）时 finally 之前执行：`end_input()` 关 stdin → CLI 自
+行冲刷 transcript 并 exit 0 → 有界等待（10s，收尾等待非 loop 上限，铁律
+#14 安全）→ `close()` 见 returncode 已置整个跳过 SIGTERM。根因：SDK
+`transport.close()` 关 stdin 后立即 SIGTERM，CLI 的 transcript 惰性冲
+刷输给竞态（2026-07-25 实测：冷启动轮 JSONL 零条会话记录 → 下轮
+`--resume` 报 "No conversation found"）。取消/异常路径保留今天的同步快
+速清收。
+
+测试：tests/agent_framework/test_claude_sdk_resume.py（stub transport；
+resume 置位/跳历史、冷启动不变、陈旧句柄重试 + marker、短语不符不重试、
+有内容后崩不重试、判据三通道、graceful 时序
+connect→query→end_input→process_wait→disconnect、取消跳过 graceful）。
+
 ## 2026-07-28 — inline 错误再补一路：assistant text
 
 `_inline_assistant_error_event` 原本只在 **CLI stderr 非空**时才接管；
@@ -448,7 +501,7 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 
 ## 设计决策
 
-**多轮对话拼接到 system prompt**：Claude Code CLI 的 `ClaudeAgentOptions` 不支持 messages 数组，只有 `system_prompt` 和单条 `query`。所以所有历史对话都被格式化为文本追加到 system prompt 末尾，超出 60KB 时截断保留最近部分。这是已知限制，等 SDK 支持 multi-turn 后可以去掉。
+**多轮对话拼接到 system prompt**：~~Claude Code CLI 的 `ClaudeAgentOptions` 不支持 messages 数组，只有 `system_prompt` 和单条 `query`。所以所有历史对话都被格式化为文本追加到 system prompt 末尾，超出 60KB 时截断保留最近部分。这是已知限制，等 SDK 支持 multi-turn 后可以去掉。~~ **⚠️ 2026-07-28 起已部分过时**："SDK 不支持多轮"已被 E1 证伪（`ClaudeAgentOptions.resume` 跨进程可用）。现在只有**冷启动轮**（无有效句柄）仍走历史拼接（materializer 的 `assemble_argv_prompt`）；resume 轮历史在 CLI session 文件里，prompt 只带 system 指令。见顶部 2026-07-28 resume 条目。
 
 **`_safe_parse_message` monkey-patch**：已于 2026-06-10 删除（见顶部 L1a 条目）——SDK 0.1.43 原生跳过未知消息类型，patch 在主路径上本就未生效。
 

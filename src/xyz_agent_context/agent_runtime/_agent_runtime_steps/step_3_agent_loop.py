@@ -95,6 +95,100 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
 
+async def _resolve_resume_session_id(
+    agent_id: str,
+    session: Any,
+    framework: str,
+    config_fingerprint: str | None,
+    working_path: str,
+    db_client: Any,
+) -> str | None:
+    """Decide whether THIS run may resume a stored CLI session.
+
+    Returns the resumable ``cli_session_id`` only when EVERYTHING matches:
+    the kill-switch is on, a handle row exists for (agent_id,
+    platform_session_id, framework), and all three validity anchors agree:
+
+    * narrative — a narrative switch means the topic domain changed and
+      history composition is re-decided by step_1/context_runtime, so a
+      handle bound to a different narrative must NOT be resumed (rule, not
+      a defect);
+    * config fingerprint — provider / model / auth kind / config dir change
+      means the CLI session store may not hold (or not safely hold) the
+      session;
+    * working path — the CLI archives session jsonl files under a slug of
+      its launch cwd; a different cwd means ``--resume`` looks in the wrong
+      place.
+
+    Fail-open everywhere: any doubt or error returns None => today's
+    cold-start behavior with full history in the system prompt. Resume is
+    an optimization, never a correctness dependency. This is a generic
+    session-continuation rule — no scenario-specific logic (iron rule #4).
+
+    Every decision emits ONE greppable log line:
+    ``[step_3] resume decision: RESUME ...`` or
+    ``[step_3] resume decision: COLD reason=<reason> ...``.
+    """
+    from xyz_agent_context.settings import settings
+
+    def _cold(reason: str, *, warn: bool = False) -> None:
+        line = (
+            f"[step_3] resume decision: COLD reason={reason} "
+            f"(agent={agent_id}, platform_session="
+            f"{getattr(session, 'session_id', None)}, framework={framework})"
+        )
+        (logger.warning if warn else logger.info)(line)
+
+    if not settings.agent_loop_resume_enabled:
+        _cold("flag_disabled")
+        return None
+    if session is None:
+        _cold("no_platform_session")
+        return None
+    if config_fingerprint is None:
+        # Fingerprint computation already failed (fail-open) — without it we
+        # cannot validate the stored handle, so we must not resume.
+        _cold("fingerprint_unavailable")
+        return None
+    try:
+        from xyz_agent_context.repository import CliSessionRepository
+
+        handle = await CliSessionRepository(db_client).get(
+            agent_id, session.session_id, framework
+        )
+        if handle is None:
+            _cold("no_handle")
+            return None
+        if handle.narrative_id != session.current_narrative_id:
+            _cold(
+                f"narrative_changed stored={handle.narrative_id} "
+                f"current={session.current_narrative_id}"
+            )
+            return None
+        if handle.config_fingerprint != config_fingerprint:
+            _cold(
+                f"fingerprint_mismatch stored={handle.config_fingerprint} "
+                f"current={config_fingerprint}"
+            )
+            return None
+        if handle.working_path != working_path:
+            _cold(
+                f"working_path_changed stored={handle.working_path} "
+                f"current={working_path}"
+            )
+            return None
+        logger.info(
+            f"[step_3] resume decision: RESUME "
+            f"cli_session={handle.cli_session_id[:12]} "
+            f"(agent={agent_id}, platform_session={session.session_id}, "
+            f"framework={framework})"
+        )
+        return handle.cli_session_id
+    except Exception as e:  # noqa: BLE001 — fail-open: resume must never hurt a turn
+        _cold(f"lookup_error:{type(e).__name__}", warn=True)
+        return None
+
+
 def _truncate(text: str, limit: int) -> str:
     """Tail-truncate ``text`` to ``limit`` bytes, appending a clear
     marker so the LLM knows content was dropped."""
@@ -830,17 +924,6 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
-    # The materialized turn bundle — one explicit object instead of four
-    # loose locals, so every driver demonstrably eats the same thing.
-    # driver_kwargs() reproduces the historical call shape exactly
-    # (including empty→None normalization); cancellation stays separate.
-    turn_input = TurnInput(
-        messages=messages,
-        mcp_servers=ctx.mcp_servers,
-        disallowed_tools=tuple(extra_disallowed_tools),
-        extra_env=skill_env_vars,
-    )
-
     # `captured_error` defers the ErrorMessage yield until AFTER the
     # recovery phase, so frontend renders the recovered reply FIRST and
     # the warning badge SECOND. Yielding ErrorMessage immediately on
@@ -858,6 +941,56 @@ async def step_3_agent_loop(
     logger.info(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
+    )
+    # ------------- Resume decision (agent-loop resume, R2) -------------
+    # Canonical framework name for the handle key — the driver registry also
+    # accepts short aliases, and neither stored nor looked-up keys may depend
+    # on which alias the user's slot happened to use.
+    cli_framework = {"claude": "claude_code", "codex": "codex_cli"}.get(
+        framework_name, framework_name
+    )
+    # Fingerprint computed HERE, once, up front: the ambient per-task
+    # claude_config ContextVar that configures this run is guaranteed live in
+    # this scope. Reused twice — the resume validation below and the
+    # PathExecutionResult companions at the end (step_4 never recomputes).
+    # Fail-open: any error -> None => cold start now + step_4 skips handle
+    # persistence later. Resume must never hurt a turn.
+    cli_config_fingerprint: str | None = None
+    resume_session_id: str | None = None
+    if cli_framework == "claude_code":
+        # v1 scope: only claude_code consumes handles. codex_cli has its own
+        # session mechanism (deliberately NOT built; the handle table's
+        # framework column already leaves room for it).
+        try:
+            from xyz_agent_context.agent_framework.api_config import claude_config
+
+            cli_config_fingerprint = claude_config.resume_fingerprint()
+        except Exception as e:
+            logger.warning(
+                f"[step_3] resume fingerprint computation failed (fail-open): {e}"
+            )
+        resume_session_id = await _resolve_resume_session_id(
+            agent_id=ctx.agent_id,
+            session=ctx.session,
+            framework=cli_framework,
+            config_fingerprint=cli_config_fingerprint,
+            working_path=agent_working_path,
+            db_client=db_client,
+        )
+
+    # The materialized turn bundle — one explicit object instead of loose
+    # locals, so every driver demonstrably eats the same thing.
+    # driver_kwargs() reproduces the historical call shape exactly
+    # (including empty→None normalization); cancellation stays separate.
+    # Constructed AFTER the resume decision (TurnInput is frozen) so the
+    # validated handle rides the bundle: driver_kwargs() emits it only
+    # when set, and only claude_code turns ever set it.
+    turn_input = TurnInput(
+        messages=messages,
+        mcp_servers=ctx.mcp_servers,
+        disallowed_tools=tuple(extra_disallowed_tools),
+        extra_env=skill_env_vars,
+        resume_session_id=resume_session_id,
     )
     # Per-user executor routing (cloud): ask the broker to ensure this
     # user's Executor container and use its URL. Returns None when no
@@ -1116,29 +1249,12 @@ async def step_3_agent_loop(
 
     # CLI session handle companions — only filled when the run reported a
     # resumable session id (Claude Code's ResultMessage only, in v1). The
-    # fingerprint is computed HERE (not in step_4) because the ambient
-    # per-task claude_config ContextVar that configured this run is
-    # guaranteed live in this scope. Fail-open: any error -> None + warning,
-    # step_4 then skips persistence — resume capture must never hurt a turn.
-    cli_framework = None
-    cli_config_fingerprint = None
-    cli_working_path = None
-    if state.cli_session_id:
-        # Canonical framework name for the handle key (driver registry also
-        # accepts short aliases; the stored key must not depend on which
-        # alias the user's slot happened to use).
-        cli_framework = {"claude": "claude_code", "codex": "codex_cli"}.get(
-            framework_name, framework_name
-        )
-        cli_working_path = agent_working_path
-        try:
-            from xyz_agent_context.agent_framework.api_config import claude_config
-
-            cli_config_fingerprint = claude_config.resume_fingerprint()
-        except Exception as e:
-            logger.warning(
-                f"[step_3] resume fingerprint computation failed (fail-open): {e}"
-            )
+    # canonical framework name and the config fingerprint were computed up
+    # front by the resume-decision block (before 3.4), in the scope where the
+    # ambient per-task claude_config ContextVar is guaranteed live — step_4
+    # never recomputes. Fail-open there means the fingerprint may be None,
+    # in which case step_4 skips persistence — resume capture must never
+    # hurt a turn.
 
     # Return unified execution result
     yield PathExecutionResult(
@@ -1153,9 +1269,12 @@ async def step_3_agent_loop(
         cache_creation_tokens=state.cache_creation_tokens,
         num_turns=state.num_turns,
         cli_session_id=state.cli_session_id,
-        cli_framework=cli_framework,
-        cli_config_fingerprint=cli_config_fingerprint,
-        cli_working_path=cli_working_path,
+        cli_framework=cli_framework if state.cli_session_id else None,
+        cli_config_fingerprint=cli_config_fingerprint if state.cli_session_id else None,
+        cli_working_path=agent_working_path if state.cli_session_id else None,
+        # Propagated even without a new session id: step_4 must delete the
+        # stale handle regardless of whether the cold retry reported one.
+        resume_failed=state.resume_failed,
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

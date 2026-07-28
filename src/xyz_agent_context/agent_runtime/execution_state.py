@@ -68,6 +68,19 @@ class ExecutionState:
     # non-None report wins — NEVER accumulated (same rule as num_turns).
     # None = the framework reported no handle (non-Claude paths).
     cli_session_id: Optional[str] = None
+    # True when a requested CLI-session resume hit a stale handle and the
+    # adapter fell back to a same-turn cold retry (response.resume_failed
+    # marker). Internal signal only — the user never sees it (铁律 #16);
+    # step_4 uses it to delete the stale handle row before upserting the
+    # retry's fresh one. Sticky once set (a later event can't unset it).
+    resume_failed: bool = False
+
+    def mark_resume_failed(self) -> 'ExecutionState':
+        """Record that the requested resume failed (stale handle) and the
+        run was completed by the same-turn cold retry. Returns a new state
+        object (immutable pattern).
+        """
+        return replace(self, resume_failed=True)
 
     def append_text(self, text: str) -> 'ExecutionState':
         """

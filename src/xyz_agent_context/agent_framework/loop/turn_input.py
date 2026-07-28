@@ -42,6 +42,11 @@ class TurnInput:
     mcp_servers: dict[str, dict[str, Any]]
     disallowed_tools: tuple[str, ...] = ()
     extra_env: dict[str, str] = field(default_factory=dict)
+    # Validated CLI session handle for THIS run (agent-loop resume R2).
+    # None = cold start. step_3 fills it only after the four-fold
+    # validation gate (`_resolve_resume_session_id`), and only for the
+    # claude_code framework in v1.
+    resume_session_id: str | None = None
     # Reserved reference layer (design §8.2): serializable IDs/results
     # for drivers that project their own context. Always None today.
     refs: dict[str, Any] | None = None
@@ -53,10 +58,19 @@ class TurnInput:
         step_3 merges into mcp_servers before the call and drivers must
         see the merged dict). Empty extra_env/disallowed_tools become
         None so driver defaults behave exactly as before.
+
+        ``resume_session_id`` is emitted ONLY when set: a cold turn's
+        kwargs stay byte-identical to today, and codex drivers (which
+        never get a handle — step_3 only resolves one for claude_code)
+        never receive the key, so CodexSDKv2's ignored-kwargs WARNING is
+        not spammed with a field that is always None there.
         """
-        return {
+        kwargs: dict[str, Any] = {
             "messages": self.messages,
             "mcp_servers": self.mcp_servers,
             "extra_env": self.extra_env or None,
             "disallowed_tools": list(self.disallowed_tools) or None,
         }
+        if self.resume_session_id is not None:
+            kwargs["resume_session_id"] = self.resume_session_id
+        return kwargs

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — 透传 body `resume_session_id` 给 driver（resume 化 R2）
+
+`/agent-loop` 把 `body.get("resume_session_id") or None` 传进容器内
+driver.agent_loop kwargs，与本地路径（[[step_3_agent_loop.py]] 经 TurnInput
+直传）对齐——两条运行模式一起通（铁律 #7），代码不区分本地/云端。纯透传，
+无逻辑；executor 容器内没有 DB，resume 失败后的句柄清除在 orchestrator 侧
+step_4 做。
 
 ## 2026-07-24 — 透传 body `disallowed_tools` 给 driver（setup-residency B++）
 

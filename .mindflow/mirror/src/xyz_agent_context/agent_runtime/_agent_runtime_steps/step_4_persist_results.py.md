@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-07-25
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — [4.7] 抽为 `_persist_cli_session_handle` + resume_failed 删旧写新（resume 化 R3）
+
+4.7 整段抽成模块级 `_persist_cli_session_handle(ctx, execution_result)`
+（可单测；调用点一行）。新语义：`execution_result.resume_failed` 为真 →
+**先 `delete_handle` 删陈旧行**——即使冷启动重试没报新 cli_session_id 也删，
+否则下一轮还会踩同一具尸体——再按新 cli_session_id 正常 upsert（重试产生的
+是**新** session_id，删旧写新一步完成）。守卫拓宽为
+`(cli_session_id or resume_failed) and ctx.session`。清句柄只在
+orchestrator 侧做：适配器跑在 Executor 容器里没有 DB。fire-and-forget 契
+约不变（任何失败仅 warning）。测试：
+tests/agent_runtime/test_step4_cli_handle_persistence.py（真 SQLite schema）。
 
 ## 2026-07-25 — 新增 [4.7] CLI 句柄落库(resume 化 R1)
 

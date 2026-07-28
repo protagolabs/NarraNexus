@@ -135,6 +135,16 @@ class Settings(BaseSettings):
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
 
+    # ===== Agent-loop resume (token optimization phase 2) =====
+    # Kill-switch for resuming the coding-agent CLI session across turns
+    # (`--resume <cli_session_id>` instead of cold-starting with the full
+    # conversation history in the system prompt). Resume is an OPTIMIZATION,
+    # never a correctness dependency: any doubt (flag off, missing/stale
+    # handle, narrative/fingerprint/working-path mismatch) falls back to
+    # today's cold-start behavior. This is a fail-open ops gate, not a
+    # backwards-compatibility shim. Env: AGENT_LOOP_RESUME_ENABLED.
+    agent_loop_resume_enabled: bool = True
+
     # ===== Helper-LLM one-shot bounds =====
     # The helper_llm slot runs SHORT, tool-free, single-turn structured-output
     # calls (Instance Decision, job analysis, memory consolidation, ...). It is

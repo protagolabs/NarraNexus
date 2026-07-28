@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/execution_state.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
 # execution_state.py — Agent Loop 执行过程的不可变状态追踪器
+
+## 2026-07-28 — resume_failed 字段 + mark_resume_failed()（resume 化 R3）
+
+新增 `resume_failed: bool = False` 与 `mark_resume_failed()`（不可变模式，
+replace 返回新对象）。语义：**置位后粘住**（sticky）——后续任何事件（冷启
+动重试的 response.done 等）都不能把它抹回 False。内部信号，不进用户视野；
+终点是 PathExecutionResult → step_4 删陈旧句柄。测试：
+tests/agent_runtime/test_resume_failed_threading.py。
 
 ## 2026-07-27 — streamed_* 兜底 token + finalize() 提升
 

@@ -90,6 +90,7 @@ def build_agent_loop_request(
     extra_env: Optional[dict[str, str]],
     streaming: bool = True,
     disallowed_tools: Optional[list[str]] = None,
+    resume_session_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -108,5 +109,9 @@ def build_agent_loop_request(
         # Setup-residency: per-agent tool suppression must cross the network
         # boundary explicitly (it is per-run state, like the messages).
         "disallowed_tools": disallowed_tools or [],
+        # Agent-loop resume: the validated CLI session handle for this run
+        # (None = cold start). Per-run state like disallowed_tools; an old
+        # executor that ignores the field just cold-starts — fail-open.
+        "resume_session_id": resume_session_id,
         "provider_configs": serialize_provider_configs(),
     }

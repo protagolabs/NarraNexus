@@ -21,6 +21,18 @@ prod 2026-07-29 agent_94360f6c4b98：10 轮里 7 轮 0/30 行存活。
 
 预算数学是净中性的：`overhead` 涨了指南的长度，但 system prompt 少了同样多。
 
+## 2026-07-28 — flatten_for_argv 拆成两阶段（resume 化 R2/R3）
+
+claude 策略拆为 `split_for_argv(messages) -> (base_system_prompt,
+history_entries, this_turn_user_message)` + `assemble_argv_prompt(base,
+entries, *caps) -> str`；`flatten_for_argv` 保留为两者的平凡组合（唯一
+其他调用方 grep 过：没有——codex 走 flatten_for_file）。动机：resume 轮
+要用**空历史**组装（历史在 CLI session 文件里），而陈旧句柄的同轮冷启
+动重试要用**保留的同一批 entries** 重组——pop 变异只许发生一次，所以
+split 阶段持有它（load-bearing：step_3 fallback 之后读同一个 list）。
+组合路径与单阶段函数字节级等价（test_materializer.py 新增 byte-identity
+测试，含驱逐/双上限场景）；`assemble_argv_prompt(base, [])` 不追加
+history 头尾，双上限仍对裸 prompt 生效（belt-and-braces）。
 
 ## 为什么存在
 

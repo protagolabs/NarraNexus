@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-24
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — agent_loop_resume_enabled 开关（resume 化 R2/R3）
+
+新增 `agent_loop_resume_enabled: bool = True`（env `AGENT_LOOP_RESUME_ENABLED`）。
+这是 agent-loop resume 的 kill-switch：关 = 完全回到今天的行为（每轮全量历史冷
+启动）。**不是向后兼容 shim，是 fail-open 优化的运维闸门**——step_3 的 resume 决策
+（[[step_3_agent_loop.py]]）在任何存疑情形都回落冷启动，开关只是把这条回落变成无
+条件。默认 true、无新必填 env，部署无影响。
 
 ## 2026-07-24 — free-tier gateway passthrough + deploy env
 

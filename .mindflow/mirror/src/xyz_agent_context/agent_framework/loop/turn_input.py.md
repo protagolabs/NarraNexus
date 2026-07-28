@@ -1,9 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
 # loop/turn_input.py — 物化层 turn 输入的显式打包
+
+## 2026-07-28 — 新增 resume_session_id 字段（resume 化 R2）
+
+resume 走 TurnInput 字段而不是调用点裸 kwarg（两案二选一，选前者）：
+bundle 本来就是「本轮 driver 输入」的家，且 driver_kwargs() 是唯一出口，
+threading 可测。**只在非 None 时发键**：冷启动轮 kwargs 与旧形状字节级
+一致；codex 系 driver 永远收不到这个键（step_3 只为 claude_code 解析句
+柄），所以 CodexSDKv2 的 ignored-kwargs WARNING 不会被一个恒 None 的字
+段每轮刷屏——这正是选 TurnInput + 条件发键而非无条件 kwarg 的原因。
+frozen dataclass ⇒ step_3 在 resume 决策之后才构造 TurnInput。
 
 ## 为什么存在
 

@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 ---
 
+
+## 2026-07-28 — 请求体转发 `resume_session_id`（resume 化 R2）
+
+`agent_loop` 把 `kwargs.get("resume_session_id")` 放进 executor 请求体
+（[[executor_protocol.py]] `build_agent_loop_request` 新参），executor 侧由
+[[executor_service.py]] 再传给容器内 driver。与 disallowed_tools 逐字同型的
+纯透传；云端容器重建后 session 文件丢失只导致冷启动（working_path/文件缺失
+自然回落），功能无损。测试：tests/agent_runtime/test_resume_protocol_threading.py。
 
 ## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
 

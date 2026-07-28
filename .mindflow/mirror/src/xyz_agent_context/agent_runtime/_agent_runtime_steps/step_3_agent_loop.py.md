@@ -4,6 +4,34 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — resume 决策 + TurnInput 注入（resume 化 R2/R3，dev 新结构重实现）
+
+R1 只捕获；本条把查表/校验/注入接上（旧分支 be9c8ecd 的 step_3 部分在
+dev 新结构上的重做——注入通道从裸 kwarg 换成 TurnInput 字段）：
+
+- 新增模块级 `_resolve_resume_session_id(agent_id, session, framework,
+  config_fingerprint, working_path, db_client)`（旧分支逐字移植）：开关
+  （`settings.agent_loop_resume_enabled`）+ 句柄存在 + **三锚全符**
+  （narrative / fingerprint / working_path）才返回存储的 cli_session_id；
+  其余一律 None = 冷启动。**fail-open 到底**：查表/校验任何异常 → None +
+  warning，优化永不打死轮次。铁律 #4：纯通用会话延续规则，无场景硬编码。
+  每次决策恰好一条可 grep 日志：`[step_3] resume decision: RESUME …` 或
+  `[step_3] resume decision: COLD reason=<flag_disabled|no_platform_session|
+  fingerprint_unavailable|no_handle|narrative_changed|fingerprint_mismatch|
+  working_path_changed|lookup_error:*> …`。
+- 决策块置于 framework 解析之后、executor ensure 之前：canonical
+  `cli_framework` 归一化与 `cli_config_fingerprint` 计算**上提到此处**
+  （一次计算，决策与末尾 PathExecutionResult 组装共用；R1 原在组装处的
+  重复计算段删除）。v1 只有 claude_code 走查询；codex 完全不碰。
+- **TurnInput 构造移到决策块之后**（frozen dataclass，不能事后改），带
+  `resume_session_id=`；driver_kwargs() 只在非 None 时发键（理由见
+  [[turn_input.py]]——codex v2 的 ignored-kwargs WARNING 不被恒 None 字段
+  刷屏）。
+- PathExecutionResult 新增 `resume_failed=state.resume_failed` 透传——
+  **无条件**（冷启动重试可能没报新 session_id，step_4 仍要删陈旧句柄）；
+  CLI 句柄三伴随字段改为 `… if state.cli_session_id else None` 内联条件。
+- 测试：tests/agent_runtime/test_resume_decision.py（九个决策用例）。
+
 ## 2026-07-28 — 不再现发会话票
 
 step 3 开头那段「system-tier 运行就向网关 mint 一把 per-run key、注入
