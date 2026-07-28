@@ -4,6 +4,53 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — the poll loop stops being a single point of failure, and reports work
+
+Two defects, one incident. Between 2026-07-27 00:17 and 2026-07-28 09:06 the bus
+processed **zero** messages for **every** user — 33 hours — with no exception, no
+restart, and a liveness signal that read healthy throughout. A container restart
+drained the backlog in 0.1 s.
+
+**Why it froze.** `_poll_cycle` did `asyncio.gather` over every agent that was a
+member of any channel (364 on prod) and awaited all of them. Inside,
+`_process_agent` takes one of `MAX_WORKERS` (3) semaphore slots and calls
+`_invoke_runtime`, which by design has no timeout (binding rule #14). So three
+wedged provider connections exhaust the pool, the gather never returns, and the
+loop stops — for everyone, not just those three agents.
+
+The cycle now **dispatches and moves on**: `_dispatch` spawns a supervised task
+per agent (`_InFlight`, paired `add_done_callback` per incident lesson #2) and
+the loop immediately continues. A stuck turn holds its own task and its own slot;
+the loop keeps cycling and can still serve everyone else.
+
+**Why nobody noticed.** This was the only long-running worker without its own
+`ServiceAuditor`. The supervisor's `bus: running` is set once at start and never
+updated — L1, not L2 (see [[run_worker_supervisor]], corrected in the same
+change). Now `ServiceAuditor("message_bus_trigger")` emits started/stopped/error
+plus a heartbeat carrying `liveness_snapshot()`, whose whole job is to make the
+two failure modes distinguishable in SQL:
+
+| symptom in `service_audit` | meaning |
+|---|---|
+| `cycles` frozen | the loop itself is wedged |
+| `cycles` rising, `dispatched_total` frozen, `candidates` > 0 | loop fine, nothing can start |
+| `running == max_workers` and `waiting` > 0, sustained | the worker pool is the bottleneck |
+| `longest_running_agent` / `_s` | *who* is holding a slot |
+
+`longest_running_*` is **diagnostic only**. Nothing here force-stops a turn: a
+multi-hour run is a legitimate workload, and the fault being guarded is our loop
+dying, not an agent taking its time (binding rule #14).
+
+**Scan cost.** `_agents_with_pending()` replaces "every channel member" with one
+query for agents that actually have a message past their cursor. Deliberately
+over-inclusive: it skips the @mention filter because an un-addressed member is
+precisely who must be dispatched so `_process_agent` can ack and advance its
+cursor — filter them here and cursors freeze and the scan never converges.
+
+`stop()` also sets an event so the loop leaves its interval sleep at once instead
+of waiting out up to `POLL_MAX_INTERVAL`, and cancels in-flight dispatches so the
+loop that owns them doesn't leak them.
+
 ## 2026-07-28 — team activity scoped by `turn()`
 
 The team branch's three-part activity dance (mark_running up front, a bespoke
@@ -30,6 +77,11 @@ pool). Two consequences worth noting: (1) its flag-based sync `stop()` means the
 of its own, so the supervisor's per-worker liveness snapshot (state `bus:
 running/restarting`) is its FIRST L2 signal. The "独立进程" framing below is
 HISTORY; `__main__` is retained as a debug entrypoint.
+
+> **Both numbered points above were superseded on 2026-07-28 — see the entry at
+> the top of this file.** (1) `stop()` now wakes the loop immediately; (2) the
+> supervisor snapshot was never L2 — it is L1, and it is exactly what let a
+> 33-hour outage look healthy.
 
 ## 2026-07-22 — team prompt: "room files are already shared" note
 
