@@ -46,6 +46,11 @@ class MigrationSkill(BaseModel):
     source: str = ""
     # A hint for how it was installed at the source (informational).
     install_hint: str = ""
+    # Absolute path to the skill's source directory on the local machine, when
+    # the source shipped the skill's files (Claude Code / OpenClaw skills dirs).
+    # Migration copies these VERBATIM (faithful reproduction) — preferred over a
+    # same-name marketplace skill, which may be a different implementation.
+    local_path: Optional[str] = None
 
 
 class MigrationMemory(BaseModel):

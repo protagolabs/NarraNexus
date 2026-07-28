@@ -19,7 +19,7 @@ def _imp(**over) -> StandardizedAgentImport:
     base = dict(
         source=MigrationSource(framework="claude_code", detected_path="/x", detection_confidence="high"),
         agent=MigrationAgent(name="Neo", system_prompt="You are Neo."),
-        skills=[MigrationSkill(name="web-search"), MigrationSkill(name="pdf")],
+        skills=[MigrationSkill(name="web-search", local_path="/x/web-search"), MigrationSkill(name="pdf")],
         memory=[MigrationMemory(type="fact", content="user likes tea", source_file="MEMORY.md")],
         mcp_servers=[
             MigrationMcpServer(name="remote", transport="url", url="https://h/sse",
@@ -37,7 +37,8 @@ def test_plan_core_mapping():
     p = build_plan(_imp())
     assert p.agent_name == "Neo"
     assert p.awareness_markdown == "You are Neo."          # system_prompt → Awareness
-    assert p.skill_names == ["web-search", "pdf"]
+    assert [s.name for s in p.skills] == ["web-search", "pdf"]
+    assert p.skills[0].local_path == "/x/web-search"       # carried for faithful copy
     assert [m.content for m in p.memory] == ["user likes tea"]
 
 

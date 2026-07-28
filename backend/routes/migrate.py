@@ -22,8 +22,12 @@ from loguru import logger
 from pydantic import BaseModel
 
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.migration import scanner
-from xyz_agent_context.schema.migration_schema import Framework
+from xyz_agent_context.migration.mapper import build_plan
+from xyz_agent_context.migration.applier import apply_plan
+from xyz_agent_context.schema.migration_schema import Framework, StandardizedAgentImport
+from backend.auth import resolve_current_user_id
 
 router = APIRouter()
 
@@ -67,4 +71,27 @@ async def scan(request: Request, payload: ScanRequest) -> dict:
         f"migrate.scan: framework={result.source.framework} "
         f"skills={len(result.skills)} memory={len(result.memory)} mcp={len(result.mcp_servers)}"
     )
+    return result.model_dump()
+
+
+class ApplyRequest(BaseModel):
+    # The standardized JSON from /scan (or a user-edited copy).
+    import_data: StandardizedAgentImport
+    # Target agent; omit to create a new one.
+    agent_id: Optional[str] = None
+
+
+@router.post("/apply")
+async def apply(request: Request, payload: ApplyRequest) -> dict:
+    """Execute the migration: create/populate an agent from the scanned JSON.
+
+    Not local-gated — this writes to NarraNexus (works wherever the backend
+    runs). Local-skill file-copy only succeeds when the backend is on the same
+    machine as the source (desktop/local); it degrades to a marketplace install
+    otherwise. `user_id` comes from auth.
+    """
+    user_id = await resolve_current_user_id(request)
+    db = await get_db_client()
+    plan = build_plan(payload.import_data)
+    result = await apply_plan(db, user_id, plan, agent_id=payload.agent_id)
     return result.model_dump()

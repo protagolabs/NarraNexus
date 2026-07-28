@@ -160,7 +160,7 @@ def _skills_from_dir(skills_dir: Path, source: str) -> List[MigrationSkill]:
     if skills_dir.exists() and skills_dir.is_dir():
         for child in sorted(skills_dir.iterdir()):
             if child.is_dir():
-                out.append(MigrationSkill(name=child.name, source=source))
+                out.append(MigrationSkill(name=child.name, source=source, local_path=str(child)))
     return out
 
 

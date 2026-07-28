@@ -22,7 +22,7 @@ See reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -37,14 +37,21 @@ class PlannedMemory(BaseModel):
     source: str = ""
 
 
+class PlannedSkill(BaseModel):
+    name: str
+    # Source dir to copy verbatim (faithful reproduction). None → try marketplace.
+    local_path: Optional[str] = None
+
+
 class MigrationPlan(BaseModel):
     agent_name: str = ""
     # The imported instructions become the agent's Awareness (Owner decision:
     # CLAUDE.md/SOUL.md/AGENTS.md → Awareness, not Memory).
     awareness_markdown: str = ""
     memory: List[PlannedMemory] = Field(default_factory=list)
-    # Skill names to match against the Skill Marketplace (install the matches).
-    skill_names: List[str] = Field(default_factory=list)
+    # Skills to reproduce. `local_path` set → copy the files verbatim (faithful
+    # migration); else fall back to a same-name Skill Marketplace install.
+    skills: List[PlannedSkill] = Field(default_factory=list)
     # url-MCP servers importable now (name/url/headers).
     mcp_url_servers: List[MigrationMcpServer] = Field(default_factory=list)
     # stdio-MCP servers captured but NOT wired yet (need local-mode data-model
@@ -70,7 +77,7 @@ def build_plan(imp: StandardizedAgentImport) -> MigrationPlan:
         agent_name=imp.agent.name or "Imported Agent",
         awareness_markdown=imp.agent.system_prompt or "",
         memory=[PlannedMemory(content=m.content, source=m.source_file) for m in imp.memory],
-        skill_names=[s.name for s in imp.skills],
+        skills=[PlannedSkill(name=s.name, local_path=s.local_path) for s in imp.skills],
     )
 
     for srv in imp.mcp_servers:
