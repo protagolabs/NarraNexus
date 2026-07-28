@@ -16,6 +16,18 @@ export function money(v?: string | number | null): string {
   return Number.isFinite(n) ? n.toFixed(2) : '—';
 }
 
+// The free-tier wallet needs more precision than a balance does. A real agent
+// turn on it costs a fraction of a cent (~$0.0027), so at two decimals a whole
+// session of use rounds away and the grant looks frozen at "10.00" — which is
+// exactly how it read to the Owner on 2026-07-28. Six decimals is the gateway's
+// own resolution, and padding keeps the digit count stable so the number does
+// not visibly reflow between polls.
+export function creditMoney(v?: string | number | null): string {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(6) : '—';
+}
+
 // A single "how much free tier is left" percentage (0–100) of the wallet.
 // Returns null when there is no free-tier bar to show (feature off /
 // uninitialized).

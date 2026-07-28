@@ -414,8 +414,10 @@ test('runway: free-tier row shows the wallet in dollars, bar keeps the pct', asy
   expect(await screen.findByText('Free tier')).toBeTruthy();
   // Dollars, not tokens: the wallet's own unit, so the row and the balance
   // hero below it mean the same thing. Remaining only — the bar carries the
-  // proportion (Owner: "/total" too dense).
-  expect(screen.getByText('$6.20 left')).toBeTruthy();
+  // proportion (Owner: "/total" too dense). Six decimals, unlike the balance
+  // hero: free-tier turns cost fractions of a cent, and at two the number
+  // never appears to move (Owner, 2026-07-28).
+  expect(screen.getByText('$6.200000 left')).toBeTruthy();
   expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('62');
   // free-tier bar visible → the flow line may mention it
   expect(screen.getByText(/free tier first, then your balance\./)).toBeTruthy();

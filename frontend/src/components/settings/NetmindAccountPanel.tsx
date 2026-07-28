@@ -46,6 +46,7 @@ import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
 import {
   money,
+  creditMoney,
   freeTierPctLeft,
   freeTierCreditLeft,
   formatPeriod,
@@ -499,13 +500,15 @@ export function NetmindAccountPanel() {
   const freePctRaw = freeTierPctLeft(quota);
   const freeTierExhausted = !subSplit && freePctRaw === 0;
   const freePct = subSplit || freePctRaw === 0 ? null : freePctRaw;
-  // Row value in dollars ("$7.42 left") — the wallet's own unit, so it means
-  // the same thing as the balance hero below it. Remaining only (Owner call:
-  // remaining/total reads too dense); the bar carries the proportion context.
+  // Row value in dollars ("$7.423919 left") — the wallet's own unit, so it
+  // means the same thing as the balance hero below it. Remaining only (Owner
+  // call: remaining/total reads too dense); the bar carries the proportion.
+  // creditMoney, not money: see its docstring — at two decimals a session of
+  // free-tier use rounds to nothing and the grant looks stuck at 10.00.
   const freeCredit = freePct !== null ? freeTierCreditLeft(quota) : null;
   const freeTokensText = freeCredit
     ? t('settings.netmind.freeTierCreditLeft', '${{remaining}} left', {
-        remaining: money(freeCredit.remaining),
+        remaining: creditMoney(freeCredit.remaining),
       })
     : null;
   const grantUsd = fee?.metrics?.monthly_free_credit;

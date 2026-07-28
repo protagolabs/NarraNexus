@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, test } from 'vitest';
-import { money, freeTierPctLeft, freeTierCreditLeft, formatPeriod, formatDate } from '../netmindFormat';
+import { money, creditMoney, freeTierPctLeft, freeTierCreditLeft, formatPeriod, formatDate } from '../netmindFormat';
 import type { QuotaMeResponse } from '@/types';
 
 describe('money', () => {
@@ -105,3 +105,27 @@ test('freeTierCreditLeft null exactly when there is no bar to annotate', () => {
   expect(freeTierCreditLeft({ enabled: false } as never)).toBeNull()
   expect(freeTierCreditLeft({ enabled: true, status: 'uninitialized' } as never)).toBeNull()
 })
+
+describe('creditMoney (free-tier wallet)', () => {
+  it('keeps six decimals so sub-cent usage is visible', () => {
+    // The reason this formatter exists: a real turn on the free tier costs
+    // fractions of a cent. At two decimals $9.993714 renders as "9.99" and a
+    // day of use looks like nothing happened at all.
+    expect(creditMoney(9.993714)).toBe('9.993714');
+    expect(creditMoney(9.999031)).toBe('9.999031');
+  });
+
+  it('pads so the digit count never jumps between renders', () => {
+    expect(creditMoney(10)).toBe('10.000000');
+  });
+
+  it('shows a dash for missing values, like money()', () => {
+    expect(creditMoney(null)).toBe('—');
+    expect(creditMoney(undefined)).toBe('—');
+    expect(creditMoney('')).toBe('—');
+  });
+
+  it('leaves the two-decimal money() alone — balances are not sub-cent', () => {
+    expect(money(9.993714)).toBe('9.99');
+  });
+});
