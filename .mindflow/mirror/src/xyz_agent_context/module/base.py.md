@@ -1,7 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-07-24
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — R4a：新增通用面 `get_turn_context(ctx_data) -> str`（默认 ""）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+模块契约新增"每轮易变内容"的一等公民出口：每轮变化的数据（召回结果、活计数、
+时间戳、动态列表）放 `get_turn_context`，**`get_instructions` 必须轮间字节稳定**
+（system prompt 可缓存的前提）。运行时（[[context_runtime.py]]
+`_build_turn_context_block`）按 module_class 去重、priority 升序收集非空块进当前
+轮 user message 的 `[Turn context]` 块；单模块异常 fail-open（warning + 跳过）。
+R4a 只加基类面，R4b 才逐模块 override（BasicInfo/GeneralMemory/SocialNetwork/
+Job/MessageBus/CommonTools）。**Code review 检查项：新模块给 get_instructions
+塞每轮易变字节 = 打穿全网缓存回归**，用 [SYSPROMPT-BREAKDOWN] 的 sys_sha256
+两轮对比定位。语义纯通用，零场景词汇（铁律 #4）。
 
 ## 2026-07-24 — generic `get_disallowed_tools()` surface (setup-residency B++)
 

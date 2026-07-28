@@ -355,3 +355,75 @@ A Narrative is a context container for conversations/tasks, used for:
 4. If the narrative contains ambiguities, resolve them through explicit reasoning.
 5. Treat the narrative as persistent memory for this task environment.
 """
+
+# ============================================================================
+# Narrative STABLE system prompt template (R4 turn-context relocation)
+# Used in PromptBuilder.build_main_prompt(include_volatile=False).
+#
+# Byte-for-byte the NARRATIVE_MAIN_PROMPT_TEMPLATE above MINUS the two
+# per-turn volatile lines ("- Updated At: {updated_at}" and
+# "- Current Summary: {current_summary}") — those relocate to the turn
+# context via NARRATIVE_TURN_PROMPT_TEMPLATE below. Everything left is
+# constant for the lifetime of a CLI session (narrative switch = new
+# session), so this half can live in the cacheable system-prompt prefix.
+# Any edit to the shared wording must be applied to BOTH templates —
+# tests/narrative/test_narrative_prompt_split.py locks the equivalence.
+# ============================================================================
+NARRATIVE_STABLE_PROMPT_TEMPLATE = """
+## Narrative System (Common Knowledge)
+
+### What is a Narrative?
+A Narrative is a context container for conversations/tasks, used for:
+- Organizing related conversation history and task progress
+- Maintaining participant (Actors) relationships
+- Supporting cross-session continuity tracking
+
+### Actor Types
+| Type | Description | Permissions |
+|------|-------------|-------------|
+| **USER** | Creator/Owner of the Narrative | Full access, can create Jobs |
+| **AGENT** | Participating AI Agent | Assists in executing tasks |
+| **PARTICIPANT** | Target user of a Job | Can access this Narrative, but is not the creator |
+
+### System Behavior
+- When a user initiates a conversation, the system automatically matches or creates a Narrative
+- When creating a Job, the target user (related_entity_id) is added as a PARTICIPANT
+- When a PARTICIPANT converses with the Agent, the system loads the associated Narrative context
+
+---
+
+## Current Narrative Info
+
+### Basic Metadata
+- Narrative ID: {narrative_id}
+- Narrative Type: {type_prompt}
+- Created At: {created_at}
+
+### Narrative Details
+- Name: {name}
+- Description: {description}
+
+### Actors (Participants)
+{actor_prompt}
+
+### Context Guidelines
+1. Your reasoning, decisions, and actions must align with the narrative context at all times.
+2. When interpreting user requests, prioritize consistency with the narrative's goals.
+3. Use the narrative to maintain continuity across turns.
+4. If the narrative contains ambiguities, resolve them through explicit reasoning.
+5. Treat the narrative as persistent memory for this task environment.
+"""
+
+# ============================================================================
+# Narrative TURN prompt template (R4 turn-context relocation)
+# Used in PromptBuilder.build_turn_prompt(); rendered into the [Turn context]
+# block of the current user message. Carries exactly the two per-turn
+# volatile fields removed from the stable template: updated_at changes every
+# turn, current_summary is LLM-regenerated every turn. Relocated, not
+# dropped — the model still sees both every turn.
+# ============================================================================
+NARRATIVE_TURN_PROMPT_TEMPLATE = """## Current narrative state
+
+- Last updated: {updated_at}
+- Current summary: {current_summary}
+"""

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompt_builder.py
-last_verified: 2026-06-12
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — R4a：narrative 模板拆分（稳定半 + turn 半）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+`build_main_prompt` 新增 `include_volatile: bool = True`：True = 完整旧模板
+（relocation 开关关时的字节等价路径）；False = 稳定版模板（id/type/created_at/
+name/description/actors——CLI session 生命周期内恒定，narrative 切换 = 新
+session），进 system prompt 可缓存前缀。新增 `build_turn_prompt(narrative)`：
+渲染两个每轮易变字段（updated_at 每轮变、current_summary 每轮 LLM 重生成）为
+`## Current narrative state` 块，进当前轮消息的 [Turn context]。actor 显示名
+解析留在稳定半——display name 变更属合法打穿。拆分硬标准（稳定版 = 旧模板渲染
+减去且仅减去两条易变行）由 `tests/narrative/test_narrative_prompt_split.py` 锁定;
+改共享文案必须同步改 [[prompts.py]] 的两个模板。
 
 ## 2026-06-12 — actors rendered by HUMAN name (user_id is opaque in cloud mode)
 

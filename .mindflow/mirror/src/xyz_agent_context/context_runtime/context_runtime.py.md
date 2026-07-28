@@ -12,6 +12,53 @@ stub: false
 存在的时间线（prod 2026-07-29）。注意本文件 `run()` 里打的
 `System Prompt built: N characters` 是在 preamble / recent-actions 拼接**之前**
 的数字——排查提示词尺寸时别把它当最终值。
+last_verified: 2026-07-28
+stub: false
+---
+
+## 2026-07-28 — R4a turn-context relocation（system prompt 字节稳定，token 优化三期）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+**目的**：Anthropic/DeepSeek 前缀缓存是字节/块级的，system prompt 里任何每轮易变
+字节（Part 0 temporal 秒级时间戳、Part 1 narrative 的 updated_at/current_summary、
+尾部 recent_actions）都会打穿缓存。R4a 把这些**非模块**易变段整体搬到**当前轮
+user message 前部**的 `[Turn context]` 块（照 2026-07-09 附件 marker 先例：只改
+LLM-facing 的 current_user_content，**绝不动 `ctx_data.input_content`** → 聊天持久
+化/前端/冷启动历史重合成零感知）。只搬不删（铁律 #16）：模型每轮照样看到全部内容。
+
+- 开关 `settings.prompt_turn_context_relocation_enabled`（默认 true；env
+  `PROMPT_TURN_CONTEXT_RELOCATION_ENABLED`）。**关 = 装配与 R4 之前逐字节一致**
+  （temporal/narrative 完整模板/recent_actions 全部回原位）——fail-open 运维闸门。
+- `build_complete_system_prompt`：开关开时跳过 Part 0、Part 1 用稳定版模板
+  （`combine_main_narrative_prompt(include_volatile=False)`，见
+  [[prompt_builder.py]] 模板拆分）。
+- 新增 `_build_turn_context_block(active_instances, ctx_data, narrative_list)`：
+  固定顺序 temporal（块名 "User Temporal Context" 不变，job MCP docstring 引用它）
+  → narrative turn 块 → 模块 `get_turn_context` 块（module_class 去重、priority
+  升序稳定排序，与 `_build_module_instructions_prompt` 同语义）→ recent_actions。
+  逐 part fail-open（warning + 跳过，不打死轮次）。R4a 阶段无模块 override
+  （R4b 才逐模块搬），模块块为空。
+- `build_input_for_framework` 新增 kw 参数 `narrative_list`（run() 传入；None =
+  无 narrative turn 块）；`[Turn context]` + `--- User message ---` separator 前置
+  拼接在附件 marker 逻辑**之前**。
+- **[SYSPROMPT-BREAKDOWN] 发射点从 build_complete_system_prompt 移到
+  build_input_for_framework**（哈希"最终送适配器的 system prompt 字符串"，度量什么
+  就哈希什么）：行尾追加 `sys_sha256=<sha256(enhanced_system_prompt)[:12]>`，
+  parts 增加 `turn_context=<chars>`；`total=` 语义变为 enhanced（含 preamble）长度。
+  breakdown 输入经 `self._last_part_sizes / _last_module_instructions /
+  _last_narrative_meta` 在两方法间传递（ContextRuntime 每轮一个实例，不跨轮泄漏）。
+  两轮 grep sys_sha256 相同 = 前缀稳定哨兵（R4b 收尾后才翻转为相同——Anthropic
+  all-or-nothing，R4a 单独合入时 BasicInfo 等模块仍易变属预期）。
+- history 与 system prompt 的关系更新：历史仍走 unified timeline role messages
+  （不变）；**当前轮消息现在 = [Turn context] 块 + separator + 用户原话 (+ 附件
+  marker)**，claude/codex 适配器 `messages.pop()` 原样取走，零适配器改动（铁律 #9）。
+
+Plan：`reference/self_notebook/plans/2026-07-25-r4-prompt-stability.plan.md`（R4a）。
+Tests：`tests/context_runtime/test_turn_context_relocation.py`（开关字节等价 /
+装配顺序 / 模块收集 fail-open / sys_sha256 稳定性）、`test_temporal_context.py`
+（建造点迁移）。
+
 ## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
 
 返回值新增第三项：汇总各模块 `get_disallowed_tools()`（见 [[base.py]] 通用面 /

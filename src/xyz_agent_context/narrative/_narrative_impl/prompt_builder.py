@@ -21,6 +21,8 @@ from .prompts import (
     ACTOR_TYPE_PARTICIPANT_DESCRIPTION,
     ACTOR_TYPE_SYSTEM_DESCRIPTION,
     NARRATIVE_MAIN_PROMPT_TEMPLATE,
+    NARRATIVE_STABLE_PROMPT_TEMPLATE,
+    NARRATIVE_TURN_PROMPT_TEMPLATE,
 )
 
 if TYPE_CHECKING:
@@ -37,7 +39,10 @@ class PromptBuilder:
     """
 
     @staticmethod
-    async def build_main_prompt(narrative: Narrative) -> str:
+    async def build_main_prompt(
+        narrative: Narrative,
+        include_volatile: bool = True,
+    ) -> str:
         """
         Generate the main Prompt for a Narrative
 
@@ -45,6 +50,12 @@ class PromptBuilder:
 
         Args:
             narrative: Narrative object
+            include_volatile: True renders the full template including the
+                per-turn volatile fields (updated_at / current_summary) —
+                the pre-R4 layout, used when turn-context relocation is
+                disabled. False renders the byte-stable half only; the
+                volatile fields then travel via build_turn_prompt() in the
+                current message's [Turn context] block.
 
         Returns:
             Formatted Narrative Prompt
@@ -82,17 +93,49 @@ class PromptBuilder:
             actor_prompt += f"\n\t- {label} ({actor.type.value}): {actor_type_description}"
 
         # Assemble Prompt
-        narrative_prompt = NARRATIVE_MAIN_PROMPT_TEMPLATE.format(
-            narrative_id=narrative.id,
-            type_prompt=type_prompt,
-            created_at=narrative.created_at,
-            updated_at=narrative.updated_at,
-            name=narrative.narrative_info.name,
-            description=narrative.narrative_info.description,
-            current_summary=narrative.narrative_info.current_summary,
-            actor_prompt=actor_prompt,
-        )
+        if include_volatile:
+            narrative_prompt = NARRATIVE_MAIN_PROMPT_TEMPLATE.format(
+                narrative_id=narrative.id,
+                type_prompt=type_prompt,
+                created_at=narrative.created_at,
+                updated_at=narrative.updated_at,
+                name=narrative.narrative_info.name,
+                description=narrative.narrative_info.description,
+                current_summary=narrative.narrative_info.current_summary,
+                actor_prompt=actor_prompt,
+            )
+        else:
+            narrative_prompt = NARRATIVE_STABLE_PROMPT_TEMPLATE.format(
+                narrative_id=narrative.id,
+                type_prompt=type_prompt,
+                created_at=narrative.created_at,
+                name=narrative.narrative_info.name,
+                description=narrative.narrative_info.description,
+                actor_prompt=actor_prompt,
+            )
         return narrative_prompt
+
+    @staticmethod
+    async def build_turn_prompt(narrative: Narrative) -> str:
+        """
+        Generate the per-turn volatile Narrative block (R4 relocation).
+
+        Carries the two fields that change every turn (updated_at,
+        current_summary) — rendered into the [Turn context] block of the
+        current user message instead of the system prompt, so the stable
+        half built by build_main_prompt(include_volatile=False) stays
+        byte-identical across turns.
+
+        Args:
+            narrative: Narrative object
+
+        Returns:
+            Formatted per-turn Narrative state block
+        """
+        return NARRATIVE_TURN_PROMPT_TEMPLATE.format(
+            updated_at=narrative.updated_at,
+            current_summary=narrative.narrative_info.current_summary,
+        )
 
     @staticmethod
     async def build_summary_prompt(narrative: Narrative) -> str:

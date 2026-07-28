@@ -27,6 +27,9 @@ from xyz_agent_context.narrative import Narrative, Event, EventService, Narrativ
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
 
+# Settings (leaf module, safe to import at module level)
+from xyz_agent_context.settings import settings
+
 # Prompts
 from xyz_agent_context.context_runtime.prompts import (
     AUXILIARY_NARRATIVES_HEADER,
@@ -35,6 +38,8 @@ from xyz_agent_context.context_runtime.prompts import (
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
     SECURITY_IRON_RULES,
+    TURN_CONTEXT_HEADER,
+    USER_MESSAGE_SEPARATOR,
 )
 
 
@@ -157,7 +162,8 @@ class ContextRuntime:
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
         messages, mcp_servers, disallowed_tools = await self.build_input_for_framework(
-            messages, system_prompt, active_instances, ctx_data
+            messages, system_prompt, active_instances, ctx_data,
+            narrative_list=narrative_list,
         )
         logger.info(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_servers)} MCP servers")
 
@@ -347,26 +353,42 @@ class ContextRuntime:
             prompt_parts.append(SECURITY_IRON_RULES)
             part_sizes["security"] = len(SECURITY_IRON_RULES)
 
+        # R4 turn-context relocation: when enabled, every per-turn volatile
+        # section (Part 0 temporal, narrative updated_at/current_summary,
+        # recent_actions) moves to the [Turn context] block of the current
+        # user message (see build_input_for_framework) so the system prompt
+        # stays byte-stable across turns. When disabled, assembly below is
+        # byte-identical to the pre-R4 layout.
+        relocation_enabled = settings.prompt_turn_context_relocation_enabled
+
         # ========================================================================
         # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
         # Injected first so every downstream section + all Module instructions
         # can reference it. Source of truth = users.timezone (IANA).
+        # With relocation enabled this block moves to the turn context (same
+        # "User Temporal Context" heading — job MCP docstrings reference it).
         # ========================================================================
-        try:
-            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
-            if temporal_block:
-                prompt_parts.append(temporal_block)
-                part_sizes["temporal"] = len(temporal_block)
-                logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
-        except Exception as e:
-            logger.warning(f"        Failed to build User Temporal Context: {e}")
+        if not relocation_enabled:
+            try:
+                temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+                if temporal_block:
+                    prompt_parts.append(temporal_block)
+                    part_sizes["temporal"] = len(temporal_block)
+                    logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
+            except Exception as e:
+                logger.warning(f"        Failed to build User Temporal Context: {e}")
 
         # ========================================================================
         # Part 1: Narrative Info (main Narrative)
+        # With relocation enabled, only the stable half (id/type/created_at/
+        # name/description/actors — constant within a CLI session) stays
+        # here; updated_at + current_summary travel in the turn context.
         # ========================================================================
         if narrative_list:
             main_narrative = narrative_list[0]
-            narrative_prompt = await narrative_service.combine_main_narrative_prompt(main_narrative)
+            narrative_prompt = await narrative_service.combine_main_narrative_prompt(
+                main_narrative, include_volatile=not relocation_enabled
+            )
             prompt_parts.append(narrative_prompt)
             part_sizes["narrative"] = len(narrative_prompt)
             # current_summary (LLM-regenerated each turn) and the dynamic_summary
@@ -399,7 +421,6 @@ class ContextRuntime:
         # ========================================================================
         try:
             import os
-            from xyz_agent_context.settings import settings
             from xyz_agent_context.repository import AgentRepository
 
             agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
@@ -455,9 +476,14 @@ class ContextRuntime:
         # Combine all parts
         full_prompt = "\n\n".join(prompt_parts)
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
-        self._log_system_prompt_breakdown(
-            self.agent_id, len(full_prompt), part_sizes, module_instructions_list, narrative_meta
-        )
+        # Stash breakdown inputs for the [SYSPROMPT-BREAKDOWN] line — emitted
+        # in build_input_for_framework, where the FINAL adapter-facing system
+        # prompt string exists (measure what you hash: the sys_sha256 there
+        # covers preamble and all). ContextRuntime is per-turn, so instance
+        # state cannot leak across turns.
+        self._last_part_sizes = part_sizes
+        self._last_module_instructions = module_instructions_list
+        self._last_narrative_meta = narrative_meta
         self._maybe_dump_system_prompt(self.agent_id, full_prompt, part_sizes, module_instructions_list)
         return full_prompt.strip()
 
@@ -508,6 +534,7 @@ class ContextRuntime:
         part_sizes: Dict[str, int],
         module_instructions_list: List[ModuleInstructions],
         narrative_meta: Dict[str, int],
+        sys_sha256: str = "",
     ) -> None:
         """Emit one INFO line decomposing the system prompt into its Parts, the
         five largest module-instruction contributors, and the Narrative's
@@ -523,7 +550,7 @@ class ContextRuntime:
         """
         parts_str = " ".join(
             f"{name}={part_sizes.get(name, 0)}"
-            for name in ("security", "temporal", "narrative", "modules", "bootstrap")
+            for name in ("security", "temporal", "narrative", "modules", "bootstrap", "turn_context")
         )
         # ALL module instruction sizes (desc) — not just the top few — so the
         # per-turn grower (a module whose get_instructions embeds accumulating
@@ -535,9 +562,14 @@ class ContextRuntime:
         )
         modules_str = " ".join(f"{name}={size}" for name, size in module_sizes)
         nar_str = " ".join(f"{k}={v}" for k, v in narrative_meta.items()) or "n/a"
+        # sys_sha256 = first 12 hex chars of sha256 over the FINAL
+        # adapter-facing system prompt string. Two consecutive turns with a
+        # byte-stable prompt log the SAME value — the R4 cache sentinel
+        # (grep two rounds, compare). Empty when the caller didn't hash.
         logger.info(
             f"[SYSPROMPT-BREAKDOWN] agent={agent_id} total={total_chars} | "
-            f"parts: {parts_str} | narrative: {nar_str} | modules: {modules_str}"
+            f"parts: {parts_str} | narrative: {nar_str} | modules: {modules_str} | "
+            f"sys_sha256={sys_sha256}"
         )
 
     async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
@@ -558,6 +590,83 @@ class ContextRuntime:
             return ""
         now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
         return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
+
+    async def _build_turn_context_block(
+        self,
+        active_instances: List,
+        ctx_data: ContextData,
+        narrative_list: Optional[List[Narrative]] = None,
+    ) -> str:
+        """Assemble the per-turn [Turn context] block (R4 relocation).
+
+        Order (fixed — cache stability depends on determinism):
+        1. User Temporal Context (heading name unchanged — job MCP tool
+           docstrings reference it)
+        2. Current narrative state (updated_at + current_summary)
+        3. Module get_turn_context blocks — deduplicated by module_class in
+           active_instances order, then stable-sorted by priority ascending
+           (same ordering semantics as _build_module_instructions_prompt)
+        4. Recent background activity
+
+        Every source is individually fail-open: a failing part is skipped
+        with a warning, never fatal to the turn (same semantics its
+        system-prompt predecessor had).
+        """
+        parts: List[str] = [TURN_CONTEXT_HEADER]
+
+        # 1. Temporal block (relocated Part 0 — same wording, same heading)
+        try:
+            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+            if temporal_block:
+                parts.append(temporal_block)
+        except Exception as e:  # noqa: BLE001 — fail-open per part
+            logger.warning(f"        Turn context: failed to build User Temporal Context: {e}")
+
+        # 2. Narrative volatile state (relocated from Part 1)
+        if narrative_list:
+            try:
+                narrative_turn_prompt = await NarrativeService(
+                    self.agent_id
+                ).combine_narrative_turn_prompt(narrative_list[0])
+                if narrative_turn_prompt:
+                    parts.append(narrative_turn_prompt)
+            except Exception as e:  # noqa: BLE001 — fail-open per part
+                logger.warning(f"        Turn context: failed to build narrative state: {e}")
+
+        # 3. Module per-turn blocks (deduped by module_class, priority asc —
+        #    list.sort is stable, so equal priorities keep instance order,
+        #    mirroring _build_module_instructions_prompt)
+        module_blocks: List[Tuple[int, str]] = []
+        seen_module_classes = set()
+        for inst in active_instances:
+            if inst.module_class in seen_module_classes or inst.module is None:
+                continue
+            seen_module_classes.add(inst.module_class)
+            try:
+                block = await inst.module.get_turn_context(ctx_data)
+            except Exception as e:  # noqa: BLE001 — one module must not kill the turn
+                logger.warning(
+                    f"        Turn context: get_turn_context failed for "
+                    f"{inst.module_class}: {e}"
+                )
+                continue
+            if block:
+                module_blocks.append((inst.module.config.priority, block))
+        module_blocks.sort(key=lambda kv: kv[0])
+        parts.extend(block for _, block in module_blocks)
+
+        # 4. Recent background activity (relocated from the system prompt tail)
+        try:
+            recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
+            if recent_actions:
+                parts.append(self._build_recent_actions_section(recent_actions))
+                logger.info(
+                    f"[RecentActions] rendered {len(recent_actions)} actions into turn context"
+                )
+        except Exception as e:  # noqa: BLE001 — fail-open per part
+            logger.warning(f"        Turn context: failed to build recent actions: {e}")
+
+        return "\n\n".join(parts)
 
     async def _build_auxiliary_narratives_prompt(
         self,
@@ -622,7 +731,8 @@ class ContextRuntime:
         messages: List[Dict[str, Any]],
         system_prompt: str,
         active_instances: List,  # Changed to active_instances
-        ctx_data: ContextData
+        ctx_data: ContextData,
+        narrative_list: Optional[List[Narrative]] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[str]]:
         """
         Build input for the Agent Framework.
@@ -632,6 +742,9 @@ class ContextRuntime:
             system_prompt: The built system prompt
             active_instances: List of Module Instances (module already bound)
             ctx_data: Context data (containing chat_history populated by ChatModule)
+            narrative_list: Narratives for this turn (1st = main). Needed for
+                the per-turn narrative state in the [Turn context] block (R4
+                relocation); None = no narrative turn block.
 
         Returns:
             (messages, mcp_servers, disallowed_tools)
@@ -668,10 +781,14 @@ class ContextRuntime:
 
         enhanced_system_prompt = system_prompt
 
+        relocation_enabled = settings.prompt_turn_context_relocation_enabled
+
         # P2: append the recent background-activity section (centered small-text
         # in the UI) — a compact list with event_ids, separate from the timeline.
+        # R4: volatile (accumulates per turn) → relocated to the turn context
+        # when relocation is enabled, so the system prompt tail stays stable.
         recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
-        if recent_actions:
+        if recent_actions and not relocation_enabled:
             enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
@@ -720,6 +837,32 @@ class ContextRuntime:
         # will re-synthesise the SAME marker from ``msg["attachments"]``,
         # so agent behaviour is uniform across current-turn vs historical.
         current_user_content = ctx_data.input_content or ""
+
+        # R4 turn-context relocation: prepend the per-turn volatile block to
+        # the LLM-facing current message (attachment-marker precedent: the
+        # persisted ``ctx_data.input_content`` is NEVER touched, so chat
+        # persistence / frontend rendering / cold-start history re-synthesis
+        # stay turn-context-free). Runs unconditionally each turn — cold and
+        # resume rounds get the identical structure. Fail-open: any assembly
+        # failure keeps the message as-is (same drop-with-warning semantics
+        # the volatile sections already had on the system-prompt path).
+        turn_context_chars = 0
+        if relocation_enabled:
+            try:
+                turn_context_block = await self._build_turn_context_block(
+                    active_instances, ctx_data, narrative_list
+                )
+                turn_context_chars = len(turn_context_block)
+                current_user_content = (
+                    f"{turn_context_block}\n\n{USER_MESSAGE_SEPARATOR}\n\n{current_user_content}"
+                )
+                logger.debug(
+                    f"        Prepended [Turn context] block: {turn_context_chars} chars "
+                    f"(persisted input_content stays original)"
+                )
+            except Exception as e:  # noqa: BLE001 — turn context must never break a turn
+                logger.warning(f"        Failed to assemble [Turn context] block: {e}")
+
         raw_atts = (ctx_data.extra_data or {}).get("attachments")
         if isinstance(raw_atts, list) and raw_atts:
             from xyz_agent_context.schema.attachment_schema import Attachment
@@ -745,6 +888,29 @@ class ContextRuntime:
             "content": current_user_content,
         })
         logger.debug(f"        Added current user input: {len(current_user_content)} chars")
+
+        # [SYSPROMPT-BREAKDOWN] — emitted here (not in
+        # build_complete_system_prompt) because THIS is where the final
+        # adapter-facing system prompt string exists; sys_sha256 hashes
+        # exactly what is sent, so two turns with an identical prefix show
+        # identical hashes (the cache-stability sentinel, R4a.4). Part sizes
+        # were stashed by build_complete_system_prompt; direct callers of
+        # this method (tests) simply get empty parts.
+        try:
+            import hashlib
+            sys_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
+            part_sizes = dict(getattr(self, "_last_part_sizes", {}) or {})
+            part_sizes["turn_context"] = turn_context_chars
+            self._log_system_prompt_breakdown(
+                self.agent_id,
+                len(enhanced_system_prompt),
+                part_sizes,
+                getattr(self, "_last_module_instructions", []) or [],
+                getattr(self, "_last_narrative_meta", {}) or {},
+                sys_sha256=sys_sha256,
+            )
+        except Exception as e:  # noqa: BLE001 — diagnostics must never break a turn
+            logger.warning(f"[SYSPROMPT-BREAKDOWN] emission failed: {e}")
 
         # Step 2: Collect all Module MCP URLs (deduplicated by module_class)
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")

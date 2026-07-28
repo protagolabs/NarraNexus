@@ -145,6 +145,22 @@ class Settings(BaseSettings):
     # backwards-compatibility shim. Env: AGENT_LOOP_RESUME_ENABLED.
     agent_loop_resume_enabled: bool = True
 
+    # ===== Turn-context relocation (token optimization phase 3, R4) =====
+    # Kill-switch for relocating per-turn volatile content (temporal block,
+    # narrative updated_at / current_summary, recent background activity,
+    # module get_turn_context blocks) out of the system prompt into a
+    # "[Turn context]" block prepended to the CURRENT user message. This
+    # keeps the system prompt byte-stable across turns so provider prefix
+    # caches (Anthropic byte-prefix, DeepSeek/vLLM block-hash) can hit.
+    # Relocation moves bytes, it never drops them — the model still sees
+    # every relocated section each turn. Off = context assembly is
+    # byte-identical to the pre-R4 layout. Independent from
+    # agent_loop_resume_enabled: relocation benefits every framework and
+    # every turn; resume is claude_code-only. This is a fail-open ops gate,
+    # not a backwards-compatibility shim.
+    # Env: PROMPT_TURN_CONTEXT_RELOCATION_ENABLED.
+    prompt_turn_context_relocation_enabled: bool = True
+
     # ===== Helper-LLM one-shot bounds =====
     # The helper_llm slot runs SHORT, tool-free, single-turn structured-output
     # calls (Instance Decision, job analysis, memory consolidation, ...). It is
