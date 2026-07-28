@@ -83,6 +83,9 @@ _DOTENV_PASSTHROUGH = {
     "FREE_TIER_GATEWAY_OPENAI_BASE_URL",
     "FREE_TIER_AGENT_MODEL",
     "FREE_TIER_HELPER_MODEL",
+    # Where transcription goes for a free-tier user. The proxy holds the
+    # operator's STT credential; we only ever send the user's wallet key.
+    "FREE_TIER_STT_PROXY_URL",
 }
 for _k, _v in _dotenv_values.items():
     if not _v:
@@ -274,13 +277,11 @@ class Settings(BaseSettings):
     # production. In local mode an unset value falls back to admin_secret_key.
     transcription_hmac_secret: str = ""
 
-    # Operator-owned NetMind credentials for cloud TRANSCRIPTION only. Unrelated
-    # to the LLM free tier (that is a gateway wallet since 2026-07-28): STT does
-    # not go through the gateway, so the resolver appends NetMind as the last
-    # fallback here and gates it on the user's wallet balance itself — see
-    # llm/transcription/resolver._has_free_tier_grant.
-    system_default_netmind_api_key: str = ""
-    system_default_netmind_base_url: str = "https://api.netmind.ai"
+    # NOTE: the operator's NetMind STT credential is deliberately NOT here any
+    # more (2026-07-28). Transcription for free-tier users goes through the
+    # deploy-side STT proxy authenticated by the user's own wallet key, so the
+    # operator credential lives only in that proxy's container — it used to
+    # have to be present in backend, mcp and workers for STT to work at all.
 
     @property
     def is_cloud_mode(self) -> bool:

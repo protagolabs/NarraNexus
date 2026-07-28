@@ -31,6 +31,10 @@ from xyz_agent_context.agent_framework.llm.transcription.credential import (
 BACKEND_TIMEOUTS_S: dict[str, float] = {
     "openai_multipart": 35.0,
     "netmind": 60.0,
+    # The proxy polls NetMind on our behalf inside ONE request, so our budget
+    # has to cover the whole job — not just a single hop like the direct
+    # netmind backend, which runs its own polling loop under a 55s ceiling.
+    "gateway": 165.0,
 }
 
 

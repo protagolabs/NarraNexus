@@ -139,8 +139,6 @@ def _patch_settings(monkeypatch, **kwargs):
     relevant fields so each test starts from a clean slate."""
     defaults = {
         "openai_api_key": "",
-        "system_default_netmind_api_key": "",
-        "system_default_netmind_base_url": "https://api.netmind.ai",
         "public_base_url": "",
     }
     defaults.update(kwargs)
@@ -336,180 +334,65 @@ async def test_settings_openai_only_used_in_local_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_system_default_netmind_only_when_public_base_url_set(monkeypatch):
-    _patch_user_providers(monkeypatch)
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    # Free-tier opt-in is on — but missing public_base_url is a hard
-    # blocker. The toggle being "yes please" doesn't override deployment
-    # config, it just unlocks the free tier when config IS present.
-    _patch_free_tier(monkeypatch)
-
-    # Key set, base URL unset → resolver downgrades NetMind to unavailable.
-    _patch_settings(
+async def test_free_tier_card_routes_through_the_stt_proxy(monkeypatch):
+    """The free-tier card's own key IS the credential — the operator's NetMind
+    key is no longer part of this process at all (2026-07-28)."""
+    _patch_user_providers(
         monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="",
+        _provider("http://litellm:4000/v1", api_key="sk-wallet", source="netmind_free"),
     )
+    _patch_local_mode(monkeypatch, is_cloud=True)
+    _patch_settings(monkeypatch, public_base_url="https://my-deploy.example.com")
+    monkeypatch.setenv("FREE_TIER_STT_PROXY_URL", "http://quota-api:8110")
+
+    creds = await R.resolve_candidates(user_id="u1")
+
+    assert len(creds) == 1
+    assert creds[0].backend_kind == TranscriptionBackendKind.GATEWAY
+    assert creds[0].api_key == "sk-wallet"       # the user's wallet key
+    assert creds[0].base_url == "http://quota-api:8110"
+    assert creds[0].source_tag == "free_tier:gateway"
+
+
+@pytest.mark.asyncio
+async def test_free_tier_card_needs_public_ingress(monkeypatch):
+    """The proxy forwards a URL, it does not carry bytes — NetMind still PULLS
+    the audio, so an unreachable deployment must not offer this candidate."""
+    _patch_user_providers(
+        monkeypatch,
+        _provider("http://litellm:4000/v1", api_key="sk-wallet", source="netmind_free"),
+    )
+    _patch_local_mode(monkeypatch, is_cloud=True)
+    _patch_settings(monkeypatch, public_base_url="")
+    monkeypatch.setenv("FREE_TIER_STT_PROXY_URL", "http://quota-api:8110")
+
     assert await R.resolve_candidates(user_id="u1") == []
 
-    # Both set + opt-in on → system NetMind is the sole candidate.
-    _patch_settings(
+
+@pytest.mark.asyncio
+async def test_free_tier_card_is_skipped_when_no_proxy_is_configured(monkeypatch):
+    _patch_user_providers(
         monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
+        _provider("http://litellm:4000/v1", api_key="sk-wallet", source="netmind_free"),
     )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 1
-    assert creds[0].backend_kind == TranscriptionBackendKind.NETMIND
-    assert creds[0].is_system_free_tier is True
-    assert creds[0].api_key == "sys-netmind-key"
-    assert creds[0].source_tag == "system_default:netmind"
+    _patch_local_mode(monkeypatch, is_cloud=True)
+    _patch_settings(monkeypatch, public_base_url="https://my-deploy.example.com")
+    monkeypatch.delenv("FREE_TIER_STT_PROXY_URL", raising=False)
+
+    assert await R.resolve_candidates(user_id="u1") == []
 
 
 @pytest.mark.asyncio
-async def test_user_provider_takes_precedence_over_system_default(monkeypatch):
-    """User-configured providers always come before the cloud free tier."""
+async def test_own_provider_still_outranks_the_free_tier(monkeypatch):
     _patch_user_providers(
         monkeypatch,
         _provider("https://api.openai.com/v1", api_key="user-openai"),
+        _provider("http://litellm:4000/v1", api_key="sk-wallet", source="netmind_free"),
     )
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch)
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 2
-    assert creds[0].api_key == "user-openai"
-    assert creds[1].is_system_free_tier is True
-
-
-# ─────────────────────────────────────────────────────────────────────
-# free-tier grant gate (anti-freeloading guard). Since 2026-07-18 the
-# gate is "does a quota row exist" — prefer_system_override is only the
-# exhaustion-notice latch and must NOT deny routing.
-# ─────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_fired_notice_latch_still_gets_system_default(monkeypatch):
-    """The notice latch being fired (prefer_system_override=0, i.e. an
-    exhaustion cycle happened) must NOT deny the free tier — it is not a
-    user preference. Regression guard for the 2026-07-18 semantics."""
-    _patch_user_providers(monkeypatch)  # no own providers
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch)  # wallet exists with budget
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 1
-    assert creds[0].is_system_free_tier is True
-
-
-@pytest.mark.asyncio
-async def test_fired_latch_own_providers_rank_first(monkeypatch):
-    """Own keys keep working and outrank the system tier."""
-    _patch_user_providers(
-        monkeypatch,
-        _provider("https://api.openai.com/v1", api_key="user-openai"),
-    )
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch)
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 2
-    assert creds[0].api_key == "user-openai"
-    assert creds[0].is_system_free_tier is False
-    assert creds[1].is_system_free_tier is True
-
-
-@pytest.mark.asyncio
-async def test_exhausted_quota_gets_no_system_default(monkeypatch):
-    """Row exists but the budget is gone → NO operator-billed STT. STT usage
-    doesn't deduct from user_quotas, so without this gate an exhausted
-    account could burn the operator's NetMind STT key indefinitely while
-    its LLM path is already blocked (review 2026-07-18) — the two paths
-    must share one budget verdict."""
-    _patch_user_providers(monkeypatch)
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, has_budget=False)
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert creds == []
-
-
-@pytest.mark.asyncio
-async def test_no_quota_row_gets_no_system_default(monkeypatch):
-    """Brand-new user with no quota row at all → no free tier was granted,
-    so STT must not silently bill the operator (implicit-grant liability
-    guard — the row IS the grant)."""
-    _patch_user_providers(monkeypatch)
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, has_wallet=False)  # never provisioned
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert creds == []
-
-
-@pytest.mark.asyncio
-async def test_system_provider_disabled_skips_system_default(monkeypatch):
-    """SystemProviderService.is_enabled()==False (local mode or
-    SYSTEM_DEFAULT_LLM_ENABLED unset) → system NetMind is unreachable
-    regardless of the user's toggle."""
-    _patch_user_providers(monkeypatch)
-    _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, wallet_configured=False)
-    _patch_settings(
-        monkeypatch,
-        system_default_netmind_api_key="sys-netmind-key",
-        public_base_url="https://my-deploy.example.com",
-    )
-    creds = await R.resolve_candidates(user_id="u1")
-    assert creds == []
-
-
-@pytest.mark.asyncio
-async def test_no_user_id_skips_user_tier(monkeypatch):
-    _patch_user_providers(monkeypatch, _provider("https://api.openai.com/v1"))
-    _patch_local_mode(monkeypatch, is_cloud=False)
-    _patch_settings(monkeypatch, openai_api_key="env-key")
-
-    creds = await R.resolve_candidates(user_id=None)
-    # Only settings.openai is present (local mode), user tier is bypassed
-    assert len(creds) == 1
-    assert creds[0].source_tag == "settings.openai"
-
-
-@pytest.mark.asyncio
-async def test_user_lookup_failure_does_not_break_resolution(monkeypatch):
-    """Database / import failure during user-provider lookup should not
-    crash the upload route — fall through to system / settings."""
-    async def _explode(*a, **kw):
-        raise RuntimeError("simulated DB outage")
-
-    monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _explode,
-    )
-    _patch_local_mode(monkeypatch, is_cloud=False)
-    _patch_settings(monkeypatch, openai_api_key="env-key")
+    _patch_settings(monkeypatch, public_base_url="https://my-deploy.example.com")
+    monkeypatch.setenv("FREE_TIER_STT_PROXY_URL", "http://quota-api:8110")
 
     creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 1
-    assert creds[0].source_tag == "settings.openai"
+
+    assert [c.api_key for c in creds] == ["user-openai", "sk-wallet"]

@@ -29,7 +29,13 @@ class TranscriptionBackendKind(str, Enum):
     NETMIND = "netmind"
     """NetMind's /v1/generation submit-then-poll contract with a
     JSON ``{audio_url}`` body. Requires a public-URL service to host
-    the audio file the worker fetches."""
+    the audio file the worker fetches. Used for a USER's own NetMind key."""
+
+    GATEWAY = "gateway"
+    """The deploy-side STT proxy: one synchronous POST authenticated by the
+    user's WALLET key. Same public-URL requirement (the proxy forwards a URL,
+    it does not carry bytes), but the operator's NetMind credential stays in
+    the proxy instead of in our processes."""
 
 
 @dataclass(frozen=True)

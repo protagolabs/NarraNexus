@@ -43,6 +43,7 @@ from loguru import logger
 
 from xyz_agent_context.agent_framework.llm.transcription.backends import (
     BACKEND_TIMEOUTS_S,
+    GatewayTranscriptionBackend,
     NetMindBackend,
     OpenAIMultipartBackend,
     TranscriptionBackend,
@@ -66,11 +67,12 @@ class TranscriptionAvailability:
       - ``NONE`` — no provider configured AND no free tier wired up at
         the deployment level (or running in local mode without a key).
         Dialog: "configure OpenAI/NetMind to enable voice input."
-      - ``FREE_TIER_NOT_GRANTED`` — no provider configured, and the cloud
-        free tier is wired at the deployment level but this user has no
-        quota row (no grant — the row IS the grant; the old opt-out
-        preference was removed 2026-07-18).
-        Dialog: "configure your own transcription provider."
+
+    ``FREE_TIER_NOT_GRANTED`` existed here until 2026-07-28, for "the operator
+    free tier is wired up but this user has no grant". It is gone with the
+    operator-key tier: a free-tier user now reaches STT through their own
+    provider card, so "no card" and "no provider" are the same state with the
+    same remedy.
     """
 
     HAS_OPENAI = "has_openai"
@@ -78,7 +80,6 @@ class TranscriptionAvailability:
     HAS_OTHER = "has_other"           # Yunwu / self-hosted / settings.openai
     SYSTEM_FREE_TIER = "system_free_tier"
     NONE = "none"
-    FREE_TIER_NOT_GRANTED = "free_tier_not_granted"
     # No transcription provider AND this deployment can't host NetMind
     # (no PUBLIC_BASE_URL — typical for Tauri / `bash run.sh` desktop).
     # Frontend dialog drops the "or NetMind" branch so we don't tell
@@ -117,6 +118,7 @@ class TranscriptionService:
         self._backends: Dict[str, TranscriptionBackend] = {
             TranscriptionBackendKind.OPENAI_MULTIPART.value: OpenAIMultipartBackend(),
             TranscriptionBackendKind.NETMIND.value: NetMindBackend(),
+            TranscriptionBackendKind.GATEWAY.value: GatewayTranscriptionBackend(),
         }
 
     # --- singleton plumbing -------------------------------------------
@@ -154,7 +156,7 @@ class TranscriptionService:
         """Return ``(available, reason)`` for the frontend dialog.
 
         When ``creds`` is empty we run a second diagnosis to distinguish
-        ``FREE_TIER_NOT_GRANTED`` from ``NONE`` so the dialog can explain
+        the deployment-vs-account cases from ``NONE`` so the dialog can explain
         the deployment-vs-account difference when applicable.
         """
         creds = await resolve_candidates(user_id)
@@ -163,18 +165,11 @@ class TranscriptionService:
 
         # No candidates — figure out *why* so the frontend dialog can
         # tailor the call to action.
-        if user_id:
-            from xyz_agent_context.agent_framework.llm.transcription.resolver import (
-                _system_default_netmind_credential,
-                _user_has_free_tier,
-            )
-            sys_cred = _system_default_netmind_credential()
-            if sys_cred is not None:
-                # Free tier is wired at the deploy level; the only reason we
-                # got 0 candidates is that this user was never granted one
-                # (no quota row — free-tier-first is otherwise automatic).
-                if not await _user_has_free_tier(user_id):
-                    return False, TranscriptionAvailability.FREE_TIER_NOT_GRANTED
+        #
+        # The old "free tier not granted" branch is gone with the operator-key
+        # tier: a free-tier user now reaches STT through their own provider
+        # card, so "no card" and "no provider" are the same answer, and the
+        # remediation the dialog offers is the same too.
 
         # No public ingress → NetMind isn't viable on this machine.
         # Tell the frontend so the dialog drops the NetMind branch

@@ -18,7 +18,8 @@ Priority (high → low) — see design doc §7:
      (Yunwu, self-hosted whisper.cpp). OpenRouter intentionally
      skipped — its Whisper is JSON+base64, no backend yet.
   4. legacy ``settings.openai_api_key`` (.env classic, local mode only)
-  5. system-default NetMind from settings.system_default_netmind_*
+  5. (removed 2026-07-28) the operator's own NetMind key — free-tier
+     users now reach STT through their wallet card + the deploy-side proxy
      (cloud free tier — only when public_base_url is also configured)
 
 Quota: transcription does NOT call ``cost_tracker.record_cost``
@@ -28,6 +29,7 @@ no quota deduction happens for it. See design doc §3 for rationale.
 """
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 from loguru import logger
@@ -39,6 +41,9 @@ from xyz_agent_context.agent_framework.llm.transcription.credential import (
 from xyz_agent_context.schema.provider_schema import (
     ProviderConfig,
     ProviderProtocol,
+)
+from xyz_agent_context.agent_framework.providers.free_tier import (
+    FREE_TIER_SOURCE,
 )
 from xyz_agent_context.settings import settings
 
@@ -82,6 +87,28 @@ def _to_openai_credential(
         base_url=prov.base_url,
         model=_WHISPER_OPENAI_MODEL,
         source_tag=source_tag,
+    )
+
+
+def _to_gateway_credential(
+    prov: ProviderConfig,
+) -> Optional[TranscriptionCredential]:
+    """Map the free-tier card to the deploy-side STT proxy.
+
+    The card's api_key IS the user's wallet key, and the proxy authenticates
+    with exactly that — so transcription rides the same credential as chat, and
+    the operator's NetMind key never has to exist in this process. Returns None
+    when no proxy is configured (local / free tier off).
+    """
+    base = (os.environ.get("FREE_TIER_STT_PROXY_URL") or "").strip()
+    if not base:
+        return None
+    return TranscriptionCredential(
+        backend_kind=TranscriptionBackendKind.GATEWAY,
+        api_key=prov.api_key,
+        base_url=base,
+        model="",  # the proxy owns the model choice
+        source_tag="free_tier:gateway",
     )
 
 
@@ -145,20 +172,33 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
                         prov, source_tag=f"user_provider:{prov.source.value}:openai_official",
                     ))
 
-            # Tier 2: user NetMind — gated on public ingress (see
-            # `has_public_ingress` comment above). Without a reachable
-            # URL the credential is decorative.
+            # Tier 2: NetMind capacity — the user's own key direct, or the
+            # free-tier wallet through our STT proxy. Both gated on public
+            # ingress (see `has_public_ingress` above): NetMind PULLS the
+            # audio either way, so without a reachable URL the credential is
+            # decorative.
             if has_public_ingress:
                 for prov in providers:
-                    if _is_active_openai_proto(prov) and _is_netmind(prov.base_url):
+                    if not _is_active_openai_proto(prov):
+                        continue
+                    if prov.source == FREE_TIER_SOURCE:
+                        cred = _to_gateway_credential(prov)
+                        if cred is not None:
+                            candidates.append(cred)
+                    elif _is_netmind(prov.base_url):
                         candidates.append(_to_netmind_user_credential(
                             prov, source_tag=f"user_provider:{prov.source.value}:netmind",
                         ))
 
-            # Tier 3: user other OpenAI-multipart compatible
+            # Tier 3: user other OpenAI-multipart compatible.
+            # The free-tier card is deliberately excluded: its base_url points
+            # at our LLM gateway, which serves no /audio/transcriptions route,
+            # so it would look eligible here and fail on every call. It has its
+            # own candidate above (the STT proxy).
             for prov in providers:
                 if (
                     _is_active_openai_proto(prov)
+                    and prov.source != FREE_TIER_SOURCE
                     and not _is_official_openai(prov.base_url)
                     and not _is_netmind(prov.base_url)
                     and not _is_openrouter(prov.base_url)
@@ -188,87 +228,6 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
             source_tag="settings.openai",
         ))
 
-    # --- Tier 5: system-default NetMind (cloud free tier) -----------------
-    # Gate on "was this user granted a free tier" (a quota row exists) —
-    # the SAME rule chat / helper_llm follow via provider_resolver.py.
-    # Free-tier-first is platform behavior (the old prefer_system toggle
-    # was removed 2026-07-18); the no-row guard stays so a user the
-    # operator never granted quota can't route STT through the operator's
-    # NetMind key implicitly.
-    if user_id and await _user_has_free_tier(user_id):
-        sys_netmind = _system_default_netmind_credential()
-        if sys_netmind is not None:
-            candidates.append(sys_netmind)
-
     return candidates
 
 
-async def _user_has_free_tier(user_id: str) -> bool:
-    """True iff this user was granted a cloud free tier (a quota row
-    exists), the grant still has budget, AND the feature is enabled at
-    the deployment level.
-
-    Defaults to ``False`` on any error path — grant by exception is the
-    unsafe direction for a feature that costs the operator money.
-
-    NOTE: deliberately does NOT read ``prefer_system_override`` — since
-    2026-07-18 that column is only the exhaustion-notice dedup latch
-    (see provider_resolver), not a user preference. The two REAL
-    boundaries are the row (no grant → no operator-billed routing) and
-    the budget (review 2026-07-18: STT usage doesn't deduct from
-    user_quotas, so without the ``check`` an exhausted account could
-    burn the operator's NetMind STT key indefinitely while its LLM path
-    is already blocked — the two paths must share one budget verdict).
-    """
-    try:
-        from xyz_agent_context.integrations.free_tier.wallet_client import (
-            WalletClient,
-            WalletMissing,
-        )
-
-        client = WalletClient.from_settings()
-        if client is None:
-            # No wallet service in this deployment (local / free tier off) —
-            # treat as no grant so we never bill the operator by accident.
-            return False
-        try:
-            balance = await client.balance(user_id)
-        except WalletMissing:
-            return False
-        # The wallet is the ONE budget both paths share. STT does not flow
-        # through the gateway (it uses the operator's NetMind STT key
-        # directly), so unlike LLM calls it cannot be refused upstream —
-        # which is exactly why this check has to exist here: an exhausted
-        # account must not keep burning the operator's STT key after its
-        # LLM path is already blocked.
-        return not balance.exhausted
-    except Exception as e:
-        logger.debug(f"transcription resolver: free-tier grant check failed: {e}")
-        return False
-
-
-def _system_default_netmind_credential() -> Optional[TranscriptionCredential]:
-    """Build the cloud free-tier NetMind credential, or ``None`` if any
-    of the required config is missing.
-
-    Required:
-      - ``settings.system_default_netmind_api_key`` — the key NetMind
-        bills against. Operator-managed; not exposed in user UI.
-      - ``settings.public_base_url`` — externally-reachable URL for
-        this deployment so NetMind's worker can fetch the audio. If
-        unset we'd mint a URL no one can resolve, so we degrade.
-    """
-    api_key = (settings.system_default_netmind_api_key or "").strip()
-    public_base = (settings.public_base_url or "").strip()
-    if not api_key or not public_base:
-        return None
-
-    base_url = (settings.system_default_netmind_base_url or _NETMIND_NATIVE_BASE_URL).strip()
-    return TranscriptionCredential(
-        backend_kind=TranscriptionBackendKind.NETMIND,
-        api_key=api_key,
-        base_url=base_url,
-        model=_WHISPER_NETMIND_MODEL,
-        source_tag="system_default:netmind",
-        is_system_free_tier=True,
-    )

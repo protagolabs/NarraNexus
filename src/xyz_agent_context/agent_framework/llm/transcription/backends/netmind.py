@@ -56,8 +56,8 @@ from loguru import logger
 from xyz_agent_context.agent_framework.llm.transcription.backends.base import (
     TranscriptionBackend,
 )
-from xyz_agent_context.agent_framework.llm.transcription.backends.openai_multipart import (
-    SUPPORTED_AUDIO_EXTENSIONS,
+from xyz_agent_context.agent_framework.llm.transcription.backends._audio_url import (
+    prepare_public_audio_url,
 )
 from xyz_agent_context.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
@@ -81,22 +81,15 @@ _POLL_INTERVAL_S: float = 0.8
 _OVERALL_TIMEOUT_S: float = 55.0  # < base.BACKEND_TIMEOUTS_S[netmind]=60s
 
 # Extensions soundfile (NetMind's decoder) accepts as-is.
-_SOUNDFILE_NATIVE = frozenset({".mp3", ".wav", ".flac", ".ogg", ".oga", ".aiff"})
-
 # Hard ceiling on transcoded audio. Same 25MB Whisper-style cap as the
 # OpenAI backend — NetMind's own limits aren't published but big inputs
 # tend to fail anyway, and we'd rather log the reason than time out.
-NETMIND_MAX_FILE_BYTES = 25 * 1024 * 1024
-
 
 # Audio container that NetMind's worker is happy with. mp3 because
 # (a) it's universally produced by ffmpeg with ubiquitous codec
 # support, (b) compresses speech well so we don't blow up the public
 # URL traffic, and (c) the probe error message itself listed it as
 # the recommended format.
-_TRANSCODED_EXT = ".mp3"
-_TRANSCODE_TIMEOUT_S = 30.0
-
 
 class NetMindBackend(TranscriptionBackend):
     """NetMind /v1/generation Whisper (submit + poll)."""
@@ -113,49 +106,14 @@ class NetMindBackend(TranscriptionBackend):
         user_id: str,
         language: Optional[str] = None,
     ) -> Optional[str]:
-        path = Path(file_path)
-        if not path.is_file():
-            logger.warning(f"netmind: file missing {file_path}")
-            return None
-        if path.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
-            logger.debug(f"netmind: unsupported ext {path.suffix}")
-            return None
-
-        try:
-            served_path, variant = await self._prepare_servable(path)
-        except _NotTranscodableError as e:
-            logger.warning(f"netmind: {e}")
-            return None
-        if served_path is None:
-            return None  # logged inside _prepare_servable
-
-        if served_path.stat().st_size > NETMIND_MAX_FILE_BYTES:
-            logger.warning(
-                f"netmind: file too large after preparation "
-                f"({served_path.stat().st_size}B > {NETMIND_MAX_FILE_BYTES}B): "
-                f"{served_path.name}"
-            )
-            return None
-
-        try:
-            token = url_signer.mint(
-                file_id=file_id,
-                agent_id=agent_id,
-                user_id=user_id,
-                variant=variant,
-            )
-        except RuntimeError as e:
-            # Secret unconfigured — fail loudly in cloud (resolver should
-            # have skipped us) but stay never-raise toward the caller.
-            logger.error(f"netmind: cannot mint signed URL: {e}")
-            return None
-
-        public_url = url_signer.public_url_for(token)
-        if not public_url:
-            logger.error(
-                "netmind: public_base_url is unset — cannot give NetMind a "
-                "URL it can fetch. Resolver should have skipped this candidate."
-            )
+        public_url = await prepare_public_audio_url(
+            file_path,
+            file_id=file_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            log_tag="netmind",
+        )
+        if public_url is None:
             return None
 
         deadline = time.monotonic() + _OVERALL_TIMEOUT_S
@@ -192,59 +150,6 @@ class NetMindBackend(TranscriptionBackend):
                     return None
 
                 await asyncio.sleep(_POLL_INTERVAL_S)
-
-    # ------------------------------------------------------------------
-    # File preparation (transcode if needed)
-    # ------------------------------------------------------------------
-
-    async def _prepare_servable(
-        self, original: Path
-    ) -> Tuple[Optional[Path], str]:
-        """Return ``(path_to_serve, variant)``.
-
-        ``variant`` matches the URL signer's vocabulary:
-          - "original" when NetMind can decode the upload as-is.
-          - "mp3" when we transcoded into the cached sibling file.
-
-        On unrecoverable transcode failure returns ``(None, "")`` —
-        caller bails. This is **not** an exception path: ffmpeg simply
-        not being installed is one of the routine failure modes we
-        gracefully degrade through.
-        """
-        ext = original.suffix.lower()
-        if ext in _SOUNDFILE_NATIVE:
-            return original, "original"
-
-        cached = original.with_suffix(_TRANSCODED_EXT)
-        if cached.exists() and cached.stat().st_size > 0:
-            # Reuse a previous transcode — same input always produces the
-            # same output, so this is purely a CPU-saver. Stale-cache
-            # concerns don't apply: source filenames are immutable
-            # ({file_id}.{ext}) and never overwritten.
-            return cached, "mp3"
-
-        if shutil.which("ffmpeg") is None:
-            logger.warning(
-                "netmind: ffmpeg not found on PATH — cannot transcode "
-                f"{original.name} for NetMind. Install ffmpeg or skip NetMind."
-            )
-            return None, ""
-
-        try:
-            await _ffmpeg_to_mp3(original, cached)
-        except Exception as e:
-            logger.error(
-                f"netmind: transcode {original.name} → mp3 failed: {e}"
-            )
-            # Don't leave a partial / 0-byte file behind so a future
-            # invocation re-tries cleanly.
-            try:
-                cached.unlink(missing_ok=True)
-            except Exception:
-                pass
-            return None, ""
-
-        return cached, "mp3"
 
     # ------------------------------------------------------------------
     # HTTP wrappers
@@ -342,38 +247,6 @@ class NetMindBackend(TranscriptionBackend):
 
 class _NotTranscodableError(Exception):
     """Raised when the input file's extension makes transcoding impossible."""
-
-
-async def _ffmpeg_to_mp3(src: Path, dst: Path) -> None:
-    """Run ffmpeg to convert ``src`` into mp3 at ``dst``.
-
-    Uses libmp3lame (universally available in ffmpeg builds), 64 kbps
-    mono — voice-band audio doesn't need stereo, and lower bitrate is
-    a meaningful win for the public-URL transfer to NetMind.
-    """
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-i", str(src),
-        "-ac", "1", "-ar", "16000",
-        "-c:a", "libmp3lame", "-b:a", "64k",
-        str(dst),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        _, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_TRANSCODE_TIMEOUT_S,
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise RuntimeError(f"ffmpeg timed out after {_TRANSCODE_TIMEOUT_S}s")
-
-    if proc.returncode != 0:
-        msg = (stderr or b"").decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(f"ffmpeg exit {proc.returncode}: {msg}")
-    if not dst.exists() or dst.stat().st_size == 0:
-        raise RuntimeError("ffmpeg produced empty output")
 
 
 def _extract_transcript(payload: dict) -> Optional[str]:
