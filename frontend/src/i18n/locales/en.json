@@ -795,7 +795,12 @@
       "mcpAdded": "MCP servers added",
       "doneMsg": "The agent was created and populated.",
       "skillsUnmatchedNote": "Skills with no local source or marketplace match: {{names}}",
-      "stdioSkippedNote": "Local (stdio) MCP servers captured but not wired yet: {{names}}"
+      "stdioSkippedNote": "Local (stdio) MCP servers captured but not wired yet: {{names}}",
+      "sourceTitle": "Choose a source",
+      "frameworkHint": "We found agents from these frameworks on this machine. Pick one, or scan a folder directly.",
+      "sourceHint": "Pick which {{framework}} source to import.",
+      "countProjects": "{{count}} project(s)",
+      "countSources": "{{count}} source(s)"
     }
   },
   "settings": {

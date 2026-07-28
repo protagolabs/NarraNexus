@@ -795,7 +795,12 @@
       "mcpAdded": "已添加 MCP 服务",
       "doneMsg": "Agent 已创建并填充完成。",
       "skillsUnmatchedNote": "无本地来源且市场无匹配的技能:{{names}}",
-      "stdioSkippedNote": "已捕获但暂未接入的本地(stdio)MCP 服务:{{names}}"
+      "stdioSkippedNote": "已捕获但暂未接入的本地(stdio)MCP 服务:{{names}}",
+      "sourceTitle": "选择来源",
+      "frameworkHint": "在本机检测到以下框架的 agent。选择一个,或直接扫描某个文件夹。",
+      "sourceHint": "选择要导入的 {{framework}} 来源。",
+      "countProjects": "{{count}} 个 project",
+      "countSources": "{{count}} 个来源"
     }
   },
   "settings": {

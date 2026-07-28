@@ -12,16 +12,22 @@ The frontend of Agent Migration: turn an other-framework agent (Claude Code /
 Codex / OpenClaw / Hermes) found on the local machine into a NarraNexus agent.
 Launched from [[CreateMenu]]'s "Create Agent (from other source)" item.
 
-Three linear stages, each one API call:
-- **detect** → `api.migrateDetect()` (`GET /api/migrate/detect`) — list
-  frameworks found in standard home locations; the user picks one or types a
-  folder path.
-- **preview** → `api.migrateScan()` (`POST /api/migrate/scan`) — extract that
+Four linear stages:
+- **framework** — `api.migrateDetect()` (`GET /api/migrate/detect`) runs once on
+  open; detections are grouped by framework and the user picks a framework
+  first (or types a folder path to skip straight to preview).
+- **source** — the per-source list for the chosen framework. This exists
+  because Claude Code returns one detection PER PROJECT (see [[detector.py]]):
+  framework-first, then drill into the project list. Single-source frameworks
+  still show a one-row list for a consistent two-step flow.
+- **preview** — `api.migrateScan()` (`POST /api/migrate/scan`) — extract that
   source into the standardized JSON and show a read-only summary (skills /
   memory / MCP counts, per-skill copy-vs-marketplace, plaintext-credential
   warning, narrative note).
-- **done** → `api.migrateApply()` (`POST /api/migrate/apply`) — create +
+- **done** — `api.migrateApply()` (`POST /api/migrate/apply`) — create +
   populate the agent, then render per-dimension result counts.
+
+Back navigation is stage-wise: preview → source → framework.
 
 ## Design decisions
 

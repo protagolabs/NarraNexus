@@ -6,10 +6,16 @@
  * agents on the local machine, preview the scanned config, and apply it as a
  * new NarraNexus agent.
  *
- * Three stages:
- *   detect  → GET  /api/migrate/detect  (list frameworks found on disk)
- *   preview → POST /api/migrate/scan    (extract one source → standardized JSON)
- *   done    → POST /api/migrate/apply   (create + populate the agent)
+ * Four stages:
+ *   framework → GET  /api/migrate/detect  (group hits; pick a framework first)
+ *   source    → pick which source under that framework (e.g. one Claude Code
+ *               project among many); or type a folder path
+ *   preview   → POST /api/migrate/scan    (extract one source → standardized JSON)
+ *   done      → POST /api/migrate/apply   (create + populate the agent)
+ *
+ * The framework→source split exists because Claude Code is per-project: detect
+ * returns one row per project, so we group by framework first, then let the user
+ * drill into the project list.
  *
  * LOCAL ONLY: detect/scan read the user's filesystem, so the parent only mounts
  * this in local mode. MCP credentials are shown in PLAINTEXT with a warning
@@ -17,7 +23,7 @@
  * imported here; the agent self-authors it from `session_summary_seed` later.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Bot,
@@ -26,6 +32,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ArrowLeft,
+  ChevronRight,
   Puzzle,
   Brain,
   Plug,
@@ -35,11 +42,12 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type {
   FrameworkDetection,
+  MigrationFramework,
   StandardizedAgentImport,
   MigrationApplyResult,
 } from '@/types';
 
-type Stage = 'detect' | 'preview' | 'done';
+type Stage = 'framework' | 'source' | 'preview' | 'done';
 
 export interface ImportAgentModalProps {
   onClose: () => void;
@@ -54,6 +62,15 @@ const FRAMEWORK_LABEL: Record<string, string> = {
   codex: 'Codex',
   custom: 'Custom',
 };
+
+// Stable order for the framework list.
+const FRAMEWORK_ORDER: MigrationFramework[] = [
+  'claude_code',
+  'openclaw',
+  'codex',
+  'hermes',
+  'custom',
+];
 
 /** Claude Code enumerates one detection per project — suffix the project's
  *  folder name so the repeated "Claude Code" rows are distinguishable. */
@@ -77,11 +94,12 @@ function detectionHint(d: FrameworkDetection): string {
 
 export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) {
   const { t } = useTranslation();
-  const [stage, setStage] = useState<Stage>('detect');
+  const [stage, setStage] = useState<Stage>('framework');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [detections, setDetections] = useState<FrameworkDetection[]>([]);
+  const [framework, setFramework] = useState<MigrationFramework | null>(null);
   const [manualPath, setManualPath] = useState('');
   const [scan, setScan] = useState<StandardizedAgentImport | null>(null);
   const [result, setResult] = useState<MigrationApplyResult | null>(null);
@@ -103,12 +121,31 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
     void runDetect();
   }, [runDetect]);
 
+  // Group detections by framework, in the stable display order.
+  const frameworkGroups = useMemo(() => {
+    const by = new Map<MigrationFramework, FrameworkDetection[]>();
+    for (const d of detections) {
+      const arr = by.get(d.framework) ?? [];
+      arr.push(d);
+      by.set(d.framework, arr);
+    }
+    return FRAMEWORK_ORDER.filter((fw) => by.has(fw)).map((fw) => ({
+      framework: fw,
+      sources: by.get(fw)!,
+    }));
+  }, [detections]);
+
+  const sources = useMemo(
+    () => (framework ? detections.filter((d) => d.framework === framework) : []),
+    [detections, framework],
+  );
+
   const runScan = useCallback(
-    async (path?: string, framework?: FrameworkDetection['framework']) => {
+    async (path?: string, fw?: MigrationFramework) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await api.migrateScan(path, framework);
+        const res = await api.migrateScan(path, fw);
         setScan(res);
         setStage('preview');
       } catch (e) {
@@ -119,6 +156,14 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
     },
     [],
   );
+
+  // Pick a framework → drill into its source list. (Single-source frameworks
+  // still show the list for a consistent two-step flow.)
+  const pickFramework = (fw: MigrationFramework) => {
+    setError(null);
+    setFramework(fw);
+    setStage('source');
+  };
 
   const runApply = useCallback(async () => {
     if (!scan) return;
@@ -140,7 +185,9 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
       ? t('layout.importAgent.previewTitle')
       : stage === 'done'
         ? t('layout.importAgent.doneTitle')
-        : t('layout.importAgent.title');
+        : stage === 'source'
+          ? t('layout.importAgent.sourceTitle')
+          : t('layout.importAgent.title');
 
   return (
     <Dialog isOpen onClose={onClose} title={title} size="lg">
@@ -152,14 +199,23 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
           </div>
         )}
 
-        {stage === 'detect' && (
-          <DetectStage
+        {stage === 'framework' && (
+          <FrameworkStage
             loading={loading}
-            detections={detections}
+            groups={frameworkGroups}
             manualPath={manualPath}
             onManualPathChange={setManualPath}
-            onPick={(d) => runScan(d.path, d.framework)}
+            onPick={pickFramework}
             onScanManual={() => runScan(manualPath.trim() || undefined)}
+          />
+        )}
+
+        {stage === 'source' && framework && (
+          <SourceStage
+            loading={loading}
+            framework={framework}
+            sources={sources}
+            onPick={(d) => runScan(d.path, d.framework)}
           />
         )}
 
@@ -169,19 +225,22 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
       </DialogContent>
 
       <DialogFooter>
-        {stage === 'detect' && (
+        {stage === 'framework' && (
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
+          </Button>
+        )}
+        {stage === 'source' && (
+          <Button variant="ghost" onClick={() => { setStage('framework'); setFramework(null); }}>
+            <ArrowLeft className="mr-1 h-3.5 w-3.5" />
+            {t('common.back')}
           </Button>
         )}
         {stage === 'preview' && (
           <>
             <Button
               variant="ghost"
-              onClick={() => {
-                setStage('detect');
-                setScan(null);
-              }}
+              onClick={() => { setStage('source'); setScan(null); }}
             >
               <ArrowLeft className="mr-1 h-3.5 w-3.5" />
               {t('common.back')}
@@ -207,68 +266,64 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
   );
 }
 
-// ── detect stage ──────────────────────────────────────────────────────────
+// ── framework stage (step 1) ────────────────────────────────────────────────
 
-function DetectStage({
+function FrameworkStage({
   loading,
-  detections,
+  groups,
   manualPath,
   onManualPathChange,
   onPick,
   onScanManual,
 }: {
   loading: boolean;
-  detections: FrameworkDetection[];
+  groups: Array<{ framework: MigrationFramework; sources: FrameworkDetection[] }>;
   manualPath: string;
   onManualPathChange: (v: string) => void;
-  onPick: (d: FrameworkDetection) => void;
+  onPick: (fw: MigrationFramework) => void;
   onScanManual: () => void;
 }) {
   const { t } = useTranslation();
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-[var(--nm-ink-soft)]">
-        {t('layout.importAgent.detectHint')}
-      </p>
+      <p className="text-xs text-[var(--nm-ink-soft)]">{t('layout.importAgent.frameworkHint')}</p>
 
-      {loading && detections.length === 0 ? (
+      {loading && groups.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-8 text-xs text-[var(--nm-ink-soft)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('layout.importAgent.detecting')}
         </div>
-      ) : detections.length === 0 ? (
+      ) : groups.length === 0 ? (
         <div className="rounded-[var(--radius-sm)] border border-dashed border-[var(--nm-hairline)] px-3 py-6 text-center text-xs text-[var(--nm-ink-soft)]">
           {t('layout.importAgent.noneFound')}
         </div>
       ) : (
         <div className="space-y-2">
-          {detections.map((d) => (
+          {groups.map(({ framework, sources }) => (
             <button
-              key={`${d.framework}-${d.path}`}
-              onClick={() => onPick(d)}
-              disabled={loading}
+              key={framework}
+              onClick={() => onPick(framework)}
               className={cn(
                 'flex w-full items-center gap-3 rounded-[var(--radius-sm)] border px-3 py-2.5 text-left transition-colors',
                 'border-[var(--nm-hairline)] hover:bg-[var(--nm-paper-warm)]',
-                loading && 'pointer-events-none opacity-50',
               )}
             >
               <Bot className="h-4 w-4 shrink-0 text-[var(--nm-ink-soft)]" />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-xs font-medium text-[var(--nm-ink)]">
-                    {detectionTitle(d)}
-                  </span>
-                  <ConfidenceBadge confidence={d.confidence} />
-                  {detectionHint(d) && (
-                    <span className="shrink-0 text-[10px] text-[var(--nm-ink-soft)]">
-                      {detectionHint(d)}
-                    </span>
+                <span className="text-xs font-medium text-[var(--nm-ink)]">
+                  {FRAMEWORK_LABEL[framework] ?? framework}
+                </span>
+                <div className="text-[11px] text-[var(--nm-ink-soft)]">
+                  {t(
+                    framework === 'claude_code'
+                      ? 'layout.importAgent.countProjects'
+                      : 'layout.importAgent.countSources',
+                    { count: sources.length },
                   )}
                 </div>
-                <div className="truncate text-[11px] text-[var(--nm-ink-soft)]">{d.path}</div>
               </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-[var(--nm-ink-soft)]" />
             </button>
           ))}
         </div>
@@ -286,15 +341,67 @@ function DetectStage({
             placeholder="~/.claude"
             className="flex-1 text-xs"
           />
-          <Button
-            variant="outline"
-            onClick={onScanManual}
-            disabled={loading || !manualPath.trim()}
-          >
+          <Button variant="outline" onClick={onScanManual} disabled={loading || !manualPath.trim()}>
             <FolderSearch className="mr-1 h-3.5 w-3.5" />
             {t('layout.importAgent.scan')}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── source stage (step 2) ───────────────────────────────────────────────────
+
+function SourceStage({
+  loading,
+  framework,
+  sources,
+  onPick,
+}: {
+  loading: boolean;
+  framework: MigrationFramework;
+  sources: FrameworkDetection[];
+  onPick: (d: FrameworkDetection) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-[var(--nm-ink-soft)]">
+        {t('layout.importAgent.sourceHint', { framework: FRAMEWORK_LABEL[framework] ?? framework })}
+      </p>
+
+      <div className="space-y-2">
+        {sources.map((d) => (
+          <button
+            key={`${d.framework}-${d.path}`}
+            onClick={() => onPick(d)}
+            disabled={loading}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-[var(--radius-sm)] border px-3 py-2.5 text-left transition-colors',
+              'border-[var(--nm-hairline)] hover:bg-[var(--nm-paper-warm)]',
+              loading && 'pointer-events-none opacity-50',
+            )}
+          >
+            <Bot className="h-4 w-4 shrink-0 text-[var(--nm-ink-soft)]" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-xs font-medium text-[var(--nm-ink)]">
+                  {detectionTitle(d)}
+                </span>
+                <ConfidenceBadge confidence={d.confidence} />
+                {detectionHint(d) && (
+                  <span className="shrink-0 text-[10px] text-[var(--nm-ink-soft)]">
+                    {detectionHint(d)}
+                  </span>
+                )}
+              </div>
+              <div className="truncate text-[11px] text-[var(--nm-ink-soft)]">{d.path}</div>
+            </div>
+            {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--nm-ink-soft)]" />}
+          </button>
+        ))}
       </div>
     </div>
   );
