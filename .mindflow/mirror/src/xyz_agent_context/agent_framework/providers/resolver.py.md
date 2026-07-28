@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/resolver.py
 stub: false
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — 免费额度分支整条拆除，决策树从五态收敛到三态
+
+免费额度不再是这里的一条分支。它变成了一张**普通的 provider 卡**（钥匙是
+LiteLLM 网关上的美元钱包，见 `providers/free_tier.py`），所以走的是和自带
+key 完全同一条线。
+
+删掉的：`SYSTEM_OK` / `QUOTA_EXCEEDED` / `SYSTEM_DISABLED` 三个 verdict、
+`QuotaExceededError`、切换通知的 CAS 闩锁、`is_free_tier_active` /
+`free_tier_lock` 这一对给 UI 渲染「锁」的读接口，以及构造函数里的
+`system_provider_svc` / `quota_svc` 两个依赖。
+
+**责任转移出去的两件事，别再在这里找：**
+
+1. **额度耗尽不再是跑前门禁。** 钱包空了是网关在请求路径上拒绝，表现为运行中
+   的 provider 错误，由 `llm/failure.py` 归到 `insufficient_balance`。后台
+   job 仍然会 `paused_no_quota` 暂停而不是重试风暴 —— 走的是既有分类器，没有
+   新增第二套体系。
+2. **没有任何模型会被抢占。** 不存在「免费期间锁死平台模型」这回事了，所以
+   per-agent override 永远生效，前端也不再需要那条「用完才生效」的横幅。
+
+`SYSTEM_DISABLED` 改名 `LOCAL_PASSTHROUGH`：它表达的一直是「本地模式不做
+per-user 路由」，旧名字是历史包袱。`_is_user_config_complete` 去掉下划线改
+公开 —— 两个 provisioner 都要读它判断 register-only 还是 activate，跨包提问
+是正当需求，不是内部细节。
 
 ## 2026-07-23 — 免费额度锁定的单一真源（`is_free_tier_active` / `free_tier_lock` / `free_tier_lock_for`）
 

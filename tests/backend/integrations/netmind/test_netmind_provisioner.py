@@ -93,7 +93,7 @@ def _setup(
 
     monkeypatch.setattr(ups_mod, "UserProviderService", _Svc)
     monkeypatch.setattr(
-        resolver_mod, "_is_user_config_complete", lambda cfg: complete
+        resolver_mod, "is_user_config_complete", lambda cfg: complete
     )
     return cap
 

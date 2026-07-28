@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/netmindFormat.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 免费额度的单位从 token 变美元
+
+`freeTierTokensLeft` / `formatTokens` 换成 `freeTierCreditLeft`，
+`freeTierPctLeft` 从「input/output 里更枯竭的那一维」改成「钱包已花掉多少
+比例」。
+
+双维度的写法本来就是 token 计量的产物（input/output 差价约 5 倍，所以必须
+取更紧的那一维）。钱包是单一美元数，天然只有一个维度 —— 而且这样一来，
+这一行的数字和它下面那个余额 hero 说的是同一件事。
 
 ## 2026-07-20 — 新增 formatTokens + freeTierTokensLeft（行值从 % 改 token）
 

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-26
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 新增 netmind_free 卡型
+
+`_DUAL_PROVIDER_CONFIGS` 多了一个 `netmind_free`，形状和 netmind 卡完全一样
+（anthropic + openai 双行、一个 linked_group）。
+
+唯一的特殊处理：它的两个 `base_url` 是**空字符串占位**，实际值在
+`_build_dual_providers` 里从 `free_tier.free_tier_endpoints()` 现取。原因是
+网关地址随部署变（本地压根没有网关），模块级常量表达不了这种东西。表里仍然
+保留这个条目，是为了让 `card_type in _DUAL_PROVIDER_CONFIGS` 这个每条双行路径
+都在用的判断保持单一真源。
+
+`onboard_one_key` 的 `allowed` 白名单和「一个 source 一张卡」去重列表同批
+加入 —— 后者是防重复开钱包的关键一环。
 
 ## 2026-07-26 — claude_oauth 卡支持 setup-token（新建 / 原位重连）
 

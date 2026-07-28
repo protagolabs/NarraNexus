@@ -10,8 +10,8 @@ db_client; the NetmindAuthClient is monkeypatched so no network is involved.
 
 Covers:
 - happy path: verify -> upsert -> own JWT issued (decodable, right claims)
-- first login seeds the free-tier quota; second login does not re-seed
-- quota seeding failure does NOT fail the login
+- first login provisions the free-tier wallet; second login does not re-provision
+- a wallet-service failure does NOT fail the login
 - second login: is_new_user=False, no duplicate row
 - invalid NetMind token -> HTTP 401; NetMind upstream trouble -> HTTP 502
 - power-login guard: unavailable (local, no opt-in) -> 404; available (cloud OR
@@ -48,24 +48,20 @@ class _FakeNetmindClient:
         return self.outcome
 
 
-class _FakeQuotaService:
+class _RecordingProvisioner:
+    """Stands in for the fire-and-forget free-tier provisioning scheduler."""
+
     def __init__(self, fail=False):
         self.fail = fail
         self.seeded = []
 
-    async def init_for_user(self, user_id: str):
+    def __call__(self, user_id: str) -> None:
         if self.fail:
-            raise RuntimeError("quota backend down")
+            raise RuntimeError("wallet service down")
         self.seeded.append(user_id)
 
-        class _Row:
-            initial_input_tokens = 1000
-            initial_output_tokens = 1000
 
-        return _Row()
-
-
-def _make_app(db_client, monkeypatch, netmind_client, *, power_login=True, quota=None):
+def _make_app(db_client, monkeypatch, netmind_client, *, power_login=True):
     import backend.routes.auth as auth_mod
 
     async def _async_return(value):
@@ -81,7 +77,6 @@ def _make_app(db_client, monkeypatch, netmind_client, *, power_login=True, quota
 
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
-    app.state.quota_service = quota
     return TestClient(app)
 
 
@@ -96,7 +91,7 @@ def test_netmind_login_happy_path_issues_own_jwt(db_client, monkeypatch):
     from backend.auth import decode_token
 
     fake = _FakeNetmindClient(_OK_USER)
-    client = _make_app(db_client, monkeypatch, fake, quota=_FakeQuotaService())
+    client = _make_app(db_client, monkeypatch, fake)
 
     resp = client.post(
         "/api/auth/netmind-login", json={"netmind_token": "jwt-from-netmind"}
@@ -116,32 +111,41 @@ def test_netmind_login_happy_path_issues_own_jwt(db_client, monkeypatch):
     assert claims["role"] == "user"
 
 
-def test_netmind_login_seeds_quota_once(db_client, monkeypatch):
-    quota = _FakeQuotaService()
-    client = _make_app(
-        db_client, monkeypatch, _FakeNetmindClient(_OK_USER), quota=quota
+def test_netmind_login_provisions_the_free_tier_once(db_client, monkeypatch):
+    """First login IS registration, so the free-tier wallet is opened there —
+    and exactly once, no matter how many times the user logs back in."""
+    import backend.routes.auth as auth_mod
+    import backend.integrations.free_tier.provisioner as prov_mod
+
+    provisioner = _RecordingProvisioner()
+    monkeypatch.setattr(
+        prov_mod, "schedule_ensure_free_tier_provider", provisioner
     )
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
 
     first = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
     second = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
 
     assert first.json()["is_new_user"] is True
-    assert first.json()["has_system_quota"] is True
     assert second.json()["is_new_user"] is False
-    assert quota.seeded == [_CODE]  # exactly once
+    assert provisioner.seeded == [_CODE]  # exactly once
+    assert auth_mod is not None
 
 
-def test_netmind_login_quota_failure_does_not_block_login(db_client, monkeypatch):
-    quota = _FakeQuotaService(fail=True)
-    client = _make_app(
-        db_client, monkeypatch, _FakeNetmindClient(_OK_USER), quota=quota
+def test_netmind_login_survives_a_broken_wallet_service(db_client, monkeypatch):
+    """Login must never fail because the wallet service is down — the user gets
+    in, and the next login retries provisioning."""
+    import backend.integrations.free_tier.provisioner as prov_mod
+
+    monkeypatch.setattr(
+        prov_mod, "schedule_ensure_free_tier_provider", _RecordingProvisioner(fail=True)
     )
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
 
     resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
 
     assert resp.status_code == 200
     assert resp.json()["success"] is True
-    assert resp.json()["has_system_quota"] is False
 
 
 def test_netmind_login_invalid_token_is_401(db_client, monkeypatch):
@@ -178,7 +182,7 @@ def test_netmind_login_reachable_in_local_when_power_login_enabled(db_client, mo
     # (power_login=True models both cloud and local-opt-in).
     client = _make_app(
         db_client, monkeypatch, _FakeNetmindClient(_OK_USER),
-        power_login=True, quota=_FakeQuotaService(),
+        power_login=True,
     )
 
     resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
@@ -212,7 +216,7 @@ def test_netmind_login_schedules_provider_provisioning_in_local(db_client, monke
 
     client = _make_app(
         db_client, monkeypatch, _FakeNetmindClient(_OK_USER),
-        power_login=True, quota=_FakeQuotaService(),
+        power_login=True,
     )
     resp = client.post(
         "/api/auth/netmind-login", json={"netmind_token": "tok-123"}

@@ -739,34 +739,19 @@ def get_current_user_id() -> Optional[str]:
 class LLMResolverError(RuntimeError):
     """Base class for failures when resolving LLM provider config for a user.
 
-    Two concrete subclasses — callers can handle both together via
-    ``except LLMResolverError`` when they want "any resolution failure",
-    or differentiate via ``except LLMConfigNotConfigured``/
-    ``except SystemDefaultUnavailable`` when the UX differs.
+    One concrete subclass since the free tier became an ordinary provider card
+    (2026-07-28): there is no longer a second, platform-owned tier that can be
+    unavailable on its own. Callers catch ``LLMResolverError`` for "any
+    resolution failure".
     """
 
 
 class LLMConfigNotConfigured(LLMResolverError):
-    """Raised when a user has no free-tier grant (no quota row) and their
-    own provider/slot configuration is missing or broken.
+    """Raised when a user's provider/slot configuration is missing or broken.
 
-    No silent fallback to the system free tier here — the quota row IS
-    the grant (implicit-grant liability guard; the old opt-out preference
-    was removed 2026-07-18). The error message tells them exactly what to
-    fix (add provider, assign slot).
-    """
-
-
-class SystemDefaultUnavailable(LLMResolverError):
-    """Raised when a user has opted in to the system-default free tier
-    but it can't serve the request — either the operator has disabled
-    it (``SYSTEM_DEFAULT_LLM_ENABLED!=true``) or the user's quota is
-    exhausted.
-
-    No silent fallback to the user's own provider here either — the
-    user's opt-in is a deliberate preference and we don't override it.
-    The error message directs them to either turn the toggle off and
-    configure their own provider, or to ask the operator for more quota.
+    Includes the cloud case where the free-tier card was never provisioned —
+    there is no implicit fallback to a platform key, by design. The error
+    message tells the user exactly what to fix (add a provider, assign slots).
     """
 
 
@@ -838,27 +823,12 @@ async def get_user_llm_configs(
     Resolve the (claude, openai) config pair for a specific user.
 
     Thin wrapper over :func:`get_user_runtime_llm_configs`, which routes the
-    decision through the single ``ProviderResolver`` tree. Decision summary:
-
-      1. free tier granted + budget → system free tier (tags
-         ``provider_source="system"`` so cost_tracker deducts quota).
-         Free-tier-first is platform behavior — the old prefer_system
-         toggle was removed 2026-07-18.
-      2. free tier exhausted + complete own provider → the user's own key
-         takes over immediately (#48); a one-time notice is surfaced
-         (deduped via the repurposed prefer_system_override latch).
-      3. free tier exhausted + no own provider →
-         ``SystemDefaultUnavailable`` (add a provider / ask for more quota).
-      4. no quota row (no free tier granted) → strictly the user's own
-         providers; if misconfigured → ``LLMConfigNotConfigured``.
-
-    QuotaService is lazily bootstrapped via ``_ensure_quota_service``, so every
-    entry point (backend.main, job_trigger, bus_trigger, run_lark_trigger,
-    standalone MCP runner) works without calling ``bootstrap_quota_subsystem``.
+    decision through the single ``ProviderResolver`` tree: cloud users resolve
+    their own provider cards (the free-tier wallet is one of them); local mode
+    keeps the global config.
 
     Raises:
-        SystemDefaultUnavailable: free tier gone, no own provider.
-        LLMConfigNotConfigured: no free tier, own config missing/incomplete.
+        LLMConfigNotConfigured: own config missing/incomplete.
     """
     cfg = await get_user_runtime_llm_configs(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
@@ -872,91 +842,45 @@ async def get_user_runtime_llm_configs(
     ``agent_id`` (optional) overlays that agent's per-agent slot overrides
     (``agent_slots``) on the owner's user-level defaults — used by the
     agent-run + MCP-tool paths so each agent can pin its own framework/model
-    (agent slot) and helper model. The cloud SYSTEM free-tier branch ignores
-    it (fixed one-model pool).
+    (agent slot) and helper model. Since the free tier became an ordinary
+    provider card, overrides apply there too — nothing preempts them any more.
 
     Delegates to the ONE provider decision tree — ``ProviderResolver`` — the
-    same classifier the HTTP quota gate and background workers use, so every
-    run path shares a single source of truth. In particular the agent-run path
-    now inherits the #48 auto-switch: an opted-in user whose free tier is
-    exhausted but who has a complete own provider is flipped to their own key
-    here too. Previously this path kept a divergent strict copy of the tree
-    that 402'd on exhaustion, ignoring the configured key on any run that did
-    not first pass through the HTTP middleware (background job/bus triggers).
+    same classifier the HTTP gate and background workers use, so every run path
+    shares a single source of truth.
 
     ``resolve()`` returns ``(configs, source)``; we tag ``provider_source`` /
-    ``current_user_id`` so ``cost_tracker`` deducts the free-tier quota only on
-    the system branch. ``None`` means the free tier is disabled (local/desktop
-    mode) — fall back to the strict own-config resolution unchanged.
+    ``current_user_id`` for cost attribution. ``None`` means local/desktop mode
+    — fall back to the strict own-config resolution unchanged.
 
     Raises (ProviderResolverError translated into the LLMResolverError family
     the agent runtime + job/lark triggers already handle):
-        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
-        LLMConfigNotConfigured: opted out, own provider missing/incomplete.
+        LLMConfigNotConfigured: own provider missing/incomplete.
     """
     from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.providers.resolver import (
-        NoProviderConfiguredError,
         ProviderResolver,
         ProviderResolverError,
-    )
-    from xyz_agent_context.agent_framework.providers.system_service import (
-        SystemProviderService,
     )
     from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
     db = await get_db_client()
-    resolver = ProviderResolver(
-        user_provider_svc=UserProviderService(db),
-        system_provider_svc=SystemProviderService.instance(),
-        quota_svc=await _ensure_quota_service(),
-    )
+    resolver = ProviderResolver(UserProviderService(db))
     try:
         resolved = await resolver.resolve(user_id, agent_id=agent_id)
-    except NoProviderConfiguredError as e:
-        # No free-tier grant + own config missing/broken — same UX the
-        # strict own-config path raised before.
-        raise LLMConfigNotConfigured(str(e)) from e
     except ProviderResolverError as e:
-        # Free tier gone, no own provider (QuotaExceededError), plus
-        # any other gate. Keep the SystemDefaultUnavailable *type* so triggers
-        # that string-match the class name (job_trigger, lark_trigger) are
-        # unaffected by the convergence.
-        raise SystemDefaultUnavailable(str(e)) from e
+        raise LLMConfigNotConfigured(str(e)) from e
 
     if resolved is None:
-        # SYSTEM_DISABLED — local/desktop mode, free tier not in play.
+        # Local/desktop mode — per-user provider routing is not in play.
         return await _get_user_runtime_llm_configs_strict(user_id, agent_id=agent_id)
 
     cfgs, source = resolved
     set_provider_source(source)
     set_current_user_id(user_id)
     return cfgs
-
-
-async def _ensure_quota_service():
-    """Return ``QuotaService.default()``, bootstrapping it on first use.
-
-    Every process that calls ``AgentRuntime.run()`` needs a live
-    QuotaService to resolve the free-tier branch. Instead of requiring
-    each entry point to call ``bootstrap_quota_subsystem`` at startup
-    (one was missed: ``run_lark_trigger``), we make the first access
-    self-bootstrap using the shared ``get_db_client()`` factory. The
-    operation is idempotent.
-    """
-    from xyz_agent_context.agent_framework.quota_service import (
-        QuotaService,
-        bootstrap_quota_subsystem,
-    )
-    try:
-        return QuotaService.default()
-    except RuntimeError:
-        from xyz_agent_context.utils.db.db_factory import get_db_client
-        db = await get_db_client()
-        return await bootstrap_quota_subsystem(db)
-
 
 
 

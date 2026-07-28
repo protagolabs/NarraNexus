@@ -221,26 +221,27 @@ async def _user_has_free_tier(user_id: str) -> bool:
     is already blocked — the two paths must share one budget verdict).
     """
     try:
-        from xyz_agent_context.agent_framework.quota_service import QuotaService
-        from xyz_agent_context.agent_framework.providers.system_service import (
-            SystemProviderService,
+        from xyz_agent_context.integrations.free_tier.wallet_client import (
+            WalletClient,
+            WalletMissing,
         )
 
-        if not SystemProviderService.instance().is_enabled():
+        client = WalletClient.from_settings()
+        if client is None:
+            # No wallet service in this deployment (local / free tier off) —
+            # treat as no grant so we never bill the operator by accident.
             return False
-
         try:
-            qs = QuotaService.default()
-        except RuntimeError:
-            # Process didn't bootstrap quota (rare — every cloud entry
-            # point should). Treat as no-grant so we don't accidentally
-            # bill the operator on a misconfigured worker.
+            balance = await client.balance(user_id)
+        except WalletMissing:
             return False
-
-        quota = await qs.get(user_id)
-        if quota is None:
-            return False
-        return await qs.check(user_id)
+        # The wallet is the ONE budget both paths share. STT does not flow
+        # through the gateway (it uses the operator's NetMind STT key
+        # directly), so unlike LLM calls it cannot be refused upstream —
+        # which is exactly why this check has to exist here: an exhausted
+        # account must not keep burning the operator's STT key after its
+        # LLM path is already blocked.
+        return not balance.exhausted
     except Exception as e:
         logger.debug(f"transcription resolver: free-tier grant check failed: {e}")
         return False

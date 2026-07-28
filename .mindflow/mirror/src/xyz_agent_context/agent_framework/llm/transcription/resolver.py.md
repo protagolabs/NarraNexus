@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/transcription/resolver.py
-last_verified: 2026-07-18
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 免费额度判定改问钱包
+
+`_has_free_tier_grant` 从「查 user_quotas 行 + 查预算」改成「问 quota-api
+这个用户的钱包还有没有钱」。
+
+这个检查为什么必须留着：转录**不经过 LiteLLM 网关**（它直接用运营方的
+NetMind STT key），所以上游没有任何东西会替我们拒绝它。LLM 那条路已经被网关
+拦住之后，如果这里不拦，一个已经花光的账号可以无限烧运营方的 STT。
 
 ## 2026-07-18 (review 二轮加固) — 门禁叠加预算检查
 

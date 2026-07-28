@@ -76,7 +76,7 @@ async def test_resolver_failure_skips_llm_and_alerts(monkeypatch):
         return object()
 
     async def _fake_inject(agent_id, db):
-        raise provider_resolver.QuotaExceededError("free tier exhausted")
+        raise provider_resolver.NoProviderConfiguredError("u_owner")
 
     async def _fake_alert(**kwargs):
         captured.update(kwargs)

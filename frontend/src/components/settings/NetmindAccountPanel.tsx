@@ -47,8 +47,7 @@ import { deriveRunway } from './netmindRunway';
 import {
   money,
   freeTierPctLeft,
-  freeTierTokensLeft,
-  formatTokens,
+  freeTierCreditLeft,
   formatPeriod,
   formatDate,
 } from './netmindFormat';
@@ -500,14 +499,13 @@ export function NetmindAccountPanel() {
   const freePctRaw = freeTierPctLeft(quota);
   const freeTierExhausted = !subSplit && freePctRaw === 0;
   const freePct = subSplit || freePctRaw === 0 ? null : freePctRaw;
-  // Row value in tokens ("3.9M tokens left"), same more-depleted dimension
-  // as the bar width — a percentage told users nothing about how much a
-  // "percent" actually buys. Remaining only (Owner call: remaining/total
-  // reads too dense); the bar carries the proportion context.
-  const freeTokens = freePct !== null ? freeTierTokensLeft(quota) : null;
-  const freeTokensText = freeTokens
-    ? t('settings.netmind.freeTierTokensLeft', '{{remaining}} tokens left', {
-        remaining: formatTokens(freeTokens.remaining),
+  // Row value in dollars ("$7.42 left") — the wallet's own unit, so it means
+  // the same thing as the balance hero below it. Remaining only (Owner call:
+  // remaining/total reads too dense); the bar carries the proportion context.
+  const freeCredit = freePct !== null ? freeTierCreditLeft(quota) : null;
+  const freeTokensText = freeCredit
+    ? t('settings.netmind.freeTierCreditLeft', '${{remaining}} left', {
+        remaining: money(freeCredit.remaining),
       })
     : null;
   const grantUsd = fee?.metrics?.monthly_free_credit;

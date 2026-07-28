@@ -140,6 +140,14 @@ _INSUFFICIENT_BALANCE_MARKERS: tuple[Marker, ...] = (
     "exceeded your current quota",
     "payment required",
     "402 payment",  # narrowed from bare "402" (token counts etc. contain 402)
+    # LiteLLM gateway, free-tier wallet spent. This is how free-tier exhaustion
+    # reaches us now that it is a per-user budget enforced in the request path
+    # rather than a pre-run gate — routing it here is what keeps background jobs
+    # pausing (job_trigger layer 2) instead of retry-storming.
+    "budget has been exceeded",
+    "exceeded budget",
+    "crossed spend within budget",
+    "exceededbudget",
 )
 _MODEL_NOT_FOUND_MARKERS: tuple[Marker, ...] = (
     "model not found",
@@ -219,9 +227,9 @@ SELF_SERVICEABLE_USER_MESSAGE: dict[str, str] = {
         "context window in Settings, then send the message again."
     ),
     # Deliberately provider-agnostic: this fires for DeepSeek 402s, OpenAI
-    # insufficient_quota and Anthropic credit-balance alike, so it must not
-    # name one vendor's remedy. NetMind-specific guidance (subscribe to a
-    # plan) lives in QuotaExceededError instead — that path is free-tier-only,
+    # insufficient_quota, Anthropic credit-balance AND a spent free-tier wallet
+    # alike, so it must not name one vendor's remedy. NetMind-specific guidance
+    # (subscribe to a plan) lives in the resolver's no-provider error instead,
     # i.e. cloud + NetMind by construction, so it is always relevant there.
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE: (
         "This turn could not run: the model provider reports insufficient "

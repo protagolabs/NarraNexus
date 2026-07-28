@@ -48,17 +48,18 @@ async def test_classify_error_is_not_ready(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_not_runnable_verdict_short_circuits(monkeypatch):
-    _patch_classify(monkeypatch, verdict=ProviderAvailability.QUOTA_EXCEEDED)
+    _patch_classify(monkeypatch, verdict=ProviderAvailability.NO_PROVIDER)
     ok, reason = await ProviderReadiness.validate("u", db=None)
-    assert ok is False and reason == "quota_exceeded"
+    assert ok is False and reason == "no_provider"
 
 
 @pytest.mark.asyncio
-async def test_system_ok_skips_live_test(monkeypatch):
-    _patch_classify(monkeypatch, verdict=ProviderAvailability.SYSTEM_OK)
+async def test_local_passthrough_skips_live_test(monkeypatch):
+    """There is no per-user provider to ping locally — the global config runs."""
+    _patch_classify(monkeypatch, verdict=ProviderAvailability.LOCAL_PASSTHROUGH)
     # No UPS patch — if it tried to live-test it would blow up importing the real one.
     ok, reason = await ProviderReadiness.validate("u", db=None)
-    assert ok is True and reason == "system_ok"
+    assert ok is True and reason == "local_passthrough"
 
 
 @pytest.mark.asyncio

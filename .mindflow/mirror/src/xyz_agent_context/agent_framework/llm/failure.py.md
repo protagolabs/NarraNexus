@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/failure.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 认识「网关钱包花光」的样子
+
+`_INSUFFICIENT_BALANCE_MARKERS` 增加了 LiteLLM 预算超限的几种措辞
+（`budget has been exceeded` / `exceeded budget` / `crossed spend within
+budget` / `exceededbudget`）。
+
+这不是随手加几个关键字：免费额度耗尽从「解析期门禁」变成「调用期错误」之后，
+**这里就是它唯一的入口**。后台 job 靠 `classify_self_serviceable` 这一层
+（job_trigger 的第 2 层）判定 `paused_no_quota`，marker 漏了就是重试风暴。
 
 ## 2026-07-22 — 新增并列的 executor-infra 分类器（与 self-serviceable 解耦）
 

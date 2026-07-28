@@ -48,12 +48,12 @@ class ProviderReadiness:
         Step 2 (live, USER_OK only): ping the user's agent-slot provider. A
         freshly-configured key that is malformed/revoked would pass the static
         completeness check but fail here, so we don't recover into a failure.
-        SYSTEM_OK / SYSTEM_DISABLED skip the live test (the platform's own
-        provider, or local passthrough).
+        LOCAL_PASSTHROUGH skips the live test (there is no per-user provider
+        to ping in local mode).
         """
         try:
             verdict = await classify_provider_for_user(user_id, db)
-        except Exception as e:  # noqa: BLE001 — quota/provider subsystem optional
+        except Exception as e:  # noqa: BLE001 — provider subsystem optional
             logger.debug(f"ProviderReadiness.validate classify failed for {user_id}: {e}")
             return False, "classify_error"
 

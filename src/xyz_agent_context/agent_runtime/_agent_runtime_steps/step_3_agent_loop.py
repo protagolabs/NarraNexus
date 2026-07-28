@@ -868,46 +868,6 @@ async def step_3_agent_loop(
         wait_until_ready,
     )
 
-    # Free-tier gateway session key ("会话票"): for a system-tier run, mint a
-    # per-run key on the BACKEND (which holds the gateway admin key — no user
-    # code) and inject it into the ClaudeConfig ContextVar. It then rides
-    # `provider_configs` (executor_protocol.serialize_provider_configs) to the
-    # executor, so the executor authenticates with a scoped, revocable ticket
-    # and NEVER sees the admin/master key. No-op for non-system runs. Revoked in
-    # the `finally` below — a run-lifecycle bound, not a wall-clock TTL (铁律 #14).
-    from xyz_agent_context.agent_framework.providers.gateway_key_service import (
-        open_backend_session,
-    )
-
-    gw_session, gw_ok = await open_backend_session(db_client, agent_id=ctx.agent_id)
-    if not gw_ok:
-        # Gateway down / misconfigured. Never fall back to the master key and
-        # never spawn with the empty placeholder — surface a clean fatal error.
-        yield ErrorMessage(
-            error_message=(
-                "The free-tier service is temporarily unavailable, so no "
-                "request was made. Please retry shortly, or configure your own "
-                "model provider in settings."
-            ),
-            error_type="gateway_unavailable",
-            severity="fatal",
-        )
-        # Contract: this generator MUST end with a PathExecutionResult —
-        # step_3_execute_path asserts ctx.execution_result is set and
-        # AgentRuntime.run() has no guard around it, so an early bare `return`
-        # here would raise AssertionError out of the runtime on the free tier's
-        # main failure branch. Emit an empty terminal result (mirrors the
-        # silent-mode precedent in agent_runtime.py) so the turn ends cleanly
-        # after the error and step 4 still persists it.
-        yield PathExecutionResult(
-            final_output="",
-            execution_steps=[],
-            response_count=0,
-            agent_loop_response=[],
-            ctx_data=context.ctx_data,
-        )
-        return
-
     # Executor ensure/warm is INSIDE the try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
@@ -1000,13 +960,6 @@ async def step_3_agent_loop(
         await _record_executor_infra_event(
             db_client, ctx.user_id, error_type, error_str, bool(agent_loop_response)
         )
-    finally:
-        # Revoke the free-tier gateway session key at the natural end of the run
-        # (success, error, or cancel). Run-lifecycle bound, not a timer (铁律
-        # #14). No-op for non-system runs. close() never raises.
-        if gw_session is not None:
-            await gw_session.close()
-
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()

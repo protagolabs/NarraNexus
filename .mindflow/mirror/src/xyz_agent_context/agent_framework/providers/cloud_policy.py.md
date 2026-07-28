@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/cloud_policy.py
-last_verified: 2026-07-18
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 可绑定 source 从单值变集合
+
+云端非 staff 只能绑 NetMind 运力这条规则不变，但「NetMind 运力」现在有两个
+来源：用户自己的 Power 账号（`netmind`）和平台出钱的免费钱包
+（`netmind_free`，经我们的网关打到同一个上游）。
+
+所以 `NETMIND_SOURCE` 单常量升级为 `CLOUD_BINDABLE_SOURCES` 集合。做成集合
+而不是「常量 + 每个调用点写个 or」，正是为了不让这条规则第二次被内联复制 ——
+本文件存在的理由本身。
 
 ## 2026-07-18 (PR review 加固) — actor_is_staff 改必填
 

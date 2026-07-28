@@ -89,7 +89,7 @@ async def test_resolver_errors_propagate(monkeypatch):
     monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
 
     async def _boom(user_id, db, agent_id=None):
-        raise provider_resolver.QuotaExceededError("free tier exhausted")
+        raise provider_resolver.NoProviderConfiguredError("u_owner")
 
     monkeypatch.setattr(
         provider_resolver, "resolve_and_set_provider_for_user", _boom

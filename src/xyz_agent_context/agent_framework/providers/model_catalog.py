@@ -291,13 +291,20 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     # or a source we haven't probed).
     from xyz_agent_context.agent_framework.providers.model_probe_ledger import ledger_models
 
-    if source in ("netmind", "system_pool", "openrouter", "yunwu"):
-        synced = ledger_models(source, protocol)
+    # The free-tier card proxies the SAME upstream catalogue as a NetMind card
+    # (our gateway forwards to NetMind), so it reads netmind's ledger entry
+    # instead of maintaining a second list that would silently drift.
+    ledger_source = "netmind" if source == "netmind_free" else source
+    if ledger_source in ("netmind", "system_pool", "openrouter", "yunwu"):
+        synced = ledger_models(ledger_source, protocol)
         if synced:
             return synced
 
-    # Check exact (source, protocol) match first
-    defaults = _DEFAULT_MODELS.get((source, protocol))
+    # Check exact (source, protocol) match first. `ledger_source` is used as the
+    # lookup key too, so the free-tier card inherits netmind's hardcoded list on
+    # a fresh checkout (before the first probe sync populates the ledger) rather
+    # than starting with an empty dropdown.
+    defaults = _DEFAULT_MODELS.get((ledger_source, protocol))
     if defaults is not None:
         return list(defaults)
 
@@ -363,8 +370,9 @@ def get_suggested_models(protocol: str) -> list[str]:
 # single key. BYOK rationale: the user pays with their own key, so the
 # agent slot defaults to the strongest model of that family;
 # cost-sensitive users downgrade in Settings → Providers (Advanced).
-# (The cloud free tier defaults to Sonnet because the PLATFORM pays —
-# different scenario, configured in SystemProviderService.)
+# The cloud free tier is the OPPOSITE scenario — the platform pays out of a
+# fixed wallet — so it starts on the cost-effective model and lets the user
+# trade balance for capability by switching (see providers/free_tier.py).
 _ONBOARD_AGENT_MODELS: dict[str, str] = {
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.5",          # codex_cli's current flagship default
@@ -372,6 +380,7 @@ _ONBOARD_AGENT_MODELS: dict[str, str] = {
     # the aggregator; Claude-via-NetMind stays available in the
     # dropdown for users who want it.
     "netmind": "deepseek-ai/DeepSeek-V4-Pro",
+    "netmind_free": "deepseek-ai/DeepSeek-V4-Pro",
     # Yunwu / OpenRouter proxy the official APIs — same defaults as a
     # direct Claude key.
     "yunwu": "claude-opus-4-8",
@@ -384,6 +393,7 @@ _ONBOARD_HELPER_MODELS: dict[str, str] = {
     "anthropic": "claude-haiku-4-5",
     "openai": "gpt-5.4-mini",
     "netmind": "deepseek-ai/DeepSeek-V4-Flash",
+    "netmind_free": "deepseek-ai/DeepSeek-V4-Flash",
     "yunwu": "gpt-5.4-mini",
     "openrouter": "gpt-5.4-mini",
 }

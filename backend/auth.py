@@ -513,17 +513,15 @@ async def auth_middleware(request: Request, call_next):
     except jwt.InvalidTokenError:
         return _json_response(401, {"detail": "Invalid token"})
 
-    # System-default quota routing. Tag current_user_id on the ContextVar
-    # (consumed by cost_tracker to attribute usage) and dispatch the
-    # resolver to decide user-vs-system routing + quota gating. Resolver
-    # itself short-circuits when SystemProviderService.is_enabled()==False,
-    # so local mode / feature-off is a no-op end-to-end.
+    # Provider routing. Tag current_user_id on the ContextVar (consumed by
+    # cost_tracker to attribute usage) and dispatch the resolver, which puts
+    # this user's provider config on the request's ContextVars. The resolver
+    # short-circuits in local mode, so that path is a no-op end-to-end.
     #
-    # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely
-    # so users with an exhausted free tier can still reach /api/providers
-    # or flip /api/quota/me/preference to escape the dead-end. Safe/
-    # read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
-    # EVERY path, since reads never spend quota. JWT auth above still
+    # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely so
+    # a user with NO usable provider can still reach /api/providers to fix it.
+    # Safe/read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
+    # EVERY path, since reads never spend anything. JWT auth above still
     # applies in both cases.
     from xyz_agent_context.agent_framework.api_config import set_current_user_id
     from xyz_agent_context.agent_framework.providers.resolver import (

@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/admin/quota.py
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — grant(token) 换成 topup(美元)
+
+配额单位变成美元、账本在网关上，所以 staff 操作也跟着换：
+`/grant`（发 token）删除，`/topup` 抬高钱包的 `max_budget` 上限。
+
+**只抬上限，绝不改写已花费的部分** —— spend 是消费历史，重写它就等于抹掉
+审计。`/init` 保留但改为调 `ensure_free_tier_provider`，用来救「功能开通晚
+于用户首登」或「开通失败」这两种情况，幂等。
 
 # Intent
 

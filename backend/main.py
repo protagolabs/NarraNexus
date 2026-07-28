@@ -205,39 +205,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001 — data migration must never block startup
         logger.error(f"[migrate] migration runner skipped due to error: {e}")
 
-    # Wire system-default quota services. SystemProviderService is a
-    # module-level singleton that reads env once; in local mode or when
-    # env is incomplete its is_enabled() returns False and every downstream
-    # call is a no-op. Expose each piece on app.state for routes to consume.
-    from xyz_agent_context.agent_framework.providers.system_service import (
-        SystemProviderService,
+    # Provider resolution. One tree for every caller (see providers/resolver);
+    # the free tier is an ordinary provider card, so nothing extra is wired for
+    # it here beyond the wallet client the routes build on demand.
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        is_free_tier_enabled,
     )
-    from xyz_agent_context.agent_framework.quota_service import QuotaService
     from xyz_agent_context.agent_framework.providers.resolver import (
         ProviderResolver,
     )
     from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.repository.quota_repository import QuotaRepository
     from xyz_agent_context.repository.user_repository import UserRepository
 
-    system_provider = SystemProviderService.instance()
-    quota_service = QuotaService(
-        repo=QuotaRepository(db),
-        system_provider=system_provider,
-    )
-    QuotaService.set_default(quota_service)  # cost_tracker hook reaches it
-
-    app.state.system_provider = system_provider
-    app.state.quota_service = quota_service
     app.state.user_repository = UserRepository(db)
-    app.state.provider_resolver = ProviderResolver(
-        user_provider_svc=UserProviderService(db),
-        system_provider_svc=system_provider,
-        quota_svc=quota_service,
-    )
-    logger.info(f"Quota subsystem wired (enabled={system_provider.is_enabled()})")
+    app.state.provider_resolver = ProviderResolver(UserProviderService(db))
+    logger.info(f"Provider resolution wired (free tier={is_free_tier_enabled()})")
 
     # Unified Agent Memory — start the background consolidation worker
     # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
@@ -262,19 +246,6 @@ async def lifespan(app: FastAPI):
     app.state.executor_reaper_task = maybe_start_executor_reaper()
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
-
-    # Free-tier agent-usage reconciler (cloud + gateway only; no-op otherwise).
-    # The proxied agent model reports 0 tokens through the CLI, so the quota
-    # never saw agent usage — this worker sums each finished run's real usage
-    # from the LiteLLM gateway's SpendLogs and deducts it. Idempotent via
-    # instance_gateway_session_keys.metered_at; never force-stops (iron rule #14).
-    from xyz_agent_context.services.gateway_spend_reconciler import (
-        maybe_start_gateway_spend_reconciler,
-    )
-
-    app.state.gateway_spend_reconciler_task = maybe_start_gateway_spend_reconciler()
-    if app.state.gateway_spend_reconciler_task is not None:
-        logger.info("Free-tier gateway spend reconciler started")
 
     import asyncio as _asyncio
 
@@ -349,9 +320,6 @@ async def lifespan(app: FastAPI):
     reaper_task = getattr(app.state, "executor_reaper_task", None)
     if reaper_task is not None:
         reaper_task.cancel()
-    spend_reconciler_task = getattr(app.state, "gateway_spend_reconciler_task", None)
-    if spend_reconciler_task is not None:
-        spend_reconciler_task.cancel()
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()

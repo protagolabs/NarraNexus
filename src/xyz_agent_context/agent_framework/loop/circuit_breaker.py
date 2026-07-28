@@ -81,10 +81,7 @@ SUSTAINED_FAILURE_ALERT_THRESHOLD = 5
 # mean "quota/provider exhaustion that won't fix itself by waiting". This is
 # also the extension point for a future "Executor batch balance insufficient".
 _NO_QUOTA_ERROR_TYPES: frozenset[str] = frozenset({
-    "QuotaExceededError",
-    "FreeTierExhaustedError",
     "NoProviderConfiguredError",
-    "SystemDefaultUnavailable",
     "LLMConfigNotConfigured",
 })
 

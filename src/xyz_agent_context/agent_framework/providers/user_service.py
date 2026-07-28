@@ -239,7 +239,11 @@ class UserProviderService:
         new_ids: list[str] = []
         now = datetime.now(timezone.utc).isoformat()
 
-        if card_type in ("netmind", "yunwu", "openrouter"):
+        # Keyed off the dual-provider table, NOT a repeated literal list: the
+        # free-tier card was added to the table and to onboard_one_key but this
+        # third copy was missed, so it raised "Unknown card_type" at the last
+        # step. One source of truth makes that class of miss impossible.
+        if card_type in _DUAL_PROVIDER_CONFIGS:
             # Check uniqueness (unless the caller is mid-replace).
             if not replace:
                 existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": card_type})
@@ -603,6 +607,7 @@ class UserProviderService:
         replace: bool = False,
         inference_base: Optional[str] = None,
         activate: bool = True,
+        models: Optional[list[str]] = None,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -639,7 +644,9 @@ class UserProviderService:
         ptype = provider_type or (
             "anthropic" if key.startswith("sk-ant-") else "openai"
         )
-        allowed = ("anthropic", "openai", "netmind", "yunwu", "openrouter")
+        allowed = (
+            "anthropic", "openai", "netmind", "netmind_free", "yunwu", "openrouter",
+        )
         if ptype not in allowed:
             raise ValueError(
                 f"provider_type must be one of {allowed}, got {ptype!r}"
@@ -658,7 +665,7 @@ class UserProviderService:
         # Official anthropic/openai cards use source="user" (unguarded, users
         # may hold several) so they never need this.
         old_rows: list[dict] = []
-        if ptype in ("netmind", "yunwu", "openrouter"):
+        if ptype in _DUAL_PROVIDER_CONFIGS:
             old_rows = await self.db.get(
                 "user_providers", filters={"user_id": user_id, "source": ptype}
             )
@@ -695,7 +702,7 @@ class UserProviderService:
         # delete-then-add the user would otherwise do by hand).
         config, new_ids = await self.add_provider(
             user_id=user_id, card_type=ptype, api_key=key, replace=bool(old_rows),
-            inference_base=inference_base,
+            inference_base=inference_base, models=models,
         )
         if activate:
             # Official anthropic/openai cards create ONE provider that
@@ -769,12 +776,19 @@ class UserProviderService:
         )
 
         if ptype in _DUAL_PROVIDER_CONFIGS:
+            from xyz_agent_context.agent_framework.providers.free_tier import (
+                FREE_TIER_SOURCE,
+                free_tier_endpoints,
+            )
+
             info = _DUAL_PROVIDER_CONFIGS[ptype]["anthropic"]
             # Probe the SAME base the provider will be created with — otherwise a
             # dev-minted netmind key gets probed against prod inference and 401s,
             # failing onboarding before it ever writes.
             base_url = info["base_url"]
-            if ptype == "netmind" and inference_base:
+            if ptype == FREE_TIER_SOURCE:
+                base_url = free_tier_endpoints().for_protocol("anthropic")
+            elif ptype == "netmind" and inference_base:
                 base_url = _netmind_base_for("anthropic", inference_base)
             probe_cfg = ProviderConfig(
                 provider_id="_onboard_verify",
@@ -1029,10 +1043,19 @@ class UserProviderService:
 
 
 # =============================================================================
-# Dual-protocol provider builder (NetMind, Yunwu, OpenRouter)
+# Dual-protocol provider builder (NetMind, free tier, Yunwu, OpenRouter)
 # =============================================================================
 
+# The free-tier card's base_urls are deployment-specific (they point at OUR
+# gateway, which does not exist locally), so they are resolved at build time
+# from `free_tier.free_tier_endpoints()` rather than frozen here. The entry
+# still exists so `card_type in _DUAL_PROVIDER_CONFIGS` — the check every dual
+# path uses — stays a single source of truth.
 _DUAL_PROVIDER_CONFIGS = {
+    "netmind_free": {
+        "anthropic": {"name": "Free Tier (Anthropic)", "base_url": "", "auth_type": "bearer_token"},
+        "openai": {"name": "Free Tier (OpenAI)", "base_url": "", "auth_type": "api_key"},
+    },
     "netmind": {
         "anthropic": {"name": "NetMind (Anthropic)", "base_url": "https://api.netmind.ai/inference-api/anthropic", "auth_type": "bearer_token"},
         "openai": {"name": "NetMind (OpenAI)", "base_url": "https://api.netmind.ai/inference-api/openai/v1", "auth_type": "api_key"},
@@ -1067,6 +1090,10 @@ def _build_dual_providers(
     models: Optional[list] = None,
     inference_base: Optional[str] = None,
 ) -> list[dict]:
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        FREE_TIER_SOURCE,
+        free_tier_endpoints,
+    )
     from xyz_agent_context.agent_framework.providers.model_catalog import get_default_models
     cfg = _DUAL_PROVIDER_CONFIGS[card_type]
     result = []
@@ -1075,7 +1102,11 @@ def _build_dual_providers(
         # Override the base ONLY for netmind + when a caller opted in
         # (use-subscription). Everything else keeps the hardcoded prod base.
         base_url = info["base_url"]
-        if card_type == "netmind" and inference_base:
+        if card_type == FREE_TIER_SOURCE:
+            # Always resolved from the environment: the gateway URL differs per
+            # deployment and there is no meaningful hardcoded default.
+            base_url = free_tier_endpoints().for_protocol(protocol)
+        elif card_type == "netmind" and inference_base:
             base_url = _netmind_base_for(protocol, inference_base)
         result.append({
             "provider_id": _generate_provider_id(),

@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/quota.py
 stub: false
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — 语义换成钱包，路径保持不变
+
+`GET /api/quota/me` 的**路径故意不改**（前端改动面因此被限制在四个文件），
+但返回的东西从「token 计数器」换成了「美元钱包余额」，数据来自 deploy 侧的
+quota-api。
+
+三种响应形状必须保持互相可区分：`{enabled:false}`（本地/关闭）、
+`uninitialized`（还没开钱包，新用户会短暂处于此态，因为开通是登录路径上的
+fire-and-forget）、以及带余额的 `active`/`exhausted`。把前两者合并会让刚注册
+的用户看到一个「已用完」的余额。
+
+服务不可达时返回 503 而不是 0 余额 —— 谎报余额为零等于告诉用户钱没了。
 
 ## 2026-07-23 — GET /me 响应新增 `free_tier` 锁定块
 

@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 首登不再播种 token 配额，改为开钱包
+
+首次 NetMind 登录时的 `quota_service.init_for_user` 换成
+`schedule_ensure_free_tier_provider`：开一个 $10 钱包并把它注册成一张普通
+provider 卡。
+
+因此登录响应里的 `has_system_quota` / `initial_*_tokens` 三个字段删除 ——
+开通是 fire-and-forget 的（登录绝不能被钱包服务拖住或拖垮），响应时刻它
+还没跑完，报任何值都是猜的。调度调用本身也包了 try/except：这条路径上任何
+异常都不许冒泡成登录失败。
 
 ## 2026-07-23 — delete_agent cascades memory_consolidation_queue
 

@@ -110,20 +110,16 @@ from xyz_agent_context.module.job_module._job_context_builder import build_execu
 # interval can succeed. (铁律 #14: this is job-scheduler-level, never an
 # agent_loop limit. #15: own-provider users' runs succeed and never hit this.)
 _NO_QUOTA_ERROR_TYPES: frozenset = frozenset({
-    "QuotaExceededError",         # free tier exhausted, no own provider
-    "FreeTierExhaustedError",     # free tier exhausted, has own provider (toggle)
-    "NoProviderConfiguredError",  # opted out, no own provider
-    "SystemDefaultUnavailable",   # free tier disabled / quota gone (api_config path)
+    "NoProviderConfiguredError",  # resolver: no usable provider for this user
     "LLMConfigNotConfigured",     # provider_driver resolution: no usable config
 })
 
 # Fallback substrings for the generic-except path that only carries a message.
+# An empty free-tier WALLET is not here: the gateway refuses that call at
+# runtime with an out-of-credit error, which layer 2 (classify_self_serviceable
+# → insufficient_balance) already catches — one classifier, not two.
 _NO_QUOTA_ERROR_MARKERS = (
-    "quota exhausted",
-    "free quota exhausted",
-    "free-tier quota exhausted",
     "no provider configured",
-    "system free tier",
 )
 
 
@@ -338,13 +334,6 @@ class JobTrigger:
         from xyz_agent_context.utils.db.schema_registry import auto_migrate
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
-
-        # Initialise system-default quota so jobs run by agents whose
-        # owners have no personal provider fall back to the free tier.
-        from xyz_agent_context.agent_framework.quota_service import (
-            bootstrap_quota_subsystem,
-        )
-        await bootstrap_quota_subsystem(self._db)
 
         logger.info("JobTrigger starting (Worker Pool mode)...")
         logger.info(f"   Poll interval: {self.poll_interval} seconds")

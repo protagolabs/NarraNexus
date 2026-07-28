@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents/llm_config.py
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 不再返回 free_tier 锁块
+
+GET 响应里的 `free_tier: {active, model}` 块删除。免费额度是普通 provider
+卡，per-agent override 不会被任何东西抢占，composer 的模型 chip 永远是可用
+控件 —— 继续下发一个恒为 inactive 的锁块，只会诱导前端渲染一种不可能发生的
+状态。
 
 ## 2026-07-23 — GET 响应新增 `free_tier` 锁定块（诚实化模型选择器）
 

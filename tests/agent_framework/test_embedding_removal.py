@@ -70,16 +70,14 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
         OpenAIConfig,
     )
     from xyz_agent_context.utils.db import db_factory
-    from xyz_agent_context.agent_framework.quota_service import QuotaService, bootstrap_quota_subsystem
-    from xyz_agent_context.agent_framework.providers.system_service import SystemProviderService
 
-    # Patch db so the lazy bootstrap finds the in-memory db.
+    # Patch db so the resolver finds the in-memory db.
     async def _fake_db():
         return db_client
     monkeypatch.setattr(db_factory, "get_db_client", _fake_db)
-
-    # Disable system provider so we go through the user-owns path.
-    SystemProviderService._instance = SystemProviderService(enabled=False, config=None)
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
 
     # Seed providers + slots.
     now = "2026-06-04T00:00:00"
@@ -112,19 +110,12 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
             "updated_at": now,
         })
 
-    # Bootstrap quota service so _ensure_quota_service() finds it.
-    qs = await bootstrap_quota_subsystem(db_client)
-    QuotaService.set_default(qs)
-
     result = await get_user_llm_configs("alice")
     assert len(result) == 2, f"Expected 2-tuple, got length {len(result)}"
     claude, openai = result
     assert isinstance(claude, ClaudeConfig)
     assert isinstance(openai, OpenAIConfig)
 
-    # Cleanup
-    SystemProviderService._instance = None
-    QuotaService._default = None
 
 
 # ── 4. _REQUIRED_SLOTS in provider_resolver does NOT include "embedding" ─────
@@ -202,14 +193,12 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
         },
     )
     user_svc = MagicMock()
-    sys_svc = MagicMock()
-    sys_svc.is_enabled.return_value = True
-    quota_svc = MagicMock()
-    quota_svc.get = AsyncMock(return_value=None)      # no quota row → opt-out
-    quota_svc.check = AsyncMock(return_value=True)
     user_svc.get_user_config = AsyncMock(return_value=complete_cfg)
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
 
-    resolver = ProviderResolver(user_svc, sys_svc, quota_svc)
+    resolver = ProviderResolver(user_svc)
     result = await resolver.resolve("usr_x")
     assert result is not None
     assert len(result) == 2, f"Expected (configs, source), got len {len(result)}"

@@ -47,7 +47,7 @@ class RunError:
         error_type: Concrete class name of the underlying exception,
             preserved by AgentRuntime so consumers can branch on it
             (e.g. show a friendlier text for
-            ``SystemDefaultUnavailable`` than for a generic CLI crash).
+            ``LLMConfigNotConfigured`` than for a generic CLI crash).
         error_message: Human-readable explanation. May be surfaced to
             the owner in web chat verbatim, or replaced by a friendlier
             text for IM channels where the sender is not the owner.

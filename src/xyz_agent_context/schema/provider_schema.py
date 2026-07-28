@@ -46,6 +46,7 @@ class AuthType(str, Enum):
 class ProviderSource(str, Enum):
     """How this provider was created (informational, not logic-driving)"""
     NETMIND = "netmind"            # Auto-created from NetMind one-key card
+    NETMIND_FREE = "netmind_free"  # Platform free-tier wallet card (see providers/free_tier)
     YUNWU = "yunwu"                # Auto-created from Yunwu one-key card
     OPENROUTER = "openrouter"      # Auto-created from OpenRouter one-key card
     CLAUDE_OAUTH = "claude_oauth"  # Auto-created from Claude Code Login card

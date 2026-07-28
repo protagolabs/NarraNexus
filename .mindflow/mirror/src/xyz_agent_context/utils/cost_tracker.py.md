@@ -1,5 +1,15 @@
 # cost_tracker.py
 
+## 2026-07-28 — 配额扣减钩子删除
+
+`record_cost` 尾部那段「`provider_source=="system"` 就调
+`QuotaService.deduct`」的钩子整个拿掉了。免费额度的钱现在由 LiteLLM 网关在
+请求路径上按美元实时计量，我们这边不再维护第二本账。
+
+本文件回到纯粹的**可观测性**职责：往 `cost_records` 写一行 token 账，仅此
+而已。`user_id` / `provider_source` 两个 ContextVar 仍然读、仍然落库 ——
+它们现在只用于归属和审计，不再驱动任何扣费逻辑。
+
 ## 2026-07-23 — record_cost 扩三参:cache 埋点 + num_turns(W1)
 
 `record_cost` 新增 `cache_read_tokens`/`cache_creation_tokens`(默认 0)与

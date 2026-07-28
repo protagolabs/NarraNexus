@@ -99,23 +99,21 @@ async function renderLoaded() {
   );
 }
 
-test('free-tier active: renders the honest banner (edits still allowed)', async () => {
+test('free tier never preempts these defaults — no lock banner, controls live', async () => {
+  // The free tier is an ordinary provider card now: what is set here is what
+  // runs, on the free wallet just as on a user's own key. The old "your choice
+  // is ignored until the free tier runs out" banner would be a lie.
   mockGetMyQuota.mockResolvedValue({
     enabled: true,
     status: 'active',
-    free_tier: { active: true, model: 'sys-agent-x' },
+    currency: 'USD',
+    max_budget: 10,
+    spend: 1,
+    remaining: 9,
   });
   await renderLoaded();
-  // t() mock returns the key when the 2nd arg is an interpolation object.
-  expect(screen.getByText('chat.model.freeTierBanner')).toBeInTheDocument();
-  // Controls stay editable — the banner informs, it does not lock.
-  expect(frameworkSelect()).not.toBeDisabled();
-});
-
-test('free-tier inactive: no banner', async () => {
-  mockGetMyQuota.mockResolvedValue({ enabled: true, status: 'exhausted', free_tier: { active: false, model: null } });
-  await renderLoaded();
   expect(screen.queryByText('chat.model.freeTierBanner')).toBeNull();
+  expect(frameworkSelect()).not.toBeDisabled();
 });
 
 test('cloud non-staff: only NetMind providers are offered + local-version note', async () => {

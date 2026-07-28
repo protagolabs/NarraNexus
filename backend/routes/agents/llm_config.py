@@ -33,7 +33,6 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.agent_framework.providers.resolver import free_tier_lock_for
 from xyz_agent_context.schema.provider_schema import SlotName
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.agent_framework.providers.cloud_policy import CloudPolicyViolation
@@ -135,20 +134,12 @@ async def get_agent_llm_config(agent_id: str, request: Request):
             "owner_default": owner_view,
         }
 
-    # Free-tier lock: while the owner's cloud free tier has budget, runs are
-    # pinned to the fixed system model and the per-agent overrides above are
-    # ignored (single source: free_tier_lock_for → ProviderResolver). The UI
-    # renders an honest read-only chip from this instead of a no-op switch.
-    free_tier = await free_tier_lock_for(
-        user_id,
-        getattr(request.app.state, "system_provider", None),
-        getattr(request.app.state, "quota_service", None),
-        db,
-    )
-
+    # No free-tier lock block any more: the free tier is an ordinary provider
+    # card, so a per-agent override is never preempted and the composer's model
+    # chip is always a live control.
     return {
         "success": True,
-        "data": {"agent_id": agent_id, "slots": slots_out, "free_tier": free_tier},
+        "data": {"agent_id": agent_id, "slots": slots_out},
     }
 
 

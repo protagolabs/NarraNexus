@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ComposerModelBadge.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — free-tier 锁整个拿掉
+
+那个「免费期间渲染只读 chip」的提前返回删除了，连同 `freeTierModel` state 和
+后端 `free_tier` 块的读取。
+
+原因是它守护的前提没了：免费额度现在是一张普通 provider 卡，用户的模型选择
+在它上面照常生效。继续锁着，才是那个「切不动模型」的 bug。
 
 ## 2026-07-23 — 免费额度锁定态（诚实只读 chip）
 

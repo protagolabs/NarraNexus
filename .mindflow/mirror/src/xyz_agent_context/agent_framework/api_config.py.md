@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-26
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 免费额度分支移除后的收口
+
+`get_user_runtime_llm_configs` 不再组装 `SystemProviderService` 和
+`QuotaService`，只注入 `UserProviderService`；`_ensure_quota_service` 整个
+删除（它存在的唯一理由是让各个入口点无需显式 bootstrap 配额子系统）。
+
+异常家族从两个子类缩到一个：`SystemDefaultUnavailable` 删除 —— 不再存在
+「平台自己那一档不可用」这种状态，用户没有可用 provider 就是
+`LLMConfigNotConfigured`。改名的连带影响已同批扫过 job_trigger /
+lark_trigger / circuit_breaker 的类型名字符串列表。
 
 ## 2026-07-26 — to_cli_env 增加 `oauth_token` 分支（setup-token 注入）
 

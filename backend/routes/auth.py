@@ -198,19 +198,21 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         display_name=netmind_user.nickname,
     )
 
-    # Seed the system-default free-tier quota on first login (registration
-    # is gone — first login IS registration now). Failures must not fail
-    # the login; staff can re-seed via /api/admin/quota/init.
-    quota_row = None
+    # Open the free-tier wallet on first login (registration is gone — first
+    # login IS registration now) and register it as an ordinary provider card.
+    # Fire-and-forget: login must never block on, or fail from, the wallet
+    # service. Staff can re-run it via /api/admin/quota/init.
     if is_new:
-        quota_service = getattr(http_request.app.state, "quota_service", None)
-        if quota_service is not None:
-            try:
-                quota_row = await quota_service.init_for_user(user.user_id)
-            except Exception as e:
-                logger.exception(
-                    f"netmind-login: failed to init quota for {user.user_id}: {e}"
-                )
+        from backend.integrations.free_tier.provisioner import (
+            schedule_ensure_free_tier_provider,
+        )
+        try:
+            schedule_ensure_free_tier_provider(user.user_id)
+        except Exception as e:  # noqa: BLE001 — login is never blocked by this
+            logger.exception(
+                f"netmind-login: free-tier provisioning could not be scheduled "
+                f"for {user.user_id} (retried next login): {e}"
+            )
         try:
             identify_user(user.user_id, {"signup_method": "netmind"})
             track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
@@ -245,9 +247,6 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         is_new_user=is_new,
         display_name=user.display_name,
         email=user.email,
-        has_system_quota=quota_row is not None,
-        initial_input_tokens=(quota_row.initial_input_tokens if quota_row else 0),
-        initial_output_tokens=(quota_row.initial_output_tokens if quota_row else 0),
     )
 
 

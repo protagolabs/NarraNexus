@@ -278,6 +278,12 @@ async def apply_ledger_to_db(db, *, sources: list[str] | None = None) -> dict[st
     result is a backend property, so all users share it. ``system_pool`` rows
     are overwritten from the ``netmind`` ledger entry (same backend).
 
+    ``netmind_free`` is deliberately NOT in scope here: the free tier reaches
+    NetMind through OUR gateway, which only routes (and only prices) the models
+    it was configured with. Giving it the upstream's full catalogue would put
+    choices in the dropdown that 400 on first use. Its list comes from the
+    gateway itself — see ``refresh_free_tier_models``.
+
     Returns {db_source: {protocol: rows_updated}}.
     """
     import json
@@ -349,3 +355,50 @@ async def _cli() -> int:
 if __name__ == "__main__":
     import sys
     sys.exit(asyncio.run(_cli()))
+
+
+async def refresh_free_tier_models(db) -> int:
+    """Overwrite every free-tier card's model list from the GATEWAY's catalogue.
+
+    Separate from ``apply_ledger_to_db`` on purpose: the free tier's routable
+    set is whatever the gateway was configured with (which is also the set it
+    can price), not whatever the upstream provider happens to sell. Runs in the
+    same daily pass so a gateway config change reaches existing cards without a
+    manual step.
+
+    Returns the number of rows updated; 0 when the free tier is not configured.
+    """
+    import json
+
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        FREE_TIER_SOURCE,
+    )
+    from xyz_agent_context.integrations.free_tier.wallet_client import (
+        WalletClient,
+        WalletError,
+    )
+
+    client = WalletClient.from_settings()
+    if client is None:
+        return 0
+    try:
+        models = await client.served_models()
+    except WalletError as e:  # noqa: BLE001 — never break the whole sync pass
+        logger.warning(f"[model_sync] free-tier catalogue lookup failed: {e!r}")
+        return 0
+    if not models:
+        return 0
+
+    payload = json.dumps(models)
+    now = _now()
+    updated = 0
+    for proto in ("openai", "anthropic"):
+        updated += await db.update(
+            "user_providers",
+            {"source": FREE_TIER_SOURCE, "protocol": proto},
+            {"models": payload, "updated_at": now},
+        ) or 0
+    logger.info(
+        f"[model_sync] free-tier catalogue: {len(models)} models -> {updated} row(s)"
+    )
+    return updated

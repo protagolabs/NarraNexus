@@ -392,9 +392,6 @@ export interface NetmindLoginResponse extends ApiResponse {
   is_new_user?: boolean;
   display_name?: string;
   email?: string;
-  has_system_quota?: boolean;
-  initial_input_tokens?: number;
-  initial_output_tokens?: number;
 }
 
 // Response from /api/auth/register. Carries the optional system free-tier
@@ -412,32 +409,21 @@ export interface RegisterResponse extends ApiResponse {
 // Response shape for GET /api/quota/me. Discriminated by `enabled` and
 // `status` so the UI can switch exhaustively without "is the feature on"
 // booleans scattered through the component tree.
-// While the free tier has budget, runs are pinned to the fixed system model
-// and the user's own slot edits are ignored until it's spent (backend
-// ProviderResolver SYSTEM_OK branch). `free_tier.active` lets settings panels
-// render an honest "changes apply once your free quota is used up" banner;
-// `model` is what actually runs meanwhile. Absent in local mode → inactive.
-type FreeTierLock = { active: boolean; model: string | null };
-
+//
+// The free tier is a USD wallet on the LLM gateway (not a token counter), and
+// it is registered as an ordinary provider card — so there is no "your model
+// choice is ignored while the free tier lasts" lock any more. Users on the free
+// tier switch models like anyone else; only the balance is special.
 export type QuotaMeResponse =
   | { enabled: false }
-  | { enabled: true; status: 'uninitialized'; free_tier?: FreeTierLock }
+  | { enabled: true; status: 'uninitialized' }
   | {
       enabled: true;
-      status: 'active' | 'exhausted' | 'disabled';
-      free_tier?: FreeTierLock;
-      remaining_input_tokens: number;
-      remaining_output_tokens: number;
-      initial_input_tokens: number;
-      initial_output_tokens: number;
-      granted_input_tokens: number;
-      granted_output_tokens: number;
-      used_input_tokens: number;
-      used_output_tokens: number;
-      // Exhaustion-notice dedup latch, NOT a user preference (the toggle was
-      // removed 2026-07-18; free-tier-first is platform behavior). Returned
-      // read-only; no frontend writes it or renders it anymore.
-      prefer_system_override: boolean;
+      status: 'active' | 'exhausted';
+      currency: string;
+      max_budget: number;
+      spend: number;
+      remaining: number;
     };
 
 export interface CreateUserResponse extends ApiResponse {

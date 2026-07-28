@@ -94,33 +94,43 @@ def _patch_local_mode(monkeypatch, is_cloud: bool):
 def _patch_free_tier(
     monkeypatch,
     *,
-    system_enabled: bool = True,
-    quota_pref: bool | None = True,
+    wallet_configured: bool = True,
+    has_wallet: bool = True,
     has_budget: bool = True,
 ):
     """Stub the free-tier grant gate.
 
-    ``system_enabled`` simulates whether SystemProviderService.is_enabled()
-    answers True (cloud-mode + SYSTEM_DEFAULT_LLM_ENABLED). ``quota_pref``
-    sets the row's ``prefer_system_override`` (the exhaustion-notice latch —
-    must NOT affect routing since 2026-07-18); ``None`` means "no quota row
-    for this user". The gate denies the system tier on no-row OR no-budget
-    (``has_budget`` — STT shares the LLM path's budget verdict).
-    """
-    fake_sys = MagicMock()
-    fake_sys.is_enabled.return_value = system_enabled
-    monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.system_service.SystemProviderService.instance",
-        classmethod(lambda cls: fake_sys),
-    )
+    The gate is now "does this user have a free-tier WALLET with money left",
+    answered by the deploy-side wallet service. ``wallet_configured=False``
+    simulates a deployment with no free tier at all (local / feature off);
+    ``has_wallet=False`` a user who was never provisioned; ``has_budget=False``
+    a spent wallet.
 
-    fake_quota_row = None if quota_pref is None else MagicMock(prefer_system_override=quota_pref)
-    fake_qs = MagicMock()
-    fake_qs.get = AsyncMock(return_value=fake_quota_row)
-    fake_qs.check = AsyncMock(return_value=has_budget)
+    STT deliberately shares the LLM path's budget verdict: transcription does
+    NOT flow through the gateway (it calls NetMind STT with the operator key),
+    so nothing upstream can refuse it — without this check an exhausted account
+    would keep burning the operator's STT key after its LLM path is blocked.
+    """
+    from xyz_agent_context.integrations.free_tier import wallet_client as wc
+
+    if not wallet_configured:
+        monkeypatch.setattr(
+            wc.WalletClient, "from_settings", classmethod(lambda cls: None)
+        )
+        return
+
+    fake = MagicMock()
+    if has_wallet:
+        fake.balance = AsyncMock(return_value=wc.WalletBalance(
+            currency="USD", max_budget=10.0,
+            spend=10.0 if not has_budget else 1.0,
+            remaining=0.0 if not has_budget else 9.0,
+            exhausted=not has_budget,
+        ))
+    else:
+        fake.balance = AsyncMock(side_effect=wc.WalletMissing("none"))
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.quota_service.QuotaService.default",
-        classmethod(lambda cls: fake_qs),
+        wc.WalletClient, "from_settings", classmethod(lambda cls: fake)
     )
 
 
@@ -148,7 +158,7 @@ async def test_no_providers_no_settings_returns_empty(monkeypatch):
     _patch_user_providers(monkeypatch)
     _patch_local_mode(monkeypatch, is_cloud=True)
     _patch_settings(monkeypatch)
-    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_free_tier(monkeypatch, wallet_configured=False)
     creds = await R.resolve_candidates(user_id="u1")
     assert creds == []
 
@@ -206,7 +216,7 @@ async def test_local_mode_skips_user_netmind_credential(monkeypatch):
         ),
     )
     _patch_local_mode(monkeypatch, is_cloud=False)
-    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_free_tier(monkeypatch, wallet_configured=False)
     _patch_settings(monkeypatch, public_base_url="")
     creds = await R.resolve_candidates(user_id="u1")
     assert creds == []
@@ -226,7 +236,7 @@ async def test_local_mode_user_openai_still_works_when_netmind_skipped(monkeypat
         ),
     )
     _patch_local_mode(monkeypatch, is_cloud=False)
-    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_free_tier(monkeypatch, wallet_configured=False)
     _patch_settings(monkeypatch, public_base_url="")
     creds = await R.resolve_candidates(user_id="u1")
     assert len(creds) == 1
@@ -248,7 +258,7 @@ async def test_self_hosted_with_public_base_url_re_enables_netmind(monkeypatch):
         ),
     )
     _patch_local_mode(monkeypatch, is_cloud=False)
-    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_free_tier(monkeypatch, wallet_configured=False)
     _patch_settings(monkeypatch, public_base_url="https://my-vps.example.com")
     creds = await R.resolve_candidates(user_id="u1")
     assert len(creds) == 1
@@ -332,7 +342,7 @@ async def test_system_default_netmind_only_when_public_base_url_set(monkeypatch)
     # Free-tier opt-in is on — but missing public_base_url is a hard
     # blocker. The toggle being "yes please" doesn't override deployment
     # config, it just unlocks the free tier when config IS present.
-    _patch_free_tier(monkeypatch, quota_pref=True)
+    _patch_free_tier(monkeypatch)
 
     # Key set, base URL unset → resolver downgrades NetMind to unavailable.
     _patch_settings(
@@ -364,7 +374,7 @@ async def test_user_provider_takes_precedence_over_system_default(monkeypatch):
         _provider("https://api.openai.com/v1", api_key="user-openai"),
     )
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=True)
+    _patch_free_tier(monkeypatch)
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
@@ -390,7 +400,7 @@ async def test_fired_notice_latch_still_gets_system_default(monkeypatch):
     user preference. Regression guard for the 2026-07-18 semantics."""
     _patch_user_providers(monkeypatch)  # no own providers
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=False)  # latch fired, row EXISTS
+    _patch_free_tier(monkeypatch)  # wallet exists with budget
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
@@ -409,7 +419,7 @@ async def test_fired_latch_own_providers_rank_first(monkeypatch):
         _provider("https://api.openai.com/v1", api_key="user-openai"),
     )
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=False)
+    _patch_free_tier(monkeypatch)
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
@@ -431,7 +441,7 @@ async def test_exhausted_quota_gets_no_system_default(monkeypatch):
     must share one budget verdict."""
     _patch_user_providers(monkeypatch)
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=True, has_budget=False)
+    _patch_free_tier(monkeypatch, has_budget=False)
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
@@ -448,7 +458,7 @@ async def test_no_quota_row_gets_no_system_default(monkeypatch):
     guard — the row IS the grant)."""
     _patch_user_providers(monkeypatch)
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=None)  # no row
+    _patch_free_tier(monkeypatch, has_wallet=False)  # never provisioned
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
@@ -465,7 +475,7 @@ async def test_system_provider_disabled_skips_system_default(monkeypatch):
     regardless of the user's toggle."""
     _patch_user_providers(monkeypatch)
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, system_enabled=False, quota_pref=True)
+    _patch_free_tier(monkeypatch, wallet_configured=False)
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",

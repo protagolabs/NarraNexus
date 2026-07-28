@@ -4,8 +4,9 @@
 @date: 2026-07-18
 @description: Single source of truth for the cloud "netmind-only" slot policy.
 
-On the multi-tenant cloud deployment a NON-STAFF user runs on their
-NetMind ("Power") account only:
+On the multi-tenant cloud deployment a NON-STAFF user runs on NetMind
+capacity only — either their own ("Power") account, or the platform-funded
+free-tier wallet, which is the same upstream reached through our gateway:
 
   - Bring-your-own API-key providers can be REGISTERED (the credential
     wallet stays open) but not BOUND to a slot — binding is what makes a
@@ -37,13 +38,22 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
 NETMIND_SOURCE = "netmind"
 
+# Sources a cloud non-staff user may BIND to a slot. Both are NetMind capacity:
+# `netmind` is the user's own Power account, `netmind_free` is the platform's
+# free-tier wallet on our gateway (which forwards to the very same upstream).
+# Keeping them as a set — rather than one constant plus an `or` at each call
+# site — is what stopped this rule from being re-derived inline again.
+CLOUD_BINDABLE_SOURCES = frozenset({NETMIND_SOURCE, FREE_TIER_SOURCE})
+
 NETMIND_ONLY_DETAIL = (
-    "Cloud accounts run on your NetMind account — using your own API-key "
-    "providers is available in the local (desktop) version only."
+    "Cloud accounts run on NetMind capacity — the free tier or your own "
+    "NetMind account. Using your own API-key providers is available in the "
+    "local (desktop) version only."
 )
 
 FRAMEWORK_LOCKED_DETAIL = (
@@ -81,5 +91,8 @@ def ensure_slot_provider_allowed(
     """
     if actor_is_staff is None or prov is None:
         return
-    if netmind_slots_only(actor_is_staff) and prov.get("source") != NETMIND_SOURCE:
+    if (
+        netmind_slots_only(actor_is_staff)
+        and prov.get("source") not in CLOUD_BINDABLE_SOURCES
+    ):
         raise CloudPolicyViolation(NETMIND_ONLY_DETAIL)

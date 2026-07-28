@@ -66,10 +66,7 @@
       "setModel": "set model",
       "switchTooltip": "Model — click to switch",
       "noModels": "No models — add some in Settings",
-      "moreInSettings": "More in settings →",
-      "freeTierTag": "free",
-      "freeTierLocked": "Locked to the free-tier model while your free quota lasts — switch models once it's used up, or preset one from the model panel.",
-      "freeTierBanner": "Free tier active: runs currently use {{model}}. Changes here take effect once your free quota is used up."
+      "moreInSettings": "More in settings →"
     },
     "voice": {
       "label": "voice",
@@ -829,7 +826,7 @@
       "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
       "linkNow": "Link it now",
       "linkFailed": "Linking failed:",
-      "freeTierTokensLeft": "{{remaining}} tokens left"
+      "freeTierCreditLeft": "${{remaining}} left"
     },
     "modal": {
       "title": "Settings",

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_sync.py
-last_verified: 2026-06-24
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 免费卡的目录不走 ledger
+
+`apply_ledger_to_db` 刻意**不覆盖** `netmind_free` 行。免费额度经我们自己的
+网关打到 NetMind，而网关只路由（也只定价）配置里那 15 个模型 —— 把上游 43 个
+的探测结果盖上去，等于在下拉框里放一堆一调就 400 的选项。
+
+免费卡的列表由 `refresh_free_tier_models` 直接问网关要，挂在同一趟日更里，
+这样改了 `pricing/models.json` 重新部署后，存量卡的下拉框会自动跟上。
 
 # agent_framework/providers/model_sync.py — auto-discover & probe provider models
 

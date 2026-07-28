@@ -2,19 +2,16 @@
 @file_name: test_quota_route.py
 @author: rujing.yan
 @date: 2026-07-23
-@description: Tests for the real GET /api/quota/me handler, focused on the
-``free_tier`` lock block that settings panels (global Model Defaults + the
-per-agent panel) read to render an honest "changes apply once your free quota is
-used up" banner.
+@description: Tests for the real GET /api/quota/me handler.
 
-While the free tier has budget, the runtime pins runs to the fixed system model
-and ignores the user's own slot edits — the block tells the UI so. Verdict comes
-from the single-source predicate ``ProviderResolver.is_free_tier_active``; the
-model is the system agent model surfaced while locked.
+The free tier is a USD wallet on the LLM gateway, so this route is a
+read-through to the deploy-side wallet service. What matters here is that each
+distinguishable state gets its OWN response shape — the frontend switches on
+them exhaustively, and collapsing "no wallet yet" into "wallet is empty" would
+show a brand-new user a spent balance.
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,86 +19,104 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.routes.quota as mod
+from xyz_agent_context.integrations.free_tier.wallet_client import (
+    WalletBalance,
+    WalletMissing,
+    WalletUnavailable,
+)
 
 
-def _fake_quota_row():
-    """A quota row shaped for ``_quota_to_dict`` (status + token counters)."""
-    return SimpleNamespace(
-        status=SimpleNamespace(value="active"),
-        remaining_input=10,
-        remaining_output=10,
-        initial_input_tokens=100,
-        initial_output_tokens=100,
-        granted_input_tokens=100,
-        granted_output_tokens=100,
-        used_input_tokens=90,
-        used_output_tokens=90,
-        prefer_system_override=False,
+def _balance(remaining: float, spend: float, exhausted: bool = False) -> WalletBalance:
+    return WalletBalance(
+        currency="USD",
+        max_budget=10.0,
+        spend=spend,
+        remaining=remaining,
+        exhausted=exhausted,
     )
 
 
-def _build_client(monkeypatch, *, cloud=True, enabled=True, has_budget=True, has_row=True):
-    monkeypatch.setattr(mod, "_is_cloud_mode", lambda: cloud)
-    # is_free_tier_active constructs UserProviderService(db) but never queries it,
-    # so any db object works — hand back a bare mock.
-    monkeypatch.setattr(mod, "get_db_client", AsyncMock(return_value=MagicMock()))
+def _build_client(monkeypatch, *, enabled=True, client=None, user_id="u1"):
+    monkeypatch.setattr(mod, "is_free_tier_enabled", lambda: enabled)
+    monkeypatch.setattr(
+        mod.WalletClient, "from_settings", classmethod(lambda cls: client)
+    )
 
     app = FastAPI()
     app.include_router(mod.router)
 
-    sys_svc = MagicMock()
-    sys_svc.is_enabled.return_value = enabled
-    sys_svc.get_config.return_value = SimpleNamespace(
-        slots={"agent": SimpleNamespace(model="sys-agent-x")}
-    )
-    quota_svc = MagicMock()
-    quota_svc.get = AsyncMock(return_value=(_fake_quota_row() if has_row else None))
-    quota_svc.check = AsyncMock(return_value=has_budget)
-    app.state.system_provider = sys_svc
-    app.state.quota_service = quota_svc
-
     @app.middleware("http")
-    async def _fake_auth(request, call_next):
-        request.state.user_id = "u1"
+    async def _inject_user(request, call_next):
+        request.state.user_id = user_id
         return await call_next(request)
 
     return TestClient(app)
 
 
-@pytest.mark.asyncio
-async def test_quota_me_free_tier_active_locks_to_system_model(monkeypatch):
-    client = _build_client(monkeypatch, enabled=True, has_budget=True, has_row=True)
-    r = client.get("/api/quota/me")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "active"
-    assert body["free_tier"] == {"active": True, "model": "sys-agent-x"}
+def _wallet(**kwargs):
+    m = MagicMock()
+    m.balance = AsyncMock(**kwargs)
+    return m
 
 
-@pytest.mark.asyncio
-async def test_quota_me_free_tier_inactive_when_exhausted(monkeypatch):
-    """Budget spent → own provider takes over → not locked, banner hidden."""
-    client = _build_client(monkeypatch, enabled=True, has_budget=False, has_row=True)
-    r = client.get("/api/quota/me")
-    assert r.status_code == 200
-    assert r.json()["free_tier"] == {"active": False, "model": None}
+def test_disabled_free_tier_reports_off(monkeypatch):
+    client = _build_client(monkeypatch, enabled=False)
+    assert client.get("/api/quota/me").json() == {"enabled": False}
 
 
-@pytest.mark.asyncio
-async def test_quota_me_free_tier_present_when_uninitialized(monkeypatch):
-    """No quota row yet → uninitialized, and free_tier is inactive (no budget)."""
-    client = _build_client(monkeypatch, enabled=True, has_budget=True, has_row=False)
-    r = client.get("/api/quota/me")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "uninitialized"
-    assert body["free_tier"] == {"active": False, "model": None}
+def test_flag_on_but_service_unwired_reports_off(monkeypatch):
+    """A half-configured deployment must not 500 the settings panel — the
+    misconfiguration is already logged loudly by the provisioner."""
+    client = _build_client(monkeypatch, client=None)
+    assert client.get("/api/quota/me").json() == {"enabled": False}
 
 
-@pytest.mark.asyncio
-async def test_quota_me_local_mode_has_no_free_tier(monkeypatch):
-    """Local mode → feature strictly off, plain {enabled: false}, no lock block."""
-    client = _build_client(monkeypatch, cloud=False)
-    r = client.get("/api/quota/me")
-    assert r.status_code == 200
-    assert r.json() == {"enabled": False}
+def test_active_wallet_returns_the_balance(monkeypatch):
+    client = _build_client(
+        monkeypatch, client=_wallet(return_value=_balance(6.2, 3.8))
+    )
+    assert client.get("/api/quota/me").json() == {
+        "enabled": True,
+        "status": "active",
+        "currency": "USD",
+        "max_budget": 10.0,
+        "spend": 3.8,
+        "remaining": 6.2,
+    }
+
+
+def test_spent_wallet_is_exhausted_not_missing(monkeypatch):
+    client = _build_client(
+        monkeypatch, client=_wallet(return_value=_balance(0.0, 10.0, exhausted=True))
+    )
+    body = client.get("/api/quota/me").json()
+    assert body["status"] == "exhausted"
+    assert body["remaining"] == 0.0
+
+
+def test_no_wallet_yet_is_uninitialized_not_an_error(monkeypatch):
+    """Provisioning is fire-and-forget off the login path, so a just-registered
+    user can legitimately hit this before their wallet exists."""
+    client = _build_client(
+        monkeypatch, client=_wallet(side_effect=WalletMissing("none"))
+    )
+    assert client.get("/api/quota/me").json() == {
+        "enabled": True,
+        "status": "uninitialized",
+    }
+
+
+def test_service_outage_is_503_not_a_fake_zero_balance(monkeypatch):
+    """Reporting $0 when we simply cannot reach the service would tell the user
+    their credit is gone. Fail loudly instead."""
+    client = _build_client(
+        monkeypatch, client=_wallet(side_effect=WalletUnavailable("down"))
+    )
+    assert client.get("/api/quota/me").status_code == 503
+
+
+def test_anonymous_request_is_401(monkeypatch):
+    client = _build_client(
+        monkeypatch, client=_wallet(return_value=_balance(6.2, 3.8)), user_id=None
+    )
+    assert client.get("/api/quota/me").status_code == 401

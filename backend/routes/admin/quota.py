@@ -2,32 +2,42 @@
 @file_name: quota.py
 @author: Bin Liang
 @date: 2026-04-16
-@description: Staff-only quota management routes.
+@description: Staff-only free-tier wallet management.
 
-/grant — upserts: if the target user has no quota row yet, creates one
-         with initial=0 then credits the grant amount (exhausted users
-         are automatically flipped to active when the credit lifts
-         remaining > 0).
-/init  — uses SYSTEM_DEFAULT_QUOTA_* env defaults. Idempotent;
-         returning the existing row if one already exists.
+``/topup``  — add USD headroom to a user's wallet. Raises the ceiling; never
+              rewrites what was already spent, so consumption stays auditable.
+``/init``   — provision the wallet + free-tier provider card for a user who
+              missed it (feature enabled after they first logged in, or a
+              provisioning failure). Idempotent.
 
-Both require `role=staff` on the caller's JWT.
+Both require ``role=staff`` on the caller's JWT.
+
+Token grants are gone with the token quota: the wallet's unit is dollars, and
+the gateway is the ledger.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from backend.auth import _is_cloud_mode
-
+from backend.routes.quota import balance_to_dict
+from xyz_agent_context.agent_framework.providers.free_tier import (
+    is_free_tier_enabled,
+)
+from xyz_agent_context.integrations.free_tier.wallet_client import (
+    WalletClient,
+    WalletError,
+    WalletMissing,
+)
 
 router = APIRouter(prefix="/api/admin/quota", tags=["admin", "quota"])
 
 
-class GrantRequest(BaseModel):
+class TopupRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
-    input_tokens: int = Field(..., ge=0)
-    output_tokens: int = Field(..., ge=0)
+    amount_usd: float = Field(..., gt=0)
     note: str | None = None
 
 
@@ -50,24 +60,9 @@ def _require_staff_or_raise(request: Request) -> str:
     return user_id
 
 
-def _quota_to_dict(q) -> dict:
-    return {
-        "user_id": q.user_id,
-        "status": q.status.value,
-        "initial_input_tokens": q.initial_input_tokens,
-        "initial_output_tokens": q.initial_output_tokens,
-        "granted_input_tokens": q.granted_input_tokens,
-        "granted_output_tokens": q.granted_output_tokens,
-        "used_input_tokens": q.used_input_tokens,
-        "used_output_tokens": q.used_output_tokens,
-        "remaining_input_tokens": q.remaining_input,
-        "remaining_output_tokens": q.remaining_output,
-    }
-
-
 async def _resolve_user_id_or_404(request: Request, target_user_id: str) -> None:
-    """Confirm the target exists in `users`. We reuse the existing UserRepository
-    available on app.state (populated by lifespan)."""
+    """Confirm the target exists in `users`. Reuses the UserRepository on
+    app.state (populated by lifespan)."""
     user_repo = getattr(request.app.state, "user_repository", None)
     if user_repo is None:
         raise HTTPException(status_code=503, detail="user repository not wired")
@@ -76,44 +71,56 @@ async def _resolve_user_id_or_404(request: Request, target_user_id: str) -> None
         raise HTTPException(status_code=404, detail="user not found")
 
 
-@router.post("/grant")
-async def grant(request: Request, payload: GrantRequest) -> dict:
+def _client_or_503() -> WalletClient:
+    if not is_free_tier_enabled():
+        raise HTTPException(status_code=503, detail="free tier is disabled")
+    client = WalletClient.from_settings()
+    if client is None:
+        raise HTTPException(status_code=503, detail="wallet service not configured")
+    return client
+
+
+@router.post("/topup")
+async def topup(request: Request, payload: TopupRequest) -> dict:
     _require_staff_or_raise(request)
     await _resolve_user_id_or_404(request, payload.user_id)
+    client = _client_or_503()
 
-    quota_svc = getattr(request.app.state, "quota_service", None)
-    if quota_svc is None:
-        raise HTTPException(status_code=503, detail="quota service not wired")
+    try:
+        balance = await client.topup(payload.user_id, payload.amount_usd)
+    except WalletMissing as e:
+        raise HTTPException(
+            status_code=404,
+            detail="user has no wallet — run /api/admin/quota/init first",
+        ) from e
+    except WalletError as e:
+        logger.warning(f"[admin-quota] topup failed for {payload.user_id}: {e!r}")
+        raise HTTPException(status_code=503, detail="wallet service unavailable") from e
 
-    q = await quota_svc.grant(
-        payload.user_id, payload.input_tokens, payload.output_tokens
-    )
-    # Edge-triggered recovery: a quota top-up can make the user runnable — revive
-    # their PAUSED_NO_QUOTA jobs in the background (non-blocking).
+    # Edge-triggered recovery: fresh headroom can make the user runnable again —
+    # revive their PAUSED_NO_QUOTA jobs in the background (non-blocking).
     from xyz_agent_context.module.job_module.job_recovery import (
         schedule_user_no_quota_rearm,
     )
     schedule_user_no_quota_rearm(payload.user_id)
-    return _quota_to_dict(q)
+    return balance_to_dict(balance)
 
 
 @router.post("/init")
 async def init(request: Request, payload: InitRequest) -> dict:
     _require_staff_or_raise(request)
     await _resolve_user_id_or_404(request, payload.user_id)
+    client = _client_or_503()
 
-    sys_svc = getattr(request.app.state, "system_provider", None)
-    quota_svc = getattr(request.app.state, "quota_service", None)
-    if sys_svc is None or quota_svc is None:
-        raise HTTPException(status_code=503, detail="quota services not wired")
-    if not sys_svc.is_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="system-default quota feature is disabled",
-        )
+    from backend.integrations.free_tier.provisioner import (
+        ensure_free_tier_provider,
+    )
 
-    q = await quota_svc.init_for_user(payload.user_id)
-    if q is None:
-        # init_for_user swallowed an exception; the user saw an HTTP error.
-        raise HTTPException(status_code=500, detail="quota init failed")
-    return _quota_to_dict(q)
+    try:
+        created = await ensure_free_tier_provider(payload.user_id)
+        balance = await client.balance(payload.user_id)
+    except WalletError as e:
+        logger.warning(f"[admin-quota] init failed for {payload.user_id}: {e!r}")
+        raise HTTPException(status_code=503, detail="wallet service unavailable") from e
+
+    return {"created": created, **balance_to_dict(balance)}

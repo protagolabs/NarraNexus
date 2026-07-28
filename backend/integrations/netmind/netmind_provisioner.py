@@ -82,7 +82,7 @@ async def ensure_netmind_provider(
         UserProviderService,
     )
     from xyz_agent_context.agent_framework.providers.resolver import (
-        _is_user_config_complete,
+        is_user_config_complete,
     )
 
     key_client = NetmindKeyClient(base_url=settings.netmind_key_api_base)
@@ -110,7 +110,7 @@ async def ensure_netmind_provider(
             svc = UserProviderService(db)
             # Activate (bind slots) ONLY when the user has no complete active
             # config; otherwise register-only (respect their own provider).
-            activate = activate_if_fresh and not _is_user_config_complete(
+            activate = activate_if_fresh and not is_user_config_complete(
                 await svc.get_user_config(user_id)
             )
             await svc.onboard_one_key(

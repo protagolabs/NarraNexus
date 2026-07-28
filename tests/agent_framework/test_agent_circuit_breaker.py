@@ -52,9 +52,7 @@ def test_classify_auth():
 
 
 def test_classify_quota():
-    for t in ("QuotaExceededError", "FreeTierExhaustedError",
-              "NoProviderConfiguredError", "SystemDefaultUnavailable",
-              "LLMConfigNotConfigured"):
+    for t in ("NoProviderConfiguredError", "LLMConfigNotConfigured"):
         assert classify_agent_error(t, "") == ErrorCategory.QUOTA
 
 
@@ -105,7 +103,7 @@ async def test_quota_pauses_with_quota_reason(db_client):
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_quota"
     for _ in range(AUTH_QUOTA_PAUSE_THRESHOLD):
-        await record_failure(aid, "QuotaExceededError", "no quota", db=db_client)
+        await record_failure(aid, "NoProviderConfiguredError", "no provider", db=db_client)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.paused_reason == PausedReason.QUOTA.value

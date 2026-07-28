@@ -1059,10 +1059,6 @@ async def _get_bus() -> LocalMessageBus:
     # Initialise the system-default quota subsystem so bus-triggered
     # agent turns can fall back to the free-tier config when the owner
     # hasn't configured their own provider.
-    from xyz_agent_context.agent_framework.quota_service import (
-        bootstrap_quota_subsystem,
-    )
-    await bootstrap_quota_subsystem(db)
 
     return LocalMessageBus(backend=backend)
 

@@ -66,10 +66,7 @@
       "setModel": "设置模型",
       "switchTooltip": "模型——点击切换",
       "noModels": "暂无模型——请在设置中添加",
-      "moreInSettings": "更多设置 →",
-      "freeTierTag": "免费",
-      "freeTierLocked": "免费额度期间锁定为该模型；额度用尽后即可切换，或在模型面板中预设。",
-      "freeTierBanner": "免费额度生效中：当前实际使用 {{model}}。此处的修改将在免费额度用尽后生效。"
+      "moreInSettings": "更多设置 →"
     },
     "voice": {
       "label": "语音",
@@ -829,7 +826,7 @@
       "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用——当前由你自己的服务商驱动。可在“全局默认”一节切换。",
       "linkNow": "立即接入",
       "linkFailed": "接入失败：",
-      "freeTierTokensLeft": "剩余 {{remaining}} tokens"
+      "freeTierCreditLeft": "剩余 ${{remaining}}"
     },
     "modal": {
       "title": "设置",

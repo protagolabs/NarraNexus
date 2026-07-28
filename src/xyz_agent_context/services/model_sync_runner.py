@@ -76,8 +76,15 @@ async def run_once() -> dict:
 
     db = await get_db_client()
     applied = await model_sync.apply_ledger_to_db(db, sources=synced)
-    logger.info(f"model_sync_runner: pass DONE synced={synced} applied={applied}")
-    return {"synced": synced, "applied": applied}
+    # The free-tier card's catalogue comes from OUR gateway, not the upstream
+    # probe — see refresh_free_tier_models. Same pass so a gateway config change
+    # reaches existing cards without a manual step.
+    free_tier = await model_sync.refresh_free_tier_models(db)
+    logger.info(
+        f"model_sync_runner: pass DONE synced={synced} applied={applied} "
+        f"free_tier_rows={free_tier}"
+    )
+    return {"synced": synced, "applied": applied, "free_tier_rows": free_tier}
 
 
 async def run_loop() -> None:

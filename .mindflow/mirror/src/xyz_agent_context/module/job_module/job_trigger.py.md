@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — no-quota 判定的第 1、3 层收缩
+
+`_NO_QUOTA_ERROR_TYPES` 只剩 `NoProviderConfiguredError` /
+`LLMConfigNotConfigured`；`_NO_QUOTA_ERROR_MARKERS` 只剩
+`"no provider configured"`。
+
+不是放松，是搬家：**免费额度花光已经没有专属的错误类型了**（钱包在网关上，
+网关在请求路径里拒绝），它经由第 2 层 `classify_self_serviceable` 的
+`insufficient_balance` 命中。第 1、3 层再留一份自己的措辞列表，就是两套分类
+规则各自漂移的开始。
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 

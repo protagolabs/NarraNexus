@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — post_reap 钩子随 per-run 会话票一起删除
+
+`post_reap_fn` 这个机制当初只有一个用途：culling 掉闲置 executor 后，顺手
+吊销该用户遗留的 free-tier 会话票。per-run 会话票整套已经不存在（改成每用户
+一把长期钱包 key，落在 `user_providers` 里），钩子随之失去唯一调用方，按
+铁律 #2/#8 一并删掉而不是留着空转。
 
 ## 为什么存在
 

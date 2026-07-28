@@ -61,11 +61,6 @@ class NetmindLoginResponse(BaseModel):
     is_new_user: bool = False
     display_name: Optional[str] = None
     email: Optional[str] = None
-    # Free-tier seeding outcome (first login only) — mirrors the fields
-    # RegisterResponse carried so the frontend welcome toast keeps working.
-    has_system_quota: bool = False
-    initial_input_tokens: int = 0
-    initial_output_tokens: int = 0
     error: Optional[str] = None
 
 

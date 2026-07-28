@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — lifespan 里的配额子系统整块移除
+
+不再构造 `SystemProviderService` / `QuotaService` / `QuotaRepository`，
+`app.state` 上的 `system_provider` 和 `quota_service` 一并消失（路由改为按需
+构造 wallet client）。`gateway_spend_reconciler` 后台任务的启停也删除 ——
+计量已经在网关里实时完成，事后对账没有对象了。
+
+`ProviderResolver` 的构造从三个依赖降到一个。
 
 ## 2026-07-27 — 免费额度 gateway spend reconciler 接入 lifespan
 

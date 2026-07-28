@@ -47,6 +47,7 @@ def derive_driver_type(
     user         anthropic  *          custom_anthropic
     user         openai     *          custom_openai
     netmind      *          *          netmind
+    netmind_free *          *          netmind_free  (cloud free tier)
     yunwu        *          *          yunwu
     openrouter   *          *          openrouter
     claude_oauth *          oauth      claude_oauth
@@ -63,7 +64,9 @@ def derive_driver_type(
             return "custom_openai"
         return None  # unknown protocol on user-source — backfill skips
 
-    if src in ("netmind", "yunwu", "openrouter"):
+    # netmind_free is the platform free-tier card — the same NetMind card shape
+    # with our gateway wallet as the key, so it maps 1:1 like the others.
+    if src in ("netmind", "netmind_free", "yunwu", "openrouter"):
         return src
 
     if src == "claude_oauth":

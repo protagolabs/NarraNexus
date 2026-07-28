@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 不再现发会话票
+
+step 3 开头那段「system-tier 运行就向网关 mint 一把 per-run key、注入
+ClaudeConfig、finally 里吊销」的逻辑整段删除，连带 `gateway_unavailable`
+的提前返回分支。
+
+免费额度的凭据现在是用户 `user_providers` 里那张卡上的长期 key，和自带 key
+走完全一样的 `provider_configs` 下发路径 —— step 3 对它没有任何特殊认知，
+这正是目的。
 
 
 ## 2026-07-27 — driver 调用入参打包为 TurnInput（纯搬运）

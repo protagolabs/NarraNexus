@@ -136,13 +136,11 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
 
     user_svc = MagicMock()
     user_svc.get_user_config = AsyncMock(return_value=_complete_cfg())
-    sys_svc = MagicMock()
-    sys_svc.is_enabled.return_value = True
-    quota_svc = MagicMock()
-    quota_svc.get = AsyncMock(return_value=None)   # no quota row → opt-out → USER
-    quota_svc.check = AsyncMock(return_value=True)
 
-    await ProviderResolver(user_svc, sys_svc, quota_svc).resolve_and_set("u")
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+    await ProviderResolver(user_svc).resolve_and_set("u")
 
     assert isinstance(get_helper_sdk(), AnthropicHelperSDK)
     assert _anthropic_helper_ctx.get() is not None

@@ -16,6 +16,7 @@ from xyz_agent_context.agent_framework.providers.driver.drivers import (  # noqa
     custom_anthropic,
     custom_openai,
     netmind,
+    netmind_free,
     yunwu,
     openrouter,
     claude_oauth,
