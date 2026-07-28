@@ -1964,6 +1964,7 @@
     "livePreview": "Live-Vorschau"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus befindet sich in der Beta-Phase. Funktionen können sich ändern und gelegentlich können Fehler auftreten — Ihr Feedback hilft uns, besser zu werden."
   }
 }

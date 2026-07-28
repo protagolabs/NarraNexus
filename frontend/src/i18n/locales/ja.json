@@ -1963,6 +1963,7 @@
     "livePreview": "ライブプレビュー"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。"
   }
 }

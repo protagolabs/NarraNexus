@@ -2214,6 +2214,7 @@
     "agentCount_one": "{{count}} 个智能体"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。"
   }
 }
