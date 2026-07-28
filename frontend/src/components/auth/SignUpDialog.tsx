@@ -217,14 +217,17 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
             className="flex-1"
           >
             <TextInput
-              inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={6}
               value={code}
-              // Digits only: the field accepts 6 characters and a stray space
-              // pasted out of an email would silently fail the submit.
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
+              // The code is ALPHANUMERIC, not digits. A digits-only filter here
+              // silently ate every letter, and inputMode="numeric" meant a
+              // phone keypad could not even type one. Strip whitespace only —
+              // pasting from an email often drags a space along — and leave
+              // case alone, because we do not know that the upstream compares
+              // case-insensitively.
+              onChange={(e) => setCode(e.target.value.replace(/\s/g, '').slice(0, 6))}
+              placeholder={t('pages.signup.codePlaceholder')}
             />
           </FormField>
           <Button

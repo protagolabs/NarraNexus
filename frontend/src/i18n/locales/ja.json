@@ -1567,7 +1567,8 @@
         "lower": "小文字を含む",
         "digit": "数字を含む",
         "special": "記号を含む"
-      }
+      },
+      "codePlaceholder": "6桁のコード"
     }
   },
   "rail": {

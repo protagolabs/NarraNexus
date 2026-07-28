@@ -1768,7 +1768,8 @@
         "lower": "A lowercase letter",
         "digit": "A number",
         "special": "A special character"
-      }
+      },
+      "codePlaceholder": "6-character code"
     }
   },
   "rail": {

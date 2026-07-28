@@ -1768,7 +1768,8 @@
         "lower": "含小写字母",
         "digit": "含数字",
         "special": "含特殊字符"
-      }
+      },
+      "codePlaceholder": "6 位验证码"
     }
   },
   "rail": {

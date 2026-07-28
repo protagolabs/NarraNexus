@@ -1568,7 +1568,8 @@
         "lower": "Una minúscula",
         "digit": "Un número",
         "special": "Un carácter especial"
-      }
+      },
+      "codePlaceholder": "Código de 6 caracteres"
     }
   },
   "rail": {

@@ -1576,7 +1576,8 @@
         "lower": "حرف صغير",
         "digit": "رقم",
         "special": "رمز خاص"
-      }
+      },
+      "codePlaceholder": "رمز من 6 خانات"
     }
   },
   "rail": {
