@@ -68,6 +68,11 @@ class MigrationMcpServer(BaseModel):
     # url transport
     url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
+    # Which fields carry secret VALUES (e.g. ["args", "url", "env.TOKEN",
+    # "headers.Authorization"]). MCP secrets live not only in env/headers but
+    # embedded in args (--api-key=...) and url query — the preview UI must
+    # highlight these when it shows them plaintext (Owner decision).
+    secret_fields: List[str] = Field(default_factory=list)
 
 
 class MigrationCustom(BaseModel):

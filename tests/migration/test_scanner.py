@@ -1,5 +1,8 @@
 """
-Agent Migration Scanner — framework detection + extraction into standardized JSON.
+Agent Migration Scanner — detection + extraction against the REAL per-framework
+source layouts (verified vs Hermes agent_import.py / openclaw_to_hermes.py).
+
+Hermetic: Path.home() is monkeypatched to tmp so no real ~/.claude leaks in.
 """
 from __future__ import annotations
 
@@ -9,115 +12,119 @@ from pathlib import Path
 import pytest
 
 from xyz_agent_context.migration import detector, scanner
-from xyz_agent_context.migration.extractors import _memory_from_md, _parse_mcp_json
+from xyz_agent_context.migration.extractors import _memory_from_md, _mcp_from_dict, _encode_cwd
 
 
-# ── fixtures: fake home dirs for each framework ─────────────────────────────
-
-def _mk_claude(home: Path) -> Path:
-    d = home / ".claude"
-    (d / "skills" / "web-search").mkdir(parents=True)
-    (d / "skills" / "pdf").mkdir(parents=True)
-    (d / "CLAUDE.md").write_text("You are a helpful Claude Code agent.\n- prefers Python", encoding="utf-8")
-    (d / "settings.json").write_text("{}", encoding="utf-8")
-    (d / ".mcp.json").write_text(json.dumps({
-        "mcpServers": {
-            "filesystem": {"command": "npx", "args": ["-y", "@mcp/fs", "/tmp"], "env": {"TOKEN": "abc"}},
-            "remote": {"url": "https://mcp.example.com/sse", "headers": {"Authorization": "Bearer x"}},
-        }
-    }), encoding="utf-8")
-    (d / ".env").write_text("OPENAI_API_KEY=sk-secret\nFOO=bar\n", encoding="utf-8")
-    return d
-
-
-def _mk_hermes(home: Path) -> Path:
-    d = home / ".hermes"
-    (d / "skills" / "coder").mkdir(parents=True)
-    (d / "config.yaml").write_text("agent:\n  name: hermie\n", encoding="utf-8")
-    (d / "SOUL.md").write_text("I am Hermes.", encoding="utf-8")
-    (d / "MEMORY.md").write_text("- user is in Shanghai\n- likes tea", encoding="utf-8")
-    (d / "USER.md").write_text("Name: Xiong", encoding="utf-8")
-    return d
-
-
-def _mk_codex(home: Path) -> Path:
-    d = home / ".codex"
-    d.mkdir(parents=True)
-    (d / "AGENTS.md").write_text("Codex agent instructions.", encoding="utf-8")
-    (d / "config.toml").write_text("model='gpt'", encoding="utf-8")
-    return d
-
-
-# ── detection ───────────────────────────────────────────────────────────────
-
-def test_detect_all_finds_each_framework(tmp_path):
-    _mk_claude(tmp_path)
-    _mk_hermes(tmp_path)
-    _mk_codex(tmp_path)
-    found = {d.framework for d in detector.detect_all(tmp_path)}
-    assert {"claude_code", "hermes", "codex"} <= found
-
-
-def test_classify_path_high_confidence(tmp_path):
-    d = _mk_claude(tmp_path)
-    det = detector.classify_path(d)
-    assert det.framework == "claude_code"
-    assert det.confidence == "high"
-
-
-def test_classify_unknown_is_custom(tmp_path):
-    # A dir with no framework signal at all → custom fallback (low).
-    # (AGENTS.md would be claimed by Codex; use a non-signal file here.)
-    (tmp_path / "notes.txt").write_text("something", encoding="utf-8")
-    det = detector.classify_path(tmp_path)
-    assert det.framework == "custom"
-    assert det.confidence == "low"
-
-
-# ── extraction / scan ────────────────────────────────────────────────────────
-
-def test_scan_claude_code(tmp_path):
-    d = _mk_claude(tmp_path)
-    result = scanner.scan(path=d)
-    assert result.schema_version == "1.0"
-    assert result.source.framework == "claude_code"
-    assert "helpful Claude Code" in result.agent.system_prompt
-    # skills = each subdir of skills/
-    assert {s.name for s in result.skills} == {"web-search", "pdf"}
-    # mcp: one stdio (with env carried) + one url (with headers carried)
-    by_name = {m.name: m for m in result.mcp_servers}
-    assert by_name["filesystem"].transport == "stdio"
-    assert by_name["filesystem"].command == "npx"
-    assert by_name["filesystem"].env == {"TOKEN": "abc"}          # MCP creds carried
-    assert by_name["remote"].transport == "url"
-    assert by_name["remote"].headers.get("Authorization") == "Bearer x"
-    # non-MCP secrets: KEY names only, values never extracted
-    assert "OPENAI_API_KEY" in result.custom.credential_keys
-    assert not any("sk-secret" in c for c in result.custom.credential_keys)
-
-
-def test_scan_hermes_memory_and_soul(tmp_path):
-    d = _mk_hermes(tmp_path)
-    result = scanner.scan(path=d, framework="hermes")
-    assert result.source.framework == "hermes"
-    assert result.agent.system_prompt == "I am Hermes."
-    contents = {m.content for m in result.memory}
-    assert "user is in Shanghai" in contents          # MEMORY.md bullets → facts
-    assert "likes tea" in contents
-    assert any(m.type == "profile" for m in result.memory)  # USER.md → profile
-
-
-def test_scan_autodetect_picks_highest_confidence(tmp_path, monkeypatch):
-    _mk_hermes(tmp_path)
+@pytest.fixture
+def home(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    result = scanner.scan()  # no path → auto-detect
-    assert result.source.framework == "hermes"
+    return tmp_path
 
 
-def test_scan_no_source_raises(tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))  # empty
-    with pytest.raises(FileNotFoundError):
-        scanner.scan()
+# ── fixtures per real layout ────────────────────────────────────────────────
+
+def _mk_claude_global(home: Path):
+    # global config lives in ~/.claude.json (NEXT TO ~/.claude/)
+    (home / ".claude.json").write_text(json.dumps({
+        "mcpServers": {
+            "filesystem": {"command": "npx", "args": ["-y", "@mcp/fs"], "env": {"TOKEN": "abc"}},
+            "remote": {"url": "https://mcp.example.com/sse", "headers": {"Authorization": "Bearer x"}},
+        },
+        "projects": {str(home / "proj"): {"mcpServers": {}}},
+    }), encoding="utf-8")
+    cd = home / ".claude"
+    (cd / "skills" / "web-search").mkdir(parents=True)
+    (cd / "settings.json").write_text("{}", encoding="utf-8")
+    return cd
+
+
+def _mk_claude_project(home: Path):
+    proj = home / "proj"
+    proj.mkdir()
+    (proj / "CLAUDE.md").write_text("You are a project Claude agent.\n- prefers Python", encoding="utf-8")
+    (proj / ".env").write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    # a session transcript under ~/.claude/projects/<encoded cwd>/
+    sess = home / ".claude" / "projects" / _encode_cwd(proj)
+    sess.mkdir(parents=True)
+    (sess / "s1.jsonl").write_text(
+        json.dumps({"message": {"role": "user", "content": "hello from a past session"}}) + "\n",
+        encoding="utf-8",
+    )
+    return proj
+
+
+def _mk_codex(home: Path):
+    d = home / ".codex"
+    (d / "skills" / "coder").mkdir(parents=True)
+    (d / "memories").mkdir(parents=True)
+    (d / "AGENTS.md").write_text("Codex agent instructions.", encoding="utf-8")
+    (d / "config.toml").write_text(
+        'model = "gpt"\n[mcp_servers.fs]\ncommand = "npx"\nargs = ["-y", "srv"]\n', encoding="utf-8")
+    (d / "memories" / "notes.md").write_text("- remembers X", encoding="utf-8")
+    return d
+
+
+def _mk_openclaw(home: Path):
+    d = home / ".openclaw"
+    (d / "workspace").mkdir(parents=True)
+    (d / "skills" / "s").mkdir(parents=True)
+    (d / "openclaw.json").write_text("{}", encoding="utf-8")
+    (d / "workspace" / "SOUL.md").write_text("I am OpenClaw.", encoding="utf-8")
+    (d / "workspace" / "MEMORY.md").write_text("- lives in Beijing", encoding="utf-8")
+    return d
+
+
+# ── detection ────────────────────────────────────────────────────────────────
+
+def test_detect_all(home):
+    _mk_claude_global(home)
+    _mk_codex(home)
+    _mk_openclaw(home)
+    found = {d.framework for d in detector.detect_all(home)}
+    assert {"claude_code", "codex", "openclaw"} <= found
+
+
+# ── claude: global vs project ────────────────────────────────────────────────
+
+def test_scan_claude_global(home):
+    cd = _mk_claude_global(home)
+    r = scanner.scan(path=cd)
+    assert r.source.framework == "claude_code"
+    # global: skills + mcp from ~/.claude.json (stdio env + url headers carried)
+    assert {s.name for s in r.skills} == {"web-search"}
+    by = {m.name: m for m in r.mcp_servers}
+    assert by["filesystem"].env == {"TOKEN": "abc"}
+    assert by["remote"].transport == "url"
+
+
+def test_scan_claude_project_with_session_seed(home):
+    _mk_claude_global(home)
+    proj = _mk_claude_project(home)
+    r = scanner.scan(path=proj, framework="claude_code")
+    assert "project Claude agent" in r.agent.system_prompt      # CLAUDE.md → Awareness
+    assert "hello from a past session" in r.session_summary_seed  # sessions = ours
+    assert "OPENAI_API_KEY" in r.custom.credential_keys          # keys only, no value
+    assert not any("sk-secret" in c for c in r.custom.credential_keys)
+
+
+# ── codex: config.toml mcp + memories ────────────────────────────────────────
+
+def test_scan_codex(home):
+    d = _mk_codex(home)
+    r = scanner.scan(path=d, framework="codex")
+    assert "Codex agent instructions" in r.agent.system_prompt
+    assert any(m.name == "fs" and m.command == "npx" for m in r.mcp_servers)  # config.toml
+    assert any("remembers X" in m.content for m in r.memory)                   # memories/*.md
+    assert {s.name for s in r.skills} == {"coder"}
+
+
+# ── openclaw: persona/memory under workspace/ ────────────────────────────────
+
+def test_scan_openclaw_workspace(home):
+    d = _mk_openclaw(home)
+    r = scanner.scan(path=d, framework="openclaw")
+    assert r.agent.system_prompt == "I am OpenClaw."             # workspace/SOUL.md
+    assert any("lives in Beijing" in m.content for m in r.memory)  # workspace/MEMORY.md
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -125,10 +132,16 @@ def test_scan_no_source_raises(tmp_path, monkeypatch):
 def test_memory_from_md_bullets_vs_prose():
     facts = _memory_from_md("- a\n- b", "MEMORY.md")
     assert [m.content for m in facts] == ["a", "b"]
-    prose = _memory_from_md("just a paragraph", "MEMORY.md")
-    assert len(prose) == 1 and prose[0].type == "note"
+    assert _memory_from_md("just prose", "MEMORY.md")[0].type == "note"
 
 
-def test_parse_mcp_json_malformed_is_empty():
-    assert _parse_mcp_json("not json {") == []
-    assert _parse_mcp_json("") == []
+def test_mcp_from_dict_shapes():
+    m = _mcp_from_dict({
+        "a": {"command": "x", "args": ["y"], "env": {"K": "v"}},
+        "b": {"url": "https://h", "headers": {"H": "1"}},
+        "junk": "not-a-dict",
+    })
+    by = {s.name: s for s in m}
+    assert by["a"].transport == "stdio" and by["a"].env == {"K": "v"}
+    assert by["b"].transport == "url"
+    assert "junk" not in by

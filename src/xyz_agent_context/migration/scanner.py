@@ -63,7 +63,9 @@ def scan(
         order = {"high": 3, "medium": 2, "low": 1}
         det = max(candidates, key=lambda c: order[c.confidence])
 
-    agent, skills, memory, mcp, custom = extractors.extract(det.framework, det.path)
+    agent, skills, memory, mcp, custom, session_seed = extractors.extract(
+        det.framework, det.path
+    )
     return StandardizedAgentImport(
         source=MigrationSource(
             framework=det.framework,
@@ -74,5 +76,6 @@ def scan(
         skills=skills,
         memory=memory,
         mcp_servers=mcp,
+        session_summary_seed=session_seed,
         custom=custom,
     )
