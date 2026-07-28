@@ -42,3 +42,7 @@ Three linear stages, each one API call:
 
 - Types mirror the Python schema ([[migration]]); the `/scan` output is POSTed
   back to `/apply` verbatim, so the shapes must stay in lock-step.
+- Claude Code detect returns **one row per project** (see [[detector.py]]), all
+  labeled "Claude Code" — `detectionTitle` suffixes the project folder name and
+  `detectionHint` shows the session count / `shared config` fallback marker so
+  the repeated rows are distinguishable.

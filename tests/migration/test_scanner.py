@@ -84,6 +84,25 @@ def test_detect_all(home):
     assert {"claude_code", "codex", "openclaw"} <= found
 
 
+def test_detect_enumerates_claude_projects(home):
+    # A project with CLAUDE.md + a session must surface as its OWN detection
+    # (one project = one importable agent), ranked above the global fallback.
+    _mk_claude_global(home)
+    proj = _mk_claude_project(home)  # ~/.claude.json already lists it
+    cc = [d for d in detector.detect_all(home) if d.framework == "claude_code"]
+    # the project (high, has CLAUDE.md) + the global fallback (low)
+    proj_dets = [d for d in cc if d.path == str(proj)]
+    assert len(proj_dets) == 1
+    assert proj_dets[0].confidence == "high"
+    assert "has:CLAUDE.md" in proj_dets[0].signals
+    assert any(s.startswith("sessions:") for s in proj_dets[0].signals)
+    # global entry is present but demoted to a fallback
+    globals_ = [d for d in cc if "global-shared-config" in d.signals]
+    assert len(globals_) == 1 and globals_[0].confidence == "low"
+    # the project outranks the global fallback in the returned order
+    assert cc.index(proj_dets[0]) < cc.index(globals_[0])
+
+
 # ── claude: global vs project ────────────────────────────────────────────────
 
 def test_scan_claude_global(home):

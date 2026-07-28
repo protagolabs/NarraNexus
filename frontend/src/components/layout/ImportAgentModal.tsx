@@ -55,6 +55,26 @@ const FRAMEWORK_LABEL: Record<string, string> = {
   custom: 'Custom',
 };
 
+/** Claude Code enumerates one detection per project — suffix the project's
+ *  folder name so the repeated "Claude Code" rows are distinguishable. */
+function detectionTitle(d: FrameworkDetection): string {
+  const label = FRAMEWORK_LABEL[d.framework] ?? d.framework;
+  if (d.framework === 'claude_code' && d.signals.includes('project')) {
+    const base = d.path.replace(/\/+$/, '').split('/').pop() || d.path;
+    return `${label} · ${base}`;
+  }
+  return label;
+}
+
+/** A short right-aligned hint derived from detection signals (session count /
+ *  global-config fallback marker). */
+function detectionHint(d: FrameworkDetection): string {
+  if (d.signals.includes('global-shared-config')) return 'shared config';
+  const sess = d.signals.find((s) => s.startsWith('sessions:'));
+  if (sess) return `${sess.split(':')[1]} sessions`;
+  return '';
+}
+
 export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) {
   const { t } = useTranslation();
   const [stage, setStage] = useState<Stage>('detect');
@@ -237,10 +257,15 @@ function DetectStage({
               <Bot className="h-4 w-4 shrink-0 text-[var(--nm-ink-soft)]" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-[var(--nm-ink)]">
-                    {FRAMEWORK_LABEL[d.framework] ?? d.framework}
+                  <span className="truncate text-xs font-medium text-[var(--nm-ink)]">
+                    {detectionTitle(d)}
                   </span>
                   <ConfidenceBadge confidence={d.confidence} />
+                  {detectionHint(d) && (
+                    <span className="shrink-0 text-[10px] text-[var(--nm-ink-soft)]">
+                      {detectionHint(d)}
+                    </span>
+                  )}
                 </div>
                 <div className="truncate text-[11px] text-[var(--nm-ink-soft)]">{d.path}</div>
               </div>
