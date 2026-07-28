@@ -262,6 +262,47 @@ async def register_account(payload: SignupRequest) -> dict:
     return {"success": True}
 
 
+async def _provision_providers(user_id: str, netmind_token: str) -> None:
+    """Register the user's provider cards — free tier first, then their own.
+
+    The ORDER is the point; see the call site for the race it closes. Kept as a
+    plain coroutine (rather than inlined in the scheduler below) so a test can
+    await it and observe that order without racing a fire-and-forget task.
+
+    Each step is independently non-fatal: a wallet-service outage must not stop
+    the user's own NetMind card from being registered, and vice versa.
+    """
+    from backend.integrations.free_tier import provisioner as free_tier
+    from backend.integrations.netmind import netmind_provisioner as netmind
+
+    try:
+        await free_tier.ensure_free_tier_provider(user_id)
+    except Exception as e:  # noqa: BLE001 — retried on the next login
+        logger.warning(f"[login] free-tier provisioning failed for {user_id}: {e!r}")
+    try:
+        await netmind.ensure_netmind_provider(user_id, netmind_token)
+    except Exception as e:  # noqa: BLE001 — same
+        logger.warning(f"[login] netmind provisioning failed for {user_id}: {e!r}")
+
+
+def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
+    """Run :func:`_provision_providers` off the login path."""
+    import asyncio
+
+    try:
+        task = asyncio.get_running_loop().create_task(
+            _provision_providers(user_id, netmind_token)
+        )
+    except RuntimeError:
+        return  # no loop (not the request path) — nothing to schedule
+    # Incident lesson #2: a bare create_task swallows its exception at GC.
+    task.add_done_callback(
+        lambda t: t.cancelled() or t.exception() and logger.error(
+            f"[login] provisioning task died for {user_id}: {t.exception()!r}"
+        )
+    )
+
+
 @router.post("/netmind-login", response_model=NetmindLoginResponse)
 async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     """Log in with a NetMind account token ("passport for visa" exchange).
@@ -307,21 +348,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         display_name=netmind_user.nickname,
     )
 
-    # Open the free-tier wallet on first login (registration is gone — first
-    # login IS registration now) and register it as an ordinary provider card.
-    # Fire-and-forget: login must never block on, or fail from, the wallet
-    # service. Staff can re-run it via /api/admin/quota/init.
     if is_new:
-        from backend.integrations.free_tier.provisioner import (
-            schedule_ensure_free_tier_provider,
-        )
-        try:
-            schedule_ensure_free_tier_provider(user.user_id)
-        except Exception as e:  # noqa: BLE001 — login is never blocked by this
-            logger.exception(
-                f"netmind-login: free-tier provisioning could not be scheduled "
-                f"for {user.user_id} (retried next login): {e}"
-            )
         try:
             identify_user(user.user_id, {"signup_method": "netmind"})
             track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
@@ -338,15 +365,22 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     )
     _schedule_login_rearm(user.user_id)
 
-    # Cloud login IS NetMind login — make the user's NetMind.AI Power credits
-    # available automatically (mint key + register the netmind provider if
-    # missing). Fire-and-forget + non-fatal: login must never block on or fail
-    # from NetMind minting. Self-guards on the feature flag; register-only when
-    # the user already has an active config (no slot hijack).
-    from backend.integrations.netmind.netmind_provisioner import (
-        schedule_ensure_netmind_provider,
-    )
-    schedule_ensure_netmind_provider(user.user_id, request.netmind_token)
+    # Provision the user's providers — free tier FIRST, then their own NetMind
+    # account. Both are fire-and-forget (login must never block on, or fail
+    # from, either) but they are chained rather than started side by side.
+    #
+    # Started independently they raced, and the race was silently harmful: each
+    # provisioner reads "does this user already have a usable config" to decide
+    # whether to bind the slots, and both read it before either had written. The
+    # NetMind one finished second (it has to mint a key first) and rebound the
+    # slots to a brand-new Power account with NO balance, so every agent call
+    # failed with an opaque upstream error while a funded $10 wallet sat unused.
+    #
+    # Ordering free tier first is not arbitrary: it is the credential we know
+    # works. A fresh Power account has no credit, and an existing funded one is
+    # unaffected — the NetMind provisioner still registers-only when it finds a
+    # complete config, which after chaining it actually does.
+    _schedule_provider_provisioning(user.user_id, request.netmind_token)
 
     return NetmindLoginResponse(
         success=True,

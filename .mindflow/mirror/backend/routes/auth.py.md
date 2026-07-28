@@ -4,6 +4,30 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — 两个 provisioner 串行，免费额度必须先落地
+
+新用户登录后 agent 必挂 "Claude API error: unknown"。真因是并发：登录路径
+上原本并排 fire-and-forget 了两个 provisioner，它们各自读"这用户是否已有可
+用配置"来决定要不要绑 slot，而两边都在对方写入之前读到了空——典型 TOCTOU。
+NetMind 那条要先铸 key 所以后完成，于是把 slot 改绑到了用户自己那张**刚开
+户、零余额**的 Power 卡上；$10 钱包躺着没人用，每次调用都报上游错误。
+
+修法是串行：`_provision_providers` 先 await 免费额度，再 await NetMind。
+免费额度排第一不是随手定的顺序——它是我们**确定有余额**的凭据；新开的
+Power 账户没有额度，而已充值的老账户不受影响（NetMind provisioner 见到完整
+配置时本来就只注册不抢绑，串行之后它才真的能见到）。
+
+拆成 `_provision_providers`(协程) + `_schedule_provider_provisioning`(调度)
+两层，是为了让测试能直接 await 协程观察顺序：调度是 fire-and-forget，而
+TestClient 一返回响应就关掉 event loop，让出过一次的 task 根本跑不完。
+**测试里两个 fake 都必须 await**——真 provisioner 的 HTTP/DB 挂起点正是竞态
+的成因，不 await 的 fake 在 `asyncio.gather` 下也会串行执行，对着坏版本一样
+绿（已用 gather 回插验证过）。
+
+免费额度的开通也不再只在 `is_new` 里跑，改成每次登录都跑：provisioner 靠
+key alias `free::{user_id}` 自带幂等，无条件重跑能让首次撞上钱包服务故障的
+用户在下次登录自愈，而不是永久卡死。
+
 ## 2026-07-28 — 首登不再播种 token 配额，改为开钱包
 
 首次 NetMind 登录时的 `quota_service.init_for_user` 换成

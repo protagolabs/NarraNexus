@@ -10,8 +10,10 @@ db_client; the NetmindAuthClient is monkeypatched so no network is involved.
 
 Covers:
 - happy path: verify -> upsert -> own JWT issued (decodable, right claims)
-- first login provisions the free-tier wallet; second login does not re-provision
+- every login re-runs the (idempotent) free-tier provisioning
 - a wallet-service failure does NOT fail the login
+- the two provisioners run in ORDER, free tier first, and neither can block
+  the other (the race that stranded users on an empty Power account)
 - second login: is_new_user=False, no duplicate row
 - invalid NetMind token -> HTTP 401; NetMind upstream trouble -> HTTP 502
 - power-login guard: unavailable (local, no opt-in) -> 404; available (cloud OR
@@ -49,13 +51,13 @@ class _FakeNetmindClient:
 
 
 class _RecordingProvisioner:
-    """Stands in for the fire-and-forget free-tier provisioning scheduler."""
+    """Stands in for the free-tier provisioner the login path schedules."""
 
     def __init__(self, fail=False):
         self.fail = fail
         self.seeded = []
 
-    def __call__(self, user_id: str) -> None:
+    async def __call__(self, user_id: str, **_kw) -> None:
         if self.fail:
             raise RuntimeError("wallet service down")
         self.seeded.append(user_id)
@@ -111,16 +113,20 @@ def test_netmind_login_happy_path_issues_own_jwt(db_client, monkeypatch):
     assert claims["role"] == "user"
 
 
-def test_netmind_login_provisions_the_free_tier_once(db_client, monkeypatch):
-    """First login IS registration, so the free-tier wallet is opened there —
-    and exactly once, no matter how many times the user logs back in."""
+def test_netmind_login_provisions_the_free_tier_on_every_login(db_client, monkeypatch):
+    """The wallet is opened at login, and re-checked at every later login.
+
+    Deliberately NOT gated on `is_new`: the provisioner is idempotent (the key
+    alias `free::{user_id}` is its own dedup handle, so a second call finds the
+    existing wallet rather than opening another), and running it unconditionally
+    is what makes a user whose first attempt hit a wallet-service outage
+    self-heal on their next sign-in instead of staying broken forever.
+    """
     import backend.routes.auth as auth_mod
     import backend.integrations.free_tier.provisioner as prov_mod
 
     provisioner = _RecordingProvisioner()
-    monkeypatch.setattr(
-        prov_mod, "schedule_ensure_free_tier_provider", provisioner
-    )
+    monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", provisioner)
     client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
 
     first = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
@@ -128,7 +134,7 @@ def test_netmind_login_provisions_the_free_tier_once(db_client, monkeypatch):
 
     assert first.json()["is_new_user"] is True
     assert second.json()["is_new_user"] is False
-    assert provisioner.seeded == [_CODE]  # exactly once
+    assert provisioner.seeded == [_CODE, _CODE]
     assert auth_mod is not None
 
 
@@ -138,7 +144,7 @@ def test_netmind_login_survives_a_broken_wallet_service(db_client, monkeypatch):
     import backend.integrations.free_tier.provisioner as prov_mod
 
     monkeypatch.setattr(
-        prov_mod, "schedule_ensure_free_tier_provider", _RecordingProvisioner(fail=True)
+        prov_mod, "ensure_free_tier_provider", _RecordingProvisioner(fail=True)
     )
     client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
 
@@ -206,13 +212,13 @@ def test_netmind_login_schedules_provider_provisioning_in_local(db_client, monke
 
     captured = {}
 
-    def _capture(user_id, netmind_token):
+    async def _capture(user_id, netmind_token, **_kw):
         captured["user_id"] = user_id
         captured["token"] = netmind_token
 
     # netmind_login imports this symbol inside the function body, so patch it on
     # the source module (not the route module).
-    monkeypatch.setattr(prov_mod, "schedule_ensure_netmind_provider", _capture)
+    monkeypatch.setattr(prov_mod, "ensure_netmind_provider", _capture)
 
     client = _make_app(
         db_client, monkeypatch, _FakeNetmindClient(_OK_USER),
@@ -224,3 +230,75 @@ def test_netmind_login_schedules_provider_provisioning_in_local(db_client, monke
 
     assert resp.status_code == 200
     assert captured == {"user_id": _CODE, "token": "tok-123"}
+
+
+@pytest.mark.asyncio
+async def test_free_tier_is_provisioned_before_the_users_own_netmind_card(monkeypatch):
+    """Order matters, and getting it wrong is silently harmful.
+
+    Both provisioners decide whether to bind the agent/helper slots by asking
+    "does this user already have a usable config". Started side by side they
+    both read that BEFORE either had written, and the NetMind one — slower,
+    because it must mint a key first — finished last and rebound the slots to a
+    brand-new Power account with no balance. Every agent call then failed with
+    an opaque upstream error while a funded $10 wallet sat unused.
+
+    Awaits the coroutine rather than going through the route: the scheduler is
+    fire-and-forget, and TestClient closes its event loop as soon as the
+    response is returned, so a task that yields never gets to finish.
+    """
+    import asyncio
+
+    import backend.integrations.free_tier.provisioner as free_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_mod
+    from backend.routes.auth import _provision_providers
+
+    order: list[str] = []
+
+    # BOTH fakes must yield. The real provisioners do HTTP and DB work, and it
+    # is precisely that suspension point which let a concurrently-started
+    # NetMind provisioner observe the pre-write state. A fake that runs to
+    # completion without awaiting serializes even under asyncio.gather, so it
+    # would pass against the broken version too — verified by reintroducing
+    # gather() and watching this test stay green.
+    async def _free(user_id, **_kw):
+        order.append("free_tier:start")
+        await asyncio.sleep(0.01)
+        order.append("free_tier:done")
+
+    async def _netmind(user_id, token, **_kw):
+        order.append("netmind:start")
+        await asyncio.sleep(0.01)
+        order.append("netmind:done")
+
+    monkeypatch.setattr(free_mod, "ensure_free_tier_provider", _free)
+    monkeypatch.setattr(nm_mod, "ensure_netmind_provider", _netmind)
+
+    await _provision_providers(_CODE, "tok")
+
+    assert order == [
+        "free_tier:start", "free_tier:done", "netmind:start", "netmind:done",
+    ], order
+
+
+@pytest.mark.asyncio
+async def test_a_failing_free_tier_does_not_block_the_netmind_card(monkeypatch):
+    """Chaining must not make one provisioner a single point of failure for the
+    other — a wallet-service outage should still leave the user their own key."""
+    import backend.integrations.free_tier.provisioner as free_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_mod
+    from backend.routes.auth import _provision_providers
+
+    ran: list[str] = []
+
+    async def _free(user_id, **_kw):
+        raise RuntimeError("wallet service down")
+
+    async def _netmind(user_id, token, **_kw):
+        ran.append(user_id)
+
+    monkeypatch.setattr(free_mod, "ensure_free_tier_provider", _free)
+    monkeypatch.setattr(nm_mod, "ensure_netmind_provider", _netmind)
+
+    await _provision_providers(_CODE, "tok")
+    assert ran == [_CODE]

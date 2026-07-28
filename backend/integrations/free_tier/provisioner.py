@@ -131,29 +131,3 @@ async def ensure_free_tier_provider(
             f"activate={activate}, agent={agent_model}, helper={helper_model})"
         )
         return True
-
-
-def schedule_ensure_free_tier_provider(user_id: str) -> None:
-    """Fire-and-forget off the login path.
-
-    Login must never block on, or be failed by, the wallet service (incident
-    lesson #2: a bare ``create_task`` swallows exceptions at GC — attach a
-    done-callback).
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-
-    task = loop.create_task(ensure_free_tier_provider(user_id))
-
-    def _done(t: asyncio.Task) -> None:
-        try:
-            t.result()
-        except Exception as e:  # noqa: BLE001 — background, never fatal
-            logger.warning(
-                f"[free-tier] background provisioning for {user_id} "
-                f"failed (non-fatal, retried next login): {e!r}"
-            )
-
-    task.add_done_callback(_done)

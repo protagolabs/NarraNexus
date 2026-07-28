@@ -6,6 +6,18 @@ stub: false
 
 # provisioner.py — 首次登录时把钱包变成一张普通 provider 卡
 
+## 2026-07-28 — 调度权上交给登录路径
+
+`schedule_ensure_free_tier_provider` 已删。本模块只暴露 `await` 得到的
+`ensure_free_tier_provider`；何时跑、和谁排队由 [[auth.py]] 的
+`_provision_providers` 决定。原因是它必须**跑在** NetMind provisioner 之前
+（钱包是我们确定有余额的凭据），而两边各留一个 fire-and-forget 调度器就
+必然并发——那正是新用户 slot 被绑到零余额 Power 卡、agent 一律报
+"Claude API error: unknown" 的竞态。
+
+登录侧现在每次登录都调用它（不再只在 `is_new`）：alias `free::{user_id}`
+自带幂等，无条件重跑让首次撞上钱包服务故障的用户下次登录自愈。
+
 ## 为什么存在
 
 整个免费额度就是这一个函数：开一个 $10 钱包，把钱包 key 当作普通的双行

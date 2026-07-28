@@ -161,14 +161,3 @@ async def test_wallet_outage_propagates_so_the_next_login_retries(wiring):
     with pytest.raises(WalletUnavailable):
         await mod.ensure_free_tier_provider("u1")
     assert wiring["onboarded"] == []
-
-
-@pytest.mark.asyncio
-async def test_scheduler_never_raises_into_the_login_path(monkeypatch, wiring):
-    """schedule_* is called from the login handler; it must swallow everything
-    the background task can throw."""
-    async def _boom(_uid, **_kw):
-        raise RuntimeError("wallet exploded")
-
-    monkeypatch.setattr(mod, "ensure_free_tier_provider", _boom)
-    mod.schedule_ensure_free_tier_provider("u1")  # must not raise

@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_provisioner.py
-last_verified: 2026-07-16
+last_verified: 2026-07-28
 stub: false
 ---
 
@@ -51,9 +51,13 @@ NetMind 订阅赠额 → NetMind 余额"，所以**自动接入永远不会在�
   绝不重复 mint（重复 key = 重复烧钱）。
 - **孤儿 key 清理**：mint 成功但 onboard 失败 → best-effort `delete_key` 再抛原异常，
   不留下会花钱的孤儿 key。
-- **fire-and-forget 非致命**：`schedule_ensure_netmind_provider` 用 `create_task`
-  且**挂 done-callback**（事故教训 #2：裸 task 的异常只在 GC 时 warning）。登录
-  绝不因 NetMind mint 失败而阻塞或失败。
+- **fire-and-forget 非致命**：调度不在本模块——登录路径上的
+  `_provision_providers` / `_schedule_provider_provisioning`（见 [[auth.py]]）
+  统一负责 `create_task` + done-callback（事故教训 #2：裸 task 的异常只在 GC
+  时 warning）。登录绝不因 NetMind mint 失败而阻塞或失败。本模块原有的
+  `schedule_ensure_netmind_provider` 已删：两个 provisioner 必须**串行**
+  （免费额度在前），各自带一个调度器就必然并发，那正是 2026-07-28 把新用户
+  slot 绑到零余额 Power 卡上的竞态成因。
 - **绝不打印** loginToken / 生成的 apitoken。
 
 ## 待办（翻 flag 前）

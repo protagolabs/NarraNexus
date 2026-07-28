@@ -166,30 +166,3 @@ async def _capture_netmind_account(db, user_id: str, token: str) -> None:
             f"[netmind-provisioner] account capture failed for {user_id} "
             f"(provisioning still succeeded): {e}"
         )
-
-
-def schedule_ensure_netmind_provider(user_id: str, netmind_token: str) -> None:
-    """Fire-and-forget the auto-register off the login path (non-fatal).
-
-    Login must never block on or be failed by NetMind minting (incident lesson
-    #2: a bare create_task swallows exceptions at GC — attach a done-callback).
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return  # no loop (shouldn't happen in the request path) — skip silently
-
-    task = loop.create_task(
-        ensure_netmind_provider(user_id, netmind_token, activate_if_fresh=True)
-    )
-
-    def _done(t: asyncio.Task) -> None:
-        try:
-            t.result()
-        except Exception as e:  # noqa: BLE001 — background side effect, never fatal
-            logger.warning(
-                f"[netmind-provisioner] background auto-register for {user_id} "
-                f"failed (non-fatal): {e}"
-            )
-
-    task.add_done_callback(_done)
