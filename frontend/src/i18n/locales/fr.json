@@ -845,7 +845,11 @@
       "readyTitle": "Vous êtes prêt à démarrer",
       "readyIntro": "Votre clé est enregistrée, et nous avons configuré vos emplacements de modèles pour que vous puissiez commencer à discuter immédiatement :",
       "readyNote": "Vous voulez des modèles différents ? Modifiez n'importe quel emplacement dans la section de configuration ci-dessous — vos modifications l'emportent toujours sur ces valeurs par défaut.",
-      "gotIt": "Compris"
+      "gotIt": "Compris",
+      "freeTierHowToTitle": "À propos de votre crédit gratuit",
+      "freeTierHowToSwitch": "La carte « Free Tier » est déjà reliée à vos emplacements Agent et Helper. Pour utiliser votre propre clé, ajoutez un fournisseur ci-dessous, puis sélectionnez-le pour l’emplacement Agent / Helper dans les Modèles par défaut — effectif dès votre prochain message.",
+      "freeTierAnytime": "Vous pouvez changer à tout moment. Inutile d’épuiser le crédit gratuit d’abord, et changer ne le fait pas perdre : le solde reste disponible.",
+      "freeTierNoDelete": "La carte Free Tier ne peut pas être supprimée tant qu’il reste du crédit : elle détient l’unique clé de ce solde. Une fois épuisé, vous pourrez la retirer."
     }
   },
   "system": {

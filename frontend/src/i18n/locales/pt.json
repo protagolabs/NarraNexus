@@ -845,7 +845,11 @@
       "readyTitle": "Está tudo pronto",
       "readyIntro": "A sua chave está inserida e configurámos as suas ranhuras de modelo para que possa começar a conversar de imediato:",
       "readyNote": "Quer modelos diferentes? Altere qualquer ranhura na secção de configuração abaixo — as suas edições prevalecem sempre sobre estas predefinições.",
-      "gotIt": "Entendido"
+      "gotIt": "Entendido",
+      "freeTierHowToTitle": "Sobre o seu crédito gratuito",
+      "freeTierHowToSwitch": "O cartão “Free Tier” já está ligado aos seus slots de Agent e Helper. Para usar a sua própria chave, adicione um provedor abaixo e selecione-o para o slot Agent / Helper em Padrões de Modelo — vale a partir da próxima mensagem.",
+      "freeTierAnytime": "Pode trocar quando quiser. Não precisa gastar o crédito gratuito primeiro, e trocar não o perde: o saldo permanece.",
+      "freeTierNoDelete": "O cartão Free Tier não pode ser excluído enquanto houver saldo: ele guarda a única chave desse crédito. Depois de gasto, você pode removê-lo."
     }
   },
   "system": {

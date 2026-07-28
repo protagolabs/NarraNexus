@@ -997,7 +997,11 @@
       "readyTitle": "You're ready to go",
       "readyIntro": "Your key is in, and we've set up your model slots so you can start chatting right away:",
       "readyNote": "Want different models? Change any slot in the configuration section below — your edits always win over these defaults.",
-      "gotIt": "Got it"
+      "gotIt": "Got it",
+      "freeTierHowToTitle": "About your free credit",
+      "freeTierHowToSwitch": "The “Free Tier” card is already wired to your Agent and Helper slots. To run on your own key instead, add a provider below, then pick it for the Agent / Helper slot in Model Defaults — that switch takes effect on your next message.",
+      "freeTierAnytime": "You can switch at any time. You do not have to spend the free credit first, and switching away does not forfeit it — the balance stays and you can switch back.",
+      "freeTierNoDelete": "The Free Tier card can’t be deleted while credit remains: it holds the only key to that balance. Once it’s spent, you can remove it."
     }
   },
   "system": {

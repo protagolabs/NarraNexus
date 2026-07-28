@@ -521,6 +521,25 @@ async def use_subscription(request: Request):
 async def remove_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
+
+    # The free-tier card holds the ONLY copy of its wallet key (the gateway
+    # shows the secret once). Deleting it while credit remains strands that
+    # credit permanently, so the guard fails closed — see removal_policy.
+    from backend.integrations.free_tier.removal_policy import (
+        FreeTierCardProtected,
+        ensure_free_tier_card_removable,
+    )
+
+    row = await service.db.get_one(
+        "user_providers", {"user_id": uid, "provider_id": provider_id}
+    )
+    try:
+        await ensure_free_tier_card_removable(uid, row)
+    except FreeTierCardProtected as e:
+        # 409, not 403: the caller is allowed to do this — the resource's
+        # current state is what forbids it, and that state changes on its own.
+        raise HTTPException(status_code=409, detail=str(e))
+
     try:
         config = await service.remove_provider(uid, provider_id)
     except ValueError as e:

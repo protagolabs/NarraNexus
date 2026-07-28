@@ -432,6 +432,9 @@ export function ProviderSettings() {
 
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
+  // The platform-funded card. Its presence is what makes the free-tier
+  // explainer relevant — a bring-your-own-key user should not read it.
+  const hasFreeTierCard = providerList.some((p) => p.source === 'netmind_free')
   const claudeCard = providerList.find((p) => p.source === 'claude_oauth')
   const hasClaude = claudeCard !== undefined
   // Token transport (`claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN env
@@ -680,6 +683,23 @@ export function ProviderSettings() {
             ) : undefined
           }
         />
+        {/* Free-tier explainer. Users kept asking two things the card grid
+            cannot answer on its own: how do I actually start using my own key,
+            and do I have to burn the free credit first (no). Placed above the
+            grid so it is read before someone goes looking for a Delete button
+            on the free card — which is exactly what we block. */}
+        {hasFreeTierCard && (
+          <div className="mb-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]/40 px-4 py-3 text-xs leading-relaxed text-[var(--text-secondary)] space-y-1.5">
+            <div className="font-medium text-[var(--text-primary)]">
+              {t('settings.provider.freeTierHowToTitle')}
+            </div>
+            <div>{t('settings.provider.freeTierHowToSwitch')}</div>
+            <div>{t('settings.provider.freeTierAnytime')}</div>
+            <div className="text-[var(--text-tertiary)]">
+              {t('settings.provider.freeTierNoDelete')}
+            </div>
+          </div>
+        )}
         {syncResult && (
           <p
             className={cn(

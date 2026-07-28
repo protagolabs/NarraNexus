@@ -997,7 +997,11 @@
       "readyTitle": "你已准备就绪",
       "readyIntro": "你的密钥已就位，我们已为你设置好模型槽位，可立即开始对话：",
       "readyNote": "想用别的模型？在下方配置区更改任意槽位——你的修改始终优先于这些默认值。",
-      "gotIt": "知道了"
+      "gotIt": "知道了",
+      "freeTierHowToTitle": "关于你的免费额度",
+      "freeTierHowToSwitch": "「Free Tier」这张卡已经绑好了 Agent 和 Helper 槽位。想改用自己的 key:在下方添加 provider,然后在「模型默认设置」里把 Agent / Helper 槽位指向它 —— 下一条消息即刻生效。",
+      "freeTierAnytime": "随时都能切,不需要先把免费额度用完;切走也不会作废,余额留着,还能再切回来。",
+      "freeTierNoDelete": "免费额度还有余额时,这张卡不能删除 —— 它是那笔余额的唯一钥匙。用完之后就可以删了。"
     }
   },
   "system": {

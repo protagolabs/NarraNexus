@@ -845,7 +845,11 @@
       "readyTitle": "Du bist startklar",
       "readyIntro": "Dein Schlüssel ist eingetragen, und wir haben deine Modell-Slots eingerichtet, sodass du sofort loschatten kannst:",
       "readyNote": "Möchtest du andere Modelle? Ändere einen beliebigen Slot im Konfigurationsbereich unten — deine Anpassungen haben immer Vorrang vor diesen Standardeinstellungen.",
-      "gotIt": "Verstanden"
+      "gotIt": "Verstanden",
+      "freeTierHowToTitle": "Über dein Gratis-Guthaben",
+      "freeTierHowToSwitch": "Die Karte „Free Tier“ ist bereits mit deinen Agent- und Helper-Slots verbunden. Um deinen eigenen Schlüssel zu nutzen, füge unten einen Anbieter hinzu und wähle ihn in den Modell-Standards für den Agent-/Helper-Slot — wirksam ab der nächsten Nachricht.",
+      "freeTierAnytime": "Du kannst jederzeit wechseln. Du musst das Gratis-Guthaben nicht zuerst aufbrauchen, und beim Wechsel verfällt es nicht — das Guthaben bleibt erhalten.",
+      "freeTierNoDelete": "Solange Guthaben vorhanden ist, lässt sich die Free-Tier-Karte nicht löschen: Sie hält den einzigen Schlüssel dazu. Ist es aufgebraucht, kannst du sie entfernen."
     }
   },
   "system": {
