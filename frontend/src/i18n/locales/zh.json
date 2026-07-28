@@ -716,7 +716,8 @@
       "create": "创建",
       "createAgentOrTeam": "创建智能体或团队",
       "createAgent": "创建智能体",
-      "createTeam": "创建团队"
+      "createTeam": "创建团队",
+      "importAgent": "创建 Agent(从其他来源导入)"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 群聊",
@@ -763,6 +764,38 @@
     "resizableDivider": {
       "ariaLabel": "调整面板大小",
       "title": "拖动以调整对话／制品大小"
+    },
+    "importAgent": {
+      "title": "导入 Agent",
+      "previewTitle": "导入前确认",
+      "doneTitle": "导入完成",
+      "detectHint": "我们会扫描本机上其他框架的 Agent(Claude Code、Codex、OpenClaw、Hermes)。选择一个导入,或指定一个文件夹。",
+      "detecting": "正在扫描本机…",
+      "noneFound": "在标准位置未找到其他框架的 Agent。可在下方输入路径扫描指定文件夹。",
+      "manualPathLabel": "或扫描指定文件夹",
+      "scan": "扫描",
+      "unnamed": "未命名 Agent",
+      "skills": "技能",
+      "memories": "记忆",
+      "mcpServers": "MCP 服务",
+      "willCopy": "将复制",
+      "willMatch": "来自市场",
+      "deferred": "暂未导入",
+      "secretWarning": "部分 MCP 服务携带明文凭证,导入前请确认。",
+      "narrative": "叙事",
+      "narrativeHint": "Agent 首次运行时会把导入的会话上下文总结成自己的初始叙事。",
+      "notes": "说明",
+      "credentialNote": "以下凭证未导入(请在设置中重新填写):{{keys}}",
+      "unmappedNote": "有 {{count}} 个文件被识别但未映射。",
+      "confirmImport": "导入",
+      "openAgent": "打开 Agent",
+      "awareness": "认知(Awareness)",
+      "skillsCopied": "已复制技能",
+      "skillsInstalled": "已安装技能",
+      "mcpAdded": "已添加 MCP 服务",
+      "doneMsg": "Agent 已创建并填充完成。",
+      "skillsUnmatchedNote": "无本地来源且市场无匹配的技能:{{names}}",
+      "stdioSkippedNote": "已捕获但暂未接入的本地(stdio)MCP 服务:{{names}}"
     }
   },
   "settings": {
@@ -2214,6 +2247,8 @@
     "agentCount_one": "{{count}} 个智能体"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "cancel": "取消",
+    "back": "返回"
   }
 }

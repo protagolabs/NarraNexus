@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — Agent Migration methods
+
+`migrateDetect` / `migrateScan` / `migrateApply` wrap `/api/migrate/*`. detect +
+scan are local-only (503 on cloud); apply writes wherever the backend runs.
+Types in [[migration]]; consumed by [[ImportAgentModal]].
 
 ## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
 
