@@ -3,13 +3,18 @@
 @author: Bin Liang
 @date: 2026-07-23
 @description: DELETE /api/auth/agents/{agent_id} must cascade the
-memory_consolidation_queue.
+memory_consolidation_queue AND agent_cli_sessions.
 
-Why: agent deletion cleaned memory_* tables but left the agent's queue
+Why (queue): agent deletion cleaned memory_* tables but left the agent's queue
 rows behind. The consolidation worker's idle trigger then reprocessed
 those scopes on every poll, each pass logging
 "[background-llm] agent ... has no owner row" — the prod 1,880-warnings/14d
 orphan-agent noise (bug tracker: "Agent 无 owner 记录").
+
+Why (agent_cli_sessions, 2026-07-28): the resume table was added without a
+cascade entry, so handles outlived both the agent and its workspace — a
+recycled agent_id would inherit a handle pointing at a dead transcript, and
+nothing ever pruned the rows.
 """
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ from xyz_agent_context.utils.db.schema_registry import auto_migrate
 import backend.routes.auth as auth_mod
 
 _QUEUE = "memory_consolidation_queue"
+_CLI_SESSIONS = "agent_cli_sessions"
 
 
 @pytest_asyncio.fixture
@@ -98,3 +104,49 @@ async def test_delete_agent_removes_its_consolidation_queue_rows(db_client):
         f"SELECT agent_id FROM {_QUEUE} ORDER BY agent_id", params=(), fetch=True,
     )
     assert [r["agent_id"] for r in rows] == ["agent_b"]
+
+
+async def _seed_cli_sessions(db, agent_id: str, platform_session_id: str):
+    await db.insert(_CLI_SESSIONS, {
+        "agent_id": agent_id,
+        "platform_session_id": platform_session_id,
+        "narrative_id": "nar_1",
+        "framework": "claude_code",
+        "cli_session_id": f"cli_{agent_id}",
+        "config_fingerprint": "fp0123456789abcd",
+        "working_path": f"/ws/user_x/{agent_id}",
+    })
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_sweeps_its_cli_session_handles(db_client):
+    await _seed(db_client)
+    await _seed_cli_sessions(db_client, "agent_a", "sess_a1")
+    await _seed_cli_sessions(db_client, "agent_a", "sess_a2")
+    # Another agent's handle must survive.
+    await _seed_cli_sessions(db_client, "agent_b", "sess_b1")
+    client = _build_client(db_client)
+
+    resp = client.delete("/api/auth/agents/agent_a")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    # The sweep is reported in deleted_counts, like every other cascaded table.
+    assert body["deleted_counts"][_CLI_SESSIONS] == 2
+
+    rows = await db_client.execute(
+        f"SELECT agent_id FROM {_CLI_SESSIONS} ORDER BY agent_id",
+        params=(), fetch=True,
+    )
+    assert [r["agent_id"] for r in rows] == ["agent_b"]
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_without_cli_sessions_omits_the_stat(db_client):
+    await _seed(db_client)
+    client = _build_client(db_client)
+
+    resp = client.delete("/api/auth/agents/agent_a")
+    assert resp.status_code == 200
+    # Zero-count tables are omitted from deleted_counts (existing convention).
+    assert _CLI_SESSIONS not in resp.json()["deleted_counts"]

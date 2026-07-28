@@ -56,6 +56,31 @@ async def _persist_cli_session_handle(ctx: "RunContext", execution_result) -> No
     Never raises: any failure is logged and swallowed (same fire-and-forget
     contract as 4.6 record_cost) — handle persistence must never block the
     pipeline.
+
+    ``narrative_id`` is read from ``ctx.session.current_narrative_id`` — the
+    POST-routing value. Two blocks may have moved it since step_3 validated
+    the handle against the PRE-turn narrative:
+
+    * 4.0 narrative routing — the agent called ``switch_narrative`` /
+      ``create_narrative`` mid-turn, so this turn (and the CLI session that
+      served it) is re-attributed to another thread;
+    * 4.5 proactive-delivery anchoring — re-points the session at
+      ``main_narrative`` for background turns that messaged the user.
+
+    Storing the post-routing narrative is DELIBERATE and safe because the
+    stored ``narrative_id`` is only ever used as an equality anchor by step_3's
+    validation gate, and disagreement is fail-OPEN: the next turn reads
+    ``session.current_narrative_id`` (already the routed narrative), and
+    * if the conversation stays in the routed thread, the anchors MATCH and
+      resume works — which is the outcome we want, since the CLI session
+      genuinely continued into that thread's turn;
+    * if they ever disagree, step_3 logs ``COLD reason=narrative_changed`` and
+      cold-starts. Cost: one cold start. Never a correctness problem — a
+      handle is never resumed under a narrative the gate did not approve.
+
+    Storing the PRE-routing narrative instead would guarantee the mismatch on
+    every routed turn, i.e. strictly more cold starts for no correctness gain.
+    Pinned by tests/agent_runtime/test_resume_narrative_routing.py.
     """
     if not (execution_result.cli_session_id or execution_result.resume_failed):
         return
@@ -589,10 +614,15 @@ async def step_4_persist_results(
     # =========================================================================
     # 4.7 Persist CLI session handle (fire-and-forget, never blocks the
     # pipeline). Capture side of agent_loop resume; see
-    # _persist_cli_session_handle. 4.7 MUST sit after 4.5: narrative_id is
-    # read from ctx.session.current_narrative_id, which 4.5 has already
-    # re-anchored for proactive deliveries — ordering is what keeps the
-    # stored narrative consistent by construction.
+    # _persist_cli_session_handle. 4.7 MUST sit after 4.5 AND after 4.0:
+    # narrative_id is read from ctx.session.current_narrative_id, which 4.0
+    # (mid-turn switch_narrative / create_narrative) and 4.5 (proactive
+    # delivery) may both have re-pointed since step_3 validated the handle
+    # against the pre-turn narrative. Storing the POST-routing narrative is
+    # deliberate: the anchor then matches the thread the conversation actually
+    # continues in, and any disagreement is fail-open (one cold start, never a
+    # correctness issue). Full rationale in _persist_cli_session_handle's
+    # docstring.
     # =========================================================================
     await _persist_cli_session_handle(ctx, execution_result)
 

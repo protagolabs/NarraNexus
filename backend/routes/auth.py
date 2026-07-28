@@ -898,7 +898,7 @@ async def delete_agent(
     Deletion order is from leaf to root to ensure foreign key safety:
     1. Instance Memory dynamic tables
     2. Narrative Memory dynamic tables
-    3. Jobs
+    3. Jobs + resumable CLI session handles
     4. Instance-Narrative Links
     5. Instance subsidiary data (social_entities, awareness, module_report_memory)
     6. Module Instances
@@ -1014,6 +1014,21 @@ async def delete_agent(
         cnt = result if isinstance(result, int) else 0
         if cnt > 0:
             stats["instance_jobs"] = cnt
+
+        # 5b. Resumable coding-agent CLI session handles (by agent_id).
+        # Runtime-owned table (agent_cli_sessions): one row per
+        # (agent_id, platform_session_id, framework). Left behind, the rows
+        # outlive the agent AND its workspace, so a recycled agent_id would
+        # inherit a handle pointing at a dead transcript — and they accumulate
+        # forever with nothing to prune them.
+        result = await db_client.execute(
+            "DELETE FROM agent_cli_sessions WHERE agent_id = %s",
+            (agent_id,),
+            fetch=False,
+        )
+        cnt = result if isinstance(result, int) else 0
+        if cnt > 0:
+            stats["agent_cli_sessions"] = cnt
 
         # 6. Instance-Narrative Links (by instance_id)
         if instance_ids:

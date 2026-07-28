@@ -649,7 +649,11 @@ _register(
             # conversation this CLI session continues.
             Column("platform_session_id", "TEXT", "VARCHAR(64)", nullable=False),
             # Narrative bound at capture time; narrative switch => cold start.
-            Column("narrative_id", "TEXT", "VARCHAR(64)"),
+            # VARCHAR(128) matches the canonical narratives.narrative_id width —
+            # a narrower column here would silently truncate on MySQL and turn
+            # every comparison into a permanent mismatch (i.e. resume would just
+            # stop working) once ids grow past 64 chars.
+            Column("narrative_id", "TEXT", "VARCHAR(128)"),
             Column("framework", "TEXT", "VARCHAR(32)", nullable=False),   # "claude_code" only in v1
             Column("cli_session_id", "TEXT", "VARCHAR(128)", nullable=False),
             # sha256(auth_type|base_url|config_dir|model)[:16] — mismatch => cold start.

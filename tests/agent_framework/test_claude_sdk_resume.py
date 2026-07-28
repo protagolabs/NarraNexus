@@ -19,9 +19,16 @@ under test:
   ErrorMessage — the user must not perceive the miss);
 * any other failure shape → NO retry (existing error paths unchanged);
 * natural completion → graceful CLI shutdown (stdin close + bounded wait)
-  BEFORE disconnect's SIGTERM teardown; cancellation skips it.
+  BEFORE disconnect's SIGTERM teardown; cancellation skips it;
+* teardown liveness (2026-07-28): a HANGING ``end_input()`` is bounded on its
+  own (suppress() does nothing for a hang) and a cancellation raised DURING
+  the graceful wait short-circuits to the fast teardown instead of buying the
+  user the full graceful ceiling.
 """
 from __future__ import annotations
+
+import asyncio
+import time
 
 import pytest
 
@@ -49,7 +56,12 @@ class ResultMessage:
 
 
 class _StubProcess:
-    """Mimics the transport's subprocess handle used by the graceful path."""
+    """Mimics the transport's subprocess handle used by the graceful path.
+
+    ``process_hangs`` in the script simulates a CLI that never exits after
+    stdin close — the case the graceful wait's bound (and its cancellation
+    race) exists for.
+    """
 
     def __init__(self, owner: "_StubClient"):
         self._owner = owner
@@ -57,12 +69,22 @@ class _StubProcess:
 
     async def wait(self):
         self._owner.calls.append("process_wait")
+        if self._owner._script.get("process_hangs"):
+            await asyncio.Event().wait()  # never resolves
         self.returncode = 0
         return 0
 
 
 class _StubTransport:
-    """Mimics the SDK transport surface `_graceful_cli_shutdown` reaches into."""
+    """Mimics the SDK transport surface `_graceful_cli_shutdown` reaches into.
+
+    Script hooks:
+      ``end_input_hangs``   — end_input() never returns (a stuck concurrent
+                              write holding transport._write_lock).
+      ``cancel_on_end_input`` — a token whose event is set from inside
+                              end_input(), i.e. Stop pressed just AFTER the
+                              caller's cancellation gate.
+    """
 
     def __init__(self, owner: "_StubClient"):
         self._owner = owner
@@ -70,6 +92,11 @@ class _StubTransport:
 
     async def end_input(self):
         self._owner.calls.append("end_input")
+        token = self._owner._script.get("cancel_on_end_input")
+        if token is not None:
+            token.fire()
+        if self._owner._script.get("end_input_hangs"):
+            await asyncio.Event().wait()  # never resolves
 
 
 class _StubClient:
@@ -370,6 +397,94 @@ async def test_cancelled_run_skips_graceful_shutdown_but_still_tears_down():
     assert "end_input" not in client.calls
     assert "process_wait" not in client.calls
     assert client.calls[-1] == "disconnect"
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-28 teardown liveness: bounded end_input + cancel-during-graceful
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_hanging_end_input_is_bounded_and_turn_still_completes(monkeypatch):
+    # The vendored SDK's end_input() takes transport._write_lock; a stuck
+    # concurrent write makes it hang forever, and `suppress(Exception)` does
+    # NOTHING for a hang. It must have its own bound and then fall through to
+    # the SIGTERM/SIGKILL teardown path.
+    monkeypatch.setattr(sdk_mod, "_GRACEFUL_END_INPUT_SECONDS", 0.05)
+    monkeypatch.setattr(sdk_mod, "_GRACEFUL_CLI_EXIT_SECONDS", 0.05)
+    _StubClient.scripts = [
+        {
+            "messages": [ResultMessage()],
+            "end_input_hangs": True,
+            "process_hangs": True,  # nothing rescues us but the bound
+        }
+    ]
+    started = time.monotonic()
+    events = await _run()
+    elapsed = time.monotonic() - started
+
+    # The turn completed normally — the hang never reached the user.
+    types = [e.get("data", {}).get("type") for e in events]
+    assert "response.done" in types
+    # Bounded by the two small ceilings, nowhere near the 10s default.
+    assert elapsed < 2.0
+    (client,) = _StubClient.instances
+    assert client.calls[-1] == "disconnect"  # fell through to the kill path
+
+
+class _LateCancelToken:
+    """Not cancelled at the caller's gate; fires DURING graceful shutdown."""
+
+    def __init__(self):
+        self._event = asyncio.Event()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def fire(self) -> None:
+        self._event.set()
+
+    async def await_cancelled(self):
+        await self._event.wait()
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_graceful_wait_short_circuits_to_teardown():
+    # Stop pressed a millisecond AFTER the caller's one-shot gate: the
+    # graceful wait must lose the race to the token instead of holding the
+    # user for the full _GRACEFUL_CLI_EXIT_SECONDS.
+    token = _LateCancelToken()
+    _StubClient.scripts = [
+        {
+            "messages": [ResultMessage()],
+            "cancel_on_end_input": token,   # fires once we're already inside
+            "process_hangs": True,          # CLI would never exit on its own
+        }
+    ]
+    sdk = ClaudeAgentSDK(working_path="/tmp/ws")
+    started = time.monotonic()
+    _ = [e async for e in sdk.agent_loop(_messages(), {}, cancellation=token)]
+    elapsed = time.monotonic() - started
+
+    # Fast teardown — NOT the 10s graceful ceiling.
+    assert elapsed < 2.0
+    assert sdk_mod._GRACEFUL_CLI_EXIT_SECONDS == 10.0  # ceiling itself unchanged
+    (client,) = _StubClient.instances
+    # We did enter the graceful path (gate passed), then bailed out on cancel.
+    assert "end_input" in client.calls
+    assert client.calls[-1] == "disconnect"
+    assert client._transport._process.returncode is None  # no clean exit waited
+
+
+@pytest.mark.asyncio
+async def test_normal_completion_still_waits_the_full_graceful_exit():
+    # Guard against "fix cancellation, regress the transcript flush": with NO
+    # cancellation the graceful wait must still await the CLI's own exit.
+    _StubClient.scripts = [{"messages": [ResultMessage()]}]
+    await _run()
+    (client,) = _StubClient.instances
+    assert client.calls == ["connect", "query", "end_input", "process_wait", "disconnect"]
+    assert client._transport._process.returncode == 0
 
 
 @pytest.mark.asyncio

@@ -145,6 +145,28 @@ class Settings(BaseSettings):
     # backwards-compatibility shim. Env: AGENT_LOOP_RESUME_ENABLED.
     agent_loop_resume_enabled: bool = True
 
+    # HMAC-SHA256 secret authenticating the `resume_session_id` that crosses
+    # the orchestrator → executor boundary. `POST /agent-loop` on the executor
+    # is unauthenticated BY DESIGN (internal-trust: it holds no platform
+    # secrets and needs no DB — the orchestrator did all validation). Resume
+    # is the one field on that body that names a RESOURCE OUTSIDE the request:
+    # CLAUDE_CONFIG_DIR is a single shared dir per auth kind (see
+    # claude_cli_config_path / claude_oauth_config_path below), so an
+    # unvalidated handle + a guessable working_path (`{base}/{user_id}/
+    # {agent_id}`) would let anyone who reaches the endpoint directly replay
+    # ANOTHER TENANT's CLI transcript. The token binds the handle to
+    # (working_path, framework) and to an issue time, so a captured body
+    # cannot be retargeted or replayed later.
+    #
+    # Empty (the default) => the executor IGNORES resume_session_id entirely
+    # and cold-starts (always safe; resume is an optimization). That keeps
+    # local/desktop working with zero config — they never cross the executor
+    # boundary at all. CLOUD MUST PROVISION THIS (NarraNexus-deploy: same
+    # value in the orchestrator env AND every executor container env) or
+    # cloud silently loses the resume optimization.
+    # Env: EXECUTOR_RESUME_HMAC_SECRET.
+    executor_resume_hmac_secret: str = ""
+
     # ===== Turn-context relocation (token optimization phase 3, R4) =====
     # Kill-switch for relocating per-turn volatile content (temporal block,
     # narrative updated_at / current_summary, recent background activity,

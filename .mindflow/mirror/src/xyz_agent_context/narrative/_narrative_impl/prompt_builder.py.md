@@ -4,6 +4,24 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4d：created_at 迁 turn 半（稳定半不再含任何时间戳）
+
+- `build_main_prompt(include_volatile=False)` 不再向 STABLE 模板传
+  `created_at`；`build_turn_prompt` 增加 `created_at=_canonical_timestamp(...)`。
+- 理由见 [[prompts.py]] R4d 条目：created_at 的**取值**来自两个时钟
+  （[[narrative_repository.py]] `_entity_to_row` 不写该列 → INSERT 取 DB 默认
+  `(datetime('now'))`；`crud.py` 的内存对象取 save 之前捕获的
+  `datetime.now(timezone.utc)`），R4c 的 `_canonical_timestamp` 统一了格式却
+  无法统一时钟，残留差异是**等长替换**，字节计数类诊断完全看不见。
+- `_canonical_timestamp` 本身**未改**——它仍是唯一的时间戳格式化入口，MAIN /
+  TURN 两条渲染路径都走它；STABLE 路径现在根本不渲染时间戳。
+- 测试：`test_stable_block_contains_no_timestamp_at_all`（稳定半不含
+  `Created At` / `Updated At` / ` UTC`）、
+  `test_stable_block_identical_across_the_two_created_at_clock_sources`
+  （Python 时钟轮 vs DB 时钟轮字节相同，且 turn 块仍各自带着自己的创建时间）、
+  `test_the_two_clock_sources_really_do_render_different_bytes`（守住前提：
+  两个时钟确实渲染出不同且**等长**的字节）。
+
 ## 2026-07-28 — R4c：时间戳单一规范化渲染 + Name 迁 turn 半
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

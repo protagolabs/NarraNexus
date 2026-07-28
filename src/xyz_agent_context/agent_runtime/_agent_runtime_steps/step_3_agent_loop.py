@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
 
 from loguru import logger
@@ -95,6 +96,96 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
 
+# =============================================================================
+# Concurrent-resume guard (in-PROCESS)
+# =============================================================================
+# Key = the SAME triple as ``agent_cli_sessions``' unique key:
+# ``(agent_id, platform_session_id, framework)``. Invariant: at most ONE run
+# may HOLD a given key for ``--resume`` at a time. Two runs of the same agent
+# CAN overlap (the user chats while a JobModule trigger fires for the same
+# agent+owner) and would otherwise both validate the same handle and both spawn
+# a CLI with ``--resume <same id>`` => two concurrent writers on ONE session
+# JSONL transcript. That failure does not match the "No conversation found"
+# predicate the stale-handle fallback keys on, so it would surface as a hard
+# error. Before resume every run was a cold start with no shared external file,
+# so the hazard is introduced BY this feature and must be gated here.
+#
+# The loser of the race COLD-STARTS (``COLD reason=handle_in_use``); it never
+# blocks or waits. Waiting would make resume a dependency instead of an
+# optimization and could stall a turn behind an unrelated long run
+# (binding rule #14: never make the platform the interruption source).
+#
+# Why a plain ``threading.Lock`` over a bare set / an ``asyncio.Lock``:
+#   * the critical section is a test-and-set with NO ``await`` inside, so an
+#     asyncio.Lock buys nothing and would force the per-loop registry pattern
+#     ``utils/db/db_factory.py`` has to maintain (asyncio primitives bind to
+#     the loop that created them);
+#   * this process CAN run several event loops in different threads (the MCP
+#     container runs each module on its own threaded loop), and the hazard is
+#     "two runs writing one JSONL" regardless of which loop drives them — so
+#     the guard has to be loop-agnostic and shared, which a threading.Lock is;
+#   * a bare set would be atomic per operation under the GIL, but the
+#     CHECK-then-ADD pair is not, so the lock is what makes it a real
+#     test-and-set. It is held for microseconds and never across an await, so
+#     it can neither deadlock nor stall a loop.
+#
+# LIMITATION (deliberate, same shape as ``agent_runtime/admission.py``): this
+# state lives in THIS PROCESS. Cloud runs the orchestrator as a single process
+# today, so one guard sees every run. A multi-replica deployment needs a shared
+# (Redis) guard keyed on the same triple — the two helpers below are the seam
+# for that; until then two replicas could still both resume one handle.
+
+# (agent_id, platform_session_id, framework)
+_ResumeHandleKey = tuple[str, str, str]
+
+_resume_handle_lock = threading.Lock()
+_resume_handles_in_use: set[_ResumeHandleKey] = set()
+
+
+def _try_acquire_resume_handle(key: _ResumeHandleKey) -> bool:
+    """Claim ``key`` for this run, or report that another run already holds it.
+
+    Non-blocking by design — see the module comment above.
+    """
+    with _resume_handle_lock:
+        if key in _resume_handles_in_use:
+            return False
+        _resume_handles_in_use.add(key)
+        return True
+
+
+def _release_resume_handle(key: _ResumeHandleKey) -> None:
+    """Release a claimed key. Idempotent and never raises.
+
+    Deliberately SYNCHRONOUS: the only caller is step_3's ``finally``, which on
+    ``aclose()`` of the (async generator) step runs while ``GeneratorExit`` is
+    in flight. Awaiting anything there would raise "async generator ignored
+    GeneratorExit" and could leave the key claimed forever — which would
+    silently disable resume for that agent+session for the life of the process.
+    """
+    with _resume_handle_lock:
+        _resume_handles_in_use.discard(key)
+
+
+def _log_resume_cold(
+    reason: str,
+    *,
+    agent_id: str,
+    platform_session: Any,
+    framework: str,
+    warn: bool = False,
+) -> None:
+    """Emit THE one greppable cold-start line. Single formatter so every
+    reason — including ``handle_in_use``, decided outside the validation
+    gate — lands in the same shape for log analysis."""
+    line = (
+        f"[step_3] resume decision: COLD reason={reason} "
+        f"(agent={agent_id}, platform_session={platform_session}, "
+        f"framework={framework})"
+    )
+    (logger.warning if warn else logger.info)(line)
+
+
 async def _resolve_resume_session_id(
     agent_id: str,
     session: Any,
@@ -128,16 +219,21 @@ async def _resolve_resume_session_id(
     Every decision emits ONE greppable log line:
     ``[step_3] resume decision: RESUME ...`` or
     ``[step_3] resume decision: COLD reason=<reason> ...``.
+
+    This is the VALIDATION gate only. Concurrency (one holder per handle key)
+    is enforced by :func:`_acquire_resume_session`, which wraps this — step_3
+    must call that wrapper, never this function directly.
     """
     from xyz_agent_context.settings import settings
 
     def _cold(reason: str, *, warn: bool = False) -> None:
-        line = (
-            f"[step_3] resume decision: COLD reason={reason} "
-            f"(agent={agent_id}, platform_session="
-            f"{getattr(session, 'session_id', None)}, framework={framework})"
+        _log_resume_cold(
+            reason,
+            agent_id=agent_id,
+            platform_session=getattr(session, "session_id", None),
+            framework=framework,
+            warn=warn,
         )
-        (logger.warning if warn else logger.info)(line)
 
     if not settings.agent_loop_resume_enabled:
         _cold("flag_disabled")
@@ -187,6 +283,52 @@ async def _resolve_resume_session_id(
     except Exception as e:  # noqa: BLE001 — fail-open: resume must never hurt a turn
         _cold(f"lookup_error:{type(e).__name__}", warn=True)
         return None
+
+
+async def _acquire_resume_session(
+    agent_id: str,
+    session: Any,
+    framework: str,
+    config_fingerprint: str | None,
+    working_path: str,
+    db_client: Any,
+) -> tuple[str | None, _ResumeHandleKey | None]:
+    """Validate the stored handle AND lease it for this run.
+
+    Returns ``(resume_session_id, lease_key)``:
+
+    * ``(cli_session_id, key)`` — every validity anchor agreed AND no other
+      run in this process currently holds ``key``. The caller MUST release
+      ``key`` via :func:`_release_resume_handle` in a ``finally`` that covers
+      the whole driver run (see step_3's try/finally).
+    * ``(None, None)`` — cold start. Either the validation gate said no (see
+      :func:`_resolve_resume_session_id`) or a concurrent run holds the handle
+      (``COLD reason=handle_in_use``).
+
+    The lease is taken AFTER validation on purpose: a run that would not have
+    resumed anyway must not block the run that would.
+    """
+    cli_session_id = await _resolve_resume_session_id(
+        agent_id=agent_id,
+        session=session,
+        framework=framework,
+        config_fingerprint=config_fingerprint,
+        working_path=working_path,
+        db_client=db_client,
+    )
+    if cli_session_id is None:
+        return None, None
+    # session is non-None here: the validation gate returns None without it.
+    key = (agent_id, session.session_id, framework)
+    if not _try_acquire_resume_handle(key):
+        _log_resume_cold(
+            "handle_in_use",
+            agent_id=agent_id,
+            platform_session=session.session_id,
+            framework=framework,
+        )
+        return None, None
+    return cli_session_id, key
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -957,56 +1099,73 @@ async def step_3_agent_loop(
     # persistence later. Resume must never hurt a turn.
     cli_config_fingerprint: str | None = None
     resume_session_id: str | None = None
-    if cli_framework == "claude_code":
-        # v1 scope: only claude_code consumes handles. codex_cli has its own
-        # session mechanism (deliberately NOT built; the handle table's
-        # framework column already leaves room for it).
-        try:
-            from xyz_agent_context.agent_framework.api_config import claude_config
+    # Non-None only while THIS run HOLDS the in-process lease on its handle key
+    # (see _acquire_resume_session). The `finally` at the end of the block below
+    # is the single release site.
+    resume_handle_lease: _ResumeHandleKey | None = None
 
-            cli_config_fingerprint = claude_config.resume_fingerprint()
-        except Exception as e:
-            logger.warning(
-                f"[step_3] resume fingerprint computation failed (fail-open): {e}"
-            )
-        resume_session_id = await _resolve_resume_session_id(
-            agent_id=ctx.agent_id,
-            session=ctx.session,
-            framework=cli_framework,
-            config_fingerprint=cli_config_fingerprint,
-            working_path=agent_working_path,
-            db_client=db_client,
-        )
-
-    # The materialized turn bundle — one explicit object instead of loose
-    # locals, so every driver demonstrably eats the same thing.
-    # driver_kwargs() reproduces the historical call shape exactly
-    # (including empty→None normalization); cancellation stays separate.
-    # Constructed AFTER the resume decision (TurnInput is frozen) so the
-    # validated handle rides the bundle: driver_kwargs() emits it only
-    # when set, and only claude_code turns ever set it.
-    turn_input = TurnInput(
-        messages=messages,
-        mcp_servers=ctx.mcp_servers,
-        disallowed_tools=tuple(extra_disallowed_tools),
-        extra_env=skill_env_vars,
-        resume_session_id=resume_session_id,
-    )
-    # Per-user executor routing (cloud): ask the broker to ensure this
-    # user's Executor container and use its URL. Returns None when no
-    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
-    # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.loop.broker_client import (
-        ensure_executor,
-        wait_until_ready,
-    )
-
-    # Executor ensure/warm is INSIDE the try so a cold-start failure
+    # The whole "lease the handle -> run the driver -> drain the stream" region
+    # lives in ONE try/finally so the lease can never leak. It is acquired
+    # INSIDE the try (not before it) on purpose: with the acquisition outside,
+    # anything raising between acquisition and `try:` would strand the key and
+    # silently disable resume for that agent+session for the rest of the
+    # process's life. The `finally` covers all four exits — normal completion,
+    # the `except` below, cancellation (CancelledError is BaseException, so it
+    # bypasses the except and still runs the finally), and `aclose()` on an
+    # abandoned generator (GeneratorExit lands on one of the `yield`s inside
+    # the try). The release itself is synchronous, which is what makes the
+    # GeneratorExit path safe.
+    #
+    # Executor ensure/warm is INSIDE the same try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
     # drop, and is surfaced as an actionable ``infra_transient`` error rather
     # than escaping step_3 as a raw exception (issue ②'s bare-ClientConnectorError).
     try:
+        if cli_framework == "claude_code":
+            # v1 scope: only claude_code consumes handles. codex_cli has its own
+            # session mechanism (deliberately NOT built; the handle table's
+            # framework column already leaves room for it).
+            try:
+                from xyz_agent_context.agent_framework.api_config import claude_config
+
+                cli_config_fingerprint = claude_config.resume_fingerprint()
+            except Exception as e:
+                logger.warning(
+                    f"[step_3] resume fingerprint computation failed (fail-open): {e}"
+                )
+            resume_session_id, resume_handle_lease = await _acquire_resume_session(
+                agent_id=ctx.agent_id,
+                session=ctx.session,
+                framework=cli_framework,
+                config_fingerprint=cli_config_fingerprint,
+                working_path=agent_working_path,
+                db_client=db_client,
+            )
+
+        # The materialized turn bundle — one explicit object instead of loose
+        # locals, so every driver demonstrably eats the same thing.
+        # driver_kwargs() reproduces the historical call shape exactly
+        # (including empty→None normalization); cancellation stays separate.
+        # Constructed AFTER the resume decision (TurnInput is frozen) so the
+        # validated handle rides the bundle: driver_kwargs() emits it only
+        # when set, and only claude_code turns ever set it.
+        turn_input = TurnInput(
+            messages=messages,
+            mcp_servers=ctx.mcp_servers,
+            disallowed_tools=tuple(extra_disallowed_tools),
+            extra_env=skill_env_vars,
+            resume_session_id=resume_session_id,
+        )
+        # Per-user executor routing (cloud): ask the broker to ensure this
+        # user's Executor container and use its URL. Returns None when no
+        # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+        # so get_agent_loop_driver falls back. This is the cold-start point.
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            ensure_executor,
+            wait_until_ready,
+        )
+
         ensured = await ensure_executor(ctx.user_id)
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
@@ -1093,6 +1252,20 @@ async def step_3_agent_loop(
         await _record_executor_infra_event(
             db_client, ctx.user_id, error_type, error_str, bool(agent_loop_response)
         )
+    finally:
+        # Single release site for the resume lease (see the comment above the
+        # try). Synchronous on purpose so it is safe while GeneratorExit is in
+        # flight; a no-op when this run never held a lease.
+        #
+        # Residual (accepted, fail-open): a consumer that ABANDONS the pipeline
+        # with `break` instead of closing it — agent_runtime.run() does exactly
+        # that on cancellation — does not forward a close down the `async for`
+        # chain, so this finally then runs via the asyncgen GC finalizer a loop
+        # tick or two later instead of synchronously. Bounded, self-healing, and
+        # the worst case is one unnecessary cold start.
+        if resume_handle_lease is not None:
+            _release_resume_handle(resume_handle_lease)
+            resume_handle_lease = None
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()

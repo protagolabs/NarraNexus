@@ -4,6 +4,23 @@ stub: false
 last_verified: 2026-07-28
 ---
 
+## 2026-07-28 — resume 句柄改为经 HMAC 校验后才采信（HIGH review finding）
+
+`/agent-loop` 里 `resume_session_id` 不再直接透传，改为
+`authorize_resume_session_id(body)`（见 [[executor_protocol.py]] 同日条目）。
+原因：本端点**无鉴权是刻意设计**，但这只在"body 每个字段只描述本次请求"时成立；
+resume 句柄指向的是**全租户共用** `CLAUDE_CONFIG_DIR` 里的 CLI transcript，配上
+可猜的 `working_path`（`{base}/{user_id}/{agent_id}`），直连本端点即可读回别人的
+对话。现在 orchestrator（真正做过 per-user 校验的一侧）签名，本端常量时间校验。
+
+关键行为：**校验失败一律降级为冷启动，绝不 4xx**。resume 是优化，冷启动永远正确；
+把签名/时钟/部署问题变成 turn 失败才是真的坏。端点整体仍然是无鉴权的内网信任面
+——这里鉴权的是**一个能力**，不是整个请求。
+
+**云端部署依赖**：`EXECUTOR_RESUME_HMAC_SECRET` 必须注入本容器 env（容器不读平台
+.env，所以只能走容器 env），且与 orchestrator 同值；未配置 = 本容器忽略所有
+resume 句柄并打一次性 WARNING。
+
 ## 2026-07-28 — 透传 body `resume_session_id` 给 driver（resume 化 R2）
 
 `/agent-loop` 把 `body.get("resume_session_id") or None` 传进容器内

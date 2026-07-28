@@ -19,6 +19,14 @@ Security shape (why this exists):
   * Because the executor process does NOT set ``AGENT_EXECUTOR_URL``,
     ``get_agent_loop_driver`` here resolves to the LOCAL claude/codex
     driver (no self-recursion).
+  * ONE capability on that otherwise-unauthenticated body is signed:
+    ``resume_session_id`` (see ``executor_protocol.authorize_resume_session_id``).
+    Every other field only describes this request; a resume handle names a CLI
+    transcript in a CLAUDE_CONFIG_DIR shared across tenants, so without a
+    per-call HMAC a direct caller could replay someone else's conversation.
+    Cloud deploy must provision ``EXECUTOR_RESUME_HMAC_SECRET`` in BOTH the
+    orchestrator and this container; unset = resume silently disabled (cold
+    start), which is always safe.
 
 Per-agent / per-user workspace isolation is a deployment concern layered
 on top (mount only that user's workspace into the container) — out of
@@ -43,6 +51,7 @@ from xyz_agent_context.agent_framework.loop.driver import (
 )
 from xyz_agent_context.agent_runtime.executor_protocol import (
     apply_provider_configs,
+    authorize_resume_session_id,
 )
 
 app = FastAPI(title="NarraNexus Agent-Loop Executor")
@@ -177,6 +186,15 @@ async def agent_loop(request: Request) -> StreamingResponse:
     # THIS task's ContextVars, so the CLI authenticates with the right key.
     apply_provider_configs(body.get("provider_configs") or {})
 
+    # Resume is the ONE field on this internal-trust body that names a resource
+    # outside the request: the CLI transcript lives in a CLAUDE_CONFIG_DIR
+    # shared by all tenants, so an unvalidated handle + a guessable
+    # working_path would let a direct caller replay another tenant's
+    # conversation. Verify the orchestrator's HMAC (constant-time) and drop to
+    # cold start on any doubt — never reject the turn. Endpoint itself stays
+    # unauthenticated by design; this authenticates one CAPABILITY.
+    resume_session_id = authorize_resume_session_id(body)
+
     # AGENT_EXECUTOR_URL is unset in the executor container → local driver.
     driver = get_agent_loop_driver(framework, working_path=working_path)
 
@@ -190,7 +208,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
                 extra_env=body.get("extra_env") or None,
                 cancellation=None,  # cancellation = orchestrator aborts the stream
                 disallowed_tools=body.get("disallowed_tools") or None,
-                resume_session_id=body.get("resume_session_id") or None,
+                resume_session_id=resume_session_id,
             ):
                 yield json.dumps({"event": event}, default=str) + "\n"
         except Exception as e:  # noqa: BLE001 — surface to caller, never crash the service

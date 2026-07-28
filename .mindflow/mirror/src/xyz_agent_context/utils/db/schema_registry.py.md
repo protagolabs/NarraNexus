@@ -13,6 +13,15 @@ Additive column holding the bot's own Lark open_id. Consumed by
 `auto_migrate()` adds it in place; existing rows read back empty and the
 gate falls back to display-name matching for them.
 
+## 2026-07-28 — agent_cli_sessions.narrative_id 加宽到 VARCHAR(128)
+
+原为 `VARCHAR(64)`，与规范宽度（`narratives.narrative_id` = `VARCHAR(128)`，
+`events` / `instance_narrative_links` / 报表表也都是 128）不一致。纯加宽，
+`auto_migrate` 幂等改列，不触碰铁律 #6（没有收窄、没有语义变更）。
+不修的后果不是报错而是**静默失效**：MySQL 侧一旦 id 超过 64 字符就截断写入，
+之后每一次比对都不相等，于是 resume 永远命中不了、只会一直冷启动——而这条路径
+本来就设计成"任何存疑即回落冷启动"，所以不会有任何告警。列注释已写明这个理由。
+
 ## 2026-07-28 — `bus_agent_activity.steps`
 
 Added a nullable `TEXT` / `MEDIUMTEXT` column holding the CURRENT turn's phase
@@ -40,9 +49,6 @@ on revoke (and by the executor-reaper hook for crash orphans of idle users).
 Security-critical: a leak of this table cannot be replayed against the gateway
 (no usable secret at rest). See
 [[gateway_key_service]] / [[gateway_session_key_repository]].
-last_verified: 2026-07-25
-stub: false
----
 
 ## 2026-07-25 — 新表 agent_cli_sessions(resume 化 R1:句柄持久化)
 

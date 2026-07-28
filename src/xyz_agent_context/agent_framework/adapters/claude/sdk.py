@@ -489,8 +489,19 @@ async def _drain_stderr_after_failure(
 # to today's SIGTERM teardown.
 _GRACEFUL_CLI_EXIT_SECONDS = 10.0
 
+# Separate, much smaller bound for the stdin close itself. The vendored SDK's
+# ``end_input()`` acquires ``transport._write_lock``; if a concurrent write is
+# stuck holding it, the await never returns and ``suppress(Exception)`` does
+# NOTHING for a hang — the whole turn's generator would stall past the
+# graceful-exit ceiling it was supposed to respect. Closing stdin is a
+# microsecond-scale syscall in the healthy case, so 2s is already pure slack;
+# on timeout we simply fall through to the SIGTERM/SIGKILL teardown.
+_GRACEFUL_END_INPUT_SECONDS = 2.0
 
-async def _graceful_cli_shutdown(client: Any) -> None:
+
+async def _graceful_cli_shutdown(
+    client: Any, cancellation: Any | None = None
+) -> None:
     """Let the CLI exit ON ITS OWN before transport teardown SIGTERMs it.
 
     ``transport.close()`` (inside ``client.disconnect()``) closes stdin and
@@ -512,6 +523,14 @@ async def _graceful_cli_shutdown(client: Any) -> None:
     before. Callers must SKIP this on cancellation — a cancelled run keeps
     today's synchronous teardown.
 
+    Every await here is bounded, and the wait ALSO races ``cancellation``:
+    the caller's gate is checked once, so a Stop pressed a millisecond later
+    would otherwise buy the user up to ``_GRACEFUL_CLI_EXIT_SECONDS`` of
+    lingering. Racing cancellation makes "cancel during graceful shutdown"
+    behave like "cancel before it" (straight to the fast teardown) while a
+    NORMAL completion still waits for the CLI's clean exit — that wait is the
+    transcript flush, and losing it is the 2026-07-25 regression.
+
     Reaches into SDK private attrs (``_transport`` / ``_process``) — the
     same deliberate tradeoff as the stall probe and the SIGKILL disconnect
     fallback (re-verified necessary on SDK 0.1.43: ``close()`` has no
@@ -520,22 +539,72 @@ async def _graceful_cli_shutdown(client: Any) -> None:
     transport = getattr(client, "_transport", None)
     if transport is None:
         return
-    with suppress(Exception):
-        await transport.end_input()
+    # Bounded: end_input() takes the transport write lock, so a stuck
+    # concurrent write turns this into an unbounded hang (suppress() cannot
+    # help). wait_for cancels the inner await on timeout, releasing us to the
+    # SIGTERM/SIGKILL path below.
+    try:
+        await asyncio.wait_for(
+            transport.end_input(), timeout=_GRACEFUL_END_INPUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"[ClaudeAgentSDK] stdin close (end_input) did not complete within "
+            f"{_GRACEFUL_END_INPUT_SECONDS}s (write lock likely held); falling "
+            f"back to transport teardown"
+        )
+    except Exception as e:  # noqa: BLE001 — graceful path is best-effort
+        logger.debug(f"[ClaudeAgentSDK] end_input failed (ignored): {e}")
+
     process = getattr(transport, "_process", None)
     if process is None or process.returncode is not None:
         return
+
+    # Race the CLI's own exit against the cancellation token, mirroring the
+    # receive loop's pattern above.
+    wait_task = asyncio.create_task(process.wait())
+    cancel_task: asyncio.Task | None = None
+    if cancellation is not None and callable(
+        getattr(cancellation, "await_cancelled", None)
+    ):
+        cancel_task = asyncio.create_task(cancellation.await_cancelled())
+    waiters: list[asyncio.Task] = [wait_task]
+    if cancel_task is not None:
+        waiters.append(cancel_task)
     try:
-        await asyncio.wait_for(process.wait(), timeout=_GRACEFUL_CLI_EXIT_SECONDS)
+        done, _pending = await asyncio.wait(
+            waiters,
+            return_when=asyncio.FIRST_COMPLETED,
+            timeout=_GRACEFUL_CLI_EXIT_SECONDS,
+        )
+    except Exception as e:  # noqa: BLE001 — graceful path is best-effort
+        logger.warning(f"[ClaudeAgentSDK] graceful CLI shutdown failed: {e}")
+        done = set()
+    finally:
+        if cancel_task is not None and not cancel_task.done():
+            cancel_task.cancel()
+
+    if wait_task in done:
+        # Consume the result/exception so asyncio doesn't warn about it.
+        with suppress(Exception):
+            await wait_task
         logger.debug("[ClaudeAgentSDK] CLI exited cleanly after stdin close")
-    except asyncio.TimeoutError:
+        return
+
+    wait_task.cancel()
+    with suppress(asyncio.CancelledError, Exception):
+        await wait_task
+    if CancellationView(cancellation).requested():
+        logger.info(
+            "[ClaudeAgentSDK] cancellation fired during graceful CLI shutdown; "
+            "skipping the remaining wait and going straight to teardown"
+        )
+    else:
         logger.warning(
             f"[ClaudeAgentSDK] CLI did not exit within "
             f"{_GRACEFUL_CLI_EXIT_SECONDS}s of stdin close; falling back to "
             f"transport teardown (SIGTERM)"
         )
-    except Exception as e:  # noqa: BLE001 — graceful path is best-effort
-        logger.warning(f"[ClaudeAgentSDK] graceful CLI shutdown failed: {e}")
 
 
 def _is_zero_output_error_event(event: dict) -> bool:
@@ -1106,8 +1175,11 @@ class ClaudeAgentSDK:
                 # (2026-07-25 regression: transcript lost ALL conversation
                 # records to the immediate SIGTERM). Cancellation keeps
                 # today's fast synchronous teardown — skip straight to finally.
+                # The gate is a fast path only; _graceful_cli_shutdown ALSO
+                # races the token internally, so a Stop pressed right after
+                # this check still short-circuits to the fast teardown.
                 if not CancellationView(cancellation).requested():
-                    await _graceful_cli_shutdown(client)
+                    await _graceful_cli_shutdown(client, cancellation)
                 if message_count == 0:
                     logger.error(
                         "[ClaudeAgentSDK] ⚠️ 收到 0 条消息！可能原因：\n"

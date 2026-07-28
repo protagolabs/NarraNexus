@@ -4,6 +4,30 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — [4.7] 存的是 **routing 之后**的 narrative：刻意、fail-open（review FIX 2）
+
+**零行为改动，纯文档 + 回归钉。** review 指出：step_3 用**轮前**的
+`session.current_narrative_id` 校验句柄，而 4.0（agent 中途调
+`switch_narrative` / `create_narrative`）会在 4.7 落库**之前**改写它，因此存进
+`agent_cli_sessions.narrative_id` 的可能不是当初通过校验的那个 narrative。
+
+结论是**接受并写清楚**，不改行为：
+
+- 存储的 `narrative_id` 只被 step_3 校验闸门当等值锚用，不一致时 **fail-open**
+  ——下一轮读到的 `session.current_narrative_id` 已经是被路由到的那个：
+  会话继续留在新线程 → 两边**相等**，resume 正常（这也正是想要的：CLI 会话
+  确实延续进了那个线程的这一轮）；若哪天不等 → 日志
+  `COLD reason=narrative_changed` + 冷启动，代价仅**一次冷启动**，绝不会在
+  未获批准的 narrative 下 resume。
+- 反过来存**routing 之前**的 narrative 只会让每个被路由的轮次都必然错配，
+  即严格更多冷启动、correctness 上零收益。
+- 注释落在 `_persist_cli_session_handle` docstring + 4.7 调用点（后者把
+  "4.7 必须排在 4.5 之后"扩成"**4.0 与 4.5 之后**"）。
+- 钉子：tests/agent_runtime/test_resume_narrative_routing.py —— 用真 SQLite
+  驱动整个 step_4（含 4.0），断言三件事：存的是 routed narrative；下一轮留在
+  routed 线程则 RESUME；下一轮回到原 narrative 则 None +
+  `COLD reason=narrative_changed`。
+
 ## 2026-07-28 — [4.7] 抽为 `_persist_cli_session_handle` + resume_failed 删旧写新（resume 化 R3）
 
 4.7 整段抽成模块级 `_persist_cli_session_handle(ctx, execution_result)`

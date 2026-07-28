@@ -19,6 +19,12 @@ The scoped provider configs travel in the request body (see
 ``executor_protocol.build_agent_loop_request``) because they normally
 ride a ContextVar that does not survive the network hop.
 
+This driver owns NO wire-format knowledge beyond calling
+``build_agent_loop_request`` and POSTing what it returns — which is why the
+resume-capability HMAC (2026-07-28) needed no change here: the token and its
+``issued_at`` are minted inside that builder and ride the same body dict. Keep
+it that way; do not hand-assemble the body in this module.
+
 Stream reader (2026-07-09 fix): uses ``resp.content.iter_any()`` +
 manual line-splitting rather than aiohttp's line iterator. The line
 iterator has an unmovable 128 KiB per-line ceiling (aiohttp's

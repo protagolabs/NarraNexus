@@ -380,9 +380,11 @@ class ContextRuntime:
 
         # ========================================================================
         # Part 1: Narrative Info (main Narrative)
-        # With relocation enabled, only the stable half (id/type/created_at/
-        # name/description/actors — constant within a CLI session) stays
-        # here; updated_at + current_summary travel in the turn context.
+        # With relocation enabled, only the stable half (id/type/description/
+        # actors — constant within a CLI session) stays here; name,
+        # created_at, updated_at and current_summary travel in the turn
+        # context (created_at joined them in R4d: its VALUE has two clock
+        # sources, see prompts.NARRATIVE_STABLE_PROMPT_TEMPLATE).
         # ========================================================================
         if narrative_list:
             main_narrative = narrative_list[0]
@@ -513,9 +515,11 @@ class ContextRuntime:
             stamp = f"{time.time_ns()}"
             fname = os.path.join(dump_dir, f"{agent_id}_{len(full_prompt)}_{stamp}.txt")
             header_parts = " ".join(f"{k}={v}" for k, v in sorted(part_sizes.items()))
+            # Emitted order (R4d) — same order the blocks were concatenated
+            # in, so a same-length REORDER is visible in a dump diff.
             header_mods = " ".join(
                 f"{mi.name}={len(mi.instruction or '')}"
-                for mi in sorted(module_instructions_list, key=lambda m: len(m.instruction or ''), reverse=True)
+                for mi in ContextRuntime._sorted_module_instructions(module_instructions_list)
             )
             header = (
                 f"# agent={agent_id} total={len(full_prompt)}\n"
@@ -528,6 +532,42 @@ class ContextRuntime:
         except Exception as e:  # noqa: BLE001 — dump is diagnostic; never break a turn
             logger.warning(f"[SYSPROMPT-DUMP] failed: {e}")
 
+    # Prefix buckets for the [SYSPROMPT-BREAKDOWN] localization hashes (R4d).
+    # Chosen to bracket the regions where divergence has actually been found:
+    # ~1K (narrative metadata), ~4-5K (module block boundaries), and the tail
+    # of the module section.
+    _PREFIX_BUCKETS: Tuple[Tuple[str, int], ...] = (
+        ("pfx2k", 2000),
+        ("pfx8k", 8000),
+        ("pfx32k", 32000),
+    )
+
+    @staticmethod
+    def _prefix_bucket_hashes(text: str) -> str:
+        """Render `pfx2k=<6hex> pfx8k=<6hex> pfx32k=<6hex>` for `text`.
+
+        Each value is sha256 over the FIRST N characters of the measured
+        string, truncated to 6 hex chars. Purpose (R4d, 2026-07-28): the
+        per-part byte counts on the same log line cannot see a same-length
+        substitution or reorder — two rounds can report identical
+        `total=`/`parts:`/`modules:` and still differ in bytes. Bucket
+        hashes turn that invisible class of divergence into a localized
+        diff: pfx2k differing means the break is in the first 2K
+        (narrative metadata region), pfx2k equal + pfx8k differing narrows
+        it to 2K-8K (module block boundaries), and so on — no packet
+        capture or prompt dump needed. Empty string when there is nothing
+        to hash, so the field simply disappears for callers that pass no
+        text.
+        """
+        if not text:
+            return ""
+        import hashlib
+
+        return " ".join(
+            f"{label}={hashlib.sha256(text[:size].encode('utf-8')).hexdigest()[:6]}"
+            for label, size in ContextRuntime._PREFIX_BUCKETS
+        )
+
     @staticmethod
     def _log_system_prompt_breakdown(
         agent_id: str,
@@ -536,11 +576,12 @@ class ContextRuntime:
         module_instructions_list: List[ModuleInstructions],
         narrative_meta: Dict[str, int],
         ctx_sha256: str = "",
+        prompt_text: str = "",
     ) -> None:
-        """Emit one INFO line decomposing the system prompt into its Parts, the
-        five largest module-instruction contributors, and the Narrative's
+        """Emit one INFO line decomposing the system prompt into its Parts,
+        every module-instruction contributor in EMITTED order, the Narrative's
         growth-prone sub-fields (current_summary length, dynamic_summary entry
-        count).
+        count), and prefix-bucket hashes for divergence localization.
 
         Diagnostic for the system-prompt-growth incident (2026-07): the prompt
         drifts toward the 115K ceiling (MAX_SYSTEM_PROMPT_LENGTH) and, once the
@@ -548,19 +589,30 @@ class ContextRuntime:
         calling send_message_to_user_directly. Logging every round's
         composition makes the growth source greppable in production without a
         debug build. Pure/static so it is unit-testable in isolation.
+
+        `prompt_text` is the string whose composition is being reported; it is
+        used ONLY to compute the prefix-bucket hashes (see
+        _prefix_bucket_hashes) and is optional so existing callers/tests that
+        only care about sizes keep working.
         """
         parts_str = " ".join(
             f"{name}={part_sizes.get(name, 0)}"
             for name in ("security", "temporal", "narrative", "modules", "bootstrap", "turn_context")
         )
-        # ALL module instruction sizes (desc) — not just the top few — so the
-        # per-turn grower (a module whose get_instructions embeds accumulating
-        # ctx_data) is identifiable by diffing this list across rounds.
-        module_sizes = sorted(
-            ((mi.name, len(mi.instruction or "")) for mi in module_instructions_list),
-            key=lambda kv: kv[1],
-            reverse=True,
-        )
+        # ALL module instruction sizes — not just the top few — so the per-turn
+        # grower (a module whose get_instructions embeds accumulating ctx_data)
+        # is identifiable by diffing this list across rounds.
+        #
+        # Order = EMITTED order (R4d, 2026-07-28), i.e. exactly the order
+        # _build_module_instructions_prompt concatenated the blocks in. It used
+        # to be sorted by size descending, which made a same-length block
+        # REORDER — the Awareness<->SocialNetwork class of prefix breaker —
+        # completely invisible here: the printed list is identical either way.
+        # In emitted order, a reorder shows up as the tokens changing places.
+        module_sizes = [
+            (mi.name, len(mi.instruction or ""))
+            for mi in ContextRuntime._sorted_module_instructions(module_instructions_list)
+        ]
         modules_str = " ".join(f"{name}={size}" for name, size in module_sizes)
         nar_str = " ".join(f"{k}={v}" for k, v in narrative_meta.items()) or "n/a"
         # ctx_sha256 = first 12 hex chars of sha256 over the system prompt as
@@ -573,10 +625,11 @@ class ContextRuntime:
         # post-assemble_argv_prompt ([SYSPROMPT-SHA]); this narrower hash
         # was renamed ctx_sha256 so a `grep sys_sha256` finds only the real
         # sent-bytes hash. Empty when the caller didn't hash.
+        pfx_str = ContextRuntime._prefix_bucket_hashes(prompt_text)
         logger.info(
             f"[SYSPROMPT-BREAKDOWN] agent={agent_id} total={total_chars} | "
             f"parts: {parts_str} | narrative: {nar_str} | modules: {modules_str} | "
-            f"ctx_sha256={ctx_sha256}"
+            f"ctx_sha256={ctx_sha256}" + (f" {pfx_str}" if pfx_str else "")
         )
 
     async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
@@ -611,8 +664,9 @@ class ContextRuntime:
            docstrings reference it)
         2. Current narrative state (updated_at + current_summary)
         3. Module get_turn_context blocks — deduplicated by module_class in
-           active_instances order, then stable-sorted by priority ascending
-           (same ordering semantics as _build_module_instructions_prompt)
+           active_instances order, then sorted by the total
+           (priority, module_class) order (same ordering semantics as
+           _build_module_instructions_prompt / _sorted_module_instructions)
         4. Recent background activity
 
         Every source is individually fail-open: a failing part is skipped
@@ -640,10 +694,13 @@ class ContextRuntime:
             except Exception as e:  # noqa: BLE001 — fail-open per part
                 logger.warning(f"        Turn context: failed to build narrative state: {e}")
 
-        # 3. Module per-turn blocks (deduped by module_class, priority asc —
-        #    list.sort is stable, so equal priorities keep instance order,
-        #    mirroring _build_module_instructions_prompt)
-        module_blocks: List[Tuple[int, str]] = []
+        # 3. Module per-turn blocks (deduped by module_class, then sorted by
+        #    the TOTAL (priority, module_class) order — same semantics as
+        #    _sorted_module_instructions. This block lands in the message,
+        #    not the cacheable prefix, so a reorder here is not a cache
+        #    breaker; it uses the total order anyway so that "module block
+        #    order" means exactly one thing everywhere (R4d).
+        module_blocks: List[Tuple[int, str, str]] = []
         seen_module_classes = set()
         for inst in active_instances:
             if inst.module_class in seen_module_classes or inst.module is None:
@@ -658,9 +715,11 @@ class ContextRuntime:
                 )
                 continue
             if block:
-                module_blocks.append((inst.module.config.priority, block))
-        module_blocks.sort(key=lambda kv: kv[0])
-        parts.extend(block for _, block in module_blocks)
+                module_blocks.append(
+                    (inst.module.config.priority, inst.module_class, block)
+                )
+        module_blocks.sort(key=lambda kv: (kv[0], kv[1]))
+        parts.extend(block for _, _, block in module_blocks)
 
         # 4. Recent background activity (relocated from the system prompt tail)
         try:
@@ -698,21 +757,45 @@ class ContextRuntime:
 """
         return prompt
 
+    @staticmethod
+    def _sorted_module_instructions(
+        module_instructions_list: List[ModuleInstructions]
+    ) -> List[ModuleInstructions]:
+        """Total order for module instruction blocks: (priority, name).
+
+        THE single ordering authority for module blocks — the emitted prompt
+        (_build_module_instructions_prompt) and both diagnostics
+        (_log_system_prompt_breakdown, _maybe_dump_system_prompt) all go
+        through it, so what the log prints is what the prompt concatenated.
+
+        Why the secondary key (R4d, 2026-07-28): `sorted` is stable, so a
+        priority-only key left TIES inheriting upstream order. Upstream is
+        InstanceRepository.get_public_instances(), which had no `order_by` —
+        i.e. whatever row order the engine felt like. SQLite happens to
+        return rowid order today, but Postgres/MySQL make no such promise
+        (a HEAP re-read, a plan flip, or an index-only scan reorders rows
+        freely). Live ties exist: BasicInfo(2)/GeneralMemory(2),
+        Awareness(3)/SocialNetwork(3), Lark(6)/Discord(6)/Slack(6),
+        Telegram(7)/WeChat(7). An Awareness<->SocialNetwork swap moves
+        ~4018 and ~4880 bytes with ZERO net length change — a same-length
+        reorder that punctures the cacheable prefix while every byte-count
+        diagnostic reports "no change". `name` is the module class name and
+        the list is deduplicated by module_class upstream, so (priority,
+        name) is a genuinely total order.
+        """
+        return sorted(module_instructions_list, key=lambda x: (x.priority, x.name))
+
     async def _build_module_instructions_prompt(
         self,
         module_instructions_list: List[ModuleInstructions]
     ) -> str:
         """Build the Prompt for Module instructions."""
-        # Sort by priority
-        sorted_instructions = sorted(
-            module_instructions_list,
-            key=lambda x: x.priority
-        )
-        
+        sorted_instructions = self._sorted_module_instructions(module_instructions_list)
+
         prompt = MODULE_INSTRUCTIONS_HEADER
         for instructions in sorted_instructions:
             prompt += f"\n### {instructions.name}\n{instructions.instruction}"
-        
+
         return prompt
 
     async def build_system_prompt(
@@ -904,7 +987,10 @@ class ContextRuntime:
         # (`sys_sha256=`) is emitted by the adapter itself ([SYSPROMPT-SHA],
         # R4c instrument calibration). Part sizes were stashed by
         # build_complete_system_prompt; direct callers of this method
-        # (tests) simply get empty parts.
+        # (tests) simply get empty parts. The string is also passed as
+        # prompt_text so the line carries prefix-bucket hashes (R4d) —
+        # they localize a same-length divergence that the byte counts and
+        # the whole-string ctx_sha256 cannot.
         try:
             import hashlib
             ctx_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
@@ -917,6 +1003,7 @@ class ContextRuntime:
                 getattr(self, "_last_module_instructions", []) or [],
                 getattr(self, "_last_narrative_meta", {}) or {},
                 ctx_sha256=ctx_sha256,
+                prompt_text=enhanced_system_prompt,
             )
         except Exception as e:  # noqa: BLE001 — diagnostics must never break a turn
             logger.warning(f"[SYSPROMPT-BREAKDOWN] emission failed: {e}")

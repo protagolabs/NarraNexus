@@ -26,9 +26,6 @@ auth 类型显式空串，防父进程残留经 `{**os.environ, **env}` 泄入�
 Keychain 命名空间条目正是 token 路径要逃离的 2026-07-23 macOS 故障点。
 
 ## 2026-07-18 — 决策梯子文案随"免费额度优先=平台行为"更新
-last_verified: 2026-07-25
-stub: false
----
 
 ## 2026-07-25 — ClaudeConfig.resume_fingerprint()(resume 化 R1/R2 共用)
 

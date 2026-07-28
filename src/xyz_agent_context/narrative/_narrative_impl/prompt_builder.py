@@ -74,7 +74,7 @@ class PromptBuilder:
         Args:
             narrative: Narrative object
             include_volatile: True renders the full template including the
-                per-turn volatile fields (name / updated_at /
+                per-turn volatile fields (name / created_at / updated_at /
                 current_summary) — the pre-R4 layout, used when
                 turn-context relocation is disabled. False renders the
                 byte-stable half only; the volatile fields then travel via
@@ -131,10 +131,13 @@ class PromptBuilder:
                 actor_prompt=actor_prompt,
             )
         else:
+            # No timestamp is rendered here (R4d): the stable half is the
+            # cacheable prefix and created_at has two independent clock
+            # sources (see prompts.NARRATIVE_STABLE_PROMPT_TEMPLATE), so it
+            # travels in the turn block together with updated_at.
             narrative_prompt = NARRATIVE_STABLE_PROMPT_TEMPLATE.format(
                 narrative_id=narrative.id,
                 type_prompt=type_prompt,
-                created_at=_canonical_timestamp(narrative.created_at),
                 description=narrative.narrative_info.description,
                 actor_prompt=actor_prompt,
             )
@@ -145,13 +148,16 @@ class PromptBuilder:
         """
         Generate the per-turn volatile Narrative block (R4 relocation).
 
-        Carries the three LLM-mutable fields (name, updated_at,
-        current_summary) — rendered into the [Turn context] block of the
-        current user message instead of the system prompt, so the stable
-        half built by build_main_prompt(include_volatile=False) stays
-        byte-identical across turns. Name rides here (R4c) because the
-        narrative updater rewrites it on every LLM update — see the
-        template comments in prompts.py for the full rationale.
+        Carries every field whose rendered bytes are not guaranteed stable
+        across turns (name, created_at, updated_at, current_summary) —
+        rendered into the [Turn context] block of the current user message
+        instead of the system prompt, so the stable half built by
+        build_main_prompt(include_volatile=False) stays byte-identical
+        across turns. Name rides here (R4c) because the narrative updater
+        rewrites it on every LLM update; created_at rides here (R4d)
+        because its VALUE has two clock sources (DB default vs the Python
+        timestamp captured in crud.create) — see the template comments in
+        prompts.py for the full rationale.
 
         Args:
             narrative: Narrative object
@@ -161,6 +167,7 @@ class PromptBuilder:
         """
         return NARRATIVE_TURN_PROMPT_TEMPLATE.format(
             name=narrative.narrative_info.name,
+            created_at=_canonical_timestamp(narrative.created_at),
             updated_at=_canonical_timestamp(narrative.updated_at),
             current_summary=narrative.narrative_info.current_summary,
         )

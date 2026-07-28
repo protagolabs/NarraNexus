@@ -4,6 +4,30 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — 优雅关停的两个活性缺口（MEDIUM review findings）
+
+`_graceful_cli_shutdown` 原来只 bound 了 `process.wait()`。两处补齐：
+
+1. **`end_input()` 之前是无界的。** 它只裹在 `with suppress(Exception)` 里，而
+   `suppress` 对**挂死**毫无作用——vendored SDK 的 `end_input()` 要拿
+   `transport._write_lock`，若有并发写卡住持锁，这个 await 永不返回，整个 turn
+   的 generator 就吊死在本该有上限的关停步骤上（比 `_GRACEFUL_CLI_EXIT_SECONDS`
+   更糟：它压根到不了那一步）。现在单独用 `_GRACEFUL_END_INPUT_SECONDS = 2.0`
+   兜住（健康情况下关 stdin 是微秒级 syscall，2s 已是纯余量），超时就落到既有
+   SIGTERM/SIGKILL 拆卸路径。仍是 best-effort，永不抛。
+
+2. **进入优雅等待后不再理会取消。** 取消闸门在调用点只查**一次**；Stop 若在那
+   之后一毫秒按下，用户就得白等最多 10s。现在等待内部把 `process.wait()` 与
+   `cancellation.await_cancelled()` **赛跑**（照抄 receive loop 已有的 race 形
+   状），取消胜出即短路到快速拆卸。函数因此多了 `cancellation` 形参。
+
+**必须守住的不变量**：正常完成（无取消）时**仍然**要等 CLI 自己干净退出——那次
+等待就是 transcript flush，丢掉它就是 2026-07-25 那次"下一轮 --resume 找不到会话"
+的回归。测试里同时钉住三件事：end_input 挂死→有界且 turn 照常完成、优雅等待中
+取消→快速拆卸（断言没有 10s 等待、`returncode is None`）、正常完成→调用序仍是
+`connect/query/end_input/process_wait/disconnect`。
+（tests/agent_framework/test_claude_sdk_resume.py）
+
 ## 2026-07-28 — R4c：sys_sha256 权威发射点 + MCP config 排序 + 冷/热结构审计
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。重放适配：老分支的发射点挂在 `_assemble_system_prompt` 调用点，dev 新结构该函数已被 `adapters/materializer.py` 的 `assemble_argv_prompt` 取代，发射点随之挂到两处 `assemble_argv_prompt` 调用点之后。）

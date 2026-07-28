@@ -42,9 +42,6 @@ tests/agent_runtime/test_resume_failed_threading.py。
 首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
 `claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
 用户引进死胡同。
-last_verified: 2026-07-25
-stub: false
----
 
 ## 2026-07-25 — response.done 透传 cli_session_id(resume 化 R1,纯搬运)
 

@@ -4,6 +4,25 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — executor_resume_hmac_secret（HIGH review finding）
+
+新增 `executor_resume_hmac_secret: str = ""`（env `EXECUTOR_RESUME_HMAC_SECRET`）。
+用途见 [[executor_protocol.py]] 同日条目：给跨 orchestrator→executor 边界的
+`resume_session_id` 签名，因为 `/agent-loop` **无鉴权是刻意设计**，而 resume 句柄
+指向的 CLI transcript 落在**全租户共用**的 `CLAUDE_CONFIG_DIR`（就是本文件
+`claude_cli_config_path` / `claude_oauth_config_path` 那两个目录，不按用户分），
+配上可猜的 `working_path`，就是一条跨租户读别人对话的路。
+
+**默认空 = resume 整体失效（冷启动），而不是"不校验"**——这是刻意的失败方向：
+本地/桌面零配置照常工作（它们不跨 executor 边界），云端在密钥没发下来之前只是
+少一个优化。**云端部署依赖（NarraNexus-deploy）**：同一个值必须同时注入
+orchestrator env 与**每一个** executor 容器 env（容器不读平台 .env）。不配置不会
+报错、不会失败，只会静默丢掉 resume——所以这条得写在部署清单里，而不是靠日志发现
+（executor 侧确实会打一次性 WARNING，但那是容器日志）。
+
+与 `agent_loop_resume_enabled` 正交：那是"要不要 resume"的运维闸门，这是"resume
+跨网络时凭什么被采信"的凭据。
+
 ## 2026-07-28 — prompt_turn_context_relocation_enabled 开关(R4a,新 dev 结构重放)
 
 新增 `prompt_turn_context_relocation_enabled: bool = True`(env

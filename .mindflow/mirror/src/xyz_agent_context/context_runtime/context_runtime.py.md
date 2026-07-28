@@ -16,6 +16,65 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4d：module 块全序排序 + 诊断改按发射序并加前缀分桶哈希
+
+**(1) module 块排序此前不是全序（等长重排型缓存断点）**
+
+`_build_module_instructions_prompt` 原来是 `sorted(key=lambda x: x.priority)`。
+`sorted` 是稳定排序，**优先级相同的模块只能继承上游顺序**，而上游是
+[[instance_repository.py]] `get_public_instances()`——它此前**没有 order_by**
+（同类的 get_by_agent / get_by_agent_and_user / get_chat_instances_by_user 全都有）。
+现网真实存在的同优先级并列：BasicInfo(2)/GeneralMemory(2)、
+Awareness(3)/SocialNetwork(3)、Lark(6)/Discord(6)/Slack(6)、
+Telegram(7)/WeChat(7)。Awareness↔SocialNetwork 一次对调会搬动约 4018 与 4880
+字节而**总长度不变**——这是「等长重排」，缓存前缀在第一个换位块处断裂，而所有
+按字节数的诊断都报告"没变化"。SQLite 今天恰好返回 rowid 序所以本机没发作；
+Postgres/MySQL 不承诺任何顺序（堆表重读、执行计划切换、index-only scan 都会重排），
+**这是 cloud 上的定时炸弹，不是理论问题**。
+
+修法（两层都修）：
+
+- 新增 `_sorted_module_instructions()` 静态方法，key = `(priority, name)`，
+  成为 module 块顺序的**唯一权威**：发射路径
+  （`_build_module_instructions_prompt`）与两个诊断
+  （`_log_system_prompt_breakdown` / `_maybe_dump_system_prompt`）全部走它，
+  所以**日志打印的顺序 = prompt 拼接的顺序**。`name` 是模块类名，上游已按
+  module_class 去重，故 `(priority, name)` 是真全序。
+- `_build_turn_context_block` 的 module 块排序同步改成
+  `(priority, module_class)` 全序（该块进的是 message 不是前缀，本身不是缓存
+  断点，改它是为了"module 块顺序"在全代码库只有一种含义）。元组从
+  `(priority, block)` 变成 `(priority, module_class, block)`。
+- 数据层：见 [[instance_repository.py]] R4d 条目（`get_public_instances`
+  补 `order_by="created_at DESC"`）。
+
+**(2) `[SYSPROMPT-BREAKDOWN]` 此前会主动隐藏等长重排**
+
+`modules:` 段原来按 instruction 长度**降序**打印——两轮之间发生块重排时，
+这个列表打印结果完全相同，诊断成了共犯。改为按**发射序**打印
+（`_sorted_module_instructions`），重排就表现为 token 换位。
+
+同时新增 `_prefix_bucket_hashes()` + `_PREFIX_BUCKETS`（2000/8000/32000 字符），
+在同一行尾部追加 `pfx2k=<6hex> pfx8k=<6hex> pfx32k=<6hex>`：对被测字符串前 N 字符
+取 sha256 截 6 位。用途是**定位**——整串的 `ctx_sha256` 只能回答"变了没"，
+分桶能回答"变在哪一段"：pfx2k 不同 → 断在前 2K（narrative 元数据区）；
+pfx2k 相同而 pfx8k 不同 → 断在 2K–8K（module 块边界区）；以此类推。
+不再需要抓包或 dump 才能定位一次等长分歧。
+
+兼容性：`_log_system_prompt_breakdown` 新增**可选** kwarg `prompt_text`
+（不传则不输出 pfx 字段，行尾仍以 `ctx_sha256=` 结束），
+`total=` / `parts:` / `narrative:` / `modules:` / `ctx_sha256=` 字段与
+`[SYSPROMPT-BREAKDOWN]` 前缀全部保持原样，现有日志工具与测试照旧可解析。
+调用点在 `build_input_for_framework` 里传 `enhanced_system_prompt`。
+
+**(3) Part 1 注释同步**：narrative 稳定半的字段清单去掉 created_at
+（见 [[prompts.py]] R4d：created_at 有两个时钟源，已迁 turn 块）。
+
+测试：`tests/context_runtime/test_module_block_order.py`（随机 20 次洗牌 →
+拼接结果恒等；Awareness↔SocialNetwork 对调是等长且无害；turn 块反序输入 →
+结果相同；仓储层 order_by 断言）、
+`tests/context_runtime/test_system_prompt_breakdown.py`（发射序、三个分桶哈希、
+分桶定位一次等长替换、无 prompt_text 时行尾形状不变、dump header 同为发射序）。
+
 ## 2026-07-28 — R4c：MCP server 字典确定性排序 + 哈希仪器改标 ctx_sha256
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
@@ -146,9 +205,6 @@ prompt. See the 2026-06-11 entry below for what the now-deleted block did.
 
 build_complete_system_prompt now injects a "Part 0b: User Identity" block via new `_build_user_identity_block(ctx_data)`: states the agent OWNER by display_name (NetMind nickname / local display_name; falls back to user_id, never shown as a name otherwise), and — when the trigger carries `sender_user_id` in extra_data (only chat does) — whether the current sender is the owner or a visitor (resolves their display_name, compares to owner). IM triggers don't set sender_user_id (their own module trust block handles sender), so they get only the owner line; job/bus likewise. Cleanly separates user_id (opaque scoping key) from the human name. Defensive: lookup failure never breaks the prompt.
 
-last_verified: 2026-05-29
-stub: false
----
 
 ## 2026-05-29 — EverMemOS removed
 
