@@ -106,7 +106,9 @@ def _looks_secret(text: str) -> bool:
 def _flag_secret_fields(srv: MigrationMcpServer) -> None:
     """Populate srv.secret_fields with the dotted paths that carry a secret."""
     fields: List[str] = []
-    if srv.url and (_looks_secret(srv.url) or "?" in srv.url and _looks_secret(srv.url.split("?", 1)[1])):
+    # _looks_secret already scans the whole URL (query included), so no separate
+    # query check is needed.
+    if srv.url and _looks_secret(srv.url):
         fields.append("url")
     for i, a in enumerate(srv.args):
         if _looks_secret(a):

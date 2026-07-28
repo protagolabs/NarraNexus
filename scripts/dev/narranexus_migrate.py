@@ -5,8 +5,8 @@
 @description: Thin dev CLI over the Agent Migration Scanner (local, read-only).
 
 Usage:
-    uv run python scripts/narranexus_migrate.py detect
-    uv run python scripts/narranexus_migrate.py scan [--path ~/.claude] [--framework claude_code]
+    uv run python scripts/dev/narranexus_migrate.py detect
+    uv run python scripts/dev/narranexus_migrate.py scan [--path ~/.claude] [--framework claude_code]
 
 detect  -> list every framework found in the standard home locations.
 scan    -> detect + extract one source into the standardized JSON (stdout).
