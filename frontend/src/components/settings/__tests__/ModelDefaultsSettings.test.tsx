@@ -61,6 +61,26 @@ const PROVIDERS = {
     is_active: true,
     models: ['claude-opus-4-8'],
   },
+  // The platform-funded card. Same NetMind capacity, different source — which
+  // is exactly what the inlined `!== 'netmind'` filters used to exclude.
+  p_free_a: {
+    provider_id: 'p_free_a',
+    name: 'Free Tier (Anthropic)',
+    source: 'netmind_free',
+    protocol: 'anthropic',
+    auth_type: 'bearer_token',
+    is_active: true,
+    models: ['deepseek-ai/DeepSeek-V4-Pro'],
+  },
+  p_free_o: {
+    provider_id: 'p_free_o',
+    name: 'Free Tier (OpenAI)',
+    source: 'netmind_free',
+    protocol: 'openai',
+    auth_type: 'api_key',
+    is_active: true,
+    models: ['deepseek-ai/DeepSeek-V4-Flash'],
+  },
 };
 
 beforeEach(() => {
@@ -175,4 +195,19 @@ test('local stays fully open and shows no note', async () => {
   expect(
     screen.queryByText(/models from your own API keys are not available here/),
   ).toBeNull();
+});
+
+test('cloud non-staff can select the free-tier card in both slots', async () => {
+  // The bug this pins: `p.source !== 'netmind'` was inlined in four filters,
+  // so when the free tier gained its own source the card was registered,
+  // bound and working — yet invisible in every provider dropdown.
+  mockForcedCloud = true;
+  await renderLoaded();
+
+  expect(screen.getAllByRole('option', { name: 'Free Tier (Anthropic)' }).length)
+    .toBeGreaterThan(0);
+  expect(screen.getAllByRole('option', { name: 'Free Tier (OpenAI)' }).length)
+    .toBeGreaterThan(0);
+  // ...and the cloud policy still holds: a bring-your-own key stays hidden.
+  expect(screen.queryByRole('option', { name: 'My Anthropic Key' })).toBeNull();
 });

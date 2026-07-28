@@ -27,6 +27,7 @@ import {
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   cloudNetmindOnly,
+  isSlotBindableSource,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
@@ -124,7 +125,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
   // providers only (cloudNetmindOnly — the route gates would 403 anything else).
   const agentProviders = providerList.filter((p) => {
-    if (netmindOnly && p.source !== 'netmind') return false;
+    if (netmindOnly && !isSlotBindableSource(p.source)) return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
     if (fw && p.protocol !== fw.protocol) return false;
     return true;
@@ -134,7 +135,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   // through the same CLI as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
     (p) =>
-      (!netmindOnly || p.source === 'netmind') &&
+      (!netmindOnly || isSlotBindableSource(p.source)) &&
       ['openai', 'anthropic'].includes(p.protocol),
   );
 
