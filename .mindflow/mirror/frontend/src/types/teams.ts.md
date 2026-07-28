@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — activity gains states, steps and the lead
+
+`TeamMemberActivity.status` is now `running | stalled | queued | idle`
+(`TeamMemberStatus`), plus `last_signal_at` / `finished_at` /
+`queued_count` / `queued_since` / `steps`. `TeamActivityStep` +
+`TeamActivitySteps` describe the per-turn phase timeline. `thinking` is removed
+from `TeamChatHistoryResponse`; `lead_agent_id` is added. See [[teams]].
+
 
 ## 2026-07-20 — TeamChatMessage.attachments
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — TeamChatPanel import follows the package move
+
+`TeamChatPanel` now lives in `@/components/chat/team` (the group-chat surface
+grew a console and a guide, so it became a package — 铁律 #23). Import path
+only; `TeamChatView` is unchanged.
+
 
 ## 2026-07-10 (2) — FeedbackButton 提到顶层
 

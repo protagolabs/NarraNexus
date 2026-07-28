@@ -48,7 +48,7 @@ import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
-import { TeamChatPanel } from '@/components/chat/TeamChatPanel';
+import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';

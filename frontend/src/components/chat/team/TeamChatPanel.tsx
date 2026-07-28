@@ -21,12 +21,15 @@ import { CornerDownLeft, FileText, Image as ImageIcon, Loader2, Mic, Plus, Setti
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BusAttachmentList } from './BusAttachmentList';
-import { AudioRecorder } from './AudioRecorder';
-import { VoiceTranscript } from './VoiceTranscript';
+import { BusAttachmentList } from '../BusAttachmentList';
+import { AudioRecorder } from '../AudioRecorder';
+import { VoiceTranscript } from '../VoiceTranscript';
+import { TeamActivityBubble, TeamActivityConsole } from './TeamActivityConsole';
+import { TeamRoomGuide } from './TeamRoomGuide';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
+import { compareActivity, hasRecentTurn } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
@@ -64,10 +67,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
-  const [thinking, setThinking] = useState<string[]>([]);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
-  // 1s ticker so a running agent's elapsed time updates between 3s polls.
-  const [, setNowTick] = useState(0);
+  const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
+  // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
+  const [nowTick, setNowTick] = useState(0);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<BusAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -106,8 +109,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       const r = await api.getTeamChat(teamId);
       if (r.success) {
         setMessages(r.messages);
-        setThinking(r.thinking ?? []);
         setActivity(r.activity ?? []);
+        setLeadAgentId(r.lead_agent_id ?? null);
       }
     } catch {
       // transient — the next tick retries
@@ -117,34 +120,41 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   useEffect(() => {
     let alive = true;
     setMessages([]);
-    setThinking([]);
     setActivity([]);
+    setLeadAgentId(null);
     refresh();
     const id = window.setInterval(() => { if (alive) refresh(); }, POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
   }, [refresh]);
 
-  // Tick every 1s while any agent is running so its elapsed time advances.
-  const anyRunning = activity.some((a) => a.status === 'running');
+  // Tick every 1s while anything is in flight so elapsed / wait / silence
+  // counters advance between the 3s polls. `stalled` and `queued` need it as
+  // much as `running` — those two counters are the whole point of the state.
+  const anyActive = activity.some((a) => a.status !== 'idle');
   useEffect(() => {
-    if (!anyRunning) return;
-    const id = window.setInterval(() => setNowTick((n) => n + 1), 1000);
+    if (!anyActive) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [anyRunning]);
+  }, [anyActive]);
 
-  // Human phase label for a running agent (starting/thinking/replying/tool:X).
-  const phaseLabel = (phase?: string | null): string => {
-    if (!phase) return t('chat.team.activity.running');
-    if (phase.startsWith('tool:')) return t('chat.team.activity.tool', { name: phase.slice(5) });
-    if (phase === 'thinking') return t('chat.team.activity.thinking');
-    if (phase === 'replying') return t('chat.team.activity.replying');
-    return t('chat.team.activity.running');
-  };
-  const elapsedLabel = (startedAt?: string | null): string => {
-    if (!startedAt) return '';
-    const secs = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-    return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${secs % 60}s`;
-  };
+  // One clock for every duration on screen, so rows never disagree by a tick.
+  const now = nowTick || Date.now();
+
+  const nameOf = useCallback(
+    (agentId: string) => members.find((m) => m.agent_id === agentId)?.name || agentId,
+    [members],
+  );
+  const leadName = leadAgentId ? nameOf(leadAgentId) : null;
+
+  // Members worth a bubble at the foot of the transcript: anything in flight,
+  // plus an agent whose turn just ended (its trace is still worth reading).
+  const activeMembers = useMemo(
+    () =>
+      activity
+        .filter((a) => a.status !== 'idle' || hasRecentTurn(a, now))
+        .sort((a, b) => compareActivity(a, b, nameOf)),
+    [activity, nameOf, now],
+  );
 
   // Keep the latest message in view as the transcript grows.
   useEffect(() => {
@@ -325,17 +335,34 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           {members.length > 0 && (
             <span className="w-px h-5 bg-[var(--nm-hairline)] mx-0.5 shrink-0" aria-hidden />
           )}
-          {members.map((m) => (
-            <button
-              key={m.agent_id}
-              type="button"
-              onClick={() => insertMention(m.name || m.agent_id)}
-              title={`@${m.name || m.agent_id}`}
-              className="shrink-0 rounded-full transition-transform hover:-translate-y-0.5"
-            >
-              <RingAvatar species="silicon" label={(m.name || m.agent_id).slice(0, 2)} size="sm" />
-            </button>
-          ))}
+          {members.map((m) => {
+            // The default responder wears a dot: "who answers when I address
+            // nobody" is otherwise invisible, and it is the single most useful
+            // thing to know about a room you just opened.
+            const isLead = m.agent_id === leadAgentId;
+            return (
+              <button
+                key={m.agent_id}
+                type="button"
+                onClick={() => insertMention(m.name || m.agent_id)}
+                title={
+                  isLead
+                    ? t('chat.team.leadTitle', { name: m.name || m.agent_id })
+                    : `@${m.name || m.agent_id}`
+                }
+                className="relative shrink-0 rounded-full transition-transform hover:-translate-y-0.5"
+              >
+                <RingAvatar species="silicon" label={(m.name || m.agent_id).slice(0, 2)} size="sm" />
+                {isLead && (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--nm-paper)]"
+                    style={{ background: accent }}
+                    aria-hidden
+                  />
+                )}
+              </button>
+            );
+          })}
           {members.length === 0 && (
             <span className="text-xs text-[var(--text-tertiary)]">{t('chat.team.noAgents')}</span>
           )}
@@ -353,44 +380,22 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         </button>
       </div>
 
-      {/* Team activity strip — who's running / queued right now (at a glance). */}
-      {activity.some((a) => a.status !== 'idle') && (
-        <div className="shrink-0 flex flex-wrap items-center gap-1.5 px-5 py-2 border-b border-[var(--rule)] bg-[var(--nm-paper-warm)]/40">
-          {activity
-            .filter((a) => a.status !== 'idle')
-            .map((a) => {
-              const name = members.find((m) => m.agent_id === a.agent_id)?.name || a.agent_id;
-              const running = a.status === 'running';
-              return (
-                <span
-                  key={`act-${a.agent_id}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--rule)] bg-[var(--nm-paper)] px-2 py-0.5 text-[11px]"
-                  title={running ? `${phaseLabel(a.phase)} · ${elapsedLabel(a.started_at)}` : t('chat.team.activity.queued')}
-                >
-                  <span
-                    className={cn('h-1.5 w-1.5 rounded-full', running && 'animate-pulse')}
-                    style={{ background: running ? 'var(--color-silicon)' : 'var(--color-amber-500, #d97706)' }}
-                  />
-                  <span className="font-medium text-[var(--nm-ink)]">{name}</span>
-                  <span className="text-[var(--text-tertiary)]">
-                    {running
-                      ? `${phaseLabel(a.phase)} · ${elapsedLabel(a.started_at)}`
-                      : t('chat.team.activity.queued')}
-                  </span>
-                </span>
-              );
-            })}
-        </div>
-      )}
+      {/* How this room is addressed — folded away once the user has read it. */}
+      <TeamRoomGuide teamId={teamId} leadName={leadName} />
+
+      {/* L0/L1 activity console — collapsed summary, expandable per member. */}
+      <TeamActivityConsole activity={activity} nameOf={nameOf} now={now} />
 
       {/* Timeline */}
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-        {messages.length === 0 && thinking.length === 0 ? (
+        {messages.length === 0 && activeMembers.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--text-tertiary)]">
             <Users2 className="w-6 h-6 opacity-40" />
             <div className="text-sm">{t('chat.team.empty')}</div>
             <div className="text-xs max-w-[260px]">
-              {t('chat.team.emptyHint')}
+              {leadName
+                ? t('chat.team.emptyHintWithLead', { name: leadName })
+                : t('chat.team.emptyHint')}
             </div>
           </div>
         ) : (
@@ -476,62 +481,17 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               );
             })}
 
-            {/* Activity bubble per active member: running shows its live phase
-                + elapsed; queued shows the "…" waiting dots. */}
-            {activity
-              .filter((a) => a.status !== 'idle')
-              .map((a) => {
-                const m = members.find((mm) => mm.agent_id === a.agent_id);
-                const name = m?.name || a.agent_id;
-                const running = a.status === 'running';
-                return (
-                  <div key={`act-bubble-${a.agent_id}`} className="flex gap-3">
-                    <RingAvatar
-                      species="silicon"
-                      label={name.slice(0, 2)}
-                      size="sm"
-                      className="shrink-0 hidden md:inline-flex"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="mb-0.5 px-0.5 text-[10px] font-mono text-[var(--text-tertiary)]">
-                        {name}
-                      </div>
-                      <div
-                        className="relative inline-flex items-center gap-2 px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
-                        style={{
-                          background: 'var(--color-silicon-soft)',
-                          border: '1px solid var(--color-silicon-hair)',
-                          borderLeft: '3px solid var(--color-silicon)',
-                        }}
-                        aria-label={running ? phaseLabel(a.phase) : t('chat.team.activity.queued')}
-                      >
-                        {running ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-silicon)]" />
-                            <span className="text-xs text-[var(--nm-ink)]">{phaseLabel(a.phase)}</span>
-                            <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
-                              {elapsedLabel(a.started_at)}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            {[0, 1, 2].map((i) => (
-                              <span
-                                key={i}
-                                className="w-1.5 h-1.5 rounded-full animate-bounce"
-                                style={{ background: 'var(--color-silicon)', animationDelay: `${i * 0.15}s` }}
-                              />
-                            ))}
-                            <span className="text-[10px] text-[var(--text-tertiary)]">
-                              {t('chat.team.activity.queued')}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* One bubble per member with work in flight — where the eye
+                already is while waiting. Expands to that member's step
+                timeline in place (see TeamActivityConsole). */}
+            {activeMembers.map((a) => (
+              <TeamActivityBubble
+                key={`act-bubble-${a.agent_id}`}
+                activity={a}
+                name={nameOf(a.agent_id)}
+                now={now}
+              />
+            ))}
             <div ref={endRef} />
           </div>
         )}

@@ -1,8 +1,34 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — four-state activity payload, UTC-marked timestamps
+
+`get_team_chat`'s inline activity block became `_member_activity`, and grew the
+state the UI was missing:
+
+- **`stalled`** is now distinct from `queued`. A turn that started and then went
+  quiet used to be reported as queued, so a wedged worker and a busy room looked
+  identical — nobody went looking. Carries `last_signal_at` for "silent for N".
+- **`queued`** carries `queued_count` / `queued_since`, so the UI can say how
+  long and how many instead of showing a bare word.
+- **`idle`** keeps the previous turn's `steps` + `finished_at`, so a room can
+  show what an agent just did.
+- pending detection moved to [[local_bus]]'s batched
+  `get_room_pending_summary` — the per-member loop was ~30 queries per 3s poll.
+- the response carries `lead_agent_id` (the default responder) so the room can
+  name who answers an un-addressed message; `thinking` is gone (the activity
+  list supersedes it — 铁律 #2, no compat shims).
+
+**Every timestamp now goes through `format_for_api`.** The local `_to_iso` was a
+bare `.isoformat()` producing no timezone marker, so the browser parsed stored
+UTC as local time: group-chat messages and the activity bar's elapsed ran an
+hour early for a UTC+1 user, while 1:1 chat (which already used
+`format_for_api`) was correct. `_to_iso` is deleted; this route was the last
+one in the project not using the shared helper.
+
 
 ## 2026-07-22 — PR #141 review hardening (attachments + wipe + layering)
 
