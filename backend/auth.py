@@ -254,6 +254,12 @@ AUTH_EXEMPT_PATHS = {
     # NetMind loginToken is verified server-side against NetMind's auth
     # API inside the route handler, then exchanged for our own JWT.
     "/api/auth/netmind-login",
+    # Self-serve signup: by definition there is no identity yet. Both routes
+    # carry their own protection instead — per-email rate limits, server-side
+    # password policy, and the upstream's own verification code. Missing these
+    # two is why signup 401'd on first deploy.
+    "/api/auth/signup",
+    "/api/auth/signup/send-code",
     "/api/auth/create-user",
     # Admin identity migration (Phase 1): gated on the X-Admin-Secret header
     # inside the handler (admin_secret_key), not a user JWT — the offline batch

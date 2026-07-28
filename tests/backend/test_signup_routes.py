@@ -137,3 +137,18 @@ def test_local_mode_has_no_signup(client, monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: False)
     assert client.post("/api/auth/signup/send-code",
                        json={"email": "a@b.com"}).status_code == 404
+
+
+# ── reachability ───────────────────────────────────────────────────────────
+
+def test_signup_routes_are_exempt_from_auth():
+    """A signup route that needs a token is a signup route nobody can use.
+
+    Caught on the first dev deploy, where both endpoints 401'd — the middleware
+    allowlist is a separate file from the routes, so adding one does not add the
+    other.
+    """
+    from backend.auth import AUTH_EXEMPT_PATHS
+
+    assert "/api/auth/signup" in AUTH_EXEMPT_PATHS
+    assert "/api/auth/signup/send-code" in AUTH_EXEMPT_PATHS
