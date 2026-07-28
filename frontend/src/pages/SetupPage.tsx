@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronRight, SkipForward } from 'lucide-react';
-import { Button, ScrollArea } from '@/components/ui';
+import { BetaBadge, Button, ScrollArea } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
@@ -81,11 +81,14 @@ export function SetupPage() {
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-deep)]">
       {/* Header — original logo preserved */}
       <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in gap-3">
-        <img
-          src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
-          alt="NarraNexus"
-          className="h-14 w-auto object-contain"
-        />
+        <div className="flex items-center gap-2">
+          <img
+            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+            alt="NarraNexus"
+            className="h-14 w-auto object-contain"
+          />
+          <BetaBadge />
+        </div>
         <BracketSectionLabel>Setup · One Key to Start</BracketSectionLabel>
         <h1
           className="text-2xl font-bold"

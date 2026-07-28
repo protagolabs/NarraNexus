@@ -2214,6 +2214,7 @@
     "agentCount_one": "{{count}} agent"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve."
   }
 }

@@ -7,6 +7,7 @@ export { Card, CardHeader, CardContent, CardTitle, CardFooter } from './Card';
 export { Input } from './Input';
 export { Textarea } from './Textarea';
 export { Badge } from './Badge';
+export { BetaBadge } from './BetaBadge';
 export { ThemeToggle } from './ThemeToggle';
 export { LanguageToggle } from './LanguageToggle';
 export { Markdown, MarkdownPreview } from './Markdown';
