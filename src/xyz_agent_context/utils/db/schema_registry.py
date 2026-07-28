@@ -712,10 +712,14 @@ _register(
 
 # 23b. bus_agent_activity — live "what is this agent doing" for a channel.
 # Written by MessageBusTrigger while it runs a team-room agent so the team
-# chat UI can show running / phase / elapsed. One row per (agent_id,
-# channel_id); state flips to 'idle' when the turn ends. `updated_at` is a
-# heartbeat — a stale 'running' row (process died) is treated as not-running
-# by readers. This is NOT the events pipeline; it's a lightweight status mirror.
+# chat UI can show running / phase / elapsed / steps. One row per (agent_id,
+# channel_id); state flips to 'idle' when the turn ends. This is NOT the events
+# pipeline; it's a lightweight status mirror.
+# `updated_at` is refreshed by a timer for as long as the turn runs, so a stale
+# 'running' row means the writer is gone rather than "the model went quiet".
+# `steps` is a capped JSON list of the CURRENT turn's phase transitions (reset
+# when the turn starts, kept after it ends) so the team chat can render a
+# per-agent step timeline without standing up a second events pipeline.
 _register(
     TableDef(
         name="bus_agent_activity",
@@ -725,6 +729,7 @@ _register(
             Column("state", "TEXT", "VARCHAR(16)", nullable=False, default="'idle'"),
             Column("phase", "TEXT", "VARCHAR(64)"),
             Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("steps", "TEXT", "MEDIUMTEXT"),
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("updated_at", "TEXT", "DATETIME(6)"),
         ],

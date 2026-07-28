@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — `bus_agent_activity.steps`
+
+Added a nullable `TEXT` / `MEDIUMTEXT` column holding the CURRENT turn's phase
+transitions as `{"items": [{phase, at}], "dropped": n}`, reset on
+`mark_running` and kept after the turn ends. It backs the team chat's per-agent
+step timeline without standing up a second events pipeline; `auto_migrate` adds
+it in place, and no existing column changes type or meaning.
+
 
 ## 2026-07-27 — instance_gateway_session_keys.metered_at
 

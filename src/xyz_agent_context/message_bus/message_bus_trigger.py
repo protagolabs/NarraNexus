@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import time
 from collections import defaultdict
@@ -33,7 +34,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
     is_credential_error,
     redact_secrets,
 )
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.message_bus.local_bus import (
+    POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
+    LocalMessageBus,
+)
 from xyz_agent_context.message_bus.schemas import BusMessage
 
 # Poll interval in seconds (initial; adaptive bounds below)
@@ -76,12 +80,12 @@ MAX_TEAM_AGENT_HOPS = 4
 # bound the per-turn token cost.
 TEAM_HISTORY_LIMIT = 20
 
-# Kept in sync with LocalMessageBus.get_pending_messages' inline
-# `failure_count < 3` poison-message filter (local_bus.py). Once a message's
-# failure_count reaches this, it is permanently dropped from the pending
-# queue with no further retries — see `_notify_permanent_failure` below,
-# which is the only signal the owner gets when that happens.
-POISON_FAILURE_THRESHOLD = 3
+# Owned by local_bus (whose `get_pending_messages` enforces the filter) and
+# imported here so the two can't drift. Once a message's failure_count reaches
+# it, the message is permanently dropped from the pending queue with no further
+# retries — see `_notify_permanent_failure` below, which is the only signal the
+# owner gets when that happens.
+POISON_FAILURE_THRESHOLD = _POISON_FAILURE_THRESHOLD
 
 # De-dup window for permanent-failure inbox notices, keyed per
 # (agent_id, error_category). Same window as the rate limiter — a batch of
@@ -444,20 +448,22 @@ class MessageBusTrigger:
 
             # Team rooms mirror live "what is this agent doing" into
             # bus_agent_activity so the team-chat UI can show running/phase/
-            # elapsed (the bus path has no WS stream). Only for team channels.
-            activity_db = None
-            on_progress = None
-            if is_team:
-                from xyz_agent_context.utils.db.db_factory import get_db_client
-                from xyz_agent_context.message_bus import _bus_activity
-                activity_db = await get_db_client()
-                await _bus_activity.mark_running(activity_db, agent_id, channel_id)
-                on_progress = self._make_activity_progress(activity_db, agent_id, channel_id)
+            # elapsed/steps (the bus path has no WS stream). Only for team
+            # channels. `turn()` owns the start row, the timer heartbeat and
+            # the idle flip, whichever way the body exits.
+            async with contextlib.AsyncExitStack() as stack:
+                on_progress = None
+                if is_team:
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
+                    from xyz_agent_context.message_bus import _bus_activity
+                    act = await stack.enter_async_context(
+                        _bus_activity.turn(await get_db_client(), agent_id, channel_id)
+                    )
+                    on_progress = act.on_progress
 
-            # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
-            # only, no Owner-Relay boilerplate) for narrative routing — the
-            # execution `prompt` is far noisier. See 2026-06-01 design.
-            try:
+                # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
+                # only, no Owner-Relay boilerplate) for narrative routing — the
+                # execution `prompt` is far noisier. See 2026-06-01 design.
                 response_text = await self._invoke_runtime(
                     agent_id=agent_id,
                     sender_agent_id=trigger_message.from_agent,
@@ -467,13 +473,6 @@ class MessageBusTrigger:
                     retrieval_anchor=build_bus_anchor(messages),
                     on_progress=on_progress,
                 )
-            finally:
-                if activity_db is not None:
-                    from xyz_agent_context.message_bus import _bus_activity
-                    try:
-                        await _bus_activity.mark_idle(activity_db, agent_id, channel_id)
-                    except Exception:  # noqa: BLE001 — status write must never break delivery
-                        pass
 
             # On success: advance cursor
             await self._bus.ack_processed(
@@ -899,32 +898,6 @@ class MessageBusTrigger:
             )
 
         return "\n".join(lines)
-
-    def _make_activity_progress(self, db, agent_id: str, channel_id: str):
-        """Build a throttled ``on_progress(kind, tool_name)`` for a team run —
-        mirrors the current phase into ``bus_agent_activity`` on phase change or
-        at most every ~2s (heartbeat), so per-delta calls stay cheap."""
-        from xyz_agent_context.message_bus import _bus_activity
-
-        state = {"phase": None, "tools": 0, "last": 0.0}
-
-        async def on_progress(kind: str, tool_name=None) -> None:
-            if kind == "tool":
-                state["tools"] += 1
-                phase = f"tool:{tool_name}" if tool_name else "tool"
-            elif kind == "thinking":
-                phase = "thinking"
-            elif kind == "response":
-                phase = "replying"
-            else:
-                return
-            now = time.monotonic()
-            if phase != state["phase"] or (now - state["last"]) > 2.0:
-                state["phase"] = phase
-                state["last"] = now
-                await _bus_activity.update_phase(db, agent_id, channel_id, phase, state["tools"])
-
-        return on_progress
 
     async def _invoke_runtime(
         self,

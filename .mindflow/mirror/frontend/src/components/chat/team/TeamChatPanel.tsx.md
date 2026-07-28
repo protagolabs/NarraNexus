@@ -1,8 +1,30 @@
 ---
-code_file: frontend/src/components/chat/TeamChatPanel.tsx
-last_verified: 2026-07-22
+code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — moved into `chat/team/`, activity + guidance split out
+
+The surface reached three files, so it became a package (铁律 #23):
+[[TeamActivityConsole]] (status console + transcript bubble) and
+[[TeamRoomGuide]] (addressing help) moved out of this file; the panel now
+composes them. `@/components/chat/TeamChatPanel` → `@/components/chat/team`.
+
+What the panel itself kept:
+
+- **One clock.** A single `now` (1s ticker, epoch ms) is passed to every child
+  so no two durations on screen disagree by a tick. The ticker now runs while
+  ANY member is non-idle, not only `running` — the `queued` "waiting Nm" and
+  `stalled` "silent Nm" counters are the whole point of those states.
+- **`lead_agent_id`** from the response drives both the guide's "who answers"
+  line and a dot on that member's avatar in the roster.
+- `thinking` is gone; the empty state and the bubble list derive from
+  `activity` (see [[teams]]).
+
+The old inline status strip and the dumb "…" queued bubble are replaced by the
+console and [[TeamActivityConsole]]'s bubble respectively.
+
 
 ## 2026-07-21 — voice input (mic), parity with single-agent chat
 
@@ -29,7 +51,7 @@ below the text, so files an agent sent/shared into the team room show as
 chips/thumbnails. `TeamChatMessage` gained `attachments?: BusAttachment[]`
 (populated by `GET /api/teams/{id}/chat/messages`). See [[BusAttachmentList]].
 
-# chat/TeamChatPanel.tsx — Team group-chat surface
+# chat/team/TeamChatPanel.tsx — Team group-chat surface
 
 ## Why it exists
 

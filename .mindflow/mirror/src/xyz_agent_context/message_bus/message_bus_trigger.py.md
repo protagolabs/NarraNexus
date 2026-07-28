@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — team activity scoped by `turn()`
+
+The team branch's three-part activity dance (mark_running up front, a bespoke
+throttled `_make_activity_progress` closure, mark_idle in a `finally` wrapped
+around only the runtime call) collapsed into
+`async with _bus_activity.turn(...) as act` over an `AsyncExitStack`, with
+`act.on_progress` handed to the runtime. The scope now covers the whole
+handled batch rather than just `_invoke_runtime`, and the timer heartbeat that
+keeps the row live during a silent stretch belongs to `turn()` — see
+[[_bus_activity]]. `_make_activity_progress` is gone.
+
+`POISON_FAILURE_THRESHOLD` is now imported from [[local_bus]] instead of being
+a hand-synced copy.
+
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 

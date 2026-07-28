@@ -1,0 +1,188 @@
+/**
+ * @file_name: teamActivity.ts
+ * @author:
+ * @date: 2026-07-28
+ * @description: Pure vocabulary for team-room member activity.
+ *
+ * The team chat renders the same four states in three places (console summary,
+ * console row, in-timeline bubble). Keeping the ordering, duration maths and
+ * i18n key mapping here — rather than inline in the components — means the
+ * three surfaces can never disagree about what "stalled" looks like, and the
+ * logic is unit-testable without rendering anything.
+ *
+ * Note on `stalled`: it is NOT a cosmetic variant of `queued`. A queued turn
+ * has not started; a stalled turn started and then went quiet. Presenting both
+ * as "queued" is precisely what let a wedged worker read as a busy one.
+ */
+
+import type {
+  TeamActivityStep,
+  TeamMemberActivity,
+  TeamMemberStatus,
+} from '@/types/teams';
+
+/** Sort order for the console: what needs attention first, idle last. */
+const STATUS_RANK: Record<TeamMemberStatus, number> = {
+  stalled: 0,
+  running: 1,
+  queued: 2,
+  idle: 3,
+};
+
+/** How long an idle member keeps showing its finished turn's trace. */
+export const RECENT_TURN_WINDOW_MS = 10 * 60 * 1000;
+
+export interface StatusTone {
+  /** CSS colour for the dot / accent. */
+  color: string;
+  /** i18n key for the short label shown next to the name. */
+  labelKey: string;
+  /** i18n key for the one-paragraph explanation shown when expanded. */
+  hintKey: string;
+}
+
+export const STATUS_TONES: Record<TeamMemberStatus, StatusTone> = {
+  running: {
+    color: 'var(--color-silicon)',
+    labelKey: 'chat.team.activity.running',
+    hintKey: 'chat.team.activity.runningHint',
+  },
+  queued: {
+    // The semantic aliases, not raw palette entries: they are the ones the
+    // dark theme re-points at the lighter 400-series.
+    color: 'var(--color-warning)',
+    labelKey: 'chat.team.activity.queued',
+    hintKey: 'chat.team.activity.queuedHint',
+  },
+  stalled: {
+    color: 'var(--color-error)',
+    labelKey: 'chat.team.activity.stalled',
+    hintKey: 'chat.team.activity.stalledHint',
+  },
+  idle: {
+    color: 'var(--nm-subtle)',
+    labelKey: 'chat.team.activity.idle',
+    hintKey: 'chat.team.activity.idleHint',
+  },
+};
+
+/** Parse an ISO timestamp to epoch ms, or null when absent/unparseable. */
+export function toMs(iso?: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Compact duration: `12s` / `3m04s` / `2h11m`.
+ *
+ * Seconds are dropped past the hour mark — at that scale they are noise, and
+ * a long run is a first-class scenario, not an anomaly to count down from.
+ */
+export function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  if (mins < 60) return `${mins}m${String(secs).padStart(2, '0')}s`;
+  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}m`;
+}
+
+/** Elapsed since an ISO timestamp, or '' when it is absent. */
+export function elapsedSince(iso: string | null | undefined, now: number): string {
+  const ms = toMs(iso);
+  return ms === null ? '' : formatDuration(now - ms);
+}
+
+/**
+ * Split a stored phase into an i18n key plus its interpolation values.
+ *
+ * `tool:<name>` is the only parameterised phase; everything else maps to a
+ * fixed key. Unknown phases fall back to the generic "working" label rather
+ * than leaking a raw internal token into the UI.
+ */
+export function phaseLabelKey(phase?: string | null): { key: string; values?: Record<string, string> } {
+  if (!phase) return { key: 'chat.team.activity.running' };
+  if (phase.startsWith('tool:')) {
+    return { key: 'chat.team.activity.tool', values: { name: phase.slice(5) } };
+  }
+  if (phase === 'starting') return { key: 'chat.team.activity.starting' };
+  if (phase === 'thinking') return { key: 'chat.team.activity.thinking' };
+  if (phase === 'replying') return { key: 'chat.team.activity.replying' };
+  return { key: 'chat.team.activity.running' };
+}
+
+export interface TimelineEntry extends TeamActivityStep {
+  /** ms spent in this phase; for the last entry of a live turn, so far. */
+  durationMs: number;
+  /** True for the final entry while the turn is still running. */
+  ongoing: boolean;
+}
+
+/**
+ * Turn the stored step list into renderable entries with per-step durations.
+ *
+ * A step's duration is the gap to the NEXT step; the final step of a live turn
+ * runs up to `now` (and is flagged `ongoing` so the UI can say "in progress"
+ * rather than implying it finished). For a turn that has ended, `endedAt`
+ * closes the final step instead.
+ */
+export function buildTimeline(
+  steps: TeamActivityStep[] | undefined | null,
+  now: number,
+  opts: { live: boolean; endedAt?: string | null } = { live: true },
+): TimelineEntry[] {
+  if (!steps || steps.length === 0) return [];
+  const closing = opts.live ? now : (toMs(opts.endedAt) ?? now);
+  return steps.map((step, i) => {
+    const start = toMs(step.at);
+    const nextRaw = i + 1 < steps.length ? toMs(steps[i + 1].at) : closing;
+    const next = nextRaw ?? closing;
+    const last = i === steps.length - 1;
+    return {
+      ...step,
+      durationMs: start === null ? 0 : Math.max(0, next - start),
+      ongoing: last && opts.live,
+    };
+  });
+}
+
+/** True when an idle member finished recently enough to still show its trace. */
+export function hasRecentTurn(a: TeamMemberActivity, now: number): boolean {
+  if (a.status !== 'idle') return false;
+  if (!a.steps?.items?.length) return false;
+  const finished = toMs(a.finished_at);
+  return finished !== null && now - finished <= RECENT_TURN_WINDOW_MS;
+}
+
+/** Console ordering: attention-worthy first, then by name for stability. */
+export function compareActivity(
+  a: TeamMemberActivity,
+  b: TeamMemberActivity,
+  nameOf: (agentId: string) => string,
+): number {
+  const rank = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+  if (rank !== 0) return rank;
+  return nameOf(a.agent_id).localeCompare(nameOf(b.agent_id));
+}
+
+export interface ActivitySummary {
+  running: number;
+  queued: number;
+  stalled: number;
+  idle: number;
+  /** Members worth showing a row for: everything but plain idle. */
+  active: number;
+  /** A stalled member is the one state the user should not have to go find. */
+  needsAttention: boolean;
+}
+
+export function summarise(activity: TeamMemberActivity[], now: number): ActivitySummary {
+  const counts = { running: 0, queued: 0, stalled: 0, idle: 0 };
+  let active = 0;
+  for (const a of activity) {
+    counts[a.status] += 1;
+    if (a.status !== 'idle' || hasRecentTurn(a, now)) active += 1;
+  }
+  return { ...counts, active, needsAttention: counts.stalled > 0 };
+}
