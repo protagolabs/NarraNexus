@@ -477,10 +477,11 @@ class ContextRuntime:
         full_prompt = "\n\n".join(prompt_parts)
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
         # Stash breakdown inputs for the [SYSPROMPT-BREAKDOWN] line — emitted
-        # in build_input_for_framework, where the FINAL adapter-facing system
-        # prompt string exists (measure what you hash: the sys_sha256 there
-        # covers preamble and all). ContextRuntime is per-turn, so instance
-        # state cannot leak across turns.
+        # in build_input_for_framework, where ContextRuntime's final system
+        # prompt string exists (the ctx_sha256 there covers preamble and
+        # all; the true adapter-facing sys_sha256 is emitted by the claude
+        # adapter, see [SYSPROMPT-SHA]). ContextRuntime is per-turn, so
+        # instance state cannot leak across turns.
         self._last_part_sizes = part_sizes
         self._last_module_instructions = module_instructions_list
         self._last_narrative_meta = narrative_meta
@@ -534,7 +535,7 @@ class ContextRuntime:
         part_sizes: Dict[str, int],
         module_instructions_list: List[ModuleInstructions],
         narrative_meta: Dict[str, int],
-        sys_sha256: str = "",
+        ctx_sha256: str = "",
     ) -> None:
         """Emit one INFO line decomposing the system prompt into its Parts, the
         five largest module-instruction contributors, and the Narrative's
@@ -562,14 +563,20 @@ class ContextRuntime:
         )
         modules_str = " ".join(f"{name}={size}" for name, size in module_sizes)
         nar_str = " ".join(f"{k}={v}" for k, v in narrative_meta.items()) or "n/a"
-        # sys_sha256 = first 12 hex chars of sha256 over the FINAL
-        # adapter-facing system prompt string. Two consecutive turns with a
-        # byte-stable prompt log the SAME value — the R4 cache sentinel
-        # (grep two rounds, compare). Empty when the caller didn't hash.
+        # ctx_sha256 = first 12 hex chars of sha256 over the system prompt as
+        # assembled by ContextRuntime (incl. timeline preamble). Two turns
+        # with a byte-stable ContextRuntime output log the SAME value. NOTE
+        # (R4c instrument calibration): this is NOT the full adapter-facing
+        # system[2] — the claude adapter may still append the cold-round
+        # "=== Chat History ===" tail after this point. The authoritative
+        # `sys_sha256=` line is emitted by the claude adapter
+        # post-assemble_argv_prompt ([SYSPROMPT-SHA]); this narrower hash
+        # was renamed ctx_sha256 so a `grep sys_sha256` finds only the real
+        # sent-bytes hash. Empty when the caller didn't hash.
         logger.info(
             f"[SYSPROMPT-BREAKDOWN] agent={agent_id} total={total_chars} | "
             f"parts: {parts_str} | narrative: {nar_str} | modules: {modules_str} | "
-            f"sys_sha256={sys_sha256}"
+            f"ctx_sha256={ctx_sha256}"
         )
 
     async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
@@ -890,15 +897,17 @@ class ContextRuntime:
         logger.debug(f"        Added current user input: {len(current_user_content)} chars")
 
         # [SYSPROMPT-BREAKDOWN] — emitted here (not in
-        # build_complete_system_prompt) because THIS is where the final
-        # adapter-facing system prompt string exists; sys_sha256 hashes
-        # exactly what is sent, so two turns with an identical prefix show
-        # identical hashes (the cache-stability sentinel, R4a.4). Part sizes
-        # were stashed by build_complete_system_prompt; direct callers of
-        # this method (tests) simply get empty parts.
+        # build_complete_system_prompt) because this is where ContextRuntime's
+        # final system prompt string exists (incl. preamble). ctx_sha256
+        # hashes THIS string; the claude adapter may still append the
+        # cold-round history tail, so the authoritative sent-bytes hash
+        # (`sys_sha256=`) is emitted by the adapter itself ([SYSPROMPT-SHA],
+        # R4c instrument calibration). Part sizes were stashed by
+        # build_complete_system_prompt; direct callers of this method
+        # (tests) simply get empty parts.
         try:
             import hashlib
-            sys_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
+            ctx_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
             part_sizes = dict(getattr(self, "_last_part_sizes", {}) or {})
             part_sizes["turn_context"] = turn_context_chars
             self._log_system_prompt_breakdown(
@@ -907,7 +916,7 @@ class ContextRuntime:
                 part_sizes,
                 getattr(self, "_last_module_instructions", []) or [],
                 getattr(self, "_last_narrative_meta", {}) or {},
-                sys_sha256=sys_sha256,
+                ctx_sha256=ctx_sha256,
             )
         except Exception as e:  # noqa: BLE001 — diagnostics must never break a turn
             logger.warning(f"[SYSPROMPT-BREAKDOWN] emission failed: {e}")
@@ -950,6 +959,15 @@ class ContextRuntime:
                 seen_module_classes.add(inst.module_class)
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
+
+        # R4c: deterministic MCP server ordering. The dict insertion order
+        # above follows active_instances iteration; sort by server name so
+        # every consumer downstream (SDK mcp config JSON -> CLI) receives an
+        # order that is byte-stable across turns and across processes.
+        # (Per-server tool order is FastMCP registration order — code order,
+        # deterministic; the cross-server merge order inside the CLI is the
+        # one link we cannot control, see the claude adapter.)
+        mcp_servers = dict(sorted(mcp_servers.items()))
 
         logger.debug(
             f"      build_input_for_framework() completed: {len(final_messages)} messages, "

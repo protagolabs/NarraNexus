@@ -4,6 +4,23 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4c：时间戳单一规范化渲染 + Name 迁 turn 半
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+- 新增模块级 `_canonical_timestamp(value)`：同一时刻经两条路径到达 prompt 时
+  字节曾不同——内存新建 narrative 带微秒 tz-aware datetime，DB 回读是秒级
+  （naive 或 tz-aware 视 backend/driver）——`str()` 渲染出
+  `…:39.367468+00:00` vs `…:39+00:00`，在前缀 ~1.2K 处打穿缓存（E2 §3 第一
+  分歧字节）。规范形：UTC、秒级、`YYYY-MM-DD HH:MM:SS UTC`；naive 视为 UTC
+  （全库写入均为 UTC）。created_at/updated_at 在 MAIN/STABLE/TURN 三条渲染
+  路径全部走它——**单一格式化路径**，不存在第二个时间戳序列化点。
+- `build_main_prompt(include_volatile=False)` 不再渲染 Name；
+  `build_turn_prompt` 增加 name。理由见 [[prompts.py]] R4c 条目（updater 每轮
+  重写 name，无 canonical 稳定形态，故迁出而非规范化）。
+- 等价性测试更新为"减去且仅减去三条易变行"+ 新增 in-memory vs DB round-trip
+  字节等价与时区折叠用例（`tests/narrative/test_narrative_prompt_split.py`）。
+
 ## 2026-07-28 — R4a：narrative 模板拆分（稳定半 + turn 半）
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

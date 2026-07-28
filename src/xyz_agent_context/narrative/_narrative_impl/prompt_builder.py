@@ -9,7 +9,8 @@ Prompt building implementation
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from ..models import Narrative, NarrativeType, NarrativeActorType
 from .prompts import (
@@ -27,6 +28,28 @@ from .prompts import (
 
 if TYPE_CHECKING:
     pass
+
+
+def _canonical_timestamp(value: Any) -> str:
+    """Render a narrative timestamp in ONE canonical byte form (R4c).
+
+    The same wall-clock instant used to reach the prompt through two paths
+    that serialized differently: a freshly created in-memory narrative
+    carries a tz-aware datetime WITH microseconds, while a DB-round-tripped
+    narrative comes back at second precision (naive or tz-aware, depending
+    on backend/driver). ``str()`` rendered those as different bytes
+    ("...:39.367468+00:00" vs "...:39+00:00"), breaking the cacheable
+    system-prompt prefix ~1.2K chars in (experiment E2, 2026-07-25).
+
+    Canonical form: UTC, second precision, explicit " UTC" suffix —
+    e.g. "2026-07-25 20:08:39 UTC". Naive datetimes are treated as UTC
+    (every writer in this codebase stores UTC). Non-datetime input falls
+    back to ``str()`` (defensive only; the model types these as datetime).
+    """
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is None else value.astimezone(timezone.utc)
+        return f"{dt.replace(microsecond=0):%Y-%m-%d %H:%M:%S} UTC"
+    return str(value)
 
 
 class PromptBuilder:
@@ -51,11 +74,12 @@ class PromptBuilder:
         Args:
             narrative: Narrative object
             include_volatile: True renders the full template including the
-                per-turn volatile fields (updated_at / current_summary) —
-                the pre-R4 layout, used when turn-context relocation is
-                disabled. False renders the byte-stable half only; the
-                volatile fields then travel via build_turn_prompt() in the
-                current message's [Turn context] block.
+                per-turn volatile fields (name / updated_at /
+                current_summary) — the pre-R4 layout, used when
+                turn-context relocation is disabled. False renders the
+                byte-stable half only; the volatile fields then travel via
+                build_turn_prompt() in the current message's [Turn context]
+                block.
 
         Returns:
             Formatted Narrative Prompt
@@ -92,13 +116,15 @@ class PromptBuilder:
             )
             actor_prompt += f"\n\t- {label} ({actor.type.value}): {actor_type_description}"
 
-        # Assemble Prompt
+        # Assemble Prompt. Timestamps go through ONE canonical formatter so
+        # in-memory and DB-round-tripped narratives render byte-identically
+        # (R4c; the stable half is a cacheable prefix).
         if include_volatile:
             narrative_prompt = NARRATIVE_MAIN_PROMPT_TEMPLATE.format(
                 narrative_id=narrative.id,
                 type_prompt=type_prompt,
-                created_at=narrative.created_at,
-                updated_at=narrative.updated_at,
+                created_at=_canonical_timestamp(narrative.created_at),
+                updated_at=_canonical_timestamp(narrative.updated_at),
                 name=narrative.narrative_info.name,
                 description=narrative.narrative_info.description,
                 current_summary=narrative.narrative_info.current_summary,
@@ -108,8 +134,7 @@ class PromptBuilder:
             narrative_prompt = NARRATIVE_STABLE_PROMPT_TEMPLATE.format(
                 narrative_id=narrative.id,
                 type_prompt=type_prompt,
-                created_at=narrative.created_at,
-                name=narrative.narrative_info.name,
+                created_at=_canonical_timestamp(narrative.created_at),
                 description=narrative.narrative_info.description,
                 actor_prompt=actor_prompt,
             )
@@ -120,11 +145,13 @@ class PromptBuilder:
         """
         Generate the per-turn volatile Narrative block (R4 relocation).
 
-        Carries the two fields that change every turn (updated_at,
+        Carries the three LLM-mutable fields (name, updated_at,
         current_summary) — rendered into the [Turn context] block of the
         current user message instead of the system prompt, so the stable
         half built by build_main_prompt(include_volatile=False) stays
-        byte-identical across turns.
+        byte-identical across turns. Name rides here (R4c) because the
+        narrative updater rewrites it on every LLM update — see the
+        template comments in prompts.py for the full rationale.
 
         Args:
             narrative: Narrative object
@@ -133,7 +160,8 @@ class PromptBuilder:
             Formatted per-turn Narrative state block
         """
         return NARRATIVE_TURN_PROMPT_TEMPLATE.format(
-            updated_at=narrative.updated_at,
+            name=narrative.narrative_info.name,
+            updated_at=_canonical_timestamp(narrative.updated_at),
             current_summary=narrative.narrative_info.current_summary,
         )
 

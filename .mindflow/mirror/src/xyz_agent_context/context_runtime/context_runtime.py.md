@@ -16,6 +16,24 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4c：MCP server 字典确定性排序 + 哈希仪器改标 ctx_sha256
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+- `build_input_for_framework` 收集完 mcp_servers 后 `dict(sorted(...))` 按
+  server 名排序（E2 §4：tools 数组跨轮洗牌是第二道缓存断点；本层字典顺序此前
+  跟随 active_instances 迭代序）。逐 server 内部工具序 = FastMCP 注册序（代码
+  序，确定）；**CLI 侧跨 server 并发连接的合并序仍不可控**，见
+  [[adapters/claude/sdk.py]]。codex 两条路径本就 sorted，此改动补齐 claude 路。
+  注意 `pass_mcp_servers` 在 StepContext 层 merge（本方法之后），最终排序由
+  claude 适配器 `_build_claude_mcp_config` 的 sorted 兜底。
+- **仪器校准（E2 §6.3）**：本文件 [SYSPROMPT-BREAKDOWN] 行的哈希改标
+  `ctx_sha256=`——它哈希的是 ContextRuntime 层字符串，**不含** claude 适配器
+  冷启动轮追加的 `=== Chat History ===` 尾段与逐 system-message 拼接换行，
+  不能代表 system[2] 实发字节。权威 `sys_sha256=` 现由 claude 适配器
+  post-`assemble_argv_prompt` 发射（[SYSPROMPT-SHA] 行），`grep sys_sha256`
+  只会命中真实发送字节的哈希。
+
 ## 2026-07-28 — R4a turn-context relocation（system prompt 字节稳定，token 优化三期）
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

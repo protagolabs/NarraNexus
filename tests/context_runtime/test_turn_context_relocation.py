@@ -18,9 +18,11 @@ Locks the R4a contract:
   is NEVER touched;
 - module get_turn_context blocks: deduplicated by module_class, stable
   priority-ascending order, per-module fail-open;
-- sys_sha256 instrumentation: the [SYSPROMPT-BREAKDOWN] line hashes the
-  final adapter-facing system prompt — stable across turns when the flag
-  is on (temporal excluded), varying when the flag is off.
+- ctx_sha256 instrumentation: the [SYSPROMPT-BREAKDOWN] line hashes
+  ContextRuntime's final system prompt string — stable across turns when
+  the flag is on (temporal excluded), varying when the flag is off.
+  (The adapter-facing sent-bytes hash is `sys_sha256=`, emitted by the
+  claude adapter — see tests/agent_framework/test_sysprompt_sha.py.)
 """
 from __future__ import annotations
 
@@ -188,7 +190,9 @@ async def test_flag_on_relocates_volatile_sections_into_current_message(db_clien
     assert "Recent background activity" not in enhanced_system
     # ...but the stable narrative half is still there (identity stays in prefix).
     assert f"- Narrative ID: {narrative.id}" in system_prompt
-    assert "- Name: Relocation test" in system_prompt
+    # R4c: Name is LLM-mutable (updater rewrites it each update) — it rides
+    # in the turn context now, not the cacheable prefix.
+    assert "- Name: Relocation test" not in system_prompt
 
     # Current message: turn context present, in fixed order, before the
     # separator; the user's words follow the separator.
@@ -202,8 +206,12 @@ async def test_flag_on_relocates_volatile_sections_into_current_message(db_clien
 
     # Relocated, never dropped (铁律 #16): timezone + narrative volatile
     # values + background activity all reach the model this turn.
+    from xyz_agent_context.narrative._narrative_impl.prompt_builder import (
+        _canonical_timestamp,
+    )
     assert "Asia/Shanghai" in user_msg
-    assert str(narrative.updated_at) in user_msg
+    assert "- Name: Relocation test" in user_msg
+    assert _canonical_timestamp(narrative.updated_at) in user_msg
     assert narrative.narrative_info.current_summary in user_msg
     assert "nightly digest" in user_msg
 
@@ -296,7 +304,8 @@ async def test_base_module_get_turn_context_defaults_to_empty():
 
 
 # =========================================================================
-# sys_sha256 instrumentation
+# ctx_sha256 instrumentation (ContextRuntime-level; the adapter-facing
+# sys_sha256 is covered in tests/agent_framework/test_sysprompt_sha.py)
 # =========================================================================
 
 def _capture_hashes():
@@ -308,8 +317,8 @@ def _capture_hashes():
 def _extract_hash(lines: list[str]) -> str:
     for line in reversed(lines):
         if "[SYSPROMPT-BREAKDOWN]" in line:
-            m = re.search(r"sys_sha256=([0-9a-f]{12})", line)
-            assert m, f"no sys_sha256 in: {line}"
+            m = re.search(r"ctx_sha256=([0-9a-f]{12})", line)
+            assert m, f"no ctx_sha256 in: {line}"
             return m.group(1)
     raise AssertionError("no [SYSPROMPT-BREAKDOWN] line captured")
 
@@ -327,7 +336,7 @@ async def _hash_for_time(runtime, narrative, monkeypatch, fake_now: datetime) ->
 
 
 @pytest.mark.asyncio
-async def test_sys_sha256_stable_across_time_when_flag_on(db_client, monkeypatch):
+async def test_ctx_sha256_stable_across_time_when_flag_on(db_client, monkeypatch):
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
     runtime = await _runtime(db_client, monkeypatch)
     narrative = _narrative()
@@ -343,7 +352,7 @@ async def test_sys_sha256_stable_across_time_when_flag_on(db_client, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_sys_sha256_varies_across_time_when_flag_off(db_client, monkeypatch):
+async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatch):
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
     runtime = await _runtime(db_client, monkeypatch)
     narrative = _narrative()

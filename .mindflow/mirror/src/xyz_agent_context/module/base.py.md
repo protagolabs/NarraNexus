@@ -14,7 +14,8 @@ last_verified: 2026-07-28
 轮 user message 的 `[Turn context]` 块；单模块异常 fail-open（warning + 跳过）。
 R4a 只加基类面，R4b 才逐模块 override（BasicInfo/GeneralMemory/SocialNetwork/
 Job/MessageBus/CommonTools）。**Code review 检查项：新模块给 get_instructions
-塞每轮易变字节 = 打穿全网缓存回归**，用 [SYSPROMPT-BREAKDOWN] 的 sys_sha256
+塞每轮易变字节 = 打穿全网缓存回归**，用 [SYSPROMPT-BREAKDOWN] 的 ctx_sha256
+（或 claude 适配器 [SYSPROMPT-SHA] 的 sys_sha256，R4c 起为实发字节权威哈希）
 两轮对比定位。语义纯通用，零场景词汇（铁律 #4）。
 
 ## 2026-07-24 — generic `get_disallowed_tools()` surface (setup-residency B++)

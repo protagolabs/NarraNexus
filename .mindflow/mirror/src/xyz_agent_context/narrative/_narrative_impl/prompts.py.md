@@ -4,6 +4,19 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4c：Name 迁入 turn 版（E2 实证 Name 是 LLM 每轮可变字段）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+E2 实验（`reference/self_notebook/specs/2026-07-25-e2-request-capture-findings.md`
+§3）逐字节比对证明 narrative Name 在轮间从"query 截断草稿名"漂移到 LLM 定稿名，
+是 system[2] 前缀 ~1.2K 处的断点之一。**判定依据**：updater.py:386 每次 LLM
+update 都重写 `narrative_info.name`（与 current_summary 同源、同频），它没有
+可用的"canonical 稳定形态"——所以选**迁出稳定块**而非规范化渲染。STABLE 模板的
+"Narrative Details" 只剩 Description（updater 从不改 description）；TURN 模板
+现承载 name + updated_at + current_summary 三个字段。actors 留稳定块（结构性
+成员变更 = 合法一次性打穿）。MAIN 模板（开关关的 legacy 路径）不动结构。
+
 ## 2026-07-28 — R4a：NARRATIVE_MAIN_PROMPT_TEMPLATE 拆出稳定版 + turn 版
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

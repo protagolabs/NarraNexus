@@ -4,6 +4,32 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — R4c：sys_sha256 权威发射点 + MCP config 排序 + 冷/热结构审计
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。重放适配：老分支的发射点挂在 `_assemble_system_prompt` 调用点，dev 新结构该函数已被 `adapters/materializer.py` 的 `assemble_argv_prompt` 取代，发射点随之挂到两处 `assemble_argv_prompt` 调用点之后。）
+
+E2 实验（`…/specs/2026-07-25-e2-request-capture-findings.md`）后的三处校准：
+
+1. **`_log_sysprompt_sha(system_prompt, resume_session_id)`**（新模块级
+   helper）：在两处 `assemble_argv_prompt` 调用点之后（主路径 + 陈旧句柄
+   冷重试路径）发射 `[SYSPROMPT-SHA] chars=… resume=… sys_sha256=<12hex>`。
+   哈希对象 = 交给 SDK `options.system_prompt` 的**完整字符串** = 请求里的
+   system[2]。此前 context_runtime 的哈希漏掉两类适配器新增字节（冷启动轮
+   Chat History 尾段、逐 system message 的 "\n" 拼接），那边已改标
+   `ctx_sha256`。哨兵读法：连续 resume 轮同值；**紧跟"带历史的冷启动轮"的
+   第一个 resume 轮必然与冷轮不同值**（见下条，预期内）。
+2. **冷/热结构审计结论（无代码改动）**：适配器层 cold vs resume 的 system
+   prompt 唯一结构差 = `=== Chat History ===` 尾段（仅带历史的冷轮出现）；
+   options/tools/env 全同，`options.resume` 不是 prompt 字节。后果：冷轮后的
+   首个 resume 轮支付一次全额 cache 写——有界、by design；把历史折回 resume
+   轮的 system[2] 会使 resume 失去意义，故保持现状。注释写在 Step 0-2 决策块。
+3. **`_build_claude_mcp_config` 按 server 名 sorted**（E2 §4 工具洗牌断点）：
+   本字典序列化进 CLI 的 MCP config，是我们能控制的最后一环（也兜住上游
+   `pass_mcp_servers` merge 序）；codex 两条路径本就 sorted。**残余不可控**：
+   CLI 并发连接各 MCP server、按完成序合并 tools 数组——那是 CLI 内部行为。
+   Tests：`test_sysprompt_sha.py`（哈希覆盖尾段/格式/稳定性）、
+   `test_mcp_headers_plumbing.py`（排序不随插入序）。
+
 
 ## 2026-07-28 — resume 注入 + 跳过历史 + 陈旧句柄同轮冷启动重试 + transcript 冲刷（resume 化 R2/R3，dev 新结构重实现）
 

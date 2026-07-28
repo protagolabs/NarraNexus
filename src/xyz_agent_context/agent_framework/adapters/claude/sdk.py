@@ -7,6 +7,7 @@
 
 
 import asyncio
+import hashlib
 import json
 from contextlib import aclosing, suppress
 from pathlib import Path
@@ -569,14 +570,53 @@ def _build_claude_mcp_config(
 
     Module-internal servers carry only ``url``; user-configured external
     servers may add ``headers`` (secret values — never log them here).
+
+    Sorted by server name (R4c): this dict is serialized into the CLI's
+    MCP config, and the request's tools array order follows the CLI's
+    per-server tool enumeration. Sorting here makes OUR contribution
+    byte-deterministic across turns/processes regardless of upstream
+    insertion order (module servers + merged ``pass_mcp_servers``). The
+    residual nondeterminism — the CLI merging tool lists from concurrently
+    connected servers in completion order — is CLI-internal and outside
+    our control. (The codex adapters already sort; this aligns claude.)
     """
     config: dict[str, dict[str, Any]] = {}
-    for name, spec in mcp_servers.items():
+    for name in sorted(mcp_servers):
+        spec = mcp_servers[name]
         entry: dict[str, Any] = {"type": "sse", "url": spec["url"]}
         if spec.get("headers"):
             entry["headers"] = spec["headers"]
         config[name] = entry
     return config
+
+
+def _log_sysprompt_sha(system_prompt: str, resume_session_id: str | None) -> str:
+    """Emit the greppable ``sys_sha256=<12hex>`` line over the COMPLETE
+    adapter-facing system prompt and return the digest.
+
+    Instrument calibration (R4c, experiment E2 2026-07-25): the hash MUST
+    cover exactly the string handed to the SDK as ``options.system_prompt``
+    — the CLI forwards it verbatim as the request's system[2] block.
+    ContextRuntime's earlier hash missed two adapter-added byte sources:
+    the per-system-message "\\n" joins in agent_loop's message split, and
+    the cold-round ``=== Chat History ===`` tail appended by
+    ``assemble_argv_prompt``. So the canonical ``sys_sha256`` is emitted
+    HERE, post-assembly; the [SYSPROMPT-BREAKDOWN] line in context_runtime
+    now labels its narrower pre-adapter hash ``ctx_sha256``.
+
+    Reading the sentinel: two consecutive resume rounds with a byte-stable
+    prompt log the SAME value. The FIRST resume round after a
+    history-carrying cold round logs a DIFFERENT value than that cold round
+    — expected and bounded (the cold round's history tail is absent on
+    resume; one full cache write, by design).
+    """
+    digest = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:12]
+    logger.info(
+        f"[SYSPROMPT-SHA] chars={len(system_prompt)} "
+        f"resume={'yes' if resume_session_id else 'cold'} "
+        f"sys_sha256={digest}"
+    )
+    return digest
 
 
 class ClaudeAgentSDK:
@@ -631,6 +671,13 @@ class ClaudeAgentSDK:
         #     The system prompt itself is still passed every round: module
         #     instructions may legally change, and a changed prompt merely
         #     forfeits that turn's cache hit (E1 T4 proved functional safety).
+        # R4c structural audit: the "=== Chat History ===" tail is the ONLY
+        # cold-vs-resume delta in the adapter-facing system prompt (options /
+        # tools / env are identical; `options.resume` is not prompt bytes).
+        # Consequence: the first resume round after a history-carrying cold
+        # round is a guaranteed prefix miss past the base prompt — ONE full
+        # cache write, bounded and by design. Kept as-is: folding history
+        # into system[2] on resume rounds would defeat resume entirely.
         # Cross-process `--resume <session_id>` is E1-proven — see
         # reference/self_notebook/specs/2026-07-23-e1-resume-feasibility.md.
         resume_session_id = kwargs.get("resume_session_id") or None
@@ -645,6 +692,8 @@ class ClaudeAgentSDK:
         system_prompt = assemble_argv_prompt(
             base_system_prompt, [] if resume_session_id else history_entries
         )
+        # Cache sentinel over the exact bytes sent as options.system_prompt (R4c).
+        _log_sysprompt_sha(system_prompt, resume_session_id)
 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
@@ -1203,6 +1252,8 @@ class ClaudeAgentSDK:
         options_kwargs["system_prompt"] = assemble_argv_prompt(
             base_system_prompt, history_entries
         )
+        # The retry runs cold — re-emit the sentinel for the actually-sent bytes.
+        _log_sysprompt_sha(options_kwargs["system_prompt"], None)
         options_kwargs["resume"] = None
         async with aclosing(_run_once(ClaudeAgentOptions(**options_kwargs))) as retry_run:
             async for event in retry_run:

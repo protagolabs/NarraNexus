@@ -360,12 +360,19 @@ A Narrative is a context container for conversations/tasks, used for:
 # Narrative STABLE system prompt template (R4 turn-context relocation)
 # Used in PromptBuilder.build_main_prompt(include_volatile=False).
 #
-# Byte-for-byte the NARRATIVE_MAIN_PROMPT_TEMPLATE above MINUS the two
-# per-turn volatile lines ("- Updated At: {updated_at}" and
-# "- Current Summary: {current_summary}") — those relocate to the turn
-# context via NARRATIVE_TURN_PROMPT_TEMPLATE below. Everything left is
-# constant for the lifetime of a CLI session (narrative switch = new
-# session), so this half can live in the cacheable system-prompt prefix.
+# Byte-for-byte the NARRATIVE_MAIN_PROMPT_TEMPLATE above MINUS the three
+# per-turn volatile lines ("- Updated At: {updated_at}",
+# "- Name: {name}" and "- Current Summary: {current_summary}") — those
+# relocate to the turn context via NARRATIVE_TURN_PROMPT_TEMPLATE below.
+# Name moved out in R4c (experiment E2, 2026-07-25): the narrative updater
+# rewrites narrative_info.name on every LLM update (draft truncated name at
+# creation -> finalized 3-8 word name, and later legal topic-drift renames),
+# so it is LLM-regenerated mutable metadata exactly like current_summary and
+# has no canonical stable form. Description and actors stay: the updater
+# never touches description, and actor changes are structural membership
+# events (a legal one-time cache break). Everything left is constant for
+# the lifetime of a CLI session (narrative switch = new session), so this
+# half can live in the cacheable system-prompt prefix.
 # Any edit to the shared wording must be applied to BOTH templates —
 # tests/narrative/test_narrative_prompt_split.py locks the equivalence.
 # ============================================================================
@@ -400,7 +407,6 @@ A Narrative is a context container for conversations/tasks, used for:
 - Created At: {created_at}
 
 ### Narrative Details
-- Name: {name}
 - Description: {description}
 
 ### Actors (Participants)
@@ -417,13 +423,15 @@ A Narrative is a context container for conversations/tasks, used for:
 # ============================================================================
 # Narrative TURN prompt template (R4 turn-context relocation)
 # Used in PromptBuilder.build_turn_prompt(); rendered into the [Turn context]
-# block of the current user message. Carries exactly the two per-turn
+# block of the current user message. Carries exactly the three per-turn
 # volatile fields removed from the stable template: updated_at changes every
-# turn, current_summary is LLM-regenerated every turn. Relocated, not
-# dropped — the model still sees both every turn.
+# turn, name and current_summary are LLM-regenerated on every narrative
+# update (name added in R4c — see the stable-template comment above).
+# Relocated, not dropped — the model still sees all three every turn.
 # ============================================================================
 NARRATIVE_TURN_PROMPT_TEMPLATE = """## Current narrative state
 
+- Name: {name}
 - Last updated: {updated_at}
 - Current summary: {current_summary}
 """
