@@ -1744,6 +1744,31 @@
         "pinned": "已固定",
         "fullModeNote": "完整快照模式自动包含所有制品。切换到自定义以手动选择。"
       }
+    },
+    "signup": {
+      "title": "创建账号",
+      "subtitle": "填个邮箱、设个密码,再输入我们发给你的验证码,就好了。",
+      "email": "邮箱",
+      "password": "密码",
+      "confirmPassword": "确认密码",
+      "code": "验证码",
+      "sendCode": "发送验证码",
+      "sending": "发送中…",
+      "resendIn": "{{seconds}} 秒后可重发",
+      "codeSent": "验证码已发送,请查收邮箱(也看一下垃圾箱)。",
+      "mismatch": "两次输入的密码不一致。",
+      "submit": "创建账号",
+      "creating": "创建中…",
+      "haveAccount": "已有账号?去登录",
+      "sendFailed": "验证码发送失败,请重试。",
+      "failed": "账号创建失败,请重试。",
+      "rule": {
+        "length": "8–16 位",
+        "upper": "含大写字母",
+        "lower": "含小写字母",
+        "digit": "含数字",
+        "special": "含特殊字符"
+      }
     }
   },
   "rail": {
@@ -2157,5 +2182,8 @@
     "install": "安装",
     "agentCount": "{{count}} 个智能体",
     "agentCount_one": "{{count}} 个智能体"
+  },
+  "common": {
+    "close": "Close"
   }
 }

@@ -394,18 +394,6 @@ export interface NetmindLoginResponse extends ApiResponse {
   email?: string;
 }
 
-// Response from /api/auth/register. Carries the optional system free-tier
-// quota fields so the client can render a welcome toast without a follow-up
-// API call. has_system_quota is false in local mode or when the feature is
-// disabled server-side.
-export interface RegisterResponse extends ApiResponse {
-  user_id?: string;
-  token?: string;
-  has_system_quota?: boolean;
-  initial_input_tokens?: number;
-  initial_output_tokens?: number;
-}
-
 // Response shape for GET /api/quota/me. Discriminated by `enabled` and
 // `status` so the UI can switch exhaustively without "is the feature on"
 // booleans scattered through the component tree.

@@ -1544,6 +1544,31 @@
         "pinned": "angeheftet",
         "fullModeNote": "Der vollständige Snapshot-Modus bezieht automatisch jedes Artefakt ein. Wechsle zu Benutzerdefiniert, um auszuwählen."
       }
+    },
+    "signup": {
+      "title": "Konto erstellen",
+      "subtitle": "E-Mail, ein Passwort und der Code, den wir dir senden. Mehr nicht.",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "confirmPassword": "Passwort bestätigen",
+      "code": "Bestätigungscode",
+      "sendCode": "Code senden",
+      "sending": "Senden…",
+      "resendIn": "Erneut senden in {{seconds}} s",
+      "codeSent": "Code gesendet — sieh in deinem Postfach nach (auch im Spam).",
+      "mismatch": "Passwörter stimmen nicht überein.",
+      "submit": "Konto erstellen",
+      "creating": "Wird erstellt…",
+      "haveAccount": "Schon ein Konto? Anmelden",
+      "sendFailed": "Code konnte nicht gesendet werden. Bitte erneut versuchen.",
+      "failed": "Konto konnte nicht erstellt werden. Bitte erneut versuchen.",
+      "rule": {
+        "length": "8–16 Zeichen",
+        "upper": "Ein Großbuchstabe",
+        "lower": "Ein Kleinbuchstabe",
+        "digit": "Eine Ziffer",
+        "special": "Ein Sonderzeichen"
+      }
     }
   },
   "rail": {
@@ -1900,5 +1925,8 @@
     "loading": "Live-Vorschau wird geöffnet…",
     "loadError": "Live-Vorschau konnte nicht geöffnet werden.",
     "livePreview": "Live-Vorschau"
+  },
+  "common": {
+    "close": "Close"
   }
 }

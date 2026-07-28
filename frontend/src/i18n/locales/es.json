@@ -1544,6 +1544,31 @@
         "pinned": "fijado",
         "fullModeNote": "El modo de instantánea completa incluye automáticamente cada artefacto. Cambia a Personalizado para elegir."
       }
+    },
+    "signup": {
+      "title": "Crea tu cuenta",
+      "subtitle": "Un correo, una contraseña y el código que te enviamos. Ya está.",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "confirmPassword": "Confirmar contraseña",
+      "code": "Código de verificación",
+      "sendCode": "Enviar código",
+      "sending": "Enviando…",
+      "resendIn": "Reenviar en {{seconds}} s",
+      "codeSent": "Código enviado: revisa tu bandeja (y el spam).",
+      "mismatch": "Las contraseñas no coinciden.",
+      "submit": "Crear cuenta",
+      "creating": "Creando…",
+      "haveAccount": "¿Ya tienes cuenta? Inicia sesión",
+      "sendFailed": "No se pudo enviar el código. Inténtalo de nuevo.",
+      "failed": "No se pudo crear la cuenta. Inténtalo de nuevo.",
+      "rule": {
+        "length": "8–16 caracteres",
+        "upper": "Una mayúscula",
+        "lower": "Una minúscula",
+        "digit": "Un número",
+        "special": "Un carácter especial"
+      }
     }
   },
   "rail": {
@@ -1900,5 +1925,8 @@
     "loading": "Abriendo la vista previa en vivo…",
     "loadError": "No se pudo abrir la vista previa en vivo.",
     "livePreview": "Vista previa en vivo"
+  },
+  "common": {
+    "close": "Close"
   }
 }

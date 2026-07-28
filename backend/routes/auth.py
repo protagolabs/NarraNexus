@@ -17,6 +17,7 @@ import os
 import json
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -64,6 +65,7 @@ from backend.auth import (
     _is_cloud_mode,
     resolve_current_user_id,
 )
+from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -151,6 +153,113 @@ def _get_netmind_auth_client():
     from backend.integrations.netmind.netmind_auth_client import NetmindAuthClient
 
     return NetmindAuthClient()
+
+
+# ---------------------------------------------------------------------------
+# Self-serve signup. Until 2026-07-28 "Create account" bounced users to
+# netmind.ai and back; these two routes let the page own the flow.
+#
+# Proxied rather than called from the browser for one reason above the others:
+# /register/sendCode sends mail on our behalf, so it needs a rate limit, and a
+# limit that lives in the page is not a limit. See netmind_register_client for
+# the secret-handling rules this path must honour.
+# ---------------------------------------------------------------------------
+
+# One code request per email per 60s — the same beat as the UI countdown, so a
+# well-behaved client never trips it. Keyed by email rather than IP: the abuse
+# we care about is one mailbox being flooded, and NAT would make IP both too
+# coarse and too easy to rotate around.
+_signup_code_limiter = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
+# A far looser ceiling on account creation attempts per email, so a wrong code
+# can be retried a few times without opening a brute-force window on it.
+_signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
+
+
+class SendSignupCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str
+    verify_code: str = Field(min_length=1, max_length=6)
+
+
+def _register_client():
+    from backend.integrations.netmind.netmind_register_client import (
+        NetmindRegisterClient,
+    )
+
+    if not is_power_login_enabled():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+    return NetmindRegisterClient()
+
+
+@router.post("/signup/send-code")
+async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
+    """Email a 6-digit registration code."""
+    from backend.integrations.netmind.netmind_register_client import (
+        RegistrationError,
+        RegistrationUpstreamError,
+    )
+
+    client = _register_client()
+    email = payload.email.strip().lower()
+    if not _signup_code_limiter.allow(email):
+        raise HTTPException(
+            status_code=429,
+            detail="A code was just sent. Please wait a minute before retrying.",
+        )
+    try:
+        await client.send_code(email)
+    except RegistrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RegistrationUpstreamError as e:
+        logger.error(f"[signup] send-code upstream failure: {e}")
+        raise HTTPException(
+            status_code=502, detail="Sign-up service unavailable, try again"
+        )
+    return {"success": True}
+
+
+@router.post("/signup")
+async def register_account(payload: SignupRequest) -> dict:
+    """Create a NetMind account from our own signup form.
+
+    Deliberately does NOT log the user in. The page holds the credentials it
+    just submitted and calls the normal login path next, so success here has
+    exactly one meaning — the account exists — and no session is minted on a
+    route that also accepts unverified input.
+    """
+    from backend.integrations.netmind.netmind_register_client import (
+        RegistrationError,
+        RegistrationUpstreamError,
+        password_policy_error,
+    )
+
+    client = _register_client()
+    email = payload.email.strip().lower()
+
+    # Re-checked server-side: the UI validates the same rules for feedback, but
+    # that is a convenience, not a guarantee.
+    policy_error = password_policy_error(payload.password)
+    if policy_error:
+        raise HTTPException(status_code=400, detail=policy_error)
+
+    if not _signup_attempt_limiter.allow(email):
+        raise HTTPException(
+            status_code=429, detail="Too many attempts. Please try again later."
+        )
+    try:
+        await client.register(email, payload.password, payload.verify_code.strip())
+    except RegistrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RegistrationUpstreamError as e:
+        logger.error(f"[signup] register upstream failure: {e}")
+        raise HTTPException(
+            status_code=502, detail="Sign-up service unavailable, try again"
+        )
+    return {"success": True}
 
 
 @router.post("/netmind-login", response_model=NetmindLoginResponse)

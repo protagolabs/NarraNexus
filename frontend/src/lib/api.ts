@@ -40,7 +40,6 @@ import type {
   CreateJobComplexResponse,
   LoginResponse,
   NetmindLoginResponse,
-  RegisterResponse,
   QuotaMeResponse,
   AgentListResponse,
   CreateUserResponse,
@@ -550,22 +549,38 @@ class ApiClient {
     });
   }
 
+  /**
+   * Self-serve signup, step 1: ask NetMind to email a 6-digit code.
+   *
+   * Goes through OUR backend rather than NetMind directly, because the
+   * send-code endpoint sends mail on our behalf and therefore needs a rate
+   * limit — and a limit that lives in the page is not a limit.
+   */
+  async sendSignupCode(email: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/auth/signup/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  /**
+   * Self-serve signup, step 2: create the account.
+   *
+   * Returns success only — no session. The caller signs in afterwards with the
+   * credentials it already holds, so no token is ever minted by a route that
+   * also accepts an unverified email.
+   */
+  async signup(email: string, password: string, verifyCode: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, verify_code: verifyCode }),
+    });
+  }
+
   async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
     return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
       method: 'POST',
       body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
-    });
-  }
-
-  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<RegisterResponse> {
-    return this.request<RegisterResponse>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        user_id: userId,
-        password: password,
-        invite_code: inviteCode,
-        display_name: displayName || undefined,
-      }),
     });
   }
 

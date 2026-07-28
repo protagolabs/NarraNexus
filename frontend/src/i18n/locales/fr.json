@@ -1544,6 +1544,31 @@
         "pinned": "épinglé",
         "fullModeNote": "Le mode instantané complet inclut automatiquement chaque artefact. Passez en Personnalisé pour choisir."
       }
+    },
+    "signup": {
+      "title": "Créer votre compte",
+      "subtitle": "Un e-mail, un mot de passe et le code que nous vous envoyons. C'est tout.",
+      "email": "E-mail",
+      "password": "Mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "code": "Code de vérification",
+      "sendCode": "Envoyer le code",
+      "sending": "Envoi…",
+      "resendIn": "Renvoyer dans {{seconds}} s",
+      "codeSent": "Code envoyé — vérifiez votre boîte de réception (et les spams).",
+      "mismatch": "Les mots de passe ne correspondent pas.",
+      "submit": "Créer le compte",
+      "creating": "Création…",
+      "haveAccount": "Vous avez déjà un compte ? Se connecter",
+      "sendFailed": "Impossible d'envoyer le code. Réessayez.",
+      "failed": "Impossible de créer le compte. Réessayez.",
+      "rule": {
+        "length": "8 à 16 caractères",
+        "upper": "Une majuscule",
+        "lower": "Une minuscule",
+        "digit": "Un chiffre",
+        "special": "Un caractère spécial"
+      }
     }
   },
   "rail": {
@@ -1900,5 +1925,8 @@
     "loading": "Ouverture de l'aperçu en direct…",
     "loadError": "Impossible d'ouvrir l'aperçu en direct.",
     "livePreview": "Aperçu en direct"
+  },
+  "common": {
+    "close": "Close"
   }
 }

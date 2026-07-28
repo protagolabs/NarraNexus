@@ -1543,6 +1543,31 @@
         "pinned": "고정됨",
         "fullModeNote": "전체 스냅샷 모드는 모든 아티팩트를 자동 포함합니다. 선택하려면 사용자 지정으로 전환하세요."
       }
+    },
+    "signup": {
+      "title": "계정 만들기",
+      "subtitle": "이메일, 비밀번호, 그리고 보내드릴 인증 코드만 있으면 됩니다.",
+      "email": "이메일",
+      "password": "비밀번호",
+      "confirmPassword": "비밀번호 확인",
+      "code": "인증 코드",
+      "sendCode": "코드 전송",
+      "sending": "전송 중…",
+      "resendIn": "{{seconds}}초 후 재전송",
+      "codeSent": "코드를 보냈습니다. 받은 편지함(스팸함 포함)을 확인하세요.",
+      "mismatch": "비밀번호가 일치하지 않습니다.",
+      "submit": "계정 만들기",
+      "creating": "만드는 중…",
+      "haveAccount": "이미 계정이 있으신가요? 로그인",
+      "sendFailed": "코드를 보내지 못했습니다. 다시 시도해 주세요.",
+      "failed": "계정을 만들지 못했습니다. 다시 시도해 주세요.",
+      "rule": {
+        "length": "8–16자",
+        "upper": "대문자 포함",
+        "lower": "소문자 포함",
+        "digit": "숫자 포함",
+        "special": "특수문자 포함"
+      }
     }
   },
   "rail": {
@@ -1899,5 +1924,8 @@
     "loading": "실시간 미리보기를 여는 중…",
     "loadError": "실시간 미리보기를 열 수 없습니다.",
     "livePreview": "실시간 미리보기"
+  },
+  "common": {
+    "close": "Close"
   }
 }

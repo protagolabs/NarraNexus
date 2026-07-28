@@ -1744,6 +1744,31 @@
         "pinned": "pinned",
         "fullModeNote": "Full snapshot mode auto-includes every artifact. Switch to Custom to pick."
       }
+    },
+    "signup": {
+      "title": "Create your account",
+      "subtitle": "Email, a password, and a code we'll send you. That's it.",
+      "email": "Email",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "code": "Verification code",
+      "sendCode": "Send code",
+      "sending": "Sending…",
+      "resendIn": "Resend in {{seconds}}s",
+      "codeSent": "Code sent — check your inbox (and spam).",
+      "mismatch": "Passwords don't match.",
+      "submit": "Create account",
+      "creating": "Creating…",
+      "haveAccount": "Already have an account? Sign in",
+      "sendFailed": "Couldn't send the code. Please try again.",
+      "failed": "Couldn't create the account. Please try again.",
+      "rule": {
+        "length": "8–16 characters",
+        "upper": "An uppercase letter",
+        "lower": "A lowercase letter",
+        "digit": "A number",
+        "special": "A special character"
+      }
     }
   },
   "rail": {
@@ -2157,5 +2182,8 @@
     "install": "Install",
     "agentCount": "{{count}} agents",
     "agentCount_one": "{{count}} agent"
+  },
+  "common": {
+    "close": "Close"
   }
 }
