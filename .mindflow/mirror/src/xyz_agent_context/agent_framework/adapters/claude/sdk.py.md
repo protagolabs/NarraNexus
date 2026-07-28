@@ -1,9 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
 
+
+## 2026-07-28 — inline 错误再补一路：assistant text
+
+`_inline_assistant_error_event` 原本只在 **CLI stderr 非空**时才接管；
+stderr 为空就放行给 output_transfer，用户只看到 `Claude API error: unknown`。
+但 CLI 在够不着模型时是**带内**回答的：一条普通 AssistantMessage，正文写着
+`API Error: 400 {"detail":"balance not enough..."}`，stderr 一个字都没有。
+于是最具体的失败描述只进了日志，用户面前是黑盒——正是这个函数存在的目的。
+
+改法：新增 `_assistant_error_text(message)` 抽 TextBlock 正文，detail 通道
+按 **stderr → assistant text** 顺序取（stderr 更富，带 litellm 的 token 数
+字），两者都空才退回裸 enum 句子。串起来后
+`classify_self_serviceable` 能把它认成 `insufficient_balance`，用户拿到
+"充值或换这个 slot 的 provider"，而不是"出错了"。
+
+顺带修掉一个更难看的表现：走这条分支会 `continue`，output_transfer 不再把
+那段正文当作 **agent_response** 发出去——计费失败本来会显示成 agent 自己在
+说 "API Error: 400 ..."。
+
+（2026-07-28 现场：新用户 agent 被钉在零余额 NetMind 账户上，见
+[[auth.py]] 同日条目。）
 
 ## 2026-07-27（补）— review 修复：@timed 归位 agent_loop
 

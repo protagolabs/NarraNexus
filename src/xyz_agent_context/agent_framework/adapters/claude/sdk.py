@@ -328,34 +328,61 @@ def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
     }
 
 
+def _assistant_error_text(message: Any) -> str:
+    """The assistant message's own text, which on some failures IS the cause.
+
+    When the CLI cannot reach the model it answers *in band* — a normal
+    ``AssistantMessage`` whose only TextBlock reads ``API Error: 400 {...}`` —
+    and writes nothing to stderr. That body is the most specific description of
+    the failure anyone has, so it must not be dropped.
+    """
+    parts: list[str] = []
+    for block in getattr(message, "content", None) or []:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text.strip():
+            parts.append(text.strip())
+    return "\n".join(parts)
+
+
 def _inline_assistant_error_event(
-    message_error: Any, cli_stderr_lines: list[str] | None
+    message_error: Any,
+    cli_stderr_lines: list[str] | None,
+    assistant_text: str = "",
 ) -> dict:
     """Build a ``response.error`` event for an inline ``AssistantMessage.error``,
-    folding the CLI stderr tail into ``error_message``.
+    folding the best available detail into ``error_message``.
 
     ``AssistantMessage.error`` is a 6-value enum (auth/billing/rate_limit/
     invalid_request/server_error/unknown). The real provider cause — e.g.
     ``litellm.ContextWindowExceededError: inputs 75307 > 32769`` — is collapsed
-    to that enum by the CLI, and the numbers survive ONLY in CLI stderr. Left
-    alone, output_transfer emits just ``Claude API error: unknown`` and the
-    truth is lost (the "black box" P1). We keep ``error_type`` = the enum (so
-    the classifier can still key on it) and append the stderr tail so
-    ``classify_self_serviceable`` can recognise a context-window / balance /
-    model error from the message text. Only used when stderr is non-empty;
-    with empty stderr there is nothing to add and output_transfer's plain
-    enum event stands.
+    to that enum by the CLI. Left alone, output_transfer emits just
+    ``Claude API error: unknown`` and the truth is lost (the "black box" P1).
+    We keep ``error_type`` = the enum (so the classifier can still key on it)
+    and append whatever detail we have, so ``classify_self_serviceable`` can
+    recognise a context-window / balance / model error from the message text.
+
+    Two detail channels, tried in that order:
+
+    - **CLI stderr** — richer when present (litellm's token counts live here).
+    - **The assistant text itself** — the 2026-07-28 case: an agent pinned to a
+      zero-balance NetMind account got ``API Error: 400 {"detail":"balance not
+      enough..."}`` as assistant text with stderr completely empty. Before this
+      fallback the user was shown the bare enum while the reason sat in a log
+      line, and "Claude API error: unknown" is exactly the black box this
+      function exists to prevent.
+
+    With neither channel populated the plain enum sentence stands.
     """
     enum = str(message_error)
+    detail = _stderr_tail_detail(cli_stderr_lines)
+    if not detail and assistant_text.strip():
+        detail = f"\n\nProvider response:\n{assistant_text.strip()}"
     return {
         "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
             "type": DATA_TYPE_ERROR,
             "error_type": enum,
-            "error_message": (
-                f"Claude API error: {enum}"
-                + _stderr_tail_detail(cli_stderr_lines)
-            ),
+            "error_message": f"Claude API error: {enum}" + detail,
         },
     }
 
@@ -810,17 +837,22 @@ class ClaudeAgentSDK:
                     except Exception:
                         pass
 
-                    # Surface the real provider cause: when CLI stderr carries
-                    # it (e.g. litellm ContextWindowExceededError token counts),
-                    # fold it into the error event ourselves. output_transfer
-                    # only sees the collapsed enum and would emit a black-box
-                    # "Claude API error: unknown"; here we have stderr in hand,
-                    # so downstream classify_self_serviceable can recover the
-                    # truth. With empty stderr we add nothing and let
-                    # output_transfer's plain enum event stand.
-                    if cli_stderr_lines:
+                    # Surface the real provider cause. output_transfer only sees
+                    # the collapsed enum and would emit a black-box "Claude API
+                    # error: unknown", so we build the event here where the
+                    # detail is still in hand — CLI stderr (litellm's token
+                    # counts) or, failing that, the assistant text itself, which
+                    # is where an unreachable-provider 400 body arrives.
+                    #
+                    # Taking this branch also stops output_transfer from
+                    # emitting that same text as an agent_response: an upstream
+                    # "API Error: 400 ..." rendered as the agent's own reply is
+                    # how a billing failure ended up looking like the agent
+                    # talking nonsense to the user.
+                    inline_text = _assistant_error_text(message)
+                    if cli_stderr_lines or inline_text:
                         yield _inline_assistant_error_event(
-                            message.error, cli_stderr_lines
+                            message.error, cli_stderr_lines, inline_text
                         )
                         continue
 
