@@ -4,6 +4,17 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 摘掉 agent_cli_sessions 注册(T7)
+
+`# 17. agent_cli_sessions` 的 `_register(TableDef(...))` 整块删除。表的用途是存
+可 resume 的 CLI 会话句柄,而 [[transcript]] 让 adapter 每轮自己写 transcript、
+用完即删,没有句柄要存。该机制**从未上线到 feature branch 之外**。
+
+**没有写 DROP,是刻意的。** `auto_migrate()` 只建表/加列/加索引,从不删——所以摘掉
+注册之后,新库不再创建,而跑过旧代码的开发库会留一张空的孤儿表。留着:一张空的
+无用表无害,而把 `DROP TABLE` 提交进仓库就是往仓库里放破坏性迁移(铁律 #6)。
+需要的话手工删。
+
 ## 2026-07-29 — lark_credentials.bot_open_id
 
 Additive column holding the bot's own Lark open_id. Consumed by

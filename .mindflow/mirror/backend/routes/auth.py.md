@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除 agent_cli_sessions 的级联清理(T7)
+
+删 agent 时的 5b 步(`DELETE FROM agent_cli_sessions WHERE agent_id = %s`)移除。
+
+它当初补上的理由值得记住(2026-07-28):那张表加进来时**漏了级联**,于是句柄比
+agent 和它的工作区都活得久,一个被回收的 `agent_id` 会继承一个指向已死 transcript
+的句柄,而且行只增不减没人清理。
+
+现在表本身已摘掉注册([[schema_registry]]),这段 `DELETE` **留着反而会报错**。
+根因也不复存在:没有任何按 agent_id 存的持久物——transcript 每轮写、每轮删。
 
 ## 2026-07-28 — delete_agent 级联补 agent_cli_sessions
 

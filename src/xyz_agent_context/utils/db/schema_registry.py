@@ -632,43 +632,17 @@ _register(
     )
 )
 
-# 17. agent_cli_sessions (resumable coding-agent CLI session handles)
-# One row per (agent_id, platform_session_id, framework): the CLI session
-# the platform may resume (`--resume <cli_session_id>`) instead of cold-
-# starting with the full history in the system prompt. Runtime-owned table
-# (NOT a module table, hence no instance_ prefix). Purely additive; resume
-# is an optimization, never a correctness dependency — a missing/stale row
-# just means cold start.
-_register(
-    TableDef(
-        name="agent_cli_sessions",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
-            # ConversationSession.session_id (sess_xxxxxxxx) — the platform-side
-            # conversation this CLI session continues.
-            Column("platform_session_id", "TEXT", "VARCHAR(64)", nullable=False),
-            # Narrative bound at capture time; narrative switch => cold start.
-            # VARCHAR(128) matches the canonical narratives.narrative_id width —
-            # a narrower column here would silently truncate on MySQL and turn
-            # every comparison into a permanent mismatch (i.e. resume would just
-            # stop working) once ids grow past 64 chars.
-            Column("narrative_id", "TEXT", "VARCHAR(128)"),
-            Column("framework", "TEXT", "VARCHAR(32)", nullable=False),   # "claude_code" only in v1
-            Column("cli_session_id", "TEXT", "VARCHAR(128)", nullable=False),
-            # sha256(auth_type|base_url|config_dir|model)[:16] — mismatch => cold start.
-            Column("config_fingerprint", "TEXT", "VARCHAR(64)", nullable=False),
-            # Launch cwd of the CLI (sessions are archived under its slug).
-            Column("working_path", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("last_used_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[
-            Index("idx_cli_sessions_key", ["agent_id", "platform_session_id", "framework"], unique=True),
-        ],
-    )
-)
+# NOTE (2026-07-29): `agent_cli_sessions` was registered here (as #17) — one
+# row per (agent_id, platform_session_id, framework) holding a resumable CLI
+# session handle. The claude adapter now authors the CLI transcript itself
+# every turn and deletes it when the turn ends, so there is no handle to
+# store. The mechanism never shipped beyond its feature branch.
+#
+# `auto_migrate()` only creates and adds — it never drops — so a dev database
+# that already ran the old code keeps an empty orphan table. Left alone
+# deliberately: an unused empty table is harmless, whereas committing a DROP
+# would put a destructive migration in the repo (铁律 #6). Drop it by hand if
+# it bothers you.
 
 
 # 20. bus_channels (text primary key, no auto-increment)

@@ -3,6 +3,16 @@ code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
 last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 — session_id 降级为纯观测值(T7)
+
+`ResultMessage.session_id` 仍然被抽取、仍然走
+response_processor → ExecutionState → PathExecutionResult 这条链,但**已经没有
+消费者**:step_4 的句柄持久化删了(T5),表也摘了(T7)。它现在只进日志。
+
+保留而不删的理由:它是"这一轮 CLI 报了什么会话"的唯一观测点,排查 resume 行为时
+有用;而且删它要动四层的字段,收益是省一个字符串。注释已改写,免得下一个读者以为
+它还被存进库里。
+
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
 
 ## 2026-07-29 — UserMessage 的 TextBlock 不再当作 agent 输出

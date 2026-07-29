@@ -1015,20 +1015,12 @@ async def delete_agent(
         if cnt > 0:
             stats["instance_jobs"] = cnt
 
-        # 5b. Resumable coding-agent CLI session handles (by agent_id).
-        # Runtime-owned table (agent_cli_sessions): one row per
-        # (agent_id, platform_session_id, framework). Left behind, the rows
-        # outlive the agent AND its workspace, so a recycled agent_id would
-        # inherit a handle pointing at a dead transcript — and they accumulate
-        # forever with nothing to prune them.
-        result = await db_client.execute(
-            "DELETE FROM agent_cli_sessions WHERE agent_id = %s",
-            (agent_id,),
-            fetch=False,
-        )
-        cnt = result if isinstance(result, int) else 0
-        if cnt > 0:
-            stats["agent_cli_sessions"] = cnt
+        # NOTE (2026-07-29): step 5b used to prune `agent_cli_sessions` here,
+        # because a stored CLI session handle outlived both the agent and its
+        # workspace and a recycled agent_id would inherit one pointing at a dead
+        # transcript. That table is gone — the adapter writes the CLI transcript
+        # per turn and deletes it when the turn ends, so nothing durable is left
+        # keyed on an agent_id. Deleting from it here would now raise.
 
         # 6. Instance-Narrative Links (by instance_id)
         if instance_ids:

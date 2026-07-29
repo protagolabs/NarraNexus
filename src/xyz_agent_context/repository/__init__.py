@@ -52,7 +52,6 @@ from .team_repository import TeamRepository, TeamMemberRepository
 from .skill_archive_repository import SkillArchiveRepository
 
 # Resumable coding-agent CLI session handles
-from .cli_session_repository import CliSessionRepository
 
 # Invite code registration gate
 
@@ -107,6 +106,5 @@ __all__ = [
     # Skill Archive
     "SkillArchiveRepository",
     # CLI Session
-    "CliSessionRepository",
     # Invite Code
 ]

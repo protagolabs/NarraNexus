@@ -414,10 +414,11 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
     if isinstance(num_turns, int):
         data["num_turns"] = num_turns
 
-    # Resumable CLI session handle (ResultMessage.session_id). Travels the
+    # CLI session id the run reported (ResultMessage.session_id). Travels the
     # same chain as num_turns (response_processor → ExecutionState →
-    # PathExecutionResult) and is persisted by step_4 into
-    # agent_cli_sessions — the capture side of `--resume` (E1-proven).
+    # PathExecutionResult) but is now OBSERVATIONAL only: it is logged, and
+    # nothing looks it up. The adapter resumes a transcript it wrote itself, so
+    # there is no stored handle for this value to become (2026-07-29).
     session_id = getattr(message, 'session_id', None)
     if session_id:
         data["session_id"] = session_id

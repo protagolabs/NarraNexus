@@ -75,7 +75,6 @@ from .agent_circuit_breaker_schema import (
 )
 
 # ===== CLI Session Schema (resumable coding-agent CLI handles) =====
-from .cli_session import AgentCliSession
 
 # ===== Inbox Schema (belongs to ChatModule) =====
 from .inbox_schema import (
@@ -323,7 +322,6 @@ __all__ = [
     "AgentCircuitBreaker",
 
     # CLI Session Schema
-    "AgentCliSession",
 
     # Inbox Schema (belongs to ChatModule)
     "InboxMessageType",
