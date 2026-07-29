@@ -55,12 +55,74 @@ ARGV_MAX_HISTORY_CHARS = 50_000
 FILE_MAX_PROMPT_CHARS = 400_000
 FILE_MAX_HISTORY_CHARS = 200_000
 
-_HISTORY_HEADER = "\n\n=== Chat History ===\n"
 _HISTORY_FOOTER = (
     "\n=== Chat History End ===\n"
     " These are the chat history between you and the user. "
     "This time please make the response by user input in this turn."
 )
+
+# Reading guide for the history block. This lives HERE, next to the code
+# that decides whether the block is emitted at all, and not in
+# context_runtime where it used to be glued onto the system prompt one
+# layer above the eviction decision. Under budget pressure the two
+# disagreed: the rows were dropped but the guide was already baked in, so
+# the model was told "the messages that follow are your recent
+# conversation history" and then handed nothing — an instruction to
+# recall something that isn't there (prod 2026-07-29, agent_94360f6c4b98,
+# 0 of 30 rows survived on 7 of 10 turns). The guide now ships with the
+# block it describes, or not at all.
+CHAT_HISTORY_TIMELINE_PREAMBLE = """## How to read the conversation history below
+
+The messages that follow are your recent conversation history with this user,
+assembled as a SINGLE timeline ordered by real time. It is built from:
+- ALL of the current conversation thread (the narrative you are in now), plus
+- the most recent messages from this user's OTHER threads with you,
+merged by timestamp and trimmed to roughly the latest 30 lines. Trimmed older
+lines are NOT lost — they still live in their narrative (you can pull a full
+thread with your narrative tools).
+
+Each line is prefixed:  [<time> · <topic> · <narrative_id>]
+- <time>: when it was said. Use it to judge what the user is replying to — a
+  short reply ("好" / "ok" / "yes" / "继续") almost always answers the MOST
+  RECENT line, i.e. the one just above the current input — NOT an older line
+  from a different thread.
+- <topic>: a human-readable name of that conversation thread.
+- <narrative_id>: the stable id of that thread. Different ids = different
+  topics. The current input belongs, by default, to the most recent thread; if
+  it really belongs to another thread (or to a brand-new topic), use your
+  narrative tools to switch / create.
+
+Visibility: in each past turn the user only saw the message you SENT to them
+(the <reply_to_user> part). Your <my_reasoning> was private — do not assume the
+user knows anything that only appeared in your reasoning.
+"""
+
+
+def _history_block(body: str, label_tag: str = "Chat History") -> str:
+    """Render the reading guide + the history rows as one inseparable unit."""
+    return (
+        f"\n\n{CHAT_HISTORY_TIMELINE_PREAMBLE}\n"
+        f"=== {label_tag} ===\n{body}{_HISTORY_FOOTER}"
+    )
+
+
+def _history_omitted_notice(dropped: int) -> str:
+    """Say out loud that history existed and was withheld.
+
+    Silence is not neutral here: with no marker the model reads the turn as
+    a fresh conversation and confidently re-derives context it should have
+    asked for. Naming the gap — and pointing at the tools that can close
+    it — is the difference between "I don't know yet" and a fabrication.
+    """
+    return (
+        "\n\n=== Chat History ===\n"
+        f"(omitted this turn — {dropped} earlier message(s) did not fit this "
+        "turn's prompt budget. This is NOT a fresh conversation: assume prior "
+        "context exists that you cannot see. Do not guess what was said; if "
+        "this turn depends on it, retrieve it with your narrative / memory "
+        "tools or ask the user.)"
+        "\n=== Chat History End ===\n"
+    )
 
 
 def _format_entry(e: dict[str, Any]) -> str:
@@ -109,7 +171,7 @@ def flatten_for_argv(
     # Char budget reserved for history within max_prompt_chars.
     # If system_prompt alone is already near/over the ceiling we send NO
     # history — protecting the system instructions is the priority.
-    overhead = len(_HISTORY_HEADER) + len(_HISTORY_FOOTER)
+    overhead = len(_history_block(""))
     sys_len = len(system_prompt)
     history_budget = max(
         0,
@@ -162,9 +224,11 @@ def flatten_for_argv(
             if len(kept) == len(history_entries)
             else "Chat History (truncated by source-aware eviction)"
         )
-        system_prompt += (
-            f"\n\n=== {label_tag} ===\n{body}{_HISTORY_FOOTER}"
-        )
+        system_prompt += _history_block(body, label_tag)
+    elif history_entries:
+        # Rows existed and none survived. Declare the gap instead of
+        # letting the turn look like a fresh conversation.
+        system_prompt += _history_omitted_notice(len(history_entries))
 
     # Belt-and-braces (rare now): char + byte caps still apply because
     # multi-byte content blows past char budget in the worst case, and
@@ -230,6 +294,7 @@ def flatten_for_file(
             })
 
     if history_entries:
+        original_rows = len(history_entries)
         body = "\n\n".join(_format_entry(r) for r in history_entries)
         # Source-aware eviction: drop oldest non-chat messages first if
         # body exceeds budget. Same priority as the argv strategy.
@@ -245,7 +310,9 @@ def flatten_for_file(
             body = "\n\n".join(_format_entry(r) for r in history_entries)
 
         if history_entries:
-            system_prompt += f"{_HISTORY_HEADER}{body}{_HISTORY_FOOTER}"
+            system_prompt += _history_block(body)
+        else:
+            system_prompt += _history_omitted_notice(original_rows)
 
     if len(system_prompt) > max_prompt_chars:
         logger.warning(

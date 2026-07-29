@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-24
+last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — `build_input_for_framework` 不再拼 timeline 阅读指南
+
+`enhanced_system_prompt` 去掉了 `+ CHAT_HISTORY_TIMELINE_PREAMBLE`；该常量已移到
+[[materializer.py]]，与 history 区块同生共死。这里拼的话，argv 预算不够把 30 行
+全驱逐后，system prompt 里仍留着一段"下面是你们最近的对话"，模型会去回忆一个不
+存在的时间线（prod 2026-07-29）。注意本文件 `run()` 里打的
+`System Prompt built: N characters` 是在 preamble / recent-actions 拼接**之前**
+的数字——排查提示词尺寸时别把它当最终值。
 ## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
 
 返回值新增第三项：汇总各模块 `get_disallowed_tools()`（见 [[base.py]] 通用面 /

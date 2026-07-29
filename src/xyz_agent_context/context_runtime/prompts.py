@@ -123,36 +123,11 @@ recent dialogue is recent dialogue regardless of channel.
 ### Recent Dialogue
 """
 
-# 2026-05-20 (Fix #2): the chat history is now ONE time-sorted timeline
-# (current narrative + cross-narrative), each line tagged [time · topic · nar_id].
-# This preamble teaches the agent how to read it. Replaces SHORT_TERM_MEMORY_HEADER
-# (which wrongly told the model short replies usually continue OTHER threads).
-CHAT_HISTORY_TIMELINE_PREAMBLE = """
-## How to read the conversation history below
-
-The messages that follow are your recent conversation history with this user,
-assembled as a SINGLE timeline ordered by real time. It is built from:
-- ALL of the current conversation thread (the narrative you are in now), plus
-- the most recent messages from this user's OTHER threads with you,
-merged by timestamp and trimmed to roughly the latest 30 lines. Trimmed older
-lines are NOT lost — they still live in their narrative (you can pull a full
-thread with your narrative tools).
-
-Each line is prefixed:  [<time> · <topic> · <narrative_id>]
-- <time>: when it was said. Use it to judge what the user is replying to — a
-  short reply ("好" / "ok" / "yes" / "继续") almost always answers the MOST
-  RECENT line, i.e. the one just above the current input — NOT an older line
-  from a different thread.
-- <topic>: a human-readable name of that conversation thread.
-- <narrative_id>: the stable id of that thread. Different ids = different
-  topics. The current input belongs, by default, to the most recent thread; if
-  it really belongs to another thread (or to a brand-new topic), use your
-  narrative tools to switch / create.
-
-Visibility: in each past turn the user only saw the message you SENT to them
-(the <reply_to_user> part). Your <my_reasoning> was private — do not assume the
-user knows anything that only appeared in your reasoning.
-"""
+# 2026-07-29: CHAT_HISTORY_TIMELINE_PREAMBLE moved to
+# agent_framework/adapters/materializer.py. It describes the history
+# block, and only the materializer knows whether that block survives
+# the prompt budget — emitting the guide from here meant the model
+# could be told how to read a timeline that had just been evicted.
 
 # 2026-05-20 (Fix #2 P2): recent background-activity records (the centered
 # small-text items in the chat UI) — surfaced as a compact list, separate from
