@@ -35,102 +35,6 @@ if TYPE_CHECKING:
     )
 
 
-async def _persist_cli_session_handle(ctx: "RunContext", execution_result) -> None:
-    """[4.7] Persist / clear the resumable CLI session handle (fire-and-forget).
-
-    Capture side of agent_loop resume: the handle row in
-    ``agent_cli_sessions`` is what a later turn's step_3 looks up to
-    ``--resume`` instead of cold-starting with the full history.
-
-    * ``resume_failed`` (stale handle -> the adapter already ran the
-      same-turn cold retry) — the stale row is DELETED first, even when the
-      retry reported no new session id, so the next turn cannot trip over
-      the same corpse. Handle clearing lives HERE, not in the adapter: the
-      adapter runs in the Executor container with NO database access.
-    * ``cli_session_id`` present — upsert the fresh handle (after a failed
-      resume this is a NEW id from the cold retry: clear-old-write-new in
-      one pass). Skipped with a warning when the fingerprint / working path
-      companions didn't survive step_3's fail-open — better no row than an
-      unusable half-row (NOT NULL columns).
-
-    Never raises: any failure is logged and swallowed (same fire-and-forget
-    contract as 4.6 record_cost) — handle persistence must never block the
-    pipeline.
-
-    ``narrative_id`` is read from ``ctx.session.current_narrative_id`` — the
-    POST-routing value. Two blocks may have moved it since step_3 validated
-    the handle against the PRE-turn narrative:
-
-    * 4.0 narrative routing — the agent called ``switch_narrative`` /
-      ``create_narrative`` mid-turn, so this turn (and the CLI session that
-      served it) is re-attributed to another thread;
-    * 4.5 proactive-delivery anchoring — re-points the session at
-      ``main_narrative`` for background turns that messaged the user.
-
-    Storing the post-routing narrative is DELIBERATE and safe because the
-    stored ``narrative_id`` is only ever used as an equality anchor by step_3's
-    validation gate, and disagreement is fail-OPEN: the next turn reads
-    ``session.current_narrative_id`` (already the routed narrative), and
-    * if the conversation stays in the routed thread, the anchors MATCH and
-      resume works — which is the outcome we want, since the CLI session
-      genuinely continued into that thread's turn;
-    * if they ever disagree, step_3 logs ``COLD reason=narrative_changed`` and
-      cold-starts. Cost: one cold start. Never a correctness problem — a
-      handle is never resumed under a narrative the gate did not approve.
-
-    Storing the PRE-routing narrative instead would guarantee the mismatch on
-    every routed turn, i.e. strictly more cold starts for no correctness gain.
-    Pinned by tests/agent_runtime/test_resume_narrative_routing.py.
-    """
-    if not (execution_result.cli_session_id or execution_result.resume_failed):
-        return
-    if not ctx.session:
-        return
-    try:
-        from xyz_agent_context.repository import CliSessionRepository
-        from xyz_agent_context.schema import AgentCliSession
-        from xyz_agent_context.utils.timezone import utc_now
-
-        db = await get_db_client()
-        repo = CliSessionRepository(db)
-        handle_framework = execution_result.cli_framework or "claude_code"
-        if execution_result.resume_failed:
-            deleted = await repo.delete_handle(
-                ctx.agent_id, ctx.session.session_id, handle_framework
-            )
-            logger.warning(
-                f"[step_4] stale CLI session handle cleared after failed "
-                f"resume (agent={ctx.agent_id}, platform_session="
-                f"{ctx.session.session_id}, deleted_rows={deleted})"
-            )
-            ctx.substeps_4.append("[4.7] ✓ Stale CLI session handle cleared")
-        if execution_result.cli_session_id:
-            if execution_result.cli_config_fingerprint and execution_result.cli_working_path:
-                await repo.upsert(AgentCliSession(
-                    agent_id=ctx.agent_id,
-                    platform_session_id=ctx.session.session_id,
-                    narrative_id=ctx.session.current_narrative_id,
-                    framework=handle_framework,
-                    cli_session_id=execution_result.cli_session_id,
-                    config_fingerprint=execution_result.cli_config_fingerprint,
-                    working_path=execution_result.cli_working_path,
-                    last_used_at=utc_now(),
-                ))
-                ctx.substeps_4.append(
-                    f"[4.7] ✓ CLI session handle persisted "
-                    f"({execution_result.cli_session_id[:12]}…)"
-                )
-            else:
-                # Fingerprint / working path didn't make it out of step_3
-                # (fail-open there) — skip rather than store an unusable row.
-                logger.warning(
-                    "CLI session handle NOT persisted: missing fingerprint or "
-                    f"working_path (session_id={execution_result.cli_session_id[:12]}…)"
-                )
-    except Exception as e:
-        logger.warning(f"CLI session handle persistence failed (non-blocking): {e}")
-
-
 def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
     """Did this turn deliver a user-visible message?
 
@@ -611,20 +515,13 @@ async def step_4_persist_results(
         except Exception as e:
             logger.warning(f"Cost recording failed (non-blocking): {e}")
 
-    # =========================================================================
-    # 4.7 Persist CLI session handle (fire-and-forget, never blocks the
-    # pipeline). Capture side of agent_loop resume; see
-    # _persist_cli_session_handle. 4.7 MUST sit after 4.5 AND after 4.0:
-    # narrative_id is read from ctx.session.current_narrative_id, which 4.0
-    # (mid-turn switch_narrative / create_narrative) and 4.5 (proactive
-    # delivery) may both have re-pointed since step_3 validated the handle
-    # against the pre-turn narrative. Storing the POST-routing narrative is
-    # deliberate: the anchor then matches the thread the conversation actually
-    # continues in, and any disagreement is fail-open (one cold start, never a
-    # correctness issue). Full rationale in _persist_cli_session_handle's
-    # docstring.
-    # =========================================================================
-    await _persist_cli_session_handle(ctx, execution_result)
+    # NOTE (2026-07-29): step 4.7 used to persist the resumable CLI session
+    # handle here, and its placement after 4.0/4.5 was load-bearing because the
+    # handle was anchored to the post-routing narrative. The claude adapter now
+    # authors the CLI transcript itself every turn with a fresh session id, so
+    # there is no handle to store and no anchor to keep aligned — which is also
+    # why a mid-turn narrative switch can no longer cost a cold start. See
+    # adapters/claude/transcript.py.
 
     # =========================================================================
     # Complete

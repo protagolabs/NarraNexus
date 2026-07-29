@@ -4,6 +4,12 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 删除 DATA_TYPE_RESUME_FAILED 分支(T5)
+
+随 [[execution_state]] 的 `mark_resume_failed` 一起删。该分支的唯一作用是把 adapter
+的内部 marker 转成一次 state 更新,好让 step_4 清理过期句柄行——那张表的写入路径
+已不存在。
+
 ## 2026-07-29 — tool_output 优先按 id 配对
 
 `ITEM_TYPE_TOOL_CALL_OUTPUT` 分支:从事件里取 `tool_call_id` 透传给

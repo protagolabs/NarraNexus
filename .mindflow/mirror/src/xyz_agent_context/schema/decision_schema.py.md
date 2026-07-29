@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除 PathExecutionResult.resume_failed(T5)
+
+随 [[execution_state]] 同名字段一起删:它只用于把"句柄过期"从 step_3 传到 step_4,
+而 step_4 的句柄持久化已不存在。
 
 ## 2026-07-28 — PathExecutionResult 加 resume_failed（resume 化 R3）
 

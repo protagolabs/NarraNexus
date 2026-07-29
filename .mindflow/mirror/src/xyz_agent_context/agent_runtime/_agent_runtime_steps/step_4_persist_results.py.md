@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除 4.7 句柄持久化(T5),−96 行
+
+`_persist_cli_session_handle` 及其调用点删除。
+
+原来那个位置约束(4.7 必须在 4.0 和 4.5 之后)是承重的:句柄锚定在
+`ctx.session.current_narrative_id`,而 4.0 的中途 `switch_narrative` /
+`create_narrative` 和 4.5 的主动投递都可能重新指向它,存"路由后"的叙事才能让锚点
+匹配对话实际延续的那条线。
+
+现在**没有句柄要存、也没有锚点要对齐** —— 见 [[transcript]]。这条约束消失的直接
+后果:中途切叙事不再导致下一轮冷启动。
 
 ## 2026-07-28 — [4.7] 存的是 **routing 之后**的 narrative：刻意、fail-open（review FIX 2）
 

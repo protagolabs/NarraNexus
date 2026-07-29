@@ -24,7 +24,6 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
 )
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_ERROR,
-    DATA_TYPE_RESUME_FAILED,
     ITEM_TYPE_TOOL_CALL,
     TYPE_RAW_RESPONSE_EVENT,
     TYPE_RUN_ITEM_STREAM_EVENT,
@@ -439,42 +438,6 @@ async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float
         return None
 
 
-# Exact stderr phrase the Claude Code CLI emits when `--resume <id>` points
-# at a session it cannot find (E1 T3, measured 2026-07-23). The stale-handle
-# retry keys on this phrase ONLY — other failure modes flow through the
-# existing error paths unchanged.
-_RESUME_STALE_STDERR_PHRASE = "No conversation found"
-
-
-def _stderr_reports_stale_resume(cli_stderr_lines: list[str]) -> bool:
-    """True when the CLI stderr says the resume target session is missing."""
-    return _RESUME_STALE_STDERR_PHRASE in "\n".join(cli_stderr_lines)
-
-
-def _failure_indicates_stale_resume(
-    exc: BaseException, cli_stderr_lines: list[str]
-) -> bool:
-    """True when the failure evidence carries the stale-resume phrase.
-
-    Checks EVERY channel the phrase can arrive on: the captured CLI stderr
-    (where the CLI actually prints it — probe-verified: exit 1 + the phrase
-    on stderr, stdout empty), the exception text, and the exception's
-    ``stderr`` attribute (SDK 0.1.43's ProcessError fills it with a fixed
-    placeholder, but checking is free and future-proof).
-
-    2026-07-25 live gap: a stale ``--resume`` dies in ~450ms; the SDK
-    raises ProcessError off the stdout EOF BEFORE its background stderr
-    pump ever gets scheduled, and teardown then cancels that pump — so the
-    captured stderr was EMPTY and the old stderr-only predicate never
-    fired. ``_drain_stderr_after_failure`` (below) closes that race;
-    this multi-channel check is the belt to its braces.
-    """
-    evidence = "\n".join(
-        [str(exc), str(getattr(exc, "stderr", "") or ""), *cli_stderr_lines]
-    )
-    return _RESUME_STALE_STDERR_PHRASE in evidence
-
-
 async def _drain_stderr_after_failure(
     cli_stderr_lines: list[str], ticks: int = 4, tick_seconds: float = 0.05
 ) -> None:
@@ -628,20 +591,6 @@ def _is_zero_output_error_event(event: dict) -> bool:
     data = event.get("data") or {}
     return data.get("type") == DATA_TYPE_ERROR and data.get("error_type") == "no_output"
 
-
-def _resume_failed_marker_event() -> dict:
-    """Build the ``response.resume_failed`` marker event.
-
-    INTERNAL signal only: it tells the orchestrator (response_processor →
-    ExecutionState → step_4) to clear the stale handle row. It is NEVER
-    surfaced as an ErrorMessage — the same-turn cold retry makes the turn
-    fully normal from the user's perspective (铁律 #16: the user must not
-    perceive the resume miss).
-    """
-    return {
-        "type": TYPE_RAW_RESPONSE_EVENT,
-        "data": {"type": DATA_TYPE_RESUME_FAILED},
-    }
 
 
 def _build_claude_mcp_config(
@@ -1364,78 +1313,58 @@ class ClaudeAgentSDK:
                         yield event
                 return
 
-            # Resume: one run, plus AT MOST ONE same-turn cold retry when the
-            # handle turns out stale — the run died before producing ANY content
-            # AND the CLI stderr carries the exact "No conversation found" phrase
-            # (E1 T3). This is a startup fallback, not a retry loop (铁律
-            # #14-safe); every other failure mode flows through the existing
-            # error paths unchanged.
+            # Resume: one run, plus AT MOST ONE same-turn cold retry when the CLI
+            # refuses to resume — it died before producing ANY content.
+            #
+            # The retry used to additionally require the CLI stderr to carry the
+            # exact phrase "No conversation found", because the handle came from
+            # a previous turn and only a *stale* one was worth retrying. Now the
+            # handle is a transcript WE wrote moments ago, so any refusal is our
+            # bug and a cold run is always the correct answer — matching on a
+            # phrase would just be a way to miss some of our own bugs. That is
+            # not hypothetical: a cwd-slug bug shipped on 2026-07-29 and survived
+            # only because the CLI happened to say that exact sentence.
+            #
+            # Still a startup fallback, not a retry loop (铁律 #14-safe): at most
+            # one retry, and only before any output. A failure after content has
+            # been yielded re-raises, since re-running would duplicate it.
             yielded_any = False
-            stale_handle = False
+            resume_rejected = False
             try:
                 async with aclosing(_run_once(options)) as resume_run:
                     async for event in resume_run:
-                        if (
-                            not yielded_any
-                            and _is_zero_output_error_event(event)
-                            and (
-                                transcript_file is not None
-                                or _stderr_reports_stale_resume(cli_stderr_lines)
-                            )
-                        ):
+                        if not yielded_any and _is_zero_output_error_event(event):
                             # Swallow the zero-output error event: the cold retry
                             # below replaces this run entirely, so downstream —
                             # and the user (铁律 #16) — must not see a failure.
-                            stale_handle = True
+                            resume_rejected = True
                             continue
                         yielded_any = True
                         yield event
-            except Exception as e:
-                # The CLI run failed outright. Retry ONLY the stale-resume shape:
-                # failed before ANY content AND the phrase appears somewhere in
-                # the failure evidence; any other crash re-raises exactly as
-                # before. Broadened 2026-07-25: a stale --resume dies in ~450ms
-                # as the SDK's ProcessError (exit 1) — NOT our RuntimeError — and
-                # the phrase can miss the stderr callback entirely when the
-                # pump loses the race, so the predicate checks exception text +
-                # exception.stderr + captured stderr (drained in _run_once).
-                #
-                # When WE authored the transcript, drop the phrase requirement
-                # entirely: the handle is fresh and valid by construction, so a
-                # refusal to resume it is OUR bug and a cold retry is always the
-                # right answer regardless of what the CLI said. Learned the hard
-                # way — the first live run wrote the file into the wrong
-                # directory (the cwd slug did not translate dots or underscores)
-                # and only survived because the CLI happened to answer with the
-                # exact phrase this predicate greps for. Any other rejection
-                # (malformed record, format change after a CLI upgrade) would
-                # have failed the turn and shown the user an error, which 铁律
-                # #14 and #16 both forbid. Still AT MOST ONE retry, still only
-                # before any output — the bound is unchanged.
-                retryable = (
-                    transcript_file is not None
-                    or _failure_indicates_stale_resume(e, cli_stderr_lines)
-                )
-                if yielded_any or not retryable:
+            except Exception:
+                # A resume that failed before producing anything is retried cold;
+                # anything after content re-raises. Note a stale --resume dies
+                # fast (~450ms) as the SDK's ProcessError (exit 1), not as our
+                # RuntimeError, which is why this catches broadly and decides on
+                # `yielded_any` rather than on the exception type.
+                if yielded_any:
                     raise
-                stale_handle = True
+                resume_rejected = True
 
-            if not stale_handle:
+            if not resume_rejected:
                 return
 
             logger.warning(
-                f"[ClaudeAgentSDK] Stale resume handle "
-                f"(resume={resume_session_id[:12]}, CLI: 'No conversation found') "
-                f"— retrying THIS turn cold with full history"
+                f"[ClaudeAgentSDK] CLI refused to resume "
+                f"(resume={resume_session_id[:12]}) — retrying THIS turn cold "
+                f"with full history. Check the [Claude CLI stderr] lines above: "
+                f"a refusal means the transcript we wrote was not accepted."
             )
-            # Internal marker for the orchestrator: step_4 clears the stale
-            # handle row. NEVER surfaced as an ErrorMessage (铁律 #16).
-            yield _resume_failed_marker_event()
 
-            # First-run stderr served its purpose (the detection above); clear it
-            # so the cold retry's diagnostics aren't polluted with stale-resume
-            # noise. The stderr callback closes over this same list, so clearing
-            # in place re-arms it for the retry.
+            # First-run stderr served its purpose (it is the only diagnostic for
+            # WHY the resume was refused); clear it so the cold retry's own
+            # diagnostics are not polluted. The stderr callback closes over this
+            # same list, so clearing in place re-arms it for the retry.
             cli_stderr_lines.clear()
 
             # Re-assemble the prompt WITH the preserved history and run cold —

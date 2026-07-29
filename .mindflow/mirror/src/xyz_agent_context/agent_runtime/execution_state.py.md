@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/agent_runtime/execution_state.py
 last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 (二次) — 删除 resume_failed / mark_resume_failed(T5)
+
+它们的唯一用途是让 adapter 通知 step_4"这个句柄过期了,删掉那行"。
+[[step_4_persist_results]] 的句柄持久化已删除,没有行可删,整条链失去意义。
+
+`cli_session_id` 字段保留:它是从 `ResultMessage.session_id` 读到的观测值,仍进
+日志与 `PathExecutionResult`,只是不再有人拿它去查库。
+
 ## 2026-07-29 — tool_output 记录配对 id
 
 `record_tool_output` 新增 `tool_call_id` 参数,写进 step。无 id 时存**空字符串

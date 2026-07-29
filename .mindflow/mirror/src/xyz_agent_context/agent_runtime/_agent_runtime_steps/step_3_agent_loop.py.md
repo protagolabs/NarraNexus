@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除句柄机制(T5),−235 行
+
+删掉的是:进程级并发闸门(`_resume_handles_in_use` + `threading.Lock`)、四重校验
+`_resolve_resume_session_id`(叙事 / 指纹 / 工作路径 / 框架)、其包装
+`_acquire_resume_session`、`_log_resume_cold`、lease 的 `try/finally`(退化为
+`try/except`——那个 finally 存在的唯一理由就是释放 lease)、`resume_fingerprint()`
+调用、`cli_config_fingerprint` 伴随字段、`TurnInput.resume_session_id` 传参。
+
+**为什么整套都不需要了**:[[transcript]] 让 adapter 每轮自己写 transcript、用全新
+uuid4 resume。于是没有存下来的句柄要查、没有东西会过期(校验的全部目的)、也没有
+共享句柄会被两个 run 同时claim(lease 的全部目的)。
+
+**T2 实测确认它在空转**:日志里 `resume decision: RESUME cli_session=…` 存的句柄,
+正是我们上一轮自己生成的 uuid4(step_4 把它当 CLI 签发的存下来了),而我们每轮都
+会覆盖它。四重校验算出什么都不影响结果。
+
+顺带:**R5(叙事锚点降级)整项作废**。它要解决的是"叙事切换 → 校验不通过 → 冷启动",
+而现在既没有校验也没有锚点。实测里那次白付 55,308 全价的形态,结构上不可能再发生。
 
 ## 2026-07-28 — 并发 resume 守卫：同一句柄同时只许一个 run 持有（review FIX 1）
 

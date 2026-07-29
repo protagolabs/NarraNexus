@@ -230,14 +230,6 @@ class PathExecutionResult(BaseModel):
         default=None,
         description="Launch cwd of the CLI for this run (session jsonl archives under its slug)"
     )
-    resume_failed: bool = Field(
-        default=False,
-        description=(
-            "True when a requested CLI-session resume hit a stale handle and the "
-            "adapter completed the turn via a same-turn cold retry — step_4 deletes "
-            "the stale handle row (internal signal, never user-visible)"
-        )
-    )
 
     # ========== Context Data ==========
     # Context data (for Hook)

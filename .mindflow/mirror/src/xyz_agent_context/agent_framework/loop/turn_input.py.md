@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 — resume_session_id 的来源换了(注释同步)
+
+字段本身保留,但**上游不再设置它**:[[step_3_agent_loop]] 的句柄决策已删除(T5)。
+现在唯一的填充者是 claude adapter 自己——它每轮写一份 transcript 再 resume
+([[transcript]])。字段注释里指向 `_resolve_resume_session_id` 的那句已失效,改为
+指向 transcript。
+
+字段之所以还留着:remote 路径仍把它序列化进 `/agent-loop` body(executor 侧
+`authorize_resume_session_id` 读它)。那条协议缝隙连同 resume HMAC 一起在 T6 处理。
+
 # loop/turn_input.py — 物化层 turn 输入的显式打包
 
 ## 2026-07-28 — 新增 resume_session_id 字段（resume 化 R2）

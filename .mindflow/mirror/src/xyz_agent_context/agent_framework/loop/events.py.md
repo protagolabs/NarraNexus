@@ -4,6 +4,14 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 删除 DATA_TYPE_RESUME_FAILED(T5)
+
+这个内部 marker 的用途是通知编排层清理过期的 CLI 会话句柄行。句柄机制整体删除后
+(见 [[transcript]] 与 [[step_3_agent_loop]]),它没有生产者也没有消费者。
+
+注意它是**线协议**:值曾经逐字节流经 executor 的 NDJSON 通道。删除它属于破坏性
+协议变更,要求 orchestrator 与 executor 同批部署(铁律 #2:不做兼容层)。
+
 # loop/events.py — driver 事件契约的唯一事实源
 
 ## 2026-07-29 — 新增 `DATA_TYPE_REPLY_DELTA` / `ITEM_TYPE_PLAN`

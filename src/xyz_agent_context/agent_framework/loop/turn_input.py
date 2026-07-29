@@ -44,7 +44,7 @@ class TurnInput:
     extra_env: dict[str, str] = field(default_factory=dict)
     # Validated CLI session handle for THIS run (agent-loop resume R2).
     # None = cold start. step_3 fills it only after the four-fold
-    # validation gate (`_resolve_resume_session_id`), and only for the
+    # transcript the adapter authors for this turn, and only for the
     # claude_code framework in v1.
     resume_session_id: str | None = None
     # Reserved reference layer (design §8.2): serializable IDs/results

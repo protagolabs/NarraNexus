@@ -4,6 +4,20 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (三次) — 重试判据不再匹配字符串(T5)
+
+删除 `_RESUME_STALE_STDERR_PHRASE` / `_stderr_reports_stale_resume` /
+`_failure_indicates_stale_resume` / `_resume_failed_marker_event`。同轮冷重试**保留**,
+但判据简化成"产出任何内容之前 CLI 拒绝 resume"。
+
+原来要求 stderr 出现 `No conversation found`,因为句柄来自上一轮、只有**过期**的才
+值得重试。现在句柄是我们几秒前刚写的 transcript,任何拒绝都是我方 bug,冷启动在
+任何情况下都是对的答案 —— 匹配特定短语只会变成"漏掉我们自己的一部分 bug"的机制。
+
+这不是假设:cwd slug 的 bug 当天上线,**能活下来纯粹因为 CLI 恰好说了那句话**。
+
+界限没变:最多一次、且仅在尚未产出内容前;产出之后失败照旧抛出(重跑会重复内容)。
+
 ## 2026-07-29 — 每轮自建 resume transcript(T2)
 
 历史不再依赖"CLI 是否还记得某个会话":有历史时,adapter 自己写一份 transcript
