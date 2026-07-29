@@ -713,27 +713,20 @@ class ClaudeAgentSDK:
         # message off `messages` (load-bearing for step_3's fallback,
         # which reads the same list afterwards) — exactly once per turn.
         #
-        # Multi-turn history handling depends on whether upstream handed
-        # us a resumable CLI session (`resume_session_id` rides **kwargs
-        # like disallowed_tools, so the AgentLoopDriver Protocol signature
-        # stays unchanged):
-        #   * cold start (no handle) — append the full conversation history
-        #     to the system prompt, exactly today's behavior;
-        #   * resume — the history already lives in the CLI's session file
-        #     (`options.resume` below), so ONLY the history block is skipped.
-        #     The system prompt itself is still passed every round: module
-        #     instructions may legally change, and a changed prompt merely
-        #     forfeits that turn's cache hit (E1 T4 proved functional safety).
-        # R4c structural audit: the "=== Chat History ===" tail is the ONLY
-        # cold-vs-resume delta in the adapter-facing system prompt (options /
-        # tools / env are identical; `options.resume` is not prompt bytes).
-        # Consequence: the first resume round after a history-carrying cold
-        # round is a guaranteed prefix miss past the base prompt — ONE full
-        # cache write, bounded and by design. Kept as-is: folding history
-        # into system[2] on resume rounds would defeat resume entirely.
-        # Cross-process `--resume <session_id>` is E1-proven — see
-        # reference/self_notebook/specs/2026-07-23-e1-resume-feasibility.md.
-        resume_session_id = kwargs.get("resume_session_id") or None
+        # Where multi-turn history goes:
+        #   * history present — it rides the transcript written just below, and
+        #     the system prompt gets NO history block. Module instructions still
+        #     pass every round; they may legally change, and a changed prompt
+        #     merely forfeits that turn's cache hit (E1 T4 proved safety).
+        #   * no history (a genuine first turn) — nothing to resume, so the
+        #     prompt is assembled exactly as it always was.
+        #
+        # The session id used to arrive from upstream via **kwargs, resolved from
+        # a stored handle. That whole mechanism is gone (2026-07-29): the only
+        # producer is the transcript below, so a handle can no longer be stale,
+        # contested between concurrent runs, or anchored to a narrative that
+        # moved mid-turn.
+        resume_session_id: str | None = None
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )

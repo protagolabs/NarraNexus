@@ -221,7 +221,7 @@ async def test_normal_completion_graceful_shutdown_before_teardown():
 @pytest.mark.asyncio
 async def test_resume_run_also_gets_graceful_shutdown():
     _StubClient.scripts = [{"messages": [ResultMessage()]}]
-    await _run(resume_session_id="cli_old_session")
+    await _run()
 
     (client,) = _StubClient.instances
     assert client.calls == ["connect", "query", "end_input", "process_wait", "disconnect"]
@@ -352,5 +352,5 @@ async def test_failure_after_content_reraises_without_retry():
         {"messages": [ResultMessage()]},  # must NOT be consumed
     ]
     with pytest.raises(RuntimeError, match="boom mid-stream"):
-        await _run(resume_session_id="cli_old_session")
+        await _run()
     assert len(_StubClient.instances) == 1

@@ -4,6 +4,15 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (四次) — session id 只有一个来源了(T6)
+
+`resume_session_id` 不再从 `kwargs` 读。上游的两个生产者都已删除:
+[[step_3_agent_loop]] 的句柄决策(T5)与 [[executor_protocol]] 的协议字段(T6)。
+现在它初始化为 `None`,**唯一的赋值点是我们自己写的 transcript**。
+
+直接后果:句柄不可能过期、不可能被并发 run 争用、不可能锚定在中途变更的叙事上——
+这三样正是被删掉的那套机制存在的全部理由。
+
 ## 2026-07-29 (三次) — 重试判据不再匹配字符串(T5)
 
 删除 `_RESUME_STALE_STDERR_PHRASE` / `_stderr_reports_stale_resume` /

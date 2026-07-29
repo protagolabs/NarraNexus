@@ -123,7 +123,6 @@ class RemoteAgentLoopDriver:
             extra_env=extra_env,
             streaming=streaming,
             disallowed_tools=kwargs.get("disallowed_tools"),
-            resume_session_id=kwargs.get("resume_session_id"),
         )
 
         # No total timeout: agent loops can run for hours (binding rule

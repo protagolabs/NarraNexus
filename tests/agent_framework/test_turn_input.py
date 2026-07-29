@@ -68,17 +68,12 @@ def test_turn_input_is_frozen():
         ti.messages = []  # type: ignore[misc]
 
 
-def test_driver_kwargs_omits_resume_key_when_unset():
-    """Cold turns keep the legacy kwargs shape byte-identical — and codex
-    drivers (which never get a handle) never receive the key, so
-    CodexSDKv2's ignored-kwargs WARNING is not spammed per turn."""
-    kwargs = _mk().driver_kwargs()
-    assert "resume_session_id" not in kwargs
-
-
-def test_driver_kwargs_carries_resume_when_set():
-    kwargs = _mk(resume_session_id="cli_sess_abc").driver_kwargs()
-    assert kwargs["resume_session_id"] == "cli_sess_abc"
+def test_driver_kwargs_carries_no_resume_key():
+    """The field is gone (2026-07-29): the claude adapter authors its own
+    transcript, so no session id crosses this bundle. Asserted rather than
+    simply dropped — re-introducing the key would silently start spamming
+    CodexSDKv2's ignored-kwargs WARNING once per turn again."""
+    assert "resume_session_id" not in _mk().driver_kwargs()
 
 
 def test_driver_kwargs_excludes_cancellation_and_streaming():

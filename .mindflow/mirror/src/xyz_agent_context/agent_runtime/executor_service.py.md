@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 ---
+
+## 2026-07-29 — 不再授权 resume 句柄(T6)
+
+删掉 `authorize_resume_session_id(body)` 这一步及传给 driver 的
+`resume_session_id=` 参数。理由见 [[executor_protocol]] 同日条目。
+
+值得记一笔的是**为什么 executor 侧不需要任何新增**:这里传的是
+`messages=body["messages"]`,历史本来就在里面;容器内起的是**本地 driver**(即同一个
+claude adapter),它自己 `split_for_argv` 拿到 history_entries、自己在容器文件系统里
+写 transcript。原计划(T3)以为要新加 `transcript_turns` 协议字段,查证后不需要。
+
+关键是这不是巧合:transcript 路径的 slug 与 CLI 的 `options.cwd` **派生自同一个变量**
+(`self.working_path`),所以两者在任何环境下自动一致。
 
 ## 2026-07-28 — resume 句柄改为经 HMAC 校验后才采信（HIGH review finding）
 

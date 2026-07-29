@@ -4,6 +4,16 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 删除 executor_resume_hmac_secret 与 agent_loop_resume_enabled(T6)
+
+两个都成了死配置:
+
+- `executor_resume_hmac_secret` —— 它保护的能力(跨 executor 边界携带 CLI 会话句柄)
+  已不存在,见 [[executor_protocol]]。**云端部署要同步移除这个环境变量**。
+- `agent_loop_resume_enabled` —— 它门控的 `_resolve_resume_session_id`
+  (句柄式 resume 的决策入口)已随 T5 删除。现在的开关是
+  `claude_synthetic_transcript_enabled`。
+
 ## 2026-07-29 — claude_synthetic_transcript_enabled
 
 `claude_synthetic_transcript_enabled: bool = True`(env

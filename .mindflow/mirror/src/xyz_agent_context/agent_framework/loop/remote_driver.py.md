@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 ---
+
+## 2026-07-29 — 不再转发 resume_session_id(T6)
+
+`build_agent_loop_request` 调用里去掉该参数。协议字段本身也已删除,见
+[[executor_protocol]]。remote 路径不受影响:历史随 `messages` 过去,adapter 在
+executor 容器内自己写 transcript。
 
 
 ## 2026-07-28 — resume 能力 HMAC：本文件**无需改动**（记录为什么）

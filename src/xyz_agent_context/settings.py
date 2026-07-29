@@ -135,37 +135,7 @@ class Settings(BaseSettings):
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
 
-    # ===== Agent-loop resume (token optimization phase 2) =====
-    # Kill-switch for resuming the coding-agent CLI session across turns
-    # (`--resume <cli_session_id>` instead of cold-starting with the full
-    # conversation history in the system prompt). Resume is an OPTIMIZATION,
-    # never a correctness dependency: any doubt (flag off, missing/stale
-    # handle, narrative/fingerprint/working-path mismatch) falls back to
-    # today's cold-start behavior. This is a fail-open ops gate, not a
-    # backwards-compatibility shim. Env: AGENT_LOOP_RESUME_ENABLED.
-    agent_loop_resume_enabled: bool = True
 
-    # HMAC-SHA256 secret authenticating the `resume_session_id` that crosses
-    # the orchestrator → executor boundary. `POST /agent-loop` on the executor
-    # is unauthenticated BY DESIGN (internal-trust: it holds no platform
-    # secrets and needs no DB — the orchestrator did all validation). Resume
-    # is the one field on that body that names a RESOURCE OUTSIDE the request:
-    # CLAUDE_CONFIG_DIR is a single shared dir per auth kind (see
-    # claude_cli_config_path / claude_oauth_config_path below), so an
-    # unvalidated handle + a guessable working_path (`{base}/{user_id}/
-    # {agent_id}`) would let anyone who reaches the endpoint directly replay
-    # ANOTHER TENANT's CLI transcript. The token binds the handle to
-    # (working_path, framework) and to an issue time, so a captured body
-    # cannot be retargeted or replayed later.
-    #
-    # Empty (the default) => the executor IGNORES resume_session_id entirely
-    # and cold-starts (always safe; resume is an optimization). That keeps
-    # local/desktop working with zero config — they never cross the executor
-    # boundary at all. CLOUD MUST PROVISION THIS (NarraNexus-deploy: same
-    # value in the orchestrator env AND every executor container env) or
-    # cloud silently loses the resume optimization.
-    # Env: EXECUTOR_RESUME_HMAC_SECRET.
-    executor_resume_hmac_secret: str = ""
 
     # ===== Turn-context relocation (token optimization phase 3, R4) =====
     # Kill-switch for relocating per-turn volatile content (temporal block,
@@ -177,7 +147,7 @@ class Settings(BaseSettings):
     # Relocation moves bytes, it never drops them — the model still sees
     # every relocated section each turn. Off = context assembly is
     # byte-identical to the pre-R4 layout. Independent from
-    # agent_loop_resume_enabled: relocation benefits every framework and
+    # the synthetic transcript: relocation benefits every framework and
     # every turn; resume is claude_code-only. This is a fail-open ops gate,
     # not a backwards-compatibility shim.
     # Env: PROMPT_TURN_CONTEXT_RELOCATION_ENABLED.

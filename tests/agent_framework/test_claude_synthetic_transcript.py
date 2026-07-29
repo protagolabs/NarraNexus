@@ -282,14 +282,6 @@ async def test_a_failure_after_output_still_raises(tmp_path):
     assert _transcripts(tmp_path) == []
 
 
-@pytest.mark.asyncio
-async def test_our_transcript_supersedes_an_upstream_handle(tmp_path):
-    """Ours is freshly written and complete; an upstream handle may be stale."""
-    _StubClient.scripts = [{"messages": [ResultMessage()]}]
-    await _run(resume_session_id="handle-from-upstream")
-
-    resumed = _StubClient.instances[0].options.resume
-    assert resumed and resumed != "handle-from-upstream"
 
 
 # --- keep the async fixtures honest ----------------------------------------

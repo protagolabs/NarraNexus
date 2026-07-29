@@ -4,6 +4,14 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (三次) — 删除对已移除 HMAC 的引用
+
+`remove_transcript` 的 docstring 原来说"这正是 `executor_resume_hmac_secret` 要防的
+跨租户读取路径"。那个密钥已随 T6 删除,措辞改为过去式并说明因果方向:**删掉 HMAC
+之所以安全,恰恰是因为这里保证了磁盘上没有留存物**。
+
+顺序很重要,别读反:先有"用完即删"(T2),才有资格删鉴权(T6)。
+
 # transcript.py — 自己写 `--resume` 要读的那个文件
 
 ## 2026-07-29 — 落盘与删除(T2)

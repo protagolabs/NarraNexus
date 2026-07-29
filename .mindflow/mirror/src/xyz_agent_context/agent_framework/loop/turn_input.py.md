@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
 last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 (二次) — 删除 resume_session_id 字段(T6)
+
+字段与 `driver_kwargs()` 里的条件发射一起删。上游已无生产者:[[step_3_agent_loop]]
+的句柄决策(T5)和 [[executor_protocol]] 的协议字段(T6)都已移除,claude adapter
+自己生成并使用 session id,不经过这个 bundle。
+
+`test_turn_input.py` 保留一条**断言它不存在**的用例,而不是简单删掉:这个 key 一旦
+被重新引入,CodexSDKv2 的 ignored-kwargs WARNING 会重新开始每轮刷屏。
+
 ## 2026-07-29 — resume_session_id 的来源换了(注释同步)
 
 字段本身保留,但**上游不再设置它**:[[step_3_agent_loop]] 的句柄决策已删除(T5)。

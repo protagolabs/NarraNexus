@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 ---
+
+## 2026-07-29 — 删除 resume 鉴权(T6)
+
+删掉 `sign_resume_token` / `verify_resume_token` / `authorize_resume_session_id` /
+`_resume_canonical_string` / `_RESUME_TOKEN_VERSION` / `_RESUME_TOKEN_TTL_SECONDS`,
+以及 body 里的 `resume_session_id` / `resume_auth_issued_at` / `resume_auth_token`
+三个字段(连带死掉的 `import time`)。
+
+**为什么它当初必须存在**:`POST /agent-loop` 刻意无鉴权(internal-trust:executor
+不持任何平台密钥、也不需要数据库),这在"每个字段只描述本次请求"时是可以接受的。
+`resume_session_id` 破坏了这条性质——它指向**请求之外**的一个资源,而那个 CLI
+transcript 住在**全租户共用**的 `CLAUDE_CONFIG_DIR` 里,配上可猜的 `working_path`
+(`{base}/{user_id}/{agent_id}`),直接打这个端点就能让 CLI 重放并流回**别人的对话**。
+
+**为什么现在可以删**:没有句柄再跨这条边界。claude adapter 在 executor **容器内**
+自己写 transcript、turn 结束即删([[transcript]]),所以磁盘上没有可重放的东西、
+也没有需要授权的能力。安全性不是被放弃,是**前提消失了**。
+
+**云端部署影响**:`EXECUTOR_RESUME_HMAC_SECRET` 环境变量不再被读取,可以从部署配置
+里移除。而删除 body 字段是**破坏性线协议变更**,要求 orchestrator 与 executor
+**同批部署**(铁律 #2:不做兼容层)。
 
 ## 2026-07-28 — resume 能力的 HMAC 鉴权（HIGH review finding）
 

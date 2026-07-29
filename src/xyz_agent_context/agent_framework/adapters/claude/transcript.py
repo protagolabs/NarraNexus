@@ -308,11 +308,12 @@ def remove_transcript(path: Path | None) -> None:
     meet: ``None`` (the write failed or was skipped), already gone, or a path
     that is not a file.
 
-    Deleting is not housekeeping. A transcript left behind in the shared
-    ``CLAUDE_CONFIG_DIR`` is exactly the cross-tenant read path that
-    ``executor_resume_hmac_secret`` exists to cover — one unauthenticated
-    ``/agent-loop`` call with a guessed handle reads someone else's
-    conversation. Nothing durable on disk, nothing to read.
+    Deleting is not housekeeping, it is the security argument. The
+    ``CLAUDE_CONFIG_DIR`` is shared across all tenants and ``/agent-loop`` is
+    unauthenticated by design, so a transcript left behind plus a guessed
+    session id would let a direct caller replay someone else's conversation.
+    That is precisely what the executor's resume HMAC used to defend, and why
+    removing it was safe: nothing durable on disk, nothing to read.
     """
     if path is None:
         return
