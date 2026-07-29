@@ -188,6 +188,7 @@ async def run_turn_events(
         api_key=opts.api_key,
         base_url=opts.base_url,
         thinking=opts.thinking,
+        extra=dict(opts.llm_extra),
     )
 
     mcp = McpToolChannel(

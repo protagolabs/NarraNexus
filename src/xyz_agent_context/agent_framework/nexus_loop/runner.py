@@ -105,7 +105,17 @@ async def serve_turn(raw_request: str, write_line: Any) -> int:
         await write_line({"exit": {"ok": True}})
         return 0
     except Exception as exc:  # noqa: BLE001 - surfaced on the wire
-        await write_line({"exit": {"ok": False, "error": str(exc)}})
+        import traceback
+
+        await write_line(
+            {
+                "exit": {
+                    "ok": False,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc()[-3000:],
+                }
+            }
+        )
         return 1
 
 

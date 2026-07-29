@@ -89,6 +89,10 @@ class TurnOptions(BaseModel):
     api_key: str = ""
     base_url: str = ""
     thinking: bool = False
+    llm_extra: dict[str, Any] = Field(default_factory=dict)
+    # ^ passthrough params for the model call (litellm kwargs — e.g.
+    #   extra_headers for bearer-token providers). Dialect content only;
+    #   the framework never inspects it.
 
     # --- tool surface ---
     mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)

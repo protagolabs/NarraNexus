@@ -144,15 +144,16 @@ class LiteLLMModelClient:
     def _litellm_model(model: str, base_url: str) -> str:
         """Route custom Anthropic-protocol endpoints explicitly.
 
-        The platform's provider configs are Anthropic-protocol (that is
-        how every model runs through the claude CLI today), so a custom
-        ``base_url`` with an unprefixed model name gets the
-        ``anthropic/`` route; prefixed names pass through untouched.
+        With a custom ``base_url`` the endpoint IS Anthropic-protocol
+        (that is how every platform provider runs through the claude CLI
+        today), so the ``anthropic/`` route is FORCED — model ids may
+        themselves contain slashes (``minimax/minimax-m2.5``) and must
+        never be mistaken for litellm provider prefixes. Without a
+        ``base_url`` the name passes through (callers may use native
+        litellm routing syntax).
         """
-        if "/" in model:
-            return model
         if base_url:
-            return f"anthropic/{model}"
+            return model if model.startswith("anthropic/") else f"anthropic/{model}"
         return model
 
 

@@ -125,6 +125,13 @@ class NexusAgent:
             name
             for name in _reply_tool_names(mcp_servers)
         )
+        llm_extra: dict[str, Any] = {}
+        if claude_config.auth_type == "bearer_token" and claude_config.api_key:
+            # Anthropic-protocol gateways expecting Authorization: Bearer
+            # (litellm's anthropic route sends x-api-key; add the header).
+            llm_extra["extra_headers"] = {
+                "Authorization": f"Bearer {claude_config.api_key}"
+            }
         options: dict[str, Any] = {
             "cwd": self.working_path,
             "agent_id": str(kwargs.get("agent_id") or "agent"),
@@ -133,6 +140,7 @@ class NexusAgent:
             "provider": "anthropic",
             "api_key": claude_config.api_key or "",
             "base_url": claude_config.base_url or "",
+            "llm_extra": llm_extra,
             "thinking": bool(getattr(claude_config, "thinking", "") == "enabled"),
             "mcp_servers": mcp_servers,
             "disallowed_tools": tuple(kwargs.get("disallowed_tools") or ()),
@@ -168,6 +176,9 @@ class NexusAgent:
 
         # Bridge the platform token into the runner's cancellation view.
         class _Bridge:
+            def set(self) -> None:  # runner's signal-handler hook
+                return None
+
             def requested(self) -> bool:
                 return cancel.requested()
 
@@ -246,6 +257,9 @@ class NexusAgent:
             return line["event"]
         exit_info = line.get("exit")
         if isinstance(exit_info, dict) and not exit_info.get("ok", True):
+            trace = exit_info.get("traceback")
+            if trace:
+                logger.warning(f"[nexus_loop] runner traceback:\n{trace}")
             raise RuntimeError(str(exit_info.get("error") or "nexus_loop runner failed"))
         return None
 
