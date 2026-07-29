@@ -36,7 +36,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
 # Importing the package registers the built-in agent-loop drivers
-# (claude_code / codex_cli) into the registry.
+# (claude_code / codex_cli / nexus_power) into the registry.
 import xyz_agent_context.agent_framework  # noqa: F401
 from xyz_agent_context.agent_framework.loop.driver import (
     get_agent_loop_driver,

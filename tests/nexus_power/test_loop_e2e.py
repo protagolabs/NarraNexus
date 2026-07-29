@@ -77,6 +77,9 @@ class FakeModel:
         self.profile = profile or ProviderProfile(name="fake", context_window=1000)
         self.requests = []
 
+    def estimate_cost_usd(self, usage, model):
+        return 0.0025
+
     async def stream_step(self, request):
         self.requests.append(request)
         step = self._steps.pop(0)
@@ -423,6 +426,10 @@ async def test_legacy_adapter_golden_shapes():
     assert tool_call["arguments"] == {"command": "ls"}
 
     done = legacy[-1]["data"]
+    # The loop prices its own turn — without this the platform's cost
+    # surface shows $0 for every NexusPower turn (the claude CLI reports
+    # its own cost; nobody reports ours).
+    assert done["total_cost_usd"] == 0.0025
     assert done["usage"]["input_tokens"] == 20
     assert done["usage"]["cache_read_input_tokens"] == 0
     assert done["model"] == "fake-model"

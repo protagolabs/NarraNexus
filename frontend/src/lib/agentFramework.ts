@@ -34,9 +34,27 @@ export interface KnownModelMeta {
 
 export interface AgentFramework {
   id: string
-  label: string
+  /** Primary protocol — the one a picker shows and defaults to. */
   protocol: string
+  /**
+   * Every protocol this framework can drive. CLI-backed frameworks speak
+   * exactly one (claude_code → anthropic, codex_cli → openai) because
+   * their CLI does; NexusPower drives the provider API itself and works
+   * with either, so it must not be filtered down to one.
+   */
+  protocols?: string[]
+  label: string
   desc: string
+}
+
+/** Whether a provider's protocol can back this framework. */
+export function frameworkAcceptsProtocol(
+  framework: AgentFramework | undefined,
+  protocol: string | undefined,
+): boolean {
+  if (!framework || !protocol) return true
+  const accepted = framework.protocols ?? [framework.protocol]
+  return accepted.includes(protocol)
 }
 
 // ---- constants -----------------------------------------------------------
@@ -50,6 +68,7 @@ export const AGENT_FRAMEWORKS: AgentFramework[] = [
     id: 'nexus_power',
     label: 'NexusPower-beta',
     protocol: 'anthropic',
+    protocols: ['anthropic', 'openai'],
     desc: 'Our own loop — replies stream as they are written, live plan, on-demand capabilities',
   },
 ]

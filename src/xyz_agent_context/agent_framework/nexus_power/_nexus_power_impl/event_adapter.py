@@ -162,6 +162,14 @@ class LegacyEventAdapter:
                         "stop_reason": str(payload.get("end_reason", "")).lower(),
                         "model": payload.get("model", ""),
                         "num_turns": payload.get("num_steps", 0),
+                        # Priced by the loop (litellm's cost map); absent
+                        # when the model has no known price, which the
+                        # platform records as "no price" rather than $0.
+                        **(
+                            {"total_cost_usd": payload["cost_usd"]}
+                            if payload.get("cost_usd") is not None
+                            else {}
+                        ),
                     },
                 }
             ]

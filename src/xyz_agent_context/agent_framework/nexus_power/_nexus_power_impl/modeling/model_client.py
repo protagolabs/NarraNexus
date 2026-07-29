@@ -43,14 +43,14 @@ class LiteLLMModelClient:
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
         extra.setdefault("max_tokens", self.profile.max_output_tokens)
-        tools = self._dialect_tools(request.tools, params.base_url)
+        tools = self._dialect_tools(request.tools, params.base_url, params.provider)
 
         calls: dict[int, dict[str, Any]] = {}
         usage = Usage()
         stop_reason = ""
 
         stream = self._client.stream_chat(
-            model=self._litellm_model(params.model, params.base_url),
+            model=self._litellm_model(params.model, params.base_url, params.provider),
             messages=messages,
             tools=tools or None,
             api_key=params.api_key or None,
@@ -116,6 +116,9 @@ class LiteLLMModelClient:
             kind="done", payload={"stop_reason": stop_reason, "usage": usage}
         )
 
+    def estimate_cost_usd(self, usage: Usage, model: str) -> float | None:
+        return price_usage(usage, model)
+
     # -- dialect application ------------------------------------------
 
     def _apply_cache_plan(self, request: ModelRequest) -> list[ProviderMessage]:
@@ -143,7 +146,7 @@ class LiteLLMModelClient:
 
     @staticmethod
     def _dialect_tools(
-        tools: list[dict[str, Any]], base_url: str
+        tools: list[dict[str, Any]], base_url: str, provider: str | None = None
     ) -> list[dict[str, Any]]:
         """Anthropic-native tool defs for custom anthropic-protocol
         endpoints.
@@ -157,7 +160,9 @@ class LiteLLMModelClient:
         field at all. Official-API calls keep the OpenAI shape (litellm
         handles those correctly end-to-end).
         """
-        if not base_url or not tools:
+        # OpenAI-protocol endpoints take the OpenAI tool shape as-is;
+        # only the anthropic route needs the native rewrite below.
+        if not base_url or not tools or (provider or "").lower() == "openai":
             return tools
         native: list[dict[str, Any]] = []
         for tool in tools:
@@ -176,20 +181,50 @@ class LiteLLMModelClient:
         return native
 
     @staticmethod
-    def _litellm_model(model: str, base_url: str) -> str:
-        """Route custom Anthropic-protocol endpoints explicitly.
+    def _litellm_model(model: str, base_url: str, provider: str | None) -> str:
+        """Force the route that matches the bound provider's PROTOCOL.
 
-        With a custom ``base_url`` the endpoint IS Anthropic-protocol
-        (that is how every platform provider runs through the claude CLI
-        today), so the ``anthropic/`` route is FORCED — model ids may
-        themselves contain slashes (``minimax/minimax-m2.5``) and must
-        never be mistaken for litellm provider prefixes. Without a
-        ``base_url`` the name passes through (callers may use native
-        litellm routing syntax).
+        A custom ``base_url`` means litellm cannot infer the dialect from
+        the model id — and it must not try: platform model ids contain
+        slashes (``minimax/minimax-m2.5``, ``deepseek-ai/DeepSeek-V3``)
+        which litellm would read as a provider prefix and route wrongly
+        (measured: an openai-protocol card answered with
+        ``AnthropicException``). So we state the route explicitly, from
+        the protocol the resolver already decided. Without a custom
+        ``base_url`` the name passes through untouched (callers may use
+        litellm's native routing syntax).
         """
-        if base_url:
-            return model if model.startswith("anthropic/") else f"anthropic/{model}"
-        return model
+        route = "openai" if (provider or "").lower() == "openai" else "anthropic"
+        if not base_url:
+            return model
+        return model if model.startswith(f"{route}/") else f"{route}/{model}"
+
+
+class AnthropicDirectClient:
+    """Bypass seat: Anthropic's native SDK instead of litellm.
+
+    Written only if the four passthrough probes show litellm mangling a
+    dialect (cache_control, signed thinking replay, argument deltas).
+    Same protocol, so switching is an assembly swap and nothing above
+    notices. Not assembled today — instantiating it is a wiring error,
+    which is why it fails loudly rather than silently degrading.
+    """
+
+    profile: ProviderProfile
+
+    def __init__(self, profile: ProviderProfile) -> None:
+        self.profile = profile
+
+    def estimate_cost_usd(self, usage: Usage, model: str) -> float | None:
+        """Pricing is provider-independent — same map as everyone else."""
+        return price_usage(usage, model)
+
+    async def stream_step(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
+        raise NotImplementedError(
+            "AnthropicDirectClient is the bypass seat; assemble "
+            "LiteLLMModelClient unless a measured dialect failure says otherwise"
+        )
+        yield  # pragma: no cover - makes this an async generator
 
 
 def _parse_args(raw: str) -> dict[str, Any]:
@@ -230,3 +265,56 @@ def _inclusive(raw: dict[str, Any]) -> bool:
     return "cache_read_input_tokens" not in raw and isinstance(
         raw.get("prompt_tokens_details"), dict
     )
+
+
+def price_usage(usage: Usage, model: str) -> float | None:
+    """Price a turn from litellm's maintained cost map.
+
+    litellm ships (and keeps current) per-model prices for hundreds of
+    models — far better than a table we would hand-maintain and let rot.
+    Cached reads use their discounted rate when the map provides one.
+    Unknown model → None, which the platform records as "no price
+    available" rather than a confidently wrong number.
+    """
+    prices = _price_row(model)
+    if not prices:
+        return None
+    input_rate = prices.get("input_cost_per_token") or 0.0
+    output_rate = prices.get("output_cost_per_token") or 0.0
+    cache_read_rate = prices.get("cache_read_input_token_cost")
+    if cache_read_rate is None:
+        cache_read_rate = input_rate
+    cache_write_rate = prices.get("cache_creation_input_token_cost") or input_rate
+    return (
+        usage.input_tokens * input_rate
+        + usage.output_tokens * output_rate
+        + usage.cache_read_tokens * cache_read_rate
+        + usage.cache_creation_tokens * cache_write_rate
+    )
+
+
+def _price_row(model: str) -> dict[str, Any] | None:
+    """litellm's price row for a model id, tolerant of route prefixes.
+
+    ``anthropic/deepseek-ai/DeepSeek-V4-Pro`` and the bare id both
+    resolve; the map is keyed by several forms, so try most-specific
+    first, then a case-insensitive sweep.
+    """
+    try:
+        import litellm
+    except ImportError:  # pragma: no cover - litellm is a hard dependency
+        return None
+    table = getattr(litellm, "model_cost", None) or {}
+    candidates = [model]
+    if "/" in model:
+        candidates.append(model.split("/", 1)[1])
+        candidates.append(model.rsplit("/", 1)[-1])
+    for candidate in candidates:
+        row = table.get(candidate)
+        if row:
+            return row
+    lowered = model.lower()
+    for key, row in table.items():
+        if key.lower() == lowered:
+            return row
+    return None

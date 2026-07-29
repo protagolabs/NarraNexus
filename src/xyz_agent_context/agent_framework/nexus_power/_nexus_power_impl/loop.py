@@ -156,9 +156,9 @@ class NexusPowerLoop:
                 # Belt-and-braces: no path may leave the turn unclosed
                 # (turn_done is the billing chain's sole source).
                 logger.warning("loop exited without closure; emitting turn_done")
-                await self._log(self._ledger.close_turn(
-                    EndReason.ERROR, model=self._a.params.model
-                ))
+                await self._log(
+                    self._ledger.close_turn(EndReason.ERROR, model=self._a.params.model)
+                )
 
     # ------------------------------------------------------------------
     # Phase helpers (no business logic beyond orchestration)
@@ -283,8 +283,17 @@ class NexusPowerLoop:
 
     async def _close(self, reason: EndReason) -> LoopEvent:
         self._closed = True
+        # Price the turn here: a self-driven loop must report its own
+        # cost or every turn shows $0 on the platform's cost surface
+        # (the claude CLI reports its own; nobody reports ours).
+        model = self._a.params.model
+        try:
+            cost = self._a.model.estimate_cost_usd(self._ledger.total_usage(), model)
+        except Exception as exc:  # noqa: BLE001 - pricing never breaks a turn
+            logger.warning(f"cost estimation failed: {exc}")
+            cost = None
         return await self._log(
-            self._ledger.close_turn(reason, model=self._a.params.model)
+            self._ledger.close_turn(reason, model=model, cost_usd=cost)
         )
 
     async def _log(self, event: LoopEvent) -> LoopEvent:

@@ -6,6 +6,8 @@
 accumulation, interruption synthesis, compaction substitution.
 """
 
+import os
+
 import pytest
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
@@ -168,3 +170,42 @@ def test_resume_base_continues_seq():
     ledger = TurnLedger("t1", base=base)
     (ev,) = ledger.record_model_event(_text("c"))
     assert ev.seq == 2
+
+
+def test_turn_logs_are_pruned_to_the_retention_bound(tmp_path):
+    """One log per turn lands in the agent's workspace, which in cloud is a
+    shared volume nothing else prunes — so the directory bounds itself."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+        FileEventLogWriter,
+        prune_turn_logs,
+    )
+
+    directory = tmp_path / ".nexus_power"
+    directory.mkdir()
+    for i in range(10):
+        path = directory / f"turn_{i:03d}.ndjson"
+        path.write_text("{}\n")
+        os.utime(path, (1_700_000_000 + i, 1_700_000_000 + i))
+    # An unrelated file is never touched.
+    (directory / "README.md").write_text("keep me")
+
+    assert prune_turn_logs(str(directory), keep=4) == 6
+    survivors = sorted(p.name for p in directory.glob("*.ndjson"))
+    assert survivors == ["turn_006.ndjson", "turn_007.ndjson", "turn_008.ndjson",
+                         "turn_009.ndjson"]
+    assert (directory / "README.md").exists()
+
+    # The writer prunes on construction and still writes its own turn.
+    writer = FileEventLogWriter("turn_new", str(directory / "turn_new.ndjson"), keep=2)
+    writer._handle.write("x\n")
+    writer._handle.close()
+    assert (directory / "turn_new.ndjson").exists()
+    assert len(list(directory.glob("*.ndjson"))) == 3  # 2 kept + the new one
+
+
+def test_prune_tolerates_a_missing_directory():
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+        prune_turn_logs,
+    )
+
+    assert prune_turn_logs("/nonexistent/nexus_power/logs") == 0

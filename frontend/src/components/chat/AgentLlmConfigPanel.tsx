@@ -21,6 +21,7 @@ import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
+  frameworkAcceptsProtocol,
   getModelsForSlot,
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
@@ -143,7 +144,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const agentProviders = providerList.filter((p) => {
     if (netmindOnly && !isSlotBindableSource(p.source)) return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === agentDraft.agent_framework);
-    if (fw && p.protocol !== fw.protocol) return false;
+    if (!frameworkAcceptsProtocol(fw, p.protocol)) return false;
     return true;
   });
 

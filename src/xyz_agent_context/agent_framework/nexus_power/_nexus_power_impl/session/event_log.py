@@ -66,16 +66,54 @@ def ndjson_line(row: dict[str, Any]) -> str:
     return json.dumps(row, ensure_ascii=False, default=str)
 
 
+#: How many turn logs a directory keeps. One file per turn accumulates in
+#: the agent's WORKSPACE — which in cloud is a shared volume that nothing
+#: else ever prunes — so the directory is bounded here. This caps disk, not
+#: the agent: no turn is ever refused, the oldest EVIDENCE is simply aged
+#: out once there is plenty of it.
+LOG_RETENTION = 200
+
+
+def prune_turn_logs(directory: str, keep: int = LOG_RETENTION) -> int:
+    """Drop all but the ``keep`` newest ``*.ndjson`` files. Returns the
+    number removed.
+
+    Best-effort by construction: a turn log that vanishes under us (a
+    concurrent turn pruning the same directory) is exactly the outcome we
+    wanted, and a permission error on someone else's file must never take
+    down the turn that is merely trying to tidy up.
+    """
+    import os
+
+    try:
+        entries = [e for e in os.scandir(directory) if e.name.endswith(".ndjson")]
+    except OSError:
+        return 0
+    if len(entries) <= keep:
+        return 0
+    entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
+    removed = 0
+    for entry in entries[keep:]:
+        try:
+            os.remove(entry.path)
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 class FileEventLogWriter:
     """Appends NDJSON rows to a local file — the local-mode truth store
     (cloud lands rows in the control plane instead). Line-buffered; the
     turn-done flush is guaranteed by the assembly's ``finally``."""
 
-    def __init__(self, thread_id: str, path: str) -> None:
+    def __init__(self, thread_id: str, path: str, keep: int = LOG_RETENTION) -> None:
         import os
 
         self._thread_id = thread_id
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        directory = os.path.dirname(path) or "."
+        os.makedirs(directory, exist_ok=True)
+        prune_turn_logs(directory, keep)
         self._handle = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
 
     async def append(self, event: LoopEvent) -> None:

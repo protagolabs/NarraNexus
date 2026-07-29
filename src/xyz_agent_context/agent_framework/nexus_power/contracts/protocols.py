@@ -56,6 +56,16 @@ class ModelClient(Protocol):
 
     def stream_step(self, request: ModelRequest) -> AsyncIterator[ModelEvent]: ...
 
+    def estimate_cost_usd(self, usage: Usage, model: str) -> float | None:
+        """Turn cost in USD, or None when the model's price is unknown.
+
+        The claude CLI reports its own cost; a self-driven loop must
+        price its own tokens, or every NexusPower turn shows $0 on the
+        cost surface. Implementations should use a maintained price
+        source rather than a hand-kept table.
+        """
+        ...
+
 
 @runtime_checkable
 class ToolChannel(Protocol):

@@ -21,6 +21,7 @@ import { useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
+  frameworkAcceptsProtocol,
   isCodexFramework,
   getModelsForSlot,
   prettifyModel,
@@ -127,7 +128,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const agentProviders = providerList.filter((p) => {
     if (netmindOnly && !isSlotBindableSource(p.source)) return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
-    if (fw && p.protocol !== fw.protocol) return false;
+    if (!frameworkAcceptsProtocol(fw, p.protocol)) return false;
     return true;
   });
   // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an

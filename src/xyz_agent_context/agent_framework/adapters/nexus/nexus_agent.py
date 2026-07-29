@@ -8,9 +8,10 @@ adapter translates contracts and owns zero business logic).
 
 Three jobs only:
   1. legacy call shape (messages, mcp_servers, streaming, extra_env,
-     cancellation, **kwargs) → ``TurnRequest`` (model settings read from
-     the SAME per-turn ``claude_config`` the claude driver uses — the
-     platform's provider configs are Anthropic-protocol endpoints);
+     cancellation, **kwargs) → ``TurnRequest``, reading whichever of the
+     per-turn provider configs the resolver populated: NexusPower drives
+     the provider API itself, so BOTH anthropic- and openai-protocol
+     providers work (unlike the CLI-backed drivers, each locked to one);
   2. run the turn in its OWN PROCESS by default (the runner; in-process
      mode via ``NEXUS_POWER_INPROCESS=1`` for the executor container and
      tests) and relay its NDJSON — with manual line buffering, never a
@@ -35,7 +36,7 @@ from typing import Any, AsyncGenerator
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.api_config import claude_config
+from xyz_agent_context.agent_framework.api_config import claude_config, codex_config
 from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
@@ -84,6 +85,12 @@ class _WarmRunnerPool:
         env = dict(os.environ)
         if prewarm:
             env["NEXUS_POWER_PREWARM"] = "1"
+        # Set HERE as well as in the runner module: ``-m …runner`` imports the
+        # parent packages first, so litellm can already be loaded (and its
+        # GitHub price-map fetch already paid) before the runner's own
+        # setdefault runs. The child's environment is the only point that is
+        # unambiguously earlier than every import it will do.
+        env.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
         return await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -207,31 +214,35 @@ class NexusAgent:
         extra_env: dict[str, str] | None,
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
-        if claude_config.auth_type in ("oauth", "oauth_token"):
+        protocol, model, api_key, base_url, auth_type = _resolve_provider()
+        if auth_type in ("oauth", "oauth_token"):
             raise ValueError(
                 "nexus_power drives the provider API directly and cannot use "
                 "subscription OAuth credentials; keep this agent on the "
                 "claude_code framework or configure an API-key provider"
+            )
+        if not model:
+            raise ValueError(
+                "nexus_power has no model configured for this turn — bind an "
+                "anthropic- or openai-protocol provider to the agent slot"
             )
         expressive = tuple(kwargs.get("expressive_tools") or ()) or tuple(
             name
             for name in _reply_tool_names(mcp_servers)
         )
         llm_extra: dict[str, Any] = {}
-        if claude_config.auth_type == "bearer_token" and claude_config.api_key:
+        if protocol == "anthropic" and auth_type == "bearer_token" and api_key:
             # Anthropic-protocol gateways expecting Authorization: Bearer
             # (litellm's anthropic route sends x-api-key; add the header).
-            llm_extra["extra_headers"] = {
-                "Authorization": f"Bearer {claude_config.api_key}"
-            }
+            llm_extra["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
         options: dict[str, Any] = {
             "cwd": self.working_path,
             "agent_id": str(kwargs.get("agent_id") or "agent"),
             "env": dict(extra_env or {}),
-            "model": claude_config.model or "",
-            "provider": "anthropic",
-            "api_key": claude_config.api_key or "",
-            "base_url": claude_config.base_url or "",
+            "model": model,
+            "provider": protocol,
+            "api_key": api_key,
+            "base_url": base_url,
             "llm_extra": llm_extra,
             "thinking": bool(getattr(claude_config, "thinking", "") == "enabled"),
             "mcp_servers": mcp_servers,
@@ -349,6 +360,38 @@ class NexusAgent:
                 logger.warning(f"[nexus_power] runner traceback:\n{trace}")
             raise RuntimeError(str(exit_info.get("error") or "nexus_power runner failed"))
         return None
+
+
+def _resolve_provider() -> tuple[str, str, str, str, str]:
+    """Pick this turn's provider config: (protocol, model, key, base_url, auth).
+
+    NexusPower is protocol-agnostic by construction — it drives the
+    provider API itself rather than shelling out to a CLI, so it works
+    with either of the platform's two provider families. The resolver
+    populates the config matching the bound provider, so we simply take
+    whichever one carries a model: anthropic first (the platform's
+    default family), then openai.
+    """
+    if claude_config.model:
+        return (
+            "anthropic",
+            claude_config.model,
+            claude_config.api_key or "",
+            claude_config.base_url or "",
+            claude_config.auth_type or "api_key",
+        )
+    if codex_config.model:
+        # codex_config is the platform's carrier for "the agent slot on an
+        # openai-protocol provider" — shared with codex_cli, never with
+        # the helper slot (that is openai_config).
+        return (
+            "openai",
+            codex_config.model,
+            codex_config.api_key or "",
+            codex_config.base_url or "",
+            codex_config.auth_type or "api_key",
+        )
+    return ("anthropic", "", "", "", "api_key")
 
 
 def _reply_tool_names(mcp_servers: dict[str, dict[str, Any]]) -> list[str]:

@@ -8,6 +8,11 @@ export type MessageType =
   | 'progress'
   | 'agent_response'
   | 'agent_thinking'
+  // NexusPower-only streams. Every framework's messages share this union,
+  // so a shape only one framework emits still has to be declared here —
+  // the alternative is a cast at every consumer.
+  | 'agent_reply_delta'
+  | 'agent_plan'
   | 'tool_call'
   | 'error'
   | 'complete'

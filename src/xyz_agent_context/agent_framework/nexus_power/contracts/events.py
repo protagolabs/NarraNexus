@@ -233,6 +233,7 @@ class TurnDonePayload(TypedDict):
     model: str
     num_steps: int
     structured_output: Any  # per TurnOptions.output_schema; None otherwise
+    cost_usd: float | None  # priced by the model client; None = unknown price
 
 
 class ErrorPayload(TypedDict):

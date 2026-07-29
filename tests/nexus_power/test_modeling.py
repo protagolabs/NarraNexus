@@ -170,3 +170,43 @@ async def test_pruner_compacts_oldest_and_protects_tail():
     assert tool_msgs[-1]["content"].startswith("7:")
     assert tool_msgs[-2]["content"].startswith("6:")
     assert any(m["content"].startswith("[pruned]") for m in tool_msgs)
+
+
+def test_litellm_route_follows_the_protocol_not_the_base_url():
+    """A custom base_url alone must not imply the anthropic dialect.
+
+    Model ids carry slashes (``deepseek-ai/DeepSeek-V3``) that litellm
+    would read as a provider prefix, so the route has to be stated —
+    but stated from the PROTOCOL the resolver decided. Before this,
+    every custom endpoint was forced onto ``anthropic/`` and an
+    openai-protocol card answered with ``AnthropicException``.
+    """
+    route = LiteLLMModelClient._litellm_model
+    base = "https://api.netmind.ai/inference-api/openai/v1"
+    assert route("deepseek-ai/DeepSeek-V3", base, "openai") == "openai/deepseek-ai/DeepSeek-V3"
+    assert route("minimax/minimax-m2.5", "https://x/anthropic", "anthropic") == (
+        "anthropic/minimax/minimax-m2.5"
+    )
+    # Already-routed ids are left alone; no base_url = litellm's own syntax.
+    assert route("openai/gpt-5.4", base, "openai") == "openai/gpt-5.4"
+    assert route("gpt-5.4", "", "openai") == "gpt-5.4"
+
+
+def test_tool_dialect_rewrite_is_anthropic_only():
+    """OpenAI endpoints keep the OpenAI tool shape; only the anthropic
+    route needs the native rewrite that dodges strict-gateway serde."""
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "t", "description": "d", "parameters": {"type": "object"}},
+        }
+    ]
+    dialect = LiteLLMModelClient._dialect_tools
+    base = "https://gateway/v1"
+    assert dialect(tools, base, "openai") == tools
+    rewritten = dialect(tools, base, "anthropic")
+    assert rewritten[0] == {
+        "name": "t",
+        "description": "d",
+        "input_schema": {"type": "object"},
+    }

@@ -242,6 +242,7 @@ class TurnLedger:
         *,
         model: str,
         structured_output: Any = None,
+        cost_usd: float | None = None,
     ) -> LoopEvent:
         """Turn closure — the billing chain's single data source; every
         termination path must emit exactly one of these."""
@@ -254,6 +255,7 @@ class TurnLedger:
                 "model": model,
                 "num_steps": self._steps,
                 "structured_output": structured_output,
+                "cost_usd": cost_usd,
             },
             usage=self._usage,
         )

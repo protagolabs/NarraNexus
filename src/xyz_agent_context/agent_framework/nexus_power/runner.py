@@ -34,6 +34,15 @@ import signal
 import sys
 from typing import Any
 
+# litellm fetches its price map from GitHub AT IMPORT TIME unless told
+# otherwise (5s timeout, then a bundled fallback). That call sits on the
+# cold-start path of every runner process — an outbound request from a
+# hardened executor container, on the one path we spent the warm pool to
+# make fast. The bundled map ships with the pinned litellm version and is
+# what ``price_usage`` reads anyway. ``setdefault``, so an operator who
+# genuinely wants fresh prices can still export the opposite.
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
 
 class _SignalCancellation:
     """Cooperative cancellation raised by SIGTERM/SIGINT or stdin EOF
