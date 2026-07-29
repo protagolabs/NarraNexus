@@ -43,6 +43,7 @@ class LiteLLMModelClient:
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
         extra.setdefault("max_tokens", self.profile.max_output_tokens)
+        tools = self._dialect_tools(request.tools, params.base_url)
 
         calls: dict[int, dict[str, Any]] = {}
         usage = Usage()
@@ -51,7 +52,7 @@ class LiteLLMModelClient:
         stream = self._client.stream_chat(
             model=self._litellm_model(params.model, params.base_url),
             messages=messages,
-            tools=request.tools or None,
+            tools=tools or None,
             api_key=params.api_key or None,
             base_url=params.base_url or None,
             extra=extra,
@@ -139,6 +140,40 @@ class LiteLLMModelClient:
                     }
                 ]
         return marked
+
+    @staticmethod
+    def _dialect_tools(
+        tools: list[dict[str, Any]], base_url: str
+    ) -> list[dict[str, Any]]:
+        """Anthropic-native tool defs for custom anthropic-protocol
+        endpoints.
+
+        litellm's OpenAI→Anthropic conversion stamps ``type: "custom"``
+        on tool defs (current Anthropic spec); strict third-party
+        gateways (e.g. NetMind's DeepSeek backend, Rust serde) reject
+        the unknown variant. litellm passes ANTHROPIC-shaped tools
+        (``input_schema`` present) through untouched, so for custom
+        endpoints we hand it the native shape ourselves — no ``type``
+        field at all. Official-API calls keep the OpenAI shape (litellm
+        handles those correctly end-to-end).
+        """
+        if not base_url or not tools:
+            return tools
+        native: list[dict[str, Any]] = []
+        for tool in tools:
+            function = tool.get("function") or {}
+            if not function:
+                native.append(tool)
+                continue
+            native.append(
+                {
+                    "name": function.get("name", ""),
+                    "description": function.get("description", ""),
+                    "input_schema": function.get("parameters")
+                    or {"type": "object", "properties": {}},
+                }
+            )
+        return native
 
     @staticmethod
     def _litellm_model(model: str, base_url: str) -> str:
