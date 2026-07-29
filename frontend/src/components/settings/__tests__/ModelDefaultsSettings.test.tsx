@@ -11,11 +11,20 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ModelDefaultsSettings } from '../ModelDefaultsSettings';
 import { DESKTOP_RELEASES_URL } from '@/lib/agentFramework';
 
-// i18n: return the inline default string (2nd arg) so assertions read real copy.
+const { mockT } = vi.hoisted(() => {
+  const copy: Record<string, string> = {
+    'pages.settings.modelDefaults.agentMain': 'Agent (main dialogue)',
+  };
+  return {
+    mockT: (key: string, fallback?: unknown) =>
+      copy[key] ?? (typeof fallback === 'string' ? fallback : key),
+  };
+});
+
+// i18n: stable translator identity prevents effect dependencies from changing
+// on every render; selected locale keys resolve to their English test copy.
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_k: string, d?: unknown) => (typeof d === 'string' ? d : _k),
-  }),
+  useTranslation: () => ({ t: mockT }),
 }));
 
 let mockRole = 'user';

@@ -20,6 +20,14 @@ stub: false
 (`e.target.value !== 'claude_code'`),切回 claude_code 放行——让被锁的老 codex 用户能在
 聊天页 UI 自救。与后端 403 方向化一致。
 
+## 2026-07-21 — complete model-panel localization
+
+All user-visible panel copy now reuses the Model Defaults i18n namespace:
+headings, inheritance state, framework/provider/model selectors, reasoning
+controls, helper recommendation, validation errors, reset actions, and footer
+buttons. This keeps the per-agent override editor aligned with the global
+editor in every locale without changing any stored configuration values.
+
 ## 2026-07-18 — 云端锁定 per-agent 框架（禁用 → alert → useConfirm，三改定稿）
 
 与 [[ModelDefaultsSettings]] 同款演进，定稿为 `useConfirm().alert` 样式弹窗

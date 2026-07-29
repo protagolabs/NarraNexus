@@ -24,6 +24,14 @@ i18n 键，插值系统模型名）：说明免费额度生效中、当前实际
 切回 claude_code 放行,只在切到非 claude_code 时提示。与后端 providers.py 403 方向化一致
 ([[AgentLlmConfigPanel]] 同款)。
 
+## 2026-07-21 — complete model-defaults localization
+
+All user-visible copy in the global default editor now resolves through the
+same i18n namespace as the per-agent editor: empty/loading states, explanatory
+copy, framework status, provider/model selectors, reasoning controls, helper
+recommendation, validation errors, and save feedback. Stored option values
+remain unchanged; only their presentation follows the active locale.
+
 ## 2026-07-18 — 云端框架锁：禁用 → alert → useConfirm 样式弹窗（三改定稿）
 
 Owner 走查三轮：① `disabled` + 常驻提示（不友好）→ ② `window.alert`（生硬，
