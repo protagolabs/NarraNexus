@@ -15,8 +15,11 @@ import pytest
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    DATA_TYPE_REPLY_DELTA,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
+    ITEM_TYPE_PLAN,
+    ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
 )
@@ -173,6 +176,131 @@ async def test_tool_roundtrip_then_stop():
 
 
 @pytest.mark.asyncio
+async def test_expression_arg_stream_becomes_the_user_reply():
+    """The reply streams as the model writes the expression tool's
+    argument — legacy shape response.reply.delta, ordered before the
+    completed tool_call that repeats the same text."""
+    spec = ToolSpec(
+        name="mcp__chat__reply",
+        description="reply",
+        input_schema={},
+        annotations=ToolAnnotations(expressive=True),  # no streamable_fields:
+    )                                                  # assembly defaults apply
+    model = FakeModel([
+        [
+            ModelEvent(kind="tool_use_start", content_index=0,
+                       payload={"call_index": 0, "call_id": "c1",
+                                "tool_name": "mcp__chat__reply"}),
+            ModelEvent(kind="arg_delta", content_index=0,
+                       payload={"call_index": 0, "text": '{"content":"Hel'}),
+            ModelEvent(kind="arg_delta", content_index=0,
+                       payload={"call_index": 0, "text": 'lo!"}'}),
+            _use("c1", "mcp__chat__reply", {"content": "Hello!"}, index=0),
+            _done(),
+        ],
+        [_done(stop="end_turn")],
+    ])
+    tools = FakeTools([spec])
+    events, _ = await _run(_assembly(model, tools))
+    legacy = [d for e in events for d in LegacyEventAdapter().translate(e)]
+    replies = [
+        d["data"] for d in legacy
+        if d.get("data", {}).get("type") == DATA_TYPE_REPLY_DELTA
+    ]
+    assert "".join(r["delta"] for r in replies) == "Hello!"
+    assert {r["call_id"] for r in replies} == {"c1"}
+    assert {r["tool_name"] for r in replies} == {"mcp__chat__reply"}
+    # The authoritative tool_call still follows with the same text.
+    call = next(
+        d["item"] for d in legacy
+        if d.get("item", {}).get("type") == ITEM_TYPE_TOOL_CALL
+    )
+    assert call["arguments"]["content"] == "Hello!"
+
+
+@pytest.mark.asyncio
+async def test_non_expressive_arg_stream_stays_internal():
+    spec = ToolSpec(
+        name="write_file",
+        description="write",
+        input_schema={},
+        annotations=ToolAnnotations(streamable_fields=("content",)),
+    )
+    model = FakeModel([
+        [
+            ModelEvent(kind="tool_use_start", content_index=0,
+                       payload={"call_index": 0, "call_id": "c1",
+                                "tool_name": "write_file"}),
+            ModelEvent(kind="arg_delta", content_index=0,
+                       payload={"call_index": 0, "text": '{"content":"body"}'}),
+            _use("c1", "write_file", {"content": "body"}, index=0),
+            _done(),
+        ],
+        [_done(stop="end_turn")],
+    ])
+    events, _ = await _run(_assembly(model, FakeTools([spec])))
+    legacy = [d for e in events for d in LegacyEventAdapter().translate(e)]
+    assert not [
+        d for d in legacy
+        if d.get("data", {}).get("type") == DATA_TYPE_REPLY_DELTA
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plan_events_stream_and_reinject_into_prompt():
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
+        PlanState,
+        SchedulingChannel,
+    )
+
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+        TurnLedger,
+    )
+
+    plan = PlanState()
+    side: list = []
+    ledger = TurnLedger("t1")
+    channel = SchedulingChannel(
+        plan, lambda steps, note: side.append(ledger.record_plan(steps, note))
+    )
+    model = FakeModel([
+        [_use("c1", "update_plan", {"steps": [
+            {"step": "research", "status": "in_progress"},
+            {"step": "write up", "status": "pending"},
+        ], "note": "starting"}), _done()],
+        [_done(stop="end_turn")],
+    ])
+
+    class PlanTools(FakeTools):
+        async def execute(self, call):
+            self.executed.append(call)
+            result = await channel.call(call.name, call.args, None)
+            return dataclasses.replace(result, call_id=call.id)
+
+    tools = PlanTools(channel.list_tools())
+    assembly = dataclasses.replace(
+        _assembly(model, tools),
+        projector=PassthroughProjector(
+            [{"role": "user", "content": "hi"}], plan.render
+        ),
+        side_events=side,
+    )
+    events = [e async for e in NexusPowerLoop(assembly, ledger).run_turn()]
+
+    plan_events = [e for e in events if e.type == "plan"]
+    assert plan_events and plan_events[0].payload["steps"][0]["step"] == "research"
+    legacy = [d for e in events for d in LegacyEventAdapter().translate(e)]
+    plan_items = [
+        d["item"] for d in legacy if d.get("item", {}).get("type") == ITEM_TYPE_PLAN
+    ]
+    assert plan_items and plan_items[0]["note"] == "starting"
+    # Re-injected into the NEXT model request as a tail system message.
+    tail = model.requests[-1].messages[-1]
+    assert tail["role"] == "system"
+    assert "[>] research" in tail["content"] and "[ ] write up" in tail["content"]
+
+
+@pytest.mark.asyncio
 async def test_marker_tool_args_stream_and_short_circuit_semantics():
     spec = ToolSpec(
         name="mcp__chat__reply",
@@ -276,7 +404,11 @@ async def test_legacy_adapter_golden_shapes():
     kinds = [
         (d["type"], (d.get("data") or d.get("item"))["type"]) for d in legacy
     ]
-    assert ("raw_response_event", DATA_TYPE_TEXT_DELTA) in kinds
+    # Monologue text is THINKING, never the legacy assistant-text channel:
+    # our plain text is private reasoning, so surfacing it as a reply
+    # would show the user unfinished internal thought.
+    assert ("run_item_stream_event", ITEM_TYPE_THINKING) in kinds
+    assert ("raw_response_event", DATA_TYPE_TEXT_DELTA) not in kinds
     assert ("run_item_stream_event", ITEM_TYPE_TOOL_CALL) in kinds
     assert ("run_item_stream_event", ITEM_TYPE_TOOL_CALL_OUTPUT) in kinds
     assert ("raw_response_event", DATA_TYPE_USAGE) in kinds

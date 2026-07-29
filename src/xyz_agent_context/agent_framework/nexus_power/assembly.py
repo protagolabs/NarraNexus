@@ -76,6 +76,15 @@ class LoopAssembly:
     retry: RetryPolicy = field(default=None)  # type: ignore[assignment]
     hooks: Any = None
     include_arg_deltas: bool = True
+    # Side-event queue: channels that produce ui events during tool
+    # execution (today update_plan; tomorrow subagent announcements)
+    # append here and the loop drains it at the dispatch boundary — so a
+    # channel never needs a back-reference to the loop.
+    side_events: list = field(default_factory=list)
+    # Argument fields streamed for expression tools that carry no
+    # annotations of their own (MCP tools cannot declare ours). These
+    # are the conventional reply-content field names.
+    reply_fields: tuple[str, ...] = ("content", "message", "text")
 
     def __post_init__(self) -> None:
         # Frozen dataclass defaults for the seats (kept lazy to preserve
@@ -90,7 +99,7 @@ class LoopAssembly:
             NoMoreActionsStop,
         )
         from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
-            NoRetry,
+            StepRetry,
         )
 
         if self.stop is None:
@@ -98,7 +107,11 @@ class LoopAssembly:
         if self.steering is None:
             object.__setattr__(self, "steering", NullSteeringInlet())
         if self.retry is None:
-            object.__setattr__(self, "retry", NoRetry())
+            # Retrying a failed STEP (rate limit, transient 5xx) is cheap:
+            # the ledger already holds the history, so a retry costs one
+            # step, not a turn. Distinct from turn ceilings, which the
+            # framework never has (iron rule #14).
+            object.__setattr__(self, "retry", StepRetry())
         if self.hooks is None:
             object.__setattr__(self, "hooks", HookRegistry.empty())
 
@@ -169,6 +182,10 @@ async def run_turn_events(
         DisallowedToolsLayer,
         PolicyEngine,
         WorkspaceConfinementLayer,
+    )
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
+        PlanState,
+        SchedulingChannel,
     )
 
     opts = request.options
@@ -241,8 +258,16 @@ async def run_turn_events(
         ),
         with_expansion=bool(catalog),
     )
+    # Plan: written by the tool, read by the prompt tail every step, and
+    # mirrored onto the ui track for live progress rendering.
+    plan = PlanState()
+    side_events: list[LoopEvent] = []
+    scheduling = SchedulingChannel(
+        plan,
+        lambda steps, note: side_events.append(ledger.record_plan(steps, note)),
+    )
     dispatcher = ToolDispatcher(
-        (builtin, mcp),
+        (builtin, scheduling, mcp),
         policy=PolicyEngine((DisallowedToolsLayer(), WorkspaceConfinementLayer())),
         ctx=ctx,
         disallowed_tools=frozenset(opts.disallowed_tools),
@@ -272,7 +297,7 @@ async def run_turn_events(
         assembly = LoopAssembly(
             model=LiteLLMModelClient(profile, LitellmClient()),
             tools=dispatcher,
-            projector=PassthroughProjector(base_messages),
+            projector=PassthroughProjector(base_messages, plan.render),
             log=log or NullEventLogWriter(),
             cancel=cancel,
             expression=ExpressionContract(frozenset(opts.expressive_tools)),
@@ -280,6 +305,7 @@ async def run_turn_events(
             compaction=ToolResultPruner(),
             params=params,
             include_arg_deltas=opts.include_arg_deltas,
+            side_events=side_events,
         )
         async for event in NexusPowerLoop(assembly, ledger).run_turn():
             yield event

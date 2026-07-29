@@ -34,6 +34,7 @@ TYPE_TOOL_USE = "tool_use"
 TYPE_TOOL_ARG_DELTA = "tool_arg_delta"  # ui track only: streamed argument field text
 TYPE_TOOL_RESULT = "tool_result"
 TYPE_COMPACTION = "compaction"          # replacement entry; see CompactionPayload
+TYPE_PLAN = "plan"                      # ui track: full plan snapshot
 TYPE_STEP_DONE = "step_done"
 TYPE_TURN_DONE = "turn_done"
 TYPE_ERROR = "error"
@@ -46,6 +47,7 @@ VALID_EVENT_TYPES = frozenset(
         TYPE_TOOL_ARG_DELTA,
         TYPE_TOOL_RESULT,
         TYPE_COMPACTION,
+        TYPE_PLAN,
         TYPE_STEP_DONE,
         TYPE_TURN_DONE,
         TYPE_ERROR,
@@ -174,11 +176,26 @@ class ToolUsePayload(TypedDict):
 
 
 class ToolArgDeltaPayload(TypedDict):
-    """``tool_arg_delta``: a streamed argument-field fragment (ui track)."""
+    """``tool_arg_delta``: a streamed argument-field fragment (ui track).
+
+    ``expressive`` marks fragments of an EXPRESSION tool's argument —
+    those are the user-facing reply being written live; everything else
+    is an internal presentation detail.
+    """
 
     call_index: int
+    call_id: str
+    tool_name: str
     field_path: str
     text: str
+    expressive: bool
+
+
+class PlanPayload(TypedDict):
+    """``plan``: the agent's full plan snapshot (replace-on-write)."""
+
+    steps: list[dict[str, Any]]
+    note: str
 
 
 class ToolResultPayload(TypedDict):

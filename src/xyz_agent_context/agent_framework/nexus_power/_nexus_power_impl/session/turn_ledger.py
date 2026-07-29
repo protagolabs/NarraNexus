@@ -25,6 +25,7 @@ from typing import Any, Sequence
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_COMPACTION,
+    TYPE_PLAN,
     TYPE_STEP_DONE,
     TYPE_TEXT_DELTA,
     TYPE_THINKING_DELTA,
@@ -133,14 +134,42 @@ class TurnLedger:
         return []
 
     def record_arg_field_delta(
-        self, call_index: int, field_path: str, text: str
+        self,
+        call_index: int,
+        field_path: str,
+        text: str,
+        *,
+        call_id: str = "",
+        tool_name: str = "",
+        expressive: bool = False,
     ) -> LoopEvent:
-        """A streamed argument-field fragment (ui track only)."""
+        """A streamed argument-field fragment (ui track only).
+
+        ``expressive`` marks the reply being written live (an expression
+        tool's argument) — the adapter turns those into reply deltas and
+        drops the rest.
+        """
         return self._emit(
             "ui",
             TYPE_TOOL_ARG_DELTA,
-            {"call_index": call_index, "field_path": field_path, "text": text},
+            {
+                "call_index": call_index,
+                "call_id": call_id,
+                "tool_name": tool_name,
+                "field_path": field_path,
+                "text": text,
+                "expressive": expressive,
+            },
         )
+
+    def record_plan(self, steps: list[dict[str, Any]], note: str = "") -> LoopEvent:
+        """The agent's plan snapshot (ui track; replace-on-write).
+
+        Plans live on the ui track because they are presentation and
+        re-injected prompt state, not context-rebuilding history — the
+        model already sees its plan through the prompt's plan section.
+        """
+        return self._emit("ui", TYPE_PLAN, {"steps": list(steps), "note": note})
 
     def record_tool_result(self, call_id: str, result: ToolResult) -> list[LoopEvent]:
         """Pair one result with its open call (unknown/duplicate raises —

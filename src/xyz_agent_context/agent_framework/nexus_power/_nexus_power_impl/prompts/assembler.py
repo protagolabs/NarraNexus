@@ -46,6 +46,7 @@ class PromptInputs:
     capability_cards: str = ""            # CARD index text (key: card per line)
     capability_instructions: str = ""     # initial expansions' instructions
     identity: str = ""                    # optional extra identity line
+    plan_block: str = ""                  # current plan, re-injected every step
 
 
 @dataclass(frozen=True)

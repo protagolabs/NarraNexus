@@ -109,9 +109,16 @@ class NexusPowerPrompts:
     # user's cache prefix and requires explicit review) ----------------
 
     @classmethod
+    def plan_block(cls, inputs: PromptInputs, mode: PromptMode) -> str:
+        """V — the live plan, re-injected on EVERY step. Compaction can
+        eat history but never the prompt, so this is the one placement
+        where a long task's plan survives."""
+        return inputs.plan_block
+
+    @classmethod
     def stable_sections(cls) -> tuple[_SectionFn, ...]:
         return (cls.constitution, cls.identity_line, cls.workspace_tools)
 
     @classmethod
     def dynamic_sections(cls) -> tuple[_SectionFn, ...]:
-        return (cls.capability_frame, cls.expanded_instructions)
+        return (cls.capability_frame, cls.expanded_instructions, cls.plan_block)

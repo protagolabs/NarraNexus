@@ -63,6 +63,7 @@
       "toolLabel": "[ أداة ]",
       "outputLabel": "[ مُخرَج ]",
       "reply": "رد",
+      "plan": "الخطة",
       "nativeOutput": "مُخرَج أصلي",
       "helperFallback": "↻ احتياطي helper_llm",
       "helperFallbackTip": "لم يرسل الوكيل ردًا صريحًا؛ كتب هذه الرسالة نموذج LLM الاحتياطي اعتمادًا على استدلاله.",

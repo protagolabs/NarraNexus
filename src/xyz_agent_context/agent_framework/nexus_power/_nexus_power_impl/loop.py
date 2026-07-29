@@ -103,6 +103,12 @@ class NexusPowerLoop:
                         if compacted:
                             request = self._build_request()
                             continue  # retry the step with a smaller context
+                        # Nothing left to compact: retrying the same
+                        # oversized request would only burn money, so
+                        # surface the actionable error instead.
+                        async for ev in self._fail(error):
+                            yield ev
+                        return
                     attempt += 1
                     if error.retryable and await a.retry.should_retry(error, attempt):
                         continue
@@ -128,6 +134,11 @@ class NexusPowerLoop:
                     )
                     for ev in ledger.record_tool_result(call.id, result):
                         yield await self._log(ev)
+                    # Drain events produced by the channel itself (plan
+                    # updates today) — recorded on the ledger already,
+                    # so this only surfaces them on the stream.
+                    while a.side_events:
+                        yield await self._log(a.side_events.pop(0))
 
                 # ---- DRAIN_STEERING ---------------------------------------
                 injected = await a.steering.drain()
@@ -169,14 +180,27 @@ class NexusPowerLoop:
     ) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
         extractors: dict[int, StreamingArgExtractor] = {}
+        stream_meta: dict[int, tuple[str, str, bool]] = {}  # index -> (call_id, name, expressive)
         async for model_event in a.model.stream_step(request):
             kind = model_event.kind
             if kind == "tool_use_start" and a.include_arg_deltas:
                 index = int(model_event.payload.get("call_index", 0))
-                spec = a.tools.spec_for(str(model_event.payload.get("tool_name", "")))
+                name = str(model_event.payload.get("tool_name", ""))
+                spec = a.tools.spec_for(name)
                 fields = spec.annotations.streamable_fields if spec else ()
+                # An expression tool's streamed argument IS the reply
+                # being written — the adapter promotes those fragments
+                # to reply deltas so the user reads it live.
+                expressive = a.expression.is_expressive(name)
+                if not fields and expressive:
+                    fields = a.reply_fields
                 if fields:
                     extractors[index] = StreamingArgExtractor(index, tuple(fields))
+                    stream_meta[index] = (
+                        str(model_event.payload.get("call_id", "")),
+                        name,
+                        expressive,
+                    )
                 continue
             if kind == "arg_delta":
                 index = int(model_event.payload.get("call_index", 0))
@@ -184,9 +208,7 @@ class NexusPowerLoop:
                 if extractor is not None:
                     for delta in extractor.feed(str(model_event.payload.get("text", ""))):
                         yield await self._log(
-                            ledger.record_arg_field_delta(
-                                delta.call_index, delta.field_path, delta.text
-                            )
+                            self._arg_delta_event(delta, stream_meta.get(index))
                         )
                 continue
             events = ledger.record_model_event(model_event)
@@ -202,14 +224,28 @@ class NexusPowerLoop:
                 index = int(model_event.content_index)
                 extractor = extractors.get(index)
                 if extractor is not None:
+                    meta = stream_meta.get(index)
+                    if meta and not meta[0]:  # call_id only known now
+                        stream_meta[index] = (str(payload["call_id"]), meta[1], meta[2])
                     for delta in extractor.finalize(dict(payload.get("args") or {})):
                         yield await self._log(
-                            ledger.record_arg_field_delta(
-                                delta.call_index, delta.field_path, delta.text
-                            )
+                            self._arg_delta_event(delta, stream_meta.get(index))
                         )
             for ev in events:
                 yield await self._log(ev)
+
+    def _arg_delta_event(
+        self, delta: Any, meta: tuple[str, str, bool] | None
+    ) -> LoopEvent:
+        call_id, tool_name, expressive = meta or ("", "", False)
+        return self._ledger.record_arg_field_delta(
+            delta.call_index,
+            delta.field_path,
+            delta.text,
+            call_id=call_id,
+            tool_name=tool_name,
+            expressive=expressive,
+        )
 
     async def _compact(self, mode: str) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger

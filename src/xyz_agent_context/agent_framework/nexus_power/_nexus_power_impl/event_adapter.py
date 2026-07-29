@@ -5,13 +5,27 @@
 @description: LegacyEventAdapter — the ONE place that speaks the legacy
 dict event contract (``agent_framework.loop.events``).
 
-Inside the framework everything is a typed ``LoopEvent``; the six
-legacy shapes (text delta / thinking / tool_call / tool_call_output /
-error / response.done, plus per-step response.usage) are produced here
-and nowhere else, so the grey-release coexistence with the claude/codex
-drivers costs the platform zero changes. ``tool_arg_delta`` has no
-legacy shape yet — the adapter drops it (documented); new-protocol
-consumers read the typed stream instead.
+Inside the framework everything is a typed ``LoopEvent``; the legacy
+shapes are produced here and nowhere else, so grey-release coexistence
+with the claude/codex drivers costs the platform zero changes.
+
+Semantic mapping — this is where the monologue/expression contract
+becomes visible to users:
+
+  text/thinking deltas   -> thinking_item
+      Our plain text is PRIVATE reasoning, never a reply. Mapping it to
+      the legacy "assistant text" channel would show the user raw
+      internal monologue as if it were an answer.
+  expression arg deltas  -> response.reply.delta
+      The reply lives in an expression tool's argument, so streaming
+      that argument IS streaming the reply — the user reads the answer
+      as the model writes it, before the tool call completes.
+  other arg deltas       -> dropped (internal presentation detail)
+  plan events            -> plan_item
+
+The completed ``tool_call_item`` still carries the authoritative final
+text (idempotent by call_id), so a consumer that ignores the streaming
+shapes loses nothing.
 """
 
 from __future__ import annotations
@@ -21,8 +35,9 @@ from typing import Any
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
-    DATA_TYPE_TEXT_DELTA,
+    DATA_TYPE_REPLY_DELTA,
     DATA_TYPE_USAGE,
+    ITEM_TYPE_PLAN,
     ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
@@ -35,9 +50,11 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_ERROR,
+    TYPE_PLAN,
     TYPE_STEP_DONE,
     TYPE_TEXT_DELTA,
     TYPE_THINKING_DELTA,
+    TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_RESULT,
     TYPE_TOOL_USE,
     TYPE_TURN_DONE,
@@ -51,18 +68,26 @@ class LegacyEventAdapter:
     def translate(self, event: LoopEvent) -> list[dict[str, Any]]:
         etype = event.type
         payload = event.payload
-        if etype == TYPE_TEXT_DELTA:
-            return [
-                {
-                    "type": TYPE_RAW_RESPONSE_EVENT,
-                    "data": {"type": DATA_TYPE_TEXT_DELTA, "delta": payload["text"]},
-                }
-            ]
-        if etype == TYPE_THINKING_DELTA:
+        if etype in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):
+            # Monologue: the user watches the agent think, not speak.
             return [
                 {
                     "type": TYPE_RUN_ITEM_STREAM_EVENT,
                     "item": {"type": ITEM_TYPE_THINKING, "content": payload["text"]},
+                }
+            ]
+        if etype == TYPE_TOOL_ARG_DELTA:
+            if not payload.get("expressive"):
+                return []  # non-reply arguments stay internal
+            return [
+                {
+                    "type": TYPE_RAW_RESPONSE_EVENT,
+                    "data": {
+                        "type": DATA_TYPE_REPLY_DELTA,
+                        "delta": payload["text"],
+                        "call_id": payload.get("call_id", ""),
+                        "tool_name": payload.get("tool_name", ""),
+                    },
                 }
             ]
         if etype == TYPE_TOOL_USE:
@@ -86,6 +111,17 @@ class LegacyEventAdapter:
                         "tool_call_id": payload["call_id"],
                         "output": payload.get("content") or "",
                         "status": "completed" if payload.get("ok") else "failed",
+                    },
+                }
+            ]
+        if etype == TYPE_PLAN:
+            return [
+                {
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
+                    "item": {
+                        "type": ITEM_TYPE_PLAN,
+                        "steps": payload.get("steps") or [],
+                        "note": payload.get("note", ""),
                     },
                 }
             ]
@@ -129,5 +165,5 @@ class LegacyEventAdapter:
                     },
                 }
             ]
-        # tool_arg_delta / compaction have no legacy shape (typed-stream only).
+        # compaction has no legacy shape (typed-stream consumers only).
         return []

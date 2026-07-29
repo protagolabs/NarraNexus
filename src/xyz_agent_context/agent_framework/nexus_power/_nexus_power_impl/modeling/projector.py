@@ -14,6 +14,8 @@ just concatenates — upgrading compaction never touches projection.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ProviderMessage,
     ProviderProfile,
@@ -22,12 +24,22 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import Le
 
 
 class PassthroughProjector:
-    """Base messages + ledger turn messages (compaction-aware via ledger)."""
+    """Base messages + ledger turn messages + a live tail block.
 
-    def __init__(self, base_messages: list[ProviderMessage]) -> None:
+    The tail provider re-renders per-step state (today: the agent's
+    plan) and lands as the LAST message — append-only by construction,
+    so a growing plan never disturbs the cached prefix.
+    """
+
+    def __init__(
+        self,
+        base_messages: list[ProviderMessage],
+        tail_provider: Callable[[], str] | None = None,
+    ) -> None:
         # The base is platform property; the projector never rewrites it
         # ("materialization vs self-projection" boundary, made explicit).
         self._base = list(base_messages)
+        self._tail_provider = tail_provider
 
     def project(self, ledger: LedgerView, profile: ProviderProfile) -> list[ProviderMessage]:
         from typing import cast
@@ -38,4 +50,8 @@ class PassthroughProjector:
             if callable(provider_messages)
             else []
         )
-        return [*self._base, *turn_messages]
+        projected = [*self._base, *turn_messages]
+        tail = self._tail_provider() if self._tail_provider else ""
+        if tail:
+            projected.append({"role": "system", "content": tail})
+        return projected

@@ -63,6 +63,7 @@
       "toolLabel": "[ инструмент ]",
       "outputLabel": "[ вывод ]",
       "reply": "Ответ",
+      "plan": "План",
       "nativeOutput": "Собственный вывод",
       "helperFallback": "↻ резерв helper_llm",
       "helperFallbackTip": "Агент не отправил ответ явно; это сообщение составил резервный LLM на основе его рассуждений.",
