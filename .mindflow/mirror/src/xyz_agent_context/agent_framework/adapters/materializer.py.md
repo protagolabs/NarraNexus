@@ -1,9 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/materializer.py
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 stub: false
 ---
 # adapters/materializer.py — 共享的「结构化消息 → CLI 提示文本」物化步骤
+
+## 2026-07-29 — 阅读指南与历史区块绑定；全被驱逐时显式声明
+
+`CHAT_HISTORY_TIMELINE_PREAMBLE`（原本在 [[prompts.py]]，由
+[[context_runtime.py]] 直接拼进 system prompt）搬到本文件。原因是它描述的是
+history 区块，而**只有 materializer 知道这个区块还在不在**：预算被挤爆时行被
+驱逐，指南却已经焊死在 system prompt 里，模型于是被告知"下面是你们最近的对话，
+每行前缀 [time · topic · nar_id]"，然后什么都没有——这是在诱导模型凭空回忆。
+prod 2026-07-29 agent_94360f6c4b98：10 轮里 7 轮 0/30 行存活。
+
+现在两条路径都走 `_history_block()`（指南 + 标题 + 正文 + footer 一个整体），
+`kept` 为空但原本有行时改发 `_history_omitted_notice(n)`：说明有历史、被预算挤掉、
+不要猜、去用 narrative / memory 工具捞。**沉默不是中性的**——没有标记时模型会把这
+轮当全新对话，自信地把缺失的上下文编出来。
+
+预算数学是净中性的：`overhead` 涨了指南的长度，但 system prompt 少了同样多。
+
 
 ## 为什么存在
 

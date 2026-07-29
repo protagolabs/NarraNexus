@@ -31,7 +31,6 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
 from xyz_agent_context.context_runtime.prompts import (
     AUXILIARY_NARRATIVES_HEADER,
     MODULE_INSTRUCTIONS_HEADER,
-    CHAT_HISTORY_TIMELINE_PREAMBLE,
     RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
@@ -660,11 +659,14 @@ class ContextRuntime:
         # (current narrative + cross-narrative), each msg tagged with
         # narrative_id/alias by ChatModule.hook_data_gathering. Render every line
         # as a role message prefixed `[time · topic · nar_id]` + the channel
-        # source prefix, and teach the agent how to read it via the preamble.
-        # No more long/short split; no cross-narrative-into-system-prompt section.
+        # source prefix. No more long/short split; no cross-narrative-into-
+        # system-prompt section. The "how to read this timeline" preamble is
+        # NOT added here — the materializer emits it together with the
+        # history block, so a turn whose rows get evicted never carries a
+        # reading guide for rows that aren't there (prod 2026-07-29).
         timeline = self._truncate_long_term_messages(chat_history)
 
-        enhanced_system_prompt = system_prompt + "\n\n" + CHAT_HISTORY_TIMELINE_PREAMBLE
+        enhanced_system_prompt = system_prompt
 
         # P2: append the recent background-activity section (centered small-text
         # in the UI) — a compact list with event_ids, separate from the timeline.

@@ -148,3 +148,63 @@ def test_file_no_truncation_label_variant():
     assert "=== Chat History ===" in system_prompt
     assert "truncated by source-aware eviction" not in system_prompt
     assert "a" * 300 not in system_prompt  # background row evicted first
+
+
+# ---------------- history honesty (prod 2026-07-29) ------------------
+#
+# The "how to read the conversation history below" preamble used to be
+# glued onto the system prompt by context_runtime, one layer ABOVE the
+# eviction decision. When the budget collapsed the materializer dropped
+# every history row — but the preamble was already baked in, so the model
+# was told "the messages that follow are your recent conversation history,
+# each line prefixed [time · topic · nar_id]" and then handed nothing.
+# That is worse than no history: it invites the model to invent one.
+# The preamble now ships WITH the block it describes.
+
+
+def test_preamble_ships_with_the_history_block():
+    system_prompt, _ = flatten_for_argv(_msgs())
+    assert "How to read the conversation history below" in system_prompt
+    assert system_prompt.index("How to read the conversation history below") < \
+        system_prompt.index("=== Chat History ===")
+
+
+def test_no_preamble_when_every_history_row_is_evicted():
+    """Budget too small for even one row -> no preamble, no dangling guide."""
+    messages = [
+        {"role": "system", "content": "S" * 200},
+        {"role": "user", "content": "hi", "_source": "chat"},
+        {"role": "user", "content": "final"},
+    ]
+    system_prompt, _ = flatten_for_argv(messages, max_prompt_chars=210)
+    assert "How to read the conversation history below" not in system_prompt
+    assert "[time · topic · nar_id]" not in system_prompt
+
+
+def test_dropped_history_is_declared_not_silently_omitted():
+    """The model must be told the history was withheld, and how many rows."""
+    messages = [
+        {"role": "system", "content": "S" * 200},
+        {"role": "user", "content": "hi", "_source": "chat"},
+        {"role": "user", "content": "there", "_source": "chat"},
+        {"role": "user", "content": "final"},
+    ]
+    system_prompt, _ = flatten_for_argv(messages, max_prompt_chars=260)
+    assert "omitted this turn" in system_prompt
+    assert "2" in system_prompt.split("omitted this turn")[1][:80]
+
+
+def test_no_notice_when_there_was_never_any_history():
+    """A first turn has nothing to declare — stay silent."""
+    messages = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "final"},
+    ]
+    system_prompt, _ = flatten_for_argv(messages)
+    assert "omitted this turn" not in system_prompt
+    assert "Chat History" not in system_prompt
+
+
+def test_file_strategy_ships_the_same_preamble():
+    system_prompt, _ = flatten_for_file(_msgs())
+    assert "How to read the conversation history below" in system_prompt

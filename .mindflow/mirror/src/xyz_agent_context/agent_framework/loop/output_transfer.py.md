@@ -1,9 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-07-29 — UserMessage 的 TextBlock 不再当作 agent 输出
+
+`_convert_user_to_stream_events` 过去在「没有 ToolResultBlock」时把 UserMessage 的
+文本当 text delta 发出去。user 角色承载的是工具结果和 **CLI 自己塞进 transcript 的
+东西**，其中最大的一块是 auto-compaction 交接：运行摘要 + CLI session `.jsonl` 的
+绝对路径 + "Please continue the conversation from where we left off"。发成 delta 后
+被 [[response_processor.py]] 判为 AGENT_RESPONSE、被 [[run_collector.py]] 累进
+`events.final_output`，于是 owner 在 Inner Thought 卡片里读到 CLI 的内部记账（还带
+一个他打不开的容器路径）当成 agent 的回答。prod 2026-07-29 近 30 天 11 个 agent 命中
+60+ 次。
+
+agent 说话只走 StreamEvent / AssistantMessage，所以这条路径上**没有 agent 输出可丢**
+——丢掉正是目的。与 [[sdk.py]] 里拦截 `AssistantMessage.error`（避免上游 400 被渲染
+成 agent 自己的话）是同一类修复。
 
 ## 2026-07-27 — 从流式事件抠 token usage(免费额度记账修复)
 

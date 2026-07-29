@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-06-17
+last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — `CHAT_HISTORY_TIMELINE_PREAMBLE` 移出本文件
+
+常量搬到 [[materializer.py]]。它描述 history 区块的读法，而区块是否存活由
+materializer 的驱逐逻辑决定；留在这里就等于把指南和它描述的内容拆到两层，预算
+不够时两者会不一致（指南在、行没了）。这是本文件"只放静态词汇"原则的一个例外
+面：**当一段文案的正确性取决于另一层的运行期决策时，它就该跟那层走。**
 ## 2026-06-17 — 新增 `SECURITY_IRON_RULES`(平台级安全铁律)
 
 新增一个常量 `SECURITY_IRON_RULES`,由 `context_runtime.build_complete_system_prompt`
