@@ -16,10 +16,16 @@ vi.mock('@/stores', () => ({
       total_input_tokens: 100,
       total_output_tokens: 50,
       by_model: {
-        'claude-code': {
+        '__main_model__': {
           cost: 0,
-          input_tokens: 100,
-          output_tokens: 50,
+          input_tokens: 80,
+          output_tokens: 40,
+          call_count: 1,
+        },
+        '__helper_model__': {
+          cost: 0,
+          input_tokens: 20,
+          output_tokens: 10,
           call_count: 1,
         },
       },
@@ -40,7 +46,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 describe('CostPopover', () => {
-  it('shows a provider-neutral label for claude-code usage', () => {
+  it('shows provider-neutral labels for main and helper usage', () => {
     render(<CostPopover />);
 
     fireEvent.click(
@@ -48,6 +54,9 @@ describe('CostPopover', () => {
     );
 
     expect(screen.getByText('Model usage')).toBeInTheDocument();
+    expect(screen.getByText('Helper Model Usage')).toBeInTheDocument();
     expect(screen.queryByText('Claude Code')).not.toBeInTheDocument();
+    expect(screen.queryByText('__main_model__')).not.toBeInTheDocument();
+    expect(screen.queryByText('__helper_model__')).not.toBeInTheDocument();
   });
 });

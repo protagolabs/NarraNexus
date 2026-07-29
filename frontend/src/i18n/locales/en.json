@@ -1213,6 +1213,7 @@
     "popover": {
       "triggerTitle": "Token usage — click for details",
       "modelUsage": "Model usage",
+      "helperUsage": "Helper Model Usage",
       "inOut": "{{in}} in / {{out}} out",
       "byModel": "By Model",
       "daily": "Daily",
