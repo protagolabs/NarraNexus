@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — claude_cli_prefer_pinned / claude_cli_path
+
+两个字段服务 [[cli_binary]] 的二进制选择:
+
+- `claude_cli_prefer_pinned: bool = True`(env `CLAUDE_CLI_PREFER_PINNED`)——
+  是否优先用 PATH 上经版本校验的 `claude`,而不是 SDK wheel 自带的那个。关掉
+  就回到 2026-07-29 之前的行为(永远用捆绑的)。这是**运维闸门,不是兼容层**。
+- `claude_cli_path: str = ""`(env `CLAUDE_CLI_PATH`)—— 显式路径,优先级高于
+  pin 查找。**路径不存在时被忽略而非照传**:照传会变成每轮 `CLINotFoundError`,
+  远比回落到捆绑二进制糟糕。
+
+为什么需要它们:SDK `_find_cli()` 先查捆绑副本,所以"装了新 CLI"不等于"用上了
+新 CLI"。而 SDK 0.1.43 捆绑的 2.1.56 不对 `tools` 数组做归一化,每轮换序、
+打穿整个缓存前缀(实验 E3/E3c)。详细机制与 fail-open 规则见 [[cli_binary]]。
 
 ## 2026-07-28 — executor_resume_hmac_secret（HIGH review finding）
 

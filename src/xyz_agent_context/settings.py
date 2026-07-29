@@ -254,6 +254,26 @@ class Settings(BaseSettings):
     # is never copied, so it can't leak. See api_config.ClaudeConfig.to_cli_env.
     claude_oauth_config_path: str = str(Path.home() / ".nexusagent" / "claude_oauth_config")
 
+    # Prefer the version-pinned `claude` on PATH over the binary bundled inside
+    # the claude-agent-sdk wheel. The bundled one wins by default in the SDK
+    # (`_find_cli` checks it first), and SDK 0.1.43 bundles CLI 2.1.56 — a
+    # version that does NOT normalize the request's `tools` array, so the array
+    # permutes every run and voids the whole cache prefix behind it (measured:
+    # experiments E3/E3c). See adapters/claude/cli_binary.py for the mechanism
+    # and the fail-open rules. Turning this off restores the pre-2026-07-29
+    # behavior (always bundled) — an ops gate, not a compatibility shim.
+    # Env: CLAUDE_CLI_PREFER_PINNED.
+    claude_cli_prefer_pinned: bool = True
+
+    # Explicit path to the `claude` binary the agent loop should launch,
+    # outranking both the pin lookup and the SDK's bundled copy. Empty = use
+    # the resolution above. For environments that install the CLI somewhere
+    # off PATH (and as the escape hatch when a pin bump is mid-rollout).
+    # A path that does not exist is IGNORED rather than honoured, so a typo
+    # degrades to the bundled binary instead of failing every turn.
+    # Env: CLAUDE_CLI_PATH.
+    claude_cli_path: str = ""
+
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")

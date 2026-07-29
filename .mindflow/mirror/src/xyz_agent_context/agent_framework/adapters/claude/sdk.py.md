@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 显式指定 CLI 二进制(`cli_path`)
+
+`options_kwargs` 新增条件项 `cli_path`,值来自 [[cli_binary]] 的
+`resolve_cli_path()`;`None` 表示没有经校验的候选,保持 SDK 自带的二进制。
+
+不加这一项的后果不是报错而是**静默降级**:SDK 的 `_find_cli()` 先查它 wheel
+里自带的副本(SDK 0.1.43 = CLI 2.1.56),PATH 上再新的版本也永远轮不到。而
+2.1.56 会**每一轮重排请求的 `tools` 数组**,把它后面的整个缓存前缀(含我方
+6 万余字符 system prompt)全部作废——实验 E3/E3c 实测,`--resume` 路径同样如此。
+
+放在 `options_kwargs` 里而不是两个构造点各写一遍:重试路径(`_run_once` 的
+stale-handle 冷重试)复用同一个 dict,所以一处即覆盖两处。
 
 ## 2026-07-28 — 优雅关停的两个活性缺口（MEDIUM review findings）
 

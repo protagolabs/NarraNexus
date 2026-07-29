@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.loop.output_transfer import output_transf
 from xyz_agent_context.agent_framework.api_config import claude_config
 from xyz_agent_context.agent_framework.providers.model_catalog import resolve_cli_alias
 from xyz_agent_context.agent_framework.adapters._tool_policy_guard import build_tool_policy_guard
+from xyz_agent_context.agent_framework.adapters.claude.cli_binary import resolve_cli_path
 from xyz_agent_context.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
     split_for_argv,
@@ -926,6 +927,15 @@ class ClaudeAgentSDK:
             # working path all match). None = cold start = SDK default.
             resume=resume_session_id,
         )
+        # WHICH binary runs this turn. Absent this, the SDK silently uses the
+        # copy bundled in its own wheel (CLI 2.1.56 for SDK 0.1.43) even when a
+        # newer, pin-verified CLI sits on PATH — and 2.1.56 reshuffles the
+        # request's `tools` array on every run, voiding the entire cache prefix
+        # behind it (E3/E3c). None = no verified candidate, keep the bundled
+        # binary; cli_binary logs the decision once per process.
+        cli_path = resolve_cli_path()
+        if cli_path is not None:
+            options_kwargs["cli_path"] = cli_path
         if claude_config.model:
             # CLI family aliases only work on the OAuth/CLI path; raw API
             # transports 400 on them (upstream #57 → no_reply). Normalize at
