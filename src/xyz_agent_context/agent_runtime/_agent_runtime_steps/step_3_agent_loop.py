@@ -855,13 +855,6 @@ async def step_3_agent_loop(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
     )
-    # ------------- Resume decision (agent-loop resume, R2) -------------
-    # Canonical framework name for the handle key — the driver registry also
-    # accepts short aliases, and neither stored nor looked-up keys may depend
-    # on which alias the user's slot happened to use.
-    cli_framework = {"claude": "claude_code", "codex": "codex_cli"}.get(
-        framework_name, framework_name
-    )
     # Executor ensure/warm is INSIDE this try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
@@ -1153,8 +1146,6 @@ async def step_3_agent_loop(
         cache_creation_tokens=state.cache_creation_tokens,
         num_turns=state.num_turns,
         cli_session_id=state.cli_session_id,
-        cli_framework=cli_framework if state.cli_session_id else None,
-        cli_working_path=agent_working_path if state.cli_session_id else None,
         # Propagated even without a new session id: step_4 must delete the
         # stale handle regardless of whether the cold retry reported one.
         agent_loop_response=agent_loop_response,

@@ -89,20 +89,11 @@ def test_path_execution_result_carries_cli_fields():
     state = _run_through_processor(_convert_result_to_stream_event(_result_message()))
     result = PathExecutionResult(
         cli_session_id=state.cli_session_id,
-        cli_framework="claude_code",
-        cli_config_fingerprint="0123456789abcdef",
-        cli_working_path="/data/workspaces/u1/a1",
     )
     assert result.cli_session_id == "cli_sess_abc123"
-    assert result.cli_framework == "claude_code"
-    assert result.cli_config_fingerprint == "0123456789abcdef"
-    assert result.cli_working_path == "/data/workspaces/u1/a1"
 
 
 def test_path_execution_result_cli_fields_default_none():
     # DIRECT_TRIGGER / non-Claude paths never fill these.
     result = PathExecutionResult()
     assert result.cli_session_id is None
-    assert result.cli_framework is None
-    assert result.cli_config_fingerprint is None
-    assert result.cli_working_path is None

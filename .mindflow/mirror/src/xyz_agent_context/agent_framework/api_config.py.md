@@ -4,6 +4,15 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 删除 resume_fingerprint()
+
+它算的是"这份配置解析到哪个 CLI 会话存储"的身份(`auth_type|base_url|config_dir|model`
+的 sha256 前 16 位),用来判断存下来的句柄在配置变化后还能不能安全 resume。句柄机制
+删除后没有调用方。
+
+`cli_config_dir` property 保留 —— 它现在的消费者是 [[transcript]](要知道
+per-project transcript 落在哪个目录)和 `to_cli_env`。
+
 ## 2026-07-29 — 提取 `cli_config_dir` property
 
 `CLAUDE_CONFIG_DIR` 的分派(oauth → `claude_oauth_config_path`,其余 →

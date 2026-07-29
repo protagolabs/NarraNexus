@@ -4,6 +4,16 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 删掉三个句柄校验伴随字段
+
+`cli_framework` / `cli_config_fingerprint` / `cli_working_path` 删除。它们唯一的
+用途是校验一个**存下来的**句柄(框架要匹配、配置指纹要匹配、工作路径要匹配),
+而句柄机制整体已删。
+
+`cli_session_id` **保留但降级为纯观测值**:仍从 `ResultMessage.session_id` 采集、
+仍进日志,但没有任何消费者。留着是因为它是"某一轮 CLI 报了哪个会话"的唯一记录,
+排查 resume 行为时有用。注释已改写,免得下一个读者以为它还会被写进库。
+
 ## 2026-07-29 — 删除 PathExecutionResult.resume_failed(T5)
 
 随 [[execution_state]] 同名字段一起删:它只用于把"句柄过期"从 step_3 传到 step_4,

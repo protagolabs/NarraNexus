@@ -69,11 +69,12 @@ class ClaudeConfig:
         """``CLAUDE_CONFIG_DIR`` the CLI subprocess will run with.
 
         Single source for a dispatch that used to be written out separately in
-        :meth:`to_cli_env` and :meth:`resume_fingerprint`, with a comment on
-        each asking the reader to keep them branch-identical by hand. The dir
-        decides which session store the CLI reads AND where its per-project
-        transcripts live (``<dir>/projects/<cwd-slug>/<session_id>.jsonl``),
-        so a third caller wanting it was reason to extract rather than copy.
+        :meth:`to_cli_env` and a since-removed ``resume_fingerprint``, with a
+        comment on each asking the reader to keep them branch-identical by hand.
+        The dir decides where the CLI's per-project transcripts live
+        (``<dir>/projects/<cwd-slug>/<session_id>.jsonl``), which is why the
+        transcript writer needed it too — a third caller was reason to extract
+        rather than copy again.
 
         See :meth:`to_cli_env` for why the two dirs are separate at all.
         """
@@ -84,16 +85,6 @@ class ClaudeConfig:
             if self.auth_type == "oauth"
             else settings.claude_cli_config_path
         )
-
-    def resume_fingerprint(self) -> str:
-        """Identity of the CLI session store this config resolves to.
-
-        Any component change (auth kind, endpoint, config dir, model) means
-        the stored CLI session may not exist or may not be safe to resume
-        under the new config -> caller must cold-start.
-        """
-        raw = f"{self.auth_type}|{self.base_url}|{self.cli_config_dir}|{self.model}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.

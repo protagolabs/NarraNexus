@@ -211,24 +211,16 @@ class PathExecutionResult(BaseModel):
         description="Model calls the framework made during this run (None = not reported)"
     )
 
-    # ========== CLI Session Handle (for --resume capture, step_4 persists) ==========
-    # All four default to None: DIRECT_TRIGGER and non-Claude paths never
-    # fill them; step_4 only persists when cli_session_id is present.
+    # OBSERVATIONAL only: the session id the CLI reported for this run. Nothing
+    # looks it up — the adapter resumes a transcript it wrote itself, so there is
+    # no handle store for this to become. Kept because it is the one record of
+    # what session a turn actually ran under, which is worth having when
+    # debugging resume behaviour. Its three former companions
+    # (cli_framework / cli_config_fingerprint / cli_working_path) existed solely
+    # to validate a STORED handle and went with it (2026-07-29).
     cli_session_id: Optional[str] = Field(
         default=None,
-        description="Resumable CLI session id (ResultMessage.session_id; None = not reported)"
-    )
-    cli_framework: Optional[str] = Field(
-        default=None,
-        description="Canonical coding-agent framework that produced cli_session_id (e.g. 'claude_code')"
-    )
-    cli_config_fingerprint: Optional[str] = Field(
-        default=None,
-        description="ClaudeConfig.resume_fingerprint() of the run (None = not computable; fail-open)"
-    )
-    cli_working_path: Optional[str] = Field(
-        default=None,
-        description="Launch cwd of the CLI for this run (session jsonl archives under its slug)"
+        description="CLI session id the run reported (ResultMessage.session_id; None = not reported)"
     )
 
     # ========== Context Data ==========

@@ -19,14 +19,18 @@ Security shape (why this exists):
   * Because the executor process does NOT set ``AGENT_EXECUTOR_URL``,
     ``get_agent_loop_driver`` here resolves to the LOCAL claude/codex
     driver (no self-recursion).
-  * ONE capability on that otherwise-unauthenticated body is signed:
-    the turn's messages (history included).
-    Every other field only describes this request; a resume handle names a CLI
-    transcript in a CLAUDE_CONFIG_DIR shared across tenants, so without a
-    per-call HMAC a direct caller could replay someone else's conversation.
-    Cloud deploy must provision ``EXECUTOR_RESUME_HMAC_SECRET`` in BOTH the
-    orchestrator and this container; unset = resume silently disabled (cold
-    start), which is always safe.
+  * EVERY field of the body describes only THIS request, which is what
+    makes leaving the endpoint unauthenticated tolerable. That property
+    held once before and was lost: a ``resume_session_id`` named a CLI
+    transcript in a ``CLAUDE_CONFIG_DIR`` shared across tenants, so a
+    direct caller with a guessed handle could replay someone else's
+    conversation — which is why that one capability used to carry a
+    per-call HMAC (``EXECUTOR_RESUME_HMAC_SECRET``). Both the field and
+    the signature are gone (2026-07-29): the claude adapter writes the
+    CLI transcript itself, inside this container, and deletes it when the
+    turn ends, so nothing durable exists for a caller to point at.
+    Anything added to this body later must preserve the property or
+    re-earn it the same way.
 
 Per-agent / per-user workspace isolation is a deployment concern layered
 on top (mount only that user's workspace into the container) — out of
