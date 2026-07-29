@@ -843,6 +843,7 @@ class UserProviderService:
     _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = (
         "claude_code",
         "codex_cli",
+        "nexus_power",
     )
 
     async def get_user_agent_framework(self, user_id: str) -> str:

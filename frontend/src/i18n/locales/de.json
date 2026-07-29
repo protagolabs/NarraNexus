@@ -63,6 +63,7 @@
       "toolLabel": "[ Tool ]",
       "outputLabel": "[ Ausgabe ]",
       "reply": "Antwort",
+      "plan": "Plan",
       "nativeOutput": "Native Ausgabe",
       "helperFallback": "↻ helper_llm-Fallback",
       "helperFallbackTip": "Der Agent hat keine explizite Antwort gesendet; diese Nachricht wurde vom Fallback-LLM aus seiner Begründung verfasst.",

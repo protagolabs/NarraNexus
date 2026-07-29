@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `nexus_power` 进 `_SUPPORTED_AGENT_FRAMEWORKS`
+
+框架白名单是双份的(此处 + [[resolver]] 的 `_KNOWN_AGENT_FRAMEWORKS`),两边
+都得写。少写任一边的表现不是报错而是**静默回落 claude_code**,槽里存的值
+看着完全正常——所以新增框架时这两处一起改,别只改一处。
 
 ## 2026-07-28 — 新增 netmind_free 卡型
 

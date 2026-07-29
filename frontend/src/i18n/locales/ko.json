@@ -63,6 +63,7 @@
       "toolLabel": "[ 도구 ]",
       "outputLabel": "[ 출력 ]",
       "reply": "답변",
+      "plan": "플랜",
       "nativeOutput": "네이티브 출력",
       "helperFallback": "↻ helper_llm 폴백",
       "helperFallbackTip": "에이전트가 명시적으로 답변을 보내지 않았습니다. 이 메시지는 폴백 LLM이 추론을 바탕으로 작성했습니다.",

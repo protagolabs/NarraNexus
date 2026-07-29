@@ -8,6 +8,11 @@ export type MessageType =
   | 'progress'
   | 'agent_response'
   | 'agent_thinking'
+  // NexusPower-only streams. Every framework's messages share this union,
+  // so a shape only one framework emits still has to be declared here —
+  // the alternative is a cast at every consumer.
+  | 'agent_reply_delta'
+  | 'agent_plan'
   | 'tool_call'
   | 'error'
   | 'complete'
@@ -45,6 +50,25 @@ export interface AgentTextDelta extends BaseMessage {
 export interface AgentThinking extends BaseMessage {
   type: 'agent_thinking';
   thinking_content: string;
+}
+
+// NexusPower: the user-facing reply, streamed as the model writes it.
+// Under that framework's contract plain text is private reasoning and
+// the reply lives in an expression tool's argument — so this is the
+// only stream that is truly "the agent speaking". Other frameworks
+// never send it.
+export interface AgentReplyDelta extends BaseMessage {
+  type: 'agent_reply_delta';
+  delta: string;
+  call_id: string;
+  tool_name: string;
+}
+
+// NexusPower: the agent's live plan (full snapshot per update).
+export interface AgentPlanMessage extends BaseMessage {
+  type: 'agent_plan';
+  steps: Array<{ step: string; status: string }>;
+  note: string;
 }
 
 // Tool/function call
@@ -130,6 +154,8 @@ export type RuntimeMessage =
   | ProgressMessage
   | AgentTextDelta
   | AgentThinking
+  | AgentReplyDelta
+  | AgentPlanMessage
   | AgentToolCall
   | ErrorMessage
   | CompleteMessage
@@ -300,6 +326,27 @@ export interface ReplyEvent {
   ts: number;
   content: string;
   reply_via?: string;
+  /**
+   * NexusPower: the reply arrived as a live stream (argument deltas of
+   * the expression tool) and may still be growing. `call_id` keys the
+   * growing bubble so the completed tool_call folds into the SAME block
+   * instead of duplicating it; `streaming` drives the caret/pulse.
+   */
+  call_id?: string;
+  streaming?: boolean;
+}
+
+/**
+ * PlanEvent — NexusPower's live plan (full snapshot, replace-on-write).
+ * One block per turn: later updates replace the steps in place, so the
+ * user watches items flip pending → in_progress → completed.
+ */
+export interface PlanEvent {
+  type: 'plan';
+  id: string;
+  ts: number;
+  steps: Array<{ step: string; status: string }>;
+  note?: string;
 }
 
 export interface NativeOutputEvent {
@@ -314,4 +361,5 @@ export type TurnEvent =
   | ToolCallEvent
   | ToolOutputEvent
   | ReplyEvent
+  | PlanEvent
   | NativeOutputEvent;

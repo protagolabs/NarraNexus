@@ -1,0 +1,131 @@
+"""
+@file_name: error_classifier.py
+@author: Bin Liang
+@date: 2026-07-29
+@description: Default ErrorClassifier and RetryPolicy implementations
+(contract A5).
+
+Classification is a DATA table (exception-name markers + message
+markers), never an if-chain: extending coverage means adding rows.
+litellm exception classes are matched by NAME so this module never
+imports litellm (the lazy-import discipline lives in llm/litellm_client).
+
+``CONTEXT_OVERFLOW`` is deliberately its own class: the loop treats it
+as a compaction signal (compact + retry the step), not a failure.
+"""
+
+from __future__ import annotations
+
+from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
+    ErrorType,
+    LoopError,
+)
+
+# (marker, error_type, retryable) — matched against the exception CLASS
+# NAME chain (including causes), first hit wins.
+_CLASS_NAME_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
+    ("ContextWindowExceeded", ErrorType.CONTEXT_OVERFLOW, True),
+    ("AuthenticationError", ErrorType.AUTHENTICATION_FAILED, False),
+    ("PermissionDenied", ErrorType.AUTHENTICATION_FAILED, False),
+    ("BudgetExceeded", ErrorType.BILLING_ERROR, False),
+    ("RateLimitError", ErrorType.RATE_LIMIT, True),
+    ("Timeout", ErrorType.SERVER_ERROR, True),
+    ("ServiceUnavailable", ErrorType.SERVER_ERROR, True),
+    ("InternalServerError", ErrorType.SERVER_ERROR, True),
+    ("APIConnectionError", ErrorType.SERVER_ERROR, True),
+    ("BadRequestError", ErrorType.INVALID_REQUEST, False),
+    ("UnsupportedParams", ErrorType.INVALID_REQUEST, False),
+    ("NotFoundError", ErrorType.INVALID_REQUEST, False),
+)
+
+# Provider context-overflow message markers (industry-collected set; the
+# reactive-compaction trigger). Checked before generic message rules.
+_OVERFLOW_MESSAGE_MARKERS: tuple[str, ...] = (
+    "context window",
+    "context length",
+    "context_length_exceeded",
+    "maximum context",
+    "request too large",
+    "request_too_large",
+    "prompt is too long",
+    "input is too long",
+    "too many tokens",
+    "exceeds the maximum number of tokens",
+)
+
+_MESSAGE_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
+    ("invalid api key", ErrorType.AUTHENTICATION_FAILED, False),
+    ("incorrect api key", ErrorType.AUTHENTICATION_FAILED, False),
+    ("unauthorized", ErrorType.AUTHENTICATION_FAILED, False),
+    ("insufficient credit", ErrorType.BILLING_ERROR, False),
+    ("insufficient balance", ErrorType.BILLING_ERROR, False),
+    ("credit balance is too low", ErrorType.BILLING_ERROR, False),
+    ("quota", ErrorType.BILLING_ERROR, False),
+    ("rate limit", ErrorType.RATE_LIMIT, True),
+    ("overloaded", ErrorType.SERVER_ERROR, True),
+    ("timed out", ErrorType.SERVER_ERROR, True),
+)
+
+
+class DefaultErrorClassifier:
+    """Rule-table classifier over the exception chain."""
+
+    def classify(self, exc: BaseException) -> LoopError:
+        if isinstance(exc, LoopError):
+            return exc
+        names = " ".join(type(e).__name__ for e in _chain(exc))
+        message = " ".join(str(e) for e in _chain(exc)).strip()
+        lowered = message.lower()
+
+        for marker in _OVERFLOW_MESSAGE_MARKERS:
+            if marker in lowered:
+                return _wrap(exc, ErrorType.CONTEXT_OVERFLOW, message, retryable=True)
+        for marker, error_type, retryable in _CLASS_NAME_RULES:
+            if marker in names:
+                return _wrap(exc, error_type, message, retryable=retryable)
+        for marker, error_type, retryable in _MESSAGE_RULES:
+            if marker in lowered:
+                return _wrap(exc, error_type, message, retryable=retryable)
+        return _wrap(exc, ErrorType.UNKNOWN, message, retryable=False)
+
+
+def _chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        chain.append(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _wrap(
+    exc: BaseException, error_type: ErrorType, message: str, *, retryable: bool
+) -> LoopError:
+    return LoopError(
+        error_type,
+        message or type(exc).__name__,
+        retryable=retryable,
+        provider_raw=exc,
+    )
+
+
+class NoRetry:
+    """v1 default: an error ends the turn (status-quo behaviour; the
+    platform-side helper fallback remains the last resort)."""
+
+    async def should_retry(self, error: LoopError, attempt: int) -> bool:
+        return False
+
+
+class StepRetry:
+    """P3 seat: retry the current step for retryable errors. NOTE: this
+    bounds RETRIES OF A FAILING CALL, not turn length — entirely
+    different from the forbidden turn ceilings (iron rule #14)."""
+
+    def __init__(self, max_attempts_per_step: int = 3) -> None:
+        self._max_attempts = max_attempts_per_step
+
+    async def should_retry(self, error: LoopError, attempt: int) -> bool:
+        return error.retryable and attempt < self._max_attempts

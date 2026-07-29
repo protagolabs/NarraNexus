@@ -20,6 +20,8 @@ from loguru import logger
 from xyz_agent_context.schema import (
     ProgressMessage,
     ProgressStatus,
+    AgentPlan,
+    AgentReplyDelta,
     AgentTextDelta,
     AgentThinking,
     AgentToolCall,
@@ -30,8 +32,10 @@ from xyz_agent_context.schema import (
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    DATA_TYPE_REPLY_DELTA,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
+    ITEM_TYPE_PLAN,
     ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
@@ -171,6 +175,8 @@ class ResponseType(str, Enum):
     TOOL_CALL = "tool_call"
     TOOL_OUTPUT = "tool_output"
     THINKING = "thinking"
+    REPLY_DELTA = "reply_delta"   # NexusPower: the reply, streaming
+    PLAN = "plan"                 # NexusPower: live plan snapshot
     DONE = "done"
     ERROR = "error"
     OTHER = "other"
@@ -358,6 +364,24 @@ class ResponseProcessor:
                 type=ResponseType.TEXT_DELTA,
                 message=AgentTextDelta(delta=delta),
                 state_update={"method": "append_text", "args": {"text": delta}}
+            )
+
+        if data_type == DATA_TYPE_REPLY_DELTA:
+            # NexusPower only: the user-facing reply, streamed as the
+            # model writes the expression tool's argument. It is NOT
+            # appended to final_output — the completed tool call remains
+            # the authoritative record (this is a presentation stream,
+            # so double-counting it would duplicate the reply).
+            delta = data.get("delta", "")
+            if not delta:
+                return ProcessedResponse(type=ResponseType.OTHER, message=None)
+            return ProcessedResponse(
+                type=ResponseType.REPLY_DELTA,
+                message=AgentReplyDelta(
+                    delta=delta,
+                    call_id=str(data.get("call_id", "")),
+                    tool_name=str(data.get("tool_name", "")),
+                ),
             )
 
         if data_type == DATA_TYPE_ERROR:
@@ -551,6 +575,17 @@ class ResponseProcessor:
         # Any non-thinking item — flush thinking residual FIRST so the
         # user sees thinking → tool_call in the correct order.
         yield from self._flush_thinking_residual(state)
+
+        if item_type == ITEM_TYPE_PLAN:
+            # NexusPower only: full plan snapshot (replace-on-write).
+            yield ProcessedResponse(
+                type=ResponseType.PLAN,
+                message=AgentPlan(
+                    steps=list(item.get("steps") or []),
+                    note=str(item.get("note", "")),
+                ),
+            )
+            return
 
         if item_type == ITEM_TYPE_TOOL_CALL:
             # Tool call - use ProgressMessage to display in the step panel

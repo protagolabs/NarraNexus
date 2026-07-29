@@ -57,6 +57,7 @@ dependencies = [
     "websockets>=15.0.1",
     "tiktoken>=0.13.0",
     "posthog>=7.18.0",
+    "litellm>=1.65.0",
 ]
 
 [tool.hatch.build.targets.wheel]

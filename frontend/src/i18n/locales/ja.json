@@ -63,6 +63,7 @@
       "toolLabel": "[ ツール ]",
       "outputLabel": "[ 出力 ]",
       "reply": "返信",
+      "plan": "プラン",
       "nativeOutput": "ネイティブ出力",
       "helperFallback": "↻ helper_llm フォールバック",
       "helperFallbackTip": "エージェントは明示的に返信を送信しませんでした。このメッセージはフォールバック LLM がその推論から生成しました。",

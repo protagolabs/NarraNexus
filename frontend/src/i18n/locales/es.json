@@ -63,6 +63,7 @@
       "toolLabel": "[ herramienta ]",
       "outputLabel": "[ salida ]",
       "reply": "Respuesta",
+      "plan": "Plan",
       "nativeOutput": "Salida nativa",
       "helperFallback": "↻ respaldo de helper_llm",
       "helperFallbackTip": "El agente no envió una respuesta explícita; este mensaje lo escribió el LLM de respaldo a partir de su razonamiento.",

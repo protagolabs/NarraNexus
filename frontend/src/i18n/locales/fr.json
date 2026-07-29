@@ -63,6 +63,7 @@
       "toolLabel": "[ outil ]",
       "outputLabel": "[ sortie ]",
       "reply": "Réponse",
+      "plan": "Plan",
       "nativeOutput": "Sortie native",
       "helperFallback": "↻ repli helper_llm",
       "helperFallbackTip": "L'agent n'a pas envoyé de réponse explicite ; ce message a été rédigé par le LLM de repli à partir de son raisonnement.",

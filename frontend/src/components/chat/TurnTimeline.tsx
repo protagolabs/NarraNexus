@@ -39,7 +39,14 @@
  */
 import { memo, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, Wrench, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Brain,
+  Wrench,
+  MessageSquare,
+  ChevronDown,
+  ChevronRight,
+  ListChecks,
+} from 'lucide-react';
 import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -255,6 +262,99 @@ function fallbackKindFromReplyVia(replyVia: string | undefined): FallbackKind {
   return 'none';
 }
 
+/**
+ * PlanBlock — the agent's live plan (NexusPower).
+ *
+ * Tier PROCESS, but the one process block that stays legible at a
+ * glance: it is a compact checklist that mutates in place as steps flip
+ * pending → in_progress → completed. Same species vocabulary as its
+ * neighbours (mono label, hairline frame); the ACTIVE step is the only
+ * line that carries ink weight, so the eye finds "where the agent is"
+ * without reading the whole list.
+ */
+const PlanBlock = memo(function PlanBlock({
+  steps,
+  note,
+  isStreaming,
+}: {
+  steps: Array<{ step: string; status: string }>;
+  note?: string;
+  isStreaming: boolean;
+}) {
+  const { t } = useTranslation();
+  const done = steps.filter((s) => s.status === 'completed').length;
+  return (
+    <div
+      className={cn(
+        'px-4 py-3 rounded-[var(--radius-lg)]',
+        isStreaming && 'animate-fade-in',
+      )}
+      style={{
+        background: 'var(--nm-paper)',
+        border: '1px dashed var(--nm-hairline)',
+      }}
+    >
+      <div
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] mb-2"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink-tertiary)' }}
+      >
+        <ListChecks className="w-3 h-3" />
+        <span>{t('chat.timeline.plan', { defaultValue: 'Plan' })}</span>
+        <span className="ml-auto tabular-nums">
+          {done}/{steps.length}
+        </span>
+      </div>
+      <ol className="space-y-1">
+        {steps.map((s, i) => {
+          const active = s.status === 'in_progress';
+          const complete = s.status === 'completed';
+          return (
+            <li
+              key={`${i}-${s.step}`}
+              className="flex items-start gap-2 text-[0.8rem] leading-snug"
+              style={{
+                color: active
+                  ? 'var(--nm-ink)'
+                  : complete
+                    ? 'var(--nm-ink-tertiary)'
+                    : 'var(--nm-ink-secondary)',
+                fontWeight: active ? 500 : 400,
+              }}
+            >
+              <span
+                aria-hidden="true"
+                className="mt-[2px] shrink-0"
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 999,
+                  background: active
+                    ? 'var(--color-silicon)'
+                    : complete
+                      ? 'var(--nm-ink-tertiary)'
+                      : 'transparent',
+                  border: complete || active ? 'none' : '1px solid var(--nm-hairline)',
+                }}
+              />
+              <span style={{ textDecoration: complete ? 'line-through' : undefined }}>
+                {s.step}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      {note && (
+        <div
+          className="mt-2 text-[0.72rem]"
+          style={{ color: 'var(--nm-ink-tertiary)' }}
+        >
+          {note}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const ReplyBlock = memo(function ReplyBlock({
   content,
   isStreaming,
@@ -451,6 +551,15 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
                 content={event.content}
                 isStreaming={isStreaming}
                 fallbackKind={fallbackKindFromReplyVia(event.reply_via)}
+              />
+            );
+          case 'plan':
+            return (
+              <PlanBlock
+                key={event.id}
+                steps={event.steps}
+                note={event.note}
+                isStreaming={isStreaming}
               />
             );
           case 'native_output':

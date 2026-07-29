@@ -45,6 +45,8 @@ from .runtime_message import (
     ProgressStatus,
     # Messages
     ProgressMessage,
+    AgentPlan,
+    AgentReplyDelta,
     AgentTextDelta,
     AgentThinking,
     AgentToolCall,
@@ -272,6 +274,8 @@ __all__ = [
     "MessageType",
     "ProgressStatus",
     "ProgressMessage",
+    "AgentPlan",
+    "AgentReplyDelta",
     "AgentTextDelta",
     "AgentThinking",
     "AgentToolCall",

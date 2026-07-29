@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — NexusPower 专属的两个消息型别
+
+`agent_reply_delta`(表达工具参数流=真正的"agent 在说话")与 `agent_plan`
+(整份快照)写进 `MessageType` 联合。只有一个框架发的形状照样要进联合——
+否则每个消费点都得写 cast。其他框架永不发这两种,消费端按存在与否分支即可。
 
 ## 2026-07-22 — action_reason/actionReason 补 executor-infra reasons
 
