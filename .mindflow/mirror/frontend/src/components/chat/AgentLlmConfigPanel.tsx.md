@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — provider 过滤改问「框架收不收这个协议」
+
+原来按 `framework.protocol` 单值过滤 provider 下拉。NexusPower 直接驱动
+provider API，anthropic / openai 两族都能用，被单值过滤会砍掉一半合法选项。
+改走 [[agentFramework]] 的 `frameworkAcceptsProtocol()`——CLI 型框架依旧只认
+自己 CLI 的那一种，行为不变。
 
 ## 2026-07-23 — 免费额度生效诚实 banner
 

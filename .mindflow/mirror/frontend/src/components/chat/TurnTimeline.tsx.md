@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-05-25
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `PlanBlock` + 流式回复渲染
+
+新增 `PlanBlock` 渲染 NexusPower 的实时计划（沿用时间线既有的设计语言，不另起
+一套视觉），并把 reply-delta 气泡接进时间线。
+
+判断依据是**消息形状**不是框架名：有 plan 消息才渲染 plan。这样别的框架的
+时间线一个像素都不变，将来第四个框架发同样形状也自动能用。
 
 ## 2026-05-25 — Two-mode fallback badge on ReplyBlock
 

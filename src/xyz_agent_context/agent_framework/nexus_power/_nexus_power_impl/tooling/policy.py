@@ -29,7 +29,20 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
 
 # Builtin argument names that carry filesystem paths (the confinement
 # layer's inspection surface).
+#: Arguments EVERY builtin interprets as a location on disk.
 _PATH_ARG_NAMES = ("path", "file_path", "directory")
+
+#: Per-tool extras, because the same parameter name means different
+#: things to different tools: ``glob``'s ``pattern`` IS a path expression
+#: (``glob('../../etc/*')`` enumerated the host while every declared path
+#: argument looked clean — 2026-07-29 review), while ``grep``'s
+#: ``pattern`` is a REGEX and must never be resolved as a path or a
+#: search for ``^/etc`` would be denied as an escape. A name-keyed
+#: allowlist cannot express that; a tool-keyed one can.
+_TOOL_PATH_ARG_NAMES = {
+    "glob": ("pattern",),
+    "grep": ("glob",),  # grep's file filter is a path expression; its `pattern` is not
+}
 
 
 class PolicyEngine:
@@ -79,7 +92,8 @@ class WorkspaceConfinementLayer:
         if call.name.startswith("mcp__"):
             return ALLOW
         workspace = Path(ctx.tool_ctx.workspace).resolve()
-        for arg_name in _PATH_ARG_NAMES:
+        arg_names = _PATH_ARG_NAMES + _TOOL_PATH_ARG_NAMES.get(call.name, ())
+        for arg_name in arg_names:
             raw = call.args.get(arg_name)
             if not isinstance(raw, str) or not raw:
                 continue
@@ -105,13 +119,24 @@ class ShellConfinementLayer:
     pattern check is defence in depth, not a boundary.
 
     What this layer honestly is:
-      - it denies commands that NAME an absolute path outside the
-        workspace, and the standard "escape upward" forms (``cd /``,
-        ``cd ..`` beyond the root, ``~`` outside the workspace);
+      - it denies commands naming a location that leaves the workspace,
+        whether written absolutely (``/etc/passwd``, ``~/x``) or
+        relatively (``../../etc/passwd``, ``cd ..``);
       - it is NOT a sandbox. The real boundary is the per-user executor
         CONTAINER in the cloud. Desktop/local mode has no OS-level
         sandbox for any framework (claude_code's CLI is equally free) —
         closing that gap belongs with the authorization design.
+
+    The relative case was originally missed — the token loop skipped
+    everything that did not start with ``/`` or ``~``, so the shortest
+    escape in the book walked through the layer written to stop it
+    (2026-07-29 review). Relative tokens are now resolved against the
+    workspace ROOT, which is why a bare ``cd ..`` is refused even when
+    the shell happens to sit in a subdirectory: this layer cannot see
+    the shell's working directory, and guessing wrong in the permissive
+    direction is how the hole appeared the first time. The deny message
+    names the offending token so the model can rewrite the command
+    rather than guess what upset us.
     """
 
     # Commands whose first token is a harmless shell builtin operating on
@@ -136,9 +161,11 @@ class ShellConfinementLayer:
                     f"work inside {workspace}",
                 )
         for token in _shell_tokens(command):
-            if not token.startswith(("/", "~")):
+            if not _looks_like_path(token):
                 continue
             candidate = Path(token).expanduser()
+            if not candidate.is_absolute():
+                candidate = workspace / candidate
             try:
                 resolved = candidate.resolve()
             except (OSError, RuntimeError):
@@ -150,6 +177,22 @@ class ShellConfinementLayer:
                     f"work inside {workspace}",
                 )
         return ALLOW
+
+
+def _looks_like_path(token: str) -> bool:
+    """Is this token worth resolving as a location?
+
+    Absolutes and ``~`` always are. Among relative tokens only those with
+    an actual ``..`` SEGMENT are — that is the whole relative-escape
+    vocabulary, and testing for the segment rather than the substring
+    keeps ordinary arguments (``--x=a..b``, ``file..txt``) out of the
+    check. Flags are skipped so ``sed -i`` and friends stay quiet.
+    """
+    if token.startswith(("/", "~")):
+        return True
+    if token.startswith("-"):
+        return False
+    return ".." in Path(token).parts
 
 
 def _shell_tokens(command: str) -> list[str]:

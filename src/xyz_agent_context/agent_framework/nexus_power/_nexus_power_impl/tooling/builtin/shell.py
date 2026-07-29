@@ -26,6 +26,40 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
 
 _DEFAULT_TIMEOUT_S = 120
 _MAX_TIMEOUT_S = 600
+
+#: Host variables the agent's shell inherits. An ALLOWLIST, because the
+#: obvious `{**os.environ}` hands the model every credential the host
+#: process happens to hold — provider keys, DB password, master secret —
+#: and one `env` reads them all (2026-07-29 review; iron rule #20 draws
+#: the line at scoped credentials). These entries are what makes a shell
+#: a working shell rather than what makes it privileged: without PATH
+#: nothing resolves, without HOME git and every CLI misbehave, without
+#: the locale set output mangles non-ASCII.
+#:
+#: The turn's OWN scoped values arrive separately via ``ctx.extra_env``
+#: and are meant to be there. Anything an agent legitimately needs is
+#: added here deliberately, one name at a time.
+_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "TZ",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+)
+
+
+def _shell_env(ctx: ToolContext) -> dict[str, str]:
+    """The environment the agent's shell actually gets."""
+    env = {k: os.environ[k] for k in _ENV_ALLOWLIST if k in os.environ}
+    env.setdefault("PATH", os.defpath)
+    env.update(ctx.extra_env)
+    return env
 _MAX_OUTPUT_CHARS = 60_000
 
 
@@ -61,7 +95,7 @@ async def bash(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
     if not command:
         return ToolResult(call_id=call_id, ok=False, error="empty command")
     timeout = min(int(args.get("timeout_s") or _DEFAULT_TIMEOUT_S), _MAX_TIMEOUT_S)
-    env = {**os.environ, **ctx.extra_env}
+    env = _shell_env(ctx)
 
     process = await asyncio.create_subprocess_shell(
         command,

@@ -248,3 +248,111 @@ def test_shell_confinement_allows_normal_work(engine, ctx, workspace):
             ToolCall(id="1", name="bash", args={"command": command}), _pctx(ctx)
         )
         assert decision.allowed, f"{command}: {decision.reason}"
+
+
+def test_shell_confinement_covers_relative_escapes(engine, ctx):
+    """Absolute-path checking alone is not confinement.
+
+    The review found the token loop skipping every token that did not
+    start with ``/`` or ``~`` — so the shortest escape in the book,
+    ``cat ../../../etc/passwd``, walked straight through the layer that
+    exists precisely to stop it.
+    """
+    for command in (
+        "cat ../../../../etc/passwd",
+        "cd ../.. && cat etc/passwd",
+        "head -1 ../../etc/passwd",
+        "cd ..",
+    ):
+        decision = engine.check(
+            ToolCall(id="x", name="bash", args={"command": command}), _pctx(ctx)
+        )
+        assert not decision.allowed, f"escaped: {command}"
+        assert "workspace" in decision.reason
+
+    # Ordinary work inside the workspace stays allowed.
+    for command in (
+        "ls",
+        "cat hello.txt",
+        "cd sub && ls",
+        "grep -rn foo ./sub",
+        "sed -i 's|/usr/bin|x|' hello.txt",
+    ):
+        decision = engine.check(
+            ToolCall(id="y", name="bash", args={"command": command}), _pctx(ctx)
+        )
+        assert decision.allowed, f"false positive: {command} -> {decision.reason}"
+
+
+def test_glob_pattern_is_a_path_operand(engine, ctx):
+    """``WorkspaceConfinementLayer`` only inspected ``path`` /
+    ``file_path`` / ``directory``, so ``glob('../../../etc/*')``
+    enumerated the host while every declared path argument looked clean.
+
+    ``grep``'s ``pattern`` is a REGEX and must stay unresolved, or a
+    search for ``^/etc`` would be denied as an escape.
+    """
+    denied = engine.check(
+        ToolCall(id="1", name="glob", args={"pattern": "../../../etc/*"}), _pctx(ctx)
+    )
+    assert not denied.allowed and "outside the workspace" in denied.reason
+
+    allowed = engine.check(
+        ToolCall(id="2", name="glob", args={"pattern": "**/*.py"}), _pctx(ctx)
+    )
+    assert allowed.allowed
+
+    regex = engine.check(
+        ToolCall(id="3", name="grep", args={"pattern": "^/etc/passwd"}), _pctx(ctx)
+    )
+    assert regex.allowed, "grep patterns are regexes, not paths"
+
+    file_filter = engine.check(
+        ToolCall(id="4", name="grep", args={"pattern": "x", "glob": "../../*.conf"}),
+        _pctx(ctx),
+    )
+    assert not file_filter.allowed
+
+
+@pytest.mark.asyncio
+async def test_glob_tool_filters_outside_hits_itself(ctx):
+    """Defence in depth: the tool that touches the filesystem does not
+    assume the policy layer ran — that assumption opened the hole."""
+    toolset = BuiltinToolset(ctx, enabled_groups=frozenset({"files"}))
+    escaped = await toolset.call("glob", {"pattern": "../../../etc/*"}, ctx)
+    assert escaped.ok and escaped.content.strip() == ""
+
+    inside = await toolset.call("glob", {"pattern": "*.txt"}, ctx)
+    assert inside.ok and "hello.txt" in inside.content
+
+
+@pytest.mark.asyncio
+async def test_shell_env_is_an_allowlist_not_the_host_environment(ctx, monkeypatch):
+    """The agent's shell used to inherit ``os.environ`` wholesale.
+
+    One ``env`` call would then hand the model every credential the host
+    process holds — DB passwords, provider keys, the master secret —
+    which is precisely the "scoped creds" line iron rule #20 draws.
+    """
+    monkeypatch.setenv("NEXUS_TEST_MASTER_SECRET", "super-secret-value")
+    toolset = BuiltinToolset(ctx, enabled_groups=frozenset({"shell"}))
+
+    dumped = await toolset.call("bash", {"command": "env"}, ctx)
+    assert dumped.ok
+    assert "super-secret-value" not in dumped.content
+    assert "NEXUS_TEST_MASTER_SECRET" not in dumped.content
+
+    # …while the shell stays a usable shell.
+    usable = await toolset.call("bash", {"command": "echo $HOME && pwd && echo ok"}, ctx)
+    assert usable.ok and "ok" in usable.content and ctx.workspace in usable.content
+
+
+@pytest.mark.asyncio
+async def test_shell_still_receives_turn_scoped_env(workspace):
+    """``extra_env`` is the turn's OWN scoped set and must pass through."""
+    scoped = ToolContext(
+        agent_id="a1", workspace=str(workspace), extra_env={"AGENT_SCOPED": "yes-please"}
+    )
+    toolset = BuiltinToolset(scoped, enabled_groups=frozenset({"shell"}))
+    got = await toolset.call("bash", {"command": "echo $AGENT_SCOPED"}, scoped)
+    assert got.ok and "yes-please" in got.content

@@ -1,9 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/events.py
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 stub: false
 ---
+
 # loop/events.py — driver 事件契约的唯一事实源
+
+## 2026-07-29 — 新增 `DATA_TYPE_REPLY_DELTA` / `ITEM_TYPE_PLAN`
+
+NexusPower 用的两个新事件面：`DATA_TYPE_REPLY_DELTA = "response.reply.delta"`
+承载**表达工具参数**的流式片段（= 真正送达用户的回复，其余 LLM 输出一律算
+思考），`ITEM_TYPE_PLAN` 承载整份计划快照。
+
+写在这里而不是 nexus_power 包内：本文件是 driver 事件契约的**唯一**事实源，
+任何 driver 想发的形状都得在这儿有名字，否则 [[response_processor]] 那侧就得
+靠字符串魔法认。别的 driver 不发这两种，常量存在本身不构成负担。
 
 ## 2026-07-27 — 新增 DATA_TYPE_USAGE
 

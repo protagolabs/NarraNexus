@@ -210,3 +210,39 @@ def test_tool_dialect_rewrite_is_anthropic_only():
         "description": "d",
         "input_schema": {"type": "object"},
     }
+
+
+def test_cache_breakpoints_also_mark_block_form_content():
+    """A computed breakpoint must not be dropped on the floor.
+
+    Only `str` content was marked, so any message already in block form
+    (multimodal, or one the caller pre-built) silently bought no cache —
+    the plan asked for a breakpoint and nothing carried it.
+    """
+    profile = resolve_profile("claude", "anthropic")
+    client = LiteLLMModelClient(profile, client=None)
+    request = ModelRequest(
+        params=ModelParams(model="claude", provider="anthropic"),
+        messages=[
+            {"role": "system", "content": "plain"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "look"},
+                    {"type": "image_url", "image_url": {"url": "data:..."}},
+                ],
+            },
+        ],
+        tools=[],
+        cache_plan=CachePlan(breakpoint_indices=(0, 1)),
+    )
+    marked = client._apply_cache_plan(request)
+
+    assert marked[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    # Block form: the marker rides the LAST block, which is where
+    # Anthropic reads it from.
+    blocks = marked[1]["content"]
+    assert "cache_control" not in blocks[0]
+    assert blocks[-1]["cache_control"] == {"type": "ephemeral"}
+    # The original request is untouched (marking copies).
+    assert "cache_control" not in request.messages[1]["content"][-1]

@@ -87,11 +87,16 @@ def prune_turn_logs(directory: str, keep: int = LOG_RETENTION) -> int:
 
     try:
         entries = [e for e in os.scandir(directory) if e.name.endswith(".ndjson")]
+        if len(entries) <= keep:
+            return 0
+        # stat() belongs INSIDE the guard: a concurrent turn pruning the
+        # same directory can delete a file between scandir and stat, and
+        # a FileNotFoundError escaping here would kill a turn before it
+        # started — from tidying up (2026-07-29 review). Best-effort has
+        # to mean it everywhere, not just where it was convenient.
+        entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
     except OSError:
         return 0
-    if len(entries) <= keep:
-        return 0
-    entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
     removed = 0
     for entry in entries[keep:]:
         try:

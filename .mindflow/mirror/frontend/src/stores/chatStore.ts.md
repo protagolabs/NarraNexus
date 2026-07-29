@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — reply-delta 增长气泡 + plan 原地替换
+
+两条 NexusPower 专属流的落点：
+
+- `agent_reply_delta` 按 `call_id` 聚成**一个**增长中的气泡（同一次表达工具
+  调用的片段属于同一句话）；该次调用完成的 `tool_call` 事件不再另起一条，而是
+  折叠进这个已经开着的气泡——否则用户会看到同一句话出现两遍。
+- `agent_plan` 是整份快照，所以**原地替换**而非追加。
+
+其他框架永不发这两种消息，既有分支逐字未变。
 
 ## 2026-07-23 — stopStreaming fires the desktop completion notification (#44)
 

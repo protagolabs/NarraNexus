@@ -195,7 +195,18 @@ async def glob_files(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
     pattern = str(args.get("pattern", "*"))
     if not root.is_dir():
         return ToolResult(call_id=call_id, ok=False, error=f"not a directory: {root}")
-    hits = [p for p in root.glob(pattern) if p.is_file()]
+    # The pattern is a path expression, so it can climb: `../../etc/*`
+    # walked out of the workspace entirely (2026-07-29 review). The policy
+    # layer now rejects such patterns up front, but the tool that actually
+    # touches the filesystem does not get to assume someone else checked —
+    # that assumption is what opened the hole. Filtering here also removes
+    # a latent crash, since `relative_to(root)` below raises on an outside
+    # hit.
+    hits = [
+        p
+        for p in root.glob(pattern)
+        if p.is_file() and p.resolve().is_relative_to(root)
+    ]
     hits.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     shown = [str(p.relative_to(root)) for p in hits[:_MAX_MATCHES]]
     suffix = "" if len(hits) <= _MAX_MATCHES else f"\n[{len(hits) - _MAX_MATCHES} more not shown]"

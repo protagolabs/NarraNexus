@@ -44,7 +44,10 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelRequest,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolCall
+from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+    ToolCall,
+    ToolResult,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.hooks import (
     HookEvent,
 )
@@ -95,6 +98,13 @@ class NexusPowerLoop:
                         error = a.errors.classify(exc)
                     if error is None:
                         break
+                    # The failed attempt may have streamed text and tool
+                    # calls into the ledger before it broke. Every path
+                    # below either retries or fails, and both need the
+                    # ledger back at the state the attempt started from —
+                    # otherwise the replay duplicates the text and trips
+                    # the duplicate-call_id guard.
+                    ledger.discard_step()
                     if error.error_type is ErrorType.CONTEXT_OVERFLOW:
                         compacted = False
                         async for ev in self._compact("reactive"):
@@ -128,7 +138,24 @@ class NexusPowerLoop:
                     if not outcome.allowed:
                         result = call_denied_by_hook(call, outcome.notes)
                     else:
-                        result = await a.tools.execute(call)
+                        try:
+                            result = await a.tools.execute(call)
+                        except Exception as exc:  # noqa: BLE001
+                            # A channel that raises must still produce a
+                            # RESULT. Letting the exception fly left the
+                            # call open on the ledger, and the turn then
+                            # closed with a dangling `tool_calls` entry —
+                            # breaking the one invariant this loop swears
+                            # to: tool_use and tool_result are never
+                            # separated (2026-07-29 review).
+                            logger.exception(
+                                f"tool channel raised for {call.name!r}: {exc}"
+                            )
+                            result = ToolResult(
+                                call_id=call.id,
+                                ok=False,
+                                error=f"tool execution failed: {exc}",
+                            )
                     await a.hooks.fire(
                         HookEvent.POST_TOOL_USE, {"call": call, "result": result}
                     )
@@ -304,8 +331,6 @@ class NexusPowerLoop:
 
 
 def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
-    from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
-
     return ToolResult(
         call_id=call.id,
         ok=False,

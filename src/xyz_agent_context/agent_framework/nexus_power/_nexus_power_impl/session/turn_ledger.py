@@ -195,6 +195,26 @@ class TurnLedger:
         )
         return [event]
 
+    def discard_step(self) -> None:
+        """Throw away the step currently being streamed.
+
+        A retried MODEL_STREAM has to start from the same ledger state as
+        the attempt it replaces. Without this, an error arriving MID-
+        stream left the first attempt's text and tool calls behind: the
+        replay appended its text a second time and re-emitted the same
+        ``call_id``, which the duplicate guard in ``record_model_event``
+        turns into a hard failure (latent under the v1 ``NoRetry``
+        default, immediate once ``StepRetry`` is bound).
+
+        Only the UNCOMMITTED step is affected — ``_fold_step_message``
+        has not run, so no message has been produced yet, and calls from
+        earlier steps already carry their results.
+        """
+        for call in self._step_calls:
+            self._open.pop(call.id, None)
+        self._step_calls = []
+        self._step_text = []
+
     def synthesize_interrupted_results(self, reason: str) -> list[LoopEvent]:
         """Close every open call with a synthetic result so pairing holds
         on any interruption path."""

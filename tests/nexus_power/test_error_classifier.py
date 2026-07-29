@@ -73,3 +73,39 @@ async def test_retry_policies(classifier):
     retry = StepRetry(max_attempts_per_step=2)
     assert await retry.should_retry(overflow, attempt=0) is True
     assert await retry.should_retry(overflow, attempt=2) is False
+
+
+def test_step_retry_backs_off_between_attempts():
+    """Three retries fired within milliseconds are worse than none.
+
+    A RATE_LIMIT answered by an immediate burst is just a bigger burst,
+    and a SERVER_ERROR gets no time to pass (2026-07-29 review). The
+    schedule is exponential and capped so a long turn riding out a
+    provider hiccup never stalls for minutes.
+    """
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+        StepRetry,
+    )
+
+    policy = StepRetry(max_attempts_per_step=5, base_delay_s=1.0, max_delay_s=15.0)
+    assert [policy.delay_for(n) for n in (1, 2, 3, 4)] == [1.0, 2.0, 4.0, 8.0]
+    assert policy.delay_for(10) == 15.0  # capped
+
+
+@pytest.mark.asyncio
+async def test_step_retry_stops_at_the_attempt_bound_without_sleeping():
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+        StepRetry,
+    )
+    from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
+        ErrorType,
+        LoopError,
+    )
+
+    policy = StepRetry(max_attempts_per_step=2, base_delay_s=0.0)
+    retryable = LoopError(ErrorType.SERVER_ERROR, "boom", retryable=True)
+    assert await policy.should_retry(retryable, 1) is True
+    assert await policy.should_retry(retryable, 2) is False  # bound reached, no sleep
+
+    fatal = LoopError(ErrorType.AUTHENTICATION_FAILED, "nope", retryable=False)
+    assert await policy.should_retry(fatal, 1) is False

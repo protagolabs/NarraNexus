@@ -16,6 +16,8 @@ as a compaction signal (compact + retry the step), not a failure.
 
 from __future__ import annotations
 
+import asyncio
+
 from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
     ErrorType,
     LoopError,
@@ -122,10 +124,34 @@ class NoRetry:
 class StepRetry:
     """P3 seat: retry the current step for retryable errors. NOTE: this
     bounds RETRIES OF A FAILING CALL, not turn length — entirely
-    different from the forbidden turn ceilings (iron rule #14)."""
+    different from the forbidden turn ceilings (iron rule #14).
 
-    def __init__(self, max_attempts_per_step: int = 3) -> None:
+    Retries WAIT before firing. Without a backoff the three attempts land
+    within milliseconds of each other, which for the two errors that
+    actually reach here is worse than useless: a RATE_LIMIT answers a
+    burst with a bigger burst, and a SERVER_ERROR gets no time to pass.
+    The delay is exponential from a small base and capped, so a long turn
+    riding out a provider hiccup never stalls for minutes.
+    """
+
+    def __init__(
+        self,
+        max_attempts_per_step: int = 3,
+        *,
+        base_delay_s: float = 1.0,
+        max_delay_s: float = 15.0,
+    ) -> None:
         self._max_attempts = max_attempts_per_step
+        self._base_delay_s = base_delay_s
+        self._max_delay_s = max_delay_s
+
+    def delay_for(self, attempt: int) -> float:
+        """Seconds to wait before attempt N (1-based). Pure, so the
+        schedule is testable without sleeping through it."""
+        return min(self._base_delay_s * (2 ** max(0, attempt - 1)), self._max_delay_s)
 
     async def should_retry(self, error: LoopError, attempt: int) -> bool:
-        return error.retryable and attempt < self._max_attempts
+        if not (error.retryable and attempt < self._max_attempts):
+            return False
+        await asyncio.sleep(self.delay_for(attempt))
+        return True

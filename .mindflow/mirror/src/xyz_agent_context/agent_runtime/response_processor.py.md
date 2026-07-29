@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — REPLY_DELTA / PLAN 两条分支
+
+新增 `ResponseType.REPLY_DELTA` / `PLAN` 及其处理分支，产出
+`AgentReplyDelta` / `AgentPlan`。两条**只**在 NexusPower 独有的事件形状上触发，
+别的 driver 的流一个字节都不受影响。
+
+计费口径没变、也不许变：reply-delta **不计入** `final_output`——它是表达工具
+参数的投影，真正的 final_output 仍来自工具调用本身。两边都算就是双计，只算
+delta 就会在非流式路径上丢内容。
 
 ## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
 

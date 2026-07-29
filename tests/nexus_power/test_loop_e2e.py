@@ -446,3 +446,41 @@ async def test_legacy_adapter_golden_shapes():
         if d.get("data", {}).get("type") == DATA_TYPE_ERROR
     )
     assert error_data["error_type"] == "invalid_request"  # overflow mapped safely
+
+
+@pytest.mark.asyncio
+async def test_tool_channel_exception_still_produces_a_paired_result():
+    """A raising channel must not split a tool_use/result pair.
+
+    `execute` had no guard, so the exception flew past DISPATCH to the
+    `finally`, which only closes the turn. The call stayed open on the
+    ledger and the projection then carried a `tool_calls` entry with no
+    answering `tool` message — the one thing this loop promises never
+    happens (2026-07-29 review).
+    """
+    class ExplodingTools(FakeTools):
+        async def execute(self, call: ToolCall) -> ToolResult:
+            raise RuntimeError("channel died")
+
+    model = FakeModel([
+        [_text("calling"), _use("c1", "bash", {"command": "ls"}), _done()],
+        [_text("recovered"), _done(stop="end_turn")],
+    ])
+    tools = ExplodingTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, ledger = await _run(_assembly(model, tools))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert TYPE_TOOL_RESULT in types
+    assert not ledger.open_tool_calls()
+
+    # The failure is reported to the model as a result, so it can react.
+    result_event = next(e for e in events if e.type == TYPE_TOOL_RESULT)
+    assert result_event.payload["ok"] is False
+    assert "channel died" in str(result_event.payload)
+
+    # Every assistant tool_call is answered in the projection.
+    messages = ledger.provider_messages()
+    called = [c["id"] for m in messages if m.get("tool_calls") for c in m["tool_calls"]]
+    answered = [m.get("tool_call_id") for m in messages if m.get("role") == "tool"]
+    assert called and set(called) == set(answered)
