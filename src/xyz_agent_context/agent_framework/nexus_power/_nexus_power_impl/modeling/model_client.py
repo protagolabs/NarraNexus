@@ -142,6 +142,17 @@ class LiteLLMModelClient:
                         "cache_control": {"type": "ephemeral"},
                     }
                 ]
+            elif isinstance(content, list) and content:
+                # Already in block form (multimodal, or a prior mark).
+                # Skipping these silently just bought less cache than the
+                # plan asked for — the breakpoint was computed, then
+                # dropped on the floor. Anthropic reads cache_control off
+                # the LAST block of the message, so that is where it goes.
+                blocks = [dict(b) if isinstance(b, dict) else b for b in content]
+                last = blocks[-1]
+                if isinstance(last, dict):
+                    last["cache_control"] = {"type": "ephemeral"}
+                    message["content"] = blocks
         return marked
 
     @staticmethod
@@ -300,11 +311,17 @@ def _price_row(model: str) -> dict[str, Any] | None:
     resolve; the map is keyed by several forms, so try most-specific
     first, then a case-insensitive sweep.
     """
+    # Through the seam, never `import litellm` here: that class declares
+    # itself the repo's single litellm import point, and a second one
+    # makes the claim false and the swap it protects (different client,
+    # direct SDK) a two-file change instead of one — iron rule #9
+    # (2026-07-29 review).
+    from xyz_agent_context.agent_framework.llm.litellm_client import LitellmClient
+
     try:
-        import litellm
+        table = LitellmClient.model_cost_map()
     except ImportError:  # pragma: no cover - litellm is a hard dependency
         return None
-    table = getattr(litellm, "model_cost", None) or {}
     candidates = [model]
     if "/" in model:
         candidates.append(model.split("/", 1)[1])

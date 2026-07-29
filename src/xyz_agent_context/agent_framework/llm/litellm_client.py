@@ -73,6 +73,21 @@ class LitellmClient:
                 dict[str, Any], data if isinstance(data, dict) else vars(data)
             )
 
+    @classmethod
+    def model_cost_map(cls) -> dict[str, Any]:
+        """litellm's maintained per-model price table, raw.
+
+        Pricing is the other thing callers legitimately need out of
+        litellm, and without this they reach for ``import litellm``
+        themselves — which is exactly what happened to nexus_power's
+        cost estimation and made the "single import point" claim above
+        false (2026-07-29 review). The RAW map is returned on purpose:
+        which key a model id matches, and how the rates combine, is
+        semantics and belongs to the caller. This class stays
+        connections-and-passthrough.
+        """
+        return getattr(cls._litellm(), "model_cost", None) or {}
+
     @staticmethod
     def _litellm() -> Any:
         """Lazy import + one-time quietening (idempotent)."""

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-07-22
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
+
+NexusPower 的独白契约让**明文 = 私有思考、对外说话必须走表达工具**，于是多出
+两种别的框架永远不发的形状：
+
+- `AGENT_REPLY_DELTA` / `AgentReplyDelta` —— 表达工具**参数**的流式片段。这才是
+  「agent 在说话」；带 `call_id` 用于把同一次调用的片段拼成一个气泡。
+- `AGENT_PLAN` / `AgentPlan` —— agent 的实时计划，**整份快照**（不是增量），
+  所以消费端是替换而不是追加。
+
+放 schema 层而不是塞进 `agent_response` 的 `response_type`：这两者不是文本的
+变体，前者是「唯一真正送达用户的流」，后者压根不是文本。别的框架不发它们，
+前端按有无分支即可。
 
 ## 2026-07-22 — 新增 `EXECUTOR_INFRA_ERROR_TYPE` 常量
 

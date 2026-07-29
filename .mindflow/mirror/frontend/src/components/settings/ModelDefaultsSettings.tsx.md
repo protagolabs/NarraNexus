@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 同步走 `frameworkAcceptsProtocol()`
+
+与 [[AgentLlmConfigPanel]] 同一处改动：槽位 provider 过滤从「框架的那一个协议」
+变成「框架接受的协议集合」。两个槽位编辑器必须同口径，否则同一个 provider 在
+两处一个可选一个不可选。
 
 ## 2026-07-23 — 免费额度生效诚实 banner
 

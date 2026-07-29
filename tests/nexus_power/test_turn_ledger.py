@@ -209,3 +209,43 @@ def test_prune_tolerates_a_missing_directory():
     )
 
     assert prune_turn_logs("/nonexistent/nexus_power/logs") == 0
+
+
+def test_discard_step_undoes_a_half_streamed_step():
+    """A retried step must not leave its first attempt behind.
+
+    MODEL_STREAM retries reset the loop's local `step_calls` but not the
+    ledger, so an error arriving MID-stream replayed the assistant text
+    and re-emitted the same `tool_use` — which the duplicate-call_id
+    guard turns into a hard failure the moment StepRetry is enabled
+    (2026-07-29 review).
+    """
+    from xyz_agent_context.agent_framework.nexus_power.contracts.model import ModelEvent
+
+    ledger = TurnLedger("t1")
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "half a "}))
+    ledger.record_model_event(
+        ModelEvent(
+            kind="tool_use",
+            payload={"call_id": "c1", "tool_name": "bash", "args": {"command": "ls"}},
+        )
+    )
+    assert ledger.open_tool_calls()
+
+    ledger.discard_step()
+    assert not ledger.open_tool_calls()
+
+    # The identical step now replays cleanly — same call_id, no duplicate.
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "thought"}))
+    ledger.record_model_event(
+        ModelEvent(
+            kind="tool_use",
+            payload={"call_id": "c1", "tool_name": "bash", "args": {"command": "ls"}},
+        )
+    )
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "tool_use"}))
+    messages = ledger.provider_messages()
+    assistant = [m for m in messages if m.get("role") == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0]["content"] == "thought"  # not "half a thought"
+    assert len(assistant[0]["tool_calls"]) == 1
