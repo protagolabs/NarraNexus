@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.exp
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
     DisallowedToolsLayer,
     PolicyEngine,
+    ShellConfinementLayer,
     WorkspaceConfinementLayer,
 )
 
@@ -49,7 +50,9 @@ def ctx(workspace):
 
 @pytest.fixture()
 def engine():
-    return PolicyEngine((DisallowedToolsLayer(), WorkspaceConfinementLayer()))
+    return PolicyEngine(
+        (DisallowedToolsLayer(), WorkspaceConfinementLayer(), ShellConfinementLayer())
+    )
 
 
 def _pctx(ctx, disallowed=()):
@@ -214,3 +217,34 @@ async def test_capability_expander_idempotent_and_seams():
     block = await expander.expand_initial(frozenset({"empty"}))
     assert "now active" in block
     assert expander.expanded_keys() == frozenset({"jobs", "empty"})
+
+
+def test_shell_confinement_blocks_the_documented_escapes(engine, ctx):
+    """Regression for acceptance case `safety` (2026-07-29): the file
+    tools denied /etc/passwd and the model simply ran `bash head -1
+    /etc/passwd` instead."""
+    for command in (
+        "head -1 /etc/passwd",
+        "cat ~/.ssh/id_rsa",
+        "cd / && ls",
+        "cd ~",
+    ):
+        decision = engine.check(
+            ToolCall(id="1", name="bash", args={"command": command}), _pctx(ctx)
+        )
+        assert not decision.allowed, command
+        assert "workspace" in decision.reason
+
+
+def test_shell_confinement_allows_normal_work(engine, ctx, workspace):
+    for command in (
+        "ls -la",
+        "python3 -c 'print(1)'",
+        "cat notes/summary.txt",
+        f"wc -l {workspace}/hello.txt",   # absolute but INSIDE the workspace
+        "sed -i 's/a/b/' hello.txt",
+    ):
+        decision = engine.check(
+            ToolCall(id="1", name="bash", args={"command": command}), _pctx(ctx)
+        )
+        assert decision.allowed, f"{command}: {decision.reason}"

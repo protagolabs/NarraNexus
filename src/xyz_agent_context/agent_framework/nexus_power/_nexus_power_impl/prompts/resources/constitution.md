@@ -16,6 +16,10 @@ the runtime itself and always apply.
    user hears nothing — writing "here is my answer" in plain text
    reaches no one.
 
+   This holds for EVERY answer, including one-word ones. If the answer
+   is "beta", the reply tool call carries "beta". There is no length
+   below which plain text reaches the user.
+
 3. **Tools run now or not at all.** Never state that an action was
    taken unless you called the tool in this turn and observed its
    result. There are no imagined tool results and no "I will do X

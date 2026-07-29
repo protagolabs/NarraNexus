@@ -181,6 +181,7 @@ async def run_turn_events(
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
         DisallowedToolsLayer,
         PolicyEngine,
+        ShellConfinementLayer,
         WorkspaceConfinementLayer,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
@@ -260,6 +261,20 @@ async def run_turn_events(
     )
     # Plan: written by the tool, read by the prompt tail every step, and
     # mirrored onto the ui track for live progress rendering.
+    # The reply rule rides the DYNAMIC TAIL, not just the constitution at
+    # the top: acceptance runs showed a model answering a one-word
+    # question in plain text because the rule sat far from the generation
+    # point. Naming the ACTUAL reply tool, immediately before the model
+    # writes, is what makes the monologue contract stick.
+    reply_reminder = ""
+    if opts.expressive_tools:
+        names = ", ".join(sorted(opts.expressive_tools)[:3])
+        reply_reminder = (
+            f"Reminder: the user receives ONLY what you pass to a reply tool "
+            f"({names}). Plain text is never delivered — however short the "
+            f"answer, send it through the tool."
+        )
+
     plan = PlanState()
     side_events: list[LoopEvent] = []
     scheduling = SchedulingChannel(
@@ -268,7 +283,9 @@ async def run_turn_events(
     )
     dispatcher = ToolDispatcher(
         (builtin, scheduling, mcp),
-        policy=PolicyEngine((DisallowedToolsLayer(), WorkspaceConfinementLayer())),
+        policy=PolicyEngine(
+            (DisallowedToolsLayer(), WorkspaceConfinementLayer(), ShellConfinementLayer())
+        ),
         ctx=ctx,
         disallowed_tools=frozenset(opts.disallowed_tools),
         allowed_tools=frozenset(opts.allowed_tools),
@@ -297,7 +314,10 @@ async def run_turn_events(
         assembly = LoopAssembly(
             model=LiteLLMModelClient(profile, LitellmClient()),
             tools=dispatcher,
-            projector=PassthroughProjector(base_messages, plan.render),
+            projector=PassthroughProjector(
+                base_messages,
+                lambda: "\n\n".join(p for p in (plan.render(), reply_reminder) if p),
+            ),
             log=log or NullEventLogWriter(),
             cancel=cancel,
             expression=ExpressionContract(frozenset(opts.expressive_tools)),

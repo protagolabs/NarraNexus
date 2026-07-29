@@ -93,3 +93,70 @@ class WorkspaceConfinementLayer:
                     f"path '{raw}' resolves outside the workspace ({resolved})",
                 )
         return ALLOW
+
+
+class ShellConfinementLayer:
+    """Blocks the obvious shell routes out of the workspace.
+
+    Discovered by acceptance case ``safety`` (2026-07-29): the file
+    tools correctly denied ``/etc/passwd``, and the model simply ran
+    ``bash head -1 /etc/passwd`` instead. Path-argument confinement can
+    never cover a shell — the language is Turing-complete, so ANY
+    pattern check is defence in depth, not a boundary.
+
+    What this layer honestly is:
+      - it denies commands that NAME an absolute path outside the
+        workspace, and the standard "escape upward" forms (``cd /``,
+        ``cd ..`` beyond the root, ``~`` outside the workspace);
+      - it is NOT a sandbox. The real boundary is the per-user executor
+        CONTAINER in the cloud. Desktop/local mode has no OS-level
+        sandbox for any framework (claude_code's CLI is equally free) —
+        closing that gap belongs with the authorization design.
+    """
+
+    # Commands whose first token is a harmless shell builtin operating on
+    # relative paths only would still trip a naive absolute-path check
+    # (e.g. `sed -i 's|/usr/bin|x|'`), so we look for absolute paths in
+    # *token* position rather than anywhere in the string.
+    _ESCAPE_TOKENS = ("cd /", "cd ~", "pushd /", "chroot")
+
+    def check(self, call: ToolCall, ctx: PolicyContext) -> Decision:
+        if call.name not in ("bash", "bash_background", "process"):
+            return ALLOW
+        command = str(call.args.get("command", ""))
+        if not command:
+            return ALLOW
+        workspace = Path(ctx.tool_ctx.workspace).resolve()
+        lowered = command.lower()
+        for marker in self._ESCAPE_TOKENS:
+            if marker in lowered:
+                return Decision(
+                    PolicyVerdict.DENY,
+                    f"shell command leaves the workspace ({marker.strip()}); "
+                    f"work inside {workspace}",
+                )
+        for token in _shell_tokens(command):
+            if not token.startswith(("/", "~")):
+                continue
+            candidate = Path(token).expanduser()
+            try:
+                resolved = candidate.resolve()
+            except (OSError, RuntimeError):
+                continue
+            if not resolved.is_relative_to(workspace):
+                return Decision(
+                    PolicyVerdict.DENY,
+                    f"shell command references '{token}' outside the workspace; "
+                    f"work inside {workspace}",
+                )
+        return ALLOW
+
+
+def _shell_tokens(command: str) -> list[str]:
+    """Best-effort tokenization (quoting-aware, never raises)."""
+    import shlex
+
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
