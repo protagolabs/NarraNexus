@@ -663,21 +663,34 @@ class ResponseProcessor:
             # 不能用 tool_call_count，因为并行工具调用时所有 call 先到达，
             # tool_call_count 已经递增到最终值，与第一个 output 的序号不匹配。
             output = item.get("output", "")
+            tool_call_id = str(item.get("tool_call_id") or "")
             tool_output_num = state.tool_output_count + 1
             logger.info(f"Tool output #{tool_output_num} received: {len(output)} chars")
 
-            # 查找对应的 tool_call 信息用于展示
-            # tool_output 按顺序到达，第 N 个 output 对应第 N 个 call
+            # 查找对应的 tool_call 信息用于展示。
+            # Prefer the id when the driver reported one: the positional rule
+            # below ("Nth output belongs to the Nth call") is wrong for PARALLEL
+            # calls, where every call arrives before any output and the outputs
+            # come back in completion order. Positional stays as the fallback
+            # for drivers that report no id.
             matching_tool_name = ""
             matching_arguments = {}
-            tool_calls_seen = 0
-            for step in state.all_steps:
-                if step.get("type") == "tool_call":
-                    tool_calls_seen += 1
-                    if tool_calls_seen == tool_output_num:
+            if tool_call_id:
+                for step in state.all_steps:
+                    if (step.get("type") == "tool_call"
+                            and step.get("tool_call_id") == tool_call_id):
                         matching_tool_name = step.get("tool_name", "")
                         matching_arguments = step.get("arguments", {})
                         break
+            if not matching_tool_name:
+                tool_calls_seen = 0
+                for step in state.all_steps:
+                    if step.get("type") == "tool_call":
+                        tool_calls_seen += 1
+                        if tool_calls_seen == tool_output_num:
+                            matching_tool_name = step.get("tool_name", "")
+                            matching_arguments = step.get("arguments", {})
+                            break
 
             # User-friendly display
             tool_display = format_tool_call_for_display(
@@ -701,7 +714,7 @@ class ResponseProcessor:
                 ),
                 state_update={
                     "method": "record_tool_output",
-                    "args": {"output": output}
+                    "args": {"output": output, "tool_call_id": tool_call_id}
                 }
             )
             return

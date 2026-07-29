@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/execution_state.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 — tool_output 记录配对 id
+
+`record_tool_output` 新增 `tool_call_id` 参数,写进 step。无 id 时存**空字符串
+而非伪造**——消费方要能区分"没有 id"和"id 已知",只在必须时才回落到位置配对。
+
+为什么需要:每轮交给 CLI 的 transcript([[transcript]])要从 `events.event_log`
+重建 `tool_use` / `tool_result` 配对,而该格式**严格按 id 配对**。而
+**并行工具调用**时所有 call 先到达、output 按完成顺序返回,所以"第 N 个 output
+对应第 N 个 call"这条假设本身就是错的。错配的 `tool_result` 不是降级,是后续每
+一轮 API 400。
+
+顺带修掉一个既有展示 bug:[[response_processor]] 查找工具名也是纯位置配对,
+并行调用时前端会显示错的工具名。现在优先按 id、位置降为回落。
+
 # execution_state.py — Agent Loop 执行过程的不可变状态追踪器
 
 ## 2026-07-28 — resume_failed 字段 + mark_resume_failed()（resume 化 R3）

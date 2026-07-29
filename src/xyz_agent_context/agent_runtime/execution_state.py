@@ -132,12 +132,24 @@ class ExecutionState:
             all_steps=self.all_steps + (new_step,),
         )
 
-    def record_tool_output(self, output: str) -> 'ExecutionState':
+    def record_tool_output(self, output: str, tool_call_id: str = "") -> 'ExecutionState':
         """
         Record tool output, returns a new state object
 
         Args:
             output: Tool output content
+            tool_call_id: Id of the ``tool_call`` this output answers. Empty when
+                the driver did not report one — deliberately NOT fabricated, so
+                a consumer can tell "no id available" from "id known" and fall
+                back to positional pairing only when it must.
+
+                Why it is stored at all: the per-turn transcript handed to the
+                CLI rebuilds ``tool_use`` / ``tool_result`` pairs from
+                ``events.event_log``, and that format pairs strictly by id. With
+                PARALLEL tool calls every call arrives before any output and the
+                outputs return in completion order, so the Nth output is not the
+                Nth call — a positional rebuild mis-pairs them, and a mis-paired
+                ``tool_result`` is an API 400 on every subsequent turn.
 
         Returns:
             New ExecutionState object
@@ -145,6 +157,7 @@ class ExecutionState:
         new_step = {
             "type": "tool_output",
             "output": output,
+            "tool_call_id": tool_call_id,
         }
         return replace(
             self,

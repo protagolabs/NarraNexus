@@ -4,6 +4,15 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — tool_output 优先按 id 配对
+
+`ITEM_TYPE_TOOL_CALL_OUTPUT` 分支:从事件里取 `tool_call_id` 透传给
+`record_tool_output`([[execution_state]] 同日条目),并且**展示用的 tool_call
+查找也改成优先按 id**,位置配对降为回落(驱动没报 id 时才用)。
+
+修的是本文件注释自己就点明过的问题:并行工具调用时所有 call 先到达、output 按
+完成顺序返回,于是"第 N 个 output 对应第 N 个 call"不成立,前端会显示错的工具名。
+
 ## 2026-07-29 — REPLY_DELTA / PLAN 两条分支
 
 新增 `ResponseType.REPLY_DELTA` / `PLAN` 及其处理分支，产出
