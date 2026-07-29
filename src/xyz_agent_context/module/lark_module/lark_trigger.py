@@ -42,6 +42,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_HISTORIC,
+    EVENT_INGRESS_DROPPED_NOT_MENTIONED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
     EVENT_INGRESS_DROPPED_UNBOUND,
     EVENT_INGRESS_PROCESSED,
@@ -1264,10 +1265,32 @@ class LarkTrigger(ChannelTriggerBase):
                 "content": message.content or "",
                 "message_type": message.message_type or "text",
                 "create_time": message.create_time or "",
+                "mentions": LarkTrigger._extract_mentions(message),
             }
         except Exception as e:
             logger.warning(f"LarkTrigger: failed to convert SDK event: {e}")
             return {}
+
+    @staticmethod
+    def _extract_mentions(message) -> list[dict]:
+        """Flatten the SDK's `message.mentions` into plain dicts.
+
+        Shape kept minimal on purpose — `open_id` is the authoritative
+        match key for the group @-gate, `name` is the display-name
+        fallback for bindings created before `bot_open_id` was stored.
+
+        An absent / empty list is meaningful, not missing data: it means
+        the message @-mentioned nobody.
+        """
+        out: list[dict] = []
+        for m in getattr(message, "mentions", None) or []:
+            mid = getattr(m, "id", None)
+            out.append({
+                "key": getattr(m, "key", "") or "",
+                "name": getattr(m, "name", "") or "",
+                "open_id": (getattr(mid, "open_id", "") or "") if mid else "",
+            })
+        return out
 
     @staticmethod
     def _preview_message_content(raw_content: str, message_type: str) -> str:
@@ -1361,6 +1384,31 @@ class LarkTrigger(ChannelTriggerBase):
             "content_preview": content_preview,
         }
 
+        # Group rooms: only an @-mention wakes the agent. Checked before
+        # dedup so an unaddressed message never burns a dedup slot, and
+        # audited so "why didn't it answer in the group" stays traceable.
+        if not self.is_group_reply_warranted(cred, event_dict):
+            logger.info(
+                "LarkTrigger: agent={agent} skipping group message "
+                "msg_id={msg_id} chat={chat} — bot not @-mentioned",
+                agent=cred.agent_id,
+                msg_id=msg_id or "<unknown>",
+                chat=chat_id or "<unknown>",
+            )
+            await self._audit(
+                EVENT_INGRESS_DROPPED_NOT_MENTIONED,
+                message_id=msg_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=chat_id,
+                sender_id=sender_id,
+                details={
+                    "mention_count": len(event_dict.get("mentions") or []),
+                    **ingress_details,
+                },
+            )
+            return
+
         decision = await self._check_and_classify_event(event_dict)
 
         if decision["accept"]:
@@ -1407,6 +1455,62 @@ class LarkTrigger(ChannelTriggerBase):
                 f"LarkTrigger: dedup skipping message_id={msg_id!r} "
                 f"(layer={decision['layer']})"
             )
+
+    @staticmethod
+    def is_group_reply_warranted(cred, event_dict: dict) -> bool:
+        """Should a GROUP-room message wake the agent?
+
+        Only when the bot was @-mentioned. Direct messages never reach
+        here — they are always warranted.
+
+        Why this is a trigger-layer gate and not a prompt instruction:
+        once the app holds `im:message.group_msg` ("获取群组中所有消息",
+        Lark's sensitive scope), the subscriber receives EVERY message in
+        every group the bot sits in. Letting the model decide per message
+        whether it was addressed is probabilistic — it will occasionally
+        barge into unrelated conversation, which is exactly the failure
+        the read scope caused in practice. "Is this addressed to me" is
+        channel semantics, not agent-scenario logic, so it belongs here
+        rather than in Awareness (binding rule #4).
+
+        Reading is unaffected: the message still lands in the room's
+        history, and when the bot IS addressed the context builder tells
+        it to go read what it missed.
+
+        Decision table:
+          - no mentions at all      → False. Nobody was @-ed, so not us.
+          - bot open_id in mentions → True. Authoritative.
+          - bot name in mentions    → True. Fallback for bindings saved
+            before `bot_open_id` existed.
+          - mentions present but bot identity unknown → True (fail-open).
+            Someone was addressed and we cannot rule ourselves out;
+            answering an extra message beats going mute.
+        """
+        if (event_dict.get("chat_type") or "p2p") != "group":
+            return True
+
+        mentions = event_dict.get("mentions") or []
+        if not mentions:
+            return False
+
+        bot_open_id = (getattr(cred, "bot_open_id", "") or "").strip()
+        if bot_open_id:
+            return any(m.get("open_id") == bot_open_id for m in mentions)
+
+        bot_name = (getattr(cred, "bot_name", "") or "").strip()
+        if bot_name:
+            if any((m.get("name") or "").strip() == bot_name for m in mentions):
+                return True
+            # A known name that matched nobody is a real negative.
+            return False
+
+        logger.warning(
+            "LarkTrigger: agent={agent} has neither bot_open_id nor bot_name; "
+            "cannot tell whether a group mention targets this bot — replying "
+            "to be safe. Re-bind to populate bot identity.",
+            agent=getattr(cred, "agent_id", "<unknown>"),
+        )
+        return True
 
     async def _check_and_classify_event(self, event_dict: dict) -> dict:
         """Delegate to the dedup store. Returns same dict shape as before.

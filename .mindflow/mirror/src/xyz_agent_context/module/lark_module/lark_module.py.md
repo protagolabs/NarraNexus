@@ -4,6 +4,30 @@ stub: false
 last_verified: 2026-07-29
 ---
 
+## 2026-07-29 — incremental-auth guide: self-service scope requests + the group-read scope
+
+Two additions to `_INCREMENTAL_AUTH_GUIDE`, both correcting an
+over-broad claim it used to make ("bot scopes always mean go to the
+console").
+
+**Agents can file some scope requests themselves.**
+`POST /open-apis/application/v6/scopes/apply` runs on the bot's own token
+and needs no scope, so the agent can ask the tenant admin for approval
+without the owner opening a browser. Its two hard limits are now spelled
+out because both look like ordinary failures otherwise: it cannot ADD a
+permission the app was never configured with (no API exists), and it
+rejects high-sensitivity scopes with `212001`. Also capped at 10 requests
+per app version (`212003`), so retrying into the cap is a real hazard.
+
+**`im:message.group_msg` is the sensitive scope agents actually hit.**
+It decides whether the bot receives every group message or only
+@-mentions. Sensitive => `scopes/apply` refuses it and no `auth login`
+reaches it; console + create-version-and-publish is the only path. The
+guide gives those exact steps rather than a vague pointer, and states
+the payoff is READING context — replying stays gated on @-mention in
+[[lark_trigger]] regardless of this scope, which is the misconception
+that makes users refuse it.
+
 ## 2026-07-29 — 新增 `_NO_SHELL_GUIDE`，铁律 #1 补齐 argv 语义
 
 prompt 里此前只说了「`--markdown` 收内联字符串、不是文件路径」，**从没说过

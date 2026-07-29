@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — lark_credentials.bot_open_id
+
+Additive column holding the bot's own Lark open_id. Consumed by
+[[lark_trigger]]'s group @-mention gate; written by
+[[_lark_credential_manager]] `update_bot_identity` from the same
+`/open-apis/bot/v3/info` response that already supplied `bot_name`.
+`auto_migrate()` adds it in place; existing rows read back empty and the
+gate falls back to display-name matching for them.
 
 ## 2026-07-28 — `bus_agent_activity.steps`
 
@@ -11,7 +20,6 @@ transitions as `{"items": [{phase, at}], "dropped": n}`, reset on
 `mark_running` and kept after the turn ends. It backs the team chat's per-agent
 step timeline without standing up a second events pipeline; `auto_migrate` adds
 it in place, and no existing column changes type or meaning.
-
 
 ## 2026-07-27 — instance_gateway_session_keys.metered_at
 
