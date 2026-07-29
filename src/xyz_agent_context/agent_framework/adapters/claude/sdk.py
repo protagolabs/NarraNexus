@@ -10,9 +10,7 @@ import asyncio
 import hashlib
 import json
 import subprocess
-import uuid
 from contextlib import aclosing, suppress
-from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
@@ -39,9 +37,10 @@ from xyz_agent_context.agent_framework.adapters.claude.cli_binary import (
     effective_cli_version,
     resolve_cli_path,
 )
+from xyz_agent_context.agent_framework.llm.failure import is_credential_error
 from xyz_agent_context.agent_framework.adapters.claude.transcript import (
+    prepare_transcript,
     remove_transcript,
-    write_transcript,
 )
 from xyz_agent_context.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
@@ -620,27 +619,6 @@ def _build_claude_mcp_config(
     return config
 
 
-@lru_cache(maxsize=32)
-def _working_git_branch(working_path: str) -> str:
-    """Branch name for the transcript's ``gitBranch`` field, or "" when the
-    workspace is not a git repo (the common case for agent workspaces).
-
-    Cached per path: this runs on the hot turn path and a subprocess per turn
-    would be a real cost for a field the CLI only uses for its own display.
-    Bounded so a long-lived process with many agent workspaces cannot grow it
-    without limit.
-    """
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=working_path,
-            timeout=10,
-        )
-    except Exception:  # noqa: BLE001 — a missing git or an odd cwd is not an error here
-        return ""
-    return out.stdout.strip() if out.returncode == 0 else ""
 
 
 def _log_sysprompt_sha(system_prompt: str, resume_session_id: str | None) -> str:
@@ -726,7 +704,6 @@ class ClaudeAgentSDK:
         # producer is the transcript below, so a handle can no longer be stale,
         # contested between concurrent runs, or anchored to a narrative that
         # moved mid-turn.
-        resume_session_id: str | None = None
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )
@@ -747,30 +724,15 @@ class ClaudeAgentSDK:
         # hole. T0 measured that the transcript's envelope fields — sessionId
         # included — never reach the request, so varying the id per turn costs no
         # cache.
-        from xyz_agent_context.settings import settings as _transcript_settings
-
-        transcript_file: Path | None = None
-        if _transcript_settings.claude_synthetic_transcript_enabled and history_entries:
-            candidate_sid = str(uuid.uuid4())
-            transcript_file = write_transcript(
-                config_dir=claude_config.cli_config_dir,
-                working_path=str(self.working_path),
-                session_id=candidate_sid,
-                history_entries=history_entries,
-                # The version that will actually run, not the pin: the resolver
-                # falls back to the SDK's bundled binary on a mismatch, and the
-                # records' `version` field must describe the real writer.
-                cli_version=effective_cli_version() or PINNED_CLI_VERSION,
-                git_branch=_working_git_branch(self.working_path),
-            )
-            if transcript_file is not None:
-                # Supersedes any handle upstream resolved: ours is guaranteed
-                # fresh and complete, theirs may be stale.
-                resume_session_id = candidate_sid
-                logger.info(
-                    f"[TRANSCRIPT] wrote {len(history_entries)} history entries "
-                    f"→ session={candidate_sid[:12]} ({transcript_file.name})"
-                )
+        resume_session_id, transcript_file = prepare_transcript(
+            history_entries,
+            config_dir=claude_config.cli_config_dir,
+            working_path=str(self.working_path),
+            # The version that will actually run, not the pin: the resolver falls
+            # back to the SDK's bundled binary on a mismatch, and the records'
+            # `version` field must describe the real writer.
+            cli_version=effective_cli_version() or PINNED_CLI_VERSION,
+        )
 
         # Keep the bare (history-free) prompt + entries in locals: the
         # stale-handle cold retry below re-assembles the full prompt WITH
@@ -1334,13 +1296,20 @@ class ClaudeAgentSDK:
                             continue
                         yielded_any = True
                         yield event
-            except Exception:
+            except Exception as e:
                 # A resume that failed before producing anything is retried cold;
-                # anything after content re-raises. Note a stale --resume dies
-                # fast (~450ms) as the SDK's ProcessError (exit 1), not as our
-                # RuntimeError, which is why this catches broadly and decides on
-                # `yielded_any` rather than on the exception type.
-                if yielded_any:
+                # anything after content re-raises. Caught broadly and decided on
+                # `yielded_any` rather than on the exception type, because a
+                # rejected --resume dies fast (~450ms) as the SDK's ProcessError
+                # (exit 1), not as our RuntimeError.
+                #
+                # ONE exception to that: a credential failure. It also dies before
+                # any output, so a type-blind rule would retry it — and the retry
+                # is guaranteed to fail the same way, costing a second CLI spawn
+                # and doubling the time before the user sees the real error. The
+                # retry exists to cover OUR transcript bugs; a dead credential is
+                # not one, and no amount of retrying makes it one.
+                if yielded_any or is_credential_error(e):
                     raise
                 resume_rejected = True
 

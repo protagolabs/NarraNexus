@@ -75,6 +75,13 @@ from loguru import logger
 # Bumping this is a behavioral change, not a chore: re-run experiments E3 and
 # E3c against the new version before moving it. The value 2.1.220 is the one
 # both were run on.
+#
+# MANUAL VERIFICATION, no CI guard: the transcript format is also accepted by
+# the SDK's bundled 2.1.56 (E4 re-run with --bundled), which is what lets an
+# un-rebuilt cloud image keep working — it just gets no cache benefit, since
+# 2.1.56 reshuffles the tools array. That claim needs a real CLI binary, so it
+# cannot be a unit test; re-check it by hand when either version moves.
+# Probes: reference/self_notebook/experiments/e3*.py, e4_synthetic_transcript_probe.py
 PINNED_CLI_VERSION = "2.1.220"
 
 # `claude --version` prints e.g. "2.1.220 (Claude Code)".

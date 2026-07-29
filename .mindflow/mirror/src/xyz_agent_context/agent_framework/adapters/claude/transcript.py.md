@@ -4,6 +4,47 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (四次) — code review 修复:本模块接管整个生命周期
+
+`prepare_transcript`(决策 + 落盘 + 日志)和 `working_git_branch` 从 [[sdk]] 搬进来。
+adapter 现在只调两个函数。理由是尺寸:`sdk.agent_loop` 在这个功能之前就已超出项目
+规约,内联决策后变成 672 行,而给它加一个 `finally` 需要重排 78 行缩进——`ast.parse`
+当场抓到我第一次改错(空 `finally` 块)。git 查询一并搬来,因为 transcript 是它唯一
+的消费者。
+
+`build_records` 100 → 70 行:user/assistant 两个分支提成 `_user_record` /
+`_assistant_record`。
+
+**`working_git_branch` 先 stat `.git` 再决定是否 spawn。** 之前是无条件 spawn 再
+`lru_cache` 结果,有两个问题:agent 工作区通常**不是** git 仓库,所以每个新路径都白
+付一次注定失败的 `git rev-parse`;而缓存住那个 `""` 之后,目录后来变成仓库也永远
+看不见。stat 是微秒级,把两件事一起解决。分支名本身仍缓存(热路径上的 subprocess
+是真实成本),所以 live 工作区里 checkout 换分支要到进程重启才反映——该字段是装饰性
+的,这个取舍写在函数 docstring 里。
+
+**`transcript_path` 校验 `session_id` 必须是单个路径分量。** 生产只传 `uuid4()`,
+不可达;但这是模块公开函数,而失败形态(把 transcript 写进别人的 project 目录、或
+覆盖任意路径)值得由构造保证而非约定保证。检查是**平台无关**的字符检查而不是
+`Path(x).name` 比较——后者在 POSIX 上会放过反斜杠(那里是合法文件名字符),而同一个
+字符串在 Windows 上会穿越。
+
+**`remove_transcript` 改捕 `Exception`。** docstring 承诺"never raises",而它从
+`finally` 里被调用,任何异常都会**掩盖真正结束这个 turn 的错误**。只捕 `OSError`
+的话,`Path(path)` 遇到非 path 值抛的 `TypeError` 会逃出去。承诺必须是无条件的,
+不能是"我们想到的那几种错误"。
+
+**L5 · 安全论证的因果顺序写反了。** 原文说保护来自"磁盘无留存物"。**主控制其实是
+`/agent-loop` 的 body 里已经没有 `resume_session_id` 字段**——没有调用方能指向任何
+transcript,也就没有需要鉴权的能力。删文件是叠在上面的纵深防御:它把对话以明文存在
+共享 `CLAUDE_CONFIG_DIR` 里的时间窗收窄到一个 turn,针对的是**有文件系统访问权**的
+攻击者(那是另一个威胁模型,两个控制都不覆盖)。这段注释被用来论证"删 HMAC 是安全
+的",所以准确性有实际意义。
+
+**`MAX_ORDERED_RECORDS` 导出为常量(1440)。** 原 docstring 说"wraps at 60 minutes",
+实际小时位也回绕,完整周期是 24×60。当前 `ChatModule.MERGED_HISTORY_MAX = 30`,余量
+48 倍;新增的测试覆盖整个区间,所以将来提高那个 cap 会撞到测试而不是静默产出重复
+时间戳。
+
 ## 2026-07-29 (三次) — 删除对已移除 HMAC 的引用
 
 `remove_transcript` 的 docstring 原来说"这正是 `executor_resume_hmac_secret` 要防的

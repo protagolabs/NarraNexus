@@ -62,6 +62,17 @@ Load-bearing details, all observed rather than documented
    ``cli_binary.PINNED_CLI_VERSION``; bumping it means re-running E4/E5/E6,
    because this format is an internal contract that can change underneath us.
 
+What lives here vs in the adapter
+---------------------------------
+This module owns the whole per-turn lifecycle — decide, write, delete — behind
+``prepare_transcript`` / ``remove_transcript``. The adapter calls two functions
+and keeps one local. That split is deliberate: ``sdk.agent_loop`` was already
+over the project's size guideline before this feature, and inlining the decision
+there made a 672-line function that needed an 78-line re-indent to add a
+``finally`` (which ``ast.parse`` caught me getting wrong on the first attempt).
+The git-branch lookup lives here too, for the same reason — the transcript is
+its only consumer.
+
 Deliberately text-only
 ----------------------
 History here is the same plain user/assistant text the system prompt carries
@@ -77,7 +88,9 @@ id) — enriching is a separate, independently measurable change.
 from __future__ import annotations
 
 import json
+import subprocess
 import uuid as uuidlib
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +106,23 @@ _UUID_NAMESPACE = uuidlib.NAMESPACE_URL
 _TS_BASE = "2026-01-01"
 
 _CONVO_ROLES = ("user", "assistant")
+
+# Offset keeping derived promptIds from colliding with the record uuids, which
+# come from the same (session_id, seq) namespace.
+_PROMPT_ID_OFFSET = 10_000
+
+# Fixed seed for assistant message ids, so they depend on POSITION only and not
+# on the per-turn session id (see _assistant_record).
+_MSG_ID_NAMESPACE_SEED = "narranexus-transcript-msg"
+
+# Largest history a single transcript can hold while keeping timestamps ordered
+# AND unique: minute wraps at 60, hour at 24 → 24 * 60. See _derived_timestamp.
+MAX_ORDERED_RECORDS = 24 * 60
+
+# `git rev-parse` on a healthy repo is milliseconds; the bound exists so a wedged
+# git (network-backed worktree, fuse mount) degrades to an empty branch field
+# instead of stalling a turn.
+_GIT_BRANCH_TIMEOUT_S = 10.0
 
 
 def cwd_slug(working_path: str | Path) -> str:
@@ -120,7 +150,27 @@ def cwd_slug(working_path: str | Path) -> str:
 def transcript_path(
     config_dir: str | Path, working_path: str | Path, session_id: str
 ) -> Path:
-    """The single file ``--resume <session_id>`` reads."""
+    """The single file ``--resume <session_id>`` reads.
+
+    ``session_id`` becomes a filename, so it must be a bare name: a separator or
+    a dot-segment in it would place the transcript outside the project dir.
+    Production only ever passes ``uuid4()``, but this function is module-public
+    and the failure mode (writing into another project's dir, or over an
+    arbitrary path) is worth making impossible by construction.
+    """
+    # Platform-independent on purpose: `Path(x).name` would let a backslash
+    # through on POSIX (it is a legal filename character there) while the same
+    # string traverses on Windows. The invariant we want is "contributes exactly
+    # one path component", so check the characters rather than asking the local
+    # flavour of Path what it thinks a separator is.
+    if (
+        not session_id.strip()
+        or session_id in {".", ".."}
+        or any(ch in session_id for ch in ("/", "\\", "\0"))
+    ):
+        raise ValueError(
+            f"session_id must be a single path component, got {session_id!r}"
+        )
     return (
         Path(config_dir)
         / "projects"
@@ -134,13 +184,60 @@ def _derived_uuid(session_id: str, seq: int) -> str:
 
 
 def _derived_timestamp(seq: int) -> str:
-    """Ordered, well-formed, and a pure function of the index.
+    """Ordered, unique, and a pure function of the index.
 
-    Wraps at 60 minutes rather than overflowing the field: histories are bounded
-    by the narrative's event selection, and ordering only has to hold within one
-    file.
+    Both fields wrap (minute at 60, hour at 24), so the full cycle is
+    ``MAX_ORDERED_RECORDS`` = 1440 entries — past that, timestamps repeat and
+    ordering breaks. The platform caps the merged timeline at
+    ``ChatModule.MERGED_HISTORY_MAX`` (30 today), so the bound is unreachable by
+    a wide margin; ``test_derived_timestamps_stay_ordered_across_the_whole_supported_range``
+    pins it so raising that cap trips a test rather than silently producing
+    duplicate stamps.
     """
     return f"{_TS_BASE}T{seq // 60 % 24:02d}:{seq % 60:02d}:00.000Z"
+
+
+def _user_record(envelope: dict[str, Any], session_id: str, seq: int,
+                 content: str) -> dict[str, Any]:
+    """A ``type: user`` record. ``content`` is a plain string here — the CLI
+    writes user rows that way and assistant rows as block lists."""
+    return {
+        **envelope,
+        "promptId": _derived_uuid(session_id, _PROMPT_ID_OFFSET + seq),
+        "message": {"role": "user", "content": content},
+        "permissionMode": "bypassPermissions",
+        "promptSource": "sdk",
+    }
+
+
+def _assistant_record(envelope: dict[str, Any], seq: int,
+                      content: str) -> dict[str, Any]:
+    """An ``type: assistant`` record, content in block form.
+
+    ``message.id`` derives from the POSITION only, never the session id, so the
+    message payloads for a given conversation are identical no matter which
+    session id the turn uses. T0 showed the CLI discards this id when rebuilding
+    the request, but not depending on that keeps the invariant ours to enforce
+    rather than the CLI's to preserve.
+    """
+    return {
+        **envelope,
+        "effort": "high",
+        "message": {
+            "id": f"msg_{_derived_uuid(_MSG_ID_NAMESPACE_SEED, seq)[:8]}",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": content}],
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 1,
+            },
+        },
+    }
 
 
 def build_records(
@@ -197,41 +294,11 @@ def build_records(
             "version": cli_version,
             "gitBranch": git_branch,
         }
-        if role == "user":
-            records.append({
-                **envelope,
-                "promptId": _derived_uuid(session_id, 10_000 + seq),
-                "message": {"role": "user", "content": content},
-                "permissionMode": "bypassPermissions",
-                "promptSource": "sdk",
-            })
-        else:
-            records.append({
-                **envelope,
-                "effort": "high",
-                "message": {
-                    # Derived from the POSITION only, never the session id, so
-                    # the message payloads for a given conversation are
-                    # identical no matter which session id the turn uses. T0
-                    # showed the CLI discards this id when rebuilding the
-                    # request, but not depending on that keeps the invariant
-                    # ours to enforce rather than the CLI's to preserve.
-                    "id": f"msg_{_derived_uuid('narranexus-transcript-msg', seq)[:8]}",
-                    "type": "message",
-                    "role": "assistant",
-                    # Block form, matching what the CLI writes itself; the plain
-                    # string form is accepted for user rows only.
-                    "content": [{"type": "text", "text": content}],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {
-                        "input_tokens": 0,
-                        "cache_creation_input_tokens": 0,
-                        "cache_read_input_tokens": 0,
-                        "output_tokens": 1,
-                    },
-                },
-            })
+        records.append(
+            _user_record(envelope, session_id, seq, content)
+            if role == "user"
+            else _assistant_record(envelope, seq, content)
+        )
         parent = this_uuid
         leaf = this_uuid
 
@@ -300,6 +367,92 @@ def write_transcript(
     return path
 
 
+@lru_cache(maxsize=32)
+def _git_branch_of_repo(working_path: str) -> str:
+    """Branch name for a path already known to be a git work tree.
+
+    Cached because this spawns a subprocess and runs on the hot turn path, for a
+    field the CLI only uses for its own display. Bounded so a long-lived process
+    with many agent workspaces cannot grow it without limit.
+
+    Caching a branch name means a checkout inside a live workspace goes
+    unnoticed until the process restarts. Accepted: the value is cosmetic, and
+    the alternative is a subprocess per turn forever.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=working_path,
+            timeout=_GIT_BRANCH_TIMEOUT_S,
+        )
+    except Exception:  # noqa: BLE001 — a missing git or an odd cwd is not an error here
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def working_git_branch(working_path: str) -> str:
+    """Branch for the transcript's ``gitBranch`` field, or "" when not a repo.
+
+    The ``.git`` probe is a stat, not a subprocess, and it short-circuits the
+    common case: an agent workspace is normally NOT a git repo, so without this
+    every turn would pay a `git rev-parse` that is guaranteed to fail. It also
+    keeps the cached branch lookup from memoizing a "" that came from "not a
+    repo yet" — if the directory becomes a repo, the stat notices.
+    """
+    try:
+        if not (Path(working_path) / ".git").exists():
+            return ""
+    except OSError:
+        return ""
+    return _git_branch_of_repo(working_path)
+
+
+def prepare_transcript(
+    history_entries: list[dict[str, Any]],
+    *,
+    config_dir: str,
+    working_path: str,
+    cli_version: str,
+) -> tuple[str | None, Path | None]:
+    """Decide-and-write for one turn: returns ``(session_id, path)``.
+
+    ``(None, None)`` means run the turn the old way — the gate is off, there is
+    no history to resume, or the write failed. The caller keeps history in the
+    prompt in every one of those cases.
+
+    A FRESH uuid4 per turn, never derived from agent or narrative. The file is
+    deleted when the turn ends, so nothing durable is left in the shared
+    ``CLAUDE_CONFIG_DIR``; a derived, guessable id would undo that. T0 measured
+    that transcript envelope fields never reach the request, so varying the id
+    per turn costs no cache. It also makes concurrent turns of the same agent
+    collision-free — which is the only reason the old handle mechanism needed a
+    process-wide lease.
+    """
+    from xyz_agent_context.settings import settings
+
+    if not settings.claude_synthetic_transcript_enabled or not history_entries:
+        return None, None
+
+    session_id = str(uuidlib.uuid4())
+    path = write_transcript(
+        config_dir=config_dir,
+        working_path=working_path,
+        session_id=session_id,
+        history_entries=history_entries,
+        cli_version=cli_version,
+        git_branch=working_git_branch(working_path),
+    )
+    if path is None:
+        return None, None
+    logger.info(
+        f"[TRANSCRIPT] wrote {len(history_entries)} history entries "
+        f"→ session={session_id[:12]} ({path.name})"
+    )
+    return session_id, path
+
+
 def remove_transcript(path: Path | None) -> None:
     """Delete the transcript. Never raises.
 
@@ -308,19 +461,26 @@ def remove_transcript(path: Path | None) -> None:
     meet: ``None`` (the write failed or was skipped), already gone, or a path
     that is not a file.
 
-    Deleting is not housekeeping, it is the security argument. The
-    ``CLAUDE_CONFIG_DIR`` is shared across all tenants and ``/agent-loop`` is
-    unauthenticated by design, so a transcript left behind plus a guessed
-    session id would let a direct caller replay someone else's conversation.
-    That is precisely what the executor's resume HMAC used to defend, and why
-    removing it was safe: nothing durable on disk, nothing to read.
+    Why deleting matters, stated precisely — the ordering of these two controls
+    is easy to get backwards. The PRIMARY reason removing the executor's resume
+    HMAC was safe is that ``/agent-loop``'s body no longer carries a
+    ``resume_session_id`` field at all: no caller can name a transcript, so
+    there is no capability left to authenticate. Deleting the file is
+    defence-in-depth on top of that — it bounds the window in which the
+    conversation exists in plaintext inside a ``CLAUDE_CONFIG_DIR`` that is
+    shared across tenants, for anyone who has filesystem access (a different
+    threat model, which neither control addresses).
     """
     if path is None:
         return
     try:
         Path(path).unlink(missing_ok=True)
-    except OSError as e:
-        # A directory at that path, a vanished mount, a permission change
-        # mid-turn — none of it is worth failing over, but silence would hide a
-        # file that should not still exist.
+    except Exception as e:  # noqa: BLE001 — the docstring's promise is absolute
+        # Broader than OSError on purpose. The expected failures are IO (a
+        # directory at that path, a vanished mount, a permission change
+        # mid-turn), but ``Path(path)`` also raises TypeError on a non-path
+        # value. The signature says ``Path | None``, yet this runs from a
+        # ``finally`` where ANY exception would mask whatever actually ended the
+        # turn — so "never raises" has to be unconditional, not
+        # best-effort-for-the-errors-we-thought-of.
         logger.warning(f"[TRANSCRIPT] cleanup failed for {path}: {type(e).__name__}: {e}")

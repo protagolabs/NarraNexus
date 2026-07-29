@@ -27,10 +27,14 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from xyz_agent_context.agent_framework.adapters.claude.transcript import (
+    MAX_ORDERED_RECORDS as _MAX_ORDERED_RECORDS,
     build_records,
     cwd_slug,
     render,
+    transcript_path,
 )
 
 _ARGS = {
@@ -233,3 +237,51 @@ def test_cwd_slug_maps_a_trailing_separator_to_a_dash():
     """Every non-alphanumeric maps 1:1, so a trailing slash leaves a trailing
     dash — matching the CLI rather than a tidier rule of our own."""
     assert cwd_slug("/app/") == "-app-"
+
+
+# --- session id is a path component ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["../escape", "a/b", "a\\b", "", "   ", ".", ".."],
+)
+def test_transcript_path_rejects_a_session_id_that_is_not_a_bare_name(bad):
+    """``session_id`` becomes a filename, so a separator or a dot-segment in it
+    would write outside the project dir.
+
+    Production only ever passes ``uuid4()``, so this is unreachable today — but
+    the function is module-public and the failure mode (writing a transcript
+    into someone else's project dir, or over an arbitrary path) is bad enough
+    that it should be impossible by construction rather than by convention.
+    """
+    with pytest.raises(ValueError):
+        transcript_path("/cfg", "/w", bad)
+
+
+def test_transcript_path_accepts_a_uuid():
+    p = transcript_path("/cfg", "/w", "11111111-2222-3333-4444-555555555555")
+    assert p.name == "11111111-2222-3333-4444-555555555555.jsonl"
+
+
+# --- derived timestamps -----------------------------------------------------
+
+
+def test_derived_timestamps_stay_ordered_across_the_whole_supported_range():
+    """Ordering must hold for every history size the platform can produce.
+
+    The hour field wraps at 24, so the full cycle is 24*60 = 1440 entries — not
+    60 as an earlier docstring implied. The platform caps the merged timeline at
+    ChatModule.MERGED_HISTORY_MAX (30), so the wrap is unreachable by a wide
+    margin; this pins the actual bound so a future cap increase trips a test
+    instead of silently repeating timestamps.
+    """
+    turns = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
+        for i in range(_MAX_ORDERED_RECORDS)
+    ]
+    records = build_records(turns, **_ARGS)
+    stamps = [r["timestamp"] for r in records if "timestamp" in r]
+    assert len(stamps) == _MAX_ORDERED_RECORDS
+    assert stamps == sorted(stamps)
+    assert len(set(stamps)) == len(stamps), "timestamps must be unique, not just sorted"

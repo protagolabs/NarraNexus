@@ -32,6 +32,7 @@ import asyncio
 import pytest
 
 import xyz_agent_context.agent_framework.adapters.claude.sdk as sdk_mod
+import xyz_agent_context.agent_framework.adapters.claude.transcript as transcript_mod
 from xyz_agent_context.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
@@ -63,8 +64,10 @@ def _env(monkeypatch, tmp_path):
     # is where the adapter will place the transcript.
     monkeypatch.setattr(settings, "claude_cli_config_path", str(tmp_path / "cfg"))
     # Keep the turn off the real git binary: the branch field is cosmetic and a
-    # subprocess per test is noise.
-    monkeypatch.setattr(sdk_mod, "_working_git_branch", lambda _p: "test-branch")
+    # subprocess per test is noise. Patched where `prepare_transcript` looks it
+    # up (the transcript module) — it moved there from the adapter so the git
+    # lookup lives next to its only consumer.
+    monkeypatch.setattr(transcript_mod, "working_git_branch", lambda _p: "test-branch")
     yield
 
 
@@ -266,6 +269,30 @@ async def test_any_resume_failure_falls_back_when_we_authored_the_transcript(tmp
         e.get("data", {}).get("type") == "response.error" for e in events
     )
     assert _transcripts(tmp_path) == []
+
+
+@pytest.mark.asyncio
+async def test_a_credential_failure_is_not_retried(tmp_path):
+    """The one pre-output failure that must NOT be retried.
+
+    A dead credential also dies before any output, so the type-blind rule above
+    would retry it — and that retry is guaranteed to fail identically, costing a
+    second CLI spawn and doubling the time before the user sees the real error.
+    The retry exists to cover OUR transcript bugs; a credential failure is not
+    one, and retrying does not make it one.
+    """
+    _StubClient.scripts = [
+        {"messages": [], "raise_after": RuntimeError("401 unauthorized")},
+        # A second script is provided on purpose: if the code wrongly retried,
+        # this would silently absorb it and the test would pass for the wrong
+        # reason. The instance-count assertion is what actually catches it.
+        {"messages": [ResultMessage()]},
+    ]
+    with pytest.raises(RuntimeError, match="401"):
+        await _run()
+
+    assert len(_StubClient.instances) == 1, "a credential failure must not retry"
+    assert _transcripts(tmp_path) == [], "cleanup still runs on the raising path"
 
 
 @pytest.mark.asyncio

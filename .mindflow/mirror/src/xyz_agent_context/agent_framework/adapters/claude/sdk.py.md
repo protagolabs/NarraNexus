@@ -4,6 +4,23 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (五次) — code review 修复:重试判据排除凭据失败
+
+`except` 分支的重试条件加上 `is_credential_error(e)` 排除。
+
+上一版把条件从"零输出 **且** stderr 含特定短语"放宽成"零输出",目的是覆盖我方
+transcript 的任何 bug(短语匹配当天差点漏掉 slug bug)。但凭据失败**也**在产出任何
+内容前死掉,所以类型无关的规则会重试它——而那次重试注定同样失败,代价是第二次 CLI
+spawn 和用户看到真实错误前的双倍等待。
+
+**重试存在的目的是覆盖我们自己的 transcript bug;凭据失效不是那类问题,重试多少次
+也不会变成那类问题。**
+
+流内那条分支不需要改:`_is_zero_output_error_event` 只匹配 `error_type == "no_output"`,
+鉴权错误不会命中它。
+
+transcript 的决策/落盘/清理与 git 查询已移出本文件,见 [[transcript]] 同日条目。
+
 ## 2026-07-29 (四次) — session id 只有一个来源了(T6)
 
 `resume_session_id` 不再从 `kwargs` 读。上游的两个生产者都已删除:
