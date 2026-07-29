@@ -156,7 +156,13 @@ async def test_the_file_exists_while_the_cli_runs(tmp_path):
 
 @pytest.mark.asyncio
 async def test_transcript_is_deleted_when_the_run_raises(tmp_path):
-    _StubClient.scripts = [{"messages": [], "raise_after": RuntimeError("boom")}]
+    """The failure has to come AFTER output, because a zero-output failure on a
+    self-authored transcript is retried cold rather than propagated (see
+    test_any_resume_failure_falls_back_...). Once content has been yielded the
+    exception is real, and the finally still has to clean up."""
+    _StubClient.scripts = [
+        {"messages": [ResultMessage()], "raise_after": RuntimeError("boom")}
+    ]
     with pytest.raises(RuntimeError):
         await _run()
     assert _transcripts(tmp_path) == []
@@ -223,6 +229,56 @@ async def test_gate_off_restores_the_previous_behavior(tmp_path, monkeypatch):
     options = _StubClient.instances[0].options
     assert options.resume is None
     assert HISTORY_MARK in options.system_prompt
+    assert _transcripts(tmp_path) == []
+
+
+@pytest.mark.asyncio
+async def test_any_resume_failure_falls_back_when_we_authored_the_transcript(tmp_path):
+    """A transcript WE wrote is fresh and valid by construction, so if the CLI
+    refuses to resume it, the cause is our bug — and a cold retry is always the
+    right answer, whatever the CLI says.
+
+    This is not hypothetical. The first live run wrote the file into the wrong
+    directory (the cwd slug did not translate dots and underscores), and the
+    turn only survived because the CLI happened to answer "No conversation
+    found" — the exact phrase the handle-based stale check greps for. Any other
+    rejection (a malformed record, a format change after a CLI upgrade) would
+    have failed the turn outright and shown the user an error, which 铁律 #14
+    and #16 both forbid. So the fallback must not depend on matching a string
+    written for a different failure.
+    """
+    _StubClient.scripts = [
+        # Zero output, then a failure whose text says nothing about sessions.
+        {"messages": [], "stderr": ["something else entirely"],
+         "raise_after": RuntimeError("exit code 1")},
+        # The cold retry.
+        {"messages": [ResultMessage()]},
+    ]
+    events = await _run()
+
+    assert len(_StubClient.instances) == 2, "expected exactly one cold retry"
+    first, retry = _StubClient.instances
+    assert first.options.resume, "first attempt resumed our transcript"
+    assert retry.options.resume is None, "the retry must run cold"
+    assert HISTORY_MARK in retry.options.system_prompt, "history returns on the retry"
+    # The user must not perceive the miss (铁律 #16): no error event surfaced.
+    assert not any(
+        e.get("data", {}).get("type") == "response.error" for e in events
+    )
+    assert _transcripts(tmp_path) == []
+
+
+@pytest.mark.asyncio
+async def test_a_failure_after_output_still_raises(tmp_path):
+    """The retry is bounded to the pre-output window. Once content has been
+    yielded, re-running would duplicate it — this stays a startup fallback, not
+    a retry loop (铁律 #14)."""
+    _StubClient.scripts = [
+        {"messages": [ResultMessage()], "raise_after": RuntimeError("mid-stream")},
+    ]
+    with pytest.raises(RuntimeError):
+        await _run()
+    assert len(_StubClient.instances) == 1
     assert _transcripts(tmp_path) == []
 
 

@@ -99,3 +99,25 @@ E5 已证明工具那条路可行,而 `events.event_log` 也已经存着所需�
 
 空历史返回 `[]` —— 没有可续的东西,调用方必须走真正的首轮,而不是写一个 CLI
 会拒绝的空文件。
+
+## 2026-07-29 (二次) — cwd slug 的真实规则:每个非字母数字字符 → 一个 `-`
+
+首次上线即失败:文件写成功了,CLI 却报
+`No conversation found with session ID` —— **文件在,只是不在 CLI 找的那个目录**。
+
+原实现只按 `/` 切分再用 `-` 连接。这对全字母数字的路径成立(E4/E5 探针的 cwd 是
+本仓库,所以通过了),对真实 agent 工作区则不成立——那种路径带一个点和两个下划线:
+
+```
+/Users/tc/.nexusagent/workspaces/user_tc/agent_9815c65a36a7
+我方(错) -Users-tc-.nexusagent-workspaces-user_tc-agent_9815c65a36a7
+CLI(对) -Users-tc--nexusagent-workspaces-user-tc-agent-9815c65a36a7
+```
+
+规则是**逐字符**的:非字母数字一律换成一个 `-`,**不合并连续的**(所以 `/.` 变成
+`--`)。用 CLI 自己在生产 config dir 里建的 10 个目录做基准核对过,它们全部只含
+`[A-Za-z0-9-]`,其中 6 个能被新函数逐字符复现(另 4 个工作区已删,无法核对)。
+
+**教训**:E4 探针的 docstring 里我写的是"every non-alphanumeric run becomes '-'"
+—— 观察是对的,实现却窄了一档。**探针跑在一条"友好"路径上,把这个差异完全掩盖了**。
+以后针对路径/命名约定的实验,必须用生产里真实出现的那种路径,而不是当前仓库目录。

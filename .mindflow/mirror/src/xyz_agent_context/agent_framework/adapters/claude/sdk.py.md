@@ -631,3 +631,18 @@ ToolSearch 后，非 Claude 模型的 system prompt 常态化到 60-80K chars（
 
 - `this_turn_user_message = (messages.pop())["content"]`：这里假设最后一条消息是 user message。如果调用方构建 messages 时最后一条不是 user message，会产生逻辑错误。代码注释里也标注了这个 TODO。
 - 直接在本地测试时，`claude` CLI 必须已经登录（`claude auth login`），否则会收到 0 条消息且没有明显错误——只有 stderr log 里有认证失败信息。
+
+## 2026-07-29 (二次) — 自建 transcript 时,任何 resume 失败都必须回落
+
+`stale_handle` 的判定原来要求 CLI stderr 出现
+`No conversation found` 这个短语。自建 transcript 时**取消这个要求**:句柄是我们
+刚写的、按构造就是有效的,所以 CLI 拒绝 resume 只能是我方 bug,而冷启动重试在
+任何情况下都是对的答案。
+
+这是被上线首日打出来的。cwd slug 没转换点和下划线,文件落到了隔壁目录,turn
+之所以没死,**纯粹因为 CLI 恰好回的就是这个断言在 grep 的那句话**。换成任何别的
+拒绝理由(记录畸形、CLI 升级换格式),turn 会直接失败并把错误显示给用户——铁律
+#14 和 #16 同时禁止。安全网不该依赖一个为**另一种**故障写的字符串匹配。
+
+界限没变:仍然**最多重试一次**,且仅在尚未产出任何内容时。产出之后的失败照旧抛出
+(重跑会重复已发出的内容)。

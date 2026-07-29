@@ -1378,7 +1378,10 @@ class ClaudeAgentSDK:
                         if (
                             not yielded_any
                             and _is_zero_output_error_event(event)
-                            and _stderr_reports_stale_resume(cli_stderr_lines)
+                            and (
+                                transcript_file is not None
+                                or _stderr_reports_stale_resume(cli_stderr_lines)
+                            )
                         ):
                             # Swallow the zero-output error event: the cold retry
                             # below replaces this run entirely, so downstream —
@@ -1396,7 +1399,24 @@ class ClaudeAgentSDK:
                 # the phrase can miss the stderr callback entirely when the
                 # pump loses the race, so the predicate checks exception text +
                 # exception.stderr + captured stderr (drained in _run_once).
-                if yielded_any or not _failure_indicates_stale_resume(e, cli_stderr_lines):
+                #
+                # When WE authored the transcript, drop the phrase requirement
+                # entirely: the handle is fresh and valid by construction, so a
+                # refusal to resume it is OUR bug and a cold retry is always the
+                # right answer regardless of what the CLI said. Learned the hard
+                # way — the first live run wrote the file into the wrong
+                # directory (the cwd slug did not translate dots or underscores)
+                # and only survived because the CLI happened to answer with the
+                # exact phrase this predicate greps for. Any other rejection
+                # (malformed record, format change after a CLI upgrade) would
+                # have failed the turn and shown the user an error, which 铁律
+                # #14 and #16 both forbid. Still AT MOST ONE retry, still only
+                # before any output — the bound is unchanged.
+                retryable = (
+                    transcript_file is not None
+                    or _failure_indicates_stale_resume(e, cli_stderr_lines)
+                )
+                if yielded_any or not retryable:
                     raise
                 stale_handle = True
 

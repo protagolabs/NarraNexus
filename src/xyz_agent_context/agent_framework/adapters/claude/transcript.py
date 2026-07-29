@@ -98,13 +98,23 @@ _CONVO_ROLES = ("user", "assistant")
 def cwd_slug(working_path: str | Path) -> str:
     """Directory name the CLI archives a project's transcripts under.
 
-    Observed convention: every non-empty path segment joined by '-', with a
-    leading '-'. Redundant separators collapse, so ``/app//sub/`` and
-    ``/app/sub`` map to the same slug — matching the CLI, which derives the same
-    name from an already-normalized cwd.
+    Every character that is not alphanumeric becomes a single '-', one for one.
+    Runs are NOT collapsed, so ``/Users/tc/.nexusagent`` yields
+    ``-Users-tc--nexusagent`` — the slash and the dot each contribute a dash.
+
+    Verified against directories Claude Code created itself under the production
+    config dir, e.g.
+    ``/Users/tc/.nexusagent/workspaces/user_tc/agent_9815c65a36a7`` →
+    ``-Users-tc--nexusagent-workspaces-user-tc-agent-9815c65a36a7``.
+
+    An earlier version split on '/' only. That works for a path of plain
+    alphanumeric segments (the probe ran in this repo, so it passed) and fails
+    silently on a real agent workspace, whose path carries a dot and two
+    underscores: the file lands next door and the CLI answers "No conversation
+    found". Widened after that failure — the character class, not the separator,
+    is what the CLI keys on.
     """
-    parts = [p for p in str(working_path).split("/") if p]
-    return "-" + "-".join(parts)
+    return "".join(c if c.isalnum() else "-" for c in str(working_path))
 
 
 def transcript_path(

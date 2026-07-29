@@ -204,5 +204,32 @@ def test_cwd_slug_matches_the_observed_convention():
     assert cwd_slug("/app") == "-app"
 
 
-def test_cwd_slug_collapses_redundant_separators():
-    assert cwd_slug("/app//sub/") == "-app-sub"
+def test_cwd_slug_replaces_every_non_alphanumeric_character():
+    """The real production path, and the case that broke it.
+
+    An agent workspace is ``/Users/<u>/.nexusagent/workspaces/user_<id>/agent_<id>``
+    — dots and underscores, not just slashes. An earlier version split on '/'
+    only, produced ``-Users-tc-.nexusagent-...-user_tc-agent_9815c65a36a7``, and
+    the CLI answered "No conversation found": the file existed, just not in the
+    directory the CLI looks in. Verified against directories Claude Code created
+    itself under the production config dir.
+    """
+    assert (
+        cwd_slug("/Users/tc/.nexusagent/workspaces/user_tc/agent_9815c65a36a7")
+        == "-Users-tc--nexusagent-workspaces-user-tc-agent-9815c65a36a7"
+    )
+    # The dot after a slash yields a DOUBLE dash — each character maps to one
+    # dash, so runs are not collapsed.
+    assert cwd_slug("/a/.b") == "-a--b"
+    assert cwd_slug("/x_y") == "-x-y"
+    assert cwd_slug("/dir.with.dots") == "-dir-with-dots"
+
+
+def test_cwd_slug_keeps_alphanumerics_including_digits():
+    assert cwd_slug("/v2/app3") == "-v2-app3"
+
+
+def test_cwd_slug_maps_a_trailing_separator_to_a_dash():
+    """Every non-alphanumeric maps 1:1, so a trailing slash leaves a trailing
+    dash — matching the CLI rather than a tidier rule of our own."""
+    assert cwd_slug("/app/") == "-app-"
