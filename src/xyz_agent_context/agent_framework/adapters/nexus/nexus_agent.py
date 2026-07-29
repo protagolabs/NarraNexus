@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-07-29
 @description: NexusAgent — the AgentLoopDriver for the home-grown
-nexus_loop framework (structurally the twin of adapters/claude: the
+nexus_power framework (structurally the twin of adapters/claude: the
 adapter translates contracts and owns zero business logic).
 
 Three jobs only:
@@ -12,7 +12,7 @@ Three jobs only:
      the SAME per-turn ``claude_config`` the claude driver uses — the
      platform's provider configs are Anthropic-protocol endpoints);
   2. run the turn in its OWN PROCESS by default (the runner; in-process
-     mode via ``NEXUS_LOOP_INPROCESS=1`` for the executor container and
+     mode via ``NEXUS_POWER_INPROCESS=1`` for the executor container and
      tests) and relay its NDJSON — with manual line buffering, never a
      line-length assumption;
   3. guarantee the legacy stream ends with exactly one
@@ -49,7 +49,7 @@ _CANCEL_POLL_S = 0.2
 
 
 class NexusAgent:
-    """AgentLoopDriver implementation for framework name ``nexus_loop``."""
+    """AgentLoopDriver implementation for framework name ``nexus_power``."""
 
     def __init__(self, working_path: str = "./"):
         self.working_path = working_path
@@ -76,7 +76,7 @@ class NexusAgent:
             request_payload = self._build_request_payload(
                 messages, mcp_servers, extra_env, kwargs
             )
-            if os.getenv("NEXUS_LOOP_INPROCESS") == "1":
+            if os.getenv("NEXUS_POWER_INPROCESS") == "1":
                 events = self._run_inprocess(request_payload, cancel)
             else:
                 events = self._run_subprocess(request_payload, cancel)
@@ -85,12 +85,12 @@ class NexusAgent:
                     done_seen = True
                 yield event
         except Exception as exc:  # noqa: BLE001 - classified for the wire
-            from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.session.error_classifier import (
+            from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
                 DefaultErrorClassifier,
             )
 
             error = DefaultErrorClassifier().classify(exc)
-            logger.exception(f"[nexus_loop] turn failed: {error!r}")
+            logger.exception(f"[nexus_power] turn failed: {error!r}")
             from typing import cast as _cast
 
             yield _cast(
@@ -117,7 +117,7 @@ class NexusAgent:
     ) -> dict[str, Any]:
         if claude_config.auth_type in ("oauth", "oauth_token"):
             raise ValueError(
-                "nexus_loop drives the provider API directly and cannot use "
+                "nexus_power drives the provider API directly and cannot use "
                 "subscription OAuth credentials; keep this agent on the "
                 "claude_code framework or configure an API-key provider"
             )
@@ -161,7 +161,7 @@ class NexusAgent:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Same code path as the runner, minus the process boundary
         (executor containers and tests — already isolated)."""
-        from xyz_agent_context.agent_framework.nexus_loop.runner import serve_turn
+        from xyz_agent_context.agent_framework.nexus_power.runner import serve_turn
 
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
@@ -182,7 +182,7 @@ class NexusAgent:
             def requested(self) -> bool:
                 return cancel.requested()
 
-        import xyz_agent_context.agent_framework.nexus_loop.runner as runner_module
+        import xyz_agent_context.agent_framework.nexus_power.runner as runner_module
 
         original = runner_module._SignalCancellation
         runner_module._SignalCancellation = lambda: _Bridge()  # type: ignore[assignment]
@@ -205,7 +205,7 @@ class NexusAgent:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
-            "xyz_agent_context.agent_framework.nexus_loop.runner",
+            "xyz_agent_context.agent_framework.nexus_power.runner",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -234,7 +234,7 @@ class NexusAgent:
                 try:
                     line = json.loads(raw.decode("utf-8"))
                 except json.JSONDecodeError:
-                    logger.warning(f"[nexus_loop] non-JSON runner line: {raw[:200]!r}")
+                    logger.warning(f"[nexus_power] non-JSON runner line: {raw[:200]!r}")
                     continue
                 event = self._line_to_event(line)
                 if event is not None:
@@ -245,7 +245,7 @@ class NexusAgent:
                     "utf-8", errors="replace"
                 )
                 if stderr_tail.strip():
-                    logger.warning(f"[nexus_loop] runner stderr tail: {stderr_tail}")
+                    logger.warning(f"[nexus_power] runner stderr tail: {stderr_tail}")
         finally:
             if process.returncode is None:
                 _terminate_group(process.pid)
@@ -259,8 +259,8 @@ class NexusAgent:
         if isinstance(exit_info, dict) and not exit_info.get("ok", True):
             trace = exit_info.get("traceback")
             if trace:
-                logger.warning(f"[nexus_loop] runner traceback:\n{trace}")
-            raise RuntimeError(str(exit_info.get("error") or "nexus_loop runner failed"))
+                logger.warning(f"[nexus_power] runner traceback:\n{trace}")
+            raise RuntimeError(str(exit_info.get("error") or "nexus_power runner failed"))
         return None
 
 

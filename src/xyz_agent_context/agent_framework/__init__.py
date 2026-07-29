@@ -39,13 +39,13 @@ register_agent_loop_driver("claude_code", ClaudeAgentSDK)
 
 # Home-grown nexus loop (the third framework): lazily imported by the
 # factory so registering it costs nothing at package import time.
-def _nexus_loop_factory(**factory_kwargs):
+def _nexus_power_factory(**factory_kwargs):
     from .adapters.nexus.nexus_agent import NexusAgent
 
     return NexusAgent(**factory_kwargs)
 
 
-register_agent_loop_driver("nexus_loop", _nexus_loop_factory)
+register_agent_loop_driver("nexus_power", _nexus_power_factory)
 
 # Single canonical Codex name → official ``openai-codex`` SDK driver.
 # The import is guarded so the package still loads on slim deploys

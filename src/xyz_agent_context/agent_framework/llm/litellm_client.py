@@ -7,7 +7,7 @@ over unified chat completions.
 
 Boundary (iron rule #9): this class does connections and passthrough
 only — one streaming chat call, raw chunks out, connection hygiene. It
-does NOT translate event semantics (nexus_loop's ModelClient does),
+does NOT translate event semantics (nexus_power's ModelClient does),
 classify errors (ErrorClassifier does) or choose models (callers do).
 Any other file importing ``litellm`` is an architecture violation
 (greppable).
