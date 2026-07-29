@@ -451,18 +451,31 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
 
     一条 UserMessage 可能包含多个 ToolResultBlock（并行工具调用的结果），
     每个 ToolResultBlock 生成一个独立的 tool_call_output_item 事件。
+
+    TextBlock content on a UserMessage is CLI plumbing, NEVER agent speech —
+    the agent only ever talks through StreamEvent / AssistantMessage. The
+    user role carries tool results plus whatever the CLI injects into the
+    transcript on its own behalf, and the biggest of those is the auto-
+    compaction hand-off: a summary of the run so far, the absolute path of
+    the CLI session `.jsonl`, and "Please continue the conversation from
+    where we left off". Emitting that as a text delta made
+    response_processor classify it AGENT_RESPONSE and run_collector fold it
+    into `events.final_output`, so the owner read the CLI's own bookkeeping
+    — including a container path they cannot open — as the agent's answer
+    (prod 2026-07-29, agent_94360f6c4b98; same class of leak as the
+    `AssistantMessage.error` interception in adapters/claude/sdk.py).
+
+    Dropping the text is therefore the whole point, not a lossy shortcut:
+    there is no agent output on this path to lose.
     """
 
     events: List[Dict[str, Any]] = []
-    text_parts: list[str] = []
 
     if hasattr(message, 'content') and message.content:
         for block in message.content:
             block_type = type(block).__name__
 
-            if block_type == "TextBlock" and hasattr(block, 'text'):
-                text_parts.append(block.text)
-            elif block_type == "ToolResultBlock" and hasattr(block, 'content'):
+            if block_type == "ToolResultBlock" and hasattr(block, 'content'):
                 events.append({
                     "type": TYPE_RUN_ITEM_STREAM_EVENT,
                     "item": {
@@ -471,19 +484,7 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
                     }
                 })
 
-    # 如果有 ToolResultBlock 事件，直接返回（文本内容通常是内部消息，不需要展示）
-    if events:
-        return events
-
-    # 没有 ToolResultBlock 时，返回文本内容
-    content = "\n".join(text_parts) if text_parts else ""
-    return [{
-        "type": TYPE_RAW_RESPONSE_EVENT,
-        "data": {
-            "type": DATA_TYPE_TEXT_DELTA,
-            "delta": content
-        }
-    }]
+    return events
 
 
 def _empty_delta() -> Dict[str, Any]:
