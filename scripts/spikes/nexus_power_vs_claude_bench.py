@@ -262,15 +262,18 @@ async def main() -> None:
     claude_cfg = _load_provider()
     print(f"[bench] scenario={scenario!r} workspace={_TMP}")
 
+    repeat = int(os.getenv("BENCH_REPEAT", "1"))
     results = []
     for framework in frameworks:
-        print(f"\n===== {framework} / {scenario} =====")
-        try:
-            result = await _run_one(framework, scenario, claude_cfg)
-        except Exception as exc:  # noqa: BLE001 - bench reports, never dies
-            result = {"framework": framework, "fatal": f"{type(exc).__name__}: {exc}"}
-        results.append(result)
-        print(json.dumps(result, ensure_ascii=False, indent=2)[:2500])
+        for round_index in range(repeat):
+            print(f"\n===== {framework} / {scenario} (round {round_index + 1}) =====")
+            try:
+                result = await _run_one(framework, scenario, claude_cfg)
+                result["round"] = round_index + 1
+            except Exception as exc:  # noqa: BLE001 - bench reports, never dies
+                result = {"framework": framework, "fatal": f"{type(exc).__name__}: {exc}"}
+            results.append(result)
+            print(json.dumps(result, ensure_ascii=False, indent=2)[:2500])
 
     print("\n===== summary =====")
     for r in results:

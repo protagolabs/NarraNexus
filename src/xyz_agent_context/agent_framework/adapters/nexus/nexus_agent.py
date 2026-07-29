@@ -48,11 +48,103 @@ _STREAM_LIMIT_BYTES = 32 * 1024 * 1024  # image-bearing lines reach 100s of KB
 _CANCEL_POLL_S = 0.2
 
 
+class _WarmRunnerPool:
+    """Pre-spawned, fully-imported runner processes idling on stdin.
+
+    The cold path costs ~1.4s of package imports plus ~1.8s of litellm
+    import per turn; a warm runner has paid both while idle, so a
+    simple question answers at provider speed. One process serves one
+    turn (isolation is preserved); every acquisition schedules a
+    background refill. ``NEXUS_POWER_POOL_SIZE`` sizes the pool
+    (default 1; 0 disables pooling — each idle warm process holds
+    ~350 MB RSS, so the pool is a deliberate speed-for-memory trade).
+    """
+
+    _shared: "_WarmRunnerPool | None" = None
+
+    def __init__(self) -> None:
+        self._idle: list[asyncio.subprocess.Process] = []
+        self._lock = asyncio.Lock()
+        self._size = int(os.getenv("NEXUS_POWER_POOL_SIZE", "1"))
+
+    @classmethod
+    def shared(cls) -> "_WarmRunnerPool":
+        if cls._shared is None:
+            cls._shared = cls()
+            import atexit
+
+            atexit.register(cls._shared._shutdown_sync)
+        return cls._shared
+
+    @property
+    def enabled(self) -> bool:
+        return self._size > 0
+
+    async def spawn(self, *, prewarm: bool) -> asyncio.subprocess.Process:
+        env = dict(os.environ)
+        if prewarm:
+            env["NEXUS_POWER_PREWARM"] = "1"
+        return await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "xyz_agent_context.agent_framework.nexus_power.runner",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            limit=_STREAM_LIMIT_BYTES,
+            start_new_session=True,
+            env=env,
+        )
+
+    async def acquire(self) -> asyncio.subprocess.Process:
+        process: asyncio.subprocess.Process | None = None
+        async with self._lock:
+            while self._idle:
+                candidate = self._idle.pop()
+                if candidate.returncode is None:
+                    process = candidate
+                    break
+        if process is None:
+            process = await self.spawn(prewarm=True)
+        self.schedule_refill()
+        return process
+
+    def schedule_refill(self) -> None:
+        task = asyncio.create_task(self._refill())
+        # Fire-and-forget discipline: a lost exception is a buried mine.
+        task.add_done_callback(
+            lambda t: t.exception()
+            and logger.warning(f"runner pool refill failed: {t.exception()}")
+        )
+
+    async def _refill(self) -> None:
+        async with self._lock:
+            while len(self._idle) < self._size:
+                self._idle.append(await self.spawn(prewarm=True))
+
+    def _shutdown_sync(self) -> None:
+        for process in self._idle:
+            if process.returncode is None:
+                _terminate_group(process.pid)
+        self._idle.clear()
+
+
 class NexusAgent:
     """AgentLoopDriver implementation for framework name ``nexus_power``."""
 
     def __init__(self, working_path: str = "./"):
         self.working_path = working_path
+        # Start warming immediately so even the process's FIRST turn
+        # overlaps imports with request preparation (no-op when pooling
+        # is disabled or no event loop is running yet).
+        if os.getenv("NEXUS_POWER_INPROCESS") != "1":
+            pool = _WarmRunnerPool.shared()
+            if pool.enabled:
+                try:
+                    asyncio.get_running_loop()
+                    pool.schedule_refill()
+                except RuntimeError:
+                    pass
 
     def capabilities(self) -> set[str]:
         """Shipped beyond the base contract: the two-track event log
@@ -202,16 +294,11 @@ class NexusAgent:
     async def _run_subprocess(
         self, payload: dict[str, Any], cancel: CancellationView
     ) -> AsyncGenerator[dict[str, Any], None]:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "xyz_agent_context.agent_framework.nexus_power.runner",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=_STREAM_LIMIT_BYTES,
-            start_new_session=True,
-        )
+        pool = _WarmRunnerPool.shared()
+        if pool.enabled:
+            process = await pool.acquire()
+        else:
+            process = await pool.spawn(prewarm=False)
         assert process.stdin and process.stdout
         process.stdin.write(
             (json.dumps(payload, default=_json_default) + "\n").encode("utf-8")

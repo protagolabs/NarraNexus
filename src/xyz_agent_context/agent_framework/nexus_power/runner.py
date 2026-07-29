@@ -119,11 +119,29 @@ async def serve_turn(raw_request: str, write_line: Any) -> int:
         return 1
 
 
+def _prewarm() -> None:
+    """Eagerly pay every import (assembly graph + litellm) BEFORE the
+    request arrives — the warm-pool contract: a pooled runner idles
+    fully loaded, so time-to-first-token excludes all import cost.
+    Gated by NEXUS_POWER_PREWARM=1 (pool spawns set it); a bare one-shot
+    spawn keeps lazy imports and the smaller footprint."""
+    from xyz_agent_context.agent_framework.llm.litellm_client import LitellmClient
+    from xyz_agent_context.agent_framework.nexus_power import assembly  # noqa: F401
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl import (  # noqa: F401
+        event_adapter,
+        loop,
+    )
+
+    LitellmClient._litellm()  # the 1.8s / 215MB import, paid while idle
+
+
 def main() -> None:
     """``python -m xyz_agent_context.agent_framework.nexus_power.runner``:
     read one request line from stdin, stream NDJSON to stdout."""
 
     async def _run() -> int:
+        if os.getenv("NEXUS_POWER_PREWARM") == "1":
+            _prewarm()
         raw = sys.stdin.readline()
         if not raw.strip():
             return 2
