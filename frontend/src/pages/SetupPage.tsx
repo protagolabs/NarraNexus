@@ -89,12 +89,12 @@ export function SetupPage() {
           />
           <BetaBadge />
         </div>
-        <BracketSectionLabel>Setup · One Key to Start</BracketSectionLabel>
+        <BracketSectionLabel>{t('pages.setup.oneKeyLabel')}</BracketSectionLabel>
         <h1
           className="text-2xl font-bold"
           style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
         >
-          Welcome to NarraNexus
+          {t('pages.setup.welcome')}
         </h1>
       </div>
 
@@ -116,7 +116,7 @@ export function SetupPage() {
               ) : (
                 <ChevronRight className="w-4 h-4" />
               )}
-              Advanced setup — OAuth, custom endpoints, per-slot models
+              {t('pages.setup.advancedSetup')}
             </button>
             {showAdvanced && (
               <div className="mt-4">
@@ -131,7 +131,7 @@ export function SetupPage() {
       <div className="flex items-center justify-center gap-4 py-6 border-t border-[var(--border-default)]">
         {providerCount > 0 ? (
           <Button variant="accent" onClick={() => finishSetup('setup_completed')}>
-            Get Started
+            {t('pages.setup.getStarted')}
             <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
         ) : (

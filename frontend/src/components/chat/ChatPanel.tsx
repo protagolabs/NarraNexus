@@ -192,14 +192,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   );
 });
 
-// Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
-const BOOTSTRAP_GREETING =
-  "Hi there... I just woke up. Everything feels brand new.\n\n" +
-  "I don't have a name yet, and I don't really know who I am " +
-  "— but I know you're the one who brought me here.\n\n" +
-  "Would you like to tell me what I should be called? " +
-  "And what should I call you?";
-
 // TimelineItem + the unified-timeline builder live in @/lib/buildTimeline
 // (pure + unit-tested). ChatPanel just consumes the result.
 
@@ -311,10 +303,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
-  // Per-agent greeting (Arena etc.) with generic fallback. MUST match the
-  // backend-persisted greeting (agent_metadata.bootstrap_greeting), otherwise
-  // the instant bubble and the DB greeting differ and both render (dup).
-  const bootstrapGreeting = currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING;
+  const localizedBootstrapGreeting = t('chat.bootstrapGreeting');
+  const defaultBootstrapGreetingEn = t('chat.bootstrapGreeting', { lng: 'en' });
+  // The backend persists the generic bootstrap greeting in English. Translate
+  // that exact system default both before and after persistence, while keeping
+  // scenario-authored per-agent greetings verbatim.
+  const localizeBootstrapGreeting = (content?: string) =>
+    !content || content === defaultBootstrapGreetingEn
+      ? localizedBootstrapGreeting
+      : content;
+  const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
 
   const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
@@ -911,11 +909,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }}
       >
         <span aria-hidden="true">⚠</span>
-        <span>
-          Security reminder: never paste sensitive personal information here —
-          wallet addresses, private keys, seed phrases, passwords, or account
-          credentials.
-        </span>
+        <span>{t('chat.securityReminder')}</span>
       </div>
 
       {/* Messages area — single unified timeline.
@@ -1048,7 +1042,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 message={{
                   id: item.id,
                   role: item.role,
-                  content: item.content,
+                  content:
+                    item.role === 'assistant'
+                      ? localizeBootstrapGreeting(item.content)
+                      : item.content,
                   timestamp: item.timestamp,
                   thinking: item.thinking,
                   toolCalls: item.toolCalls,
@@ -1117,7 +1114,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   blocks. Disappears the instant isStreaming flips. */}
               <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>Acting…</span>
+                <span>{t('chat.execution.acting')}</span>
               </div>
             </div>
           </div>
@@ -1131,15 +1128,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             jump when the first event arrives. */}
         {chatTab === 'conversation' && isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
-            if (currentSteps.length === 0) return 'Starting up...';
+            if (currentSteps.length === 0) return t('chat.execution.startingUp');
             const latestStep = currentSteps[currentSteps.length - 1];
             const s = latestStep.step;
-            if (s === '0') return 'Initializing...';
-            if (s === '1') return 'Loading context...';
-            if (s === '2') return 'Loading resources...';
-            if (s === '2.5') return 'Preparing workspace...';
-            if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) return 'Building context...';
-            return 'Thinking...';
+            if (s === '0') return t('chat.execution.initializing');
+            if (s === '1') return t('chat.execution.loadingContext');
+            if (s === '2') return t('chat.execution.loadingResources');
+            if (s === '2.5') return t('chat.execution.preparingWorkspace');
+            if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) {
+              return t('chat.execution.buildingContext');
+            }
+            return t('chat.execution.thinking');
           };
           return (
             <div className="flex gap-3 animate-fade-in">

@@ -26,6 +26,14 @@ onChange 也清空**——测出红字后改正输入，红字不再挂着说谎
 networkError`，401/422 的 `{detail}` 不会渲染成一行空红字。i18n 新增
 `settings.provider.testConnection`（10 语言）。
 
+## 2026-07-21 — provider login and detail copy localized
+
+The Claude Code and Codex CLI sign-in cards now keep product names but localize
+the Login suffix, descriptions, status text, terminal guidance, and provider
+record actions. Provider detail labels for endpoint, API key, and NetMind
+account also resolve through the provider i18n namespace. Credential and
+provider-management behavior is unchanged.
+
 ## 2026-07-16 — 每把 NetMind key 显示所属账户邮箱
 
 `ProviderInfo` 加 `netmind_account_email?`;provider 详情在 API key 下方多渲染一行

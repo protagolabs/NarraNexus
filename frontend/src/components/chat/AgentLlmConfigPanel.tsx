@@ -121,11 +121,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setAgentInitial(a);
       setHelperInitial(h);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load config');
+      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, t]);
 
   useEffect(() => {
     if (isOpen) void load();
@@ -167,11 +167,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     if (!isDirty || saving) return;
     // Validate changed slots before writing any.
     if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
-      setError('Pick a provider and model for the agent slot.');
+      setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
     if (helperChanged && (!helperDraft.provider_id || !helperDraft.model)) {
-      setError('Pick a provider and model for the helper slot.');
+      setError(t('pages.settings.modelDefaults.pickHelperModel'));
       return;
     }
     setSaving(true);
@@ -185,19 +185,19 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           reasoning_effort: agentDraft.reasoning_effort,
           agent_framework: agentDraft.agent_framework,
         });
-        if (!r.success) { setError(r.detail || 'Save failed'); return; }
+        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
       }
       if (helperChanged) {
         const r = await api.setAgentLlmConfig(agentId, 'helper_llm', {
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || 'Save failed'); return; }
+        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
       }
       await load();
       onSaved?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed');
+      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -211,7 +211,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       await load();
       onSaved?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Reset failed');
+      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.resetFailed'));
     } finally {
       setSaving(false);
     }
@@ -229,9 +229,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
 
   const StatusChip = ({ view }: { view?: AgentSlotView }) =>
     view?.inheriting !== false ? (
-      <span className="text-xs text-[var(--text-tertiary)]">inheriting default</span>
+      <span className="text-xs text-[var(--text-tertiary)]">
+        {t('pages.settings.modelDefaults.inheritingDefault')}
+      </span>
     ) : (
-      <span className="text-xs text-[var(--accent-primary)]">custom for this agent</span>
+      <span className="text-xs text-[var(--accent-primary)]">
+        {t('pages.settings.modelDefaults.customForAgent')}
+      </span>
     );
 
   const helperRecModel =
@@ -241,10 +245,17 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
 
   return (
     <>
-    <Dialog isOpen={isOpen} onClose={onClose} title="Agent model & framework" size="2xl">
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('pages.settings.modelDefaults.panelTitle')}
+      size="2xl"
+    >
       <DialogContent>
         {loading ? (
-          <p className="text-sm text-[var(--text-tertiary)]">Loading…</p>
+          <p className="text-sm text-[var(--text-tertiary)]">
+            {t('pages.settings.modelDefaults.loading')}
+          </p>
         ) : (
           <div className="space-y-6">
             {freeTier.active && (
@@ -255,21 +266,23 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               </div>
             )}
             <p className="text-sm text-[var(--text-tertiary)]">
-              These settings apply to <span className="font-mono">{agentId}</span> only.
-              Leave a slot as the inherited default to follow your global setting
-              (Settings › Providers). Changes take effect on the agent's next run.
+              {t('pages.settings.modelDefaults.agentOnlyDescription', { agentId })}
             </p>
 
             {/* ---- Agent slot ---- */}
             <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-[var(--text-primary)]">Agent (main dialogue)</span>
+                <span className="text-sm font-medium text-[var(--text-primary)]">
+                  {t('pages.settings.modelDefaults.agentMain')}
+                </span>
                 <StatusChip view={slots.agent} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <label className={labelCls}>Framework</label>
+                  <label className={labelCls}>
+                    {t('pages.settings.modelDefaults.framework')}
+                  </label>
                   {/* Cloud non-staff: switching back TO claude_code is always
                       allowed (recovers old codex_cli users); only picking a
                       NON-claude_code framework is blocked — it pops an
@@ -312,7 +325,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>Provider</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
                   <select
                     className={selectCls}
                     value={agentDraft.provider_id}
@@ -327,7 +340,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       }));
                     }}
                   >
-                    <option value="">Select provider…</option>
+                    <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>
                     {agentProviders.map((p) => (
                       <option key={p.provider_id} value={p.provider_id}>{p.name}</option>
                     ))}
@@ -335,14 +348,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>Model</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
                   <select
                     className={selectCls}
                     value={agentDraft.model}
                     disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, model: e.target.value }))}
                   >
-                    <option value="">Select model…</option>
+                    <option value="">{t('pages.settings.modelDefaults.selectModel')}</option>
                     {(providers[agentDraft.provider_id]
                       ? getModelsForSlot(providers[agentDraft.provider_id], 'agent', agentDraft.agent_framework, {})
                       : []
@@ -353,30 +366,30 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>Thinking</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
                   <select
                     className={selectCls}
                     value={agentDraft.thinking}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
                   >
-                    <option value="">Auto (default)</option>
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
+                    <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+                    <option value="on">{t('pages.settings.modelDefaults.on')}</option>
+                    <option value="off">{t('pages.settings.modelDefaults.off')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className={labelCls}>Reasoning effort</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
                   <select
                     className={selectCls}
                     value={agentDraft.reasoning_effort}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
                   >
-                    <option value="">Auto (default)</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="max">Max</option>
+                    <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+                    <option value="low">{t('pages.settings.modelDefaults.low')}</option>
+                    <option value="medium">{t('pages.settings.modelDefaults.medium')}</option>
+                    <option value="high">{t('pages.settings.modelDefaults.high')}</option>
+                    <option value="max">{t('pages.settings.modelDefaults.max')}</option>
                   </select>
                 </div>
               </div>
@@ -384,7 +397,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               {slots.agent?.inheriting === false && (
                 <div className="mt-3">
                   <button className={resetLink} disabled={saving} onClick={() => resetSlot('agent')}>
-                    Reset this slot to the global default
+                    {t('pages.settings.modelDefaults.resetSlot')}
                   </button>
                 </div>
               )}
@@ -394,14 +407,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
-                  Helper LLM (background tasks)
+                  {t('pages.settings.modelDefaults.helperTitle')}
                 </span>
                 <StatusChip view={slots.helper_llm} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Provider</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
                   <select
                     className={selectCls}
                     value={helperDraft.provider_id}
@@ -413,7 +426,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       setHelperDraft((d) => ({ ...d, provider_id: pid, model }));
                     }}
                   >
-                    <option value="">Select provider…</option>
+                    <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>
                     {helperProviders.map((p) => (
                       <option key={p.provider_id} value={p.provider_id}>{p.name}</option>
                     ))}
@@ -421,14 +434,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>Model</label>
+                  <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
                   <select
                     className={selectCls}
                     value={helperDraft.model}
                     disabled={!helperDraft.provider_id}
                     onChange={(e) => setHelperDraft((d) => ({ ...d, model: e.target.value }))}
                   >
-                    <option value="">Select model…</option>
+                    <option value="">{t('pages.settings.modelDefaults.selectModel')}</option>
                     {(providers[helperDraft.provider_id]
                       ? getModelsForSlot(providers[helperDraft.provider_id], 'helper_llm', null, {})
                       : []
@@ -439,15 +452,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
               </div>
               <p className="text-xs text-[var(--text-tertiary)] mt-2">
-                Recommended: {prettifyModel(helperRecModel)} — small/fast model for
-                summaries, dedup, memory. OAuth (CLI sign-in) providers also work here —
-                routed one-shot through the same CLI, so one subscription covers both slots.
+                {t('pages.settings.modelDefaults.helperRecommendation', {
+                  model: prettifyModel(helperRecModel),
+                })}
               </p>
 
               {slots.helper_llm?.inheriting === false && (
                 <div className="mt-3">
                   <button className={resetLink} disabled={saving} onClick={() => resetSlot('helper_llm')}>
-                    Reset this slot to the global default
+                    {t('pages.settings.modelDefaults.resetSlot')}
                   </button>
                 </div>
               )}
@@ -483,11 +496,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           className="mr-auto text-xs text-[var(--accent-primary)] hover:opacity-80"
           onClick={() => { onClose(); navigate('/app/settings'); }}
         >
-          Manage providers →
+          {t('pages.settings.modelDefaults.manageProviders')}
         </button>
-        <button className={btnGhost} onClick={onClose}>Close</button>
+        <button className={btnGhost} onClick={onClose}>
+          {t('pages.settings.modelDefaults.close')}
+        </button>
         <button className={btnPrimary} disabled={!isDirty || saving || loading} onClick={saveAll}>
-          {saving ? 'Saving…' : 'Save'}
+          {saving
+            ? t('pages.settings.modelDefaults.saving')
+            : t('pages.settings.modelDefaults.save')}
         </button>
       </DialogFooter>
     </Dialog>

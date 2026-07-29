@@ -22,6 +22,30 @@ list refresh raced ahead and already inserted it (see [[artifactStore.ts]]
 2026-07-23). Dedup via the module-scope seen-Set is unchanged, so history
 re-renders don't re-steal focus.
 
+## 2026-07-22 — localized persistent security reminder
+
+The non-dismissible warning above the conversation now resolves through
+`chat.securityReminder` instead of embedding English in JSX. Its persistence,
+warning styling, and security meaning are unchanged; only locale selection now
+controls the displayed copy.
+
+## 2026-07-21 — localized live execution status
+
+The pre-event streaming indicator no longer hard-codes English for startup,
+context/resource loading, workspace preparation, context building, or
+thinking. It resolves the whole state-to-copy mapping through
+`chat.execution.*`, including the inter-event `Acting…` indicator, so changing
+the interface language updates the complete live execution sequence without
+altering step identifiers or streaming behavior.
+
+## 2026-07-21 — localized generic bootstrap greeting survives persistence
+
+The generic greeting resolves through `chat.bootstrapGreeting`. Because the
+backend persists its generic default in English on the first turn, ChatPanel
+recognizes that exact system text in both agent metadata and history and
+renders the active-locale version. Scenario-authored `bootstrap_greeting`
+metadata remains verbatim, so Arena and other custom greetings are untouched.
+
 ## 2026-07-18 — 语音不可用弹窗：free_tier_opted_out → free_tier_not_granted
 
 后端 transcription 枚举改名的前端半边（[[service|transcription/service]]）：
@@ -360,7 +384,12 @@ The primary user-facing interface. All agent interaction goes through here. Merg
 
 **IME handling**: The send button is gated by `isComposing` and a 100ms grace period after `compositionend`. Without this, CJK input methods would fire Enter before the character is committed.
 
-**Bootstrap greeting**: If `bootstrap_active` is true and there are no messages, the panel renders a hard-coded bootstrap greeting. The greeting content is kept in sync with `src/xyz_agent_context/bootstrap/template.py` — comment in the code flags this dependency.
+**Bootstrap greeting**: If `bootstrap_active` is true and there are no messages,
+the panel renders the localized generic `chat.bootstrapGreeting` when metadata
+contains the backend's exact generic English default. Any genuinely authored
+custom greeting is rendered verbatim. The same normalization is applied to
+persisted assistant history so the greeting does not switch back to English
+after the first turn.
 
 **`send_message_to_user_directly` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
 
@@ -381,7 +410,9 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 
 ## 新人易踩的坑
 
-`BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
+Custom `bootstrap_greeting` metadata must remain verbatim. Only content equal
+to the exact English generic locale value may be localized; the backend stores
+that generic greeting as a chat message after the user's first reply.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
 

@@ -6,7 +6,15 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_k: string, d?: string) => d ?? _k }) }));
+const { mockT } = vi.hoisted(() => {
+  const copy: Record<string, string> = {
+    'pages.settings.nav.account': 'Account & Subscription',
+    'pages.settings.nav.providers': 'LLM Providers',
+  };
+  return { mockT: (key: string) => copy[key] ?? key };
+});
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockT }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('@/components/settings/ProviderSettings', () => ({ ProviderSettings: () => <div /> }));
 vi.mock('@/components/settings/ModelDefaultsSettings', () => ({ ModelDefaultsSettings: () => <div /> }));
