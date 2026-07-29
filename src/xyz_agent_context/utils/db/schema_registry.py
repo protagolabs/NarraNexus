@@ -914,6 +914,11 @@ _register(
             Column("profile_name", "TEXT", "VARCHAR(128)", nullable=False),
             Column("workspace_path", "TEXT", "VARCHAR(512)"),
             Column("bot_name", "TEXT", "VARCHAR(255)"),
+            # The bot's OWN open_id, from /open-apis/bot/v3/info. Needed to
+            # decide whether an inbound group message @-mentions this bot:
+            # the mention list carries open_ids, and name matching alone is
+            # ambiguous when a human shares the bot's display name.
+            Column("bot_open_id", "TEXT", "VARCHAR(64)"),
             Column("owner_open_id", "TEXT", "VARCHAR(64)"),
             Column("owner_name", "TEXT", "VARCHAR(255)"),
             Column("auth_status", "TEXT", "VARCHAR(32)", nullable=False, default="'not_logged_in'"),

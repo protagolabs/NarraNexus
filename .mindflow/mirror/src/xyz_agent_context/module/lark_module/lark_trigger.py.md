@@ -1,9 +1,39 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-29
 ---
 
+## 2026-07-29 — group rooms reply only when @-mentioned
+
+`is_group_reply_warranted(cred, event_dict)` gates group-room messages
+before dedup; direct messages are untouched. Once an app holds
+`im:message.group_msg` (Lark's sensitive read-all-group-messages scope)
+the subscriber receives EVERY message in every group the bot sits in, and
+without a gate each one wakes an `agent_loop` — the bot barges into
+conversations it was never addressed in. That was first patched by asking
+the model to judge "was this for me" inside Awareness; that is
+probabilistic and the wrong layer. "Is this addressed to me" is channel
+semantics, not agent-scenario logic (binding rule #4), so it is a
+deterministic trigger-layer decision here.
+
+Matching is by `bot_open_id` (see [[_lark_credential_manager]]), with
+display-name fallback for bindings saved before that field existed.
+Deliberate asymmetry in the ambiguity handling: **no mentions at all → do
+not reply** (nobody was @-ed, so certainly not us), but **mentions present
+and bot identity unknown → reply** (fail-open; one extra answer is
+recoverable, a bot gone mute in a group reads as broken and generates a
+support ticket). Drops emit `EVENT_INGRESS_DROPPED_NOT_MENTIONED` so
+"the bot ignored me" stays answerable from the audit trail rather than
+vanishing into a silent `return` (incident lessons #3/#5).
+
+`_extract_mentions` flattens the SDK's mention objects into the event
+dict. An empty list is DATA, not missing data — the gate depends on being
+able to distinguish "nobody was mentioned" from "mentions unavailable".
+
+Reading is unaffected by the gate: skipped messages still land in the
+room's history, and when the bot IS addressed [[lark_context_builder]]
+tells it to go read what it missed.
 ## 2026-07-10 — inject "ack early" prefix into tagged_prompt
 
 Lark fully overrides `_build_and_run_agent`, so it prepends
