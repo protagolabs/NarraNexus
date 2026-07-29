@@ -6,6 +6,30 @@ stub: false
 
 # transcript.py — 自己写 `--resume` 要读的那个文件
 
+## 2026-07-29 — 落盘与删除(T2)
+
+新增 `write_transcript` / `remove_transcript`,把"构建 → 使用 → 删除"这个生命
+周期做成两个函数。
+
+**`write_transcript` 返回 `None` 而不抛异常。** `None` 的含义是"这一轮走老路":
+没有可续的历史,或者文件写不进去。两者都不是事故——transcript 是优化,调用方在
+它缺席时把历史留在提示词里。在这里抛异常会把"磁盘满"变成"agent 运行失败",
+铁律 #14 禁止。
+
+**捕获范围刻意比 `OSError` 宽。** 明显的失败是 IO(磁盘满、目录只读、路径被目录
+占用),但一个不可序列化的值进到 `render` 会抛 `TypeError`、从更窄的 except 里
+逃出去。fail-open 若只覆盖一部分失败,就是句空话。同理 `build_records` 里把
+`working_path` 强制转 `str`——注解写着 `str` 但没人强制,`Path` 对象只会在更晚的
+json 序列化处炸。
+
+**`remove_transcript` 永不抛。** 它从 `finally` 里被调用,在那里抛异常会**掩盖
+真正结束这个 turn 的错误**。还必须容忍它可能遇到的每种状态:`None`(写失败或
+跳过)、已经不存在、路径不是文件。
+
+删除不是打扫卫生:留在共用 `CLAUDE_CONFIG_DIR` 里的 transcript 正是
+`executor_resume_hmac_secret` 要防的跨租户读取路径(`/agent-loop` **刻意无鉴权**,
+句柄可猜就能读别人对话),而且会无界增长。磁盘上没有留存物,就没有可读的东西。
+
 ## 为什么存在
 
 缓存前缀是严格字节匹配,顺序 `tools → system → messages`。历史塞进 system

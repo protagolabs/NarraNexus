@@ -4,6 +4,16 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — claude_synthetic_transcript_enabled
+
+`claude_synthetic_transcript_enabled: bool = True`(env
+`CLAUDE_SYNTHETIC_TRANSCRIPT_ENABLED`)—— 是否每轮自己写 CLI 的 resume transcript,
+而不是依赖存下来的会话句柄。机制与理由见 [[transcript]] 与 [[sdk]] 同日条目。
+
+关掉即回到句柄式 resume。**运维闸门,不是兼容层**:每一步都 fail-open(没有可续的
+历史、或文件写不进去,turn 就照今天的样子跑、历史留在提示词里),所以这个开关只是
+给"想整体停掉这个优化"留一个入口。
+
 ## 2026-07-29 — claude_cli_prefer_pinned / claude_cli_path
 
 两个字段服务 [[cli_binary]] 的二进制选择:

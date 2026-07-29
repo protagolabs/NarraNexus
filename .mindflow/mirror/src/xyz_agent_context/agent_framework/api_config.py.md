@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 提取 `cli_config_dir` property
+
+`CLAUDE_CONFIG_DIR` 的分派(oauth → `claude_oauth_config_path`,其余 →
+`claude_cli_config_path`)原来在 `to_cli_env` 和 `resume_fingerprint` 里各写一遍,
+两处 docstring 都在叮嘱读者"手工保持分支一致"。现在收成一个 property,两个旧调用
+点都改为引用它。
+
+触发点是第三个调用方:[[transcript]] 要知道 CLI 会用哪个 config dir,因为
+per-project transcript 就住在 `<dir>/projects/<cwd-slug>/<session_id>.jsonl`。
+第三次要抄同一段分派,就该提取而不是再抄一份——"靠注释提醒人工同步"本身就是待
+发生的 bug。
 
 ## 2026-07-28 — 免费额度分支移除后的收口
 

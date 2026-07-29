@@ -5,7 +5,20 @@ stub: false
 ---
 # adapters/materializer.py — 共享的「结构化消息 → CLI 提示文本」物化步骤
 
-## 2026-07-29 — 阅读指南与历史区块绑定；全被驱逐时显式声明
+## 2026-07-29 — argv 截断逻辑降级为「回落路径的保险」,不要删
+
+claude adapter 现在自己写 CLI 的 resume transcript([[transcript]]),历史正常
+情况下走那个文件、**根本不进 argv**。于是 `ARGV_MAX_HISTORY_CHARS` 和按来源淘汰
+的驱逐逻辑看起来成了死代码。
+
+**它们不是。** 写 transcript 是 fail-open 的:写不进去(配置目录只读、磁盘满)
+就回落到"历史折进 argv 提示词",与改动前完全一致。这几个上限正是防止那条回落
+路径撑爆 `MAX_ARG_STRLEN` 的东西。
+
+之所以专门记一条:原 plan(`2026-07-29-synthetic-transcript`)把"整块删除截断
+逻辑"列为 T4 的收益,理由是"它存在的唯一原因就是历史要塞进 argv"。这个推理少了
+一步——**收益到手不等于代码可删**。而且它要重新引入的故障只在罕见路径上出现,
+删掉之后短期看不出任何问题。plan 的 T4 节已改写记录此事。
 
 `CHAT_HISTORY_TIMELINE_PREAMBLE`（原本在 [[prompts.py]]，由
 [[context_runtime.py]] 直接拼进 system prompt）搬到本文件。原因是它描述的是

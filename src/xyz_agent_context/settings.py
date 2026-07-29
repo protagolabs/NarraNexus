@@ -274,6 +274,26 @@ class Settings(BaseSettings):
     # Env: CLAUDE_CLI_PATH.
     claude_cli_path: str = ""
 
+    # Author the CLI's resume transcript ourselves every turn, instead of
+    # relying on a stored CLI session handle. When on, the adapter writes the
+    # conversation history into
+    # ``<CLAUDE_CONFIG_DIR>/projects/<cwd-slug>/<session_id>.jsonl``, resumes
+    # it, and deletes the file when the turn ends.
+    #
+    # Why it matters: the prompt cache matches a strict byte prefix ordered
+    # tools → system → messages, so history in the system prompt sits INSIDE
+    # the prefix. Handle-based resume already moved history out on RESUME turns,
+    # but a cold turn still carries it, so the two prompts differ and the first
+    # resume turn after any cold turn misses from ``system`` onward (~49K
+    # full-price tokens, measured). Writing the transcript ourselves makes every
+    # turn a resume turn, so the prompt is byte-identical from turn one.
+    #
+    # Fail-open at every step: nothing to resume, or the file cannot be written,
+    # and the turn runs exactly as it does today with history in the prompt.
+    # This is an ops gate, not a compatibility shim.
+    # Env: CLAUDE_SYNTHETIC_TRANSCRIPT_ENABLED.
+    claude_synthetic_transcript_enabled: bool = True
+
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")

@@ -64,26 +64,35 @@ class ClaudeConfig:
     thinking: str = ""
     reasoning_effort: str = ""
 
+    @property
+    def cli_config_dir(self) -> str:
+        """``CLAUDE_CONFIG_DIR`` the CLI subprocess will run with.
+
+        Single source for a dispatch that used to be written out separately in
+        :meth:`to_cli_env` and :meth:`resume_fingerprint`, with a comment on
+        each asking the reader to keep them branch-identical by hand. The dir
+        decides which session store the CLI reads AND where its per-project
+        transcripts live (``<dir>/projects/<cwd-slug>/<session_id>.jsonl``),
+        so a third caller wanting it was reason to extract rather than copy.
+
+        See :meth:`to_cli_env` for why the two dirs are separate at all.
+        """
+        from xyz_agent_context.settings import settings
+
+        return (
+            settings.claude_oauth_config_path
+            if self.auth_type == "oauth"
+            else settings.claude_cli_config_path
+        )
+
     def resume_fingerprint(self) -> str:
         """Identity of the CLI session store this config resolves to.
 
         Any component change (auth kind, endpoint, config dir, model) means
         the stored CLI session may not exist or may not be safe to resume
         under the new config -> caller must cold-start.
-
-        The config-dir dispatch MUST stay branch-identical to
-        :meth:`to_cli_env`'s ``CLAUDE_CONFIG_DIR`` assignment — the dir
-        decides which session store the CLI reads, and keeping both in one
-        class is what stops the two from drifting apart.
         """
-        from xyz_agent_context.settings import settings
-
-        config_dir = (
-            settings.claude_oauth_config_path
-            if self.auth_type == "oauth"
-            else settings.claude_cli_config_path
-        )
-        raw = f"{self.auth_type}|{self.base_url}|{config_dir}|{self.model}"
+        raw = f"{self.auth_type}|{self.base_url}|{self.cli_config_dir}|{self.model}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_cli_env(self) -> dict[str, str]:
@@ -168,10 +177,7 @@ class ClaudeConfig:
         # Always set the key (never omit) so a stray inherited
         # ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
         # ``{**os.environ, **options.env}`` merge.
-        if self.auth_type == "oauth":
-            env["CLAUDE_CONFIG_DIR"] = _settings.claude_oauth_config_path
-        else:
-            env["CLAUDE_CONFIG_DIR"] = _settings.claude_cli_config_path
+        env["CLAUDE_CONFIG_DIR"] = self.cli_config_dir
 
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same

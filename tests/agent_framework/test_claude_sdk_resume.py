@@ -161,6 +161,16 @@ def _stub_transport(monkeypatch):
         openai=OpenAIConfig(),
         codex=CodexConfig(),
     )
+    # This file covers the HANDLE-based resume path: a session id supplied by
+    # upstream, which may turn out stale. The self-authored transcript
+    # (2026-07-29) is a different mechanism that makes every turn a resume turn
+    # and cannot go stale, so it is switched off here — otherwise the
+    # "no kwarg → cold start" cases below would silently become resume cases and
+    # stop testing what they name. Its own coverage lives in
+    # test_claude_synthetic_transcript.py.
+    from xyz_agent_context.settings import settings
+
+    monkeypatch.setattr(settings, "claude_synthetic_transcript_enabled", False)
     yield
 
 

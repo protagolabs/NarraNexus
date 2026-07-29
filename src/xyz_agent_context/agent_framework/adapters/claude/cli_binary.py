@@ -86,7 +86,8 @@ _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 _VERSION_PROBE_TIMEOUT_S = 20.0
 
 _lock = threading.Lock()
-_resolved: tuple[str | None, str] | None = None  # (path_or_None, reason)
+# (path_or_None, effective_version_or_None, reason)
+_resolved: tuple[str | None, str | None, str] | None = None
 
 
 def _probe_version(path: str) -> str | None:
@@ -174,12 +175,29 @@ def resolve_cli_path() -> str | None:
     binary is this process really launching" — read it instead of running
     ``claude --version``, which reports a binary the agent loop may never use.
     """
+    return _resolve()[0]
+
+
+def effective_cli_version() -> str | None:
+    """Version of the binary this process actually launches, or None if it could
+    not be determined.
+
+    Distinct from ``PINNED_CLI_VERSION`` on purpose: when the resolver falls
+    back, the pin is NOT what runs. Consumers that record the running version —
+    the per-turn transcript stamps it into every record's ``version`` field —
+    must write what is actually running, not what we hoped for.
+    """
+    return _resolve()[1]
+
+
+def _resolve() -> tuple[str | None, str | None, str]:
+    """Resolve once per process, log once, and memoize the whole decision."""
     global _resolved
     if _resolved is not None:
-        return _resolved[0]
+        return _resolved
     with _lock:
         if _resolved is not None:
-            return _resolved[0]
+            return _resolved
         path, version, reason = _decide()
         if path is None:
             bundled = _bundled_path()
@@ -194,8 +212,8 @@ def resolve_cli_path() -> str | None:
             f"| decision: {reason} "
             f"| sdk={_bundled_declared_version()} pin={PINNED_CLI_VERSION}"
         )
-        _resolved = (path, reason)
-        return path
+        _resolved = (path, version, reason)
+        return _resolved
 
 
 def reset_cache_for_tests() -> None:

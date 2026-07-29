@@ -9,7 +9,10 @@
 import asyncio
 import hashlib
 import json
+import subprocess
+import uuid
 from contextlib import aclosing, suppress
+from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
@@ -32,7 +35,15 @@ from xyz_agent_context.agent_framework.loop.output_transfer import output_transf
 from xyz_agent_context.agent_framework.api_config import claude_config
 from xyz_agent_context.agent_framework.providers.model_catalog import resolve_cli_alias
 from xyz_agent_context.agent_framework.adapters._tool_policy_guard import build_tool_policy_guard
-from xyz_agent_context.agent_framework.adapters.claude.cli_binary import resolve_cli_path
+from xyz_agent_context.agent_framework.adapters.claude.cli_binary import (
+    PINNED_CLI_VERSION,
+    effective_cli_version,
+    resolve_cli_path,
+)
+from xyz_agent_context.agent_framework.adapters.claude.transcript import (
+    remove_transcript,
+    write_transcript,
+)
 from xyz_agent_context.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
     split_for_argv,
@@ -660,6 +671,29 @@ def _build_claude_mcp_config(
     return config
 
 
+@lru_cache(maxsize=32)
+def _working_git_branch(working_path: str) -> str:
+    """Branch name for the transcript's ``gitBranch`` field, or "" when the
+    workspace is not a git repo (the common case for agent workspaces).
+
+    Cached per path: this runs on the hot turn path and a subprocess per turn
+    would be a real cost for a field the CLI only uses for its own display.
+    Bounded so a long-lived process with many agent workspaces cannot grow it
+    without limit.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=working_path,
+            timeout=10,
+        )
+    except Exception:  # noqa: BLE001 — a missing git or an odd cwd is not an error here
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
 def _log_sysprompt_sha(system_prompt: str, resume_session_id: str | None) -> str:
     """Emit the greppable ``sys_sha256=<12hex>`` line over the COMPLETE
     adapter-facing system prompt and return the digest.
@@ -754,6 +788,48 @@ class ClaudeAgentSDK:
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )
+
+        # Author the transcript ourselves rather than depending on the CLI still
+        # remembering a session. This is what removes the LAST prefix cost that
+        # handle-based resume left behind: a cold turn used to carry history in
+        # the system prompt while a resume turn did not, so the two prompts
+        # differed and the first resume turn after any cold turn missed from
+        # `system` onward (~49K full-price tokens, measured). Writing it every
+        # turn makes every turn a resume turn — the prompt is byte-identical from
+        # turn one, and history rides `messages`, after the prefix.
+        #
+        # A FRESH id per turn (never derived from agent/narrative): the file is
+        # deleted in the `finally` below, so nothing durable is left in the
+        # shared CLAUDE_CONFIG_DIR for an unauthenticated /agent-loop caller to
+        # read with a guessed handle. A derived, guessable id would reopen that
+        # hole. T0 measured that the transcript's envelope fields — sessionId
+        # included — never reach the request, so varying the id per turn costs no
+        # cache.
+        from xyz_agent_context.settings import settings as _transcript_settings
+
+        transcript_file: Path | None = None
+        if _transcript_settings.claude_synthetic_transcript_enabled and history_entries:
+            candidate_sid = str(uuid.uuid4())
+            transcript_file = write_transcript(
+                config_dir=claude_config.cli_config_dir,
+                working_path=str(self.working_path),
+                session_id=candidate_sid,
+                history_entries=history_entries,
+                # The version that will actually run, not the pin: the resolver
+                # falls back to the SDK's bundled binary on a mismatch, and the
+                # records' `version` field must describe the real writer.
+                cli_version=effective_cli_version() or PINNED_CLI_VERSION,
+                git_branch=_working_git_branch(self.working_path),
+            )
+            if transcript_file is not None:
+                # Supersedes any handle upstream resolved: ours is guaranteed
+                # fresh and complete, theirs may be stale.
+                resume_session_id = candidate_sid
+                logger.info(
+                    f"[TRANSCRIPT] wrote {len(history_entries)} history entries "
+                    f"→ session={candidate_sid[:12]} ({transcript_file.name})"
+                )
+
         # Keep the bare (history-free) prompt + entries in locals: the
         # stale-handle cold retry below re-assembles the full prompt WITH
         # the preserved history_entries. The argv ceilings inside
@@ -1262,81 +1338,99 @@ class ClaudeAgentSDK:
                     except Exception as e:
                         logger.warning(f"Error during client disconnect: {e}")
 
-        # Drive the run(s). ``aclosing`` keeps subprocess teardown
-        # deterministic: when THIS generator is closed early (cancellation),
-        # the in-flight _run_once is aclosed synchronously — its finally
-        # (bounded disconnect + SIGKILL fallback) runs right away instead of
-        # whenever GC finalizes the inner generator.
+        # ONE try/finally around every run this turn, so the transcript can
+        # never be left behind. The removal is SYNCHRONOUS, which is what makes
+        # the cancellation path safe: when this generator is aclosed,
+        # GeneratorExit lands on one of the yields inside and the finally runs
+        # immediately instead of whenever GC finalizes it. It covers all four
+        # exits — normal completion (including the two `return`s below), the
+        # except clause, cancellation, and aclose on an abandoned generator.
         #
-        # Cold start: exactly one run — today's behavior, byte-identical.
-        if not resume_session_id:
-            async with aclosing(_run_once(options)) as cold_run:
-                async for event in cold_run:
-                    yield event
-            return
-
-        # Resume: one run, plus AT MOST ONE same-turn cold retry when the
-        # handle turns out stale — the run died before producing ANY content
-        # AND the CLI stderr carries the exact "No conversation found" phrase
-        # (E1 T3). This is a startup fallback, not a retry loop (铁律
-        # #14-safe); every other failure mode flows through the existing
-        # error paths unchanged.
-        yielded_any = False
-        stale_handle = False
+        # The try opens BEFORE the first run rather than around each one: a
+        # failure between writing the file and starting the CLI would otherwise
+        # strand it, and since every turn uses a fresh session id nothing would
+        # ever clean it up.
         try:
-            async with aclosing(_run_once(options)) as resume_run:
-                async for event in resume_run:
-                    if (
-                        not yielded_any
-                        and _is_zero_output_error_event(event)
-                        and _stderr_reports_stale_resume(cli_stderr_lines)
-                    ):
-                        # Swallow the zero-output error event: the cold retry
-                        # below replaces this run entirely, so downstream —
-                        # and the user (铁律 #16) — must not see a failure.
-                        stale_handle = True
-                        continue
-                    yielded_any = True
+            # Drive the run(s). ``aclosing`` keeps subprocess teardown
+            # deterministic: when THIS generator is closed early (cancellation),
+            # the in-flight _run_once is aclosed synchronously — its finally
+            # (bounded disconnect + SIGKILL fallback) runs right away instead of
+            # whenever GC finalizes the inner generator.
+            #
+            # Cold start: exactly one run — today's behavior, byte-identical.
+            if not resume_session_id:
+                async with aclosing(_run_once(options)) as cold_run:
+                    async for event in cold_run:
+                        yield event
+                return
+
+            # Resume: one run, plus AT MOST ONE same-turn cold retry when the
+            # handle turns out stale — the run died before producing ANY content
+            # AND the CLI stderr carries the exact "No conversation found" phrase
+            # (E1 T3). This is a startup fallback, not a retry loop (铁律
+            # #14-safe); every other failure mode flows through the existing
+            # error paths unchanged.
+            yielded_any = False
+            stale_handle = False
+            try:
+                async with aclosing(_run_once(options)) as resume_run:
+                    async for event in resume_run:
+                        if (
+                            not yielded_any
+                            and _is_zero_output_error_event(event)
+                            and _stderr_reports_stale_resume(cli_stderr_lines)
+                        ):
+                            # Swallow the zero-output error event: the cold retry
+                            # below replaces this run entirely, so downstream —
+                            # and the user (铁律 #16) — must not see a failure.
+                            stale_handle = True
+                            continue
+                        yielded_any = True
+                        yield event
+            except Exception as e:
+                # The CLI run failed outright. Retry ONLY the stale-resume shape:
+                # failed before ANY content AND the phrase appears somewhere in
+                # the failure evidence; any other crash re-raises exactly as
+                # before. Broadened 2026-07-25: a stale --resume dies in ~450ms
+                # as the SDK's ProcessError (exit 1) — NOT our RuntimeError — and
+                # the phrase can miss the stderr callback entirely when the
+                # pump loses the race, so the predicate checks exception text +
+                # exception.stderr + captured stderr (drained in _run_once).
+                if yielded_any or not _failure_indicates_stale_resume(e, cli_stderr_lines):
+                    raise
+                stale_handle = True
+
+            if not stale_handle:
+                return
+
+            logger.warning(
+                f"[ClaudeAgentSDK] Stale resume handle "
+                f"(resume={resume_session_id[:12]}, CLI: 'No conversation found') "
+                f"— retrying THIS turn cold with full history"
+            )
+            # Internal marker for the orchestrator: step_4 clears the stale
+            # handle row. NEVER surfaced as an ErrorMessage (铁律 #16).
+            yield _resume_failed_marker_event()
+
+            # First-run stderr served its purpose (the detection above); clear it
+            # so the cold retry's diagnostics aren't polluted with stale-resume
+            # noise. The stderr callback closes over this same list, so clearing
+            # in place re-arms it for the retry.
+            cli_stderr_lines.clear()
+
+            # Re-assemble the prompt WITH the preserved history and run cold —
+            # exactly today's cold-start behavior.
+            options_kwargs["system_prompt"] = assemble_argv_prompt(
+                base_system_prompt, history_entries
+            )
+            # The retry runs cold — re-emit the sentinel for the actually-sent bytes.
+            _log_sysprompt_sha(options_kwargs["system_prompt"], None)
+            options_kwargs["resume"] = None
+            async with aclosing(_run_once(ClaudeAgentOptions(**options_kwargs))) as retry_run:
+                async for event in retry_run:
                     yield event
-        except Exception as e:
-            # The CLI run failed outright. Retry ONLY the stale-resume shape:
-            # failed before ANY content AND the phrase appears somewhere in
-            # the failure evidence; any other crash re-raises exactly as
-            # before. Broadened 2026-07-25: a stale --resume dies in ~450ms
-            # as the SDK's ProcessError (exit 1) — NOT our RuntimeError — and
-            # the phrase can miss the stderr callback entirely when the
-            # pump loses the race, so the predicate checks exception text +
-            # exception.stderr + captured stderr (drained in _run_once).
-            if yielded_any or not _failure_indicates_stale_resume(e, cli_stderr_lines):
-                raise
-            stale_handle = True
-
-        if not stale_handle:
-            return
-
-        logger.warning(
-            f"[ClaudeAgentSDK] Stale resume handle "
-            f"(resume={resume_session_id[:12]}, CLI: 'No conversation found') "
-            f"— retrying THIS turn cold with full history"
-        )
-        # Internal marker for the orchestrator: step_4 clears the stale
-        # handle row. NEVER surfaced as an ErrorMessage (铁律 #16).
-        yield _resume_failed_marker_event()
-
-        # First-run stderr served its purpose (the detection above); clear it
-        # so the cold retry's diagnostics aren't polluted with stale-resume
-        # noise. The stderr callback closes over this same list, so clearing
-        # in place re-arms it for the retry.
-        cli_stderr_lines.clear()
-
-        # Re-assemble the prompt WITH the preserved history and run cold —
-        # exactly today's cold-start behavior.
-        options_kwargs["system_prompt"] = assemble_argv_prompt(
-            base_system_prompt, history_entries
-        )
-        # The retry runs cold — re-emit the sentinel for the actually-sent bytes.
-        _log_sysprompt_sha(options_kwargs["system_prompt"], None)
-        options_kwargs["resume"] = None
-        async with aclosing(_run_once(ClaudeAgentOptions(**options_kwargs))) as retry_run:
-            async for event in retry_run:
-                yield event
+        finally:
+            # Single removal site. A transcript left behind in the shared
+            # CLAUDE_CONFIG_DIR is the cross-tenant read path the resume HMAC
+            # exists to cover, and it would grow without bound.
+            remove_transcript(transcript_file)

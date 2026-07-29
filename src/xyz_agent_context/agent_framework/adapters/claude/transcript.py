@@ -81,6 +81,8 @@ import uuid as uuidlib
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 # Namespace for deriving record uuids. Fixed forever: changing it changes every
 # derived uuid, which changes the transcript bytes for the same conversation.
 _UUID_NAMESPACE = uuidlib.NAMESPACE_URL
@@ -160,6 +162,10 @@ def build_records(
     if not usable:
         return []
 
+    # The annotation says str, but nothing enforces it and a Path landing in the
+    # ``cwd`` field would only fail later, inside json serialization.
+    working_path = str(working_path)
+
     records: list[dict[str, Any]] = []
     parent: str | None = None
     leaf = ""
@@ -236,3 +242,74 @@ def render(records: list[dict[str, Any]]) -> str:
     return "".join(
         json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records
     )
+
+
+def write_transcript(
+    *,
+    config_dir: str | Path,
+    working_path: str,
+    session_id: str,
+    history_entries: list[dict[str, Any]],
+    cli_version: str,
+    git_branch: str,
+) -> Path | None:
+    """Materialize the transcript and return its path, or None.
+
+    None means "run this turn the old way" — there was nothing to resume, or the
+    file could not be written. Both are non-events: the transcript is an
+    optimization, and the caller keeps history in the prompt when it is absent.
+    Raising here would turn a full disk or a read-only config dir into a failed
+    agent run, which 铁律 #14 forbids.
+    """
+    records = build_records(
+        history_entries,
+        session_id=session_id,
+        working_path=working_path,
+        cli_version=cli_version,
+        git_branch=git_branch,
+    )
+    if not records:
+        return None
+
+    path = transcript_path(config_dir, working_path, session_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render(records), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001 — fail-open is the contract
+        # Deliberately broader than OSError. The obvious failures are IO (full
+        # disk, read-only dir, a directory occupying the path), but a
+        # non-serializable value reaching ``render`` would raise TypeError and
+        # escape a narrower clause — turning an optimization into a failed agent
+        # run, which 铁律 #14 forbids. Every failure degrades to
+        # history-in-prompt, and says so loudly rather than silently.
+        logger.warning(
+            f"[TRANSCRIPT] write failed ({type(e).__name__}: {e}) — "
+            f"falling back to history-in-prompt for this turn"
+        )
+        return None
+    return path
+
+
+def remove_transcript(path: Path | None) -> None:
+    """Delete the transcript. Never raises.
+
+    Called from a ``finally``, so an exception here would mask whatever actually
+    ended the turn. It also has to tolerate every state it can legitimately
+    meet: ``None`` (the write failed or was skipped), already gone, or a path
+    that is not a file.
+
+    Deleting is not housekeeping. A transcript left behind in the shared
+    ``CLAUDE_CONFIG_DIR`` is exactly the cross-tenant read path that
+    ``executor_resume_hmac_secret`` exists to cover — one unauthenticated
+    ``/agent-loop`` call with a guessed handle reads someone else's
+    conversation. Nothing durable on disk, nothing to read.
+    """
+    if path is None:
+        return
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError as e:
+        # A directory at that path, a vanished mount, a permission change
+        # mid-turn — none of it is worth failing over, but silence would hide a
+        # file that should not still exist.
+        logger.warning(f"[TRANSCRIPT] cleanup failed for {path}: {type(e).__name__}: {e}")

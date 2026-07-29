@@ -52,6 +52,18 @@ from loguru import logger
 # claude/argv defaults — see the long rationale comment in
 # adapters/claude/sdk.py @ agent_loop (argv MAX_ARG_STRLEN 128 KiB;
 # 115K chars measured against real module_instructions load 2026-07-03).
+#
+# STILL LOAD-BEARING, despite the main path no longer using them (2026-07-29).
+# Since the claude adapter authors the CLI's resume transcript itself, history
+# normally travels in that file and never reaches argv — so the history budget
+# and its source-aware eviction look dead. They are not: writing the transcript
+# is fail-open, and when it cannot be written the adapter falls back to folding
+# history into the argv prompt exactly as before. These ceilings are what keeps
+# that fallback from overrunning MAX_ARG_STRLEN.
+#
+# Recorded because "the main path stopped using it" is a tempting reason to
+# delete a limit, and the failure it would reintroduce only shows up on the rare
+# path (read-only config dir, full disk).
 ARGV_MAX_PROMPT_CHARS = 115_000
 ARGV_MAX_PROMPT_BYTES = 120 * 1024
 ARGV_MAX_HISTORY_CHARS = 50_000

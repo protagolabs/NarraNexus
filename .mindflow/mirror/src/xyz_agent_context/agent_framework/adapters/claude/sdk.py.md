@@ -4,6 +4,36 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 每轮自建 resume transcript(T2)
+
+历史不再依赖"CLI 是否还记得某个会话":有历史时,adapter 自己写一份 transcript
+([[transcript]])、用一个**每轮全新的 uuid4** resume 它、turn 结束时删掉。
+`assemble_argv_prompt(base, [])` 于是走的是既有的 resume 分支——**每一轮都变成
+resume 轮**。
+
+**为什么这解决的是句柄式 resume 剩下的那笔成本。** 冷轮把历史放在 system prompt
+里(实测 63,603–66,023 字符)、resume 轮不放(63,244),两个提示词因此不同,所以
+任何冷轮之后的第一个 resume 轮必然从 `system` 开始 miss(约 49K 全价)。而冷启动
+的触发原因全在缓存控制之外:还没句柄、叙事变了、句柄过期。自己写则 system prompt
+从第一轮起就逐字节相同。
+
+**为什么每轮换 id 而不是派生一个稳定的。** 文件在 `finally` 里被删,所以共用
+`CLAUDE_CONFIG_DIR` 里不留任何东西给"无鉴权 `/agent-loop` + 猜句柄"去读;可猜的
+派生 id 会把那个洞重新打开。T0 实测信封字段(含 `sessionId`)不进请求,所以换 id
+不花任何缓存代价。它同时让并发天然无冲突——这正是现有那个进程级 lease 存在的唯一
+理由。
+
+**`try` 开在第一个 run 之前,不是围着每个 run。** 写完文件到启动 CLI 之间若失败,
+文件就会被遗留;而每轮用全新 id,**没有任何后续流程会回来清理它**。删除是**同步
+的**,所以 `aclose` 时 `GeneratorExit` 落在内部 yield 上、`finally` 立刻执行,而不
+是等 GC——与 lease 释放同一条推理。覆盖四条出口:正常完成(含两个 `return`)、
+except、取消、aclose。
+
+**我方 transcript 覆盖上游给的句柄。** 我们的是刚写的、完整的;上游那个可能已过期。
+
+**`_working_git_branch` 带 `lru_cache`。** 每轮 spawn 一次 `git` 是热路径上的真实
+成本,而这个字段只供 CLI 自己显示用。工作区通常根本不是 git 仓库,那时返回空串。
+
 ## 2026-07-29 — 显式指定 CLI 二进制(`cli_path`)
 
 `options_kwargs` 新增条件项 `cli_path`,值来自 [[cli_binary]] 的

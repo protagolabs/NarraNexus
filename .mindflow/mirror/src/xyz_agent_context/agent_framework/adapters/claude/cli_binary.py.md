@@ -6,6 +6,18 @@ stub: false
 
 # cli_binary.py — 决定 agent loop 启动哪个 `claude` 二进制,并把决定说出来
 
+## 2026-07-29 — 暴露 `effective_cli_version()`
+
+缓存从 `(path, reason)` 扩为 `(path, version, reason)`,并把解析逻辑收进
+`_resolve()`,`resolve_cli_path()` / `effective_cli_version()` 都只是它的取值器
+(仍然每进程只解析一次、只打一条日志)。
+
+为什么需要它:[[transcript]] 要把 CLI 版本写进每条记录的 `version` 字段,而**能
+写的只有真正在跑的那个版本**。`PINNED_CLI_VERSION` 不行——解析器在版本不匹配时会
+回落到 SDK 自带的二进制,那时 pin 描述的不是实际写入者。这是同一类错误的第二次
+出现:第一次是我读 `claude --version`(PATH 上的诱饵)而不是请求体里的
+`cc_version=`。
+
 ## 为什么存在
 
 `claude-agent-sdk` 的 wheel 里**自带一个完整的 CLI 可执行文件**
