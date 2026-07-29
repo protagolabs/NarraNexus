@@ -1,49 +1,131 @@
 """
 @file_name: error_classifier.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: ErrorClassifier 与 RetryPolicy 的默认实现(A5 契约执行者)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Default ErrorClassifier and RetryPolicy implementations
+(contract A5).
 
-分类表 = loop/events.py 的 CLI_ERROR_TYPES 六类 + CONTEXT_OVERFLOW
-(OpenClaw 调研收编: provider 专属 overflow 错误串表)+ 平台扩展词汇
-(executor_infra / config_actionable, 与现有 failure.py 对齐)。
+Classification is a DATA table (exception-name markers + message
+markers), never an if-chain: extending coverage means adding rows.
+litellm exception classes are matched by NAME so this module never
+imports litellm (the lazy-import discipline lives in llm/litellm_client).
+
+``CONTEXT_OVERFLOW`` is deliberately its own class: the loop treats it
+as a compaction signal (compact + retry the step), not a failure.
 """
 
-from xyz_agent_context.agent_framework.nexus_loop.contracts.errors import LoopError
+from __future__ import annotations
+
+from xyz_agent_context.agent_framework.nexus_loop.contracts.errors import (
+    ErrorType,
+    LoopError,
+)
+
+# (marker, error_type, retryable) — matched against the exception CLASS
+# NAME chain (including causes), first hit wins.
+_CLASS_NAME_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
+    ("ContextWindowExceeded", ErrorType.CONTEXT_OVERFLOW, True),
+    ("AuthenticationError", ErrorType.AUTHENTICATION_FAILED, False),
+    ("PermissionDenied", ErrorType.AUTHENTICATION_FAILED, False),
+    ("BudgetExceeded", ErrorType.BILLING_ERROR, False),
+    ("RateLimitError", ErrorType.RATE_LIMIT, True),
+    ("Timeout", ErrorType.SERVER_ERROR, True),
+    ("ServiceUnavailable", ErrorType.SERVER_ERROR, True),
+    ("InternalServerError", ErrorType.SERVER_ERROR, True),
+    ("APIConnectionError", ErrorType.SERVER_ERROR, True),
+    ("BadRequestError", ErrorType.INVALID_REQUEST, False),
+    ("UnsupportedParams", ErrorType.INVALID_REQUEST, False),
+    ("NotFoundError", ErrorType.INVALID_REQUEST, False),
+)
+
+# Provider context-overflow message markers (industry-collected set; the
+# reactive-compaction trigger). Checked before generic message rules.
+_OVERFLOW_MESSAGE_MARKERS: tuple[str, ...] = (
+    "context window",
+    "context length",
+    "context_length_exceeded",
+    "maximum context",
+    "request too large",
+    "request_too_large",
+    "prompt is too long",
+    "input is too long",
+    "too many tokens",
+    "exceeds the maximum number of tokens",
+)
+
+_MESSAGE_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
+    ("invalid api key", ErrorType.AUTHENTICATION_FAILED, False),
+    ("incorrect api key", ErrorType.AUTHENTICATION_FAILED, False),
+    ("unauthorized", ErrorType.AUTHENTICATION_FAILED, False),
+    ("insufficient credit", ErrorType.BILLING_ERROR, False),
+    ("insufficient balance", ErrorType.BILLING_ERROR, False),
+    ("credit balance is too low", ErrorType.BILLING_ERROR, False),
+    ("quota", ErrorType.BILLING_ERROR, False),
+    ("rate limit", ErrorType.RATE_LIMIT, True),
+    ("overloaded", ErrorType.SERVER_ERROR, True),
+    ("timed out", ErrorType.SERVER_ERROR, True),
+)
 
 
 class DefaultErrorClassifier:
-    """异常 -> LoopError 的规则表实现。"""
+    """Rule-table classifier over the exception chain."""
 
     def classify(self, exc: BaseException) -> LoopError:
-        """按异常类型 + 错误串规则表归一分类。
+        if isinstance(exc, LoopError):
+            return exc
+        names = " ".join(type(e).__name__ for e in _chain(exc))
+        message = " ".join(str(e) for e in _chain(exc)).strip()
+        lowered = message.lower()
 
-        规则表是数据(异常类/状态码/正则 -> ErrorType, retryable 位),
-        不写 if 链; overflow 串表按 provider 分组维护(request_too_large /
-        context length exceeded / ... 几十条, OpenClaw 清单为底)。
-        未命中 -> UNKNOWN(retryable=False, 保守)。
-        """
-        ...
+        for marker in _OVERFLOW_MESSAGE_MARKERS:
+            if marker in lowered:
+                return _wrap(exc, ErrorType.CONTEXT_OVERFLOW, message, retryable=True)
+        for marker, error_type, retryable in _CLASS_NAME_RULES:
+            if marker in names:
+                return _wrap(exc, error_type, message, retryable=retryable)
+        for marker, error_type, retryable in _MESSAGE_RULES:
+            if marker in lowered:
+                return _wrap(exc, error_type, message, retryable=retryable)
+        return _wrap(exc, ErrorType.UNKNOWN, message, retryable=False)
+
+
+def _chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        chain.append(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _wrap(
+    exc: BaseException, error_type: ErrorType, message: str, *, retryable: bool
+) -> LoopError:
+    return LoopError(
+        error_type,
+        message or type(exc).__name__,
+        retryable=retryable,
+        provider_raw=exc,
+    )
 
 
 class NoRetry:
-    """v1 默认 RetryPolicy: 错误即整轮结束(现状行为, helper fallback 在
-    loop 外兜底)。"""
+    """v1 default: an error ends the turn (status-quo behaviour; the
+    platform-side helper fallback remains the last resort)."""
 
     async def should_retry(self, error: LoopError, attempt: int) -> bool:
-        """恒 False(测试锁定)。"""
-        ...
+        return False
 
 
 class StepRetry:
-    """P3 座位: 可重试类错误重试当前 step(历史都在 ledger, 重试只花一个
-    step 的钱); helper fallback 由此从主路径淡出为最后兜底。"""
+    """P3 seat: retry the current step for retryable errors. NOTE: this
+    bounds RETRIES OF A FAILING CALL, not turn length — entirely
+    different from the forbidden turn ceilings (iron rule #14)."""
 
-    def __init__(self, max_attempts_per_step: int) -> None:
-        """注意: 这是单 step 的重试上限(错误处理), 不是回合轮次上限
-        (铁律 #14 禁区)——两者语义完全不同, 不许混淆。"""
-        ...
+    def __init__(self, max_attempts_per_step: int = 3) -> None:
+        self._max_attempts = max_attempts_per_step
 
     async def should_retry(self, error: LoopError, attempt: int) -> bool:
-        """error.retryable 且 attempt < 上限 -> True(退避实现期定)。"""
-        ...
+        return error.retryable and attempt < self._max_attempts

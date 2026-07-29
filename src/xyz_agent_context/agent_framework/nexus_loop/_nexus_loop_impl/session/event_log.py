@@ -1,47 +1,89 @@
 """
 @file_name: event_log.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: EventLogWriter 实现——两轨日志的落地出口(C1 约束执行者)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: EventLogWriter implementations — the two-track log outlet
+(constraint C1).
 
-v1 = StreamingEventLogWriter: 事件随流 NDJSON 回传控制面(executor 容器
-无 DB、无平台密钥——铁律 #20 stateless worker)。
-**落库从 P1 提前进 v1**(Owner 2026-07-27: 日志一定要记录好): 控制面
-消费回传流写 nexus_events 表(双方言, schema_registry 注册, 平台侧
-配套改造), 落库后即是持久真相, 容器死 = session 不死; compaction 事件
-是 narrative 联动的数据源(记忆服务消费它沉淀长期记忆)。长期形态对齐
-Codex reconcile 模式: 流式日志为真相源、DB 做索引投影、不一致时以
-日志重建。loop 侧接口不因落库时点改变。
+The executor stays a stateless worker (iron rule #20): v1 hands every
+event to an injected async sink (the runner's NDJSON writer, or the
+in-process driver's collector); the control plane persists the stream
+into ``nexus_events`` (platform side). Appending must never block the
+event flow noticeably — "logging is pass-through, not a fork".
 """
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from typing import Any, Awaitable, Callable
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.events import LoopEvent
 
+AsyncSink = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def event_to_row(thread_id: str, event: LoopEvent) -> dict[str, Any]:
+    """The wire/row form of one event — identical for NDJSON and the
+    future ``nexus_events`` table ("entry is schema")."""
+    return {
+        "thread_id": thread_id,
+        "seq": event.seq,
+        "track": event.track,
+        "type": event.type,
+        "payload": event.payload,
+        "usage": asdict(event.usage) if event.usage is not None else None,
+    }
+
 
 class StreamingEventLogWriter:
-    """v1: 把事件写进回传流的旁路缓冲(与 driver 的 yield 通道共源)。"""
+    """Streams rows to an async sink (append-only, seq-idempotent by
+    construction upstream)."""
 
-    def __init__(self, thread_id: str) -> None:
-        """thread_id: (thread_id, seq) 幂等键的前半。"""
-        ...
+    def __init__(self, thread_id: str, sink: AsyncSink) -> None:
+        self._thread_id = thread_id
+        self._sink = sink
 
     async def append(self, event: LoopEvent) -> None:
-        """append-only 写入; 本方法必须无阻塞快路径(日志是路过不是分叉,
-        不能拖慢事件流)——缓冲背压策略实现期定, 但接口不变。"""
-        ...
+        await self._sink(event_to_row(self._thread_id, event))
 
     async def flush(self) -> None:
-        """回合收尾/错误路径强制排空缓冲(response.done 前必须调用——
-        计费事件不许滞留缓冲)。"""
-        ...
+        return None
 
 
 class NullEventLogWriter:
-    """测试/降级用: 丢弃全部事件(显式选择, 不是默认)。"""
+    """Discards everything — an explicit choice for tests, never a default."""
 
     async def append(self, event: LoopEvent) -> None:
-        """no-op。"""
-        ...
+        return None
 
     async def flush(self) -> None:
-        """no-op。"""
-        ...
+        return None
+
+
+def ndjson_line(row: dict[str, Any]) -> str:
+    """One NDJSON line (no length assumptions — readers must buffer)."""
+    return json.dumps(row, ensure_ascii=False, default=str)
+
+
+class FileEventLogWriter:
+    """Appends NDJSON rows to a local file — the local-mode truth store
+    (cloud lands rows in the control plane instead). Line-buffered; the
+    turn-done flush is guaranteed by the assembly's ``finally``."""
+
+    def __init__(self, thread_id: str, path: str) -> None:
+        import os
+
+        self._thread_id = thread_id
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._handle = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+
+    async def append(self, event: LoopEvent) -> None:
+        self._handle.write(ndjson_line(event_to_row(self._thread_id, event)) + "\n")
+
+    async def flush(self) -> None:
+        try:
+            self._handle.flush()
+            self._handle.close()
+        except ValueError:  # already closed — flush is idempotent
+            pass

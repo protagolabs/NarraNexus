@@ -1,70 +1,318 @@
 """
 @file_name: turn_ledger.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: TurnLedger——回合内真相(未来 SessionEventLog 的同形前身)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: TurnLedger — the turn's single source of truth.
 
-三个不变量由**构造保证**(方法不存在非法路径, 不靠运行时检查):
-1. tool_use/tool_result 配对——打断只能走 synthesize(合成 result);
-2. role 交替合法性;
-3. seq 单调(全部事件的 seq 由本类唯一分配)。
-「entry 即 schema」: P1 落 nexus_events 表时 EventLogWriter 直接持久化
-entries(), 本类零改动; resume = TurnLedger(turn, base=日志前缀)。
+Three invariants are guaranteed BY CONSTRUCTION (no runtime policing —
+illegal paths simply do not exist as methods):
+
+  1. tool_use/tool_result pairing — an interruption can only close open
+     calls through ``synthesize_interrupted_results``;
+  2. role alternation in the projected provider messages — assistant
+     blocks fold at step boundaries, tool messages follow their calls;
+  3. seq monotonicity — this class is the only seq allocator.
+
+"Entry is schema": ``entries()`` rows persist verbatim as future
+``nexus_events`` rows; resume is ``TurnLedger(thread, base=prefix)``.
+Compaction only APPENDS ``TYPE_COMPACTION`` replacement entries; the
+projected view substitutes replaced spans while the log keeps history.
 """
 
-from typing import Sequence
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.events import (
+    TYPE_COMPACTION,
+    TYPE_STEP_DONE,
+    TYPE_TEXT_DELTA,
+    TYPE_THINKING_DELTA,
+    TYPE_TOOL_ARG_DELTA,
+    TYPE_TOOL_RESULT,
+    TYPE_TOOL_USE,
+    TYPE_TURN_DONE,
+    EndReason,
     LedgerEntry,
     LoopEvent,
     Usage,
 )
-from xyz_agent_context.agent_framework.nexus_loop.contracts.model import ModelEvent
-from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import ToolCall, ToolResult
+from xyz_agent_context.agent_framework.nexus_loop.contracts.model import (
+    ModelEvent,
+    ProviderMessage,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
+    ToolCall,
+    ToolResult,
+)
+
+_INTERRUPTED_RESULT_TEXT = "Interrupted: {reason}. This call did not run."
 
 
 class TurnLedger:
-    """回合账本(同时满足 contracts.protocols.LedgerView 只读协议)。"""
+    """Accumulates one turn's events and projects the provider view.
 
-    def __init__(self, base: Sequence[LedgerEntry] = ()) -> None:
-        """base 是 resume/fork 的缝: P4 从事件日志重建时传入前缀, v1 恒空
-        (测试锁定「v1 恒空」——预留纪律三件套)。"""
-        ...
+    Satisfies the read-only ``LedgerView`` protocol; write methods are
+    called only by the loop (read/write separation by convention of
+    injection, enforced by the protocols handed to strategies).
+    """
+
+    def __init__(self, thread_id: str, base: Sequence[LedgerEntry] = ()) -> None:
+        self._thread_id = thread_id
+        self._entries: list[LedgerEntry] = list(base)
+        self._seq = (max((e.seq for e in self._entries), default=-1)) + 1
+        self._open: dict[str, ToolCall] = {}
+        self._usage = Usage()
+        self._last_input_tokens = 0
+        self._steps = 0
+        # Projection state: provider messages appended this turn, plus the
+        # seq -> message-index map compaction substitution keys off.
+        self._turn_messages: list[ProviderMessage] = []
+        self._result_msg_index: dict[int, int] = {}
+        self._replacement: dict[int, str] = {}
+        # Current-step accumulation (folded into one assistant message at
+        # step_done so role alternation holds).
+        self._step_text: list[str] = []
+        self._step_calls: list[ToolCall] = []
+
+    # ------------------------------------------------------------------
+    # Write side (loop only)
+    # ------------------------------------------------------------------
 
     def record_model_event(self, ev: ModelEvent) -> list[LoopEvent]:
-        """记录一个模型事件, 返回应产出的 LoopEvent(含轨道分配:
-        text/thinking 增量 -> ui 轨; 完整 tool_use -> model 轨; usage 累加)。
-        独白标记由 harness.ExpressionContract 在 loop 侧补挂, 本类不管语义。"""
-        ...
+        """Record one model event; return the loop events to emit."""
+        kind = ev.kind
+        if kind == "text_delta":
+            text = str(ev.payload.get("text", ""))
+            self._step_text.append(text)
+            return [self._emit("ui", TYPE_TEXT_DELTA, {"text": text, "monologue": True})]
+        if kind == "thinking_delta":
+            text = str(ev.payload.get("text", ""))
+            return [
+                self._emit("ui", TYPE_THINKING_DELTA, {"text": text, "monologue": True})
+            ]
+        if kind == "tool_use":
+            call = ToolCall(
+                id=str(ev.payload["call_id"]),
+                name=str(ev.payload["tool_name"]),
+                args=dict(ev.payload.get("args") or {}),
+            )
+            if call.id in self._open:
+                raise ValueError(f"duplicate tool_use call_id {call.id!r}")
+            self._open[call.id] = call
+            self._step_calls.append(call)
+            return [
+                self._emit(
+                    "model",
+                    TYPE_TOOL_USE,
+                    {"call_id": call.id, "tool_name": call.name, "args": call.args},
+                )
+            ]
+        if kind == "done":
+            usage = ev.payload.get("usage") or Usage()
+            if not isinstance(usage, Usage):
+                usage = Usage(**dict(usage))
+            self._usage = self._usage + usage
+            if usage.input_tokens:
+                self._last_input_tokens = usage.input_tokens
+            self._fold_step_message()
+            self._steps += 1
+            return [
+                self._emit(
+                    "ui",
+                    TYPE_STEP_DONE,
+                    {
+                        "step_index": self._steps - 1,
+                        "stop_reason": str(ev.payload.get("stop_reason", "")),
+                    },
+                    usage=usage,
+                )
+            ]
+        # tool_use_start / arg_delta carry no ledger state in v1; the loop
+        # forwards argument-field deltas via record_arg_field_delta.
+        return []
+
+    def record_arg_field_delta(
+        self, call_index: int, field_path: str, text: str
+    ) -> LoopEvent:
+        """A streamed argument-field fragment (ui track only)."""
+        return self._emit(
+            "ui",
+            TYPE_TOOL_ARG_DELTA,
+            {"call_index": call_index, "field_path": field_path, "text": text},
+        )
 
     def record_tool_result(self, call_id: str, result: ToolResult) -> list[LoopEvent]:
-        """记录工具结果并完成配对; 未知 call_id 直接抛错(不变量违规 =
-        程序 bug, 不吞)。"""
-        ...
+        """Pair one result with its open call (unknown/duplicate raises —
+        an invariant breach is a programming error, never swallowed)."""
+        if call_id not in self._open:
+            raise ValueError(f"tool_result for unknown call_id {call_id!r}")
+        del self._open[call_id]
+        text = result.as_text()
+        event = self._emit(
+            "model",
+            TYPE_TOOL_RESULT,
+            {
+                "call_id": call_id,
+                "ok": result.ok,
+                "content": text,
+                "error": result.error,
+                "synthetic": result.synthetic,
+            },
+        )
+        self._result_msg_index[event.seq] = len(self._turn_messages)
+        self._turn_messages.append(
+            {"role": "tool", "tool_call_id": call_id, "content": text}
+        )
+        return [event]
 
     def synthesize_interrupted_results(self, reason: str) -> list[LoopEvent]:
-        """打断路径: 为全部未配对调用合成 is_synthetic=True 的 tool_result,
-        保证配对不变量后回合可安全终止(CC 同款语义)。"""
-        ...
+        """Close every open call with a synthetic result so pairing holds
+        on any interruption path."""
+        events: list[LoopEvent] = []
+        for call_id in list(self._open):
+            events.extend(
+                self.record_tool_result(
+                    call_id,
+                    ToolResult(
+                        call_id=call_id,
+                        ok=False,
+                        error=_INTERRUPTED_RESULT_TEXT.format(reason=reason),
+                        synthetic=True,
+                    ),
+                )
+            )
+        return events
 
-    def record_steering(self, messages: list) -> list[LoopEvent]:
-        """记录步边界注入的插话消息(model 轨, 纯追加)。"""
-        ...
+    def record_steering(self, messages: Sequence[ProviderMessage]) -> None:
+        """Append injected user messages (append-only; P4 consumer)."""
+        self._turn_messages.extend(dict(m) for m in messages)
 
-    def close_turn(self, end_reason: object) -> LoopEvent:
-        """产出 turn_done 事件(含 EndReason 与累计 usage)。"""
-        ...
+    def apply_compaction(self, entries: Sequence[LedgerEntry]) -> list[LoopEvent]:
+        """Append compaction replacement entries and register substitutions.
 
-    # ---- LedgerView 只读协议 ----
+        Incoming seqs are placeholders — this ledger re-allocates them
+        (it is the only seq authority).
+        """
+        events: list[LoopEvent] = []
+        for entry in entries:
+            payload = dict(entry.payload)
+            event = self._emit("model", TYPE_COMPACTION, payload)
+            lo = int(payload["replaces_from_seq"])
+            hi = int(payload["replaces_to_seq"])
+            summary = str(payload["summary"])
+            for seq in range(lo, hi + 1):
+                if seq in self._result_msg_index:
+                    self._replacement[seq] = summary
+            events.append(event)
+        return events
+
+    def close_turn(
+        self,
+        end_reason: EndReason,
+        *,
+        model: str,
+        structured_output: Any = None,
+    ) -> LoopEvent:
+        """Turn closure — the billing chain's single data source; every
+        termination path must emit exactly one of these."""
+        self._fold_step_message()
+        return self._emit(
+            "model",
+            TYPE_TURN_DONE,
+            {
+                "end_reason": end_reason.name,
+                "model": model,
+                "num_steps": self._steps,
+                "structured_output": structured_output,
+            },
+            usage=self._usage,
+        )
+
+    # ------------------------------------------------------------------
+    # Read side (LedgerView)
+    # ------------------------------------------------------------------
 
     def entries(self) -> Sequence[LedgerEntry]:
-        """全部条目(按 seq 有序), EventLogWriter/投影/回放的数据源。"""
-        ...
+        return tuple(self._entries)
 
     def open_tool_calls(self) -> Sequence[ToolCall]:
-        """尚未配对的调用清单。"""
-        ...
+        return tuple(self._open.values())
 
     def total_usage(self) -> Usage:
-        """累计真实用量——response.done 计费链的唯一数据源(A4/C3)。"""
-        ...
+        return self._usage
+
+    def last_input_tokens(self) -> int:
+        return self._last_input_tokens
+
+    def num_steps(self) -> int:
+        return self._steps
+
+    def replaced_seqs(self) -> frozenset[int]:
+        return frozenset(self._replacement)
+
+    def result_seq_sizes(self) -> list[tuple[int, int]]:
+        """(seq, projected content length) per unreplaced tool result,
+        oldest first — the compaction policy's shopping list."""
+        sizes: list[tuple[int, int]] = []
+        for seq, idx in self._result_msg_index.items():
+            if seq in self._replacement:
+                continue
+            sizes.append((seq, len(str(self._turn_messages[idx].get("content", "")))))
+        return sorted(sizes)
+
+    def provider_messages(self) -> list[ProviderMessage]:
+        """This turn's appended messages with compaction substitutions."""
+        out: list[ProviderMessage] = []
+        replaced_indexes = {
+            self._result_msg_index[seq]: summary
+            for seq, summary in self._replacement.items()
+        }
+        for idx, message in enumerate(self._turn_messages):
+            if idx in replaced_indexes:
+                message = {**message, "content": replaced_indexes[idx]}
+            out.append(message)
+        return out
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _fold_step_message(self) -> None:
+        """Fold the current step's text + calls into one assistant message."""
+        if not self._step_text and not self._step_calls:
+            return
+        message: ProviderMessage = {"role": "assistant"}
+        text = "".join(self._step_text)
+        message["content"] = text if text else None
+        if self._step_calls:
+            import json
+
+            message["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.args, ensure_ascii=False),
+                    },
+                }
+                for call in self._step_calls
+            ]
+        self._turn_messages.append(message)
+        self._step_text = []
+        self._step_calls = []
+
+    def _emit(
+        self,
+        track: str,
+        type_: str,
+        payload: dict[str, Any],
+        *,
+        usage: Usage | None = None,
+    ) -> LoopEvent:
+        seq = self._seq
+        self._seq += 1
+        entry = LedgerEntry(seq=seq, track=track, type=type_, payload=payload, usage=usage)  # type: ignore[arg-type]
+        self._entries.append(entry)
+        return LoopEvent(track=track, seq=seq, type=type_, payload=payload, usage=usage)  # type: ignore[arg-type]

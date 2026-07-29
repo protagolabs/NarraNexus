@@ -1,21 +1,29 @@
 """
 @file_name: hooks.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: HookRegistry——11 事件枚举 day-1 全定义, fire 点位 day-1 埋齐
-(07-26 §6.7)。无监听的 fire 是零成本 no-op, 所以 loop/dispatcher 里的
-调用点从第一天就写好, P3 接 hook 时不再动调用方。
+@author: Bin Liang
+@date: 2026-07-29
+@description: HookRegistry — the full lifecycle event enum defined on
+day one, fire sites planted on day one.
 
-失败姿态是注册属性(per-hook 显式声明 open/closed), 不是全局开关:
-安全类 hook 注册为 closed(hook 失败 == 拦截), 观测类注册为 open。
+A fire with no listeners is a free no-op, so the loop and dispatcher
+carry every call site from the start; attaching behaviour later never
+touches the call sites. Failure posture is a REGISTRATION property:
+safety listeners register ``failure="closed"`` (listener error ⇒ veto),
+observability listeners register ``failure="open"`` (log and proceed).
 """
 
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Awaitable, Callable, Literal
 
+from loguru import logger
+
 
 class HookEvent(Enum):
-    """生命周期事件全集(对齐 Codex 11 事件清单)。"""
+    """Lifecycle surface (Codex-verified event roster)."""
 
     PRE_TOOL_USE = auto()
     POST_TOOL_USE = auto()
@@ -30,31 +38,52 @@ class HookEvent(Enum):
     STOP = auto()
 
 
-class HookOutcome:
-    """一次 fire 的聚合结果(是否放行、修改建议、诊断信息)。"""
+HookFn = Callable[[dict[str, Any]], Awaitable[Any]]
 
-    ...
+
+@dataclass(frozen=True)
+class HookOutcome:
+    """Aggregated result of one fire."""
+
+    allowed: bool = True
+    notes: tuple[str, ...] = field(default_factory=tuple)
 
 
 class HookRegistry:
-    """hook 注册与触发的唯一入口。"""
+    """Listener registration + firing."""
+
+    def __init__(self) -> None:
+        self._listeners: dict[HookEvent, list[tuple[HookFn, str]]] = defaultdict(list)
 
     @classmethod
     def empty(cls) -> "HookRegistry":
-        """v1 默认: 空注册表(Assembly 的 default_factory)。"""
-        ...
+        return cls()
 
     def on(
         self,
         event: HookEvent,
-        fn: Callable[..., Awaitable[Any]],
+        fn: HookFn,
         *,
         failure: Literal["open", "closed"],
     ) -> None:
-        """注册监听。failure 声明该 hook 抛异常时的姿态:
-        "closed" -> 视为拦截(安全类); "open" -> 记日志放行(观测类)。"""
-        ...
+        self._listeners[event].append((fn, failure))
 
     async def fire(self, event: HookEvent, payload: dict[str, Any]) -> HookOutcome:
-        """触发一个事件点。无监听时零成本直接返回放行 outcome。"""
-        ...
+        listeners = self._listeners.get(event)
+        if not listeners:
+            return HookOutcome()
+        allowed = True
+        notes: list[str] = []
+        for fn, failure in listeners:
+            try:
+                result = await fn(payload)
+                if result is False:
+                    allowed = False
+                    notes.append(f"{event.name}: listener vetoed")
+            except Exception as exc:  # noqa: BLE001 - posture decides
+                if failure == "closed":
+                    allowed = False
+                    notes.append(f"{event.name}: closed listener failed: {exc}")
+                else:
+                    logger.warning(f"open hook listener failed on {event.name}: {exc}")
+        return HookOutcome(allowed=allowed, notes=tuple(notes))

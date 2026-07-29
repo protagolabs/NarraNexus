@@ -1,14 +1,21 @@
 """
 @file_name: __init__.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: nexus_loop 私有实现层(铁律 #23: 私有实现进 _*_impl/, 永不 re-export)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Private implementation layer (iron rule #23: private
+implementations live under _*_impl/ and are never re-exported).
 
-组内分五个高内聚小组, 组与组之间禁止互相 import(共享类型一律上提 contracts/):
-- harness/   思维模式层: 独白/表达契约、停止评判、插话、hook
-- prompts/   Prompt 集中存放(纯函数 section 装配; 工具 description 除外)
-- modeling/  模型层: litellm 包装、provider 方言表、cache 策略、参数流抽取
-- tooling/   工具层: 分发器、策略引擎、内建工具、MCP 通道
-- session/   记账层: 回合账本、事件日志、错误分类
-加 loop.py(相位推进器)与 event_adapter.py(遗留契约唯一翻译点)。
+Five cohesive groups — groups import contracts only and NEVER each
+other (shared types go up to contracts/):
+  harness/   the thinking-mode layer: expression contract, stop,
+             steering, hooks
+  prompts/   every prompt the framework speaks (except tool
+             descriptions, which travel with their specs)
+  modeling/  model client, provider profiles, cache policy, argument
+             streaming, projection, compaction
+  tooling/   dispatcher, policy engine, builtin tools, MCP channel,
+             capability expansion, future channels
+  session/   turn ledger, event-log writers, error classification
+plus loop.py (the phase machine) and event_adapter.py (the only legacy
+contract translation point).
 """

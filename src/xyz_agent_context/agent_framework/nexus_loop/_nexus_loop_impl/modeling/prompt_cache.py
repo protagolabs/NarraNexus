@@ -1,15 +1,23 @@
 """
 @file_name: prompt_cache.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: PromptCachePolicy——纯函数集, 不持状态(07-26 C2 约束的执行者)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Prompt-cache policy — pure functions, no state (day-1
+constraint C2: "everything protects the prefix; retrofitting is
+expensive" — three harnesses' source agrees).
 
-三家合证「一切都是为了保住 prompt cache 前缀, 事后补极贵」:
-Hermes 神圣规则(时间只到日期)+ OpenClaw 字节稳定性测试 + Codex
-BodyAfterPrefix。今天全仓零 cache_control、时间块每轮打穿 ~20K token,
-自研 loop 恰是根治点。字节稳定性测试直接对着本文件写(CI 门禁)。
+The loop only guarantees it never breaks the prefix itself: tools sort
+deterministically (dynamic expansion appends at the tail, never
+reorders), and Anthropic-style breakpoints are planned from the stable
+message head. Byte-stability of the platform-built prefix is the
+platform's own milestone; these functions are the loop-side half.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
+from xyz_agent_context.agent_framework.nexus_loop.contracts.events import Usage
 from xyz_agent_context.agent_framework.nexus_loop.contracts.model import (
     CachePlan,
     ProviderMessage,
@@ -19,27 +27,50 @@ from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import ToolS
 
 
 def order_tools(tools: list[ToolSpec]) -> list[ToolSpec]:
-    """工具确定性排序(名字序)——工具清单进请求体, 顺序抖动即前缀击穿。
-    expand_module 动态加载的新工具只允许尾部追加, 不重排既有段。"""
-    ...
+    """Deterministic tool order with append-only extension.
+
+    Base order is name-sorted; the dispatcher feeds tools in
+    (registration_generation, name) buckets so later expansions append
+    after the existing span instead of resorting the whole list — a
+    resort would shift every schema byte and void the prefix cache.
+    """
+    return sorted(tools, key=lambda t: t.name)
 
 
 def plan_cache(
-    messages: list[ProviderMessage],
-    tools: list[ToolSpec],
-    profile: ProviderProfile,
+    messages: list[ProviderMessage], profile: ProviderProfile
 ) -> CachePlan:
-    """产出本 step 的缓存计划(断点位置 + prompt_cache_key)。
+    """Choose breakpoint indices for ``breakpoints`` dialects.
 
-    breakpoints 方言: 按 profile.max_breakpoints 在系统段/工具段/历史
-    尾部安放断点(Hermes system_and_3 形状); prefix_auto/none 方言:
-    返回空计划, 稳定性靠 order_tools 与装配纪律保证。纯函数: 同输入
-    同输出, 不读时钟。
+    Strategy (Anthropic budget: ``profile.max_breakpoints``): one marker
+    at the last system message (prompt + tools prefix), one at the last
+    message before this step's dynamic tail (conversation history
+    prefix). ``prefix_auto`` / ``none`` dialects return an empty plan —
+    their caching (if any) rides on deterministic ordering alone.
     """
-    ...
+    if profile.cache_style != "breakpoints" or not messages:
+        return CachePlan()
+    indices: list[int] = []
+    last_system = -1
+    for i, message in enumerate(messages):
+        if message.get("role") == "system":
+            last_system = i
+        else:
+            break
+    if last_system >= 0:
+        indices.append(last_system)
+    if len(messages) - 1 > last_system:
+        indices.append(len(messages) - 1)
+    return CachePlan(breakpoint_indices=tuple(indices[: profile.max_breakpoints]))
 
 
-def cache_hit_metrics(usage_events: list) -> dict:
-    """从 usage 流计算命中率指标(命中 token / 总 input token / 省额估算),
-    供 E5 成本透明与仪表盘消费——C3「真实 usage 记账」的下游。"""
-    ...
+def cache_hit_metrics(total: Usage) -> dict[str, Any]:
+    """Cache economics from real usage (consumed by cost transparency)."""
+    denominator = total.input_tokens + total.cache_read_tokens
+    hit_rate = (total.cache_read_tokens / denominator) if denominator else 0.0
+    return {
+        "cache_read_tokens": total.cache_read_tokens,
+        "cache_creation_tokens": total.cache_creation_tokens,
+        "uncached_input_tokens": total.input_tokens,
+        "cache_hit_rate": round(hit_rate, 4),
+    }

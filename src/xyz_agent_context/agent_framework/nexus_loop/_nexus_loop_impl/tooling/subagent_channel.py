@@ -1,15 +1,28 @@
 """
 @file_name: subagent_channel.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 子代理通道——spawn_subagent 工具面(P4 实现, 接口 day-1)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Subagent channel (P4 seat) — the complete design, declared
+as code.
 
-设计定稿(07-22 §5.8 三家杂交): 能力交集(子代理工具面 = 父面 ∩ 声明面,
-Hermes)+ 血缘 key(OpenClaw)+ 结果作为新轮回归; 我们独有的「遗腹结果」:
-主 session 结束后子代理照跑、结果持久归队(控制面 announce 服务, 平台侧)。
-策略传播: 父 PolicyEngine 实例引用直接传入——修掉现有 hook 不传播盲区。
-子代理 prompt 用 PromptMode.MINIMAL 派生, 不维护第二份 prompt。
+Derivation rules on spawn: tool surface = parent's visible surface ∩
+the spec's declared set (capability intersection); the parent's
+PolicyEngine INSTANCE passes by reference (policy inheritance — fixing
+the classic "hooks don't propagate" blind spot); prompts derive via
+PromptMode.MINIMAL (never a second prompt); subagents are born mute
+(empty expressive set) — results speak through the parent turn; child
+thread ids derive from the parent (lineage keys, replayable pedigree).
+
+Execution forms: synchronous wait (the spawn call resolves like any
+tool call) and background (posthumous results: the child outlives the
+parent turn via the runner process model; results re-enter through the
+platform's announce service). No depth/count ceilings (iron rule #14);
+recursion is observed by a repetition layer, not capped.
 """
+
+from __future__ import annotations
+
+from typing import Any
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
     ToolContext,
@@ -19,21 +32,25 @@ from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
 
 
 class SubagentChannel:
-    """spawn_subagent / agents_wait / agents_list 的 ToolChannel(P4)。"""
+    """spawn_subagent / agents_wait / agents_list as a ToolChannel (P4)."""
 
-    def __init__(self, policy_engine: object, announce_endpoint: str | None) -> None:
-        """policy_engine: 父引擎引用(继承交集); announce_endpoint: 控制面
-        结果归队服务(平台注入 URL, 不 import 平台)。"""
-        ...
+    def __init__(
+        self,
+        subagent_specs: dict[str, Any],
+        policy_engine: Any,
+        spawn_runner: Any,
+        announce_endpoint: str | None,
+    ) -> None:
+        self._specs = subagent_specs
+        self._policy = policy_engine
+        self._spawn = spawn_runner
+        self._announce = announce_endpoint
 
     def list_tools(self) -> list[ToolSpec]:
-        """子代理工具族 spec(v1 经 feature-gate 关闭, 不进 schema)。"""
-        ...
+        raise NotImplementedError("SubagentChannel ships in P4")
 
-    async def call(self, name: str, args: dict, ctx: ToolContext) -> ToolResult:
-        """P4: spawn -> 血缘 key 登记 + 后台起子回合; wait/list -> 查询。"""
-        ...
+    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        raise NotImplementedError("SubagentChannel ships in P4")
 
     async def refresh(self) -> bool:
-        """恒 False(工具面静态)。"""
-        ...
+        raise NotImplementedError("SubagentChannel ships in P4")

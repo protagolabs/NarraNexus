@@ -1,68 +1,268 @@
 """
 @file_name: loop.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: NexusAgentLoop——薄状态机/相位推进器。**≤500 行 review 门禁**
-(对 Hermes 5216 行 god-function 的结构性免疫; pi 内核证明可行)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: NexusAgentLoop — the phase machine. It decides "what
+happens next" and nothing else; every fork is a strategy call, every
+capability is a channel call. The extension roadmap requires zero edits
+here — that is the design's core promise (and why the ≤500-line review
+gate is sustainable).
 
-只做「下一步做什么」的相位推进, 禁止业务逻辑:
-PROJECT -> MODEL_STREAM -> DISPATCH -> DRAIN_STEERING -> STOP_CHECK -> 回到
-PROJECT 或终止。全部分叉都是策略调用(StopPolicy/SteeringInlet/RetryPolicy),
-全部能力都是通道调用(ToolExecutor)——§6.11 扩展路线图整表没有一行需要
-改本文件, 这是 v2 设计的核心承诺。
-铁律 #14: 本文件永远不出现 max_iterations / max_duration / 总超时。
+Phases per step: PROJECT (compaction check + context projection) →
+MODEL_STREAM (typed events out of the model client; argument-field
+streaming for declared tools) → DISPATCH (policy-checked execution) →
+DRAIN_STEERING (v1: always empty) → STOP_CHECK (v1: no actions = stop).
+
+Hard guarantees:
+  - cancellation lands at safe boundaries and NEVER splits a
+    tool_use/result pair (synthesis closes open calls);
+  - every termination path emits exactly one ``turn_done`` with real
+    cumulative usage (the billing chain's sole source);
+  - a ``CONTEXT_OVERFLOW`` classification triggers compaction + step
+    retry (progress-guarded), so long turns never die on the context
+    wall;
+  - iron rule #14: no iteration/duration ceiling exists in this file.
 """
 
-from typing import AsyncIterator
+from __future__ import annotations
 
-from xyz_agent_context.agent_framework.nexus_loop.contracts.events import LoopEvent
+from typing import Any, AsyncIterator
+
+from loguru import logger
+
+from xyz_agent_context.agent_framework.nexus_loop.contracts.errors import (
+    ErrorType,
+    LoopError,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.events import (
+    TYPE_ERROR,
+    TYPE_TEXT_DELTA,
+    TYPE_THINKING_DELTA,
+    EndReason,
+    LoopEvent,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.model import (
+    ModelRequest,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import ToolCall
+from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.harness.hooks import (
+    HookEvent,
+)
+from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.modeling.arg_stream import (
+    StreamingArgExtractor,
+)
+from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.modeling.prompt_cache import (
+    plan_cache,
+)
+from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.session.turn_ledger import (
+    TurnLedger,
+)
 
 
 class NexusAgentLoop:
-    """回合执行器: 一个实例跑一个 turn(无跨回合状态——stateless worker)。"""
+    """One instance runs one turn (no cross-turn state: stateless worker)."""
 
-    def __init__(self, assembly: object, ledger: object, projector: object) -> None:
-        """assembly: LoopAssembly(全部依赖的唯一注入点); ledger: TurnLedger;
-        projector: ContextProjector。类型注解声明期从宽, 实现期收紧为
-        真实类型(assembly 在顶层包, 避免声明期反向 import)。"""
-        ...
+    def __init__(self, assembly: Any, ledger: TurnLedger) -> None:
+        self._a = assembly
+        self._ledger = ledger
+        self._closed = False
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
-        """执行一个完整回合, 流式产出全部 LoopEvent。
+        a, ledger = self._a, self._ledger
+        try:
+            while True:
+                # ---- boundary: cancellation --------------------------------
+                if a.cancel.requested():
+                    async for ev in self._interrupt("cancelled by user"):
+                        yield ev
+                    return
 
-        每个相位间检查 cancel.requested()(打断绝不切开 tool_use/result
-        配对——走 ledger.synthesize_interrupted_results); 每个事件先过
-        log.append 再 yield(「落日志是路过」); STOP_CHECK 相位依次调
-        SteeringInlet.drain(有插话则继续)与 StopPolicy.should_stop。
-        任何路径(正常/打断/异常)都必须以 close_turn 事件收尾——
-        response.done 是计费链唯一数据源(A4)。
-        """
-        ...
+                # ---- PROJECT ----------------------------------------------
+                if a.compaction.should_compact(ledger, a.model.profile):
+                    async for ev in self._compact("proactive"):
+                        yield ev
+                request = self._build_request()
 
-    async def _phase_project(self) -> list:
-        """PROJECT: 先做压缩检查(compaction.should_compact -> 主动压缩,
-        replacement 条目入账本并落日志; 压缩前经 steering 缝注入
-        memory-flush 提醒), 再由 projector 产出本 step messages +
-        prompt_cache 计划。被动路径: MODEL_STREAM 抛 CONTEXT_OVERFLOW
-        分类错误时, 回到本相位强制 compact 后重试当前 step。"""
-        ...
+                # ---- MODEL_STREAM (with overflow-compaction retry) --------
+                step_calls: list[ToolCall] = []
+                attempt = 0
+                while True:
+                    step_calls, error = [], None
+                    try:
+                        async for ev in self._stream_step(request, step_calls):
+                            yield ev
+                    except Exception as exc:  # noqa: BLE001 - classified below
+                        error = a.errors.classify(exc)
+                    if error is None:
+                        break
+                    if error.error_type is ErrorType.CONTEXT_OVERFLOW:
+                        compacted = False
+                        async for ev in self._compact("reactive"):
+                            compacted = True
+                            yield ev
+                        if compacted:
+                            request = self._build_request()
+                            continue  # retry the step with a smaller context
+                    attempt += 1
+                    if error.retryable and await a.retry.should_retry(error, attempt):
+                        continue
+                    async for ev in self._fail(error):
+                        yield ev
+                    return
 
-    async def _phase_model_stream(self, messages: list) -> list:
-        """MODEL_STREAM: model.stream_step 消费; 事件经 ledger 记账、
-        expression 契约打独白标记后产出; 收集本 step 的 tool_use。
-        流异常 -> ErrorClassifier 分类 -> RetryPolicy 裁决重试或终止。"""
-        ...
+                # ---- DISPATCH ---------------------------------------------
+                for call in step_calls:
+                    if a.cancel.requested():
+                        async for ev in self._interrupt("cancelled by user"):
+                            yield ev
+                        return
+                    outcome = await a.hooks.fire(
+                        HookEvent.PRE_TOOL_USE, {"call": call}
+                    )
+                    if not outcome.allowed:
+                        result = call_denied_by_hook(call, outcome.notes)
+                    else:
+                        result = await a.tools.execute(call)
+                    await a.hooks.fire(
+                        HookEvent.POST_TOOL_USE, {"call": call, "result": result}
+                    )
+                    for ev in ledger.record_tool_result(call.id, result):
+                        yield await self._log(ev)
 
-    async def _phase_dispatch(self, calls: list) -> None:
-        """DISPATCH: tools.execute_step(内部含 policy 裁决与并行策略);
-        结果经 ledger 配对记账。"""
-        ...
+                # ---- DRAIN_STEERING ---------------------------------------
+                injected = await a.steering.drain()
+                if injected:
+                    ledger.record_steering(injected)
+                    continue
 
-    async def _phase_drain_steering(self) -> bool:
-        """DRAIN_STEERING: 排空插话, 有注入则记账并返回 True(继续循环)。
-        v1 恒 False(NullSteeringInlet)。"""
-        ...
+                # ---- STOP_CHECK -------------------------------------------
+                if await a.stop.should_stop(step_calls, ledger):
+                    await a.hooks.fire(HookEvent.STOP, {"steps": ledger.num_steps()})
+                    yield await self._close(EndReason.NO_MORE_ACTIONS)
+                    return
+        finally:
+            if not self._closed:
+                # Belt-and-braces: no path may leave the turn unclosed
+                # (turn_done is the billing chain's sole source).
+                logger.warning("loop exited without closure; emitting turn_done")
+                await self._log(self._ledger.close_turn(
+                    EndReason.ERROR, model=self._a.params.model
+                ))
 
-    async def _phase_stop_check(self, step_calls: list) -> bool:
-        """STOP_CHECK: StopPolicy 裁决; True 则产出 turn_done 并终止。"""
-        ...
+    # ------------------------------------------------------------------
+    # Phase helpers (no business logic beyond orchestration)
+    # ------------------------------------------------------------------
+
+    def _build_request(self) -> ModelRequest:
+        a = self._a
+        messages = a.projector.project(self._ledger, a.model.profile)
+        tools = [spec.as_openai_tool() for spec in a.tools.visible_tools()]
+        return ModelRequest(
+            messages=messages,
+            tools=tools,
+            params=a.params,
+            cache_plan=plan_cache(messages, a.model.profile),
+        )
+
+    async def _stream_step(
+        self, request: ModelRequest, step_calls: list[ToolCall]
+    ) -> AsyncIterator[LoopEvent]:
+        a, ledger = self._a, self._ledger
+        extractors: dict[int, StreamingArgExtractor] = {}
+        async for model_event in a.model.stream_step(request):
+            kind = model_event.kind
+            if kind == "tool_use_start" and a.include_arg_deltas:
+                index = int(model_event.payload.get("call_index", 0))
+                spec = a.tools.spec_for(str(model_event.payload.get("tool_name", "")))
+                fields = spec.annotations.streamable_fields if spec else ()
+                if fields:
+                    extractors[index] = StreamingArgExtractor(index, tuple(fields))
+                continue
+            if kind == "arg_delta":
+                index = int(model_event.payload.get("call_index", 0))
+                extractor = extractors.get(index)
+                if extractor is not None:
+                    for delta in extractor.feed(str(model_event.payload.get("text", ""))):
+                        yield await self._log(
+                            ledger.record_arg_field_delta(
+                                delta.call_index, delta.field_path, delta.text
+                            )
+                        )
+                continue
+            events = ledger.record_model_event(model_event)
+            if kind == "tool_use":
+                payload = model_event.payload
+                step_calls.append(
+                    ToolCall(
+                        id=str(payload["call_id"]),
+                        name=str(payload["tool_name"]),
+                        args=dict(payload.get("args") or {}),
+                    )
+                )
+                index = int(model_event.content_index)
+                extractor = extractors.get(index)
+                if extractor is not None:
+                    for delta in extractor.finalize(dict(payload.get("args") or {})):
+                        yield await self._log(
+                            ledger.record_arg_field_delta(
+                                delta.call_index, delta.field_path, delta.text
+                            )
+                        )
+            for ev in events:
+                yield await self._log(ev)
+
+    async def _compact(self, mode: str) -> AsyncIterator[LoopEvent]:
+        a, ledger = self._a, self._ledger
+        await a.hooks.fire(HookEvent.PRE_COMPACT, {"mode": mode})
+        entries = await a.compaction.compact(ledger, a.model.profile)
+        if entries:
+            logger.info(f"compaction ({mode}): {len(entries)} replacement entries")
+            for ev in ledger.apply_compaction(entries):
+                yield await self._log(ev)
+        await a.hooks.fire(HookEvent.POST_COMPACT, {"count": len(entries)})
+
+    async def _interrupt(self, reason: str) -> AsyncIterator[LoopEvent]:
+        for ev in self._ledger.synthesize_interrupted_results(reason):
+            yield await self._log(ev)
+        yield await self._close(EndReason.INTERRUPTED)
+
+    async def _fail(self, error: LoopError) -> AsyncIterator[LoopEvent]:
+        for ev in self._ledger.synthesize_interrupted_results(
+            f"step failed: {error.error_type.value}"
+        ):
+            yield await self._log(ev)
+        yield await self._log(
+            LoopEvent(
+                track="ui",
+                seq=-1,  # transient; not a ledger row (the ledger owns seqs)
+                type=TYPE_ERROR,
+                payload={
+                    "error_type": error.error_type.value,
+                    "message": error.message,
+                    "retryable": error.retryable,
+                },
+            )
+        )
+        yield await self._close(EndReason.ERROR)
+
+    async def _close(self, reason: EndReason) -> LoopEvent:
+        self._closed = True
+        return await self._log(
+            self._ledger.close_turn(reason, model=self._a.params.model)
+        )
+
+    async def _log(self, event: LoopEvent) -> LoopEvent:
+        if event.type in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):
+            event = self._a.expression.tag_text_event(event)
+        await self._a.log.append(event)  # logging is pass-through, not a fork
+        return event
+
+
+def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
+    from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import ToolResult
+
+    return ToolResult(
+        call_id=call.id,
+        ok=False,
+        error="denied by hook: " + ("; ".join(notes) or "vetoed"),
+    )

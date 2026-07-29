@@ -1,62 +1,168 @@
 """
 @file_name: mcp_channel.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: MCP client 通道——平台 15 模块 86 工具与任意外部 MCP server
-的统一接入(B3: 回复用户的唯一通道经此, 是最小集核心而非扩展)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: The MCP client channel — platform capabilities (and any
+external MCP server) enter here. In v1 this includes the reply tools,
+so it is minimal-set core, not an extension.
 
-契约要点:
-- 工具名保留 mcp__{server}__{tool} 命名(下游三处子串匹配依赖, A2);
-- SSE 传输 + per-agent headers(mcp_servers spec 对象原样消费);
-- tools/list_changed -> 整体重建(Hermes nuke-and-repave), 配
-  _generation 代数计数器做缓存失效, RLock 等价的 asyncio 锁防并发重建;
-- 不可信内容包裹(Hermes): MCP/web 结果包 untrusted 标记、中和内嵌的
-  同名分隔符、不做可伪造的「已包裹」快路径。
+Contract points:
+  - tool names keep the ``mcp__{server}__{tool}`` namespace (three
+    legacy consumers substring-match it);
+  - per-server SSE sessions with per-agent headers, connected
+    concurrently; one failing server degrades to absent tools (logged),
+    never a turn abort;
+  - ``add_servers`` is the dynamic-expansion endpoint: append-only tool
+    inventory (cache discipline), generation counter bumps so the
+    dispatcher's cache invalidates, name collisions resolve
+    first-registration-wins with a warning;
+  - ``aclose`` reaps every session — orphaned connections are a known
+    incident class.
 """
 
+from __future__ import annotations
+
+import asyncio
+from contextlib import AsyncExitStack
 from typing import Any
+
+from loguru import logger
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.model import McpServerSpec
 from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
+    ToolAnnotations,
     ToolContext,
     ToolResult,
     ToolSpec,
 )
 
+_CONNECT_TIMEOUT_S = 15
+_CALL_TIMEOUT_S = 300
+
+
+def mcp_tool_name(server: str, tool: str) -> str:
+    return f"mcp__{server}__{tool}"
+
 
 class McpToolChannel:
-    """一组 MCP server 的聚合通道(ToolChannel 实现)。"""
+    """Aggregated MCP servers as one ToolChannel."""
 
     def __init__(self, servers: dict[str, McpServerSpec]) -> None:
-        """servers: {name: spec}, 来自 TurnInput.mcp_servers(平台注入,
-        本类不知道「模块」概念——解耦: 它只认识 MCP 协议)。"""
-        ...
+        self._pending: dict[str, McpServerSpec] = dict(servers)
+        self._sessions: dict[str, Any] = {}
+        self._stack = AsyncExitStack()
+        self._specs: list[ToolSpec] = []
+        self._route: dict[str, tuple[str, str]] = {}  # full name -> (server, tool)
+        self.generation = 0
+        self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
-        """建立全部 server 连接并拉取初始工具清单; 单 server 失败降级为
-        该 server 工具缺席(记 error 事件), 不拖垮整个通道。"""
-        ...
+        """Connect every pending server concurrently; failures degrade."""
+        async with self._lock:
+            pending, self._pending = self._pending, {}
+            if not pending:
+                return
+            results = await asyncio.gather(
+                *(self._connect_one(name, spec) for name, spec in pending.items()),
+                return_exceptions=True,
+            )
+            for (name, _), result in zip(pending.items(), results):
+                if isinstance(result, BaseException):
+                    logger.warning(f"MCP server '{name}' unavailable: {result}")
+            self.generation += 1
 
-    def list_tools(self) -> list[ToolSpec]:
-        """全部已连接 server 的工具, mcp__ 前缀命名; server 内顺序与
-        server 间顺序均确定性(C2)。readOnlyHint/destructiveHint 映射进
-        ToolAnnotations(并行策略的依据)。"""
-        ...
+    async def _connect_one(self, name: str, spec: McpServerSpec) -> None:
+        from mcp import ClientSession
+        from mcp.client.sse import sse_client
 
-    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        """路由到对应 server 执行; 结果文本过不可信内容包裹后返回。"""
-        ...
-
-    async def refresh(self) -> bool:
-        """响应 tools/list_changed 或显式触发: 全量重拉清单、整体替换、
-        _generation += 1。返回是否变化(dispatcher 据此失效缓存)。"""
-        ...
+        read, write = await asyncio.wait_for(
+            self._stack.enter_async_context(
+                sse_client(spec.url, headers=spec.headers or None)
+            ),
+            timeout=_CONNECT_TIMEOUT_S,
+        )
+        session = await self._stack.enter_async_context(ClientSession(read, write))
+        await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT_S)
+        listed = await asyncio.wait_for(session.list_tools(), timeout=_CONNECT_TIMEOUT_S)
+        self._sessions[name] = session
+        for tool in listed.tools:
+            full_name = mcp_tool_name(name, tool.name)
+            if full_name in self._route:
+                logger.warning(
+                    f"MCP tool name collision on {full_name!r}: first "
+                    f"registration wins, later one ignored"
+                )
+                continue
+            annotations = ToolAnnotations(
+                read_only=bool(getattr(tool.annotations, "readOnlyHint", False))
+                if tool.annotations
+                else False,
+                destructive=bool(getattr(tool.annotations, "destructiveHint", False))
+                if tool.annotations
+                else False,
+            )
+            self._specs.append(
+                ToolSpec(
+                    name=full_name,
+                    description=tool.description or "",
+                    input_schema=tool.inputSchema or {"type": "object"},
+                    annotations=annotations,
+                )
+            )
+            self._route[full_name] = (name, tool.name)
 
     async def add_servers(self, servers: dict[str, McpServerSpec]) -> None:
-        """运行中追加 server(expand_module 的执行末端): 连接、清单尾部
-        追加、代数递增。"""
-        ...
+        """Dynamic expansion endpoint: connect and APPEND (never resort)."""
+        async with self._lock:
+            for name, spec in servers.items():
+                if name in self._sessions:
+                    continue
+                self._pending[name] = spec
+        await self.connect()
+
+    # ---- ToolChannel ----
+
+    def list_tools(self) -> list[ToolSpec]:
+        return list(self._specs)
+
+    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        route = self._route.get(name)
+        if route is None:
+            return ToolResult(call_id="", ok=False, error=f"unknown MCP tool {name!r}")
+        server, tool = route
+        session = self._sessions.get(server)
+        if session is None:
+            return ToolResult(call_id="", ok=False, error=f"MCP server '{server}' is not connected")
+        try:
+            result = await asyncio.wait_for(
+                session.call_tool(tool, args), timeout=_CALL_TIMEOUT_S
+            )
+        except Exception as exc:  # noqa: BLE001 - tool errors are results
+            return ToolResult(call_id="", ok=False, error=f"MCP call failed: {exc}")
+        text = _render_content(result)
+        if getattr(result, "isError", False):
+            return ToolResult(call_id="", ok=False, error=text or "tool reported an error")
+        return ToolResult(call_id="", ok=True, content=text)
+
+    async def refresh(self) -> bool:
+        """v1: no list_changed subscription; expansion drives changes via
+        ``add_servers`` (which bumps the generation itself)."""
+        return False
 
     async def aclose(self) -> None:
-        """回合结束/取消时统一收敛全部连接(孤儿连接是既往事故来源)。"""
-        ...
+        try:
+            await self._stack.aclose()
+        except Exception as exc:  # noqa: BLE001 - closing must not raise
+            logger.warning(f"MCP channel close: {exc}")
+        self._sessions.clear()
+
+
+def _render_content(result: Any) -> str:
+    parts: list[str] = []
+    for item in getattr(result, "content", None) or ():
+        text = getattr(item, "text", None)
+        if text is not None:
+            parts.append(str(text))
+        else:
+            parts.append(str(item))
+    return "\n".join(parts)

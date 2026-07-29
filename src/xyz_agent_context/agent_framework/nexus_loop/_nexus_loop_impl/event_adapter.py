@@ -1,39 +1,133 @@
 """
 @file_name: event_adapter.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: LegacyEventAdapter——遗留 dict 事件契约的**唯一**翻译点。
+@author: Bin Liang
+@date: 2026-07-29
+@description: LegacyEventAdapter — the ONE place that speaks the legacy
+dict event contract (``agent_framework.loop.events``).
 
-灰度共存期的核心(07-26 §5.2 新增项): loop 内部永远是类型化 LoopEvent,
-六种遗留形状(text/thinking/tool_call/tool_result/error/response.done)、
-tool_name 的 mcp__{server}__{tool} 前缀、response.done 的双词汇 cache
-字段——全部收敛在本类。旧消费链(ResponseProcessor/前端/计费/审计)
-零改动。将来能力协商(§8.2)上线后, 新事件类型也从这里长出。
-本文件是全包唯一允许 import agent_framework.loop.events 遗留常量的实现文件。
+Inside the framework everything is a typed ``LoopEvent``; the six
+legacy shapes (text delta / thinking / tool_call / tool_call_output /
+error / response.done, plus per-step response.usage) are produced here
+and nowhere else, so the grey-release coexistence with the claude/codex
+drivers costs the platform zero changes. ``tool_arg_delta`` has no
+legacy shape yet — the adapter drops it (documented); new-protocol
+consumers read the typed stream instead.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
-from xyz_agent_context.agent_framework.nexus_loop.contracts.errors import LoopError
-from xyz_agent_context.agent_framework.nexus_loop.contracts.events import LoopEvent, Usage
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
+    DATA_TYPE_ERROR,
+    DATA_TYPE_TEXT_DELTA,
+    DATA_TYPE_USAGE,
+    ITEM_TYPE_THINKING,
+    ITEM_TYPE_TOOL_CALL,
+    ITEM_TYPE_TOOL_CALL_OUTPUT,
+    TYPE_RAW_RESPONSE_EVENT,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.errors import (
+    LEGACY_SAFE_ERROR_TYPES,
+    ErrorType,
+)
+from xyz_agent_context.agent_framework.nexus_loop.contracts.events import (
+    TYPE_ERROR,
+    TYPE_STEP_DONE,
+    TYPE_TEXT_DELTA,
+    TYPE_THINKING_DELTA,
+    TYPE_TOOL_RESULT,
+    TYPE_TOOL_USE,
+    TYPE_TURN_DONE,
+    LoopEvent,
+)
 
 
 class LegacyEventAdapter:
-    """LoopEvent -> 遗留 dict 事件的无状态翻译器(少量跨事件聚合状态)。"""
+    """LoopEvent → 0..N legacy dict events."""
 
     def translate(self, event: LoopEvent) -> list[dict[str, Any]]:
-        """一个内部事件翻译为零或多个遗留 dict(形状对齐 §2.2 六种,
-        金样测试逐字段锁定)。独白标记映射为遗留事件里前端已识别的
-        thinking/text 字段组合, 不发明新字段(灰度期纪律)。"""
-        ...
-
-    def error(self, error: LoopError) -> dict[str, Any]:
-        """分类错误 -> 遗留 error 事件(error_type 枚举值进 payload,
-        驱动 fallback/熔断/前端徽章)。"""
-        ...
-
-    def done(self, usage: Usage, model: str) -> dict[str, Any]:
-        """收尾 response.done 事件——计费链唯一数据源; cache 字段按遗留
-        双词汇同时给出(anthropic 系/openai 系两套 key)。任何终止路径
-        都必须发且只发一次(driver 的 finally 保证)。"""
-        ...
+        etype = event.type
+        payload = event.payload
+        if etype == TYPE_TEXT_DELTA:
+            return [
+                {
+                    "type": TYPE_RAW_RESPONSE_EVENT,
+                    "data": {"type": DATA_TYPE_TEXT_DELTA, "delta": payload["text"]},
+                }
+            ]
+        if etype == TYPE_THINKING_DELTA:
+            return [
+                {
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
+                    "item": {"type": ITEM_TYPE_THINKING, "content": payload["text"]},
+                }
+            ]
+        if etype == TYPE_TOOL_USE:
+            return [
+                {
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
+                    "item": {
+                        "type": ITEM_TYPE_TOOL_CALL,
+                        "tool_call_id": payload["call_id"],
+                        "tool_name": payload["tool_name"],
+                        "arguments": payload.get("args") or {},
+                    },
+                }
+            ]
+        if etype == TYPE_TOOL_RESULT:
+            return [
+                {
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
+                    "item": {
+                        "type": ITEM_TYPE_TOOL_CALL_OUTPUT,
+                        "tool_call_id": payload["call_id"],
+                        "output": payload.get("content") or "",
+                        "status": "completed" if payload.get("ok") else "failed",
+                    },
+                }
+            ]
+        if etype == TYPE_STEP_DONE:
+            if event.usage is None:
+                return []
+            return [
+                {
+                    "type": TYPE_RAW_RESPONSE_EVENT,
+                    "data": {
+                        "type": DATA_TYPE_USAGE,
+                        "usage": event.usage.as_legacy_dict(),
+                    },
+                }
+            ]
+        if etype == TYPE_ERROR:
+            error_type = str(payload.get("error_type", ErrorType.UNKNOWN.value))
+            if error_type not in LEGACY_SAFE_ERROR_TYPES:
+                error_type = ErrorType.INVALID_REQUEST.value
+            return [
+                {
+                    "type": TYPE_RAW_RESPONSE_EVENT,
+                    "data": {
+                        "type": DATA_TYPE_ERROR,
+                        "error_message": str(payload.get("message", "")),
+                        "error_type": error_type,
+                    },
+                }
+            ]
+        if etype == TYPE_TURN_DONE:
+            usage = event.usage.as_legacy_dict() if event.usage else {}
+            return [
+                {
+                    "type": TYPE_RAW_RESPONSE_EVENT,
+                    "data": {
+                        "type": DATA_TYPE_DONE,
+                        "usage": usage,
+                        "stop_reason": str(payload.get("end_reason", "")).lower(),
+                        "model": payload.get("model", ""),
+                        "num_turns": payload.get("num_steps", 0),
+                    },
+                }
+            ]
+        # tool_arg_delta / compaction have no legacy shape (typed-stream only).
+        return []

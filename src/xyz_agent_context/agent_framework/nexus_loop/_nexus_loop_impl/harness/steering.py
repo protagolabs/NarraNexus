@@ -1,21 +1,21 @@
 """
 @file_name: steering.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 步边界插话入口实现。DRAIN_STEERING 相位的调用点 day-1 存在,
-v1 挂 NullSteeringInlet(恒空); P4 换 TriggerInbox 实现时 loop 零改动。
-
-参照: pi 每次 LLM 调用前 getSteeringMessages(); Codex input_queue 在
-turn 间吸收新输入不打断进行中的 loop。注入必须是纯追加语义(不改历史
-前缀), 否则打穿 prompt cache——这是 C2 约束对本组件的硬要求。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Step-boundary steering inlets. The DRAIN_STEERING call
+site exists from day one; v1 mounts the null inlet (locked empty by a
+contract test); P4 swaps in the TriggerInbox implementation — the loop
+never changes. Injection is append-only by contract (a prefix mutation
+would void the prompt cache).
 """
+
+from __future__ import annotations
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.model import ProviderMessage
 
 
 class NullSteeringInlet:
-    """v1 默认实现: 没有插话来源, 恒返回空。"""
+    """No steering source; always empty."""
 
     async def drain(self) -> list[ProviderMessage]:
-        """恒返回 []。测试锁定该行为(预留纪律三件套之「无行为锁定」)。"""
-        ...
+        return []

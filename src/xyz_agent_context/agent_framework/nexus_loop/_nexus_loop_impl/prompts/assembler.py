@@ -1,73 +1,95 @@
 """
 @file_name: assembler.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 系统提示词装配器——纯函数 section 流水线 + 三档 PromptMode。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Prompt assembly — pure-function sections, three modes, an
+explicit stable-prefix / dynamic-tail split (constraint C2).
 
-三条装配纪律(07-22 §5.14B):
-1. 每 section 一个纯函数, 条件不满足返回空串, filter 后拼接(OpenClaw);
-2. PromptMode 三档(full/minimal/none)派生 subagent 精简面, 不维护两份 prompt;
-3. 字节稳定性测试进 CI: 同输入多次装配必须逐字节相等(cache 前缀的地基)。
+Assembly disciplines (synthesized from Codex / Hermes / OpenClaw source
+surveys): every section is a pure classmethod on the prompts namespace
+class; empty sections vanish; the assembled bytes are a deterministic
+function of the inputs (no clocks, no environment, no randomness) —
+byte-stability is CI-tested. ``PromptAssembler`` consumes a CLASS
+reference, so a subclass of ``NexusPrompts`` is a complete prompt pack
+(experiments / A-B / per-scenario voices) with zero assembler changes.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard for typing only
+    from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.prompts.library import (
+        NexusPrompts,
+    )
 
 
 class PromptMode(Enum):
-    """提示词裁剪档位(OpenClaw PromptMode 形状)。"""
+    """Prompt trim levels (one prompt, derived faces — never two copies)."""
 
-    FULL = "full"          # 主 agent 完整面
-    MINIMAL = "minimal"    # subagent 精简面(砍身份/记忆/表达类指引)
-    NONE = "none"          # 只留一行身份(评判者等特殊场景)
+    FULL = "full"        # main agent
+    MINIMAL = "minimal"  # subagents: constitution + tools only
+    NONE = "none"        # bare identity line (judge/evaluator scenarios)
 
 
 @dataclass(frozen=True)
 class PromptInputs:
-    """装配输入包——全部来自平台注入的数据, prompts 组不 import 平台代码。
+    """Everything the sections may draw on — injected data only.
 
-    Attributes:
-        identity: Agent 身份/场景文本(来自 Awareness, 铁律 #4: 场景归平台)
-        module_instructions: 模块指令(RESIDENT 全文 + CARD 索引)
-        tool_specs: 在场工具清单(工具指南 section 由此生成, 只教在场工具)
-        skill_index: 技能索引(description 常驻, 正文按需)
-        workspace_files: 用户可编辑注入层(白名单 + 大小上限)
-        narrative_facts: 长期事实(C 层)
-        volatile: 易变尾部数据(日期/当前 plan/触发上下文/runtime 行)
+    The framework knows nothing about where these come from (Awareness,
+    modules, narrative — all platform concepts end here as plain data).
     """
 
-    identity: str = ""
-    module_instructions: str = ""
-    tool_specs: tuple[Any, ...] = ()
-    skill_index: str = ""
-    workspace_files: tuple[tuple[str, str], ...] = ()
-    narrative_facts: str = ""
-    volatile: dict[str, str] = field(default_factory=dict)
+    builtin_groups: tuple[str, ...] = ()
+    capability_cards: str = ""            # CARD index text (key: card per line)
+    capability_instructions: str = ""     # initial expansions' instructions
+    identity: str = ""                    # optional extra identity line
 
 
 @dataclass(frozen=True)
 class AssembledPrompt:
-    """装配产物——显式区分稳定前缀与动态尾部(C2 约束的结构化表达)。"""
+    """The C2 split made structural: prefix must stay byte-stable across
+    a session; the tail may vary per turn and only ever appends."""
 
-    stable_prefix: str     # S+C 层: session 内字节稳定, 是 cache 前缀
-    dynamic_tail: str      # V 层: 每轮可变, 永远追加在前缀之后
+    stable_prefix: str
+    dynamic_tail: str
+
+    def messages(self) -> list[dict[str, str]]:
+        """As system messages (empty parts vanish)."""
+        out = []
+        if self.stable_prefix:
+            out.append({"role": "system", "content": self.stable_prefix})
+        if self.dynamic_tail:
+            out.append({"role": "system", "content": self.dynamic_tail})
+        return out
 
 
-SectionFn = Callable[[PromptInputs, PromptMode], str]
+_SECTION_JOINER = "\n\n"
 
 
 class PromptAssembler:
-    """section 注册 + 顺序装配的唯一入口。"""
+    """Orders and joins sections from a prompts namespace class."""
 
-    def __init__(self, sections: tuple[SectionFn, ...]) -> None:
-        """sections 顺序即拼接顺序(固定顺序是字节稳定的一部分)。"""
-        ...
+    def __init__(self, prompts_cls: type["NexusPrompts"] | None = None) -> None:
+        if prompts_cls is None:
+            from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.prompts.library import (
+                NexusPrompts,
+            )
+
+            prompts_cls = NexusPrompts
+        self._prompts = prompts_cls
 
     def assemble(self, inputs: PromptInputs, mode: PromptMode) -> AssembledPrompt:
-        """执行全部 section 纯函数, 过滤空串, 产出稳定前缀 + 动态尾部。
-
-        本方法必须是纯函数: 不读时钟、不读环境、不产生随机——同输入
-        逐字节同输出(CI 锁定)。
-        """
-        ...
+        """Deterministic assembly: same inputs → identical bytes."""
+        stable = [
+            section(inputs, mode) for section in self._prompts.stable_sections()
+        ]
+        dynamic = [
+            section(inputs, mode) for section in self._prompts.dynamic_sections()
+        ]
+        return AssembledPrompt(
+            stable_prefix=_SECTION_JOINER.join(s for s in stable if s),
+            dynamic_tail=_SECTION_JOINER.join(s for s in dynamic if s),
+        )

@@ -1,63 +1,86 @@
 """
 @file_name: events.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 循环内部事件与账本条目的类型定义——两轨制(track=model/ui)是全部
-恢复/回放/压缩能力的前提(Codex 两轨制合证, 07-26 文档 C1 约束)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Typed loop events and ledger entries — the two-track schema.
 
-设计要点:
-- model 轨: 用于重建 LLM 上下文的事件(完整 tool_use/tool_result/文本块);
-- ui 轨: 只给前端重放的增量(text_delta/thinking_delta/tool_arg_delta),
-  不参与上下文重建;
-- 「entry 即 schema」: LedgerEntry 与未来 nexus_events 表的行同形, 落库时
-  换 writer 而不是改类(pi 的 compaction-as-entry 同款思路)。
+Two-track discipline (day-1 structural constraint C1):
+  - ``model`` track: events needed to rebuild LLM context (complete
+    tool_use / tool_result / assistant text blocks);
+  - ``ui`` track: increments replayed to frontends only (text deltas,
+    thinking deltas, tool-argument deltas); never used for context
+    rebuilding.
+
+"Entry is schema": ``LedgerEntry`` is shaped like a future
+``nexus_events`` table row, so persisting the log is a writer swap,
+never a class rewrite. Compaction is an *appended* replacement entry
+(``TYPE_COMPACTION``) — history is append-only; projection substitutes
+the replaced span, the log keeps everything.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 Track = Literal["model", "ui"]
 
-# LoopEvent.type / LedgerEntry.type 的合法值(与 loop/events.py 遗留契约的
-# 对应关系由 LegacyEventAdapter 单点维护, 这里只定义内部词汇)
+# Internal event vocabulary. The mapping to the legacy dict contract
+# (agent_framework.loop.events) is owned exclusively by LegacyEventAdapter.
 TYPE_TEXT_DELTA = "text_delta"
 TYPE_THINKING_DELTA = "thinking_delta"
 TYPE_TOOL_USE = "tool_use"
-TYPE_TOOL_ARG_DELTA = "tool_arg_delta"   # ui 轨专用: 流式参数投影(P3 预留)
+TYPE_TOOL_ARG_DELTA = "tool_arg_delta"  # ui track only: streamed argument field text
 TYPE_TOOL_RESULT = "tool_result"
+TYPE_COMPACTION = "compaction"          # replacement entry; see CompactionPayload
 TYPE_STEP_DONE = "step_done"
 TYPE_TURN_DONE = "turn_done"
 TYPE_ERROR = "error"
-TYPE_COMPACTION = "compaction"   # replacement 条目: 携带被替换的 seq 区间 +
-                                 # 摘要文本 + retained_tail 指针(pi 形状)。
-                                 # 压缩是"追加新条目"不是删除——append-only,
-                                 # 完整历史永在日志; 投影时用它替代原区间。
-                                 # narrative 联动: 平台记忆服务消费此事件,
-                                 # 把摘要沉淀进长期记忆(见 modeling/compaction.py)
+
+VALID_EVENT_TYPES = frozenset(
+    {
+        TYPE_TEXT_DELTA,
+        TYPE_THINKING_DELTA,
+        TYPE_TOOL_USE,
+        TYPE_TOOL_ARG_DELTA,
+        TYPE_TOOL_RESULT,
+        TYPE_COMPACTION,
+        TYPE_STEP_DONE,
+        TYPE_TURN_DONE,
+        TYPE_ERROR,
+    }
+)
 
 
 class Phase(Enum):
-    """回合内状态机的五个相位(07-26 §6.2)。
+    """The five phases of one turn's state machine.
 
-    DRAIN_STEERING 与 STOP_CHECK 的调用点从第一天就在循环里:
-    v1 分别挂 NullSteeringInlet(恒空)与 NoMoreActionsStop(无动作即停),
-    P4 换实现时 loop.py 一行不改。
+    DRAIN_STEERING and STOP_CHECK call sites exist from day one; v1
+    mounts ``NullSteeringInlet`` (always empty) and ``NoMoreActionsStop``
+    (stop when the model takes no action). Upgrading either is an
+    assembly swap — ``loop.py`` never changes.
+
+    Deliberate decision (R4): the phase set is framework anatomy, not an
+    extension point. Pseudo-phase needs (e.g. a pre-execution preview)
+    belong in hooks or dispatcher wrapping, never in new enum members.
     """
 
-    PROJECT = auto()          # 投影本 step 的 messages(cache 断点在此注入)
-    MODEL_STREAM = auto()     # 流式模型调用
-    DISPATCH = auto()         # 策略审查 + 工具执行
-    DRAIN_STEERING = auto()   # 排空插话收件箱(v1 恒空)
-    STOP_CHECK = auto()       # 停止评判(v1 = 无动作即停)
+    PROJECT = auto()
+    MODEL_STREAM = auto()
+    DISPATCH = auto()
+    DRAIN_STEERING = auto()
+    STOP_CHECK = auto()
 
 
 class EndReason(Enum):
-    """回合终止原因。
+    """Why a turn ended.
 
-    NexusAgent 的平台语义: 文本是内心独白, 触达用户必须走工具——所以正常
-    终止是「模型不再调工具」(NO_MORE_ACTIONS), 而不是「模型不再说话」。
-    SUSPENDED 是 P4 sleep/暂停的预留, v1 永不产生(测试锁定)。
+    Platform semantics: assistant text is inner monologue; reaching the
+    user requires a tool call. A turn therefore ends when the model
+    takes *no more actions* (``NO_MORE_ACTIONS``) — not when it stops
+    talking. ``SUSPENDED`` is the P4 sleep/wake seat: v1 never produces
+    it and a contract test locks that.
     """
 
     NO_MORE_ACTIONS = auto()
@@ -68,10 +91,11 @@ class EndReason(Enum):
 
 @dataclass(frozen=True)
 class Usage:
-    """一次/多次模型调用的真实 token 用量(可加合)。
+    """Real token usage for one or more model calls (additive).
 
-    锚定 provider 返回的真实 usage 而非字符估算(07-26 C3 约束):
-    cache_read/cache_creation 两个字段是 cache 命中率仪表盘的数据源。
+    Anchored to provider-reported usage, never character estimates
+    (constraint C3). The cache fields feed the cache-hit-rate metrics
+    and the cost-transparency surface.
     """
 
     input_tokens: int = 0
@@ -80,35 +104,123 @@ class Usage:
     cache_creation_tokens: int = 0
 
     def __add__(self, other: "Usage") -> "Usage":
-        """逐字段相加, 返回新实例(frozen 语义)。"""
-        ...
+        if not isinstance(other, Usage):
+            return NotImplemented
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_creation_tokens=self.cache_creation_tokens
+            + other.cache_creation_tokens,
+        )
+
+    def as_legacy_dict(self) -> dict[str, int]:
+        """Both spellings of the legacy usage vocabulary (see
+        ``loop.events.USAGE_CACHE_READ_KEYS``): Anthropic-style keys are
+        authoritative; consumers probing OpenAI-style keys also succeed."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_input_tokens": self.cache_read_tokens,
+            "cache_creation_input_tokens": self.cache_creation_tokens,
+        }
 
 
 @dataclass(frozen=True)
 class LoopEvent:
-    """循环对外产出的类型化事件(LegacyEventAdapter 翻译前的内部形态)。
+    """A typed event produced by the loop (pre-translation form).
 
-    (thread_id, seq) 构成幂等键; seq 在 thread 内单调递增, 由 TurnLedger
-    统一分配, 任何其他组件不得自造 seq。
+    ``(thread_id, seq)`` is the idempotency key; ``seq`` is allocated
+    exclusively by ``TurnLedger`` — no other component mints one.
     """
 
     track: Track
     seq: int
     type: str
     payload: dict[str, Any] = field(default_factory=dict)
-    usage: "Usage | None" = None
+    usage: Usage | None = None
 
 
 @dataclass(frozen=True)
 class LedgerEntry:
-    """账本条目——与未来 nexus_events 表的行同形(entry 即 schema)。
-
-    P1 落库时 EventLogWriter 直接持久化 entries(), 本类零改动;
-    resume = TurnLedger(turn, base=从日志读出的前缀)。
-    """
+    """One ledger row — shaped like a future ``nexus_events`` table row."""
 
     seq: int
     track: Track
     type: str
     payload: dict[str, Any] = field(default_factory=dict)
-    usage: "Usage | None" = None
+    usage: Usage | None = None
+
+
+# ---------------------------------------------------------------------------
+# Payload shapes (R2): runtime stays dict for the grey-release adapters,
+# but each type has exactly one authoritative shape, locked by golden tests.
+# ---------------------------------------------------------------------------
+
+
+class TextDeltaPayload(TypedDict):
+    """``text_delta`` / ``thinking_delta``: a ui-track text increment."""
+
+    text: str
+    monologue: bool  # stamped by ExpressionPolicy.tag_text_event
+
+
+class ToolUsePayload(TypedDict):
+    """``tool_use``: one complete tool call on the model track."""
+
+    call_id: str
+    tool_name: str  # MCP tools keep the mcp__{server}__{tool} namespace
+    args: dict[str, Any]
+
+
+class ToolArgDeltaPayload(TypedDict):
+    """``tool_arg_delta``: a streamed argument-field fragment (ui track)."""
+
+    call_index: int
+    field_path: str
+    text: str
+
+
+class ToolResultPayload(TypedDict):
+    """``tool_result``: one tool outcome on the model track."""
+
+    call_id: str
+    ok: bool
+    content: Any
+    error: str | None
+    synthetic: bool  # True when synthesized by interruption handling
+
+
+class CompactionPayload(TypedDict):
+    """``compaction``: a replacement entry (also the narrative feed)."""
+
+    replaces_from_seq: int
+    replaces_to_seq: int
+    summary: str
+    retained_tail_seq: int
+
+
+class StepDonePayload(TypedDict):
+    """``step_done``: one model call finished (per-step usage rides
+    ``LoopEvent.usage``)."""
+
+    step_index: int
+    stop_reason: str
+
+
+class TurnDonePayload(TypedDict):
+    """``turn_done``: turn closure — the billing chain's sole source
+    (cumulative usage rides ``LoopEvent.usage``)."""
+
+    end_reason: str  # EndReason.name
+    model: str
+    num_steps: int
+    structured_output: Any  # per TurnOptions.output_schema; None otherwise
+
+
+class ErrorPayload(TypedDict):
+    """``error``: a classified failure (drives fallback / breaker / badges)."""
+
+    error_type: str  # ErrorType.value
+    message: str
+    retryable: bool

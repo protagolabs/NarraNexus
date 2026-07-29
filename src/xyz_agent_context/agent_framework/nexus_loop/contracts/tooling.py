@@ -1,16 +1,21 @@
 """
 @file_name: tooling.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 工具面契约——ToolSpec/ToolCall/ToolResult 与注解、策略裁决类型。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Tool-surface contracts: specs, calls, results, annotations,
+and policy decisions.
 
-设计要点:
-- 工具的 description 跟 Tool 定义走(单一事实源, OpenClaw 教训: 防止
-  「模型看到的 != 实际注册的」漂移), prompts/ 只集中放行为指南;
-- ToolAnnotations.expressive 是本框架独有语义的结构化落点: 标记「这个
-  工具是对外表达通道」——文本是独白, 表达必须经 expressive 工具;
-- streamable_fields 是 P3 流式参数投影的声明位, v1 无消费者(测试锁定)。
+Two disciplines live here:
+  - a tool's description travels WITH its spec (single source of truth —
+    the prompt's tool-guideline section derives from specs, so "what the
+    model sees" can never drift from "what is registered");
+  - ``ToolAnnotations.marker_only`` encodes label tools: the call itself
+    is the signal; the dispatcher short-circuits execution and the whole
+    meaning lives in the event stream (streamed argument fields become
+    the user-visible reply, delivered by the event consumer).
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,20 +24,21 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ToolAnnotations:
-    """工具行为注解, 驱动分发策略(读并行/写串行)与呈现层能力。"""
+    """Behavioural annotations driving dispatch and presentation."""
 
-    read_only: bool = False            # 只读工具可并行执行(Codex Auto 档语义)
-    destructive: bool = False          # 危险写类: E3 可拦截预告的候选
-    expressive: bool = False           # 对外表达通道(独白/表达契约的结构位)
-    streamable_fields: tuple[str, ...] = ()   # P3: 参数字段 -> ui 轨流式投影
+    read_only: bool = False            # eligible for parallel execution
+    destructive: bool = False          # candidate for interceptable preview (E3)
+    expressive: bool = False           # an outward-expression channel
+    streamable_fields: tuple[str, ...] = ()  # arg fields projected as ui deltas
+    marker_only: bool = False          # label tool: execution is a no-op success
 
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """一个工具的完整声明——description 在此, 与工具实现同源同文件。
+    """One tool's full declaration (description included — single source).
 
-    MCP 工具名保留 mcp__{server}__{tool} 命名(下游三处子串匹配依赖它,
-    07-26 A2 契约), 内建工具用裸名(read_file/bash/...)。
+    MCP tools keep the ``mcp__{server}__{tool}`` namespace (three legacy
+    consumers substring-match it); builtin tools use bare names.
     """
 
     name: str
@@ -40,10 +46,21 @@ class ToolSpec:
     input_schema: dict[str, Any]
     annotations: ToolAnnotations = field(default_factory=ToolAnnotations)
 
+    def as_openai_tool(self) -> dict[str, Any]:
+        """The OpenAI function-tool wire shape litellm consumes."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.input_schema,
+            },
+        }
+
 
 @dataclass(frozen=True)
 class ToolCall:
-    """模型发起的一次工具调用(参数已完整)。"""
+    """One model-initiated call (arguments complete)."""
 
     id: str
     name: str
@@ -52,18 +69,35 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class ToolResult:
-    """工具执行结果。deny/异常也走这里(错误型 result), 不抛异常穿透 loop。"""
+    """One tool outcome. Denials and failures are error-shaped results —
+    they never escape as exceptions through the loop."""
 
     call_id: str
     ok: bool
     content: Any = None
     error: str | None = None
-    is_synthetic: bool = False         # 打断合成的 tool_result(配对不变量)
+    synthetic: bool = False
+
+    def as_text(self) -> str:
+        """The string fed back to the model as the tool message body."""
+        if self.ok:
+            content = self.content
+            return content if isinstance(content, str) else _compact_json(content)
+        return f"ERROR: {self.error or 'tool failed'}"
+
+
+def _compact_json(value: Any) -> str:
+    import json
+
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 @dataclass(frozen=True)
 class ToolContext:
-    """一次工具调用的执行上下文(由装配层注入, 工具实现只读)。"""
+    """Execution context injected by the assembly (read-only to tools)."""
 
     agent_id: str
     workspace: str
@@ -71,8 +105,9 @@ class ToolContext:
 
 
 class PolicyVerdict(Enum):
-    """策略裁决结果。deny 永远赢; layer 内部异常 == DENY(fail-closed,
-    多租户自研决策, 无业界背书——Codex fail-open 是反面教材)。"""
+    """Decision outcome. Deny always wins; a layer's internal exception
+    counts as DENY (fail-closed — a deliberate multi-tenant choice with
+    no industry precedent to lean on)."""
 
     ALLOW = "allow"
     DENY = "deny"
@@ -80,15 +115,20 @@ class PolicyVerdict(Enum):
 
 @dataclass(frozen=True)
 class Decision:
-    """一次裁决及其理由(理由进 tool_result 与审计日志)。"""
-
     verdict: PolicyVerdict
     reason: str = ""
+
+    @property
+    def allowed(self) -> bool:
+        return self.verdict is PolicyVerdict.ALLOW
+
+
+ALLOW = Decision(PolicyVerdict.ALLOW)
 
 
 @dataclass(frozen=True)
 class PolicyContext:
-    """策略层可见的裁决上下文。"""
+    """What policy layers may see when judging a call."""
 
     tool_ctx: ToolContext
     disallowed_tools: frozenset[str] = frozenset()

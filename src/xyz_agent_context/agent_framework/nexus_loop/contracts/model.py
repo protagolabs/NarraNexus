@@ -1,70 +1,60 @@
 """
 @file_name: model.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 模型侧契约——「方言是数据, 不是代码」(07-26 §6.4)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Model-side contracts — "dialect is data, not code".
 
-ProviderProfile 把 provider 差异描述成数据行: 新增 provider 优先 = 加一条
-profile 数据; 仅当 litellm 透传失败才写旁路 ModelClient 类。DeepSeek 平权
-在结构上成立: 它只是一条 cache_style="prefix_auto" 的 profile。
+``ProviderProfile`` describes a provider's behavioural dialect as a data
+row: onboarding a new provider means adding a row, never adding code
+branches (iron rules #9/#15 — every user model is a first-class
+citizen). A bypass ``ModelClient`` implementation is written only when
+litellm passthrough measurably fails for a dialect.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-# v1 直接吃物化层拼好的 provider 消息(OpenAI/Anthropic 通用 dict 形状),
-# P2+ 引入 RefsSource 后再类型化为独立结构。
+# v1 consumes materializer-built provider messages (OpenAI-style dicts).
 ProviderMessage = dict[str, Any]
 
 
 @dataclass(frozen=True)
-class UsageVocabulary:
-    """provider 返回 usage 字段的命名词汇表(双词汇问题的结构化版)。
-
-    例: Anthropic 用 cache_read_input_tokens, OpenAI 用
-    prompt_tokens_details.cached_tokens——翻译规则收敛在这里,
-    ModelClient 实现按表取数, 不散落 if-provider 分支。
-    """
-
-    input_key: str = "input_tokens"
-    output_key: str = "output_tokens"
-    cache_read_key: str | None = None
-    cache_creation_key: str | None = None
-
-
-@dataclass(frozen=True)
 class ProviderProfile:
-    """provider 方言描述符——一行数据描述一家 provider 的行为差异。
+    """One provider's dialect descriptor.
 
-    字段来源: 07-26 §6.4 + 四处 litellm 透传实测(待拍板 #2)的结论直接
-    落进字段, 不写进代码分支。
+    Fields are filled from measured behaviour (the four litellm
+    passthrough probes), never guessed. Unknown providers resolve to a
+    conservative default row — any user model runs; it just forgoes the
+    optimizations.
     """
 
     name: str
-    cache_style: Literal["breakpoints", "prefix_auto", "none"]
-    thinking_replay: Literal["keep_signed", "strip", "as_text"]
-    usage_keys: UsageVocabulary = field(default_factory=UsageVocabulary)
-    supports_arg_delta: bool = False   # P3 流式参数投影的能力位(pi 规格)
-    max_breakpoints: int = 4           # Anthropic 系 cache_control 断点上限
+    cache_style: Literal["breakpoints", "prefix_auto", "none"] = "none"
+    thinking_replay: Literal["keep", "strip"] = "strip"
+    supports_arg_delta: bool = False   # streamed tool-argument fragments
+    max_breakpoints: int = 4           # Anthropic-style cache_control budget
+    context_window: int = 128_000      # tokens; compaction thresholds key off this
+    max_output_tokens: int = 8_192
 
 
 @dataclass(frozen=True)
 class ModelParams:
-    """一次回合的模型解析结果(model/provider/thinking 等), 由平台侧传入。
-
-    loop 不做模型选择——provider_resolver 是平台的事, 这里只消费结果
-    (与 Nexus 解耦: 换个平台传别的 params, loop 照跑)。
-    """
+    """Resolved model settings for one turn (chosen by the caller — the
+    framework never picks models; iron rule #15)."""
 
     model: str
     provider: str | None = None
+    api_key: str = ""
+    base_url: str = ""
     thinking: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class McpServerSpec:
-    """一个 MCP server 的接入描述: {url, headers?}(per-agent headers 在内)。"""
+    """One MCP server endpoint: ``{url, headers?}`` (per-agent headers)."""
 
     url: str
     headers: dict[str, str] = field(default_factory=dict)
@@ -72,38 +62,56 @@ class McpServerSpec:
 
 @dataclass(frozen=True)
 class CachePlan:
-    """PromptCachePolicy 产出的缓存计划(纯数据)。
+    """Pure-data output of the prompt-cache policy.
 
-    ModelClient 按 profile.cache_style 决定如何翻译成 provider 参数:
-    breakpoints -> cache_control 注入; prefix_auto -> 只保证顺序稳定。
+    ``ModelClient`` translates it per ``profile.cache_style``:
+    ``breakpoints`` injects cache_control markers at the given message
+    indices; ``prefix_auto``/``none`` only rely on deterministic ordering.
     """
 
     breakpoint_indices: tuple[int, ...] = ()
-    prompt_cache_key: str | None = None
 
 
 @dataclass(frozen=True)
 class ModelRequest:
-    """ModelClient.stream_step 的完整入参包。"""
+    """The full input bundle for one model call."""
 
     messages: list[ProviderMessage]
-    tools: list[Any]                  # list[ToolSpec], 避免跨文件循环引用用 Any
+    tools: list[dict[str, Any]]        # OpenAI function-tool schema dicts
     params: ModelParams
     cache_plan: CachePlan = field(default_factory=CachePlan)
 
 
+# R3: a closed kind vocabulary. Providers may evolve freely — we always
+# *translate into* these kinds; adding one is an explicit contract change.
+ModelEventKind = Literal[
+    "text_delta",
+    "thinking_delta",
+    "tool_use_start",  # tool name arrives before arguments (policy can veto early)
+    "arg_delta",       # raw partial-JSON argument fragment
+    "tool_use",        # complete call (model-track accounting)
+    "done",            # step finished; carries usage + stop reason
+]
+
+MODEL_EVENT_KINDS: frozenset[str] = frozenset(
+    ("text_delta", "thinking_delta", "tool_use_start", "arg_delta", "tool_use", "done")
+)
+
+
 @dataclass(frozen=True)
 class ModelEvent:
-    """ModelClient 流式产出的原子事件。
+    """One atomic event from a streaming model call.
 
-    kind 词汇(对齐 pi-ai 的事件族):
-    - "text_delta" / "thinking_delta": 增量文本(ui 轨投影);
-    - "tool_use_start": 工具名先到——policy 可在参数流出前按名裁决(E3 时序安全);
-    - "arg_delta": 参数增量(partial JSON, 仅 supports_arg_delta 的 provider);
-    - "tool_use": 完整工具调用(参数完整 JSON, model 轨记账);
-    - "done": 本 step 结束, 携带真实 usage 与 stop_reason。
+    ``content_index`` aligns fragments across interleaved content blocks
+    (pi discipline: block events are not guaranteed contiguous).
     """
 
-    kind: str
-    content_index: int = 0            # pi 纪律: 不同 content block 事件不保证连续, 必须按此对齐
+    kind: ModelEventKind
+    content_index: int = 0
     payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Fail at the construction site — a typo must never silently
+        # drop events downstream.
+        if self.kind not in MODEL_EVENT_KINDS:
+            raise ValueError(f"unknown ModelEvent kind: {self.kind!r}")

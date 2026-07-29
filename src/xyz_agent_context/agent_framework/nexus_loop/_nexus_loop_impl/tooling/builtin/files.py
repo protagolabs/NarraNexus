@@ -1,52 +1,256 @@
 """
 @file_name: files.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 文件六件套——read_file/write_file/edit_file/glob/grep/ls。
-对标 Claude Code 六件套的完成度(用户体验基准线); edit 用精确替换语义。
-每个工具 = spec(含 description, 单一事实源)+ async handler, 同文件成对。
-全部路径参数经 WorkspaceConfinementLayer 裁决后才会到达 handler。
+@author: Bin Liang
+@date: 2026-07-29
+@description: The file six-pack — read_file / write_file / edit_file /
+glob / grep / ls. Spec (description included) and handler live together:
+one source of truth, no prompt drift. All paths resolve inside the
+workspace; the confinement policy has already vetted them when a
+handler runs.
 """
 
+from __future__ import annotations
+
+import fnmatch
+import re
+from pathlib import Path
+
 from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
+    ToolAnnotations,
     ToolContext,
     ToolResult,
     ToolSpec,
 )
 
+_MAX_READ_CHARS = 100_000
+_MAX_MATCHES = 200
+_MAX_GREP_FILE_BYTES = 2_000_000
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv"}
+
 
 def specs() -> list[ToolSpec]:
-    """六件套的 ToolSpec 清单(read_only 注解: read_file/glob/grep/ls 为
-    True——并行执行的依据; write/edit 为 False)。description 在此定稿,
-    prompt 的工具指南段引用而不复制。"""
-    ...
+    read_only = ToolAnnotations(read_only=True)
+    return [
+        ToolSpec(
+            name="read_file",
+            description=(
+                "Read a text file from the workspace. Supports offset/limit "
+                "line windows for large files; output beyond the size cap is "
+                "truncated with an explicit marker."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path (workspace-relative or absolute inside the workspace)."},
+                    "offset": {"type": "integer", "description": "1-based first line to read.", "minimum": 1},
+                    "limit": {"type": "integer", "description": "Maximum number of lines.", "minimum": 1},
+                },
+                "required": ["path"],
+            },
+            annotations=read_only,
+        ),
+        ToolSpec(
+            name="write_file",
+            description=(
+                "Write content to a file (full replacement). Parent "
+                "directories are created as needed."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        ),
+        ToolSpec(
+            name="edit_file",
+            description=(
+                "Exact string replacement in a file. `old` must occur exactly "
+                "once (extend it with more context if ambiguous); use "
+                "`replace_all` to replace every occurrence."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old": {"type": "string"},
+                    "new": {"type": "string"},
+                    "replace_all": {"type": "boolean", "default": False},
+                },
+                "required": ["path", "old", "new"],
+            },
+        ),
+        ToolSpec(
+            name="glob",
+            description=(
+                "Find files by glob pattern (e.g. '**/*.py'), newest first, "
+                "up to a result cap."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string", "description": "Directory to search from (default: workspace root)."},
+                },
+                "required": ["pattern"],
+            },
+            annotations=read_only,
+        ),
+        ToolSpec(
+            name="grep",
+            description=(
+                "Search file contents with a regular expression; returns "
+                "matching lines as path:line:text, up to a match cap."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Python-flavored regular expression."},
+                    "path": {"type": "string", "description": "Directory to search (default: workspace root)."},
+                    "glob": {"type": "string", "description": "Only search files matching this glob (e.g. '*.py')."},
+                },
+                "required": ["pattern"],
+            },
+            annotations=read_only,
+        ),
+        ToolSpec(
+            name="ls",
+            description="List a directory (default: workspace root) with entry types and sizes.",
+            input_schema={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+            },
+            annotations=read_only,
+        ),
+    ]
 
 
-async def read_file(args: dict, ctx: ToolContext) -> ToolResult:
-    """读文件(支持 offset/limit 分页; 二进制/超大文件保护)。"""
-    ...
+def _resolve(ctx: ToolContext, raw: str | None) -> Path:
+    workspace = Path(ctx.workspace).resolve()
+    if not raw:
+        return workspace
+    candidate = Path(raw)
+    return (candidate if candidate.is_absolute() else workspace / candidate).resolve()
 
 
-async def write_file(args: dict, ctx: ToolContext) -> ToolResult:
-    """写文件(整文件覆盖; 目标目录不存在时创建)。"""
-    ...
+def _truncate(text: str, cap: int = _MAX_READ_CHARS) -> str:
+    if len(text) <= cap:
+        return text
+    return text[:cap] + f"\n[truncated {len(text) - cap} chars]"
 
 
-async def edit_file(args: dict, ctx: ToolContext) -> ToolResult:
-    """精确字符串替换(old 必须唯一命中, 否则报错要求更长锚点——CC 语义)。"""
-    ...
+async def read_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    path = _resolve(ctx, args.get("path"))
+    if not path.is_file():
+        return ToolResult(call_id=call_id, ok=False, error=f"not a file: {path}")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return ToolResult(call_id=call_id, ok=False, error=str(exc))
+    offset = int(args.get("offset") or 1)
+    limit = args.get("limit")
+    if offset > 1 or limit is not None:
+        lines = text.splitlines()
+        end = offset - 1 + int(limit) if limit is not None else len(lines)
+        text = "\n".join(lines[offset - 1 : end])
+    return ToolResult(call_id=call_id, ok=True, content=_truncate(text))
 
 
-async def glob_files(args: dict, ctx: ToolContext) -> ToolResult:
-    """按 glob 模式列文件(按修改时间排序)。"""
-    ...
+async def write_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    path = _resolve(ctx, args.get("path"))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(args.get("content", "")), encoding="utf-8")
+    except OSError as exc:
+        return ToolResult(call_id=call_id, ok=False, error=str(exc))
+    return ToolResult(call_id=call_id, ok=True, content=f"wrote {path}")
 
 
-async def grep_files(args: dict, ctx: ToolContext) -> ToolResult:
-    """正则内容检索(文件类型过滤/上下文行/命中数上限)。"""
-    ...
+async def edit_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    path = _resolve(ctx, args.get("path"))
+    if not path.is_file():
+        return ToolResult(call_id=call_id, ok=False, error=f"not a file: {path}")
+    old, new = str(args.get("old", "")), str(args.get("new", ""))
+    if not old:
+        return ToolResult(call_id=call_id, ok=False, error="`old` must be non-empty")
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count == 0:
+        return ToolResult(call_id=call_id, ok=False, error="`old` not found in file")
+    if count > 1 and not args.get("replace_all"):
+        return ToolResult(
+            call_id=call_id,
+            ok=False,
+            error=f"`old` occurs {count} times; extend it or set replace_all",
+        )
+    path.write_text(text.replace(old, new), encoding="utf-8")
+    replaced = count if args.get("replace_all") else 1
+    return ToolResult(call_id=call_id, ok=True, content=f"replaced {replaced} occurrence(s)")
 
 
-async def list_dir(args: dict, ctx: ToolContext) -> ToolResult:
-    """列目录(带类型/大小标注)。"""
-    ...
+async def glob_files(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    root = _resolve(ctx, args.get("path"))
+    pattern = str(args.get("pattern", "*"))
+    if not root.is_dir():
+        return ToolResult(call_id=call_id, ok=False, error=f"not a directory: {root}")
+    hits = [p for p in root.glob(pattern) if p.is_file()]
+    hits.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    shown = [str(p.relative_to(root)) for p in hits[:_MAX_MATCHES]]
+    suffix = "" if len(hits) <= _MAX_MATCHES else f"\n[{len(hits) - _MAX_MATCHES} more not shown]"
+    return ToolResult(call_id=call_id, ok=True, content="\n".join(shown) + suffix)
+
+
+async def grep_files(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    root = _resolve(ctx, args.get("path"))
+    try:
+        pattern = re.compile(str(args.get("pattern", "")))
+    except re.error as exc:
+        return ToolResult(call_id=call_id, ok=False, error=f"bad regex: {exc}")
+    file_glob = args.get("glob")
+    matches: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if len(matches) >= _MAX_MATCHES:
+            break
+        if not path.is_file() or any(part in _SKIP_DIRS for part in path.parts):
+            continue
+        if file_glob and not fnmatch.fnmatch(path.name, str(file_glob)):
+            continue
+        try:
+            if path.stat().st_size > _MAX_GREP_FILE_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if pattern.search(line):
+                rel = path.relative_to(root)
+                matches.append(f"{rel}:{lineno}:{line.strip()[:300]}")
+                if len(matches) >= _MAX_MATCHES:
+                    break
+    body = "\n".join(matches) if matches else "(no matches)"
+    return ToolResult(call_id=call_id, ok=True, content=_truncate(body))
+
+
+async def list_dir(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    path = _resolve(ctx, args.get("path"))
+    if not path.is_dir():
+        return ToolResult(call_id=call_id, ok=False, error=f"not a directory: {path}")
+    rows = []
+    for entry in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
+        if entry.is_dir():
+            rows.append(f"{entry.name}/")
+        else:
+            rows.append(f"{entry.name}  ({entry.stat().st_size} bytes)")
+    return ToolResult(call_id=call_id, ok=True, content="\n".join(rows) or "(empty)")
+
+
+HANDLERS = {
+    "read_file": read_file,
+    "write_file": write_file,
+    "edit_file": edit_file,
+    "glob": glob_files,
+    "grep": grep_files,
+    "ls": list_dir,
+}

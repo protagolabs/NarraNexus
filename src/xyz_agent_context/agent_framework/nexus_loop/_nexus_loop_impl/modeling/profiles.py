@@ -1,31 +1,69 @@
 """
 @file_name: profiles.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: ProviderProfile 数据表——新 provider 优先 = 加一条数据行。
+@author: Bin Liang
+@date: 2026-07-29
+@description: The ProviderProfile data table — onboarding a provider is
+adding a row.
 
-首批行(07-26 §6.4 + B1: DeepSeek 与 Anthropic 直连是第一批验证对象):
-- anthropic: cache_style="breakpoints", thinking_replay="keep_signed"
-- deepseek:  cache_style="prefix_auto"(平权在结构上成立)
-- openai / netmind / minimax / yunwu: 实测后填行
-铁律 #15: 本表描述 provider 的技术方言, 不做「模型适不适合当 agent」的
-价值判断——用户选什么模型都能拿到一条 profile(未知走 DEFAULT)。
+Rows encode measured dialect behaviour only (cache style, window,
+argument-delta support). No row ever encodes a judgement about a
+model's fitness (iron rule #15): unknown providers resolve to a
+conservative default so every user model runs — it merely forgoes the
+optimizations until its row is measured in.
 """
+
+from __future__ import annotations
 
 from xyz_agent_context.agent_framework.nexus_loop.contracts.model import ProviderProfile
 
+_DEFAULT = ProviderProfile(name="default")
+
+# name -> profile. Matching is by substring against provider then model
+# (lowercased), first hit wins; order matters only for overlapping keys.
+_PROFILES: tuple[ProviderProfile, ...] = (
+    ProviderProfile(
+        name="anthropic",
+        cache_style="breakpoints",
+        thinking_replay="strip",
+        supports_arg_delta=True,
+        context_window=200_000,
+        max_output_tokens=8_192,
+    ),
+    ProviderProfile(
+        name="deepseek",
+        cache_style="prefix_auto",
+        thinking_replay="strip",
+        context_window=128_000,
+    ),
+    ProviderProfile(
+        name="openai",
+        cache_style="prefix_auto",
+        thinking_replay="strip",
+        supports_arg_delta=True,
+        context_window=128_000,
+    ),
+    ProviderProfile(
+        name="qwen",
+        cache_style="none",
+        context_window=32_000,
+    ),
+)
+
 
 def builtin_profiles() -> dict[str, ProviderProfile]:
-    """返回内置 profile 数据表(name -> profile), 声明期为空实现。
-
-    表内容是数据不是逻辑: 增改行不触碰任何类; 每行的字段值必须有
-    实测依据(litellm 透传四项测试), 不许拍脑袋填。
-    """
-    ...
+    """The current table, keyed by name (read-only view for tooling)."""
+    return {p.name: p for p in _PROFILES}
 
 
-def resolve_profile(model: str, provider: str | None) -> ProviderProfile:
-    """按 model/provider 匹配 profile; 未知 provider 返回保守默认行
-    (cache_style="none", 全部能力位 False)——保证任何用户模型可跑,
-    只是拿不到优化。"""
-    ...
+def resolve_profile(model: str, provider: str | None = None) -> ProviderProfile:
+    """Match provider first, then model, by substring; default otherwise."""
+    haystacks = [h.lower() for h in (provider or "", model or "") if h]
+    for profile in _PROFILES:
+        for haystack in haystacks:
+            if profile.name in haystack:
+                return profile
+    # Anthropic-protocol endpoints frequently serve claude-* aliases.
+    for haystack in haystacks:
+        if "claude" in haystack:
+            return builtin_profiles()["anthropic"]
+    return _DEFAULT

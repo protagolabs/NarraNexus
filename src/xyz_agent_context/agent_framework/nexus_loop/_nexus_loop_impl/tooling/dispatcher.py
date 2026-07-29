@@ -1,68 +1,148 @@
 """
 @file_name: dispatcher.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: ToolDispatcher——全部能力通道的唯一分发器(ToolExecutor 实现)。
+@author: Bin Liang
+@date: 2026-07-29
+@description: ToolDispatcher — the single dispatcher over every
+capability channel (ToolExecutor implementation).
 
-不变量:
-- visible_tools() = Σ channel.list_tools() − disallowed, 确定性排序
-  (order_tools), 新通道/新工具只尾部追加(C2 cache 约束);
-- 每次 execute 先过 PolicyEngine(fail-closed), deny 产出错误型
-  ToolResult 而非异常;
-- PRE_TOOL_USE / POST_TOOL_USE hook 点位 day-1 埋好(无监听零成本);
-- 「模型可见工具 ≡ 实际注册工具」一致性由本类单点保证(OpenClaw 教训:
-  防 prompt 与注册表漂移)。
+Invariants:
+  - ``visible_tools()`` = union of channel tools − disallowed
+    (∩ allowlist when set), in (channel order, name) order with a
+    generation cache — expansion appends, never resorts (constraint C2);
+  - every ``execute`` passes the PolicyEngine first (fail-closed); a
+    deny is an error-shaped result, never an exception;
+  - label tools (``marker_only`` annotation or the injected marker
+    list) short-circuit after adjudication: the call IS the signal; its
+    meaning lives in the event stream;
+  - "what the model sees ≡ what is registered" holds by construction —
+    prompts and schemas derive from the same specs.
 """
 
-from xyz_agent_context.agent_framework.nexus_loop.contracts.protocols import (
-    PolicyLayer,
-    ToolChannel,
-)
+from __future__ import annotations
+
+from loguru import logger
+
+from xyz_agent_context.agent_framework.nexus_loop.contracts.protocols import ToolChannel
 from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
+    PolicyContext,
     ToolCall,
     ToolContext,
     ToolResult,
     ToolSpec,
 )
+from xyz_agent_context.agent_framework.nexus_loop._nexus_loop_impl.tooling.policy import (
+    PolicyEngine,
+)
 
 
 class ToolDispatcher:
-    """channel 注册表 + 策略检查点 + 执行编排。"""
+    """Channel registry + policy checkpoint + routing."""
 
     def __init__(
         self,
         channels: tuple[ToolChannel, ...],
-        policy_layers: tuple[PolicyLayer, ...],
+        *,
+        policy: PolicyEngine,
         ctx: ToolContext,
-        disallowed_tools: frozenset[str],
+        disallowed_tools: frozenset[str] = frozenset(),
+        allowed_tools: frozenset[str] = frozenset(),
+        marker_tools: frozenset[str] = frozenset(),
     ) -> None:
-        """channels 顺序即工具清单的段顺序(cache 稳定的一部分)。"""
-        ...
+        self._channels: list[ToolChannel] = list(channels)
+        self._policy = policy
+        self._ctx = ctx
+        self._policy_ctx = PolicyContext(tool_ctx=ctx, disallowed_tools=disallowed_tools)
+        self._allowed = allowed_tools
+        self._markers = marker_tools
+        self._cache: list[ToolSpec] | None = None
+        self._cache_generations: tuple[int, ...] | None = None
+
+    # ---- ToolExecutor ----
 
     def visible_tools(self) -> list[ToolSpec]:
-        """聚合全通道工具, 剔除 disallowed(07-26 A1: disallowed_tools 必须
-        生效——codex driver 把它 del kwargs 扔掉是既往事故), 确定性排序。
-        带代数缓存: 任一通道 refresh 变化后失效重建(Hermes _generation)。"""
-        ...
+        generations = tuple(getattr(c, "generation", 0) for c in self._channels)
+        if self._cache is not None and generations == self._cache_generations:
+            return list(self._cache)
+        seen: set[str] = set()
+        visible: list[ToolSpec] = []
+        for channel in self._channels:
+            for spec in sorted(channel.list_tools(), key=lambda s: s.name):
+                if spec.name in seen:
+                    logger.warning(f"duplicate tool name {spec.name!r}: first wins")
+                    continue
+                seen.add(spec.name)
+                if spec.name in self._policy_ctx.disallowed_tools:
+                    continue
+                if self._allowed and spec.name not in self._allowed:
+                    continue
+                visible.append(spec)
+        self._cache = visible
+        self._cache_generations = generations
+        return list(visible)
+
+    def spec_for(self, name: str) -> ToolSpec | None:
+        for spec in self.visible_tools():
+            if spec.name == name:
+                return spec
+        return None
 
     async def execute(self, call: ToolCall) -> ToolResult:
-        """单个调用的完整生命周期: policy 裁决 -> 路由到所属 channel ->
-        执行 -> 结果归一。异常收敛为错误型 ToolResult, 永不穿透 loop。"""
-        ...
+        decision = self._policy.check(call, self._policy_ctx)
+        if not decision.allowed:
+            return ToolResult(call_id=call.id, ok=False, error=f"denied: {decision.reason}")
 
-    async def execute_step(self, calls: list[ToolCall]) -> list[ToolResult]:
-        """一个 step 的批量执行: 按注解分类——read_only 工具并行
-        (asyncio TaskGroup), 写类串行(Codex Auto 档语义); v1 可先全串行,
-        接口不变。"""
-        ...
+        spec = self.spec_for(call.name)
+        if spec is None:
+            return ToolResult(
+                call_id=call.id, ok=False, error=f"tool {call.name!r} is not available"
+            )
+        if spec.annotations.marker_only or call.name in self._markers:
+            # Label tool: adjudicated, then short-circuited — the event
+            # stream carries the meaning; delivery is the consumer's job.
+            return ToolResult(call_id=call.id, ok=True, content="delivered")
 
-    async def add_channel(self, channel: ToolChannel) -> None:
-        """运行中追加新通道——expand_module 动态加载的落点。
-        只允许尾部追加(不重排既有段), 追加后使 visible_tools 缓存失效,
-        并记 cache 击穿计数(埋点, 观测动态加载的 cache 代价)。"""
-        ...
+        for channel in self._channels:
+            if any(s.name == call.name for s in channel.list_tools()):
+                result = await channel.call(call.name, call.args, self._ctx)
+                return ToolResult(
+                    call_id=call.id,
+                    ok=result.ok,
+                    content=result.content,
+                    error=result.error,
+                    synthetic=result.synthetic,
+                )
+        return ToolResult(call_id=call.id, ok=False, error=f"no channel serves {call.name!r}")
 
-    async def refresh_channels(self) -> None:
-        """轮询/事件驱动地刷新各通道(MCP tools/list_changed 等),
-        任何变化使缓存失效。"""
-        ...
+    # ---- registry / search seams ----
+
+    def add_channel(self, channel: ToolChannel) -> None:
+        """Dynamic expansion landing point (append-only)."""
+        self._channels.append(channel)
+        self._cache = None
+
+    def invalidate(self) -> None:
+        self._cache = None
+
+    def search_lines(self, query: str, *, card_index: str = "") -> list[str]:
+        """Own-algorithm tool discovery (model-agnostic): substring match
+        over names and descriptions; empty query → grouped overview."""
+        specs = self.visible_tools()
+        if not query:
+            lines = [f"{len(specs)} tools in scope:"]
+            lines += [f"- {s.name}: {s.description.splitlines()[0][:100]}" for s in specs]
+            if card_index:
+                lines += ["", "Expandable capabilities:", card_index]
+            return lines
+        needle = query.lower()
+        hits = [
+            f"- {s.name}: {s.description.splitlines()[0][:100]}"
+            for s in specs
+            if needle in s.name.lower() or needle in s.description.lower()
+        ]
+        if card_index:
+            hits += [
+                line
+                for line in card_index.splitlines()
+                if needle in line.lower()
+            ]
+        return hits

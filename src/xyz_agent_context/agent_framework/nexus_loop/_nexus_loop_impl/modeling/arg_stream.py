@@ -1,55 +1,198 @@
 """
 @file_name: arg_stream.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 流式参数抽取器——把工具调用参数的 partial JSON 增量, 实时抽取
-出声明为 streamable 的字段, 投影成 ui 轨 tool_arg_delta 事件。
+@author: Bin Liang
+@date: 2026-07-29
+@description: Streaming tool-argument extraction — the technical core of
+"the agent's reply streams too".
 
-这是「agent 对用户的回复也是流式」的技术核心: 表达工具(平台注入名单,
-如 chat_module 的回复工具)的 content 字段在模型逐字生成参数时就流向前端,
-用户体验与直接文本流无异;
-model 轨仍只记完整 tool_use——日志/回放/cache 语义零影响(07-22 §5.6)。
+Expressive/label tools declare ``streamable_fields``; while the model
+generates the call's argument JSON character by character, this
+extractor surfaces those fields' text incrementally on the ui track, so
+the user reads the reply as it is being written. The model track still
+records only the complete call — logs, replay and cache semantics are
+untouched.
 
-pi(pi-ai)实测出的三条消费纪律, 实现必须遵守:
-1. 字段可能缺失或截断在词中间——防御性检查存在性, 字符串按已到达前缀消费;
-2. 不同 content block 的事件不保证连续——一切按 content_index 对齐;
-3. 中途夭折(流断/被拦)——已呈现部分标错误态, 与普通流式中断同语义。
-Codex 反面基线: 它不做参数级增量(参数在 item done 才完整到达), 证明本
-能力是差异化而非必需——实现可以晚, 接口(streamable_fields 声明位)day-1 在。
+Implemented as a real streaming JSON tokenizer (not regex, not
+re-parsing): a container stack for structure, key/value position
+tracking per object, and escape / ``\\uXXXX`` handling across arbitrary
+fragment boundaries. Disciplines learned from pi's ``pi-ai`` (fragments
+split anywhere; block events are not contiguous; consume defensively)
+are honoured by construction. Only root-level string fields stream —
+nested occurrences of a declared name never leak.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class FieldDelta:
-    """一次字段增量: 某工具调用的某声明字段新到达的文本片段。"""
+    """One newly-safe fragment of a declared argument field."""
 
-    call_index: int      # content_index 对齐
-    field_path: str      # 声明字段名(如 "content")
-    text: str            # 新增片段(已保证是该字段字符串值的前缀延续)
+    call_index: int
+    field_path: str
+    text: str
+
+
+_ESCAPES = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+}
 
 
 class StreamingArgExtractor:
-    """单个工具调用参数流的增量解析器(每个 tool_use_start 建一个实例)。"""
+    """Incremental extractor for one tool call's argument stream.
 
-    def __init__(self, streamable_fields: tuple[str, ...]) -> None:
-        """streamable_fields 为空时本实例是 no-op(v1 全部为空, 测试锁定)。"""
-        ...
+    Create one per ``tool_use_start``; ``feed`` raw JSON fragments in
+    arrival order; ``finalize`` reconciles against the complete
+    arguments so streamed text always equals the final value (a locked
+    invariant).
+    """
 
-    def feed(self, call_index: int, raw_delta: str) -> list[FieldDelta]:
-        """喂入一片参数增量(partial JSON 片段), 返回可安全呈现的字段增量。
+    def __init__(self, call_index: int, streamable_fields: tuple[str, ...]) -> None:
+        self._call_index = call_index
+        self._fields = frozenset(streamable_fields)
+        self._emitted: dict[str, str] = {}
+        self._aborted = False
+        # Tokenizer state.
+        self._stack: list[str] = []        # container stack of "{" / "["
+        self._in_string = False
+        self._string_is_key = False
+        self._current_key: list[str] = []
+        self._last_key = ""
+        self._streaming_field: str | None = None
+        self._escape = False
+        self._unicode_hex: list[str] | None = None  # collecting \uXXXX digits
+        self._expect_key = False
 
-        实现要点: 增量 JSON 状态机(不是反复全量 re-parse); 只对字符串
-        字段做前缀流式; 转义序列跨片段时缓冲到完整再放行。
-        """
-        ...
+    @property
+    def active(self) -> bool:
+        """Whether any declared field exists (a no-op extractor otherwise)."""
+        return bool(self._fields) and not self._aborted
+
+    def feed(self, fragment: str) -> list[FieldDelta]:
+        """Consume one raw fragment; return safely-decoded field deltas."""
+        if not self.active or not fragment:
+            return []
+        out: list[str] = []
+        deltas: list[FieldDelta] = []
+
+        def flush() -> None:
+            if out and self._streaming_field is not None:
+                text = "".join(out)
+                self._emitted[self._streaming_field] = (
+                    self._emitted.get(self._streaming_field, "") + text
+                )
+                deltas.append(FieldDelta(self._call_index, self._streaming_field, text))
+                out.clear()
+
+        for ch in fragment:
+            if self._in_string:
+                self._consume_string_char(ch, out)
+                if not self._in_string:
+                    # String just closed.
+                    if self._string_is_key:
+                        self._last_key = "".join(self._current_key)
+                    else:
+                        flush()
+                        self._streaming_field = None
+                continue
+
+            # Structural characters outside strings.
+            if ch == '"':
+                self._in_string = True
+                self._escape = False
+                self._unicode_hex = None
+                self._string_is_key = self._expect_key
+                if self._string_is_key:
+                    self._current_key = []
+                elif len(self._stack) == 1 and self._last_key in self._fields:
+                    self._streaming_field = self._last_key
+                continue
+            if ch == "{":
+                self._stack.append("{")
+                self._expect_key = True
+                continue
+            if ch == "[":
+                self._stack.append("[")
+                self._expect_key = False
+                continue
+            if ch in "}]":
+                if self._stack:
+                    self._stack.pop()
+                self._expect_key = False
+                continue
+            if ch == ":":
+                self._expect_key = False
+                continue
+            if ch == ",":
+                self._expect_key = bool(self._stack) and self._stack[-1] == "{"
+                continue
+            # Whitespace / literals / numbers: no state change.
+        flush()
+        return deltas
 
     def finalize(self, complete_args: dict) -> list[FieldDelta]:
-        """参数完整后校对: 补发解析器保守缓冲的尾部, 保证「流式呈现的
-        累计文本 == 最终参数值」(一致性不变量, 测试锁定)。"""
-        ...
+        """Reconcile: emit the conservative remainder per field so that
+        streamed text == final value even when escapes forced buffering."""
+        if not self.active:
+            return []
+        deltas: list[FieldDelta] = []
+        for field in sorted(self._fields):
+            final = complete_args.get(field)
+            if not isinstance(final, str):
+                continue
+            emitted = self._emitted.get(field, "")
+            if final.startswith(emitted) and len(final) > len(emitted):
+                remainder = final[len(emitted):]
+                self._emitted[field] = final
+                deltas.append(FieldDelta(self._call_index, field, remainder))
+        return deltas
 
-    def abort(self, reason: str) -> None:
-        """中途夭折(取消/deny/流断): 标记已呈现部分为错误态。"""
-        ...
+    def abort(self) -> None:
+        """Mid-stream death (cancel/deny/stream break): stop emitting;
+        the consumer marks the presented prefix errored — the same
+        semantics as any interrupted stream."""
+        self._aborted = True
+
+    # -- internals ----------------------------------------------------
+
+    def _consume_string_char(self, ch: str, out: list[str]) -> None:
+        """Advance in-string state by one character (escape-aware)."""
+        if self._unicode_hex is not None:
+            self._unicode_hex.append(ch)
+            if len(self._unicode_hex) == 4:
+                try:
+                    decoded = chr(int("".join(self._unicode_hex), 16))
+                except ValueError:
+                    decoded = ""
+                self._unicode_hex = None
+                self._emit_char(decoded, out)
+            return
+        if self._escape:
+            self._escape = False
+            if ch == "u":
+                self._unicode_hex = []
+                return
+            self._emit_char(_ESCAPES.get(ch, ch), out)
+            return
+        if ch == "\\":
+            self._escape = True
+            return
+        if ch == '"':
+            self._in_string = False
+            return
+        self._emit_char(ch, out)
+
+    def _emit_char(self, ch: str, out: list[str]) -> None:
+        if self._string_is_key:
+            self._current_key.append(ch)
+        elif self._streaming_field is not None:
+            out.append(ch)

@@ -1,52 +1,95 @@
 """
 @file_name: policy.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: PolicyEngine——有序 layer 列表, deny 永远赢, fail-closed。
+@author: Bin Liang
+@date: 2026-07-29
+@description: PolicyEngine — an ordered layer list where deny always
+wins and a layer's internal exception counts as deny.
 
-fail-closed 是自研决策(无业界背书: Codex fail-open、OpenClaw 空 allowlist
-放行), 多租户云端的红线。v1 两个 layer; P3+ 追加 PlatformDenySetLayer
-(不可放宽红线, 改动只能走代码 PR)、RepetitionLayer((tool, sha256(args))
-熔断, 默认只告警——不是轮次上限, 铁律 #14)、PerAgentPolicyLayer。
-子代理策略传播 = 把 engine 实例传给 SubagentChannel(引用即继承交集)。
+Fail-closed is a deliberate home-grown decision (Codex fails open;
+OpenClaw's empty allowlist admits) — on a multi-tenant cloud, security
+errs toward "off". v1 layers: the disallowed-tools contract (A1) and
+workspace confinement. Future layers (platform deny set, repetition
+observation, per-agent policy) append; subagent inheritance is passing
+the engine INSTANCE to the subagent channel.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+
+from loguru import logger
+
 from xyz_agent_context.agent_framework.nexus_loop.contracts.tooling import (
+    ALLOW,
     Decision,
     PolicyContext,
+    PolicyVerdict,
     ToolCall,
 )
 
+# Builtin argument names that carry filesystem paths (the confinement
+# layer's inspection surface).
+_PATH_ARG_NAMES = ("path", "file_path", "directory")
+
 
 class PolicyEngine:
-    """依序执行全部 layer; 任一 deny 即 deny; layer 抛异常 == deny。"""
+    """Runs every layer in order; any deny (or layer crash) denies."""
 
     def __init__(self, layers: tuple) -> None:
-        """layers: PolicyLayer 有序元组(顺序影响 deny 理由的归因, 不影响结果)。"""
-        ...
+        self._layers = tuple(layers)
 
     def check(self, call: ToolCall, ctx: PolicyContext) -> Decision:
-        """聚合裁决(纯函数, 无 IO——可 hook 的异步审批走 HookRegistry
-        的 PERMISSION_REQUEST 事件, 不在这里阻塞)。"""
-        ...
+        for layer in self._layers:
+            try:
+                decision = layer.check(call, ctx)
+            except Exception as exc:  # noqa: BLE001 - fail-closed by design
+                logger.warning(
+                    f"policy layer {type(layer).__name__} crashed on "
+                    f"{call.name}: {exc} — denying"
+                )
+                return Decision(
+                    PolicyVerdict.DENY,
+                    f"policy layer {type(layer).__name__} failed (fail-closed)",
+                )
+            if not decision.allowed:
+                return decision
+        return ALLOW
 
 
 class DisallowedToolsLayer:
-    """A1 契约层: driver 入参 disallowed_tools 的强制执行点。"""
+    """Contract A1: the driver-supplied disallowed set MUST take effect."""
 
     def check(self, call: ToolCall, ctx: PolicyContext) -> Decision:
-        """call.name ∈ ctx.disallowed_tools -> DENY。"""
-        ...
+        if call.name in ctx.disallowed_tools:
+            return Decision(
+                PolicyVerdict.DENY, f"tool '{call.name}' is disallowed for this turn"
+            )
+        return ALLOW
 
 
 class WorkspaceConfinementLayer:
-    """workspace 约束层(现有 _tool_policy_guard 的等价替代)。
+    """Path arguments of builtin tools must resolve inside the workspace.
 
-    自研后「hook 不传播进 subagent」的盲区自然消失——engine 引用直接
-    传给子代理通道。
+    No silent rewriting: an escape attempt is denied with the resolved
+    path named, so the model can correct itself. MCP tools are not
+    path-inspected here (their side effects live server-side).
     """
 
     def check(self, call: ToolCall, ctx: PolicyContext) -> Decision:
-        """文件/shell 类调用的路径参数必须落在 ctx.tool_ctx.workspace 内;
-        逃逸尝试 -> DENY(理由写明路径), 不做静默改写。"""
-        ...
+        if call.name.startswith("mcp__"):
+            return ALLOW
+        workspace = Path(ctx.tool_ctx.workspace).resolve()
+        for arg_name in _PATH_ARG_NAMES:
+            raw = call.args.get(arg_name)
+            if not isinstance(raw, str) or not raw:
+                continue
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = workspace / candidate
+            resolved = candidate.resolve()
+            if not resolved.is_relative_to(workspace):
+                return Decision(
+                    PolicyVerdict.DENY,
+                    f"path '{raw}' resolves outside the workspace ({resolved})",
+                )
+        return ALLOW
