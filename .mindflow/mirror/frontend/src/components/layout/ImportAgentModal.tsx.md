@@ -21,13 +21,19 @@ Four linear stages:
   framework-first, then drill into the project list. Single-source frameworks
   still show a one-row list for a consistent two-step flow.
 - **preview** — `api.migrateScan()` (`POST /api/migrate/scan`) — extract that
-  source into the standardized JSON and show a read-only summary (skills /
-  memory / MCP counts, per-skill copy-vs-marketplace, plaintext-credential
-  warning, narrative note).
+  source into the standardized JSON. The preview is **editable**: the agent name
+  is an input (defaults to the scanned name), and the sessions render as a
+  checkbox list — all checked = per-project import (every session → a Narrative),
+  one checked = per-session. Also shows skills / memory / MCP counts, per-skill
+  copy-vs-marketplace, and the plaintext-credential warning.
 - **done** — `api.migrateApply()` (`POST /api/migrate/apply`) — create +
-  populate the agent, then render per-dimension result counts.
+  populate the agent, then render per-dimension result counts (incl. Narratives
+  created + memory turns retained).
 
-Back navigation is stage-wise: preview → source → framework.
+On apply the modal sends a TRIMMED `import_data`: the renamed agent + only the
+checked sessions (`sessions.filter(selected)`) — no backend change needed, the
+applier just imports fewer sessions. Back navigation is stage-wise:
+preview → source → framework.
 
 ## Design decisions
 

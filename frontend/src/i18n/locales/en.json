@@ -804,7 +804,9 @@
       "defaultSkills": "Default skills",
       "sessionsHint": "{{count}} session(s) will each become a Narrative (summarized on import), with their turns kept as memory.",
       "narrativesCreated": "Narratives",
-      "turnsRetained": "Memory turns"
+      "turnsRetained": "Memory turns",
+      "untitledSession": "Untitled session",
+      "turnCount": "{{count}} turns"
     }
   },
   "settings": {

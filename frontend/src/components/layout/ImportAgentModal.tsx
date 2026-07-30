@@ -103,6 +103,17 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
   const [manualPath, setManualPath] = useState('');
   const [scan, setScan] = useState<StandardizedAgentImport | null>(null);
   const [result, setResult] = useState<MigrationApplyResult | null>(null);
+  // Editable in the preview: the agent name + which sessions to import (all =
+  // per-project, one = per-session). Initialized from the scan.
+  const [agentName, setAgentName] = useState('');
+  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (scan) {
+      setAgentName(scan.agent.name || '');
+      setSelectedSessions(new Set(scan.sessions.map((s) => s.session_id)));
+    }
+  }, [scan]);
 
   const runDetect = useCallback(async () => {
     setLoading(true);
@@ -170,7 +181,14 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
     setLoading(true);
     setError(null);
     try {
-      const res = await api.migrateApply(scan);
+      // Apply the user's edits: the (possibly renamed) agent + only the selected
+      // sessions (all = per-project, one = per-session).
+      const importData: StandardizedAgentImport = {
+        ...scan,
+        agent: { ...scan.agent, name: agentName.trim() || scan.agent.name },
+        sessions: scan.sessions.filter((s) => selectedSessions.has(s.session_id)),
+      };
+      const res = await api.migrateApply(importData);
       setResult(res);
       setStage('done');
     } catch (e) {
@@ -178,7 +196,15 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
     } finally {
       setLoading(false);
     }
-  }, [scan]);
+  }, [scan, agentName, selectedSessions]);
+
+  const toggleSession = (id: string) =>
+    setSelectedSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const title =
     stage === 'preview'
@@ -219,7 +245,15 @@ export function ImportAgentModal({ onClose, onApplied }: ImportAgentModalProps) 
           />
         )}
 
-        {stage === 'preview' && scan && <PreviewStage scan={scan} />}
+        {stage === 'preview' && scan && (
+          <PreviewStage
+            scan={scan}
+            agentName={agentName}
+            onAgentNameChange={setAgentName}
+            selectedSessions={selectedSessions}
+            onToggleSession={toggleSession}
+          />
+        )}
 
         {stage === 'done' && result && <DoneStage result={result} />}
       </DialogContent>
@@ -419,20 +453,35 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
 
 // ── preview stage ─────────────────────────────────────────────────────────
 
-function PreviewStage({ scan }: { scan: StandardizedAgentImport }) {
+function PreviewStage({
+  scan,
+  agentName,
+  onAgentNameChange,
+  selectedSessions,
+  onToggleSession,
+}: {
+  scan: StandardizedAgentImport;
+  agentName: string;
+  onAgentNameChange: (v: string) => void;
+  selectedSessions: Set<string>;
+  onToggleSession: (id: string) => void;
+}) {
   const { t } = useTranslation();
   const hasSecrets = scan.mcp_servers.some((m) => m.secret_fields.length > 0);
 
   return (
     <div className="space-y-4 text-xs">
-      {/* agent identity */}
+      {/* agent identity — name is editable before import */}
       <div>
         <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-[var(--nm-ink-soft)]" />
-          <span className="text-sm font-medium text-[var(--nm-ink)]">
-            {scan.agent.name || t('layout.importAgent.unnamed')}
-          </span>
-          <span className="rounded-full border border-[var(--nm-hairline)] px-2 py-0.5 text-[10px] text-[var(--nm-ink-soft)]">
+          <Bot className="h-4 w-4 shrink-0 text-[var(--nm-ink-soft)]" />
+          <Input
+            value={agentName}
+            onChange={(e) => onAgentNameChange(e.target.value)}
+            placeholder={t('layout.importAgent.unnamed')}
+            className="flex-1 text-sm"
+          />
+          <span className="shrink-0 rounded-full border border-[var(--nm-hairline)] px-2 py-0.5 text-[10px] text-[var(--nm-ink-soft)]">
             {FRAMEWORK_LABEL[scan.source.framework] ?? scan.source.framework}
           </span>
         </div>
@@ -440,6 +489,37 @@ function PreviewStage({ scan }: { scan: StandardizedAgentImport }) {
           {scan.source.detected_path}
         </div>
       </div>
+
+      {/* sessions to import — all checked = per-project, one = per-session */}
+      {scan.sessions.length > 0 && (
+        <Section
+          title={`${t('layout.importAgent.narrative')} · ${selectedSessions.size}/${scan.sessions.length}`}
+        >
+          <p className="mb-1.5 text-[11px] text-[var(--nm-ink-soft)]">
+            {t('layout.importAgent.sessionsHint', { count: selectedSessions.size })}
+          </p>
+          <ul className="max-h-44 space-y-1 overflow-y-auto">
+            {scan.sessions.map((s) => (
+              <li key={s.session_id}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-1 py-1 hover:bg-[var(--nm-paper-warm)]">
+                  <input
+                    type="checkbox"
+                    checked={selectedSessions.has(s.session_id)}
+                    onChange={() => onToggleSession(s.session_id)}
+                    className="shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[var(--nm-ink)]">
+                    {s.title || t('layout.importAgent.untitledSession')}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-[var(--nm-ink-soft)]">
+                    {t('layout.importAgent.turnCount', { count: s.turns.length })}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       {/* dimensions summary */}
       <div className="grid grid-cols-3 gap-2">
@@ -488,14 +568,6 @@ function PreviewStage({ scan }: { scan: StandardizedAgentImport }) {
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{t('layout.importAgent.secretWarning')}</span>
         </div>
-      )}
-
-      {scan.sessions.length > 0 && (
-        <Section title={t('layout.importAgent.narrative')}>
-          <p className="text-[11px] text-[var(--nm-ink-soft)]">
-            {t('layout.importAgent.sessionsHint', { count: scan.sessions.length })}
-          </p>
-        </Section>
       )}
 
       {/* warnings from the scan */}
