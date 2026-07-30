@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — the file preview needs code width
+
+Owner, same report as [[AwarenessPanel]]'s edit modal: "workspace 里文件查看也
+会弹出,太窄了". `size="lg"` (512px) for a viewer showing source, logs and data.
+
+`size="5xl"` (1024px), body `max-h-[78vh]`, images `max-h-[68vh]`. The `<pre>`
+soft-wraps (`whitespace-pre-wrap`), so at 512px nearly every line wrapped, and
+each continuation loses the leading indentation that makes structured text
+legible. Kept soft-wrap rather than switching to horizontal scroll: that trade
+belongs to a separate decision, and forcing sideways scrolling on log files is
+its own annoyance.
+
+Wider than the awareness editor (4xl) deliberately — code benefits from columns
+that prose does not. The sibling `RegisterModal` stays `md`: it IS a form.
 
 ## 2026-06-16 — workspace Download button now calls downloadFile()
 
