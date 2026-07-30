@@ -38,5 +38,6 @@ writes nothing.
 - `AGENTS.md` is a Codex strong signal AND a generic custom hint, so a bare
   `AGENTS.md` dir classifies as Codex (medium), not custom — intentional.
 - Project detections come from `~/.claude.json`'s `projects` keys (absolute
-  cwd strings); session counts come from `~/.claude/projects/<cwd-with-slashes-
-  as-dashes>/*.jsonl` — the same dash-encoding `extractors._encode_cwd` uses.
+  cwd strings); session counts come from `~/.claude/projects/<encoded-cwd>/*.jsonl`
+  where the encoding replaces **every** non-alphanumeric char with `-` (reuses
+  `extractors._encode_cwd` — a `/`-only replace silently counts zero sessions).

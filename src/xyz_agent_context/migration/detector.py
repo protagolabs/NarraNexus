@@ -130,14 +130,16 @@ def _claude_code_projects(base: Path) -> List[FrameworkDetection]:
     projects = data.get("projects")
     if not isinstance(projects, dict):
         return []
+    from xyz_agent_context.migration.extractors import _encode_cwd
 
     out: List[FrameworkDetection] = []
     for cwd_str in projects:
         cwd = Path(cwd_str)
         has_md = (cwd / "CLAUDE.md").exists() or (cwd / "CLAUDE.local.md").exists()
         cwd_exists = cwd.exists()
-        # Session transcripts live under projects/<cwd-with-slashes-as-dashes>.
-        sess_dir = claude_home / "projects" / cwd_str.replace("/", "-")
+        # Session transcripts live under projects/<encoded-cwd> — every
+        # non-alphanumeric char becomes '-' (see extractors._encode_cwd).
+        sess_dir = claude_home / "projects" / _encode_cwd(cwd)
         n_sessions = len(list(sess_dir.glob("*.jsonl"))) if sess_dir.exists() else 0
         # Nothing to import from a project whose cwd is gone AND has no sessions.
         if not cwd_exists and n_sessions == 0:

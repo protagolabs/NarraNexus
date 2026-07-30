@@ -35,6 +35,7 @@ def _mk_claude_global(home: Path):
     cd = home / ".claude"
     (cd / "skills" / "web-search").mkdir(parents=True)
     (cd / "settings.json").write_text("{}", encoding="utf-8")
+    (cd / "CLAUDE.md").write_text("Global: always be concise.", encoding="utf-8")
     return cd
 
 
@@ -43,13 +44,29 @@ def _mk_claude_project(home: Path):
     proj.mkdir()
     (proj / "CLAUDE.md").write_text("You are a project Claude agent.\n- prefers Python", encoding="utf-8")
     (proj / ".env").write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
-    # a session transcript under ~/.claude/projects/<encoded cwd>/
+    # a realistic session transcript under ~/.claude/projects/<encoded cwd>/
     sess = home / ".claude" / "projects" / _encode_cwd(proj)
     sess.mkdir(parents=True)
+    lines = [
+        {"type": "ai-title", "aiTitle": "Refactor the auth flow"},
+        {"type": "user", "message": {"role": "user", "content": "help me refactor auth"},
+         "timestamp": "2026-07-01T00:00:00Z"},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "thinking", "text": "hmm"},
+            {"type": "text", "text": "Sure, here is the plan"},
+            {"type": "tool_use", "name": "edit"}]}},
+        # tool_result on a user line — must be filtered out (not a real turn)
+        {"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "content": "file written"}]}},
+        # a sidechain turn — must be filtered out
+        {"type": "assistant", "isSidechain": True,
+         "message": {"role": "assistant", "content": [{"type": "text", "text": "subagent noise"}]}},
+        # the source's own compact rollup — must be kept
+        {"type": "user", "isCompactSummary": True,
+         "message": {"role": "user", "content": "Summary of earlier work: set up JWT"}},
+    ]
     (sess / "s1.jsonl").write_text(
-        json.dumps({"message": {"role": "user", "content": "hello from a past session"}}) + "\n",
-        encoding="utf-8",
-    )
+        "\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
     return proj
 
 
@@ -116,14 +133,48 @@ def test_scan_claude_global(home):
     assert by["remote"].transport == "url"
 
 
-def test_scan_claude_project_with_session_seed(home):
+def test_scan_claude_project_with_sessions(home):
     _mk_claude_global(home)
     proj = _mk_claude_project(home)
     r = scanner.scan(path=proj, framework="claude_code")
-    assert "project Claude agent" in r.agent.system_prompt      # CLAUDE.md → Awareness
-    assert "hello from a past session" in r.session_summary_seed  # sessions = ours
-    assert "OPENAI_API_KEY" in r.custom.credential_keys          # keys only, no value
+    # CLAUDE.md → Awareness, combined global + project (both present, labelled)
+    assert "project Claude agent" in r.agent.system_prompt
+    assert "User-level instructions" in r.agent.system_prompt      # global section header
+    # sessions = ours: one session parsed from the .jsonl
+    assert len(r.sessions) == 1
+    s = r.sessions[0]
+    assert s.title == "Refactor the auth flow"                     # ai-title → name
+    assert "set up JWT" in s.compact_text                          # isCompactSummary kept
+    texts = [t.text for t in s.turns]
+    assert "help me refactor auth" in texts                        # real user turn
+    assert "Sure, here is the plan" in texts                       # assistant text block
+    assert not any("file written" in t for t in texts)             # tool_result filtered
+    assert not any("subagent noise" in t for t in texts)           # sidechain filtered
+    assert "OPENAI_API_KEY" in r.custom.credential_keys            # keys only, no value
     assert not any("sk-secret" in c for c in r.custom.credential_keys)
+
+
+def test_encode_cwd_replaces_all_non_alnum():
+    # Claude Code encodes the cwd by replacing EVERY non-alphanumeric char with
+    # '-', not just '/'. A '/'-only replace silently misses '_' and '.' and finds
+    # zero sessions (real-data regression, 2026-07-30).
+    from pathlib import Path
+    assert _encode_cwd(Path("/Users/x/xyz_proto_test/App.v2")) == "-Users-x-xyz-proto-test-App-v2"
+
+
+def test_scan_claude_skills_dedup_project_wins(home):
+    # global has web-search; project has web-search (same name) + pdf.
+    _mk_claude_global(home)                       # global skill: web-search
+    proj = _mk_claude_project(home)
+    (proj / ".claude" / "skills" / "web-search").mkdir(parents=True)
+    (proj / ".claude" / "skills" / "pdf").mkdir(parents=True)
+    r = scanner.scan(path=proj, framework="claude_code")
+    names = [s.name for s in r.skills]
+    assert names.count("web-search") == 1                         # deduped, not twice
+    web = next(s for s in r.skills if s.name == "web-search")
+    assert web.scope == "project"                                 # project wins the clash
+    assert web.local_path.endswith("/proj/.claude/skills/web-search")
+    assert {s.name for s in r.skills} == {"web-search", "pdf"}
 
 
 # ── codex: config.toml mcp + memories ────────────────────────────────────────

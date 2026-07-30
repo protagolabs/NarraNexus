@@ -28,25 +28,31 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
 from xyz_agent_context.schema.migration_schema import (
+    AWARENESS_IMPORT_CHAR_LIMIT,
     Framework,
     MigrationAgent,
     MigrationCustom,
     MigrationMcpServer,
     MigrationMemory,
+    MigrationSession,
     MigrationSkill,
+    MigrationTurn,
 )
 
 # Cap a single memory entry so a huge doc doesn't dominate (mirrors Hermes).
 _MEMORY_ENTRY_CHAR_LIMIT = 20_000
-# How many recent sessions to fold into the self-summarize seed.
-_SESSION_SEED_MAX_FILES = 5
-_SESSION_SEED_CHAR_LIMIT = 12_000
+# Session parsing bounds (a single Claude session .jsonl can be 100MB+).
+_SESSION_MAX_FILES = 20          # most-recent session files parsed per project
+_SESSION_RECENT_TURNS = 200      # rolling window of recent turns held per session
+_SESSION_TURN_CHAR_BUDGET = 16_000   # of those, keep the newest up to this many chars
+_SESSION_COMPACT_CHAR_BUDGET = 16_000  # cap on the source's own compact rollups
 
 
 def _read(path: Path) -> str:
@@ -176,48 +182,144 @@ def _env_keys(base: Path) -> List[str]:
 
 def _encode_cwd(cwd: Path) -> str:
     """Claude Code encodes a project's cwd into its projects/ dir name by
-    replacing path separators with '-' (e.g. /Users/x/Downloads →
-    -Users-x-Downloads)."""
-    return str(cwd).replace("/", "-")
+    replacing EVERY non-alphanumeric char (``/``, ``_``, ``.``, ...) with '-'
+    (e.g. /Users/x/xyz_proto_test/App.v2 → -Users-x-xyz-proto-test-App-v2).
+    Verified against a real ~/.claude/projects layout — a '/'-only replace
+    silently misses '_' and '.' and finds zero sessions."""
+    return re.sub(r"[^a-zA-Z0-9]", "-", str(cwd))
 
 
-def _claude_session_seed(claude_home: Path, cwd: Path) -> str:
-    """Fold the most recent session transcripts for a project into a compact
-    seed the agent later self-summarizes into a Narrative. Ours — Hermes does
-    not import sessions. Best-effort; empty if none."""
+def _combine_claude_md(claude_home: Path, cwd: Path) -> str:
+    """Awareness = the source's EFFECTIVE instructions = global (~/.claude/CLAUDE.md,
+    user-level) + project (<cwd>/CLAUDE.md) + local (<cwd>/CLAUDE.local.md),
+    section-labelled and length-capped. Claude Code layers all three at runtime;
+    importing only one loses instructions."""
+    sections: List[Tuple[str, Path]] = [
+        ("## User-level instructions (~/.claude/CLAUDE.md)", claude_home / "CLAUDE.md"),
+        ("## Project instructions (CLAUDE.md)", cwd / "CLAUDE.md"),
+        ("## Local overrides (CLAUDE.local.md)", cwd / "CLAUDE.local.md"),
+    ]
+    parts = [f"{h}\n\n{txt}" for h, p in sections if (txt := _read(p).strip())]
+    return "\n\n".join(parts)[:AWARENESS_IMPORT_CHAR_LIMIT]
+
+
+def _claude_skills(cwd: Path, claude_home: Path) -> List[MigrationSkill]:
+    """Project skills (<cwd>/.claude/skills) + global skills (~/.claude/skills),
+    deduped by name with the PROJECT skill winning a same-name clash (it is the
+    more specific one). Each tagged with its scope for the preview."""
+    proj = _skills_from_dir(cwd / ".claude" / "skills", "claude_code_project")
+    for s in proj:
+        s.scope = "project"
+    glob = _skills_from_dir(claude_home / "skills", "claude_code_global")
+    for s in glob:
+        s.scope = "global"
+    seen = {s.name for s in proj}
+    return proj + [s for s in glob if s.name not in seen]
+
+
+def _iter_jsonl(path: Path):
+    """Stream a (possibly huge) .jsonl, yielding parsed objects; bad lines skip."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    yield json.loads(ln)
+                except Exception:  # noqa: BLE001
+                    continue
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _message_text(content) -> str:
+    """Real prose from a Claude message.content: a str, or the `text` blocks of a
+    list (dropping tool_use / tool_result / thinking / image blocks)."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return " ".join(
+            b["text"] for b in content
+            if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
+        ).strip()
+    return ""
+
+
+def _parse_claude_session_file(path: Path) -> Optional[MigrationSession]:
+    """Parse ONE Claude session .jsonl → a MigrationSession. Keeps: the ai-title,
+    the source's own isCompactSummary rollups, and the recent real user/assistant
+    turns. Drops tool_result / thinking / tool_use / sidechain / meta noise."""
+    title = ""
+    started_at = ""
+    compacts: deque = deque(maxlen=10)
+    recent: deque = deque(maxlen=_SESSION_RECENT_TURNS)  # (role, text, ts), chronological
+
+    for o in _iter_jsonl(path):
+        if not isinstance(o, dict):
+            continue
+        t = o.get("type")
+        if t == "ai-title":
+            at = o.get("aiTitle")
+            if isinstance(at, str) and at.strip():
+                title = at.strip()  # rolling — keep the latest
+            continue
+        if t not in ("user", "assistant"):
+            continue
+        ts = o.get("timestamp") or ""
+        if not started_at and ts:
+            started_at = ts
+        content = (o.get("message") or {}).get("content") if isinstance(o.get("message"), dict) else None
+        # Compact rollups are the source's own history summary — keep even though
+        # they ride on a user line.
+        if o.get("isCompactSummary"):
+            txt = _message_text(content)
+            if txt:
+                compacts.append(txt)
+            continue
+        if o.get("isSidechain") or o.get("isMeta") or o.get("isVisibleInTranscriptOnly"):
+            continue
+        txt = _message_text(content)
+        if txt:
+            recent.append((t, txt, ts))
+
+    # Keep the newest turns within the char budget, restored to chronological order.
+    turns_rev: List[MigrationTurn] = []
+    used = 0
+    for role, txt, ts in reversed(recent):
+        if used + len(txt) > _SESSION_TURN_CHAR_BUDGET and turns_rev:
+            break
+        turns_rev.append(MigrationTurn(role=role, text=txt, ts=ts))
+        used += len(txt)
+    turns = list(reversed(turns_rev))
+
+    compact_text = "\n\n".join(compacts)[-_SESSION_COMPACT_CHAR_BUDGET:]
+    if not turns and not compact_text:
+        return None
+    return MigrationSession(
+        session_id=path.stem, title=title, compact_text=compact_text,
+        turns=turns, started_at=started_at,
+    )
+
+
+def _claude_sessions(claude_home: Path, cwd: Path) -> List[MigrationSession]:
+    """All (recent) sessions of a project → MigrationSession list, newest first.
+    One .jsonl under ~/.claude/projects/<encoded-cwd>/ = one session = one
+    Narrative downstream. Hermes ignores sessions — this is ours."""
     sess_dir = claude_home / "projects" / _encode_cwd(cwd)
     if not sess_dir.exists():
-        return ""
+        return []
     files = sorted(sess_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-    chunks: List[str] = []
-    total = 0
-    for f in files[:_SESSION_SEED_MAX_FILES]:
-        # Pull just the text of user/assistant messages, newest sessions first.
-        for ln in _read(f).splitlines():
-            try:
-                obj = json.loads(ln)
-            except Exception:  # noqa: BLE001
-                continue
-            msg = obj.get("message") if isinstance(obj, dict) else None
-            content = ""
-            if isinstance(msg, dict):
-                c = msg.get("content")
-                if isinstance(c, str):
-                    content = c
-                elif isinstance(c, list):
-                    content = " ".join(
-                        b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"
-                    )
-            if content.strip():
-                chunks.append(content.strip())
-                total += len(content)
-        if total >= _SESSION_SEED_CHAR_LIMIT:
-            break
-    return "\n".join(chunks)[:_SESSION_SEED_CHAR_LIMIT]
+    out: List[MigrationSession] = []
+    for f in files[:_SESSION_MAX_FILES]:
+        s = _parse_claude_session_file(f)
+        if s is not None:
+            out.append(s)
+    return out
 
 
 # ── per-framework extractors ────────────────────────────────────────────────
-# Each returns (agent, skills, memory, mcp_servers, custom, session_seed).
+# Each returns (agent, skills, memory, mcp_servers, custom, sessions).
 
 def _extract_claude_code(base: Path):
     """Two shapes:
@@ -234,9 +336,13 @@ def _extract_claude_code(base: Path):
 
     is_global = base.resolve() == claude_home.resolve()
     if is_global:
-        agent = MigrationAgent(name="Claude Code Agent",
-                               system_prompt=_first_existing(base, ["CLAUDE.md"])[0])
+        agent = MigrationAgent(
+            name="Claude Code Agent",
+            system_prompt=_read(base / "CLAUDE.md").strip()[:AWARENESS_IMPORT_CHAR_LIMIT],
+        )
         skills = _skills_from_dir(base / "skills", "claude_code")
+        for s in skills:
+            s.scope = "global"
         # list projects as candidates (info) so the user can rescan a project cwd
         projects = list((claude_json.get("projects") or {}).keys())
         custom = MigrationCustom(
@@ -247,20 +353,22 @@ def _extract_claude_code(base: Path):
                 + ", ".join(projects[:10])
             ) if projects else "",
         )
-        return agent, skills, [], global_mcp, custom, ""
+        return agent, skills, [], global_mcp, custom, []
 
-    # project cwd
-    sys_prompt, _ = _first_existing(base, ["CLAUDE.md", "CLAUDE.local.md"])
-    agent = MigrationAgent(name=base.name or "Claude Code Agent", system_prompt=sys_prompt)
+    # project cwd: awareness = global+project+local CLAUDE.md; project+global skills
+    # (project wins); all recent sessions → one Narrative each downstream.
+    agent = MigrationAgent(
+        name=base.name or "Claude Code Agent",
+        system_prompt=_combine_claude_md(claude_home, base),
+    )
     mcp = list(global_mcp)
     mcp += _mcp_from_dict(_load_json(base / ".mcp.json").get("mcpServers") or {})
     proj_cfg = (claude_json.get("projects") or {}).get(str(base.resolve()), {})
     mcp += _mcp_from_dict(proj_cfg.get("mcpServers") or {})
-    skills = _skills_from_dir(base / ".claude" / "skills", "claude_code_project")
-    skills += _skills_from_dir(claude_home / "skills", "claude_code_global")
-    seed = _claude_session_seed(claude_home, base)
+    skills = _claude_skills(base, claude_home)
+    sessions = _claude_sessions(claude_home, base)
     custom = MigrationCustom(credential_keys=_env_keys(base))
-    return agent, skills, [], mcp, custom, seed
+    return agent, skills, [], mcp, custom, sessions
 
 
 def _extract_soul_based(base: Path, fw: Framework):
@@ -283,7 +391,7 @@ def _extract_soul_based(base: Path, fw: Framework):
         cfg = _load_json(base / cfg_name)
         mcp += _mcp_from_dict(cfg.get("mcpServers") or cfg.get("mcp_servers") or {})
     custom = MigrationCustom(credential_keys=_env_keys(base))
-    return agent, skills, memory, mcp, custom, ""
+    return agent, skills, memory, mcp, custom, []
 
 
 def _extract_codex(base: Path):
@@ -302,7 +410,7 @@ def _extract_codex(base: Path):
     memory = _memory_from_dir(base / "memories")
     skills = _skills_from_dir(base / "skills", "codex")
     custom = MigrationCustom(credential_keys=_env_keys(base))
-    return agent, skills, memory, mcp, custom, ""
+    return agent, skills, memory, mcp, custom, []
 
 
 def _extract_custom(base: Path):
@@ -314,11 +422,11 @@ def _extract_custom(base: Path):
         credential_keys=_env_keys(base),
         llm_fallback_notes="Custom framework — LLM fallback mapping recommended.",
     )
-    return agent, [], [], [], custom, ""
+    return agent, [], [], [], custom, []
 
 
 def extract(framework: Framework, path: str | Path):
-    """Dispatch. Returns (agent, skills, memory, mcp_servers, custom, session_seed)."""
+    """Dispatch. Returns (agent, skills, memory, mcp_servers, custom, sessions)."""
     base = Path(path).expanduser()
     try:
         if framework == "claude_code":
