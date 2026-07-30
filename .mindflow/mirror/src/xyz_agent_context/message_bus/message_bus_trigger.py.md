@@ -4,6 +4,14 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 只有 team room 分支对 collect_run 开 `include_monologue`
+
+team room 的 prompt（`_build_team_prompt`）明说「你的明文会自动上墙」，所以
+NexusPower 独白在这条分支并入收集文本（`include_monologue=is_team`）；peer
+DM→收件箱分支的 prompt 让 agent 用 `send_message_to_user_directly` 送达、
+从未承诺明文落库，独白保持私密（否则 owner 会同时收到润色直发 + 一条原始
+独白的收件箱条目）。语义见 [[run_collector]] 同日条目。
+
 ## 2026-07-28 — the poll loop stops being a single point of failure, and reports work
 
 Two defects, one incident. Between 2026-07-27 00:17 and 2026-07-28 09:06 the bus
