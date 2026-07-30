@@ -4,6 +4,14 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (三次) — thinking_item 的 monologue 路由
+
+带 `monologue: true` 的 thinking_item(只有 NexusPower 的 LegacyEventAdapter 会打
+这个标)在进 batcher 之外单独累积 `_pending_monologue`,两个 flush 点(batcher 阈值
+flush + 残余 flush)把它作为 `record_thinking` 的 `monologue` 参数交给
+[[execution_state]] 进 `final_output`。独白与 CoT 的展示流仍由 batcher 逐字节合帧,
+用户所见不变;分开积累是因为 batcher 合帧后monologue/CoT 已不可拆。
+
 ## 2026-07-29 (二次) — 删除 DATA_TYPE_RESUME_FAILED 分支(T5)
 
 随 [[execution_state]] 的 `mark_resume_failed` 一起删。该分支的唯一作用是把 adapter

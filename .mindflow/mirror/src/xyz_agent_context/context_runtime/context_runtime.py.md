@@ -4,6 +4,17 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 原生 turn 回放(NexusPower)
+
+`build_input_for_framework` 新增 `_load_native_turn_replays`:框架为
+NATIVE_REPLAY_FRAMEWORKS(现=nexus_power,同 step_3 的 identity 解析同源)时,当前
+narrative 的 assistant 行展开为 [[history_projection]] 从 events.event_log 折回的
+assistant/tool 消息序列(独白+工具调用+配对结果),替代两行拍平摘要。user 行保持拍平
+(时间线 tag 锚定);跨 narrative 行(`memory_type=short_term`)与无可折 log 的行保持
+拍平;窗口外仍由 narrative summary(system prompt Part 2)覆盖——「近期逐字、中期摘要、
+远期检索」。逐层 fail-open:回放是增强,任何失败退回拍平行,绝不炸 turn。
+`pop()` 防重复行二次注入同一工具序列。
+
 ## 2026-07-29 — `build_input_for_framework` 不再拼 timeline 阅读指南
 
 `enhanced_system_prompt` 去掉了 `+ CHAT_HISTORY_TIMELINE_PREAMBLE`；该常量已移到

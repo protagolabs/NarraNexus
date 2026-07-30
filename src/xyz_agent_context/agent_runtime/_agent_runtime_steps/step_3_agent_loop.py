@@ -414,7 +414,12 @@ def _build_helper_user_input(
 
     history_msgs = [
         m for m in context_messages
-        if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+        if isinstance(m, dict)
+        and m.get("role") in ("user", "assistant")
+        # Native-replay rows can be calls-only (content None) and tool
+        # rows carry role "tool" — neither belongs in a prose transcript
+        # (str(None) would literally render "[assistant] None").
+        and str(m.get("content") or "").strip()
     ]
     # Drop the trailing user message if it duplicates `user_input` (the
     # current turn's user input is shown verbatim in its own section).

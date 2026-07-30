@@ -154,7 +154,9 @@ class ExecutionState:
             all_steps=self.all_steps + (new_step,),
         )
 
-    def record_thinking(self, content: str, display: Any = None) -> 'ExecutionState':
+    def record_thinking(
+        self, content: str, display: Any = None, monologue: str = ""
+    ) -> 'ExecutionState':
 
         """
         Record thinking process, returns a new state object
@@ -162,6 +164,14 @@ class ExecutionState:
         Args:
             content: Thinking content
             display: User-friendly display data (dict with length, preview, full_content)
+            monologue: The subset of ``content`` that is NexusPower
+                monologue (the framework's assistant text, displayed as
+                thinking). Appended to ``final_output`` so the reasoning
+                persistence chain (meta_data.reasoning -> next turn's
+                <my_reasoning>) and the fallback decision see it — parity
+                with the claude driver, where assistant text reaches
+                final_output via append_text. Empty for provider CoT and
+                for every non-NexusPower driver.
 
         Returns:
             New ExecutionState object
@@ -173,8 +183,15 @@ class ExecutionState:
         }
         if display:
             new_step["display"] = display
+        if monologue:
+            # Persisted via events.event_log: the monologue SEGMENT in its
+            # chronological slot is what lets native turn replay rebuild
+            # assistant messages (text + tool_calls interleaving). The
+            # cumulative final_output below cannot — it has lost position.
+            new_step["monologue"] = monologue
         return replace(
             self,
+            final_output=self.final_output + monologue,
             response_count=self.response_count + 1,
             thinking_count=self.thinking_count + 1,
             all_steps=self.all_steps + (new_step,),

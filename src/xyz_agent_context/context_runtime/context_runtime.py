@@ -7,6 +7,7 @@
 """
 
 
+import json
 from typing import List, Dict, Any, Tuple, Optional, Union
 from loguru import logger
 
@@ -880,6 +881,23 @@ class ContextRuntime:
         # reading guide for rows that aren't there (prod 2026-07-29).
         timeline = self._truncate_long_term_messages(chat_history)
 
+        # Native turn replay (2026-07-29): when this agent's framework
+        # projects its own context (NexusPower), expand current-narrative
+        # assistant rows into the turn's REAL message sequence — monologue
+        # text + tool calls + paired results rebuilt from events.event_log —
+        # instead of the two-line flattened summary. Cross-narrative rows
+        # and rows without a usable log stay flattened; the narrative's
+        # summary (system prompt Part 2) keeps covering everything that
+        # fell off the timeline window. Fail-open at every level: replay
+        # is context enrichment, never worth breaking a turn.
+        native_replays: Dict[str, List[Dict[str, Any]]] = {}
+        try:
+            native_replays = await self._load_native_turn_replays(timeline)
+        except Exception as e:  # noqa: BLE001 — enrichment, never fatal
+            logger.warning(
+                f"[NativeReplay] load failed, keeping flattened history: {e}"
+            )
+
         enhanced_system_prompt = system_prompt
 
         relocation_enabled = settings.prompt_turn_context_relocation_enabled
@@ -905,6 +923,7 @@ class ContextRuntime:
             MessageSourceRegistry,
         )
         cross_count = 0
+        replayed_count = 0
         for msg in timeline:
             meta = msg.get("meta_data") or {}
             ws = meta.get("working_source", "chat")
@@ -913,6 +932,17 @@ class ContextRuntime:
             tag = self._format_timeline_tag(meta)
             if meta.get("memory_type") == "short_term":
                 cross_count += 1
+            if msg.get("role") == "assistant":
+                # Native replay substitutes the ASSISTANT side of a turn
+                # only: the user row above it keeps carrying the timeline
+                # tag (time/topic/narrative anchoring), the replay carries
+                # the structure. pop() so a duplicated row cannot inject
+                # the same tool sequence twice.
+                replay = native_replays.pop(str(meta.get("event_id") or ""), None)
+                if replay:
+                    final_messages.extend(replay)
+                    replayed_count += 1
+                    continue
             raw_content = msg.get("content", "") or ""
             prefix = f"{tag} {src_prefix}".strip()
             final_messages.append({
@@ -925,8 +955,8 @@ class ContextRuntime:
             })
         logger.info(
             f"[CHAT-CTX] unified timeline rendered: {len(timeline)} msgs "
-            f"({cross_count} cross-narrative, {len(timeline) - cross_count} current) "
-            f"source={history_source}"
+            f"({cross_count} cross-narrative, {len(timeline) - cross_count} current, "
+            f"{replayed_count} native-replayed) source={history_source}"
         )
 
         # Add current user input — augment with Read-tool markers for any
@@ -1081,6 +1111,77 @@ class ContextRuntime:
             f"{len(mcp_servers)} MCP servers, {len(disallowed_tools)} suppressed tools"
         )
         return final_messages, mcp_servers, sorted(set(disallowed_tools))
+
+    async def _load_native_turn_replays(
+        self, timeline: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Load native replays for current-narrative turns in the timeline.
+
+        Returns ``{event_id: provider_messages}`` — the assistant/tool
+        sequence of each past turn rebuilt from ``events.event_log`` by
+        ``fold_event_log_to_messages``. An empty dict means "keep every
+        row flattened": the agent's framework does not consume structured
+        history (CLI-backed drivers flatten at their doorstep), there are
+        no candidate rows, or a lookup failed.
+
+        Scope decisions (Owner 2026-07-29):
+        - candidates are the timeline's own assistant rows (the loaded
+          window IS the replay window — no separate K knob); rows that
+          fell off the window stay covered by the narrative summary;
+        - cross-narrative rows (``memory_type == "short_term"``) never
+          expand — their tool structure belongs to their own thread and
+          would break this thread's role pairing;
+        - event_log content replays in full (no capture-side cap yet).
+        """
+        candidate_ids: List[str] = []
+        for msg in timeline:
+            if msg.get("role") != "assistant":
+                continue
+            meta = msg.get("meta_data") or {}
+            if meta.get("memory_type") == "short_term":
+                continue
+            event_id = meta.get("event_id")
+            if event_id:
+                candidate_ids.append(str(event_id))
+        if not candidate_ids:
+            return {}
+
+        from xyz_agent_context.agent_framework.loop.history_projection import (
+            NATIVE_REPLAY_FRAMEWORKS,
+            fold_event_log_to_messages,
+        )
+        from xyz_agent_context.agent_framework.providers.model_identity import (
+            resolve_agent_model_identity,
+        )
+
+        identity = await resolve_agent_model_identity(self.agent_id, self.db)
+        if identity.framework not in NATIVE_REPLAY_FRAMEWORKS:
+            return {}
+
+        rows = await self.db.get_by_ids(
+            "events", "event_id", sorted(set(candidate_ids))
+        )
+        replays: Dict[str, List[Dict[str, Any]]] = {}
+        for row in rows or []:
+            if not row:
+                continue
+            raw = row.get("event_log")
+            try:
+                entries = json.loads(raw) if isinstance(raw, str) else (raw or [])
+                folded = fold_event_log_to_messages(entries)
+            except Exception as e:  # noqa: BLE001 — per-event fail-open
+                logger.warning(
+                    f"[NativeReplay] fold failed for {row.get('event_id')}: {e}"
+                )
+                continue
+            if folded:
+                replays[str(row.get("event_id"))] = folded
+        if replays:
+            logger.info(
+                f"[NativeReplay] expanded {len(replays)} of "
+                f"{len(set(candidate_ids))} current-narrative turns"
+            )
+        return replays
 
     @staticmethod
     def _format_timeline_tag(meta: Dict[str, Any]) -> str:
