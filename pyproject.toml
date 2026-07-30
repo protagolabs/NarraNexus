@@ -85,6 +85,7 @@ dev = [
     "hatchling>=1.27.0",
     "pillow>=12.2.0",
     "psutil>=7.2.2",
+    "pyright>=1.1.390",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.8.0",
