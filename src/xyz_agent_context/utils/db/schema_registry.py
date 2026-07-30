@@ -742,6 +742,7 @@ _register(
             Column("phase", "TEXT", "VARCHAR(64)"),
             Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("steps", "TEXT", "MEDIUMTEXT"),
+            Column("event_id", "TEXT", "VARCHAR(128)"),
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("updated_at", "TEXT", "DATETIME(6)"),
         ],

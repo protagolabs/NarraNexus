@@ -145,6 +145,7 @@ class TurnActivity:
         self._steps: List[dict] = []
         self._dropped = 0
         self._beat: Optional[asyncio.Task] = None
+        self._event_id: Optional[str] = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -154,7 +155,8 @@ class TurnActivity:
         self._steps = [{"phase": phase, "at": now}]
         await _upsert(self._db, self._agent_id, self._channel_id, {
             "state": "running", "phase": phase, "tool_count": 0,
-            "steps": self._encode_steps(), "started_at": now, "updated_at": now,
+            "steps": self._encode_steps(), "event_id": None,
+            "started_at": now, "updated_at": now,
         })
         self._beat = asyncio.create_task(self._heartbeat_loop())
         # Paired done-callback: an unawaited task's exception would otherwise
@@ -210,6 +212,24 @@ class TurnActivity:
             })
         except Exception as e:  # noqa: BLE001 — status write must never break delivery
             logger.warning(f"[bus-activity] phase write failed for {self._agent_id}: {e}")
+
+    async def note_event_id(self, event_id: str) -> None:
+        """Bind this turn's events-row id to the activity row.
+
+        Called once by ``collect_run`` when the Step-0 progress message
+        surfaces the id. Lets the team UI fetch the finished turn's full
+        event_log via the existing event-log endpoint. Never raises into
+        the run.
+        """
+        if not event_id or self._event_id:
+            return
+        self._event_id = event_id
+        try:
+            await _upsert(self._db, self._agent_id, self._channel_id, {
+                "event_id": event_id, "updated_at": _now_iso(),
+            })
+        except Exception as e:  # noqa: BLE001 — status write must never break delivery
+            logger.warning(f"[bus-activity] event_id write failed for {self._agent_id}: {e}")
 
     # -- internals ----------------------------------------------------------
 

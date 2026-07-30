@@ -195,3 +195,30 @@ async def test_activity_covers_every_member_in_order(db_client):
     bus = await _room(db_client)
     rows = await _member_activity(db_client, bus, ROOM, MEMBERS)
     assert [r["agent_id"] for r in rows] == MEMBERS
+
+
+@pytest.mark.asyncio
+async def test_note_event_id_persists_and_start_resets(db_client):
+    """note_event_id lands on the activity row; a new turn clears it."""
+    from xyz_agent_context.message_bus import _bus_activity
+
+    act = _bus_activity.TurnActivity(db_client, "agent_x", "chan_1")
+    await act.start()
+    await act.note_event_id("evt_abc123")
+    row = await db_client.get_one(
+        "bus_agent_activity", {"agent_id": "agent_x", "channel_id": "chan_1"}
+    )
+    assert row["event_id"] == "evt_abc123"
+
+    await act.finish()
+    row = await db_client.get_one(
+        "bus_agent_activity", {"agent_id": "agent_x", "channel_id": "chan_1"}
+    )
+    assert row["event_id"] == "evt_abc123"  # kept after the turn ends
+
+    act2 = _bus_activity.TurnActivity(db_client, "agent_x", "chan_1")
+    await act2.start()
+    row = await db_client.get_one(
+        "bus_agent_activity", {"agent_id": "agent_x", "channel_id": "chan_1"}
+    )
+    assert row["event_id"] is None  # stale id must not survive into a new turn
