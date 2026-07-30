@@ -27,6 +27,7 @@ import {
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   cloudNetmindOnly,
+  frameworkAllowedInCloud,
   isSlotBindableSource,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
@@ -78,7 +79,8 @@ const sameDraft = (a: Draft, b: Draft) =>
 export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props) {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const netmindOnly = cloudNetmindOnly(useConfigStore((s) => s.role));
+  const role = useConfigStore((s) => s.role);
+  const netmindOnly = cloudNetmindOnly(role);
   // Styled alert (same Dialog shell as the add-provider modal) — Tauri's
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
@@ -284,27 +286,28 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                   <label className={labelCls}>
                     {t('pages.settings.modelDefaults.framework')}
                   </label>
-                  {/* Cloud non-staff: switching back TO claude_code is always
-                      allowed (recovers old codex_cli users); only picking a
-                      NON-claude_code framework is blocked — it pops an
-                      explanation and snaps back, friendlier than a greyed-out
-                      control. Direction-aware, mirroring the backend 403. */}
+                  {/* Cloud non-staff: the CLI-backed frameworks are blocked
+                      (they would run on the image's shared CLI login);
+                      claude_code and NexusPower are allowed. Blocked picks pop
+                      an explanation and snap back, friendlier than a greyed-out
+                      control. Mirrors the backend 403 via cloud_policy's twin. */}
                   <select
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
-                      // Direction-aware: switching back TO claude_code is always
-                      // allowed for cloud netmind-only users (recovers old
-                      // codex_cli users); only → non-claude_code shows the notice.
-                      if (netmindOnly && e.target.value !== 'claude_code') {
+                      // Ask the shared predicate, never re-derive the rule:
+                      // the inlined `!== 'claude_code'` here and in
+                      // ModelDefaultsSettings both kept rejecting NexusPower
+                      // after it became cloud-legal.
+                      if (!frameworkAllowedInCloud(e.target.value, role)) {
                         void showNotice({
                           title: t(
                             'pages.settings.modelDefaults.cloudFrameworkLockedTitle',
-                            'Desktop version only',
+                            'Staff only in cloud',
                           ),
                           message: t(
                             'pages.settings.modelDefaults.cloudFrameworkLocked',
-                            'Switching the agent framework is available in the local desktop version only.',
+                            'This framework signs in through a shared CLI login, so it is staff-only in cloud. Claude Code and NexusPower-beta both work here.',
                           ),
                         });
                         // Controlled value didn't change → no re-render;

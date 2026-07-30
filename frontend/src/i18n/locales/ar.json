@@ -1214,6 +1214,10 @@
         "installingDetail": "جارٍ تثبيت {{version}} — على وشك الانتهاء…",
         "readyDetail": "تم التنزيل — أعد التشغيل للإنهاء.",
         "failed": "فشل {{stage}} التحديث."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "للموظفين فقط في السحابة",
+        "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية."
       }
     },
     "system": {

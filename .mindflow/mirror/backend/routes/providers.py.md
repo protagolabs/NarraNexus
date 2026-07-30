@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-26
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 框架切换门禁改用 cloud_policy 谓词
+
+`POST /agent-framework` 不再自己比较框架名，改问
+`framework_allowed_in_cloud()`。原来那句 `body.framework != "claude_code"`
+是把规则**重新推导**了一遍，NexusPower 上线后它照旧 403——这正是规则必须只
+住在 [[cloud_policy]] 一处的理由。
 
 ## 2026-07-26 — agent-framework 探测 Leg 1 命中 setup-token 卡
 

@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
+    framework_allowed_in_cloud,
     netmind_slots_only,
 )
 from xyz_agent_context.agent_framework.providers.model_catalog import (
@@ -967,11 +968,12 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     ``claude`` binary is installed at run.sh boot.
     """
     uid = _get_user_id(request)
-    # Direction-aware gate: a non-staff cloud user may ALWAYS switch back TO
-    # claude_code (the only cloud-supported framework) — blocking that direction
-    # dead-locked old codex_cli users who couldn't self-recover. Only switching
-    # to a NON-claude_code framework is staff-only.
-    if _is_cloud() and not _is_staff(request) and body.framework != "claude_code":
+    # Cloud non-staff: only frameworks that cannot reach a shared CLI
+    # credential file. The rule (and why NexusPower qualifies while the
+    # CLI-backed ones do not) lives in cloud_policy — never re-derive it
+    # here as a framework-name comparison; that is what kept NexusPower
+    # locked out of cloud after it shipped.
+    if not framework_allowed_in_cloud(body.framework, _is_staff(request)):
         raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(
