@@ -68,6 +68,7 @@ from xyz_agent_context.utils.cost_tracker import (
     record_cost,
     warn_missing_usage,
 )
+from xyz_agent_context.agent_framework.llm._prompt_probe import emit as _probe_emit
 from xyz_agent_context.utils.logging import timed
 
 
@@ -412,6 +413,7 @@ class CliHelperSDK:
         user's parameter choice — iron rule #15).
         """
         model_name = self._resolve_model(model)
+        _probe_emit("cli", model_name, instructions, user_input)
         framework = cli_helper_config.framework
         system_prompt = self._build_system_prompt(instructions, output_type)
         logger.debug(

@@ -336,7 +336,12 @@ class OpenAIAgentsSDK:
         models will reject this parameter — caller is responsible for
         only passing it when the model supports it.
         """
+        from xyz_agent_context.agent_framework.llm._prompt_probe import (
+            emit as _probe_emit,
+        )
+
         model_name = self._resolve_model(model)
+        _probe_emit("openai", model_name, instructions, user_input)
 
         # Resolve max_tokens from model catalog (per-model limit)
         # If model is not in catalog, leave as None — let the API use its own default
