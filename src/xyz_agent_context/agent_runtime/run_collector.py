@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+from loguru import logger
+
 from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
@@ -77,6 +79,12 @@ class RunCollection:
     yielded one or more ``ERROR`` messages. If multiple errors arrived
     the last one wins (callers get the most specific failure)."""
 
+    event_id: Optional[str] = None
+    """``events`` row id of this turn, captured from the Step-0 progress
+    message (``details.event_id``). None if the run died before Step 0
+    completed. Lets bus consumers link the turn to its persisted
+    event_log without touching the runtime."""
+
     @property
     def is_error(self) -> bool:
         return self.error is not None
@@ -90,6 +98,7 @@ async def collect_run(
     input_content: str,
     working_source,
     on_progress: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
+    on_event_id: Optional[Callable[[str], Awaitable[None]]] = None,
     **extra_kwargs,
 ) -> RunCollection:
     """Drive ``runtime.run(...)`` to completion and group its output.
@@ -104,11 +113,19 @@ async def collect_run(
     (``tool_name`` set only for "tool"). Used to mirror a live "what is this
     agent doing" status (e.g. the team-chat activity view). It must never raise;
     any exception is swallowed so status reporting can't break the run.
+
+    ``on_event_id(event_id)`` — optional, opt-in — is awaited at most once, as
+    soon as the Step-0 progress message's ``details.event_id`` is observed.
+    Used to bind the turn's events-row id onto a live status row (e.g.
+    ``TurnActivity.note_event_id``) as soon as it's known, rather than waiting
+    for the whole run to finish. Like ``on_progress``, it must never raise;
+    any exception is swallowed so status reporting can't break the run.
     """
     text_parts: list[str] = []
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    event_id: Optional[str] = None
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
     # multiple AssistantMessage frames — the SDK dedups by tool_call_id, but
@@ -195,9 +212,24 @@ async def collect_run(
                 except Exception:  # noqa: BLE001 — status must never break the run
                     pass
 
+        # Step-0 event_id capture (opt-in via on_event_id). Fires at most once —
+        # the first Step-0 completion wins, and it's the only place this id
+        # is ever surfaced.
+        if event_id is None:
+            details = getattr(msg, "details", None)
+            candidate = details.get("event_id") if isinstance(details, dict) else None
+            if candidate:
+                event_id = str(candidate)
+                if on_event_id is not None:
+                    try:
+                        await on_event_id(event_id)
+                    except Exception:  # noqa: BLE001 — status must never break the run
+                        logger.opt(exception=True).warning("on_event_id callback failed")
+
     return RunCollection(
         output_text="".join(text_parts),
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,
+        event_id=event_id,
     )

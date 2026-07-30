@@ -1,10 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-07-27
+last_verified: 2026-07-30
 stub: false
 ---
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
+
+## 2026-07-30 — 捕获 Step-0 的 event_id
+
+`RunCollection.event_id` + 可选 `on_event_id` 回调：Step 0 完成的
+ProgressMessage 已在 `details.event_id` 里携带本 turn 的 events 行 id，
+collect_run 在消费循环里抓第一个出现的 id（first-id-wins，最多回调一次），
+让 bus 侧（`TurnActivity.note_event_id`）在 turn 还在跑时就能把活动行绑到
+events 行——这是团队房间 UI 拉取"刚跑完那轮完整 event_log"的缺失一环，
+且完全不触碰 runtime 本身。回调异常吞掉（状态上报绝不能弄坏 run，与
+on_progress 同一纪律）。
 
 ## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
 
