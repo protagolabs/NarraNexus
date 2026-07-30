@@ -35,12 +35,15 @@ stub: false
   照常 TTL 复测，但 ledger 里带 `extra` 标记——**永不进 netmind 卡列表**，只
   服务 free 卡的门。目录收录某模型时 extra 标记自动脱落。`extra_models=None`
   （按钮路径不知道网关列表）= 保留现有 extra 条目，不当"已下架"清除。
-- `build_free_tier_entry(ledger, gateway_models)`：按协议生成 free 名单——
+- `apply_free_tier_gate(ledger, gateway_models)`：按协议生成 free 名单——
   网关模型除非 netmind 判定 FAIL 否则收录（**未知判定=收录**：网关今天在路由
   它，probe 断供绝不能清空下拉；并集机制下下一趟就会探测到）。结果同时写成
   ledger 的 `netmind_free` source 条目，`get_default_models("netmind_free")`
-  从它取种子——所有写入方对齐同一名单。
-- `compute_drift`：`gateway_failing`（网关还配着但判定 FAIL 的）+
+  从它取种子（**本地回落用**——云上 backend 与 model-sync 是两个容器,文件
+  ledger 不互通）;云上的另两个写入方各自走 DB:provisioner 在 seed 时
+  `load_ledger_db`+过门传按协议 dict,Update-models 按钮对 netmind_free 行
+  从 DB ledger 的 netmind_free 条目**覆写**(条目缺失=门没跑过,不动卡)。
+- `compute_drift`：`gateway_failing`（网关配着但**全协议** FAIL 的——单协议缺位是 OSS 模型常态,算漂移会让告警恒亮=等于关掉告警）+
   `catalog_pass_not_in_gateway`（目录通过但网关没配的——加不加是定价决策，
   永不自动化）。transient 天生不可见（判定只在确定性错误上翻转）。
 
@@ -101,3 +104,16 @@ passing lists into the per-(source, protocol) model lists.
 - Concurrency-capped probes (`_PROBE_CONCURRENCY`) so the initial 86-probe seed
   doesn't hammer upstream; steady state is a handful.
 - `system_pool` has no separate probe — it reuses the `netmind` ledger entry.
+
+## 2026-07-30 (review 修补,PR #201 反馈)
+
+- `extra` 不变式收敛到唯一读取口 `model_probe_ledger.passing_models`:
+  `apply_ledger_to_db`/`ledger_models`/`res.lists` 全走它——此前 apply 不过滤,
+  网关独有模型会灌进所有 netmind/system_pool 付费卡(用户自己的 key 未必被
+  授权/计价)。
+- 新模型探测 TRANSIENT **不落 verdict**(缺失=未知,free 门收录,下一趟按
+  「FAIL 或缺失」规则重探)——此前 transient 落 FAIL,一次抖动就让 free 下拉
+  少一片一整天,与「probe 断供不清空下拉」不变式矛盾。
+- extras 的裸 id meta 只 setdefault,不冲掉既有 display_name。
+- runner 生命周期:started/每 pass heartbeat(带 summary+drift)/stopped 进
+  service_audit(L2);drift 不再写 error 行。

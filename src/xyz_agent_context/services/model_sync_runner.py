@@ -107,11 +107,11 @@ async def run_once() -> dict:
         logger.warning("model_sync_runner: no provider keys in env — nothing synced")
         return {"synced": [], "applied": {}}
 
-    # Persist the free-tier gate INTO the ledger before saving, so both
-    # carriers ship the netmind_free entry (get_default_models seeds new free
-    # cards from it) in the same pass that computed the verdicts.
-    if gateway_models and "netmind" in synced:
-        model_sync.build_free_tier_entry(ledger, gateway_models)
+    # Free cards first: refresh_free_tier_models runs the gate, which ALSO
+    # writes the netmind_free entry into this in-memory ledger — doing it
+    # before the saves means both carriers ship the gated entry (provisioning
+    # seeds read it) in the same pass that computed the verdicts.
+    free_tier = await model_sync.refresh_free_tier_models(db, ledger=ledger)
 
     ledger["generated_at"] = model_sync._now()
     save_ledger(ledger)          # best-effort container-file copy
@@ -120,44 +120,58 @@ async def run_once() -> dict:
         await model_health.clear_suspects(db, source)
 
     applied = await model_sync.apply_ledger_to_db(db, sources=synced, ledger=ledger)
-    # The free-tier card's catalogue comes from OUR gateway gated by the probe
-    # verdicts — see refresh_free_tier_models. Same pass so a gateway config
-    # change reaches existing cards without a manual step.
-    free_tier = await model_sync.refresh_free_tier_models(db, ledger=ledger)
 
     # Drift between the gateway config and the upstream catalog is a human
     # decision (pricing) — surface it, never act on it. The [MODEL-DRIFT]
-    # signature is what the deploy-side watcher alerts on; the service_audit
-    # row is the durable, SQL-able record (incident lesson #5).
+    # WARNING is the deploy-side watcher's alert signature; the durable record
+    # rides the pass heartbeat below (incident lesson #5) — drift is routine
+    # reconciliation output, not an error event.
+    drift: dict = {}
     if gateway_models and "netmind" in synced:
         drift = model_sync.compute_drift(ledger, gateway_models)
         if drift["gateway_failing"] or drift["catalog_pass_not_in_gateway"]:
-            from xyz_agent_context.services.service_audit import ServiceAuditor
-
             logger.warning(
                 "[MODEL-DRIFT] netmind vs free-tier gateway: "
                 f"gateway_failing={drift['gateway_failing']} "
                 f"catalog_pass_not_in_gateway={drift['catalog_pass_not_in_gateway']}"
             )
-            await ServiceAuditor("model_sync").error({"type": "model_drift", **drift})
 
     logger.info(
         f"model_sync_runner: pass DONE synced={synced} applied={applied} "
         f"free_tier_rows={free_tier}"
     )
-    return {"synced": synced, "applied": applied, "free_tier_rows": free_tier}
+    return {
+        "synced": synced,
+        "applied": applied,
+        "free_tier_rows": free_tier,
+        "drift": drift,
+    }
 
 
 async def run_loop() -> None:
+    # L2 lifecycle (incident lesson #4): started/heartbeat/stopped in
+    # service_audit so "the container is up but hasn't synced in days" is a
+    # SQL query, not a guess. One heartbeat per pass — its detail carries the
+    # pass summary INCLUDING drift, which is routine reconciliation output and
+    # must not pollute event_type='error' rows.
+    from xyz_agent_context.services.service_audit import ServiceAuditor
+
+    audit = ServiceAuditor("model_sync")
     logger.info(f"model_sync_runner: loop mode, firing daily at {DAILY_HOUR_UTC:02d}:00 UTC")
-    while True:
-        delay = _seconds_until(DAILY_HOUR_UTC)
-        logger.info(f"model_sync_runner: next run in {delay/3600:.1f}h")
-        await asyncio.sleep(delay)
-        try:
-            await run_once()
-        except Exception as e:  # noqa: BLE001 — loop must survive any single failure
-            logger.exception(f"model_sync_runner: pass crashed: {e}")
+    await audit.started({"daily_hour_utc": DAILY_HOUR_UTC})
+    try:
+        while True:
+            delay = _seconds_until(DAILY_HOUR_UTC)
+            logger.info(f"model_sync_runner: next run in {delay/3600:.1f}h")
+            await asyncio.sleep(delay)
+            try:
+                summary = await run_once()
+                await audit.heartbeat(summary, force=True)
+            except Exception as e:  # noqa: BLE001 — loop must survive any single failure
+                logger.exception(f"model_sync_runner: pass crashed: {e}")
+                await audit.error({"error": str(e)[:500]})
+    finally:
+        await audit.stopped()
 
 
 def main() -> int:

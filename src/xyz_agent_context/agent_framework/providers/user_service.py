@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 from loguru import logger
@@ -623,7 +623,7 @@ class UserProviderService:
         replace: bool = False,
         inference_base: Optional[str] = None,
         activate: bool = True,
-        models: Optional[list[str]] = None,
+        models: Optional[Union[list[str], dict[str, list[str]]]] = None,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -1104,7 +1104,7 @@ def _build_dual_providers(
     card_type: str,
     api_key: str,
     group_id: str,
-    models: Optional[list] = None,
+    models: Optional[Union[list, dict]] = None,
     inference_base: Optional[str] = None,
 ) -> list[dict]:
     from xyz_agent_context.agent_framework.providers.free_tier import (
@@ -1115,7 +1115,12 @@ def _build_dual_providers(
     cfg = _DUAL_PROVIDER_CONFIGS[card_type]
     result = []
     for protocol, info in cfg.items():
-        proto_models = models or get_default_models(card_type, protocol)
+        # Per-protocol dict (the free-tier gate produces one — the gateway's
+        # openai and anthropic lists genuinely differ) or one shared list.
+        if isinstance(models, dict):
+            proto_models = models.get(protocol) or get_default_models(card_type, protocol)
+        else:
+            proto_models = models or get_default_models(card_type, protocol)
         # Override the base ONLY for netmind + when a caller opted in
         # (use-subscription). Everything else keeps the hardcoded prod base.
         base_url = info["base_url"]

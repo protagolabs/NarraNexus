@@ -643,6 +643,26 @@ async def sync_default_models(request: Request):
         if source == "user":
             continue  # hand-picked custom provider — never auto-touch
 
+        if source == "netmind_free":
+            # Free cards follow the GATEWAY's gated list, not the upstream
+            # catalog: overwrite from the ledger's netmind_free entry (written
+            # by the daily pass's gate). Entry absent = the gate has never run
+            # here — leave the card alone rather than append ungated defaults.
+            from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+                passing_models,
+            )
+
+            free_led = (
+                ledger.get("sources", {}).get("netmind_free", {}).get("models", {})
+            )
+            if not free_led:
+                continue
+            for prov_id, prov in rows:
+                await _apply(
+                    prov_id, prov, passing_models(free_led, prov.protocol.value)
+                )
+            continue
+
         if source in model_sync.SUPPORTED_SOURCES and source != "system_pool":
             # Probe with the user's own key (same key works for both protocols
             # on these aggregators). OVERWRITE each row from the result.

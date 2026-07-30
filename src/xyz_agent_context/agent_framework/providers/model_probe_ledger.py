@@ -76,6 +76,24 @@ def source_models(ledger: dict[str, Any], source: str) -> dict[str, Any]:
     return ledger["sources"].setdefault(source, {"models": {}})["models"]
 
 
+def passing_models(
+    models_map: dict[str, Any], protocol: str, *, include_extras: bool = False
+) -> list[str]:
+    """THE read gate for per-protocol pass-lists.
+
+    Every consumer of the ledger (card overwrites, provisioning seeds, sync
+    result lists) must come through here so the ``extra`` invariant lives in
+    one place: gateway-only ids (probed for the free-tier gate, marked
+    ``extra``) are NEVER listed unless the caller opts in — a user's own key
+    is not necessarily authorized or priced for them.
+    """
+    return [
+        mid
+        for mid, rec in models_map.items()
+        if rec.get(protocol) == PASS and (include_extras or not rec.get("extra"))
+    ]
+
+
 def ledger_models(source: str, protocol: str) -> list[str]:
     """Model ids that PASS ``protocol`` for ``source`` in the committed ledger.
 
@@ -87,7 +105,7 @@ def ledger_models(source: str, protocol: str) -> list[str]:
     ledger = load_ledger()
     key = "netmind" if source in ("netmind", "system_pool") else source
     models = ledger.get("sources", {}).get(key, {}).get("models", {})
-    return [mid for mid, rec in models.items() if rec.get(protocol) == PASS]
+    return passing_models(models, protocol)
 
 
 # ---------------------------------------------------------------------------

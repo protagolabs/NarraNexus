@@ -4,6 +4,14 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (review 修补) — `passing_models` 唯一读取口
+
+`extra` 不变式（网关独有模型永不上 netmind/system_pool 卡）以前散落在多个
+comprehension 里，apply 路径漏掉过滤直接把网关独有 id 灌进付费卡。现在
+`passing_models(models_map, protocol, include_extras=False)` 是**唯一**的
+按协议 pass 名单出口，`ledger_models`/`apply_ledger_to_db`/`res.lists` 全部
+经它——下一个读取方想绕都难。
+
 ## 2026-07-30 — DB 成为耐久载体，文件降级为种子
 
 云端容器每次部署都把 ledger 文件重置回 release 快照，复测历史（tested_at 时钟、
