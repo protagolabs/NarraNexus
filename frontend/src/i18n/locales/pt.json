@@ -711,7 +711,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Redimensionar painéis",
-      "title": "Arraste para redimensionar chat / artefatos"
+      "title": "Arraste para redimensionar chat / artefatos",
+      "drawerAriaLabel": "Redimensionar o painel",
+      "drawerTitle": "Arraste para redimensionar o painel"
     }
   },
   "settings": {

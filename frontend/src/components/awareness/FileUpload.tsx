@@ -288,13 +288,18 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
   if (!node) return null;
 
   return (
-    <Dialog isOpen onClose={onClose} title={node.path} size="lg">
-      <div className="max-h-[70vh] overflow-auto">
+    // `5xl` (1024px), not the form-sized `lg` (512px) it used to be: this shows
+    // file contents — source, logs, data. The <pre> below soft-wraps, and at
+    // 512px almost every line wrapped, which loses the leading indentation on
+    // every continuation and makes structured text hard to read. Wider than the
+    // awareness editor (4xl) on purpose: code wants the columns, prose doesn't.
+    <Dialog isOpen onClose={onClose} title={node.path} size="5xl">
+      <div className="max-h-[78vh] overflow-auto">
         {error && <div className="p-4 text-red-400 text-sm">{t('awareness.workspace.previewFailed', { error })}</div>}
         {!content && !error && <div className="p-4 opacity-60">{t('awareness.workspace.loadingEllipsis')}</div>}
         {content?.type === 'image' && (
           <div className="flex items-center justify-center bg-[var(--bg-deep)] p-4">
-            <img src={content.src} alt={node.name} className="max-w-full max-h-[60vh] object-contain" />
+            <img src={content.src} alt={node.name} className="max-w-full max-h-[68vh] object-contain" />
           </div>
         )}
         {content?.type === 'text' && (

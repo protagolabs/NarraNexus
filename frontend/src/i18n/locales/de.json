@@ -711,7 +711,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Panels anpassen",
-      "title": "Ziehen, um Chat / Artefakte anzupassen"
+      "title": "Ziehen, um Chat / Artefakte anzupassen",
+      "drawerAriaLabel": "Panelbreite anpassen",
+      "drawerTitle": "Ziehen, um die Panelbreite anzupassen"
     }
   },
   "settings": {

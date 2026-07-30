@@ -365,12 +365,15 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         </div>
       </div>
 
-      {/* Status filter — thin filter row, only in list view.
-          Horizontal overflow uses ScrollArea (hideScrollbar) so the row
-          stays scrollable on narrow widths without showing a track. */}
+      {/* Status filter — only in list view.
+          The chips WRAP (they used to be one nowrap row inside a
+          hideScrollbar ScrollArea). All 11 statuses come to ~660px in zh,
+          and the panel's usual home is a 300–440px drawer, so the row cut
+          off after ~7 chips with no scrollbar and no overflow hint — the
+          remaining filters were simply undiscoverable. Two or three wrapped
+          lines cost a few px of height and hide nothing. */}
       {viewMode === 'list' && (
-        <ScrollArea horizontal hideScrollbar className="border-t border-[var(--rule)]">
-        <div className="px-5 py-2 flex gap-1">
+        <div className="px-5 py-2 flex flex-wrap gap-1 border-t border-[var(--rule)]">
           {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'cooling', 'blocked_failed', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
             const isActive = statusFilter === status;
@@ -391,7 +394,6 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
             );
           })}
         </div>
-        </ScrollArea>
       )}
 
       <CardContent className="flex-1 overflow-hidden min-h-0">

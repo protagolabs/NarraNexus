@@ -710,7 +710,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "パネルのサイズを変更",
-      "title": "ドラッグしてチャット / 成果物のサイズを変更"
+      "title": "ドラッグしてチャット / 成果物のサイズを変更",
+      "drawerAriaLabel": "パネルの幅を変更",
+      "drawerTitle": "ドラッグしてパネルの幅を変更"
     }
   },
   "settings": {
