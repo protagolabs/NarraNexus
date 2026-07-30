@@ -4,6 +4,20 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (r3) — 收进 pipeline 阶段 + 可折叠（Owner 反馈第二轮）
+
+- **pipeline 阶段行收进面板**：原消息区悬浮的「Starting up…/Loading
+  context…」指示器删除，映射（step id → chat.execution.* label）整体
+  搬进来，phases 作为 `✓/spinner` 行渲染在过程体顶部。因此面板挂载即
+  渲染（空数据显示启动态），不再返回 null——旧的「空则 null」契约作废。
+- **可折叠**：头部整条可点。折叠态 1-2 行：当前活动（最新 tool 名 $
+  高亮 / thinking / 阶段 label）+ 计时；有 plan 才多一行 n/m 进度条 +
+  当前 ▶ 步骤（process-plan-mini），没 plan 不渲染。
+- **phaseDone 推导**：后端把早期阶段一直标 running 到回合结束，所以
+  「后面的阶段已出现（或 loop 已有事件）」才是诚实的完成信号。
+- `deriveActivity` 是模块级纯函数——写成组件内 useMemo 会触发 React
+  Compiler 的 memoization-preservation 报错。
+
 ## 2026-07-30 (r2) — 终端化视觉升级（Owner 反馈：太单调）
 
 第一版只有灰字滚动。r2 换成真终端语言，全部走主题 token（亮暗都成立）：

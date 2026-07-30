@@ -9,12 +9,19 @@
  * scrolls here continuously — scannable like a terminal, not something
  * to read.
  *
- * Visual language (2026-07-30, after owner feedback that the first cut
- * was too flat): a real terminal frame — chrome header with a live
- * status dot, elapsed timer and op counter; per-species row glyphs
- * (`∴` thinking / `$` tool / `↳` output) with distinct ink levels and a
- * silicon-highlighted tool name; a blinking block cursor on the last
- * line. Everything uses theme tokens so both light and dark hold up.
+ * v3 (2026-07-30, owner feedback round 2):
+ * - The pipeline phases ("loading context", "building context", …) that
+ *   used to float as a lone spinner in the message area now render as
+ *   `»` rows at the top of the panel — one surface for everything the
+ *   agent is doing, from init to the last tool. The panel therefore
+ *   renders from the moment streaming starts (a bare "Starting up…"
+ *   header), never null while mounted.
+ * - Collapsible. Collapsed = one or two lines: the current activity
+ *   (latest tool / thinking / phase) + elapsed time, plus a plan
+ *   progress line only when a plan exists.
+ * - Color per species: `»` phases and tool names in silicon, `$` in
+ *   success green, `∴` thinking glyph in carbon, pending in warning
+ *   amber, outputs receded — all theme tokens, so light and dark hold.
  *
  * The plan is pinned below the scroll area: it answers "where are we
  * now" and must not scroll away. Plans are full snapshots
@@ -27,12 +34,17 @@
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
-import type { TurnEvent } from '@/types';
+import type { TFunction } from 'i18next';
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import type { Step, TurnEvent } from '@/types';
 import { cn } from '@/lib/utils';
 
 export interface ProcessPanelProps {
   events: TurnEvent[];
+  /** Pipeline progress steps (chatStore.currentSteps) — the pre-loop
+   *  phases render as rows so "loading context" lives here, not as a
+   *  floating spinner in the message area. */
+  steps?: Step[];
 }
 
 /** Max panel height as a viewport fraction — any taller pushes the composer out of view. */
@@ -42,6 +54,17 @@ const MAX_HEIGHT_CLASS = 'max-h-[40vh]';
  *  One wheel notch is ~100px, so 24 separates "the user scrolled up"
  *  from browser scroll rounding error. */
 const FOLLOW_THRESHOLD_PX = 24;
+
+/** Pipeline step id → i18n label. Same mapping the message-area
+ *  indicator used before it moved in here. Unknown ids fall back to the
+ *  backend-provided title. */
+const PHASE_LABEL_KEYS: Record<string, string> = {
+  '0': 'chat.execution.initializing',
+  '1': 'chat.execution.loadingContext',
+  '2': 'chat.execution.loadingResources',
+  '2.5': 'chat.execution.preparingWorkspace',
+  '3': 'chat.execution.buildingContext',
+};
 
 /** "mcp__chat_module__get_chat_history" → "get_chat_history" — same
  *  friendly-name rule TurnTimeline uses; the namespace is debug detail. */
@@ -70,11 +93,38 @@ function formatElapsed(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelProps) {
+type Activity = { text: string; tool?: boolean; pending?: boolean };
+
+/** What is the agent doing RIGHT NOW — the collapsed view's one line.
+ *  Latest tool/thinking wins; before the loop starts, the latest phase. */
+function deriveActivity(
+  process: TurnEvent[],
+  phases: Step[],
+  t: TFunction,
+): Activity {
+  for (let i = process.length - 1; i >= 0; i -= 1) {
+    const e = process[i];
+    if (e.type === 'tool_call') {
+      return { text: friendlyToolName(e.tool_name), tool: true, pending: e.pending };
+    }
+    if (e.type === 'thinking') {
+      return { text: t('chat.execution.thinking', 'Thinking…') };
+    }
+  }
+  const last = phases[phases.length - 1];
+  if (last) {
+    const key = PHASE_LABEL_KEYS[last.step];
+    return { text: key ? t(key) : last.title };
+  }
+  return { text: t('chat.execution.startingUp', 'Starting up…') };
+}
+
+export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: ProcessPanelProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const elapsed = useElapsedSeconds();
+  const [collapsed, setCollapsed] = useState(false);
 
   const process = useMemo(
     () => events.filter(
@@ -88,6 +138,23 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
     [process],
   );
 
+  // Pre-loop pipeline phases. Tool sub-steps (3.4.x) are already the
+  // panel's tool rows — repeating them as phases would double every call.
+  const phases = useMemo(
+    () => steps.filter((s) => !s.step.startsWith('3.4')),
+    [steps],
+  );
+
+  // A phase is settled once its own status says so or a later phase has
+  // started (the backend keeps early phases "running" until the turn
+  // ends, so ordering is the honest signal).
+  const phaseDone = (phase: Step): boolean => {
+    if (phase.status === 'completed') return true;
+    const n = parseFloat(phase.step);
+    return steps.some((s) => parseFloat(s.step) > n) ||
+      (process.length > 0 && n < 3.4);
+  };
+
   // Plans are full snapshots: each update replaces the previous one
   // wholesale, so take the last.
   const plan = useMemo(() => {
@@ -99,6 +166,9 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
   }, [events]);
 
   const planDone = plan ? plan.steps.filter((s) => s.status === 'completed').length : 0;
+  const planActive = plan?.steps.find((s) => s.status === 'in_progress');
+
+  const activity: Activity = deriveActivity(process, phases, t);
 
   // Auto-scroll to the bottom unless the user scrolled up — the same
   // bargain the message area makes: following is the default, but once
@@ -106,9 +176,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
   useEffect(() => {
     const el = scrollRef.current;
     if (el && followRef.current) el.scrollTop = el.scrollHeight;
-  }, [process, plan]);
-
-  if (process.length === 0 && !plan) return null;
+  }, [process, plan, phases]);
 
   return (
     <div
@@ -116,11 +184,14 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
       className="mb-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
       style={{ fontFamily: 'var(--font-mono)' }}
     >
-      {/* Terminal chrome: live dot + title on the left, elapsed timer and
-          op counter on the right. The dot pulses while mounted — mounted
-          IS running, so no extra state is needed. */}
-      <div
-        className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-1.5"
+      {/* Terminal chrome — the whole bar toggles collapse. Live dot on
+          the left; collapsed shows the current activity inline; timer
+          (and op counter when expanded) on the right. */}
+      <button
+        type="button"
+        data-testid="process-panel-header"
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex w-full items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-1.5 text-left"
       >
         <span className="relative flex h-2 w-2 shrink-0">
           <span
@@ -132,153 +203,243 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
             style={{ background: 'var(--color-success)' }}
           />
         </span>
-        <span
-          className="text-[10px] uppercase tracking-[0.18em]"
-          style={{ color: 'var(--nm-ink70)' }}
-        >
-          {t('chat.process.title', 'agent · process')}
-        </span>
-        <span className="ml-auto flex items-center gap-3 text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
-          <span>{toolCount} {t('chat.process.ops', 'ops')}</span>
-          <span>{formatElapsed(elapsed)}</span>
-        </span>
-      </div>
-
-      <div
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          followRef.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
-        }}
-        className={cn(MAX_HEIGHT_CLASS, 'overflow-y-auto px-3 py-2 text-xs leading-relaxed')}
-      >
-        {process.map((event) => {
-          if (event.type === 'thinking') {
-            return (
-              <div key={event.id} className="flex gap-2 py-0.5">
-                <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
-                  ∴
-                </span>
-                <span className="whitespace-pre-wrap italic" style={{ color: 'var(--nm-ink50)' }}>
-                  {event.content}
-                </span>
-              </div>
-            );
-          }
-          if (event.type === 'tool_call') {
-            // Show the first argument value as a one-line summary; an
-            // ellipsis until arguments arrive — the visible form of
-            // pending: name decided, arguments still being written.
-            const firstArg = Object.values(event.tool_input ?? {})[0];
-            return (
-              <div
-                key={event.id}
-                data-testid={`tool-row-${event.id}`}
-                data-pending={event.pending ? 'true' : 'false'}
-                className="flex items-center gap-2 rounded px-1 py-0.5 -mx-1 hover:bg-[var(--nm-paper-warm)]"
-              >
-                {event.pending ? (
-                  <Loader2
-                    className="h-3 w-3 shrink-0 animate-spin"
-                    style={{ color: 'var(--color-warning)' }}
-                  />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="shrink-0 select-none font-semibold"
-                    style={{ color: 'var(--color-success)' }}
-                  >
-                    $
-                  </span>
-                )}
-                <span className="shrink-0 font-semibold" style={{ color: 'var(--color-silicon)' }}>
-                  {friendlyToolName(event.tool_name)}
-                </span>
-                <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                  {event.pending ? '…' : String(firstArg ?? '')}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <div key={event.id} className="flex gap-2 py-0.5 pl-5">
-              <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
-                ↳
-              </span>
-              <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                {event.output}
-              </span>
-            </div>
-          );
-        })}
-        {/* Live cursor — the terminal's "still running" heartbeat. */}
-        <div aria-hidden="true" className="flex gap-2 py-0.5">
-          <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>
+        {collapsed ? (
           <span
-            className="inline-block w-2 animate-pulse select-none"
+            data-testid="process-activity"
+            className="flex min-w-0 items-center gap-1.5 text-xs"
+          >
+            {activity.pending && (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" style={{ color: 'var(--color-warning)' }} />
+            )}
+            {activity.tool && !activity.pending && (
+              <span aria-hidden="true" className="shrink-0 font-semibold" style={{ color: 'var(--color-success)' }}>$</span>
+            )}
+            <span
+              className="truncate font-semibold"
+              style={{ color: activity.tool ? 'var(--color-silicon)' : 'var(--nm-ink70)' }}
+            >
+              {activity.text}
+            </span>
+          </span>
+        ) : (
+          <span
+            className="text-[10px] uppercase tracking-[0.18em]"
             style={{ color: 'var(--nm-ink70)' }}
           >
-            ▌
+            {t('chat.process.title', 'agent · process')}
           </span>
-        </div>
-      </div>
-
-      {plan && (
-        <div
-          data-testid="process-plan"
-          className="border-t border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-2 text-xs"
+        )}
+        <span
+          className="ml-auto flex shrink-0 items-center gap-3 text-[10px] tabular-nums"
+          style={{ color: 'var(--nm-ink50)' }}
         >
-          <div className="mb-1.5 flex items-center gap-2">
+          {!collapsed && <span>{toolCount} {t('chat.process.ops', 'ops')}</span>}
+          <span>{formatElapsed(elapsed)}</span>
+          {collapsed
+            ? <ChevronDown className="h-3 w-3" />
+            : <ChevronUp className="h-3 w-3" />}
+        </span>
+      </button>
+
+      {/* Collapsed second line: plan progress — only when a plan exists. */}
+      {collapsed && plan && (
+        <div
+          data-testid="process-plan-mini"
+          className="flex items-center gap-2 px-3 py-1 text-xs"
+        >
+          <span className="shrink-0 text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
+            {planDone}/{plan.steps.length}
+          </span>
+          <span
+            className="h-1 w-16 shrink-0 overflow-hidden rounded-full"
+            style={{ background: 'var(--nm-ink30)' }}
+          >
             <span
-              className="text-[10px] uppercase tracking-[0.18em]"
-              style={{ color: 'var(--nm-ink50)' }}
-            >
-              {t('chat.process.plan', 'Plan')}
+              className="block h-full rounded-full transition-[width] duration-500"
+              style={{
+                width: `${plan.steps.length ? Math.round((planDone / plan.steps.length) * 100) : 0}%`,
+                background: 'var(--color-success)',
+              }}
+            />
+          </span>
+          {planActive && (
+            <span className="flex min-w-0 items-center gap-1.5" style={{ color: 'var(--color-silicon)' }}>
+              <span aria-hidden="true" className="shrink-0">▶</span>
+              <span className="truncate">{planActive.step}</span>
             </span>
-            <span className="text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
-              {planDone}/{plan.steps.length}
-            </span>
-            {/* Mini progress bar: width follows completed/total. */}
-            <span
-              className="ml-1 h-1 flex-1 overflow-hidden rounded-full"
-              style={{ background: 'var(--nm-ink30)', maxWidth: 96 }}
-            >
-              <span
-                className="block h-full rounded-full transition-[width] duration-500"
-                style={{
-                  width: `${plan.steps.length ? Math.round((planDone / plan.steps.length) * 100) : 0}%`,
-                  background: 'var(--color-success)',
-                }}
-              />
-            </span>
-          </div>
-          <div className="space-y-0.5">
-            {plan.steps.map((s, i) => {
-              const active = s.status === 'in_progress';
-              const done = s.status === 'completed';
+          )}
+        </div>
+      )}
+
+      {!collapsed && (
+        <>
+          <div
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              followRef.current =
+                el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
+            }}
+            className={cn(MAX_HEIGHT_CLASS, 'overflow-y-auto px-3 py-2 text-xs leading-relaxed')}
+          >
+            {/* Pipeline phase rows — the "loading context…" lines that
+                used to float in the message area live here now. */}
+            {phases.map((phase) => {
+              const key = PHASE_LABEL_KEYS[phase.step];
+              const done = phaseDone(phase);
               return (
-                <div
-                  key={`${i}-${s.step}`}
-                  className="flex items-center gap-2"
-                  style={{
-                    color: active
-                      ? 'var(--color-silicon)'
-                      : done
-                        ? 'var(--nm-ink50)'
-                        : 'var(--nm-ink70)',
-                    fontWeight: active ? 600 : 400,
-                  }}
-                >
-                  <span aria-hidden="true" className="shrink-0 select-none">
-                    {done ? '✓' : active ? '▶' : '○'}
+                <div key={phase.step} className="flex items-center gap-2 py-0.5">
+                  {done ? (
+                    <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-success)' }}>
+                      ✓
+                    </span>
+                  ) : (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" style={{ color: 'var(--color-silicon)' }} />
+                  )}
+                  <span style={{ color: done ? 'var(--nm-ink50)' : 'var(--color-silicon)' }}>
+                    {key ? t(key) : phase.title}
                   </span>
-                  <span className={cn(done && 'line-through')}>{s.step}</span>
                 </div>
               );
             })}
+
+            {phases.length === 0 && process.length === 0 && (
+              <div className="flex items-center gap-2 py-0.5">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" style={{ color: 'var(--color-silicon)' }} />
+                <span style={{ color: 'var(--nm-ink50)' }}>
+                  {t('chat.execution.startingUp', 'Starting up…')}
+                </span>
+              </div>
+            )}
+
+            {process.map((event) => {
+              if (event.type === 'thinking') {
+                return (
+                  <div key={event.id} className="flex gap-2 py-0.5">
+                    <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-carbon)' }}>
+                      ∴
+                    </span>
+                    <span className="whitespace-pre-wrap italic" style={{ color: 'var(--nm-ink50)' }}>
+                      {event.content}
+                    </span>
+                  </div>
+                );
+              }
+              if (event.type === 'tool_call') {
+                // Show the first argument value as a one-line summary; an
+                // ellipsis until arguments arrive — the visible form of
+                // pending: name decided, arguments still being written.
+                const firstArg = Object.values(event.tool_input ?? {})[0];
+                return (
+                  <div
+                    key={event.id}
+                    data-testid={`tool-row-${event.id}`}
+                    data-pending={event.pending ? 'true' : 'false'}
+                    className="flex items-center gap-2 rounded px-1 py-0.5 -mx-1 hover:bg-[var(--nm-paper-warm)]"
+                  >
+                    {event.pending ? (
+                      <Loader2
+                        className="h-3 w-3 shrink-0 animate-spin"
+                        style={{ color: 'var(--color-warning)' }}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="shrink-0 select-none font-semibold"
+                        style={{ color: 'var(--color-success)' }}
+                      >
+                        $
+                      </span>
+                    )}
+                    <span className="shrink-0 font-semibold" style={{ color: 'var(--color-silicon)' }}>
+                      {friendlyToolName(event.tool_name)}
+                    </span>
+                    <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
+                      {event.pending ? '…' : String(firstArg ?? '')}
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <div key={event.id} className="flex gap-2 py-0.5 pl-5">
+                  <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
+                    ↳
+                  </span>
+                  <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
+                    {event.output}
+                  </span>
+                </div>
+              );
+            })}
+            {/* Live cursor — the terminal's "still running" heartbeat. */}
+            <div aria-hidden="true" className="flex gap-2 py-0.5">
+              <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>
+              <span
+                className="inline-block w-2 animate-pulse select-none"
+                style={{ color: 'var(--nm-ink70)' }}
+              >
+                ▌
+              </span>
+            </div>
           </div>
-        </div>
+
+          {plan && (
+            <div
+              data-testid="process-plan"
+              className="border-t border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-2 text-xs"
+            >
+              <div className="mb-1.5 flex items-center gap-2">
+                <span
+                  className="text-[10px] uppercase tracking-[0.18em]"
+                  style={{ color: 'var(--nm-ink50)' }}
+                >
+                  {t('chat.process.plan', 'Plan')}
+                </span>
+                <span className="text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
+                  {planDone}/{plan.steps.length}
+                </span>
+                {/* Mini progress bar: width follows completed/total. */}
+                <span
+                  className="ml-1 h-1 flex-1 overflow-hidden rounded-full"
+                  style={{ background: 'var(--nm-ink30)', maxWidth: 96 }}
+                >
+                  <span
+                    className="block h-full rounded-full transition-[width] duration-500"
+                    style={{
+                      width: `${plan.steps.length ? Math.round((planDone / plan.steps.length) * 100) : 0}%`,
+                      background: 'var(--color-success)',
+                    }}
+                  />
+                </span>
+              </div>
+              <div className="space-y-0.5">
+                {plan.steps.map((s, i) => {
+                  const active = s.status === 'in_progress';
+                  const done = s.status === 'completed';
+                  return (
+                    <div
+                      key={`${i}-${s.step}`}
+                      className="flex items-center gap-2"
+                      style={{
+                        color: active
+                          ? 'var(--color-silicon)'
+                          : done
+                            ? 'var(--nm-ink50)'
+                            : 'var(--nm-ink70)',
+                        fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      <span aria-hidden="true" className="shrink-0 select-none">
+                        {done ? '✓' : active ? '▶' : '○'}
+                      </span>
+                      <span className={cn(done && 'line-through')}>{s.step}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

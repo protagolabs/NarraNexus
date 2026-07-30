@@ -1,11 +1,12 @@
 /**
- * ProcessPanel — 运行中的过程面板。测四件事：只渲染过程事件、
- * plan 固定在底部、pending 工具有进行中标记、无过程时不渲染。
+ * ProcessPanel — 运行中的过程面板。钉住 v3 契约：只渲染过程事件、
+ * pipeline 阶段行收进面板、plan 固定在底部、pending 工具有进行中标记、
+ * 可折叠（折叠态 = 当前活动 + plan 进度 1-2 行）、空数据也渲染启动态。
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ProcessPanel } from '../ProcessPanel';
-import type { TurnEvent } from '@/types';
+import type { TurnEvent, Step } from '@/types';
 
 const events: TurnEvent[] = [
   { id: 't1', ts: 1, type: 'thinking', content: '正在读取需求' },
@@ -18,6 +19,13 @@ const events: TurnEvent[] = [
       { step: '注册', status: 'pending' },
     ] },
 ];
+
+function step(id: string, status: Step['status'] = 'running'): Step {
+  return {
+    id: `s-${id}`, step: id, title: `Step ${id}`, description: '',
+    status, substeps: [], timestamp: 0,
+  };
+}
 
 describe('ProcessPanel', () => {
   it('渲染思考与工具，不渲染回复', () => {
@@ -58,8 +66,55 @@ describe('ProcessPanel', () => {
     expect(plan).not.toHaveTextContent('建目录');
   });
 
-  it('没有过程事件也没有 plan 时不渲染任何东西', () => {
-    const { container } = render(<ProcessPanel events={[]} />);
-    expect(container.firstChild).toBeNull();
+  // v3: the panel replaces the message-area "starting up…" indicator, so
+  // it must render (with the starting status) even before any data.
+  it('空数据渲染启动态而不是消失', () => {
+    render(<ProcessPanel events={[]} />);
+    expect(screen.getByTestId('process-panel')).toBeInTheDocument();
+    expect(screen.getByText(/Starting up/)).toBeInTheDocument();
+  });
+
+  it('pipeline 阶段行收进面板（加载上下文/构建上下文）', () => {
+    render(<ProcessPanel events={[]} steps={[step('1', 'completed'), step('3')]} />);
+    expect(screen.getByText(/Loading context/)).toBeInTheDocument();
+    expect(screen.getByText(/Building context/)).toBeInTheDocument();
+  });
+
+  it('工具子步骤（3.4.x）不重复出现在阶段行里', () => {
+    render(<ProcessPanel events={events} steps={[step('3'), step('3.4.1')]} />);
+    expect(screen.queryByText('Step 3.4.1')).toBeNull();
+  });
+
+  describe('折叠', () => {
+    it('点击头部折叠：过程体隐藏，显示当前活动行', () => {
+      render(<ProcessPanel events={events} />);
+      fireEvent.click(screen.getByTestId('process-panel-header'));
+      // Body rows gone…
+      expect(screen.queryByTestId('tool-row-c1')).toBeNull();
+      // …one activity line: the latest pending tool is what's happening now.
+      const activity = screen.getByTestId('process-activity');
+      expect(activity).toHaveTextContent('register_artifact');
+    });
+
+    it('折叠态有 plan 时显示进展行，无 plan 时不显示', () => {
+      render(<ProcessPanel events={events} />);
+      fireEvent.click(screen.getByTestId('process-panel-header'));
+      expect(screen.getByTestId('process-plan-mini')).toHaveTextContent('1/3');
+      expect(screen.getByTestId('process-plan-mini')).toHaveTextContent('写正文');
+    });
+
+    it('折叠态无 plan：进展行不渲染', () => {
+      const noPlan = events.filter((e) => e.type !== 'plan');
+      render(<ProcessPanel events={noPlan} />);
+      fireEvent.click(screen.getByTestId('process-panel-header'));
+      expect(screen.queryByTestId('process-plan-mini')).toBeNull();
+    });
+
+    it('再点一次展开回来', () => {
+      render(<ProcessPanel events={events} />);
+      fireEvent.click(screen.getByTestId('process-panel-header'));
+      fireEvent.click(screen.getByTestId('process-panel-header'));
+      expect(screen.getByTestId('tool-row-c1')).toBeInTheDocument();
+    });
   });
 });
