@@ -42,9 +42,12 @@ counts.
   deterministic fallback so a failed/absent LLM never breaks import. Then
   `NarrativeService.create_narrative` (sets name/description) → we overwrite the
   fields create doesn't set → `save_narrative_to_db`. NO agent loop, NO embeddings
-  (routing is BM25). The session's turns are `MemoryEngine.retain`'d as
-  `observation`/`experience` records `scope_type=narrative`, `scope_id=<narrative>`
-  — so imported history is searchable and bound to its thread.
+  (routing is BM25). The session's turns are `MemoryEngine.retain`'d as **`event`**
+  records `scope_type=narrative`, `scope_id=<narrative>` — event is the append-only
+  per-interaction index that does NOT consolidate. **Do not use `observation`**:
+  it consolidates at threshold 4, so the background worker would tombstone the
+  dozens of imported turns into a few summaries ~90s after import, destroying the
+  history. Distilled facts (the `memory[]` step) correctly stay `observation`/world.
 - Every write is best-effort (per-item try/except) so one failure doesn't abort the
   rest; the result records what landed.
 

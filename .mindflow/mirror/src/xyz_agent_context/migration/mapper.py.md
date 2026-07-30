@@ -22,7 +22,8 @@ plan, then execute it their own way.
   session. `title` (Claude ai-title) becomes the Narrative name directly (no LLM);
   `summary_source` = the source's own compact rollup + rendered recent turns,
   capped — the text the consumer feeds ONE helper_llm call to fill the Narrative's
-  AI fields; `turns` are retained as observation memory scoped to that Narrative.
+  AI fields; `turns` are retained as `event` memory scoped to that Narrative
+  (append-only; observation would be consolidated away — see [[applier.py]]).
 - `mcp_url_servers` vs `mcp_stdio_servers`: url is importable now (mcp API);
   stdio is captured but deferred to local-mode wiring (v1.1) — surfaced so the
   user sees it.

@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/migrate.py
 stub: false
-last_verified: 2026-07-21
+last_verified: 2026-07-30
 ---
 
 ## Why it exists
@@ -26,3 +26,10 @@ the write side (map → `apply_plan` → a populated NarraNexus agent).
   is rare.
 - `/scan` returns `StandardizedAgentImport.model_dump()` verbatim so the caller
   (or user) can edit before POSTing it back to `/apply`.
+- **Sync work runs off the event loop** (2026-07-30): `scanner.detect` /
+  `scanner.scan` are synchronous and heavy — scan parses session `.jsonl` files
+  that can be 100MB+, and `/detect` fires on every local app load. Running that
+  directly in an `async def` handler would stall the shared event loop for
+  seconds (铁律 #15 — the platform must not become the interruption source), so
+  both go through `asyncio.to_thread`. The blocking `shutil` copy in
+  `applier._copy_local_skill` is likewise `to_thread`'d.

@@ -9,7 +9,8 @@ create (or reuse) an agent and populate it — awareness, general memory, skills
 per-agent url-MCP, and one Narrative per imported session. Each session is
 summarized by ONE helper_llm call, the Narrative is created + enriched + saved
 directly (no agent loop, no embeddings), and its turns are retained as
-observation memory scoped to that Narrative.
+`event` memory scoped to that Narrative (append-only; observation would be
+consolidated away).
 
 Faithful-reproduction skill policy (Owner): a skill with a `local_path` is
 COPIED verbatim into the agent's workspace `skills/<name>/` (migration = copy the
@@ -68,7 +69,7 @@ class ApplyResult(BaseModel):
     mcp_stdio_skipped: List[str] = Field(default_factory=list)
     # One Narrative created per imported session (title of each).
     narratives_created: List[str] = Field(default_factory=list)
-    # Total imported conversation turns retained as observation memory.
+    # Total imported conversation turns retained as event memory (per Narrative).
     memory_turns_retained: int = 0
     warnings: List[str] = Field(default_factory=list)
 
@@ -128,7 +129,7 @@ async def _summarize_session(planned: PlannedNarrative) -> _NarrativeSummary:
 
 async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNarrative) -> int:
     """Create one Narrative from a planned session (summarized) and retain its
-    turns as observation memory scoped to that Narrative. Returns turns retained."""
+    turns as event memory scoped to that Narrative. Returns turns retained."""
     summary = await _summarize_session(planned)
     svc = NarrativeService(agent_id, db)
     narrative = await svc.create_narrative(
@@ -147,7 +148,7 @@ async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNar
     ]
     await svc.save_narrative_to_db(narrative)
 
-    # retain the real turns as observation memory scoped to this Narrative
+    # retain the real turns as event memory scoped to this Narrative
     engine = MemoryEngine(db, agent_id)
     retained = 0
     for t in planned.turns:
@@ -319,7 +320,7 @@ async def apply_plan(
 
     # 5) Narratives — one per imported session. Each is summarized (helper_llm),
     #    created + enriched + saved directly (no agent loop), and its turns are
-    #    retained as observation memory scoped to that Narrative. Best-effort per
+    #    retained as event memory scoped to that Narrative. Best-effort per
     #    session so one bad session never aborts the rest.
     if plan.narratives:
         # Load the OWNER's effective LLM config onto this task so the per-session

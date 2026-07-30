@@ -56,7 +56,7 @@ class PlannedNarrative(BaseModel):
 
     `summary_source` is the text the consumer feeds a helper_llm to fill the
     Narrative's AI fields (description / current_summary / topic_hint /
-    dynamic_summary); `turns` are retained as observation memory scoped to the
+    dynamic_summary); `turns` are retained as event memory scoped to the
     created Narrative. `title` (Claude's ai-title) becomes the Narrative name
     directly (no LLM).
     """
