@@ -126,6 +126,18 @@ class NexusPowerLoop:
                         yield ev
                     return
 
+                # ---- boundary: cancellation (post-stream) -----------------
+                # Catches both shapes: cancel arrived mid-stream (the
+                # stream loop broke out early) and cancel arrived between
+                # the stream's end and dispatch. Without this, an aborted
+                # text-only stream would fall through STOP_CHECK and close
+                # as NO_MORE_ACTIONS — a user interrupt masquerading as a
+                # natural stop.
+                if a.cancel.requested():
+                    async for ev in self._interrupt("cancelled by user"):
+                        yield ev
+                    return
+
                 # ---- DISPATCH ---------------------------------------------
                 for call in step_calls:
                     if a.cancel.requested():
@@ -208,7 +220,18 @@ class NexusPowerLoop:
         a, ledger = self._a, self._ledger
         extractors: dict[int, StreamingArgExtractor] = {}
         stream_meta: dict[int, tuple[str, str, bool]] = {}  # index -> (call_id, name, expressive)
-        async for model_event in a.model.stream_step(request):
+        stream = a.model.stream_step(request)
+        async for model_event in stream:
+            if a.cancel.requested():
+                # Abort the provider stream at the earliest observable
+                # point, EXPLICITLY: a bare break leaves the generator
+                # (and its HTTP stream) alive until garbage collection —
+                # paying for and waiting on tokens nobody will read.
+                # The post-stream boundary in run_turn closes the turn
+                # as INTERRUPTED; the deltas already streamed stay on
+                # the ledger.
+                await stream.aclose()
+                break
             kind = model_event.kind
             if kind == "tool_use_start" and a.include_arg_deltas:
                 index = int(model_event.payload.get("call_index", 0))

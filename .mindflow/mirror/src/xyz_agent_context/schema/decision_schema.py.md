@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `PathExecutionResult.interrupted`
+
+打断连续性的载体字段:用户 Stop 的 turn 不再被丢弃,部分结果照常持久化,消费方
+(hook 参数、ChatModule persist)靠它区分「被掐断」与「自然结束」。
 
 ## 2026-07-29 (二次) — 删掉三个句柄校验伴随字段
 

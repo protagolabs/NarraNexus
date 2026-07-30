@@ -158,6 +158,15 @@ class PathExecutionResult(BaseModel):
         description="Final output content of the execution"
     )
 
+    # True when the user stopped the run mid-turn (interrupt continuity,
+    # 2026-07-30): the partial results above are real and get persisted;
+    # consumers (ChatModule persist) mark the turn as interrupted so the
+    # next turn reads "cut short by the user", not "chose not to answer".
+    interrupted: bool = Field(
+        default=False,
+        description="Whether the user interrupted this execution mid-turn"
+    )
+
     # ========== Execution Tracking ==========
     # Execution step list (for generating event_log_entries)
     # AGENT_LOOP: From state.get_all_steps_as_list()
