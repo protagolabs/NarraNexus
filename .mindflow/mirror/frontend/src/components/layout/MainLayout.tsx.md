@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+> 2026-07-30: mounts [[MigrationNudge]] beside [[OnboardingChecklist]] above the
+> chat panel — the local-only "import an existing agent" startup prompt.
+
 
 ## 2026-07-28 — TeamChatPanel import follows the package move
 

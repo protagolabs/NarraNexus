@@ -2261,5 +2261,13 @@
     "close": "Close",
     "cancel": "Cancel",
     "back": "Back"
+  },
+  "onboarding": {
+    "migrationNudge": {
+      "title": "Import an existing agent",
+      "body": "Found agents from {{frameworks}} on this machine. Import one into NarraNexus?",
+      "import": "Import",
+      "dismiss": "Not now"
+    }
   }
 }

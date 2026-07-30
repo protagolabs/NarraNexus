@@ -51,6 +51,7 @@ import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
+import { MigrationNudge } from '@/components/onboarding/MigrationNudge';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
@@ -274,6 +275,7 @@ export function ChatView() {
           }}
         >
           <OnboardingChecklist />
+          <MigrationNudge />
           <div className="relative flex-1 min-h-0">
             <ChatPanel onAgentComplete={refreshAll} />
             <WakingOverlay />

@@ -2261,5 +2261,13 @@
     "close": "Close",
     "cancel": "取消",
     "back": "返回"
+  },
+  "onboarding": {
+    "migrationNudge": {
+      "title": "导入已有的 agent",
+      "body": "在本机检测到 {{frameworks}} 的 agent。是否导入到 NarraNexus?",
+      "import": "导入",
+      "dismiss": "以后再说"
+    }
   }
 }
