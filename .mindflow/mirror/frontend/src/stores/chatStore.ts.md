@@ -4,6 +4,12 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — stopStreaming 存 segments
+
+助手消息落定时除 `timeline` 外再挂 `segments = segmentTurn(currentEvents)`
+——MessageBubble 据此把一轮渲染成 agent 实际说话的 m 次。`content` 仍是
+join('\n\n') 全文：通知、复制、搜索的纯文本载体，也是老消息的兜底。
+
 ## 2026-07-30 — pending tool_call 按 tool_call_id 原地替换
 
 工具名先到（参数还在流式生成）时后端发一条 `pending=true` 的

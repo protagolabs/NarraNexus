@@ -259,6 +259,13 @@ export interface ChatMessage {
   // Reply events are kept here for fidelity; MessageBubble skips them
   // when rendering because message.content already shows the reply.
   timeline?: TurnEvent[];
+  /**
+   * 这一轮的用户可见片段（含各自的过程），由 segmentTurn 切好、
+   * stopStreaming 时挂上。后端仍是一轮一条记录——这里只是把那一条渲染
+   * 成 agent 实际说话的 m 次。老消息为 undefined，回落到 content 单段
+   * 渲染；content 本身保留 join('\n\n') 的全文，通知/复制/搜索仍用它。
+   */
+  segments?: Segment[];
 }
 
 // Step for display in StepsPanel

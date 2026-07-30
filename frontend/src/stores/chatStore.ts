@@ -24,6 +24,7 @@ import type {
 } from '@/types';
 import { generateId } from '@/lib/utils';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
+import { segmentTurn } from '@/lib/segmentTurn';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -375,6 +376,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // therefore a normal history bubble from the moment it settles —
           // no separate flat-rendered "last turn" zone.
           timeline: session.currentEvents.length > 0 ? [...session.currentEvents] : undefined,
+          // 同一份事件再切一次段：MessageBubble 据此把这一条渲染成 agent
+          // 实际说话的 m 次，每次带自己那段过程。content 保留 join 全文
+          // ——通知、复制、搜索仍要一个纯文本载体，也是老消息的兜底。
+          segments: session.currentEvents.length > 0
+            ? segmentTurn(session.currentEvents)
+            : undefined,
         };
 
         // Mark all running steps as completed
