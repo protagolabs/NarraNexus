@@ -48,7 +48,10 @@ describe('Chinese localization completeness', () => {
     expect(chatPanel).toContain("t('chat.securityReminder')");
     expect(chatPanel).not.toContain('Security reminder: never paste sensitive');
     expect(chatPanel).toContain('localizeBootstrapGreeting(item.content)');
-    expect(chatPanel).toContain("t('chat.execution.loadingContext')");
+    // The pipeline-phase labels moved from ChatPanel's message-area
+    // indicator into ProcessPanel (2026-07-30) — assert them there.
+    const processPanel = source('../components/chat/ProcessPanel.tsx');
+    expect(processPanel).toContain("'chat.execution.loadingContext'");
     expect(chatPanel).not.toContain("return 'Loading context...'");
     expect(agentConfig).toContain(
       "t('pages.settings.modelDefaults.reasoningEffort')",

@@ -1128,46 +1128,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Initial "starting up..." indicator — shown only when streaming
-            has started but no event has arrived yet (the timeline is
-            empty). As soon as the first thinking / tool / reply event
-            comes in, the indicator is replaced by TurnTimeline. Same
-            avatar shell as the streaming branch so the layout doesn't
-            jump when the first event arrives. */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length === 0 && (() => {
-          const getInitStatus = () => {
-            if (currentSteps.length === 0) return t('chat.execution.startingUp');
-            const latestStep = currentSteps[currentSteps.length - 1];
-            const s = latestStep.step;
-            if (s === '0') return t('chat.execution.initializing');
-            if (s === '1') return t('chat.execution.loadingContext');
-            if (s === '2') return t('chat.execution.loadingResources');
-            if (s === '2.5') return t('chat.execution.preparingWorkspace');
-            if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) {
-              return t('chat.execution.buildingContext');
-            }
-            return t('chat.execution.thinking');
-          };
-          return (
-            <div className="flex gap-3 animate-fade-in">
-              <RingAvatar
-                species="silicon"
-                label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-                size="sm"
-                className="shrink-0"
-              />
-              <div className="flex-1 min-w-0 py-2">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        {/* The old "starting up… / loading context…" indicator that
+            floated here moved into ProcessPanel (above the composer),
+            which renders pipeline phases as terminal rows from the
+            moment streaming starts — one surface for everything the
+            agent is doing. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1274,7 +1239,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             in the bubbles above. Mounted only while streaming — when the
             turn ends the process folds back into each reply's bubble
             (lib/segmentTurn), so unmounting the panel loses nothing. */}
-        {isStreaming && <ProcessPanel events={currentEvents} />}
+        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
 
         <div className="relative" data-help-id="chat.composer">
           <Composer
