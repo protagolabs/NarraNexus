@@ -314,15 +314,19 @@ class ResponseProcessor:
         if not residual:
             return
         thinking_display = format_thinking_for_display(residual)
+        # Drained ONCE per flush; the message and the state update carry
+        # the same subset (message: for collect_run consumers relaying
+        # output_text; state: for final_output / reasoning persistence).
+        monologue = self._take_pending_monologue()
         yield ProcessedResponse(
             type=ResponseType.THINKING,
-            message=AgentThinking(thinking_content=residual),
+            message=AgentThinking(thinking_content=residual, monologue=monologue),
             state_update={
                 "method": "record_thinking",
                 "args": {
                     "content": residual,
                     "display": thinking_display,
-                    "monologue": self._take_pending_monologue(),
+                    "monologue": monologue,
                 },
             },
         )
@@ -578,15 +582,19 @@ class ResponseProcessor:
                 return  # still buffering
             thinking_display = format_thinking_for_display(coalesced)
             logger.info(f"  💭 Thinking flush: {len(coalesced)} chars (coalesced)")
+            # Same single-drain discipline as _flush_thinking_residual.
+            monologue = self._take_pending_monologue()
             yield ProcessedResponse(
                 type=ResponseType.THINKING,
-                message=AgentThinking(thinking_content=coalesced),
+                message=AgentThinking(
+                    thinking_content=coalesced, monologue=monologue
+                ),
                 state_update={
                     "method": "record_thinking",
                     "args": {
                         "content": coalesced,
                         "display": thinking_display,
-                        "monologue": self._take_pending_monologue(),
+                        "monologue": monologue,
                     },
                 },
             )

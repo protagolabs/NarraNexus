@@ -188,9 +188,17 @@ class AgentThinking(BaseRuntimeMessage):
 
     Attributes:
         thinking_content: The thinking/reasoning text
+        monologue: The subset of ``thinking_content`` that is NexusPower
+            monologue — the framework's assistant plain text, displayed
+            as thinking under the monologue/expression contract. Empty
+            for provider chain-of-thought and for every non-NexusPower
+            driver. Consumers that relay "what the agent said" (e.g.
+            ``collect_run.output_text``) read this field; the WS path
+            ignores it.
     """
     message_type: Literal[MessageType.AGENT_THINKING] = MessageType.AGENT_THINKING
     thinking_content: str
+    monologue: str = ""
 
 
 class AgentReplyDelta(BaseRuntimeMessage):

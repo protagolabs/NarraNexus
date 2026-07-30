@@ -6,6 +6,16 @@ stub: false
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
 
+## 2026-07-30 — output_text 纳入 NexusPower 独白（群聊 @mention 无回复修复）
+
+`output_text` 的语义从「AGENT_RESPONSE delta 拼接」升级为「agent 说的话」：
+AGENT_RESPONSE delta + `AGENT_THINKING.monologue` 子集按到达顺序拼接。
+NexusPower 独白契约下 assistant 明文以 thinking 形态流出（monologue 标记），
+它就是 claude driver 会走 AGENT_RESPONSE 的那段文本；team room 契约「明文
+自动上墙」依赖 output_text，此前拿到空串导致 @mention 回复整段蒸发（dev
+evt_238abc4b0b0c4dca：final_output 里躺着完整回复、房间零消息）。provider
+CoT 的 monologue 恒为空串，不会把推理泄进 IM 转发。
+
 ## 2026-07-30 — 捕获 Step-0 的 event_id
 
 `RunCollection.event_id` + 可选 `on_event_id` 回调：Step 0 完成的

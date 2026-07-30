@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `AgentThinking.monologue` 字段（独白经消息流可见）
+
+NexusPower 的明文（独白）以 thinking 形态流出，但它语义上是 claude driver
+的 assistant 明文——收集型消费者（`collect_run.output_text`，bus 群聊上墙、
+IM inbox 转发都靠它）之前只能看到消息流，拿不到独白子集，导致群聊 @mention
+的回复整段蒸发（dev evt_238abc4b0b0c4dca）。字段承载**本批次**的独白子集，
+provider CoT 恒为空串；state 侧 `record_thinking(monologue=...)` 的链路不变，
+消息与 state 在每个 flush 点取同一次 drain。WS 前端可忽略该字段。
 
 ## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
 
