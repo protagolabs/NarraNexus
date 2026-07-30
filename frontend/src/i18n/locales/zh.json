@@ -923,7 +923,10 @@
       "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用——当前由你自己的服务商驱动。可在“全局默认”一节切换。",
       "linkNow": "立即接入",
       "linkFailed": "接入失败：",
-      "freeTierCreditLeft": "剩余 ${{remaining}}"
+      "freeTierCreditLeft": "剩余 ${{remaining}}",
+      "returnSubscribeSuccess": "已收到付款 —— 正在为你的账户生效。",
+      "returnTopupSuccess": "充值已收到 —— 正在更新余额。",
+      "returnCancelled": "支付已取消 —— 未向你收取任何费用。"
     },
     "modal": {
       "title": "设置",

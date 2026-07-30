@@ -1,8 +1,65 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-07-13
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 付款后跳回站内：`_return_urls`（取代下方 2026-07-05 的判断）
+
+线上 P0：用户在 agent.narra.nexus 付完款，Stripe 把他们丢到 NetMind 自己的
+结果页（一个陌生域名）。根因不是"跳转坏了"，而是**跳转目标从来不属于我们**
+—— Checkout Session 由 NetMind 创建，`success_url`/`cancel_url` 存在那个
+session 上，我们唯一的杠杆就是调用时把这两个字段递上去。
+
+`_return_urls(flow)` 生成这对 URL，落点 `/app/settings?tab=account&status=…&flow=…`
+（`subscription` / `topup`）。三条判断值得记：
+
+- **origin 只来自部署配置 `settings.public_base_url`，绝不来自请求头**。
+  支付 session 的跳转目标不能被调用方影响；而部署值本身已经可信，所以这里
+  **不需要**再叠一层 allowlist —— 那只是仪式，不是第二道防线。
+- **只接受 https + 公网 host，其余一律降级为不传**。判据全部来自实测，不是猜的
+  —— 猜错的代价是用户**根本付不了款**，装饰性的跳转永远不值这个（铁律 #16）：
+  - 非法 URL → 上游 500 `Failed to create Stripe checkout session`。
+  - **loopback / 私网 host → 上游边缘 HTML 403，任何 scheme 都拦**
+    （`https://localhost` 与 `http://192.168.x.x` 一样）。而我们的 client 把 403
+    映射成 `BillingAuthError`、路由再报 **401「NetMind token 无效或已过期」** ——
+    发出去不但毁掉付款，还会把锅甩给用户的登录状态。所以加了
+    `is_obviously_non_public_host` 这道筛（[[url_safety]]，同步、不做 DNS：付款
+    路由不该因为一次 DNS 抖动改变行为）。
+  - **注意「上游拒绝 http」是错的**：`http://example.com` 实测 200。坚持 https
+    的真实理由只有一条 —— Stripe **live 模式**对纯 http 回跳 URL 的行为我们没验，
+    而两边代价不对称（拒 http 只是让 http 自托管者少一个跳转；发了被 Stripe 拒
+    就是付款直接坏掉）。
+  - 推论：**`bash run.sh` 的本地用户同样拿不到回跳，但那是上游拦的，不是我们的
+    规则误伤** —— 即使我们发 `http://localhost:5173`，那一整个建 session 的调用
+    也会被 403 掉。
+- origin 用 `hostname` + `port` 重建，**不用 `netloc`** —— netloc 会带上
+  `user:pass@` 形式的 userinfo，而这个字符串要交给 NetMind 并存进 Stripe session，
+  等于把基础认证凭据泄露给两个第三方。正常取值下行为完全不变。
+- 于是**没配 `PUBLIC_BASE_URL` 的部署行为与修复前逐字节一致**（自托管、以及
+  桌面端——它的前端 origin 是 `tauri://localhost`，Stripe 根本跳不回去）。
+  云端把 `PUBLIC_BASE_URL` 设上是这个修复真正生效的开关，见 `.env.cloud.example`。
+
+`_write_action` 因此多了 `extra` 形参：只有 subscribe 需要这对 URL，
+cancel/reactivate 不开 Stripe checkout，把参数留在调用点而不是塞进 harness
+里，是让这条约束不会随手被破坏的原因（有测试钉住）。
+
+**下方 2026-07-05 条目中"success_url/cancel_url **deliberately NOT accepted**"
+的判断已被本次取代**：当时拒绝的是**从客户端 body 透传**未校验的跳转目标，
+那个判断至今有效且仍然成立 —— 现在的 URL 由后端自己算，从不接受客户端输入。
+
+### 上游行为（2026-07-30 dev 实测，两条链路都已验证）
+
+- **recharge**：合法 URL → 200 建新 session；非法 URL → 500
+  `Failed to create Stripe checkout session`。字段确实转交给 Stripe。
+- **subscribe**：本地 cloud 模式 + `PUBLIC_BASE_URL=https://agent.narra.nexus`
+  真实走完一次 test-mode 付款，浏览器**落回 agent.narra.nexus**，账号 free →
+  ACTIVE Pro。上游默认落地页是别的域名，所以这只可能来自我们传的 `success_url`。
+- **pending session 幂等窗口**：探测早期误判为长期问题。实测是 11:19–11:22 三次
+  不同 body 返回同一 session（那三次都没碰 Stripe），11:47 再调就建了带新 URL 的
+  session —— 窗口 3–25 分钟之间。**存量 pending 用户不会长期卡在旧落地页**；
+  只有几分钟内的连续重试会看到参数改动不生效。
+- 上游**不校验 URL 格式**，只当 str 收下 —— 合法性必须我们这侧兜完。
 
 ## 2026-07-13 — 门禁从"部署模式"改挂"power 轴"（本地双模式登录）
 

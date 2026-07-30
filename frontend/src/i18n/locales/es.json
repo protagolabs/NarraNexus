@@ -902,6 +902,11 @@
       "freeTierHowToSwitch": "La tarjeta «Free Tier» ya está conectada a tus ranuras de Agent y Helper. Para usar tu propia clave, añade un proveedor abajo y selecciónalo para la ranura Agent / Helper en Modelos predeterminados: surte efecto en tu siguiente mensaje.",
       "freeTierAnytime": "Puedes cambiar cuando quieras. No hace falta gastar antes el crédito gratuito, y cambiar no lo pierde: el saldo se conserva.",
       "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Pago recibido: lo estamos aplicando a tu cuenta.",
+      "returnTopupSuccess": "Recarga recibida: estamos actualizando tu saldo.",
+      "returnCancelled": "Pago cancelado: no se te ha cobrado nada."
     }
   },
   "system": {
