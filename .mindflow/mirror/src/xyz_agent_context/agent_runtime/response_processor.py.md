@@ -4,6 +4,14 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 独白子集同时上到 AgentThinking 消息本体
+
+两个 flush 点（batcher 阈值 flush + 残余 flush）把 `_take_pending_monologue()`
+改为**每次 flush 只 drain 一次**，同一份子集同时交给 `record_thinking`（state
+侧，进 final_output）和 `AgentThinking.monologue`（消息侧，供 [[run_collector]]
+拼 output_text）。此前独白只进 state，消息流上不可见——bus/IM 触发器只消费
+消息流，群聊回复因此丢失。展示流（thinking_content）逐字节不变（铁律 #16）。
+
 ## 2026-07-30 — pending tool_call 帧的三条纪律
 
 1. details 增带 `tool_call_id` + `pending`——前端按 tool_call_id 把 pending

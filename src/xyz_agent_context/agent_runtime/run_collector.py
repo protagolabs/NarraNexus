@@ -64,7 +64,9 @@ class RunCollection:
     """Result of consuming one ``AgentRuntime.run()`` invocation."""
 
     output_text: str = ""
-    """Concatenation of every ``AGENT_RESPONSE.delta`` in arrival order."""
+    """What the agent said, in arrival order: every ``AGENT_RESPONSE.delta``
+    plus every ``AGENT_THINKING.monologue`` segment (NexusPower's assistant
+    plain text, which streams as thinking under the monologue contract)."""
 
     tool_calls: list[str] = field(default_factory=list)
     """Names of tools invoked by the agent, in arrival order."""
@@ -146,6 +148,17 @@ async def collect_run(
             delta = getattr(msg, "delta", None)
             if delta:
                 text_parts.append(delta)
+        elif mt == MessageType.AGENT_THINKING:
+            # NexusPower parity: under the monologue/expression contract
+            # the agent's plain text streams as thinking with the
+            # ``monologue`` subset set — it IS the assistant text that the
+            # claude driver would have emitted as AGENT_RESPONSE. Relaying
+            # triggers (bus team rooms, IM inboxes) must see it in
+            # output_text. Provider CoT arrives with monologue="" and
+            # stays out.
+            monologue = getattr(msg, "monologue", "")
+            if monologue:
+                text_parts.append(monologue)
         elif mt == MessageType.TOOL_CALL:
             name = getattr(msg, "tool_name", None)
             if name:
