@@ -1127,11 +1127,16 @@ class LarkTrigger(ChannelTriggerBase):
                 )
                 err_text = f"{type(e).__name__}: {e}"
                 if _is_brand_mismatch_error(err_text):
-                    await self._handle_brand_mismatch(cred, err_text, ran_seconds)
-                    # Skip backoff/restart — the next watcher tick will
-                    # see auth_status not in AUTH_STATUSES_BOT_ACTIVE and
-                    # leave this credential alone until user re-binds.
-                    return
+                    if await self._handle_brand_mismatch(cred, err_text, ran_seconds):
+                        # Breaker closed (status landed): the next watcher
+                        # tick sees auth_status not in
+                        # AUTH_STATUSES_BOT_ACTIVE and leaves this
+                        # credential alone until the user re-binds.
+                        return
+                    # Write failed → the breaker did NOT trip and the
+                    # watcher WILL restart us. Fall through to the normal
+                    # backoff so the retry loop is never tighter than an
+                    # ordinary disconnect's.
                 backoff = _compute_next_backoff(
                     current=backoff,
                     ran_seconds=ran_seconds,
@@ -1165,8 +1170,14 @@ class LarkTrigger(ChannelTriggerBase):
 
     async def _handle_brand_mismatch(
         self, cred: LarkCredential, err_text: str, ran_seconds: float
-    ) -> None:
+    ) -> bool:
         """Trip the circuit breaker for a wrong-brand binding.
+
+        Returns whether the breaker actually closed (the status write
+        landed). The caller's skip-backoff shortcut is only sound on True:
+        on a failed write ``auth_status`` is still ``bot_ready``, the
+        watcher WILL restart this subscriber, and skipping backoff would
+        make that retry loop tighter than a normal disconnect's.
 
         Brand-mismatch detection (B.1 in the lark-binding-wizard work):
         re-trying a wrong-brand App ID hits the identical error every
@@ -1224,6 +1235,7 @@ class LarkTrigger(ChannelTriggerBase):
                 "next_backoff_seconds": 0,
             },
         )
+        return not persist_error
 
     async def _stop_subscriber(self, key: str) -> None:
         """Override base to clear bot_open_id cache (M-6)."""

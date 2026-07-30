@@ -37,6 +37,13 @@ typo just as likely:
   must not kill a subscriber — but previously a failed breaker looked
   identical to a tripped one in the audit trail, with the truth only in
   a log line nobody greps (incident lessons #3/#5).
+- **Skip-backoff is conditional on the write landing** (review round):
+  the handler returns whether the breaker actually closed. On a failed
+  write `auth_status` is still `bot_ready`, the watcher WILL restart the
+  subscriber on its next 10s tick — so the loop falls through to normal
+  backoff instead of returning, otherwise the "already tripped" shortcut
+  makes the retry loop TIGHTER than an ordinary disconnect's (the exact
+  hot-restart shape of the original incident, gated on write failure).
 
 Deliberately NOT done: re-raising programming errors from that `except`.
 Tests catch them before prod, audit rows catch them in prod; making a

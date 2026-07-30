@@ -206,3 +206,28 @@ def test_ordinary_disconnect_is_not_a_brand_mismatch():
     assert not _is_brand_mismatch_error("Exception: code: 1000040350, msg: x")
     assert not _is_brand_mismatch_error("TimeoutError: ws handshake timed out")
     assert not _is_brand_mismatch_error("")
+
+
+@pytest.mark.asyncio
+async def test_handler_reports_whether_the_breaker_actually_closed(
+    db_client, monkeypatch
+):
+    """The caller's skip-backoff shortcut is only sound when the status
+    landed in the DB — the handler must SAY whether it did (review round on
+    PR #202: a failed write left auth_status=bot_ready, so the watcher
+    restarted the subscriber every poll tick, i.e. the exact hot-restart
+    loop this breaker exists to stop, just gated on a write failure)."""
+    t = _make_trigger(db_client)
+    cred = await _save_bound_credential(db_client)
+
+    assert await t._handle_brand_mismatch(cred, WRONG_DOMAIN_ERR, ran_seconds=1.2) is True
+
+    async def _boom(self, agent_id, status):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(LarkCredentialManager, "update_auth_status", _boom)
+    cred2 = await _save_bound_credential(db_client, agent_id="a2")
+    assert (
+        await t._handle_brand_mismatch(cred2, WRONG_DOMAIN_ERR, ran_seconds=1.2)
+        is False
+    )
