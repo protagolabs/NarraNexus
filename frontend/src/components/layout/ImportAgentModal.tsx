@@ -40,6 +40,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, Button, Input } from '@/components/ui';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { FRAMEWORK_LABELS as FRAMEWORK_LABEL, FRAMEWORK_ORDER } from '@/lib/migrationLabels';
 import type {
   FrameworkDetection,
   MigrationFramework,
@@ -55,22 +56,6 @@ export interface ImportAgentModalProps {
   onApplied: (result: MigrationApplyResult) => void;
 }
 
-const FRAMEWORK_LABEL: Record<string, string> = {
-  claude_code: 'Claude Code',
-  hermes: 'Hermes',
-  openclaw: 'OpenClaw',
-  codex: 'Codex',
-  custom: 'Custom',
-};
-
-// Stable order for the framework list.
-const FRAMEWORK_ORDER: MigrationFramework[] = [
-  'claude_code',
-  'openclaw',
-  'codex',
-  'hermes',
-  'custom',
-];
 
 /** Claude Code enumerates one detection per project — suffix the project's
  *  folder name so the repeated "Claude Code" rows are distinguishable. */

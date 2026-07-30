@@ -44,8 +44,7 @@ counts.
   fields create doesn't set → `save_narrative_to_db`. NO agent loop, NO embeddings
   (routing is BM25). The session's turns are `MemoryEngine.retain`'d as
   `observation`/`experience` records `scope_type=narrative`, `scope_id=<narrative>`
-  — so imported history is searchable and bound to its thread. Replaces the dead
-  `narrative_instruction` path (nothing ever consumed it).
+  — so imported history is searchable and bound to its thread.
 - Every write is best-effort (per-item try/except) so one failure doesn't abort the
   rest; the result records what landed.
 

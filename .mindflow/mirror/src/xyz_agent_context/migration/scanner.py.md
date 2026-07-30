@@ -18,4 +18,5 @@ home locations) and `scan(path, framework)` (detect → extract → assemble a
   classification (still uses the detected path). Raises `FileNotFoundError` when
   nothing is detected and no path is given — the route maps that to 404.
 - Extraction is delegated to `extractors.extract` which returns a 6-tuple incl.
-  the `session_summary_seed`; scanner just packs it into the schema. No writes.
+  `sessions` (`List[MigrationSession]`); scanner just packs it into the schema.
+  No writes.

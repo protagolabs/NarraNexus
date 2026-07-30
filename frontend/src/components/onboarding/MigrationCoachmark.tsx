@@ -8,7 +8,7 @@
  * Anchors to the `data-help-id="sidebar.create-agent"` element the same way the
  * HelpOverlay does (querySelector + getBoundingClientRect), and portals to body
  * so it is never clipped by the sidebar scroll container. Stays until the user
- * clicks it away ("挂到点掉"). Expanded-sidebar only for now — if the anchor is
+ * clicks it away (no auto-fade). Expanded-sidebar only for now — if the anchor is
  * absent (collapsed rail) it simply renders nothing.
  */
 
@@ -24,19 +24,30 @@ export function MigrationCoachmark({ onDismiss }: { onDismiss: () => void }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
+    let intervalId = 0;
     const measure = () => {
       const el = document.querySelector(ANCHOR) as HTMLElement | null;
       const r = el?.getBoundingClientRect() ?? null;
       // Ignore a zero-size / offscreen anchor (collapsed sidebar, not mounted yet).
-      setRect(r && r.width > 0 && r.height > 0 ? r : null);
+      const next = r && r.width > 0 && r.height > 0 ? r : null;
+      setRect((prev) => {
+        // Skip a redundant render if the geometry is unchanged.
+        if (prev && next && prev.top === next.top && prev.right === next.right) return prev;
+        return next;
+      });
+      // The interval exists only to win the sidebar-mount race — stop polling
+      // once we have a real anchor (resize keeps it fresh afterwards).
+      if (next && intervalId) {
+        window.clearInterval(intervalId);
+        intervalId = 0;
+      }
     };
     measure();
     window.addEventListener('resize', measure);
-    // The sidebar may mount/relayout after us; re-measure briefly.
-    const id = window.setInterval(measure, 500);
+    intervalId = window.setInterval(measure, 500);
     return () => {
       window.removeEventListener('resize', measure);
-      window.clearInterval(id);
+      if (intervalId) window.clearInterval(intervalId);
     };
   }, []);
 
@@ -63,7 +74,9 @@ export function MigrationCoachmark({ onDismiss }: { onDismiss: () => void }) {
         style={{ left: -5, top: '50%', marginTop: -4 }}
       />
       <div className="text-xs text-[var(--nm-ink)]">
-        {t('onboarding.migrationCoachmark.text')}
+        {t('onboarding.migrationCoachmark.text', {
+          action: t('layout.createMenu.importAgent'),
+        })}
       </div>
       <button
         onClick={onDismiss}

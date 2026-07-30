@@ -53,3 +53,41 @@ def test_scan_missing_source_404(tmp_path, monkeypatch):
     monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
     r = _client().post("/api/migrate/scan", json={})  # empty home, no path
     assert r.status_code == 404
+
+
+_MIN_IMPORT = {
+    "schema_version": "1.0",
+    "source": {"framework": "claude_code", "detected_path": "/x", "detection_confidence": "high"},
+    "agent": {"name": "A", "system_prompt": "hi", "description": ""},
+}
+
+
+def test_apply_blocked_on_cloud(monkeypatch):
+    # Agent Migration is desktop/local only — apply must 503 on cloud too.
+    monkeypatch.setattr(mig, "is_cloud_mode", lambda: True)
+    r = _client().post("/api/migrate/apply", json={"import_data": _MIN_IMPORT})
+    assert r.status_code == 503
+    assert "migration_local_only" in r.json()["detail"]
+
+
+def test_apply_rejects_foreign_agent_id(monkeypatch):
+    # Reusing an agent you don't own must 403 (IDOR): the agent_id is
+    # attacker-controlled, so ownership is verified before any write.
+    monkeypatch.setattr(mig, "is_cloud_mode", lambda: False)
+
+    async def _uid(_request):
+        return "attacker"
+    class _DB:
+        async def get_one(self, table, filt):
+            return {"agent_id": filt["agent_id"], "created_by": "victim"}
+    async def _db():
+        return _DB()
+    monkeypatch.setattr(mig, "resolve_current_user_id", _uid)
+    monkeypatch.setattr(mig, "get_db_client", _db)
+
+    r = _client().post(
+        "/api/migrate/apply",
+        json={"import_data": _MIN_IMPORT, "agent_id": "agent_victim123"},
+    )
+    assert r.status_code == 403
+    assert "do not own" in r.json()["detail"]

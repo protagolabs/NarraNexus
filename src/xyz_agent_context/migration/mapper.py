@@ -9,8 +9,8 @@ Pure + side-effect-free: `build_plan(StandardizedAgentImport) -> MigrationPlan`
 turns the scanner's framework-agnostic JSON into the exact operations a consumer
 executes:
 - Awareness  ← agent.system_prompt (the imported persona/instructions)
-- General Memory ← memory[]  (written via the `memory_retain` MCP tool)
-- Skills     ← skills[]      (name-matched against the Skill Marketplace)
+- General Memory ← memory[]  (applier writes via MemoryEngine.retain)
+- Skills     ← skills[]      (local copy, else name-matched marketplace install)
 - MCP        ← mcp_servers[] transport=url  (importable now via the mcp API);
               transport=stdio deferred to local-mode wiring (v1.1)
 - Narrative  ← sessions[]  (one PlannedNarrative per session; the consumer

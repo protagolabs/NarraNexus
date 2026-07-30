@@ -93,6 +93,16 @@ async def apply(request: Request, payload: ApplyRequest) -> dict:
     _require_local_or_raise()
     user_id = await resolve_current_user_id(request)
     db = await get_db_client()
+    # When reusing an existing agent, `agent_id` is attacker-controlled input —
+    # verify the caller OWNS it, or importing overwrites another user's Awareness
+    # / injects memory/skills/MCP into their agent (IDOR). Mirrors the ownership
+    # check in home_assistant / lark routes.
+    if payload.agent_id:
+        agent = await db.get_one("agents", {"agent_id": payload.agent_id})
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {payload.agent_id} not found.")
+        if user_id and agent.get("created_by") != user_id:
+            raise HTTPException(status_code=403, detail="Permission denied: you do not own this agent.")
     plan = build_plan(payload.import_data)
     result = await apply_plan(db, user_id, plan, agent_id=payload.agent_id)
     return result.model_dump()

@@ -133,6 +133,20 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_copy_local_skill_rejects_path_traversal(workspace, tmp_path):
+    # A crafted skill name must not escape skills/ (it is rmtree'd + copytree'd,
+    # so a `../..` name could delete/overwrite arbitrary dirs).
+    from xyz_agent_context.migration.applier import _copy_local_skill
+    src = tmp_path / "s"
+    src.mkdir()
+    (src / "SKILL.md").write_text("x", encoding="utf-8")
+    for bad in ("../evil", "a/b", "..", "/abs"):
+        assert await _copy_local_skill("agent_x", "user_x", bad, str(src)) is False
+    # a plain name still works
+    assert await _copy_local_skill("agent_x", "user_x", "good", str(src)) is True
+
+
+@pytest.mark.asyncio
 async def test_apply_no_local_source_marks_unmatched(db_client, workspace, monkeypatch):
     # a skill with no local_path and a marketplace that returns nothing → unmatched
     imp = StandardizedAgentImport(

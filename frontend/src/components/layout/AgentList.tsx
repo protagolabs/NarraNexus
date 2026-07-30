@@ -22,7 +22,7 @@ import { Button, useConfirm } from '@/components/ui';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
 import { useConfigStore, useChatStore, useTeamsStore, useRuntimeStore } from '@/stores';
-import { useCreateAgent } from '@/hooks';
+import { useCreateAgent, useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
@@ -275,14 +275,9 @@ export function AgentList({ collapsed }: AgentListProps) {
   // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
   const isLocalMode = useRuntimeStore((s) => s.mode) === 'local';
 
-  // After a successful migrate/apply: refresh the agent list (the new agent was
-  // created server-side) and select it, mirroring useCreateAgent's wiring.
-  const handleImportApplied = async (result: { agent_id: string }) => {
-    await refreshAgents();
-    setAgentId(result.agent_id);
-    setActiveAgent(result.agent_id);
-    navigate('/app/chat');
-  };
+  // After a successful migrate/apply: refresh the agent list + select the new
+  // agent. Shared with the guided-flow entry point so they can't drift.
+  const handleImportApplied = useAgentImported();
 
   // #43: create a new agent already assigned to this team, then open the
   // team's group chat so the membership change is immediately visible. The

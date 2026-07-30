@@ -2270,7 +2270,7 @@
       "later": "以后再说"
     },
     "migrationCoachmark": {
-      "text": "想导入的话，点“+” → Create Agent (from other source)。",
+      "text": "想导入的话，点“+” → {{action}}。",
       "gotIt": "知道了"
     }
   }

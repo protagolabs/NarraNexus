@@ -169,10 +169,22 @@ async def _awareness_instance_id(db, agent_id: str) -> Optional[str]:
 
 
 async def _copy_local_skill(agent_id: str, user_id: str, name: str, src: str) -> bool:
+    # `name` comes from an editable import payload — keep it a SINGLE safe path
+    # segment so it can never traverse out of skills/ (the dest is then rmtree'd
+    # + copytree'd, so a `../..` name would delete/overwrite arbitrary dirs).
+    safe = Path(name).name
+    if not safe or safe in (".", "..") or safe != name:
+        logger.warning(f"[migrate.apply] refusing unsafe skill name: {name!r}")
+        return False
     src_path = Path(src).expanduser()
     if not src_path.is_dir():
         return False
-    dest = agent_workspace_path(agent_id, user_id) / "skills" / name
+    skills_root = (agent_workspace_path(agent_id, user_id) / "skills").resolve()
+    dest = (skills_root / safe).resolve()
+    # Defense-in-depth: the resolved dest must stay under skills_root.
+    if dest.parent != skills_root:
+        logger.warning(f"[migrate.apply] skill dest escaped skills/: {dest}")
+        return False
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)

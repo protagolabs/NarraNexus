@@ -26,8 +26,6 @@ plan, then execute it their own way.
 - `mcp_url_servers` vs `mcp_stdio_servers`: url is importable now (mcp API);
   stdio is captured but deferred to local-mode wiring (v1.1) — surfaced so the
   user sees it.
-- `narrative_instruction` (from the legacy `session_summary_seed`) is
-  **transitional / unused** — being removed once the applier reads `narratives`
-  instead (step E). No consumer today.
 - `warnings`: plaintext-secret fields, stdio-not-imported, unmapped files,
-  credential keys not imported, custom-framework caution — for the preview UI.
+  credential keys not imported, a note of how many sessions become Narratives,
+  custom-framework caution — for the preview UI.

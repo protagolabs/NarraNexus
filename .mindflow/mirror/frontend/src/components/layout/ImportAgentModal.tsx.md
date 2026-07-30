@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/ImportAgentModal.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -44,11 +44,12 @@ preview → source → framework.
   preview stage — the scan is a pure read, so "Back" simply discards it.
 - **Plaintext-credential warning** is surfaced when any MCP server has
   `secret_fields` (Owner decision: carry MCP creds, show them, warn).
-- **Narrative is not imported** — the preview only *notes* that the agent will
-  self-author a Narrative from `session_summary_seed` on first run.
-- On success, delegates store wiring to the parent via `onApplied(result)`
-  (AgentList refreshes the agent list + selects the new agent) — same pattern
-  as `useCreateAgent`, so the two create paths don't drift.
+- **Sessions → Narratives**: the preview lists the scanned sessions with
+  checkboxes; on apply each selected session becomes a Narrative (summarized by
+  the applier), so the preview only *notes* the count, it doesn't run the LLM.
+- On success, delegates store wiring to the parent via `onApplied(result)` (the
+  shared `useAgentImported` hook: refresh + select the new agent) — same wiring
+  the sidebar Import path uses, so they don't drift.
 
 ## Gotchas
 

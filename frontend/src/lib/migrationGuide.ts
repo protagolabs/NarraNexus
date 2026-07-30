@@ -14,7 +14,7 @@
  *   coachmarkPending  — user dismissed the modal via Later/X → point them at "+".
  *   coachmarkDone     — user dismissed the coach-mark → gone for good.
  * The coach-mark shows while (welcomed && coachmarkPending && !coachmarkDone), so
- * it survives reloads until explicitly clicked away ("挂到点掉").
+ * it survives reloads until explicitly clicked away.
  */
 
 export interface MigrationGuideState {

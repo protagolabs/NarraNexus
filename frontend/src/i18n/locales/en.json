@@ -2270,7 +2270,7 @@
       "later": "Later"
     },
     "migrationCoachmark": {
-      "text": "Want to import later? Use “+” → Create Agent (from other source).",
+      "text": "Want to import later? Use the “+” → {{action}}.",
       "gotIt": "Got it"
     }
   }

@@ -24,18 +24,20 @@ scan-source-dirs → detect-framework → extract-by-file pattern.
   persona/memory under `workspace/`. Also flags which MCP fields carry secrets
   (`secret_fields`) — secrets hide in args/url too, not just env/headers.
 - `scanner.py` — public `detect()` / `scan()` → StandardizedAgentImport. Adds the
-  Claude **session** layer (`~/.claude/projects/<encoded-cwd>/*.jsonl` →
-  `session_summary_seed`) — Hermes ignores sessions; this is our differentiator.
+  Claude **session** layer (`~/.claude/projects/<encoded-cwd>/*.jsonl` → one
+  `MigrationSession` per session) — Hermes ignores sessions; this is our
+  differentiator.
 - `mapper.py` — the **convert** step: `build_plan(StandardizedAgentImport) →
-  MigrationPlan` (awareness / memory / skill-names / url-vs-stdio MCP split /
-  narrative self-summarize instruction / warnings). Pure; both Import Button and
-  Migration Skill build the same plan.
+  MigrationPlan` (awareness / memory / skills / per-session `narratives` /
+  url-vs-stdio MCP split / warnings). Pure; both consumers build the same plan.
 
 ## Write-path note
-The plan's memory writes go through the new `memory_retain` MCP tool
-(GeneralMemoryModule) — added because General Memory previously had only read
-tools. Awareness → `update_awareness`; skills → `skill_install`; narrative → the
-agent self-authors via `create_narrative` from `session_summary_seed`.
+`applier.apply_plan` executes the plan directly (no HTTP, no agent loop):
+Awareness → `InstanceAwarenessRepository.upsert`; General Memory + imported
+session turns → `MemoryEngine.retain`; skills → verbatim copy or Skill
+Marketplace install; url-MCP → `MCPRepository.add_mcp`; each session → a Narrative
+via `NarrativeService` (summarized by one helper_llm call). No embeddings —
+narrative routing is BM25.
 
 ## Local-only
 Reached via `backend/routes/migrate.py` (`/api/migrate/*`), which is **disabled
