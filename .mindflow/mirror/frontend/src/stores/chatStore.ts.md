@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — stopStreaming 存 segments
+
+助手消息落定时除 `timeline` 外再挂 `segments = segmentTurn(currentEvents)`
+——MessageBubble 据此把一轮渲染成 agent 实际说话的 m 次。`content` 仍是
+join('\n\n') 全文：通知、复制、搜索的纯文本载体，也是老消息的兜底。
+
+## 2026-07-30 — pending tool_call 按 tool_call_id 原地替换
+
+工具名先到（参数还在流式生成）时后端发一条 `pending=true` 的
+tool_call；参数齐了再发同 `tool_call_id` 的完整事件。store 在
+`currentEvents` **和** `currentToolCalls` 里都按 `tool_call_id` 找到
+pending 条目原地覆盖（保留原 event id，React 不重挂行）。
+
+替换不是装饰性的：`currentToolCalls` 是 stopStreaming 提取用户可见
+回复的数据源，pending 条目若和完整版并存，会往轮次内容里注入一个
+空回复段——表现为一条凭空的空白消息。
 
 ## 2026-07-29 — reply-delta 增长气泡 + plan 原地替换
 

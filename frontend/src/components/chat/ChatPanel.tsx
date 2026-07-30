@@ -33,7 +33,9 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { TurnTimeline } from './TurnTimeline';
+import { ProcessPanel } from './ProcessPanel';
+import { SegmentedReply } from './SegmentedReply';
+import { segmentTurn } from '@/lib/segmentTurn';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
@@ -1092,7 +1094,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <TurnTimeline events={currentEvents} isStreaming />
+              {/* Live view shows answers only: the process is in the
+                  ProcessPanel above the composer. Painting it here too
+                  would render the same thinking/tools twice. */}
+              <SegmentedReply
+                segments={segmentTurn(currentEvents)}
+                isStreaming
+              />
               {/* Mid-stream artifact preview is independent of the timeline:
                   it surfaces created/uploaded artifacts inline as soon as
                   their tool_output lands, without waiting for the whole
@@ -1262,6 +1270,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
+        {/* While the agent works, the process lives here; answers live
+            in the bubbles above. Mounted only while streaming — when the
+            turn ends the process folds back into each reply's bubble
+            (lib/segmentTurn), so unmounting the panel loses nothing. */}
+        {isStreaming && <ProcessPanel events={currentEvents} />}
+
         <div className="relative" data-help-id="chat.composer">
           <Composer
             key={agentId ?? '__none__'}

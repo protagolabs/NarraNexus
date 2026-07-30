@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_RESULT,
     TYPE_TOOL_USE,
+    TYPE_TOOL_USE_START,
     TYPE_TURN_DONE,
     EndReason,
     LedgerEntry,
@@ -129,8 +130,22 @@ class TurnLedger:
                     usage=usage,
                 )
             ]
-        # tool_use_start / arg_delta carry no ledger state in v1; the loop
-        # forwards argument-field deltas via record_arg_field_delta.
+        if kind == "tool_use_start":
+            # Name-first: tell the UI immediately instead of letting the
+            # screen sit blank while the arguments stream. No ledger
+            # state — the truth lands with the subsequent tool_use.
+            return [
+                self._emit(
+                    "ui",
+                    TYPE_TOOL_USE_START,
+                    {
+                        "call_id": str(ev.payload.get("call_id", "")),
+                        "tool_name": str(ev.payload.get("tool_name", "")),
+                    },
+                )
+            ]
+        # arg_delta carries no ledger state in v1; the loop forwards
+        # argument-field deltas via record_arg_field_delta.
         return []
 
     def record_arg_field_delta(

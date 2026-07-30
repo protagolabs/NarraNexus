@@ -24,6 +24,7 @@ import type {
 } from '@/types';
 import { generateId } from '@/lib/utils';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
+import { segmentTurn } from '@/lib/segmentTurn';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -375,6 +376,14 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // therefore a normal history bubble from the moment it settles —
           // no separate flat-rendered "last turn" zone.
           timeline: session.currentEvents.length > 0 ? [...session.currentEvents] : undefined,
+          // Cut the same events into segments: MessageBubble renders this
+          // one record as the m things the agent actually said, each with
+          // its own process. content keeps the joined full text —
+          // notifications, copy and search still want one plain-text
+          // carrier, and it is the fallback for older messages.
+          segments: session.currentEvents.length > 0
+            ? segmentTurn(session.currentEvents)
+            : undefined,
         };
 
         // Mark all running steps as completed
@@ -484,12 +493,30 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 tool_name: toolName,
                 tool_input: args,
                 step: progress.step,
+                // Replacement key: the pending and completed forms share one tool_call_id.
+                tool_call_id: (progress.details?.tool_call_id as string | undefined),
               };
-              const exists = session.currentToolCalls.some(
+              // A name-first pending entry must be replaced IN PLACE by the
+              // completed call — never kept as a second row. currentToolCalls
+              // is the reply-extraction source (stopStreaming picks
+              // send_message_to_user_directly content out of it), so a
+              // duplicate with empty arguments would inject an empty reply
+              // segment.
+              const callId = (progress.details?.tool_call_id as string | undefined);
+              const sameCallIdx = callId
+                ? session.currentToolCalls.findIndex(
+                    (t) => (t as AgentToolCall & { tool_call_id?: string }).tool_call_id === callId,
+                  )
+                : -1;
+              const exists = sameCallIdx < 0 && session.currentToolCalls.some(
                 (t) => t.tool_name === toolCall.tool_name && t.timestamp === toolCall.timestamp
               );
+              if (sameCallIdx >= 0) {
+                newToolCalls = [...session.currentToolCalls];
+                newToolCalls[sameCallIdx] = toolCall;
+              }
               if (!exists) {
-                newToolCalls = [...session.currentToolCalls, toolCall];
+                if (sameCallIdx < 0) newToolCalls = [...session.currentToolCalls, toolCall];
 
                 // Inline timeline: a send_message_to_user_directly tool
                 // call carries the agent's actual reply in its content
@@ -529,14 +556,26 @@ export const useChatStore = create<ChatState>((_set, get) => {
                     });
                   }
                 } else {
-                  newEvents.push({
+                  // One row per call: the pending form lands first and the
+                  // completed form overwrites it by tool_call_id (the event id
+                  // is preserved so React updates the row instead of
+                  // remounting it).
+                  const pendingIdx = callId
+                    ? newEvents.findIndex(
+                        (e) => e.type === 'tool_call' && e.tool_call_id === callId,
+                      )
+                    : -1;
+                  const nextCall: TurnEvent = {
                     type: 'tool_call',
-                    id: generateId(),
+                    id: pendingIdx >= 0 ? newEvents[pendingIdx].id : generateId(),
                     ts: progress.timestamp,
                     tool_name: toolName,
                     tool_input: args,
-                    tool_call_id: (progress.details?.tool_call_id as string | undefined),
-                  });
+                    tool_call_id: callId,
+                    pending: !!progress.details?.pending,
+                  };
+                  if (pendingIdx >= 0) newEvents[pendingIdx] = nextCall;
+                  else newEvents.push(nextCall);
                 }
               }
             } else if (outputStr !== undefined) {

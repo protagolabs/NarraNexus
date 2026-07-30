@@ -233,25 +233,28 @@ class NexusPowerLoop:
                 await stream.aclose()
                 break
             kind = model_event.kind
-            if kind == "tool_use_start" and a.include_arg_deltas:
-                index = int(model_event.payload.get("call_index", 0))
-                name = str(model_event.payload.get("tool_name", ""))
-                spec = a.tools.spec_for(name)
-                fields = spec.annotations.streamable_fields if spec else ()
-                # An expression tool's streamed argument IS the reply
-                # being written — the adapter promotes those fragments
-                # to reply deltas so the user reads it live.
-                expressive = a.expression.is_expressive(name)
-                if not fields and expressive:
-                    fields = a.reply_fields
-                if fields:
-                    extractors[index] = StreamingArgExtractor(index, tuple(fields))
-                    stream_meta[index] = (
-                        str(model_event.payload.get("call_id", "")),
-                        name,
-                        expressive,
-                    )
-                continue
+            if kind == "tool_use_start":
+                if a.include_arg_deltas:
+                    index = int(model_event.payload.get("call_index", 0))
+                    name = str(model_event.payload.get("tool_name", ""))
+                    spec = a.tools.spec_for(name)
+                    fields = spec.annotations.streamable_fields if spec else ()
+                    # An expression tool's streamed argument IS the reply
+                    # being written — the adapter promotes those fragments
+                    # to reply deltas so the user reads it live.
+                    expressive = a.expression.is_expressive(name)
+                    if not fields and expressive:
+                        fields = a.reply_fields
+                    if fields:
+                        extractors[index] = StreamingArgExtractor(index, tuple(fields))
+                        stream_meta[index] = (
+                            str(model_event.payload.get("call_id", "")),
+                            name,
+                            expressive,
+                        )
+                # No continue: the event also reaches the ledger, which
+                # emits the name-first ui event so the frontend can show
+                # "using X" before the arguments finish streaming.
             if kind == "arg_delta":
                 index = int(model_event.payload.get("call_index", 0))
                 extractor = extractors.get(index)

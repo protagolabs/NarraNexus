@@ -235,7 +235,13 @@
       "downloadTitle": "Download {{name}}"
     },
     "dateToday": "Today",
-    "dateYesterday": "Yesterday"
+    "dateYesterday": "Yesterday",
+    "segment": {
+      "details": "Reasoning & tools"
+    },
+    "process": {
+      "plan": "Plan"
+    }
   },
   "awareness": {
     "common": {

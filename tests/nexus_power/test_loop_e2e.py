@@ -25,6 +25,7 @@ from xyz_agent_context.agent_framework.loop.events import (
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_TOOL_ARG_DELTA,
+    TYPE_TOOL_USE_START,
     TYPE_TOOL_RESULT,
     TYPE_TURN_DONE,
     Usage,
@@ -213,10 +214,12 @@ async def test_expression_arg_stream_becomes_the_user_reply():
     assert "".join(r["delta"] for r in replies) == "Hello!"
     assert {r["call_id"] for r in replies} == {"c1"}
     assert {r["tool_name"] for r in replies} == {"mcp__chat__reply"}
-    # The authoritative tool_call still follows with the same text.
+    # The authoritative (non-pending) tool_call still follows with the
+    # same text; the name-first pending item precedes it by design.
     call = next(
         d["item"] for d in legacy
         if d.get("item", {}).get("type") == ITEM_TYPE_TOOL_CALL
+        and not d["item"].get("pending")
     )
     assert call["arguments"]["content"] == "Hello!"
 
@@ -487,3 +490,53 @@ async def test_tool_channel_exception_still_produces_a_paired_result():
     called = [c["id"] for m in messages if m.get("tool_calls") for c in m["tool_calls"]]
     answered = [m.get("tool_call_id") for m in messages if m.get("role") == "tool"]
     assert called and set(called) == set(answered)
+
+
+def _use_start(cid, name, index=0):
+    return ModelEvent(kind="tool_use_start", content_index=index,
+                      payload={"call_index": index, "call_id": cid,
+                               "tool_name": name})
+
+
+@pytest.mark.asyncio
+async def test_tool_name_reaches_the_ui_before_arguments_finish():
+    """The arguments stream, so the name is known well before the call
+    completes — the UI should be able to show "using bash" immediately.
+
+    Without this event the frontend learns the tool name only at
+    tool_use (arguments complete), leaving a dead window on a long
+    argument stream where the agent is busy but the screen says nothing.
+    """
+    model = FakeModel([
+        [_use_start("c1", "bash"), _text("thinking"),
+         _use("c1", "bash", {"command": "ls"}), _done()],
+        [_done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    starts = [e for e in events if e.type == TYPE_TOOL_USE_START]
+    assert len(starts) == 1
+    assert starts[0].payload["tool_name"] == "bash"
+    assert starts[0].payload["call_id"] == "c1"
+    assert starts[0].track == "ui"
+
+
+def test_adapter_maps_tool_use_start_to_a_pending_tool_call():
+    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+        LoopEvent,
+    )
+
+    out = LegacyEventAdapter().translate(
+        LoopEvent(seq=0, track="ui", type=TYPE_TOOL_USE_START,
+                  payload={"call_id": "c1", "tool_name": "bash"})
+    )
+    assert len(out) == 1
+    item = out[0]["item"]
+    assert item["type"] == ITEM_TYPE_TOOL_CALL
+    assert item["tool_name"] == "bash"
+    assert item["tool_call_id"] == "c1"
+    assert item["pending"] is True
+    # Same key as the completed call ("arguments", the legacy contract),
+    # so consumers replace by tool_call_id without a special shape.
+    assert item["arguments"] == {}

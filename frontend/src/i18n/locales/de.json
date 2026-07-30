@@ -191,7 +191,13 @@
       }
     },
     "dateToday": "Heute",
-    "dateYesterday": "Gestern"
+    "dateYesterday": "Gestern",
+    "segment": {
+      "details": "Denkprozess & Tools"
+    },
+    "process": {
+      "plan": "Plan"
+    }
   },
   "awareness": {
     "common": {

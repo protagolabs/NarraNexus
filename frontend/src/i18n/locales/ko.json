@@ -191,7 +191,13 @@
       }
     },
     "dateToday": "오늘",
-    "dateYesterday": "어제"
+    "dateYesterday": "어제",
+    "segment": {
+      "details": "추론 및 도구"
+    },
+    "process": {
+      "plan": "플랜"
+    }
   },
   "awareness": {
     "common": {

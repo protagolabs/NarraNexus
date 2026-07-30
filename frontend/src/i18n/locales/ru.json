@@ -193,7 +193,13 @@
       }
     },
     "dateToday": "Сегодня",
-    "dateYesterday": "Вчера"
+    "dateYesterday": "Вчера",
+    "segment": {
+      "details": "Рассуждения и инструменты"
+    },
+    "process": {
+      "plan": "План"
+    }
   },
   "awareness": {
     "common": {

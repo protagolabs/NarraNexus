@@ -235,7 +235,13 @@
       "downloadTitle": "下载 {{name}}"
     },
     "dateToday": "今天",
-    "dateYesterday": "昨天"
+    "dateYesterday": "昨天",
+    "segment": {
+      "details": "推理与工具"
+    },
+    "process": {
+      "plan": "计划"
+    }
   },
   "awareness": {
     "common": {

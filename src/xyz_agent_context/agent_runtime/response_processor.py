@@ -613,6 +613,15 @@ class ResponseProcessor:
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
             arguments = item.get("arguments", {})
+            # Name-first frame: the tool's name arrived before its
+            # arguments finished streaming. Ship it so the UI can show
+            # "using X" immediately — but for a user-reply tool drop it:
+            # that reply already streams live via reply deltas, and an
+            # empty-argument reply frame would inject a stray empty
+            # bubble into the turn's content.
+            pending = bool(item.get("pending"))
+            if pending and _looks_like_user_reply_tool(tool_name):
+                return
             # Strip OpenAI Responses-API citation tokens from reply
             # tools' content args. This is the LIVE-STREAMING path —
             # the cleaned arguments end up in the ProgressMessage we
@@ -642,10 +651,18 @@ class ResponseProcessor:
                     details={
                         "display": tool_display,
                         "tool_name": tool_name,
-                        "arguments": arguments
+                        "arguments": arguments,
+                        # The frontend replaces a pending row in place when
+                        # the completed call lands, keyed by tool_call_id —
+                        # so both frames must carry it.
+                        "tool_call_id": tool_call_id,
+                        "pending": pending,
                     }
                 ),
-                state_update={
+                # Only the completed call records: the pending frame is a
+                # display-only preview, and recording both would double
+                # the step count and the persisted timeline.
+                state_update=None if pending else {
                     "method": "record_tool_call",
                     "args": {
                         "tool_name": tool_name,
