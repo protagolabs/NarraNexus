@@ -4,6 +4,13 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — sync-defaults 的 netmind_free 分支（PR #204）
+
+`netmind_free` 不再落进 out-of-scope 的「追加目录默认」分支（那正是 review
+点名的第三个失控写入方）：按钮现在从 DB-first ledger 的 netmind_free 条目取
+`passing_models` 按协议**覆写** free 行；条目缺失=门从未在此环境跑过，则不动
+卡（不追加未过门的默认，等夜间 pass）。
+
 ## 2026-07-30 — sync-defaults 与 daily runner 共用 ledger 纪律
 
 Update models 按钮改为：DB 优先加载 ledger、带 suspects 调 `sync_source`、
