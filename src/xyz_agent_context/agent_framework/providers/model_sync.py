@@ -4,10 +4,12 @@
 @date: 2026-06-24
 @description: Auto-discover provider models — fetch each aggregator's catalog,
 probe which models actually answer per protocol (openai / anthropic), and
-overwrite the per-(source, protocol) model lists. Dedup via the committed
-ledger ([[model_probe_ledger]]): only NEW models are probed each run; models
-that already PASSED are trusted; models that previously FAILED are re-probed
-(they can flip when the backend adds support).
+overwrite the per-(source, protocol) model lists. Dedup via the ledger
+([[model_probe_ledger]]): NEW models are probed each run; models that
+previously FAILED are re-probed (they can flip when the backend adds support);
+models that PASSED are trusted only within a TTL — stale entries and
+runtime-reported suspects are revalidated (capped per run, oldest first) and
+flip pass -> fail ONLY on a definitive model error, never on transient noise.
 
 In scope (catalog + dual-protocol probe): netmind (+ system_pool, same backend),
 openrouter, yunwu. Out of scope: claude_oauth / codex_oauth (CLI, self-track),
@@ -21,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -41,9 +43,46 @@ _PROBE_CONCURRENCY = 8
 _PROBE_TIMEOUT = 60.0
 _CATALOG_TIMEOUT = 30.0
 
+# Stale-PASS revalidation: a pass verdict is trusted for this long, then the
+# model re-enters the probe queue (oldest first, capped per run so a daily pass
+# spreads the load instead of re-probing the whole catalog at once).
+_REPROBE_TTL = timedelta(days=7)
+_REVALIDATE_CAP = 80
+
+# Probe verdicts. Only a definitive model-level rejection may flip an
+# established PASS to FAIL — transient noise (rate limits, upstream blips,
+# key/balance trouble) must never empty user dropdowns.
+PROBE_OK = "ok"
+PROBE_MODEL_ERROR = "model_error"
+PROBE_TRANSIENT = "transient"
+
+# Statuses that mean "this model does not exist / is not served here" as
+# opposed to "the backend or key is having a moment". 402 (billing) and 429
+# are deliberately excluded: NetMind answers 400-family codes for balance
+# exhaustion on some routes, which is why the mass-failure guard below exists.
+_MODEL_ERROR_STATUSES = {400, 404, 422}
+
+# A revalidation pass with zero OK verdicts and this many definitive failures
+# is treated as a key-/backend-wide outage (e.g. an overdrawn platform key
+# turning every call into a 400): nothing is flipped.
+_MASS_FLIP_GUARD_MIN = 5
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_stale(tested_at: Any) -> bool:
+    """True when a ledger timestamp is missing, unparseable, or past the TTL."""
+    if not isinstance(tested_at, str):
+        return True
+    try:
+        ts = datetime.fromisoformat(tested_at)
+    except ValueError:
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - ts > _REPROBE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +209,13 @@ SUPPORTED_SOURCES = ("netmind", "system_pool", "openrouter", "yunwu")
 
 async def _probe(
     client: httpx.AsyncClient, base: str, protocol: str, model: str, key: str
-) -> bool:
-    """A model `passes` a protocol iff a minimal completion returns HTTP 200."""
+) -> str:
+    """Minimal completion against ``model`` -> a PROBE_* verdict.
+
+    HTTP 200 = PROBE_OK; a definitive model rejection (400/404/422) =
+    PROBE_MODEL_ERROR; anything else (429, 5xx, auth/billing, transport
+    errors) = PROBE_TRANSIENT — unreachable is not evidence the model is gone.
+    """
     base = base.rstrip("/")
     if protocol == "openai":
         url = f"{base}/chat/completions"
@@ -187,10 +231,14 @@ async def _probe(
         }
     try:
         r = await client.post(url, json=payload, headers=headers, timeout=_PROBE_TIMEOUT)
-        return r.status_code == 200
     except Exception as e:  # noqa: BLE001 — any transport error = not reachable
         logger.debug(f"probe {protocol} {model} failed: {e}")
-        return False
+        return PROBE_TRANSIENT
+    if r.status_code == 200:
+        return PROBE_OK
+    if r.status_code in _MODEL_ERROR_STATUSES:
+        return PROBE_MODEL_ERROR
+    return PROBE_TRANSIENT
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +249,11 @@ async def _probe(
 class SyncResult:
     source: str
     lists: dict[str, list[str]] = field(default_factory=dict)  # protocol -> passing model ids
-    probed: int = 0     # how many (model, protocol) probes ran this pass
+    probed: int = 0        # how many new/failed (model, protocol) probes ran this pass
+    revalidated: int = 0   # how many stale/suspect PASS entries were re-probed
     added: list[str] = field(default_factory=list)    # new model ids seen
     removed: list[str] = field(default_factory=list)  # model ids dropped from catalog
+    flipped: list[str] = field(default_factory=list)  # "model:protocol" pass->fail flips
 
 
 async def sync_source(
@@ -213,25 +263,37 @@ async def sync_source(
     yunwu_key: str | None = None,
     reprobe_failed: bool = True,
     ledger: dict[str, Any] | None = None,
+    suspects: set[tuple[str, str]] | None = None,
 ) -> SyncResult:
     """Fetch ``source``'s catalog, diff against the ledger, probe new + (optionally)
-    previously-failed models, drop models gone from the catalog, persist the
-    ledger, and return the passing per-protocol lists.
+    previously-failed models, revalidate stale/suspect PASS entries, drop models
+    gone from the catalog, persist the ledger, and return the passing
+    per-protocol lists.
 
     ``keys`` maps protocol -> api key used to probe that protocol (same key works
-    for both on these aggregators).
+    for both on these aggregators). ``suspects`` is a set of (model_id, protocol)
+    pairs reported as failing at runtime — they jump the TTL queue.
     """
     cs = catalog_source(source, yunwu_key=yunwu_key)
     owns_ledger = ledger is None
     if ledger is None:
         ledger = load_ledger()
     led = source_models(ledger, cs.name)
+    suspects = suspects or set()
 
     catalog = await cs.fetch()
+    if not catalog:
+        # An empty catalog is an upstream fault (API shape change, outage), not
+        # "every model was retired" — proceeding would wipe every user's lists.
+        raise RuntimeError(f"{cs.name} catalog returned no models — refusing to wipe lists")
     res = SyncResult(source=cs.name)
 
-    # Build the list of (model_id, protocol) pairs that need a probe this pass.
+    # Build the list of (model_id, protocol) pairs that need a probe this pass:
+    # ``to_probe`` = new + previously-failed (non-OK => FAIL, as before);
+    # ``revalidate`` = PASS entries past the TTL or reported as runtime
+    # suspects (flip rules are stricter — see below).
     to_probe: list[tuple[str, str]] = []
+    revalidate: list[tuple[str, str]] = []
     for mid, meta in catalog.items():
         if mid not in led:
             res.added.append(mid)
@@ -241,17 +303,56 @@ async def sync_source(
             led[mid].update(meta)  # refresh display/context — no call
             if reprobe_failed:
                 to_probe += [(mid, p) for p in cs.protocols if led[mid].get(p) == FAIL]
+            stale = _is_stale(led[mid].get("tested_at"))
+            revalidate += [
+                (mid, p) for p in cs.protocols
+                if led[mid].get(p) == PASS and (stale or (mid, p) in suspects)
+            ]
+
+    # Oldest first so the daily cap drains the backlog in bounded, fair slices.
+    revalidate.sort(key=lambda pair: str(led[pair[0]].get("tested_at") or ""))
+    revalidate = revalidate[:_REVALIDATE_CAP]
 
     sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
     async with httpx.AsyncClient() as client:
-        async def run(mid: str, proto: str) -> tuple[str, str, bool]:
+        async def run(mid: str, proto: str) -> tuple[str, str, str]:
             async with sem:
-                ok = await _probe(client, cs.base(proto), proto, mid, keys[proto])
-                return mid, proto, ok
-        for mid, proto, ok in await asyncio.gather(*(run(m, p) for m, p in to_probe)):
-            led[mid][proto] = PASS if ok else FAIL
-            led[mid]["tested_at"] = _now()
+                verdict = await _probe(client, cs.base(proto), proto, mid, keys[proto])
+                return mid, proto, verdict
+
+        probe_results = await asyncio.gather(*(run(m, p) for m, p in to_probe))
+        reval_results = await asyncio.gather(*(run(m, p) for m, p in revalidate))
+
+    for mid, proto, verdict in probe_results:
+        led[mid][proto] = PASS if verdict == PROBE_OK else FAIL
+        led[mid]["tested_at"] = _now()
     res.probed = len(to_probe)
+    res.revalidated = len(revalidate)
+
+    # Apply revalidation verdicts. Guard first: a pass with zero OK and a pile
+    # of definitive failures looks like a key-/backend-wide outage (an
+    # overdrawn key 400s on EVERY model) — flip nothing, keep the old clocks so
+    # the next run retries.
+    definitive = [r for r in reval_results if r[2] == PROBE_MODEL_ERROR]
+    any_ok = any(v == PROBE_OK for _, _, v in reval_results)
+    if not any_ok and len(definitive) >= _MASS_FLIP_GUARD_MIN:
+        logger.error(
+            f"model_sync[{cs.name}]: revalidation returned {len(definitive)} definitive "
+            f"failures and 0 OK — treating as backend/key outage, flipping nothing"
+        )
+    else:
+        for mid, proto, verdict in reval_results:
+            if verdict == PROBE_MODEL_ERROR:
+                led[mid][proto] = FAIL
+                res.flipped.append(f"{mid}:{proto}")
+            # PROBE_TRANSIENT: keep PASS -> retried next run.
+        # ``tested_at`` is per-MODEL, so refresh it only when every revalidated
+        # protocol answered decisively — one transient verdict keeps the old
+        # clock and the whole model re-enters the queue next run. (A flipped
+        # protocol is FAIL now and re-probed daily regardless of the clock.)
+        transient_mids = {m for m, _, v in reval_results if v == PROBE_TRANSIENT}
+        for mid in {m for m, _, _ in reval_results} - transient_mids:
+            led[mid]["tested_at"] = _now()
 
     # Overwrite: drop models no longer in the catalog.
     for mid in [m for m in led if m not in catalog]:
