@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const { mockT } = vi.hoisted(() => {
   const copy: Record<string, string> = {
     'pages.settings.nav.account': 'Account & Subscription',
-      'pages.settings.nav.providers': 'LLM Providers',
+    'pages.settings.nav.providers': 'LLM Providers',
     'pages.settings.nav.artifacts': 'Artifacts',
   };
   return { mockT: (key: string) => copy[key] ?? key };

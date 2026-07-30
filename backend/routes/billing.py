@@ -221,12 +221,22 @@ def _return_urls(flow: Literal["subscription", "topup"]) -> dict[str, str]:
     # Private / loopback / single-label hosts: see the 403 note above.
     if is_obviously_non_public_host(parsed.hostname):
         return {}
-    # Rebuilt from host+port rather than netloc: netloc keeps any `user:pass@`
-    # userinfo, and this string is handed to NetMind and stored on a Stripe
-    # session, so a base URL carrying basic-auth credentials would leak them to
-    # two third parties. Nothing else about the value changes.
-    port = f":{parsed.port}" if parsed.port else ""
-    origin = f"https://{parsed.hostname}{port}"
+    # `.port` is a PROPERTY that parses, and it raises on a malformed port
+    # (`:99999`, `:abc`) — where `.scheme`/`.hostname` happily do not. Reading it
+    # here is purely a validation step: an uncaught ValueError would 500 both
+    # payment endpoints, which is the exact outcome this whole function exists to
+    # prevent. Every other `public_base_url` consumer only does string ops, so
+    # this is the first caller that can see the exception at all.
+    try:
+        parsed.port
+    except ValueError:
+        return {}
+    # Take host+port from netloc, minus the userinfo. netloc is the only form that
+    # keeps IPv6 brackets intact (`.hostname` strips them, and re-adding a port
+    # would then produce `https://2001:db8::1:8443` — a malformed URL). The
+    # userinfo MUST go: a `user:pass@` base URL would otherwise leak basic-auth
+    # credentials to NetMind and into a stored Stripe session.
+    origin = f"https://{parsed.netloc.rpartition('@')[2]}"
 
     def _url(status: str) -> str:
         query = urlencode({"tab": "account", "status": status, "flow": flow})

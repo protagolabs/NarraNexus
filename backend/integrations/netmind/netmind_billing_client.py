@@ -69,6 +69,7 @@ def _safe_business_message(msg: str) -> str:
         return ""
     return msg
 
+
 def _redirect_fields(
     success_url: Optional[str], cancel_url: Optional[str]
 ) -> dict[str, Any]:

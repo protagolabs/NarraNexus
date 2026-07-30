@@ -33,9 +33,16 @@ session 上，我们唯一的杠杆就是调用时把这两个字段递上去。
   - 推论：**`bash run.sh` 的本地用户同样拿不到回跳，但那是上游拦的，不是我们的
     规则误伤** —— 即使我们发 `http://localhost:5173`，那一整个建 session 的调用
     也会被 403 掉。
-- origin 用 `hostname` + `port` 重建，**不用 `netloc`** —— netloc 会带上
-  `user:pass@` 形式的 userinfo，而这个字符串要交给 NetMind 并存进 Stripe session，
-  等于把基础认证凭据泄露给两个第三方。正常取值下行为完全不变。
+- origin 取自 `netloc` 但**剥掉 userinfo**（`rpartition('@')[2]`）：userinfo 必须走
+  —— `user:pass@` 的 base URL 会把基础认证凭据泄露给 NetMind 并存进 Stripe session；
+  而 netloc 是唯一能保住 **IPv6 方括号**的形式（`.hostname` 会剥掉方括号，再拼回端口
+  就得到 `https://2001:db8::1:8443` 这种畸形 URL，发上去照样毁付款）。
+- **`parsed.port` 只读来做校验，且必须 try/except**。它是个会解析的 property，
+  端口非法时**抛 ValueError**（`:99999` / `:abc`），而 `.scheme`/`.hostname` 都不抛
+  —— 异常恰好落在最后一步，未捕获就是两个付款端点齐齐 500，正是这个函数存在的目的
+  所要避免的结果。`public_base_url` 的其他消费者（url_signer / url_artifact /
+  artifacts.public）全是字符串操作或 `.netloc`，所以本函数是第一个能看见这个异常的
+  调用方。两条演进都由 PR #211 的评审抓出，起因是先前那版「hostname + port」重建。
 - 于是**没配 `PUBLIC_BASE_URL` 的部署行为与修复前逐字节一致**（自托管、以及
   桌面端——它的前端 origin 是 `tauri://localhost`，Stripe 根本跳不回去）。
   云端把 `PUBLIC_BASE_URL` 设上是这个修复真正生效的开关，见 `.env.cloud.example`。

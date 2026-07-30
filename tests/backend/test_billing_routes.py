@@ -566,11 +566,13 @@ def test_no_return_urls_when_origin_unset(make_client, monkeypatch):
 
 
 @pytest.mark.parametrize("origin", [
-    "http://agent.narra.nexus",   # plain http: Stripe rejects it outright
-    "http://localhost:8000",      # the common self-hosted value
-    "not-a-url",                  # operator typo
-    "ftp://agent.narra.nexus",    # non-web scheme
-    "https://",                   # scheme but no host
+    "http://agent.narra.nexus",       # plain http (see _return_urls on why)
+    "http://localhost:8000",          # the common self-hosted value
+    "not-a-url",                      # operator typo
+    "ftp://agent.narra.nexus",        # non-web scheme
+    "https://",                       # scheme but no host
+    "https://agent.narra.nexus:99999",  # port out of range -> urlparse().port raises
+    "https://agent.narra.nexus:abc",    # non-numeric port -> same
 ])
 def test_unusable_origin_degrades_instead_of_breaking_payment(
     make_client, monkeypatch, origin
@@ -644,3 +646,17 @@ def test_private_or_loopback_origin_degrades(make_client, monkeypatch, origin):
         "/api/billing/recharge", headers=H, json={"amount": 10}
     ).status_code == 200
     assert seen["recharge"] == {}
+
+
+def test_ipv6_literal_origin_keeps_its_brackets(make_client, monkeypatch):
+    """Rebuilding from `.hostname` would drop the brackets and yield
+    `https://2001:4860:4860::8888:8443` — a malformed URL the upstream would hand
+    to Stripe, breaking checkout. netloc is the only form that survives this.
+    """
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    _set_origin(monkeypatch, "https://[2001:4860:4860::8888]:8443")
+    client = make_client(cloud=True)
+    client.post("/api/billing/subscribe", headers=H)
+    assert seen["subscribe"]["success_url"].startswith(
+        "https://[2001:4860:4860::8888]:8443/app/settings?"
+    )
