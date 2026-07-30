@@ -70,12 +70,22 @@ class LegacyEventAdapter:
         payload = event.payload
         if etype in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):
             # Monologue: the user watches the agent think, not speak.
-            return [
-                {
-                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
-                    "item": {"type": ITEM_TYPE_THINKING, "content": payload["text"]},
-                }
-            ]
+            item: dict[str, Any] = {
+                "type": ITEM_TYPE_THINKING,
+                "content": payload["text"],
+            }
+            if etype == TYPE_TEXT_DELTA:
+                # Monologue text is this framework's analogue of the
+                # claude drivers' assistant text, and the platform's
+                # reasoning channel (final_output -> meta_data.reasoning
+                # -> next turn's <my_reasoning>) is fed from that
+                # analogue. The flag lets the response processor route
+                # monologue into final_output while it still DISPLAYS
+                # as thinking. Provider CoT (thinking_delta) stays
+                # unstamped — CoT never enters final_output on any
+                # driver.
+                item["monologue"] = True
+            return [{"type": TYPE_RUN_ITEM_STREAM_EVENT, "item": item}]
         if etype == TYPE_TOOL_ARG_DELTA:
             if not payload.get("expressive"):
                 return []  # non-reply arguments stay internal

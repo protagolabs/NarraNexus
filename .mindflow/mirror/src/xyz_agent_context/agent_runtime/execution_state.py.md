@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/agent_runtime/execution_state.py
 last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 (三次) — record_thinking 增加 monologue 参数
+
+NexusPower 的独白(框架的 assistant text)以 thinking_item 形态展示,此前从不进
+`final_output`——于是 `meta_data.reasoning` 持久化、`<my_reasoning>` 回填、helper
+fallback 判定在 nexus turn 上全部静默失效。现在 `record_thinking` 的 `monologue`
+参数把独白子集追加进 `final_output`(与 claude 驱动 assistant text 走 append_text
+同义),CoT 与其他驱动传空串,行为不变。展示流一个字节不动(铁律 #16)。
+
 ## 2026-07-29 (二次) — 删除 resume_failed / mark_resume_failed(T5)
 
 它们的唯一用途是让 adapter 通知 step_4"这个句柄过期了,删掉那行"。

@@ -232,6 +232,18 @@ class ResponseProcessor:
 
     def __init__(self) -> None:
         self._thinking_batcher = _ThinkingBatcher()
+        # Monologue chunks (NexusPower text deltas displayed as thinking)
+        # buffered since the last batcher flush. Kept OUTSIDE the batcher:
+        # the batcher coalesces the display stream (monologue + CoT mixed,
+        # iron rule #16 verbatim), while final_output must receive the
+        # monologue subset only. Drained into record_thinking's
+        # ``monologue`` arg at every flush site.
+        self._pending_monologue: list[str] = []
+
+    def _take_pending_monologue(self) -> str:
+        text = "".join(self._pending_monologue)
+        self._pending_monologue = []
+        return text
 
     def process(
         self,
@@ -310,6 +322,7 @@ class ResponseProcessor:
                 "args": {
                     "content": residual,
                     "display": thinking_display,
+                    "monologue": self._take_pending_monologue(),
                 },
             },
         )
@@ -558,6 +571,8 @@ class ResponseProcessor:
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
             thinking_content = item.get("content", "")
+            if item.get("monologue"):
+                self._pending_monologue.append(thinking_content)
             coalesced = self._thinking_batcher.append_thinking(thinking_content)
             if coalesced is None:
                 return  # still buffering
@@ -571,6 +586,7 @@ class ResponseProcessor:
                     "args": {
                         "content": coalesced,
                         "display": thinking_display,
+                        "monologue": self._take_pending_monologue(),
                     },
                 },
             )
