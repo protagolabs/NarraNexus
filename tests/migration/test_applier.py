@@ -52,8 +52,8 @@ def _import_with_local_skill(skill_dir: Path) -> StandardizedAgentImport:
         sessions=[MigrationSession(
             session_id="s1", title="Plan the Q3 roadmap", started_at="2026-07-01T00:00:00Z",
             compact_text="Earlier: agreed on OKRs",
-            turns=[MigrationTurn(role="user", text="what is next"),
-                   MigrationTurn(role="assistant", text="ship the roadmap")],
+            turns=[MigrationTurn(role="user", text="what is next", ts="2026-07-01T00:00:00Z"),
+                   MigrationTurn(role="assistant", text="ship the roadmap", ts="2026-07-01T00:00:05Z")],
         )],
     )
 
@@ -88,6 +88,16 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     # Stub the session-summary helper LLM (one call per imported session).
     import xyz_agent_context.migration.applier as applier_mod
     monkeypatch.setattr(applier_mod, "get_helper_sdk", lambda: _FakeHelperSDK())
+    # Capture the ChatModule instance-memory write (its table machinery uses
+    # MySQL information_schema, which the direct sqlite test backend can't run —
+    # the real write is ChatModule's own prod-proven path; here we assert the
+    # message payload _seed_chat_history builds).
+    seeded_calls: list = []
+    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    async def _capture(self, module_name, instance_id, memory):
+        seeded_calls.append((module_name, instance_id, memory))
+        return True
+    monkeypatch.setattr(emr_mod.EventMemoryRepository, "add_instance_json_format_memory", _capture)
 
     res = await apply_plan(db_client, user_id="user_x", plan=plan)
 
@@ -131,6 +141,20 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     evs = await MemoryEngine(db_client, res.agent_id).recall(
         "event", "roadmap", scope_type=SCOPE_NARRATIVE, scope_id=n.id, limit=10)
     assert any("ship the roadmap" in o.content_text for o in evs)
+
+    # AND the recent turns are ALSO seeded into the narrative's ChatModule
+    # instance memory (so they load as recent history, not just search).
+    assert seeded_calls, "recent turns seeded into ChatModule instance memory"
+    mod, inst, mem = seeded_calls[0]
+    assert mod == "ChatModule" and inst.startswith("chat_")       # the narrative's chat instance
+    msgs = mem["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant"]     # order preserved
+    assert any("ship the roadmap" in m["content"] for m in msgs)
+    assert all(m["meta_data"]["source"] == "imported" for m in msgs)
+    # THE core design decision: the sort key is the turn's ORIGINAL time, not
+    # import time — pin it so a refactor can't silently switch to now().
+    assert msgs[0]["meta_data"]["timestamp"] == "2026-07-01T00:00:00Z"
+    assert msgs[1]["meta_data"]["timestamp"] == "2026-07-01T00:00:05Z"
 
 
 @pytest.mark.asyncio
