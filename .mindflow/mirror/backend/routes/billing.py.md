@@ -37,12 +37,25 @@ session 上，我们唯一的杠杆就是调用时把这两个字段递上去。
   —— `user:pass@` 的 base URL 会把基础认证凭据泄露给 NetMind 并存进 Stripe session；
   而 netloc 是唯一能保住 **IPv6 方括号**的形式（`.hostname` 会剥掉方括号，再拼回端口
   就得到 `https://2001:db8::1:8443` 这种畸形 URL，发上去照样毁付款）。
-- **`parsed.port` 只读来做校验，且必须 try/except**。它是个会解析的 property，
-  端口非法时**抛 ValueError**（`:99999` / `:abc`），而 `.scheme`/`.hostname` 都不抛
-  —— 异常恰好落在最后一步，未捕获就是两个付款端点齐齐 500，正是这个函数存在的目的
-  所要避免的结果。`public_base_url` 的其他消费者（url_signer / url_artifact /
-  artifacts.public）全是字符串操作或 `.netloc`，所以本函数是第一个能看见这个异常的
-  调用方。两条演进都由 PR #211 的评审抓出，起因是先前那版「hostname + port」重建。
+- **解析和校验必须在同一个 try 里**，任何畸形配置一律降级返回 `{}`，绝不 500 ——
+  未捕获就是两个付款端点齐齐 500，正是这个函数存在的目的所要避免的结果。会抛
+  ValueError 的有两处，都不明显：
+  - `urlparse` **自身**在两类 netloc 上抛：NFKC 归一化会改变字符串的（**全角冒号
+    `：`** —— 这个值要手敲进 EC2 的 .env，中文输入法下是最可能的手抖）、以及 IPv6
+    方括号不配对。
+  - `parsed.port` 是个会解析的 property，`:99999` / `:abc` 抛，而 `.scheme` /
+    `.hostname` 都不抛 —— 所以前面几道筛全都正常通过，异常落在最后一步。
+    写成 `_ = parsed.port` 而不是裸表达式语句：ruff 的 `select = ["E","F"]` 不含
+    B018，裸语句在后来者眼里像死代码，会被顺手删掉。
+- **处置与 [[url_artifact]] 的 `_origin_tuple` 同款** —— 它早就为这同一个 setting
+  guard 了 `.port`（`except ValueError: return None`）。所以这不是首次发现，而是
+  仓库里已有的先例；它自己的 `urlparse` 调用同样裸着，属既有问题，已记 todo。
+- **解析通过≠可用**：ASCII 空格、零宽空格能过 urlparse 和 host 筛，然后作为畸形 URL
+  抵达 Stripe 换回一个 500 —— 同一族的粘贴/输入法问题，只是失败点在上游。所以拿
+  origin 之前还加了一道 `netloc.isascii()` + 无空白字符。用国际化域名的部署需要配
+  punycode（`xn--…`，是 ASCII）。
+
+以上三条演进都由 PR #211 的两轮评审抓出，起因是自审时那版「hostname + port」重建。
 - 于是**没配 `PUBLIC_BASE_URL` 的部署行为与修复前逐字节一致**（自托管、以及
   桌面端——它的前端 origin 是 `tauri://localhost`，Stripe 根本跳不回去）。
   云端把 `PUBLIC_BASE_URL` 设上是这个修复真正生效的开关，见 `.env.cloud.example`。

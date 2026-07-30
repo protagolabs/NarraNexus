@@ -210,26 +210,37 @@ def _return_urls(flow: Literal["subscription", "topup"]) -> dict[str, str]:
       means a `bash run.sh` install cannot receive the redirect no matter what
       we send — that block is upstream, not ours.
     """
-    parsed = urlparse((settings.public_base_url or "").strip())
-    # https only. NOT because the upstream refuses plain http — it accepts it
-    # (probed: http://example.com → 200). Stripe's live-mode behavior with a
-    # plain-http return URL is what we have not verified, and the cost of being
-    # wrong is asymmetric: refusing http merely denies an http self-hoster the
-    # redirect, while sending something Stripe rejects breaks their checkout.
-    if parsed.scheme != "https" or not parsed.hostname:
-        return {}
-    # Private / loopback / single-label hosts: see the 403 note above.
-    if is_obviously_non_public_host(parsed.hostname):
-        return {}
-    # `.port` is a PROPERTY that parses, and it raises on a malformed port
-    # (`:99999`, `:abc`) — where `.scheme`/`.hostname` happily do not. Reading it
-    # here is purely a validation step: an uncaught ValueError would 500 both
-    # payment endpoints, which is the exact outcome this whole function exists to
-    # prevent. Every other `public_base_url` consumer only does string ops, so
-    # this is the first caller that can see the exception at all.
+    # Parsing AND validation live in one try. Both steps raise ValueError on a
+    # malformed deploy value, and an uncaught one would 500 both payment endpoints
+    # — the exact outcome this function exists to prevent:
+    #   - `urlparse` itself raises on a netloc that NFKC-normalizes to something
+    #     else (a FULL-WIDTH colon, `：` — the likeliest slip when this value is
+    #     typed into an EC2 .env by hand) and on unbalanced IPv6 brackets.
+    #   - `.port` is a property that parses, so it raises on `:99999` / `:abc`
+    #     where `.scheme`/`.hostname` happily do not.
+    # Same shape as `url_artifact._origin_tuple`, which already guards `.port`
+    # for this very setting (its own `urlparse` call is unguarded — tracked).
     try:
-        parsed.port
+        parsed = urlparse((settings.public_base_url or "").strip())
+        # https only. NOT because the upstream refuses plain http — it accepts it
+        # (probed: http://example.com → 200). Stripe's live-mode behavior with a
+        # plain-http return URL is what we have not verified, and the cost of being
+        # wrong is asymmetric: refusing http merely denies an http self-hoster the
+        # redirect, while sending something Stripe rejects breaks their checkout.
+        if parsed.scheme != "https" or not parsed.hostname:
+            return {}
+        # Private / loopback / single-label hosts: see the 403 note above.
+        if is_obviously_non_public_host(parsed.hostname):
+            return {}
+        _ = parsed.port  # read for VALIDATION only — the value is unused
     except ValueError:
+        return {}
+    # A netloc that survives parsing can still be unusable: an ASCII space or a
+    # zero-width character passes both urlparse and the host screen, then reaches
+    # Stripe as a malformed URL and earns a 500 — the same paste/IME family as
+    # above, just failing upstream instead of here. An operator on an
+    # internationalised domain must configure its punycode form, which is ASCII.
+    if not parsed.netloc.isascii() or any(c.isspace() for c in parsed.netloc):
         return {}
     # Take host+port from netloc, minus the userinfo. netloc is the only form that
     # keeps IPv6 brackets intact (`.hostname` strips them, and re-adding a port

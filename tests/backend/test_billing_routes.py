@@ -573,6 +573,12 @@ def test_no_return_urls_when_origin_unset(make_client, monkeypatch):
     "https://",                       # scheme but no host
     "https://agent.narra.nexus:99999",  # port out of range -> urlparse().port raises
     "https://agent.narra.nexus:abc",    # non-numeric port -> same
+    # urlparse() ITSELF raises on these two — the parse step, not the port:
+    "https://agent.narra.nexus：8443",  # full-width colon (IME slip) -> NFKC reject
+    "https://[2001:db8::1:8443",           # unbalanced IPv6 bracket
+    # These parse fine and pass the host screen, but would reach Stripe malformed:
+    "https://exa mple.com",             # pasted-in space
+    "https://agent.narra.nexus​",  # trailing zero-width space
 ])
 def test_unusable_origin_degrades_instead_of_breaking_payment(
     make_client, monkeypatch, origin
