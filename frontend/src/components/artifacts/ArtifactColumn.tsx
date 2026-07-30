@@ -286,10 +286,20 @@ export default function ArtifactColumn({
       <div
         ref={contentRef}
         className="flex-1 min-h-0 overflow-hidden relative"
-        // Explicit width overrides the column's `align-items: stretch`, so the
-        // shrinking <aside> clips this box instead of resizing it. Vertical
-        // flex behaviour (flex-1 / min-h-0) is deliberately left alone.
-        style={frozenContentPx !== null ? { width: frozenContentPx } : undefined}
+        // `max(100%, frozen)` — a floor, not a fixed width:
+        //   shrinking → holds at the pre-drag width and the <aside> clips it,
+        //     so the artifact <iframe> is never reflowed while narrowing (the
+        //     expensive, visibly janky direction);
+        //   widening  → tracks the column, because a fixed width would leave a
+        //     blank strip down the right of the pane for the whole drag, and
+        //     the user reads that gap as the panel having broken.
+        // Explicit width also overrides the column's `align-items: stretch`.
+        // Vertical flex behaviour (flex-1 / min-h-0) is deliberately untouched.
+        style={
+          frozenContentPx !== null
+            ? { width: `max(100%, ${frozenContentPx}px)` }
+            : undefined
+        }
       >
         {/* Live LRU pool for echarts artifacts: every id in chartLruOrder
             stays mounted (display:none when not active) so clicking back to

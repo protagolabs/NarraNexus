@@ -28,10 +28,33 @@
  * pointermove events are coalesced through `requestAnimationFrame`: many
  * native moves within a frame collapse into a single `onResize` call with
  * the latest clientX. Listeners are torn down atomically via
- * AbortController on pointerup / pointercancel.
+ * AbortController.
+ *
+ * Guaranteed teardown (2026-07-30)
+ * --------------------------------
+ * Reported symptom: "左右拖拽偶尔会卡住，卡顿之后再去拖会很卡", with the
+ * artifact pane's content left stranded at a stale width.
+ *
+ * Both halves of that were one bug: the drag had exactly TWO ways to end,
+ * `pointerup` and `pointercancel`, both on the handle. Miss them — release
+ * over the sandboxed artifact iframe, outside the window, or after capture is
+ * yanked — and nothing ever ran the teardown. Consequences compound:
+ *   1. `onResizeEnd` never fires → the parent stays in dragging mode → the
+ *      artifact pane keeps its frozen content width (the visible "卡住").
+ *   2. `cursor: col-resize` / `user-select: none` stay welded to <body>.
+ *   3. The AbortController never aborts, so the pointermove listener and its
+ *      rAF loop stay attached to the handle. The NEXT drag adds another set
+ *      on top, and every frame runs one more copy — hence "再去拖会很卡",
+ *      getting worse with each stutter.
+ *
+ * So teardown is now unconditional rather than best-effort: `stop` is
+ * idempotent, reachable from `pointerup` / `pointercancel` /
+ * `lostpointercapture` on the handle, from window-level `pointerup` /
+ * `pointercancel` / `blur` as a backstop, from the next `pointerdown`
+ * (re-grab), and from unmount. Whichever fires first wins; the rest no-op.
  */
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
@@ -70,11 +93,34 @@ export function ResizableDivider({
   marginClassName,
 }: Props) {
   const { t } = useTranslation();
+
+  /**
+   * Teardown for the drag currently in flight, or null. Idempotent, and
+   * callable with no argument (it falls back to the last seen clientX).
+   *
+   * This ref is the fix for the 2026-07-30 "偶尔会卡住，卡顿之后再去拖会很卡"
+   * report — see the "Guaranteed teardown" section in the file header.
+   */
+  const endActiveDragRef = useRef<((clientX?: number) => void) | null>(null);
+
+  // A drag in flight at unmount would leave `cursor: col-resize` and
+  // `user-select: none` welded onto <body>, a pending rAF, live listeners, and
+  // the parent stuck in dragging mode. The divider DOES unmount mid-drag in
+  // practice: it only renders while the artifact column is expanded.
+  useEffect(() => () => endActiveDragRef.current?.(), []);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       const handle = e.currentTarget;
       const pointerId = e.pointerId;
+
+      // Re-grabbing while a previous drag is somehow still open must close it
+      // first. Without this, a drag whose pointerup went missing leaks its
+      // pointermove listener AND its rAF loop onto this same handle, so every
+      // later drag runs one more copy of the work — which is exactly why the
+      // second drag after a stutter felt dramatically worse than the first.
+      endActiveDragRef.current?.(e.clientX);
 
       onResizeStart?.();
 
@@ -114,21 +160,51 @@ export function ResizableDivider({
         { signal },
       );
 
-      const stop = (ev: PointerEvent) => {
+      // Idempotent: several of the terminal events below legitimately fire for
+      // the same release (a pointerup implies a lostpointercapture, and the
+      // window backstop sees the same pointerup the handle does), and
+      // `releasePointerCapture` inside here fires one more. Only the first
+      // call may commit.
+      let ended = false;
+      const stop = (clientX?: number) => {
+        if (ended) return;
+        ended = true;
+        endActiveDragRef.current = null;
         controller.abort();
         if (rafId) {
           cancelAnimationFrame(rafId);
           rafId = 0;
         }
-        if (handle.hasPointerCapture(pointerId)) {
+        if (handle.hasPointerCapture?.(pointerId)) {
           handle.releasePointerCapture(pointerId);
         }
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        onResizeEnd(ev.clientX);
+        // No clientX (unmount / re-grab) → commit the last position we saw,
+        // never a stale initial one.
+        onResizeEnd(clientX ?? pendingX);
       };
-      handle.addEventListener('pointerup', stop, { signal });
-      handle.addEventListener('pointercancel', stop, { signal });
+      endActiveDragRef.current = stop;
+
+      const stopFromEvent = (ev: Event) => stop((ev as PointerEvent).clientX);
+
+      handle.addEventListener('pointerup', stopFromEvent, { signal });
+      handle.addEventListener('pointercancel', stopFromEvent, { signal });
+      // `lostpointercapture`: if capture is taken away mid-drag — the artifact
+      // pane's sandboxed iframe is the suspect — the handle stops receiving
+      // pointer events entirely, so pointerup would never arrive and the drag
+      // would hang "active" forever. Treat losing capture as the end of it.
+      handle.addEventListener('lostpointercapture', stopFromEvent, { signal });
+
+      // Backstop, on window in the CAPTURE phase: a release the handle never
+      // sees (pointer let go outside the window, over an iframe, or after the
+      // tab lost focus) still has to end the drag. Belt to the braces above —
+      // the failure mode being defended against is not "the drag ends late",
+      // it is "the drag never ends", which welds the body cursor on and leaves
+      // the artifact pane frozen at a stale width.
+      window.addEventListener('pointerup', stopFromEvent, { signal, capture: true });
+      window.addEventListener('pointercancel', stopFromEvent, { signal, capture: true });
+      window.addEventListener('blur', () => stop(), { signal });
     },
     [onResizeStart, onResize, onResizeEnd],
   );

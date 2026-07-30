@@ -4,6 +4,22 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (2) — the freeze is a floor, not a fixed width
+
+`contentFrozen` first pinned the content box to an exact px width. Correct for
+the shrink direction it was designed for, wrong while WIDENING: the content
+stayed put as the column grew, leaving a blank strip down the right of the pane
+for the whole drag — which reads as "the panel broke", not as "the panel is
+being resized" (and is exactly what the Owner's bug screenshot showed, there
+amplified by a drag that never ended — see [[ResizableDivider]]).
+
+Now `width: max(100%, <frozen>px)`:
+- **shrinking** → holds at the pre-drag width, the `<aside>` clips it, the
+  `<iframe>` is not reflowed. This is the direction that was measurably janky.
+- **widening** → tracks the column. Reflowing while growing costs less, and a
+  visible blank gap is a user-perceived regression that CLAUDE.md 铁律 #16
+  rules out anyway.
+
 ## 2026-07-30 — `columnRef` + `contentFrozen` (live-follow divider drag)
 
 Both props exist to serve [[MainLayout]]'s divider, and only in expanded mode:

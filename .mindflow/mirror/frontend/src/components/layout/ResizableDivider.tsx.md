@@ -4,6 +4,46 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (2) — the drag must ALWAYS end (teardown was best-effort)
+
+Owner, after testing the live-follow drag: "左右拖拽偶尔会卡住,卡顿之后再去拖
+会很卡", with a screenshot showing the artifact pane's content stranded at a
+narrower width than its own column.
+
+**One bug, three symptoms.** The drag had exactly two exits — `pointerup` and
+`pointercancel`, both on the handle. Miss both (release over the sandboxed
+artifact iframe, release outside the window, capture yanked away) and the
+teardown simply never ran:
+
+1. `onResizeEnd` never fires → [[MainLayout]] stays in `dragging` →
+   [[ArtifactColumn]] holds its frozen content width → the stranded content in
+   the screenshot. **This is what "卡住" actually was** — not a hung frame, a
+   drag that never ended.
+2. `cursor: col-resize` + `user-select: none` stay welded onto `<body>`.
+3. The AbortController never aborts, so the pointermove listener and its rAF
+   loop stay attached. The next drag adds **another** set to the same handle,
+   and every frame runs one more copy — so "再去拖会很卡", degrading further
+   with each stutter. This is CLAUDE.md incident-lesson #2 (a fire-and-forget
+   with no paired teardown is a mine) in miniature.
+
+**Fix — teardown is unconditional, not best-effort.** `stop` is idempotent
+(first caller wins; the rest no-op, which matters because a real release fires
+several of these) and is reachable from: `pointerup` / `pointercancel` /
+`lostpointercapture` on the handle, window-level `pointerup` / `pointercancel`
+(capture phase) / `blur` as a backstop, the next `pointerdown` (re-grab closes
+an orphan first), and unmount — the divider genuinely does unmount mid-drag,
+since it only renders while the artifact column is expanded.
+
+`stop` takes an OPTIONAL clientX and falls back to the last coalesced
+`pendingX`, so the unmount / re-grab paths commit the last real position
+instead of a stale initial one.
+
+**Don't "simplify" this back down to two listeners.** The failure being
+defended against is not "the drag ends a bit late" — it is "the drag never
+ends", and every consequence of that is silent and cumulative.
+Covered by `layout/__tests__/resizableDivider.test.tsx`; 6 of its 8 cases
+fail against the previous implementation.
+
 ## 2026-07-30 — `onResizeStart`, optional `title`, and live-follow drag
 
 Two API additions, both driven by the Owner's "拖拉的逻辑很奇怪" report:
