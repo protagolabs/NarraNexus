@@ -1206,6 +1206,10 @@
         "installingDetail": "Instalando {{version}} — quase pronto…",
         "readyDetail": "baixado — reinicie para concluir.",
         "failed": "Falha na atualização ({{stage}})."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
+        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
       }
     },
     "system": {

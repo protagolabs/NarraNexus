@@ -4,6 +4,14 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — `frameworkAllowedInCloud()`：后端云策略的前端孪生
+
+新增 `CLOUD_ALLOWED_FRAMEWORKS` + `frameworkAllowedInCloud()`，对应后端
+`cloud_policy.CLOUD_ALLOWED_FRAMEWORKS`。两个框架选择器（
+[[ModelDefaultsSettings]] 与 [[AgentLlmConfigPanel]]）此前各自内联了
+`!== 'claude_code'`，NexusPower 变成云端合法之后**两处都还在拒**——所以这里
+导出的是**谓词**而不是常量，与 `isSlotBindableSource` 同样的教训。
+
 ## 2026-07-29 — 框架可接受协议从"一个"变成"一组"
 
 新增可选 `protocols` 与 `frameworkAcceptsProtocol()`:CLI 型框架天生只会一种

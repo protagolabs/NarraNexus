@@ -1486,8 +1486,8 @@
         "pickHelperModel": "请为 Helper 模型槽位选择服务商和模型。",
         "cloudNetmindOnlyNote": "当前云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型。",
         "cloudNetmindOnlyLink": "想体验请下载本地桌面版 →",
-        "cloudFrameworkLocked": "切换智能体框架仅本地桌面版可用。",
-        "cloudFrameworkLockedTitle": "仅本地桌面版可用"
+        "cloudFrameworkLocked": "该框架通过共享的 CLI 登录认证，因此云端仅管理员可用。Claude Code 与 NexusPower-beta 在云端均可正常使用，其余框架请使用本地桌面版。",
+        "cloudFrameworkLockedTitle": "云端为管理员专用"
       },
       "updates": {
         "label": "应用更新",

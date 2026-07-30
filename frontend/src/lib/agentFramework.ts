@@ -119,6 +119,31 @@ export function isSlotBindableSource(source: string | undefined): boolean {
   return source === 'netmind' || source === 'netmind_free'
 }
 
+/**
+ * Frameworks a cloud non-staff user may select — the frontend twin of
+ * backend ``cloud_policy.CLOUD_ALLOWED_FRAMEWORKS``.
+ *
+ * The gate is about CREDENTIAL RIDING, not framework variety: the
+ * CLI-backed frameworks authenticate through a credential file in a HOME
+ * the cloud image shares between users, so a non-staff user selecting one
+ * would run on staff's login. NexusPower drives the provider API with the
+ * key of the card bound to the agent slot and refuses subscription OAuth
+ * outright, so it carries no such risk.
+ *
+ * Exported as a PREDICATE for the same reason `isSlotBindableSource` is:
+ * the rule was previously inlined as `!== 'claude_code'` in two pickers,
+ * and when NexusPower became cloud-legal both kept rejecting it.
+ */
+export const CLOUD_ALLOWED_FRAMEWORKS = ['claude_code', 'nexus_power']
+
+export function frameworkAllowedInCloud(
+  framework: string,
+  role: string | undefined,
+): boolean {
+  if (!cloudNetmindOnly(role)) return true
+  return CLOUD_ALLOWED_FRAMEWORKS.includes(framework)
+}
+
 // What the helper_llm "Default (recommended)" resolves to per protocol.
 // Mirrors backend ``_ONBOARD_HELPER_MODELS`` in model_catalog.py.
 export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {

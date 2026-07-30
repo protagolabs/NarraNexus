@@ -162,23 +162,39 @@ test('cloud non-staff: only NetMind providers are offered + local-version note',
   });
   expect(link).toHaveAttribute('href', DESKTOP_RELEASES_URL);
 
-  // Framework switching is staff-only on cloud (backend 403s it) — the
-  // select stays interactive, but picking a different framework pops the
-  // styled notice dialog (useConfirm alert), snaps back, and never calls
-  // the API.
+  // A CLI-backed framework is staff-only on cloud (backend 403s it: it
+  // would sign in through the image's shared CLI login). The select stays
+  // interactive, but the pick pops the styled notice dialog (useConfirm
+  // alert), snaps back, and never calls the API.
   const select = frameworkSelect();
   expect(select).not.toBeDisabled();
   fireEvent.change(select, { target: { value: 'codex_cli' } });
-  expect(screen.getByText('Desktop version only')).toBeInTheDocument();
+  expect(screen.getByText('Staff only in cloud')).toBeInTheDocument();
   expect(
-    screen.getByText(/Switching the agent framework is available/),
+    screen.getByText(/signs in through a shared CLI login/),
   ).toBeInTheDocument();
   expect(select.value).toBe('claude_code');
   expect(mockSetAgentFramework).not.toHaveBeenCalled();
 
   // OK dismisses the notice.
   fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-  expect(screen.queryByText('Desktop version only')).toBeNull();
+  expect(screen.queryByText('Staff only in cloud')).toBeNull();
+});
+
+test('cloud non-staff CAN select NexusPower — it runs on their own key', async () => {
+  // The gate is about credential riding, not framework variety: NexusPower
+  // drives the provider API with the key of the card bound to the agent
+  // slot and refuses subscription OAuth, so cloud is free to offer it.
+  // This case is why the rule became a shared predicate — the old inlined
+  // `!== 'claude_code'` rejected it here and in AgentLlmConfigPanel.
+  mockForcedCloud = true;
+  await renderLoaded();
+
+  const select = frameworkSelect();
+  fireEvent.change(select, { target: { value: 'nexus_power' } });
+
+  expect(screen.queryByText('Staff only in cloud')).toBeNull();
+  expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power');
 });
 
 test('cloud staff keeps the full provider list and no note', async () => {
