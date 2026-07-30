@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/index.ts
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
 

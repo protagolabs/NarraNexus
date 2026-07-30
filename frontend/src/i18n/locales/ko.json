@@ -113,18 +113,13 @@
         "queuedHint": "전달되었고 빈 실행 슬롯을 기다리는 중입니다. 여러 팀원을 한 번에 호출했거나 다른 긴 작업이 실행 중일 때 발생합니다.",
         "stalledHint": "이 팀원으로부터 한동안 진행 신호가 오지 않았습니다. 아직 실행 중일 수도 있고(모델이 오랫동안 조용할 수 있습니다) 백그라운드 작업에 문제가 있을 수도 있습니다. 복구되지 않으면 서비스 상태를 확인하세요.",
         "idleHint": "현재 대기 중인 작업이 없습니다.",
-        "countWorking": "작업 중 {{n}}명",
-        "countWaiting": "대기 중 {{n}}명",
-        "countStalled": "신호 없음 {{n}}명",
-        "countIdle": "유휴 {{n}}명",
         "silentFor": "{{duration}} 동안 무응답",
         "waitingFor": "{{duration}} 대기",
         "finishedAgo": "{{duration}} 전 완료",
         "startedAt": "{{time}}에 시작",
         "stepOngoing": "{{duration}}, 진행 중",
         "stepsDropped": "이전 {{n}}개 단계는 표시되지 않음",
-        "noSteps": "아직 기록된 단계가 없습니다.",
-        "recentlyFinished": "방금 완료됨"
+        "noSteps": "아직 기록된 단계가 없습니다."
       },
       "guide": {
         "title": "이 방을 쓰는 방법",

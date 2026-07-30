@@ -4,6 +4,13 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 裁掉 console 时代的三个符号
+
+`hasRecentTurn` / `RECENT_TURN_WINDOW_MS` / `summarise` 删除：roster 常驻
+显示全员后，「idle 痕迹保留窗口」和「折叠汇总条」都没有消费者了。文件头
+说的"三处表面"如今是两处：roster 行与 roster 详情。
+
+
 ## 2026-07-30 — lastRunSummary（roster 空闲行）
 
 `lastRunSummary(a, now)`：finished_at 缺失 → null（从未跑过）；否则

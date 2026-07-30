@@ -146,18 +146,13 @@
         "queuedHint": "Delivered, waiting for a free execution slot. This happens when several teammates were addressed at once, or another long task is still running.",
         "stalledHint": "No progress signal from this teammate for a while. It may still be running — a model can stay silent for a long stretch — or the background worker may have a problem. If it does not recover, check the service status.",
         "idleHint": "Nothing pending right now.",
-        "countWorking": "{{n}} working",
-        "countWaiting": "{{n}} waiting",
-        "countStalled": "{{n}} without signal",
-        "countIdle": "{{n}} idle",
         "silentFor": "silent {{duration}}",
         "waitingFor": "waiting {{duration}}",
         "finishedAgo": "done {{duration}} ago",
         "startedAt": "started at {{time}}",
         "stepOngoing": "{{duration}}, ongoing",
         "stepsDropped": "{{n}} earlier steps not shown",
-        "noSteps": "No steps recorded yet.",
-        "recentlyFinished": "Recently finished"
+        "noSteps": "No steps recorded yet."
       },
       "guide": {
         "title": "How this room works",

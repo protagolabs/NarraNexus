@@ -113,18 +113,13 @@
         "queuedHint": "配信済みで、空いている実行枠を待っています。複数のメンバーを同時に指名した場合や、別の長いタスクが実行中の場合に発生します。",
         "stalledHint": "このメンバーからしばらく進捗の信号が届いていません。まだ実行中の可能性もあります（モデルが長時間沈黙することがあります）が、バックグラウンド処理に問題がある可能性もあります。回復しない場合はサービスの状態を確認してください。",
         "idleHint": "現在、保留中の作業はありません。",
-        "countWorking": "作業中 {{n}} 名",
-        "countWaiting": "待機中 {{n}} 名",
-        "countStalled": "応答なし {{n}} 名",
-        "countIdle": "アイドル {{n}} 名",
         "silentFor": "{{duration}} 沈黙",
         "waitingFor": "{{duration}} 待機",
         "finishedAgo": "{{duration}} 前に完了",
         "startedAt": "{{time}} に開始",
         "stepOngoing": "{{duration}}、進行中",
         "stepsDropped": "それ以前の {{n}} ステップは非表示",
-        "noSteps": "まだステップの記録がありません。",
-        "recentlyFinished": "最近完了"
+        "noSteps": "まだステップの記録がありません。"
       },
       "guide": {
         "title": "このルームの使い方",

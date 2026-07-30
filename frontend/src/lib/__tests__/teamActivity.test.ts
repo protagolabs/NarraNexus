@@ -8,15 +8,12 @@
 import { describe, expect, test } from 'vitest';
 import {
   lastRunSummary,
-  RECENT_TURN_WINDOW_MS,
   STATUS_TONES,
   buildTimeline,
   compareActivity,
   elapsedSince,
   formatDuration,
-  hasRecentTurn,
   phaseLabelKey,
-  summarise,
   toMs,
 } from '../teamActivity';
 import type { TeamMemberActivity } from '@/types/teams';
@@ -119,67 +116,6 @@ describe('buildTimeline', () => {
   test('an unparseable stamp yields zero duration rather than NaN', () => {
     const entries = buildTimeline([{ phase: 'x', at: 'garbage' }], T0, { live: true });
     expect(entries[0].durationMs).toBe(0);
-  });
-});
-
-describe('hasRecentTurn', () => {
-  const withTrace = (finishedAt: string) =>
-    member('a', 'idle', {
-      finished_at: finishedAt,
-      steps: { items: [{ phase: 'replying', at: finishedAt }], dropped: 0 },
-    });
-
-  test('a just-finished turn is still worth showing', () => {
-    expect(hasRecentTurn(withTrace('2026-07-28T08:59:00Z'), T0)).toBe(true);
-  });
-
-  test('an old turn is not', () => {
-    const old = new Date(T0 - RECENT_TURN_WINDOW_MS - 60_000).toISOString();
-    expect(hasRecentTurn(withTrace(old), T0)).toBe(false);
-  });
-
-  test('idle with no trace shows nothing', () => {
-    expect(hasRecentTurn(member('a', 'idle'), T0)).toBe(false);
-  });
-
-  test('a running member is never a "recent turn"', () => {
-    expect(hasRecentTurn(member('a', 'running', { steps: { items: [], dropped: 0 } }), T0)).toBe(false);
-  });
-});
-
-describe('summarise', () => {
-  test('counts every state and flags the one that needs attention', () => {
-    const s = summarise(
-      [
-        member('a', 'running'),
-        member('b', 'running'),
-        member('c', 'queued'),
-        member('d', 'stalled'),
-        member('e', 'idle'),
-      ],
-      T0,
-    );
-    expect(s).toMatchObject({ running: 2, queued: 1, stalled: 1, idle: 1, active: 4 });
-    expect(s.needsAttention).toBe(true);
-  });
-
-  test('a quiet room needs no attention and shows no rows', () => {
-    const s = summarise([member('a', 'idle'), member('b', 'idle')], T0);
-    expect(s.active).toBe(0);
-    expect(s.needsAttention).toBe(false);
-  });
-
-  test('an idle member with a fresh trace still counts as worth a row', () => {
-    const s = summarise(
-      [
-        member('a', 'idle', {
-          finished_at: '2026-07-28T08:59:00Z',
-          steps: { items: [{ phase: 'replying', at: 'x' }], dropped: 0 },
-        }),
-      ],
-      T0,
-    );
-    expect(s.active).toBe(1);
   });
 });
 

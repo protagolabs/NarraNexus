@@ -29,9 +29,6 @@ const STATUS_RANK: Record<TeamMemberStatus, number> = {
   idle: 3,
 };
 
-/** How long an idle member keeps showing its finished turn's trace. */
-export const RECENT_TURN_WINDOW_MS = 10 * 60 * 1000;
-
 export interface StatusTone {
   /** CSS colour for the dot / accent. */
   color: string;
@@ -164,15 +161,7 @@ export function buildTimeline(
   });
 }
 
-/** True when an idle member finished recently enough to still show its trace. */
-export function hasRecentTurn(a: TeamMemberActivity, now: number): boolean {
-  if (a.status !== 'idle') return false;
-  if (!a.steps?.items?.length) return false;
-  const finished = toMs(a.finished_at);
-  return finished !== null && now - finished <= RECENT_TURN_WINDOW_MS;
-}
-
-/** Console ordering: attention-worthy first, then by name for stability. */
+/** Roster ordering: attention-worthy first, then by name for stability. */
 export function compareActivity(
   a: TeamMemberActivity,
   b: TeamMemberActivity,
@@ -181,25 +170,4 @@ export function compareActivity(
   const rank = STATUS_RANK[a.status] - STATUS_RANK[b.status];
   if (rank !== 0) return rank;
   return nameOf(a.agent_id).localeCompare(nameOf(b.agent_id));
-}
-
-export interface ActivitySummary {
-  running: number;
-  queued: number;
-  stalled: number;
-  idle: number;
-  /** Members worth showing a row for: everything but plain idle. */
-  active: number;
-  /** A stalled member is the one state the user should not have to go find. */
-  needsAttention: boolean;
-}
-
-export function summarise(activity: TeamMemberActivity[], now: number): ActivitySummary {
-  const counts = { running: 0, queued: 0, stalled: 0, idle: 0 };
-  let active = 0;
-  for (const a of activity) {
-    counts[a.status] += 1;
-    if (a.status !== 'idle' || hasRecentTurn(a, now)) active += 1;
-  }
-  return { ...counts, active, needsAttention: counts.stalled > 0 };
 }

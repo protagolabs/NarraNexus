@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 两栏布局：roster 常驻，console/气泡退役
+
+Timeline+Composer 外包一层两栏容器，右侧挂常驻 [[TeamRosterPanel]]（桌面
+恒显，窄屏由 member bar 的 Users2 钮开 overlay drawer）。据此退役两个旧
+表面：顶部折叠 console（TeamActivityConsole 文件已删）和消息流底部的
+TeamActivityBubble——后者的 idle-trace 保留期正是「跑完后气泡赖着不走」
+的根源。消息流只剩本文件内的 TypingIndicator：仅 running 成员渲染、无
+统计、回复落地即消失；点击它展开 roster 里该成员的详情（expandedId 状态
+由本组件持有，两侧共享同一高亮，这就是 roster 用受控 props 的原因）。
+
 
 ## 2026-07-28 — moved into `chat/team/`, activity + guidance split out
 

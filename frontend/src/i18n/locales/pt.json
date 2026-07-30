@@ -113,18 +113,13 @@
         "queuedHint": "Entregue, aguardando um espaço de execução livre. Acontece quando vários colegas foram chamados ao mesmo tempo ou outra tarefa longa ainda está rodando.",
         "stalledHint": "Nenhum sinal de progresso deste colega há algum tempo. Ele pode continuar rodando — um modelo pode ficar em silêncio por um bom tempo — ou o processo em segundo plano pode ter um problema. Se não se recuperar, verifique o status do serviço.",
         "idleHint": "Nada pendente no momento.",
-        "countWorking": "{{n}} trabalhando",
-        "countWaiting": "{{n}} aguardando",
-        "countStalled": "{{n}} sem sinal",
-        "countIdle": "{{n}} ociosos",
         "silentFor": "em silêncio há {{duration}}",
         "waitingFor": "aguardando há {{duration}}",
         "finishedAgo": "concluído há {{duration}}",
         "startedAt": "iniciado às {{time}}",
         "stepOngoing": "{{duration}}, em andamento",
         "stepsDropped": "{{n}} passos anteriores não exibidos",
-        "noSteps": "Nenhum passo registrado ainda.",
-        "recentlyFinished": "Concluído recentemente"
+        "noSteps": "Nenhum passo registrado ainda."
       },
       "guide": {
         "title": "Como esta sala funciona",

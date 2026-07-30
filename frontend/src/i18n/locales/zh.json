@@ -146,18 +146,13 @@
         "queuedHint": "消息已送达，正在等待空闲的执行槽位。同时点名了多位队友、或有其它长任务在跑时会出现排队。",
         "stalledHint": "已经有一段时间没有收到这位队友的进度信号。它可能仍在运行（模型可能长时间静默），也可能是后台任务出了问题。若长时间不恢复，请检查服务状态。",
         "idleHint": "当前没有待办。",
-        "countWorking": "{{n}} 位工作中",
-        "countWaiting": "{{n}} 位等待中",
-        "countStalled": "{{n}} 位无信号",
-        "countIdle": "{{n}} 位空闲",
         "silentFor": "已静默 {{duration}}",
         "waitingFor": "已等待 {{duration}}",
         "finishedAgo": "{{duration}} 前完成",
         "startedAt": "开始于 {{time}}",
         "stepOngoing": "{{duration}}，进行中",
         "stepsDropped": "更早的 {{n}} 个步骤未显示",
-        "noSteps": "暂无步骤记录。",
-        "recentlyFinished": "刚刚完成"
+        "noSteps": "暂无步骤记录。"
       },
       "guide": {
         "title": "这个群怎么用",
