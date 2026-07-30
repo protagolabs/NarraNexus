@@ -141,8 +141,10 @@ def _claude_code_projects(base: Path) -> List[FrameworkDetection]:
         # non-alphanumeric char becomes '-' (see extractors._encode_cwd).
         sess_dir = claude_home / "projects" / _encode_cwd(cwd)
         n_sessions = len(list(sess_dir.glob("*.jsonl"))) if sess_dir.exists() else 0
-        # Nothing to import from a project whose cwd is gone AND has no sessions.
-        if not cwd_exists and n_sessions == 0:
+        # Denoise: the projects map holds EVERY dir ever opened in Claude Code.
+        # Only surface one with real importable content — a CLAUDE.md or at least
+        # one session. A bare "opened once" cwd with neither is dropped.
+        if not (has_md or n_sessions >= 1):
             continue
 
         confidence: Confidence = "high" if has_md else ("medium" if (cwd_exists or n_sessions) else "low")

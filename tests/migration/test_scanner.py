@@ -120,6 +120,23 @@ def test_detect_enumerates_claude_projects(home):
     assert cc.index(proj_dets[0]) < cc.index(globals_[0])
 
 
+def test_detect_skips_empty_projects(home):
+    # A project listed in ~/.claude.json but with NO CLAUDE.md and NO sessions is
+    # noise (a dir opened once) — it must NOT be enumerated; only the global
+    # fallback remains for claude_code.
+    import json as _json
+    empty = home / "opened-once"
+    empty.mkdir()
+    (home / ".claude.json").write_text(_json.dumps({
+        "mcpServers": {}, "projects": {str(empty): {}},
+    }), encoding="utf-8")
+    (home / ".claude" / "settings.json").parent.mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    cc = [d for d in detector.detect_all(home) if d.framework == "claude_code"]
+    assert not any(d.path == str(empty) for d in cc)              # empty project dropped
+    assert all("global-shared-config" in d.signals for d in cc)  # only the fallback left
+
+
 # ── claude: global vs project ────────────────────────────────────────────────
 
 def test_scan_claude_global(home):

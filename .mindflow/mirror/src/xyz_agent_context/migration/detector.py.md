@@ -29,9 +29,11 @@ writes nothing.
   carry `has:CLAUDE.md` + `sessions:N`), ranked by confidence then session
   count. The global `~/.claude` entry is kept but **demoted to `low`** with a
   `global-shared-config` signal — a fallback for grabbing shared skills+MCP
-  only, since it has no project persona/sessions. A project whose cwd is gone
-  AND has zero sessions is dropped (nothing to import). This is why the picker
-  shows several "Claude Code · <project>" rows, not one.
+  only, since it has no project persona/sessions. **Denoise filter**: the
+  `projects` map holds every dir ever opened in Claude Code, so a project is
+  enumerated only if it has real content — a `CLAUDE.md` OR ≥1 session; a bare
+  "opened once" cwd with neither is dropped. This is why the picker shows
+  several "Claude Code · <project>" rows, not one, and not the noise.
 
 ## Gotcha
 
