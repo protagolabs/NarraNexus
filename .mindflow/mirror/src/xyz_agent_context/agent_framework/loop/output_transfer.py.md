@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — tool_call_item 统一构造函数（pending 语义）
+
+三处字面量构造（claude 非流式 new_items / claude 流式 / codex started）
+收敛为 `tool_call_item()`。`arguments=None` = 只知道名字（流式参数没到）
+→ 标 pending，UI 立刻显示「正在用 X」，随后同 tool_call_id 的完整事件
+覆盖。非流式 provider 一次给全、自然只发完整版——这个不对称是 provider
+特性，平台不抹平（铁律 #15）。今天三处调用方 arguments 均非 None（codex
+`_codex_tool_args` 恒返回 dict），pending 恒 False；构造函数是给 SDK
+partial_json 流式路径预留的接缝。
+
 ## 2026-07-29 — session_id 降级为纯观测值(T7)
 
 `ResultMessage.session_id` 仍然被抽取、仍然走

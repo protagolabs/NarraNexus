@@ -29,6 +29,28 @@ from xyz_agent_context.agent_framework.loop.events import (
 )
 
 
+def tool_call_item(
+    *, tool_call_id: str, tool_name: str, arguments: Dict[str, Any] | None
+) -> Dict[str, Any]:
+    """One legacy tool_call item.
+
+    ``arguments=None`` means only the name is known (the streamed
+    arguments haven't finished) — the item is marked pending so the UI
+    can show "using X" immediately; the completed call then replaces it
+    in place, keyed by tool_call_id. A non-streaming provider hands
+    over name and arguments together and simply never produces a
+    pending item — that asymmetry is a provider characteristic the
+    platform does not paper over (binding rule #15).
+    """
+    return {
+        "type": ITEM_TYPE_TOOL_CALL,
+        "tool_call_id": tool_call_id,
+        "tool_name": tool_name,
+        "arguments": arguments or {},
+        "pending": arguments is None,
+    }
+
+
 def _stringify_tool_result_content(content: Any) -> str:
     """Flatten a ToolResultBlock.content into the tool's plain-text payload.
 
@@ -169,12 +191,11 @@ def _convert_to_non_streaming_result(message: Any, message_type: str) -> Dict[st
                     })
                 elif block_type == "ToolUseBlock":
                     if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
-                        tool_call = {
-                            "type": ITEM_TYPE_TOOL_CALL,
-                            "tool_call_id": block.id,
-                            "tool_name": block.name,
-                            "arguments": block.input
-                        }
+                        tool_call = tool_call_item(
+                            tool_call_id=block.id,
+                            tool_name=block.name,
+                            arguments=block.input,
+                        )
                         tool_calls.append(tool_call)
                         result["new_items"].append(tool_call)
 
@@ -252,12 +273,11 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
             if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
                 events.append({
                     "type": TYPE_RUN_ITEM_STREAM_EVENT,
-                    "item": {
-                        "type": ITEM_TYPE_TOOL_CALL,
-                        "tool_call_id": block.id,
-                        "tool_name": block.name,
-                        "arguments": block.input
-                    }
+                    "item": tool_call_item(
+                        tool_call_id=block.id,
+                        tool_name=block.name,
+                        arguments=block.input,
+                    ),
                 })
         # TextBlock, ThinkingBlock → skip (already streamed via StreamEvent)
 
@@ -669,12 +689,11 @@ def _translate_codex_item(
             # filters / hides them after the run completes.
             return [{
                 "type": TYPE_RUN_ITEM_STREAM_EVENT,
-                "item": {
-                    "type": ITEM_TYPE_TOOL_CALL,
-                    "tool_call_id": item_id,
-                    "tool_name": _codex_tool_name(item),
-                    "arguments": _codex_tool_args(item),
-                },
+                "item": tool_call_item(
+                    tool_call_id=item_id,
+                    tool_name=_codex_tool_name(item),
+                    arguments=_codex_tool_args(item),
+                ),
             }]
         # Completed: emit tool_call_output_item (deduped on
         # tool_call_id by the wrapper's seen_tool_call_ids set). The
