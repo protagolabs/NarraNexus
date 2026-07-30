@@ -264,6 +264,13 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
+    async def get_expressive_tools(self) -> list[str]:
+        """The owner-chat delivery tool. ChatModule sits first in module
+        priority order, so this lands first in the collected list and
+        becomes the turn's DEFAULT reply tool (the one the framework's
+        constitution names as its example)."""
+        return ["mcp__chat_module__send_message_to_user_directly"]
+
     def create_mcp_server(self) -> Optional[Any]:
         """
         Create MCP Server

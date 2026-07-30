@@ -32,6 +32,8 @@ def test_driver_kwargs_matches_legacy_call_shape():
     ti = _mk(
         disallowed_tools=("WebSearch",),
         extra_env={"TAVILY_API_KEY": "k"},
+        agent_id="agent_x",
+        expressive_tools=("mcp__chat_module__send_message_to_user_directly",),
     )
     kwargs = ti.driver_kwargs()
     assert kwargs == {
@@ -39,6 +41,8 @@ def test_driver_kwargs_matches_legacy_call_shape():
         "mcp_servers": ti.mcp_servers,
         "extra_env": {"TAVILY_API_KEY": "k"},
         "disallowed_tools": ["WebSearch"],
+        "agent_id": "agent_x",
+        "expressive_tools": ["mcp__chat_module__send_message_to_user_directly"],
     }
     # messages / mcp_servers ride through by reference — no copies that
     # would break the mutate-then-call pattern in step_3.3.
@@ -53,6 +57,15 @@ def test_empty_collections_normalize_to_none():
     kwargs = _mk().driver_kwargs()
     assert kwargs["extra_env"] is None
     assert kwargs["disallowed_tools"] is None
+
+
+def test_expressive_tools_key_absent_when_empty_agent_id_always_present():
+    """A mute turn emits no expressive_tools key (driver defaults engage);
+    agent_id always rides along — NexusPower stamps it into ToolContext
+    and every driver accepts it via **kwargs."""
+    kwargs = _mk().driver_kwargs()
+    assert "expressive_tools" not in kwargs
+    assert kwargs["agent_id"] == "agent"
 
 
 def test_refs_reserved_and_default_none():

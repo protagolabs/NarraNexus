@@ -904,6 +904,11 @@ async def step_3_agent_loop(
             mcp_servers=ctx.mcp_servers,
             disallowed_tools=tuple(extra_disallowed_tools),
             extra_env=skill_env_vars,
+            agent_id=ctx.agent_id,
+            # The turn's delivery surface, declared by the modules
+            # (context 3.2). NexusPower's monologue contract routes every
+            # user-visible reply through these; CLI drivers ignore them.
+            expressive_tools=tuple(context.expressive_tools),
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

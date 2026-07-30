@@ -162,7 +162,7 @@ class ContextRuntime:
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
-        messages, mcp_servers, disallowed_tools = await self.build_input_for_framework(
+        messages, mcp_servers, disallowed_tools, expressive_tools = await self.build_input_for_framework(
             messages, system_prompt, active_instances, ctx_data,
             narrative_list=narrative_list,
         )
@@ -173,6 +173,7 @@ class ContextRuntime:
             messages=messages,
             mcp_servers=mcp_servers,
             disallowed_tools=disallowed_tools,
+            expressive_tools=expressive_tools,
             ctx_data=ctx_data,
         )
 
@@ -1062,6 +1063,11 @@ class ContextRuntime:
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
         mcp_servers = {}
         disallowed_tools: list[str] = []
+        # Delivery declaration (NexusPower reply contract): each module
+        # states which of its tools DELIVER content to a human. Collected
+        # in instance (priority) order — the first entry is the turn's
+        # default reply tool — and deduplicated.
+        expressive_tools: list[str] = []
         seen_module_classes = set()
         collected_count = 0
 
@@ -1093,6 +1099,19 @@ class ContextRuntime:
                         f"          get_disallowed_tools failed for "
                         f"{inst.module_class}: {e}"
                     )
+                # Same fail-open posture as suppression: a module whose
+                # declaration crashes simply contributes no reply tools.
+                try:
+                    declare = getattr(inst.module, "get_expressive_tools", None)
+                    declared = await declare() if declare is not None else []
+                    for tool_name in declared:
+                        if tool_name not in expressive_tools:
+                            expressive_tools.append(tool_name)
+                except Exception as e:  # noqa: BLE001 — fail-open
+                    logger.warning(
+                        f"          get_expressive_tools failed for "
+                        f"{inst.module_class}: {e}"
+                    )
                 seen_module_classes.add(inst.module_class)
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
@@ -1108,9 +1127,10 @@ class ContextRuntime:
 
         logger.debug(
             f"      build_input_for_framework() completed: {len(final_messages)} messages, "
-            f"{len(mcp_servers)} MCP servers, {len(disallowed_tools)} suppressed tools"
+            f"{len(mcp_servers)} MCP servers, {len(disallowed_tools)} suppressed tools, "
+            f"{len(expressive_tools)} reply tools"
         )
-        return final_messages, mcp_servers, sorted(set(disallowed_tools))
+        return final_messages, mcp_servers, sorted(set(disallowed_tools)), expressive_tools
 
     async def _load_native_turn_replays(
         self, timeline: List[Dict[str, Any]]

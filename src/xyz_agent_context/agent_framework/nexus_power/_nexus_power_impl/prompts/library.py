@@ -57,13 +57,25 @@ class NexusPowerPrompts:
     @classmethod
     def constitution(cls, inputs: PromptInputs, mode: PromptMode) -> str:
         """S1 — the monologue/expression contract. Non-empty in every
-        mode: this is the framework's minimum identity."""
+        mode: this is the framework's minimum identity.
+
+        The reply-tool example is per-turn DATA (the platform's declared
+        default), never a platform tool name baked into framework copy:
+        the framework knows no platform, and some turns are legitimately
+        mute (no example to give)."""
         if mode is PromptMode.NONE:
             return (
                 "Your plain text is private monologue; only tool calls act "
                 "on the world."
             )
-        return _load("constitution.md")
+        example = (
+            f" (this turn's default: `{inputs.default_reply_tool}`)"
+            if inputs.default_reply_tool
+            else ""
+        )
+        return _load("constitution.md").replace(
+            "{{DEFAULT_REPLY_TOOL_EXAMPLE}}", example
+        )
 
     @classmethod
     def identity_line(cls, inputs: PromptInputs, mode: PromptMode) -> str:
@@ -104,6 +116,20 @@ class NexusPowerPrompts:
         if not inputs.capability_instructions:
             return ""
         return inputs.capability_instructions
+
+    # ---- out-of-band copy (not a section: the assembly renders these
+    # at its own placement points) -------------------------------------
+
+    @classmethod
+    def reply_reminder(cls, reply_tools: tuple[str, ...]) -> str:
+        """The dynamic-tail delivery reminder, rendered fresh each step
+        from the expression contract's CURRENT tool list (expansion may
+        grow it mid-turn — the tail is the one placement where that is
+        cache-free). Empty list = mute turn = no reminder."""
+        if not reply_tools:
+            return ""
+        names = ", ".join(f"`{name}`" for name in reply_tools)
+        return _load("reply_reminder.md").replace("{{REPLY_TOOLS}}", names)
 
     # ---- section rosters (order is contract: reordering breaks every
     # user's cache prefix and requires explicit review) ----------------

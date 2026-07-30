@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+覆写 `get_expressive_tools()` → `mcp__chat_module__send_message_to_user_directly`。
+Chat priority=1 → 收集序首位 → 成为本回合**默认回复工具**(NexusPower
+constitution 的例子名)。
 
 ## 2026-07-30 — 被打断 turn 的持久化标记
 

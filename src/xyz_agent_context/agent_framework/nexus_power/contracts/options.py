@@ -70,6 +70,9 @@ class ExpandableSpec(BaseModel):
     mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     skill_dirs: tuple[str, ...] = ()
     extra_env: dict[str, str] = Field(default_factory=dict)
+    # Delivery tools this capability contributes (fully-qualified names);
+    # expansion grants them to the turn's expression contract.
+    expressive_tools: tuple[str, ...] = ()
 
 
 class TurnOptions(BaseModel):

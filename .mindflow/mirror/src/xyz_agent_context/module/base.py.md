@@ -1,7 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+模块契约新增 `get_expressive_tools() -> list[str]`(默认空):模块声明自己
+「哪些工具把内容送达人类」(全限定名)。chat/channel 覆写;
+[[context_runtime.py]] 与 get_disallowed_tools 同环收集(实例优先级序、去重、
+fail-open),经 TurnInput 声明给框架(NexusPower 独白契约的投递面)。
+语义纯通用,零场景词汇(铁律 #4)。
 
 ## 2026-07-28 — R4a：新增通用面 `get_turn_context(ctx_data) -> str`（默认 ""）
 

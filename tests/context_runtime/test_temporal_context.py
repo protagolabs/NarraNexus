@@ -103,7 +103,7 @@ async def test_relocation_on_temporal_moves_to_turn_context(db_client, monkeypat
     )
     assert "## User Temporal Context" not in system_prompt
 
-    final_messages, _mcp, _dis = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
         messages=[], system_prompt=system_prompt, active_instances=[], ctx_data=ctx,
     )
     user_msg = final_messages[-1]["content"]
@@ -125,7 +125,7 @@ async def test_relocation_off_temporal_stays_in_system_prompt(db_client, monkeyp
     assert "## User Temporal Context" in system_prompt
     assert "Asia/Shanghai" in system_prompt
 
-    final_messages, _mcp, _dis = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
         messages=[], system_prompt=system_prompt, active_instances=[], ctx_data=ctx,
     )
     assert final_messages[-1]["content"] == "hi"

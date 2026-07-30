@@ -57,21 +57,34 @@ class McpToolChannel:
         self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
-        """Connect every pending server concurrently; failures degrade."""
+        """Connect every pending server concurrently; failures degrade.
+
+        Registration is SEPARATED from connection: the gather completes
+        in arbitrary order, so specs are registered afterwards, batch by
+        batch, in server-name order. That makes the tool array a
+        deterministic function of the connect batches (constraint C2:
+        later batches append after earlier ones, never interleave)."""
         async with self._lock:
             pending, self._pending = self._pending, {}
             if not pending:
                 return
+            ordered = sorted(pending.items())
             results = await asyncio.gather(
-                *(self._connect_one(name, spec) for name, spec in pending.items()),
+                *(self._connect_one(name, spec) for name, spec in ordered),
                 return_exceptions=True,
             )
-            for (name, _), result in zip(pending.items(), results):
+            for (name, _), result in zip(ordered, results):
                 if isinstance(result, BaseException):
                     logger.warning(f"MCP server '{name}' unavailable: {result}")
+                    continue
+                session, listed_tools = result
+                self._sessions[name] = session
+                self._register_tools(name, listed_tools)
             self.generation += 1
 
-    async def _connect_one(self, name: str, spec: McpServerSpec) -> None:
+    async def _connect_one(self, name: str, spec: McpServerSpec):
+        """Connect one server and return ``(session, listed_tools)`` —
+        no shared-state writes here (the caller registers in order)."""
         from mcp import ClientSession
         from mcp.client.sse import sse_client
 
@@ -84,8 +97,10 @@ class McpToolChannel:
         session = await self._stack.enter_async_context(ClientSession(read, write))
         await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT_S)
         listed = await asyncio.wait_for(session.list_tools(), timeout=_CONNECT_TIMEOUT_S)
-        self._sessions[name] = session
-        for tool in listed.tools:
+        return session, list(listed.tools)
+
+    def _register_tools(self, name: str, tools: list[Any]) -> None:
+        for tool in tools:
             full_name = mcp_tool_name(name, tool.name)
             if full_name in self._route:
                 logger.warning(

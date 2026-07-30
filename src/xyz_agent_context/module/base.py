@@ -336,6 +336,17 @@ MCPs: {mcp_tools}
         """
         pass
 
+    async def get_expressive_tools(self) -> list[str]:
+        """Fully-qualified reply/delivery tools this module contributes.
+
+        The platform forwards the collected list to the agent framework
+        as the turn's expressive surface (NexusPower's monologue
+        contract: only these tools' content reaches a human). Most
+        modules deliver nothing themselves — default is empty; chat and
+        IM channel modules override.
+        """
+        return []
+
     async def get_disallowed_tools(self) -> list[str]:
         """
         Fully-qualified MCP tool names to suppress for THIS agent THIS turn.

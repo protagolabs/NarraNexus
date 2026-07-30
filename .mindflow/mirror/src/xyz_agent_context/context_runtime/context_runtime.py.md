@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`build_input_for_framework` 在 MCP 收集环里同批收集各模块
+`get_expressive_tools()`(getattr 容缺 + fail-open,姿态同 disallowed):
+实例(优先级)序、去重,**首位即默认回复工具**(chat=1 天然在前)。返回值
+3 元组 → 4 元组;`ContextRuntimeOutput.expressive_tools` 新字段承载。
 
 ## 2026-07-29 (二次) — 原生 turn 回放(NexusPower)
 

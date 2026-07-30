@@ -117,6 +117,58 @@ def test_prompt_assembly_byte_stable_and_mode_faces():
     assert [m["role"] for m in msgs] == ["system", "system"]
 
 
+def test_expression_contract_is_incremental():
+    """Expansion may grant delivery tools mid-turn: the contract accepts
+    additions, preserves declaration order (first = the default), and
+    dedupes."""
+    contract = ExpressionContract(
+        ("mcp__chat_module__send_message_to_user_directly",)
+    )
+    assert contract.names() == ("mcp__chat_module__send_message_to_user_directly",)
+    contract.add_tools(
+        (
+            "mcp__lark_module__lark_cli",
+            "mcp__chat_module__send_message_to_user_directly",  # dupe: ignored
+        )
+    )
+    assert contract.is_expressive("mcp__lark_module__lark_cli")
+    assert contract.names() == (
+        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__lark_module__lark_cli",
+    )
+
+
+def test_constitution_default_reply_tool_is_data_not_copy():
+    """The constitution's reply-tool example is per-turn data (the first
+    platform-declared expressive tool), never a hard-coded platform name."""
+    assembler = PromptAssembler()
+    with_default = assembler.assemble(
+        PromptInputs(
+            default_reply_tool="mcp__chat_module__send_message_to_user_directly"
+        ),
+        PromptMode.FULL,
+    )
+    assert "mcp__chat_module__send_message_to_user_directly" in with_default.stable_prefix
+
+    mute = assembler.assemble(PromptInputs(), PromptMode.FULL)
+    assert "send_message_to_user_directly" not in mute.stable_prefix
+    assert "reply tool" in mute.stable_prefix  # the generic rule survives
+
+
+def test_reply_reminder_lists_tools_and_defers_to_message_instructions():
+    reminder = NexusPowerPrompts.reply_reminder(
+        (
+            "mcp__chat_module__send_message_to_user_directly",
+            "mcp__lark_module__lark_cli",
+        )
+    )
+    assert "mcp__chat_module__send_message_to_user_directly" in reminder
+    assert "mcp__lark_module__lark_cli" in reminder
+    # A message carrying its own reply instruction outranks the default list.
+    assert "reply instruction" in reminder
+    assert NexusPowerPrompts.reply_reminder(()) == ""
+
+
 def test_prompt_pack_subclass_overrides_one_section():
     class Pack(NexusPowerPrompts):
         @classmethod

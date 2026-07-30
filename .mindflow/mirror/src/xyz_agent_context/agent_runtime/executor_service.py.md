@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`/agent-loop` 处理器把 body 的 `agent_id` / `expressive_tools` 转发给本地
+driver(此前只转 4 个 kwargs,声明会在云端被丢弃)。
 
 ## 2026-07-29 — 不再授权 resume 句柄(T6)
 

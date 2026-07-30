@@ -219,6 +219,70 @@ async def test_capability_expander_idempotent_and_seams():
     assert expander.expanded_keys() == frozenset({"jobs", "empty"})
 
 
+@pytest.mark.asyncio
+async def test_expander_declares_expressive_tools_through_seam():
+    """An expandable may carry delivery tools; expanding it grants them
+    to the expression contract exactly once (idempotent with the rest)."""
+    granted: list[str] = []
+
+    async def add_servers(servers):
+        pass
+
+    expander = CapabilityExpander(
+        (
+            Expandable(
+                key="lark",
+                card="Lark channel",
+                instructions="Reply on Lark with lark_cli.",
+                expressive_tools=("mcp__lark_module__lark_cli",),
+            ),
+        ),
+        add_mcp_servers=add_servers,
+        add_env=lambda env: None,
+        add_expressive=granted.extend,
+    )
+    await expander.expand("lark")
+    assert granted == ["mcp__lark_module__lark_cli"]
+    await expander.expand("lark")  # idempotent: not re-granted
+    assert granted == ["mcp__lark_module__lark_cli"]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_preserves_registration_order_append_only(ctx, engine):
+    """C2: the tool array is (channel order, registration order) and an
+    expansion APPENDS — no name resort that would move new tools into the
+    middle of the cached prefix."""
+
+    class _Ordered:
+        generation = 0
+
+        def __init__(self):
+            self._specs = [
+                ToolSpec(name="zebra", description="z", input_schema={"type": "object"}),
+                ToolSpec(name="alpha", description="a", input_schema={"type": "object"}),
+            ]
+
+        def list_tools(self):
+            return list(self._specs)
+
+        async def call(self, name, args, ctx):
+            return ToolResult(call_id="", ok=True, content="ok")
+
+        async def refresh(self):
+            return False
+
+    channel = _Ordered()
+    dispatcher = ToolDispatcher((channel,), policy=engine, ctx=ctx)
+    assert [s.name for s in dispatcher.visible_tools()] == ["zebra", "alpha"]
+
+    # Simulate a mid-turn expansion: registration appends, generation bumps.
+    channel._specs.append(
+        ToolSpec(name="aardvark", description="new", input_schema={"type": "object"})
+    )
+    channel.generation += 1
+    assert [s.name for s in dispatcher.visible_tools()] == ["zebra", "alpha", "aardvark"]
+
+
 def test_shell_confinement_blocks_the_documented_escapes(engine, ctx):
     """Regression for acceptance case `safety` (2026-07-29): the file
     tools denied /etc/passwd and the model simply ran `bash head -1
