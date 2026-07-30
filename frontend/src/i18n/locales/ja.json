@@ -113,26 +113,31 @@
         "queuedHint": "配信済みで、空いている実行枠を待っています。複数のメンバーを同時に指名した場合や、別の長いタスクが実行中の場合に発生します。",
         "stalledHint": "このメンバーからしばらく進捗の信号が届いていません。まだ実行中の可能性もあります（モデルが長時間沈黙することがあります）が、バックグラウンド処理に問題がある可能性もあります。回復しない場合はサービスの状態を確認してください。",
         "idleHint": "現在、保留中の作業はありません。",
-        "countWorking": "作業中 {{n}} 名",
-        "countWaiting": "待機中 {{n}} 名",
-        "countStalled": "応答なし {{n}} 名",
-        "countIdle": "アイドル {{n}} 名",
         "silentFor": "{{duration}} 沈黙",
         "waitingFor": "{{duration}} 待機",
         "finishedAgo": "{{duration}} 前に完了",
         "startedAt": "{{time}} に開始",
         "stepOngoing": "{{duration}}、進行中",
         "stepsDropped": "それ以前の {{n}} ステップは非表示",
-        "noSteps": "まだステップの記録がありません。",
-        "recentlyFinished": "最近完了"
+        "noSteps": "まだステップの記録がありません。"
       },
       "guide": {
         "title": "このルームの使い方",
+        "plainTitle": "そのまま話す",
         "plain": "@ を付けずに送信すると、チームリードが対応します。",
         "plainWithLead": "@ を付けずに送信すると、{{name}} が対応します。",
+        "mentionTitle": "メンバーを指名する",
         "mention": "@ でメンバーを指名すると、その相手が直接対応します。",
+        "broadcastTitle": "全員に一斉送信",
         "broadcast": "@all は全員に届きます。各メンバーが 1 ターンずつ実行するため、控えめに使ってください。",
         "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎは 4 回で停止します。"
+      },
+      "roster": {
+        "title": "メンバー",
+        "lastRun": "{{duration}} 実行 · {{ago}} 前",
+        "neverRan": "まだ実行していません",
+        "noProcess": "このターンの処理記録はありません",
+        "loading": "処理を読み込み中…"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応"

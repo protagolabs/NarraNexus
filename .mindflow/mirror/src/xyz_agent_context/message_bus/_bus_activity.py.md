@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_activity.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — bind the turn's event_id onto the activity row
+
+`TurnActivity` gained `note_event_id(event_id)` and the row a matching
+`event_id` column. Semantics: whichever `events` row backs the CURRENT/most
+recent turn for this (agent_id, channel_id) — `start()` resets it to `None`
+(a new turn must not inherit the previous turn's id), `note_event_id` writes
+it once the runtime surfaces it, and `finish()` deliberately leaves it in
+place (same "keep `steps` after the turn ends" reasoning: the team UI wants
+to fetch the JUST-finished turn's full event_log via the existing event-log
+endpoint, not only a live one). This is the team-room UI's missing link
+between the cheap activity mirror and the heavier `events`/event-log
+pipeline it otherwise avoids standing up.
 
 ## 2026-07-28 — the heartbeat became a heartbeat
 
@@ -63,3 +76,6 @@ the reader-side guard: a `running` row whose `updated_at` heartbeat is older tha
 - Progress is fed by the opt-in `on_progress` callback on `run_collector.collect_run` (only
   the team branch passes one; every other trigger passes None → zero overhead).
 - Status writes must never break delivery — the trigger swallows their errors.
+- `note_event_id` is write-once per `TurnActivity` instance (`self._event_id`
+  guards it) — a second call with a different id is silently ignored, not
+  overwritten. Only `start()` (a new turn) resets it.

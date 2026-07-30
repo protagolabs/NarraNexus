@@ -113,26 +113,31 @@
         "queuedHint": "Message remis, en attente d'un créneau d'exécution libre. Cela arrive quand plusieurs coéquipiers ont été sollicités en même temps, ou qu'une autre tâche longue est encore en cours.",
         "stalledHint": "Aucun signal de progression de ce coéquipier depuis un moment. Il peut encore tourner — un modèle peut rester longtemps silencieux — ou le processus en arrière-plan a un problème. S'il ne repart pas, vérifie l'état du service.",
         "idleHint": "Rien en attente pour le moment.",
-        "countWorking": "{{n}} au travail",
-        "countWaiting": "{{n}} en attente",
-        "countStalled": "{{n}} sans signal",
-        "countIdle": "{{n}} inactifs",
         "silentFor": "silencieux depuis {{duration}}",
         "waitingFor": "en attente depuis {{duration}}",
         "finishedAgo": "terminé il y a {{duration}}",
         "startedAt": "démarré à {{time}}",
         "stepOngoing": "{{duration}}, en cours",
         "stepsDropped": "{{n}} étapes antérieures non affichées",
-        "noSteps": "Aucune étape enregistrée pour l'instant.",
-        "recentlyFinished": "Terminé récemment"
+        "noSteps": "Aucune étape enregistrée pour l'instant."
       },
       "guide": {
         "title": "Comment fonctionne ce salon",
+        "plainTitle": "Écris simplement",
         "plain": "Envoie un message sans @ — le responsable de l'équipe s'en charge.",
         "plainWithLead": "Envoie un message sans @ — {{name}} s'en charge.",
+        "mentionTitle": "Interpeller un agent",
         "mention": "@ un coéquipier pour t'adresser directement à lui.",
+        "broadcastTitle": "Diffuser à tous",
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
         "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
+      },
+      "roster": {
+        "title": "Membres",
+        "lastRun": "a duré {{duration}} · il y a {{ago}}",
+        "neverRan": "jamais exécuté",
+        "noProcess": "Aucun enregistrement de processus pour ce tour",
+        "loading": "Chargement du processus…"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné"

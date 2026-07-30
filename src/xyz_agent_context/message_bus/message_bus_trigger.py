@@ -627,6 +627,7 @@ class MessageBusTrigger:
             # the idle flip, whichever way the body exits.
             async with contextlib.AsyncExitStack() as stack:
                 on_progress = None
+                on_event_id = None
                 if is_team:
                     from xyz_agent_context.utils.db.db_factory import get_db_client
                     from xyz_agent_context.message_bus import _bus_activity
@@ -634,6 +635,7 @@ class MessageBusTrigger:
                         _bus_activity.turn(await get_db_client(), agent_id, channel_id)
                     )
                     on_progress = act.on_progress
+                    on_event_id = act.note_event_id
 
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
@@ -646,6 +648,7 @@ class MessageBusTrigger:
                     trigger_message_id=trigger_message.message_id,
                     retrieval_anchor=build_bus_anchor(messages),
                     on_progress=on_progress,
+                    on_event_id=on_event_id,
                 )
 
             # On success: advance cursor
@@ -1082,11 +1085,16 @@ class MessageBusTrigger:
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
         on_progress=None,
+        on_event_id=None,
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
         Returns the collected agent response text.
+
+        `on_event_id`, when provided (team branch only), is forwarded to
+        `collect_run` so the turn's events-row id gets bound onto the
+        activity row for the team UI.
 
         Raises:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
@@ -1107,6 +1115,7 @@ class MessageBusTrigger:
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
             on_progress=on_progress,
+            on_event_id=on_event_id,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,

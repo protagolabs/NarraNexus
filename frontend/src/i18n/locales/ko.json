@@ -113,26 +113,31 @@
         "queuedHint": "전달되었고 빈 실행 슬롯을 기다리는 중입니다. 여러 팀원을 한 번에 호출했거나 다른 긴 작업이 실행 중일 때 발생합니다.",
         "stalledHint": "이 팀원으로부터 한동안 진행 신호가 오지 않았습니다. 아직 실행 중일 수도 있고(모델이 오랫동안 조용할 수 있습니다) 백그라운드 작업에 문제가 있을 수도 있습니다. 복구되지 않으면 서비스 상태를 확인하세요.",
         "idleHint": "현재 대기 중인 작업이 없습니다.",
-        "countWorking": "작업 중 {{n}}명",
-        "countWaiting": "대기 중 {{n}}명",
-        "countStalled": "신호 없음 {{n}}명",
-        "countIdle": "유휴 {{n}}명",
         "silentFor": "{{duration}} 동안 무응답",
         "waitingFor": "{{duration}} 대기",
         "finishedAgo": "{{duration}} 전 완료",
         "startedAt": "{{time}}에 시작",
         "stepOngoing": "{{duration}}, 진행 중",
         "stepsDropped": "이전 {{n}}개 단계는 표시되지 않음",
-        "noSteps": "아직 기록된 단계가 없습니다.",
-        "recentlyFinished": "방금 완료됨"
+        "noSteps": "아직 기록된 단계가 없습니다."
       },
       "guide": {
         "title": "이 방을 쓰는 방법",
+        "plainTitle": "그냥 말하기",
         "plain": "@ 없이 메시지를 보내면 팀 리드가 처리합니다.",
         "plainWithLead": "@ 없이 메시지를 보내면 {{name}}이(가) 처리합니다.",
+        "mentionTitle": "팀원 한 명 지목",
         "mention": "@ 로 팀원을 지목하면 그 팀원이 직접 처리합니다.",
+        "broadcastTitle": "전원에게 전달",
         "broadcast": "@all 은 전원에게 전달됩니다. 각 팀원이 한 턴을 모두 실행하므로 신중히 사용하세요.",
         "relay": "팀원끼리 @ 로 작업을 넘길 수 있으며, 사용자의 메시지가 없으면 4번 이후 중단됩니다."
+      },
+      "roster": {
+        "title": "멤버",
+        "lastRun": "{{duration}} 실행 · {{ago}} 전",
+        "neverRan": "아직 실행한 적 없음",
+        "noProcess": "이 턴의 처리 기록이 없습니다",
+        "loading": "처리 과정 불러오는 중…"
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리"

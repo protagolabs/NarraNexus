@@ -113,26 +113,31 @@
         "queuedHint": "Zugestellt, wartet auf einen freien Ausführungsplatz. Das passiert, wenn mehrere Teammitglieder gleichzeitig angesprochen wurden oder eine andere lange Aufgabe noch läuft.",
         "stalledHint": "Seit einer Weile kein Fortschrittssignal von diesem Teammitglied. Es kann noch laufen — ein Modell kann lange schweigen — oder der Hintergrundprozess hat ein Problem. Prüfe den Dienststatus, falls es sich nicht erholt.",
         "idleHint": "Derzeit nichts ausstehend.",
-        "countWorking": "{{n}} arbeiten",
-        "countWaiting": "{{n}} warten",
-        "countStalled": "{{n}} ohne Signal",
-        "countIdle": "{{n}} inaktiv",
         "silentFor": "{{duration}} still",
         "waitingFor": "{{duration}} wartend",
         "finishedAgo": "vor {{duration}} fertig",
         "startedAt": "gestartet um {{time}}",
         "stepOngoing": "{{duration}}, läuft",
         "stepsDropped": "{{n}} frühere Schritte nicht angezeigt",
-        "noSteps": "Noch keine Schritte aufgezeichnet.",
-        "recentlyFinished": "Kürzlich abgeschlossen"
+        "noSteps": "Noch keine Schritte aufgezeichnet."
       },
       "guide": {
         "title": "So funktioniert dieser Raum",
+        "plainTitle": "Einfach schreiben",
         "plain": "Nachricht ohne @ senden — die Teamleitung übernimmt.",
         "plainWithLead": "Nachricht ohne @ senden — {{name}} übernimmt.",
+        "mentionTitle": "Ein Mitglied ansprechen",
         "mention": "@ ein Teammitglied, um es direkt anzusprechen.",
+        "broadcastTitle": "An alle senden",
         "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
         "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
+      },
+      "roster": {
+        "title": "Mitglieder",
+        "lastRun": "lief {{duration}} · vor {{ago}}",
+        "neverRan": "noch nie gelaufen",
+        "noProcess": "Kein Prozessprotokoll für diese Runde",
+        "loading": "Prozess wird geladen…"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird"

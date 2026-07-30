@@ -34,10 +34,16 @@
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import type { Step, TurnEvent } from '@/types';
 import { cn } from '@/lib/utils';
+import {
+  PHASE_LABEL_KEYS,
+  formatElapsed,
+  deriveActivity,
+  ProcessEventRows,
+} from './process/processShared';
+import type { Activity } from './process/processShared';
 
 export interface ProcessPanelProps {
   events: TurnEvent[];
@@ -55,24 +61,6 @@ const MAX_HEIGHT_CLASS = 'max-h-[40vh]';
  *  from browser scroll rounding error. */
 const FOLLOW_THRESHOLD_PX = 24;
 
-/** Pipeline step id → i18n label. Same mapping the message-area
- *  indicator used before it moved in here. Unknown ids fall back to the
- *  backend-provided title. */
-const PHASE_LABEL_KEYS: Record<string, string> = {
-  '0': 'chat.execution.initializing',
-  '1': 'chat.execution.loadingContext',
-  '2': 'chat.execution.loadingResources',
-  '2.5': 'chat.execution.preparingWorkspace',
-  '3': 'chat.execution.buildingContext',
-};
-
-/** "mcp__chat_module__get_chat_history" → "get_chat_history" — same
- *  friendly-name rule TurnTimeline uses; the namespace is debug detail. */
-function friendlyToolName(toolName: string): string {
-  const parts = toolName.split('__');
-  return parts[parts.length - 1] || toolName;
-}
-
 /** Ticks once a second from mount; the panel mounts when the turn
  *  starts, so this reads as the turn's elapsed time. */
 function useElapsedSeconds(): number {
@@ -86,37 +74,6 @@ function useElapsedSeconds(): number {
     return () => clearInterval(timer);
   }, []);
   return elapsed;
-}
-
-function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
-
-type Activity = { text: string; tool?: boolean; pending?: boolean };
-
-/** What is the agent doing RIGHT NOW — the collapsed view's one line.
- *  Latest tool/thinking wins; before the loop starts, the latest phase. */
-function deriveActivity(
-  process: TurnEvent[],
-  phases: Step[],
-  t: TFunction,
-): Activity {
-  for (let i = process.length - 1; i >= 0; i -= 1) {
-    const e = process[i];
-    if (e.type === 'tool_call') {
-      return { text: friendlyToolName(e.tool_name), tool: true, pending: e.pending };
-    }
-    if (e.type === 'thinking') {
-      return { text: t('chat.execution.thinking', 'Thinking…') };
-    }
-  }
-  const last = phases[phases.length - 1];
-  if (last) {
-    const key = PHASE_LABEL_KEYS[last.step];
-    return { text: key ? t(key) : last.title };
-  }
-  return { text: t('chat.execution.startingUp', 'Starting up…') };
 }
 
 export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: ProcessPanelProps) {
@@ -312,65 +269,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
               </div>
             )}
 
-            {process.map((event) => {
-              if (event.type === 'thinking') {
-                return (
-                  <div key={event.id} className="flex gap-2 py-0.5">
-                    <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-carbon)' }}>
-                      ∴
-                    </span>
-                    <span className="whitespace-pre-wrap italic" style={{ color: 'var(--nm-ink50)' }}>
-                      {event.content}
-                    </span>
-                  </div>
-                );
-              }
-              if (event.type === 'tool_call') {
-                // Show the first argument value as a one-line summary; an
-                // ellipsis until arguments arrive — the visible form of
-                // pending: name decided, arguments still being written.
-                const firstArg = Object.values(event.tool_input ?? {})[0];
-                return (
-                  <div
-                    key={event.id}
-                    data-testid={`tool-row-${event.id}`}
-                    data-pending={event.pending ? 'true' : 'false'}
-                    className="flex items-center gap-2 rounded px-1 py-0.5 -mx-1 hover:bg-[var(--nm-paper-warm)]"
-                  >
-                    {event.pending ? (
-                      <Loader2
-                        className="h-3 w-3 shrink-0 animate-spin"
-                        style={{ color: 'var(--color-warning)' }}
-                      />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className="shrink-0 select-none font-semibold"
-                        style={{ color: 'var(--color-success)' }}
-                      >
-                        $
-                      </span>
-                    )}
-                    <span className="shrink-0 font-semibold" style={{ color: 'var(--color-silicon)' }}>
-                      {friendlyToolName(event.tool_name)}
-                    </span>
-                    <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                      {event.pending ? '…' : String(firstArg ?? '')}
-                    </span>
-                  </div>
-                );
-              }
-              return (
-                <div key={event.id} className="flex gap-2 py-0.5 pl-5">
-                  <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
-                    ↳
-                  </span>
-                  <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                    {event.output}
-                  </span>
-                </div>
-              );
-            })}
+            <ProcessEventRows process={process} />
             {/* Live cursor — the terminal's "still running" heartbeat. */}
             <div aria-hidden="true" className="flex gap-2 py-0.5">
               <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>

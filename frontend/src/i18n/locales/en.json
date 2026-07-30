@@ -146,26 +146,31 @@
         "queuedHint": "Delivered, waiting for a free execution slot. This happens when several teammates were addressed at once, or another long task is still running.",
         "stalledHint": "No progress signal from this teammate for a while. It may still be running — a model can stay silent for a long stretch — or the background worker may have a problem. If it does not recover, check the service status.",
         "idleHint": "Nothing pending right now.",
-        "countWorking": "{{n}} working",
-        "countWaiting": "{{n}} waiting",
-        "countStalled": "{{n}} without signal",
-        "countIdle": "{{n}} idle",
         "silentFor": "silent {{duration}}",
         "waitingFor": "waiting {{duration}}",
         "finishedAgo": "done {{duration}} ago",
         "startedAt": "started at {{time}}",
         "stepOngoing": "{{duration}}, ongoing",
         "stepsDropped": "{{n}} earlier steps not shown",
-        "noSteps": "No steps recorded yet.",
-        "recentlyFinished": "Recently finished"
+        "noSteps": "No steps recorded yet."
       },
       "guide": {
         "title": "How this room works",
+        "plainTitle": "Just talk",
         "plain": "Send a message with no @ — the team lead picks it up.",
         "plainWithLead": "Send a message with no @ — {{name}} picks it up.",
+        "mentionTitle": "Address one agent",
         "mention": "@ a teammate to address them directly.",
+        "broadcastTitle": "Broadcast to all",
         "broadcast": "@all addresses everyone — each member runs a full turn, so use it sparingly.",
         "relay": "Teammates can @ each other to hand work off; the relay stops after 4 hops without a message from you."
+      },
+      "roster": {
+        "title": "Members",
+        "lastRun": "ran {{duration}} · {{ago}} ago",
+        "neverRan": "no runs yet",
+        "noProcess": "No process record for this turn",
+        "loading": "Loading process…"
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned"

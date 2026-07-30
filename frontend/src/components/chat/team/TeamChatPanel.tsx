@@ -3,9 +3,10 @@
  * @author:
  * @date: 2026-06-23
  * @description: Team group-chat surface. Renders one team's shared room:
- * a member bar on top (the user + member agents), the message timeline, and
- * a composer with @-mention. The user posts into the room and @-mentioned
- * agents reply; mentioning @all addresses everyone.
+ * a member bar on top (the user + member agents), then two panes — the message
+ * timeline plus composer on the left, the standing member roster on the right.
+ * The user posts into the room and @-mentioned agents reply; mentioning @all
+ * addresses everyone.
  *
  * Wiring: messages flow over the message bus. Send → POST
  * /api/teams/{id}/chat/messages (sender = usr_<user_id>, mentions = agent_ids
@@ -17,19 +18,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, FileText, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
-import { TeamActivityBubble, TeamActivityConsole } from './TeamActivityConsole';
-import { TeamRoomGuide } from './TeamRoomGuide';
+import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
+import { TeamRosterPanel } from './TeamRosterPanel';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
-import { compareActivity, hasRecentTurn } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
@@ -42,6 +42,57 @@ interface TeamChatPanelProps {
 type MentionOption = { kind: 'all' } | { kind: 'agent'; agent: AgentInfo };
 
 const POLL_MS = 3000;
+
+/**
+ * IM-style "someone is typing" bubble — no stats, gone the moment the reply
+ * lands. Clicking it opens that member's process detail in the roster (shared
+ * highlight = same accent on both sides), so the transcript stays a transcript
+ * and every number lives in exactly one place.
+ */
+function TypingIndicator({
+  name,
+  highlighted,
+  onClick,
+}: {
+  name: string;
+  highlighted: boolean;
+  onClick: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex gap-3">
+      <RingAvatar
+        species="silicon"
+        label={name.slice(0, 2)}
+        size="sm"
+        className="hidden shrink-0 md:inline-flex"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 px-0.5 font-mono text-[10px] text-[var(--text-tertiary)]">{name}</div>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={t('chat.team.typing', { name })}
+          className="nm-bubble-ai inline-flex items-center gap-1 rounded-[var(--radius-lg)] px-3.5 py-2.5"
+          style={{
+            background: 'var(--color-silicon-soft)',
+            border: highlighted
+              ? '1px solid var(--color-silicon)'
+              : '1px solid var(--color-silicon-hair)',
+          }}
+        >
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 animate-bounce rounded-full"
+              style={{ background: 'var(--color-silicon)', animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const { t } = useTranslation();
@@ -71,6 +122,17 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
   const [nowTick, setNowTick] = useState(0);
+  // The roster's open member. It lives here, not in the roster, because the
+  // transcript's typing bubble highlights the same selection — two owners of
+  // one selection is how the two surfaces drift apart.
+  const [rosterExpandedId, setRosterExpandedId] = useState<string | null>(null);
+  // Narrow screens have no room for a standing column, so the roster becomes a
+  // drawer over the transcript.
+  const [mobileRosterOpen, setMobileRosterOpen] = useState(false);
+  // The addressing rules on demand. They fill the empty room's hero; once the
+  // transcript owns the space this popover is the only way back to them.
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideRef = useRef<HTMLDivElement | null>(null);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<BusAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -140,21 +202,26 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // One clock for every duration on screen, so rows never disagree by a tick.
   const now = nowTick || Date.now();
 
+  // A popover the user opened to read one thing must close on the next click
+  // anywhere else — otherwise it sits over the transcript until re-clicked.
+  useEffect(() => {
+    if (!guideOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (guideRef.current && !guideRef.current.contains(e.target as Node)) setGuideOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [guideOpen]);
+
   const nameOf = useCallback(
     (agentId: string) => members.find((m) => m.agent_id === agentId)?.name || agentId,
     [members],
   );
   const leadName = leadAgentId ? nameOf(leadAgentId) : null;
 
-  // Members worth a bubble at the foot of the transcript: anything in flight,
-  // plus an agent whose turn just ended (its trace is still worth reading).
-  const activeMembers = useMemo(
-    () =>
-      activity
-        .filter((a) => a.status !== 'idle' || hasRecentTurn(a, now))
-        .sort((a, b) => compareActivity(a, b, nameOf)),
-    [activity, nameOf, now],
-  );
+  const toggleRoster = useCallback((agentId: string) => {
+    setRosterExpandedId((cur) => (cur === agentId ? null : agentId));
+  }, []);
 
   // Keep the latest message in view as the transcript grows.
   useEffect(() => {
@@ -368,332 +435,392 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </div>
 
+        {/* Roster drawer toggle — narrow screens have no standing column. */}
+        <button
+          type="button"
+          onClick={() => setMobileRosterOpen((v) => !v)}
+          title={t('chat.team.roster.title')}
+          aria-label={t('chat.team.roster.title')}
+          className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)] md:hidden"
+        >
+          <Users2 className="w-3.5 h-3.5" />
+        </button>
+
+        {/* The addressing rules, on demand. The empty room's hero states them
+            once; after the first message this is the only way back to them. */}
+        <div className="relative ml-auto shrink-0" ref={guideRef}>
+          <button
+            type="button"
+            onClick={() => setGuideOpen((v) => !v)}
+            aria-expanded={guideOpen}
+            aria-label={t('chat.team.guide.title')}
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
+          {guideOpen && (
+            <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--nm-paper)] p-3 shadow-lg">
+              <GuideRuleCards leadName={leadName} accent={accent} />
+            </div>
+          )}
+        </div>
+
         {/* Team settings (detail page). */}
         <button
           type="button"
           onClick={() => navigate(`/app/teams/${teamId}`)}
           title={t('chat.team.teamSettings')}
           aria-label={t('chat.team.teamSettings')}
-          className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
         >
           <Settings2 className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* How this room is addressed — folded away once the user has read it. */}
-      <TeamRoomGuide teamId={teamId} leadName={leadName} />
-
-      {/* L0/L1 activity console — collapsed summary, expandable per member. */}
-      <TeamActivityConsole activity={activity} nameOf={nameOf} now={now} />
-
-      {/* Timeline */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-        {messages.length === 0 && activeMembers.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--text-tertiary)]">
-            <Users2 className="w-6 h-6 opacity-40" />
-            <div className="text-sm">{t('chat.team.empty')}</div>
-            <div className="text-xs max-w-[260px]">
-              {leadName
-                ? t('chat.team.emptyHintWithLead', { name: leadName })
-                : t('chat.team.emptyHint')}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {messages.map((m) => {
-              const mine = m.is_user;
-              const avatarLabel = (mine ? userLabel : m.author_name) || '?';
-              const ts = Date.parse(m.created_at);
-              return (
-                <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
-                  {/* Carbon ring for the human, silicon for an agent — matching
-                      the single-agent MessageBubble. Hidden on mobile. */}
-                  <RingAvatar
-                    species={mine ? 'carbon' : 'silicon'}
-                    label={avatarLabel.slice(0, 2)}
-                    size="sm"
-                    className="shrink-0 hidden md:inline-flex"
-                  />
-                  <div className={cn('flex-1 min-w-0', mine && 'text-right')}>
-                    {/* Author name above an agent bubble — a group chat has
-                        multiple speakers, so name them (single-agent doesn't). */}
-                    {!mine && (
-                      <div className="mb-0.5 px-0.5 text-[10px] font-mono text-[var(--text-tertiary)]">
-                        {m.author_name}
-                      </div>
-                    )}
-                    <div
-                      className={cn(
-                        'relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] transition-colors duration-150',
-                        !mine && 'nm-bubble-ai',
-                      )}
-                      style={
-                        mine
-                          ? {
-                              background: 'var(--color-carbon-soft)',
-                              color: 'var(--nm-ink)',
-                              border: '1px solid var(--color-carbon-hair)',
-                              borderRight: '3px solid var(--color-carbon)',
-                            }
-                          : {
-                              background: 'var(--color-silicon-soft)',
-                              color: 'var(--nm-ink)',
-                              border: '1px solid var(--color-silicon-hair)',
-                              borderLeft: '3px solid var(--color-silicon)',
-                            }
-                      }
-                    >
-                      <div className="text-sm break-words leading-relaxed">
-                        {mine ? (
-                          <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">
-                            {m.content}
-                          </span>
-                        ) : (
-                          // Agent replies are markdown (bold, lists, code) —
-                          // render them like the single-agent bubble; this also
-                          // collapses the stray leading whitespace agents emit.
-                          <Markdown content={m.content.trim()} />
-                        )}
-                      </div>
-                      <BusAttachmentList attachments={m.attachments} />
-                    </div>
-                    {/* Meta row outside the bubble, aligned to its side. */}
-                    <div
-                      className={cn(
-                        'mt-1 flex items-center gap-1.5 px-0.5',
-                        mine ? 'justify-end' : 'justify-start',
-                      )}
-                    >
-                      <span
-                        className="font-mono tracking-wide"
-                        style={{
-                          color: 'var(--nm-subtle)',
-                          fontSize: '9.5px',
-                          letterSpacing: '0.05em',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        {Number.isFinite(ts) ? formatTime(ts) : ''}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* One bubble per member with work in flight — where the eye
-                already is while waiting. Expands to that member's step
-                timeline in place (see TeamActivityConsole). */}
-            {activeMembers.map((a) => (
-              <TeamActivityBubble
-                key={`act-bubble-${a.agent_id}`}
-                activity={a}
-                name={nameOf(a.agent_id)}
-                now={now}
+      {/* Two panes: the conversation on the left, the standing roster on the
+          right. The roster replaced the folded activity console — "what is
+          each teammate doing" is the room's primary question, so it is chrome
+          rather than something the user has to expand to find out. */}
+      <div className="relative flex flex-1 min-h-0">
+        <div className="flex min-w-0 flex-1 flex-col min-h-0">
+          {/* Timeline */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+            {messages.length === 0 ? (
+              <TeamRoomHero
+                teamName={team.team.name}
+                memberNames={members.map((m) => m.name || m.agent_id)}
+                leadName={leadName}
+                accent={accent}
               />
-            ))}
-            <div ref={endRef} />
-          </div>
-        )}
-      </div>
-
-      {/* Composer — matches the single-agent ChatPanel: a top rule, the
-          Textarea owns the box, and the send (↵) button docks bottom-right
-          inside it (carbon-soft when there's content, neutral when empty). */}
-      <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
-        {/* Transcription-unavailable notice (post-record). */}
-        {transcriptionNotice && (
-          <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
-            <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
-            <span className="flex-1">{transcriptionNotice}</span>
-            <button
-              type="button"
-              onClick={() => setTranscriptionNotice(null)}
-              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
-            >
-              <X className="w-3 h-3 text-[var(--text-tertiary)]" />
-            </button>
-          </div>
-        )}
-        {/* Pending attachments preview row — matches the single-agent ChatPanel:
-            voice memos render as a transcript chip; other files as icon + name. */}
-        {(pending.length > 0 || uploading) && (
-          <div className="mb-2.5 flex flex-wrap gap-2">
-            {pending.map((att) => (
-              <div
-                key={att.file_id}
-                className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
-              >
-                {att.source === 'recording' ? (
-                  <VoiceTranscript compact transcript={att.transcript} />
-                ) : (
-                  <>
-                    <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
-                      {att.category === 'image' ? (
-                        <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
-                      ) : (
-                        <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1 leading-tight">
-                      <div className="text-xs truncate">{att.original_name}</div>
-                      <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                        {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+            ) : (
+              <div className="space-y-5">
+                {messages.map((m) => {
+                  const mine = m.is_user;
+                  const avatarLabel = (mine ? userLabel : m.author_name) || '?';
+                  const ts = Date.parse(m.created_at);
+                  return (
+                    <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
+                      {/* Carbon ring for the human, silicon for an agent — matching
+                          the single-agent MessageBubble. Hidden on mobile. */}
+                      <RingAvatar
+                        species={mine ? 'carbon' : 'silicon'}
+                        label={avatarLabel.slice(0, 2)}
+                        size="sm"
+                        className="shrink-0 hidden md:inline-flex"
+                      />
+                      <div className={cn('flex-1 min-w-0', mine && 'text-right')}>
+                        {/* Author name above an agent bubble — a group chat has
+                            multiple speakers, so name them (single-agent doesn't). */}
+                        {!mine && (
+                          <div className="mb-0.5 px-0.5 text-[10px] font-mono text-[var(--text-tertiary)]">
+                            {m.author_name}
+                          </div>
+                        )}
+                        <div
+                          className={cn(
+                            'relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] transition-colors duration-150',
+                            !mine && 'nm-bubble-ai',
+                          )}
+                          style={
+                            mine
+                              ? {
+                                  background: 'var(--color-carbon-soft)',
+                                  color: 'var(--nm-ink)',
+                                  border: '1px solid var(--color-carbon-hair)',
+                                  borderRight: '3px solid var(--color-carbon)',
+                                }
+                              : {
+                                  background: 'var(--color-silicon-soft)',
+                                  color: 'var(--nm-ink)',
+                                  border: '1px solid var(--color-silicon-hair)',
+                                  borderLeft: '3px solid var(--color-silicon)',
+                                }
+                          }
+                        >
+                          <div className="text-sm break-words leading-relaxed">
+                            {mine ? (
+                              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">
+                                {m.content}
+                              </span>
+                            ) : (
+                              // Agent replies are markdown (bold, lists, code) —
+                              // render them like the single-agent bubble; this also
+                              // collapses the stray leading whitespace agents emit.
+                              <Markdown content={m.content.trim()} />
+                            )}
+                          </div>
+                          <BusAttachmentList attachments={m.attachments} />
+                        </div>
+                        {/* Meta row outside the bubble, aligned to its side. */}
+                        <div
+                          className={cn(
+                            'mt-1 flex items-center gap-1.5 px-0.5',
+                            mine ? 'justify-end' : 'justify-start',
+                          )}
+                        >
+                          <span
+                            className="font-mono tracking-wide"
+                            style={{
+                              color: 'var(--nm-subtle)',
+                              fontSize: '9.5px',
+                              letterSpacing: '0.05em',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {Number.isFinite(ts) ? formatTime(ts) : ''}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </>
-                )}
+                  );
+                })}
+
+                {/* Someone is working right now — the transcript says only that,
+                    and only while it is true. Everything measurable about the run
+                    (elapsed, phases, tools) belongs to the roster; a finished turn
+                    leaves the flow clean instead of piling up stale traces. */}
+                {activity
+                  .filter((a) => a.status === 'running')
+                  .map((a) => (
+                    <TypingIndicator
+                      key={`typing-${a.agent_id}`}
+                      name={nameOf(a.agent_id)}
+                      highlighted={rosterExpandedId === a.agent_id}
+                      onClick={() => {
+                        toggleRoster(a.agent_id);
+                        setMobileRosterOpen(true);
+                      }}
+                    />
+                  ))}
+                <div ref={endRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Composer — matches the single-agent ChatPanel: a top rule, the
+              Textarea owns the box, and the send (↵) button docks bottom-right
+              inside it (carbon-soft when there's content, neutral when empty). */}
+          <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
+            {/* Transcription-unavailable notice (post-record). */}
+            {transcriptionNotice && (
+              <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+                <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
+                <span className="flex-1">{transcriptionNotice}</span>
                 <button
                   type="button"
-                  onClick={() => setPending((prev) => prev.filter((a) => a.file_id !== att.file_id))}
-                  className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
-                  title={t('chat.team.removeAttachment')}
+                  onClick={() => setTranscriptionNotice(null)}
+                  className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
                 >
                   <X className="w-3 h-3 text-[var(--text-tertiary)]" />
                 </button>
               </div>
-            ))}
-            {uploading && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                {t('chat.team.uploading')}
+            )}
+            {/* Pending attachments preview row — matches the single-agent ChatPanel:
+                voice memos render as a transcript chip; other files as icon + name. */}
+            {(pending.length > 0 || uploading) && (
+              <div className="mb-2.5 flex flex-wrap gap-2">
+                {pending.map((att) => (
+                  <div
+                    key={att.file_id}
+                    className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                  >
+                    {att.source === 'recording' ? (
+                      <VoiceTranscript compact transcript={att.transcript} />
+                    ) : (
+                      <>
+                        <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
+                          {att.category === 'image' ? (
+                            <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1 leading-tight">
+                          <div className="text-xs truncate">{att.original_name}</div>
+                          <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                            {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPending((prev) => prev.filter((a) => a.file_id !== att.file_id))}
+                      className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                      title={t('chat.team.removeAttachment')}
+                    >
+                      <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+                    </button>
+                  </div>
+                ))}
+                {uploading && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {t('chat.team.uploading')}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => handlePickFiles(e.target.files)}
-        />
-        <div className="relative">
-          {/* @-mention autocomplete — opens above the composer (it's pinned to
-              the bottom of the panel). @all leads the list. */}
-          {mention.open && mentionOptions.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-2 z-30 w-64 max-h-60 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] py-1 shadow-md">
-              {mentionOptions.map((opt, i) => (
-                <button
-                  key={opt.kind === 'all' ? '__all__' : opt.agent.agent_id}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); applyMentionOption(opt); }}
-                  onMouseEnter={() => setMentionIndex(i)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors',
-                    i === mentionIndex ? 'bg-[var(--color-carbon-soft)]' : 'hover:bg-[var(--nm-paper-warm)]',
-                  )}
-                >
-                  {opt.kind === 'all' ? (
-                    <>
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--color-carbon)] text-[var(--color-carbon)]">
-                        <Users2 className="w-4 h-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm text-[var(--nm-ink)]">{t('chat.team.all')}</span>
-                        <span className="block text-[10px] text-[var(--text-tertiary)]">{t('chat.team.notifyEveryone')}</span>
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <RingAvatar species="silicon" label={(opt.agent.name || opt.agent.agent_id).slice(0, 2)} size="sm" />
-                      <span className="min-w-0 truncate text-sm text-[var(--nm-ink)]">
-                        {opt.agent.name || opt.agent.agent_id}
-                      </span>
-                    </>
-                  )}
-                </button>
-              ))}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => handlePickFiles(e.target.files)}
+            />
+            <div className="relative">
+              {/* @-mention autocomplete — opens above the composer (it's pinned to
+                  the bottom of the panel). @all leads the list. */}
+              {mention.open && mentionOptions.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-2 z-30 w-64 max-h-60 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] py-1 shadow-md">
+                  {mentionOptions.map((opt, i) => (
+                    <button
+                      key={opt.kind === 'all' ? '__all__' : opt.agent.agent_id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); applyMentionOption(opt); }}
+                      onMouseEnter={() => setMentionIndex(i)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors',
+                        i === mentionIndex ? 'bg-[var(--color-carbon-soft)]' : 'hover:bg-[var(--nm-paper-warm)]',
+                      )}
+                    >
+                      {opt.kind === 'all' ? (
+                        <>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--color-carbon)] text-[var(--color-carbon)]">
+                            <Users2 className="w-4 h-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm text-[var(--nm-ink)]">{t('chat.team.all')}</span>
+                            <span className="block text-[10px] text-[var(--text-tertiary)]">{t('chat.team.notifyEveryone')}</span>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <RingAvatar species="silicon" label={(opt.agent.name || opt.agent.agent_id).slice(0, 2)} size="sm" />
+                          <span className="min-w-0 truncate text-sm text-[var(--nm-ink)]">
+                            {opt.agent.name || opt.agent.agent_id}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Textarea
+                ref={inputRef}
+                value={text}
+                onChange={handleChange}
+                onKeyDown={(e) => {
+                  if (mention.open && mentionOptions.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setMentionIndex((idx) => (idx + 1) % mentionOptions.length);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setMentionIndex((idx) => (idx - 1 + mentionOptions.length) % mentionOptions.length);
+                      return;
+                    }
+                    if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault();
+                      applyMentionOption(mentionOptions[mentionIndex]);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      closeMention();
+                      return;
+                    }
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={1}
+                placeholder={t('chat.team.placeholder')}
+                className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleSend}
+                disabled={(!text.trim() && pending.length === 0) || sending || uploading}
+                title={t('chat.team.send')}
+                className={cn(
+                  'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
+                  text.trim() || pending.length > 0
+                    ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
+                    : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
+                )}
+              >
+                <CornerDownLeft className="w-4 h-4" />
+              </Button>
             </div>
-          )}
-          <Textarea
-            ref={inputRef}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={(e) => {
-              if (mention.open && mentionOptions.length > 0) {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  setMentionIndex((idx) => (idx + 1) % mentionOptions.length);
-                  return;
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  setMentionIndex((idx) => (idx - 1 + mentionOptions.length) % mentionOptions.length);
-                  return;
-                }
-                if (e.key === 'Enter' || e.key === 'Tab') {
-                  e.preventDefault();
-                  applyMentionOption(mentionOptions[mentionIndex]);
-                  return;
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  closeMention();
-                  return;
-                }
-              }
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={1}
-            placeholder={t('chat.team.placeholder')}
-            className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleSend}
-            disabled={(!text.trim() && pending.length === 0) || sending || uploading}
-            title={t('chat.team.send')}
-            className={cn(
-              'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
-              text.trim() || pending.length > 0
-                ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
-                : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
-            )}
-          >
-            <CornerDownLeft className="w-4 h-4" />
-          </Button>
+            {/* Tools row — attach (+) and voice (mic) on the left, matching the
+                single-agent ChatPanel. */}
+            <div className="mt-1 flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || sending}
+                className="h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
+                title={t('chat.team.attach')}
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+              <AudioRecorder
+                disabled={uploading || sending}
+                onRecorded={handleRecorded}
+                onError={(msg) => setTranscriptionNotice(msg)}
+                available={transcriptionAvailable}
+                onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
+                onPreflight={async () => {
+                  if (!userId) return false;
+                  try {
+                    const r = await api.getTranscriptionAvailability();
+                    setTranscriptionAvailable(r.available);
+                    setTranscriptionReason(r.reason);
+                    if (!r.available) {
+                      setVoiceUnavailableDialogOpen(true);
+                      return false;
+                    }
+                    return true;
+                  } catch {
+                    return true;
+                  }
+                }}
+              />
+            </div>
+          </div>
         </div>
-        {/* Tools row — attach (+) and voice (mic) on the left, matching the
-            single-agent ChatPanel. */}
-        <div className="mt-1 flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || sending}
-            className="h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
-            title={t('chat.team.attach')}
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
-          <AudioRecorder
-            disabled={uploading || sending}
-            onRecorded={handleRecorded}
-            onError={(msg) => setTranscriptionNotice(msg)}
-            available={transcriptionAvailable}
-            onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
-            onPreflight={async () => {
-              if (!userId) return false;
-              try {
-                const r = await api.getTranscriptionAvailability();
-                setTranscriptionAvailable(r.available);
-                setTranscriptionReason(r.reason);
-                if (!r.available) {
-                  setVoiceUnavailableDialogOpen(true);
-                  return false;
-                }
-                return true;
-              } catch {
-                return true;
-              }
-            }}
+
+        <TeamRosterPanel
+          members={members}
+          activity={activity}
+          leadAgentId={leadAgentId}
+          now={now}
+          expandedId={rosterExpandedId}
+          onToggle={toggleRoster}
+          onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+          className="hidden md:flex"
+        />
+
+        {/* Narrow screens: the same rows, over the transcript. */}
+        {mobileRosterOpen && (
+          <TeamRosterPanel
+            members={members}
+            activity={activity}
+            leadAgentId={leadAgentId}
+            now={now}
+            expandedId={rosterExpandedId}
+            onToggle={toggleRoster}
+            onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+            className="absolute inset-y-0 right-0 z-20 flex w-64 border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
           />
-        </div>
+        )}
       </div>
 
       {/* Voice-input unavailable dialog — mirrors the single-agent ChatPanel. */}

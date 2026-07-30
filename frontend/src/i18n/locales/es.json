@@ -113,26 +113,31 @@
         "queuedHint": "Entregado, esperando un espacio de ejecución libre. Ocurre cuando se menciona a varios compañeros a la vez o cuando otra tarea larga sigue en marcha.",
         "stalledHint": "Hace un rato que no llega ninguna señal de progreso de este compañero. Puede seguir ejecutándose — un modelo puede quedarse callado mucho tiempo — o el proceso en segundo plano puede tener un problema. Si no se recupera, revisa el estado del servicio.",
         "idleHint": "Nada pendiente ahora mismo.",
-        "countWorking": "{{n}} trabajando",
-        "countWaiting": "{{n}} esperando",
-        "countStalled": "{{n}} sin señal",
-        "countIdle": "{{n}} inactivos",
         "silentFor": "en silencio {{duration}}",
         "waitingFor": "esperando {{duration}}",
         "finishedAgo": "terminado hace {{duration}}",
         "startedAt": "iniciado a las {{time}}",
         "stepOngoing": "{{duration}}, en curso",
         "stepsDropped": "{{n}} pasos anteriores no mostrados",
-        "noSteps": "Aún no hay pasos registrados.",
-        "recentlyFinished": "Terminado hace poco"
+        "noSteps": "Aún no hay pasos registrados."
       },
       "guide": {
         "title": "Cómo funciona esta sala",
+        "plainTitle": "Escribe sin más",
         "plain": "Envía un mensaje sin @ — lo atiende el responsable del equipo.",
         "plainWithLead": "Envía un mensaje sin @ — lo atiende {{name}}.",
+        "mentionTitle": "Dirígete a un agente",
         "mention": "@ a un compañero para dirigirte a él directamente.",
+        "broadcastTitle": "Difunde a todos",
         "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
         "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
+      },
+      "roster": {
+        "title": "Miembros",
+        "lastRun": "duró {{duration}} · hace {{ago}}",
+        "neverRan": "aún sin ejecuciones",
+        "noProcess": "No hay registro de proceso para este turno",
+        "loading": "Cargando proceso…"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
       "leadTitle": "{{name}} · responde cuando no se menciona a nadie"

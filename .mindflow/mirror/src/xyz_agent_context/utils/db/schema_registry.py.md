@@ -4,6 +4,14 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — bus_agent_activity.event_id (additive)
+
+Binds the activity mirror row to the `events` row of its current/most
+recent turn, so the team-room UI can fetch the finished turn's full
+event_log through the existing event-log endpoint. Written by
+`TurnActivity.note_event_id`, reset on `start()`, kept after `finish()`
+— see [[_bus_activity]] for the full lifecycle reasoning.
+
 ## 2026-07-30 — 新表 model_probe_ledger / model_probe_suspects
 
 探测 ledger 落 DB（一行一 source，models_json 与 committed 快照 per-source 同
