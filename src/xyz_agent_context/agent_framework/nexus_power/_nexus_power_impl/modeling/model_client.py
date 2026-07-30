@@ -206,11 +206,18 @@ class LiteLLMModelClient:
         the protocol the resolver already decided. Without a custom
         ``base_url`` the name passes through untouched (callers may use
         litellm's native routing syntax).
+
+        The route is prepended UNCONDITIONALLY: platform ids can embed
+        the route name itself (NetMind's ``anthropic/claude-sonnet-5``,
+        ``openai/gpt-5.4``), and litellm always eats the first segment
+        as its routing prefix. Skipping the prepend for "already routed"
+        ids sent the bare tail upstream, which NetMind rejects with
+        404 "unknown model" — it has no bare aliases.
         """
         route = "openai" if (provider or "").lower() == "openai" else "anthropic"
         if not base_url:
             return model
-        return model if model.startswith(f"{route}/") else f"{route}/{model}"
+        return f"{route}/{model}"
 
 
 class AnthropicDirectClient:
