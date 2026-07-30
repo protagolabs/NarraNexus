@@ -196,7 +196,9 @@
       "details": "Denkprozess & Tools"
     },
     "process": {
-      "plan": "Plan"
+      "plan": "Plan",
+      "title": "Agent · Prozess",
+      "ops": "Ops"
     }
   },
   "awareness": {

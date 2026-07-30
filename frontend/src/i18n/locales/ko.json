@@ -196,7 +196,9 @@
       "details": "추론 및 도구"
     },
     "process": {
-      "plan": "플랜"
+      "plan": "플랜",
+      "title": "에이전트 · 프로세스",
+      "ops": "회 작업"
     }
   },
   "awareness": {

@@ -3,7 +3,7 @@
  * 且直播期间不显示（那时过程在 ProcessPanel 里）。
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SegmentedReply } from '../SegmentedReply';
 import type { Segment } from '@/types';
 
@@ -73,5 +73,46 @@ describe('SegmentedReply', () => {
       { process: [], reply: { content: 'Legacy recovered reply', via: 'helper_llm_fallback' } },
     ]} />);
     expect(screen.getByText(/helper_llm fallback/i)).toBeInTheDocument();
+  });
+});
+
+describe('SegmentedReply streaming render path', () => {
+  // Re-parsing the whole markdown per delta saturates the main thread and
+  // the UI visibly stalls, then the finished reply pops in at once (the
+  // exact catch ThinkingBlock and the old ReplyBlock already documented).
+  // While a segment streams, render plain pre-wrap text; markdown only on
+  // settle.
+  it('渲染中的最后一段是 plain text（markdown 不解析）', () => {
+    const segs: Segment[] = [
+      { process: [], reply: { content: '**bold** text', streaming: true } },
+    ];
+    render(<SegmentedReply segments={segs} isStreaming />);
+    // Literal asterisks visible = markdown NOT parsed.
+    expect(screen.getByText('**bold** text')).toBeInTheDocument();
+  });
+
+  it('落定后同样内容走 markdown（字面星号消失）', () => {
+    const segs: Segment[] = [
+      { process: [], reply: { content: '**bold** text' } },
+    ];
+    render(<SegmentedReply segments={segs} />);
+    expect(screen.queryByText('**bold** text')).toBeNull();
+    expect(screen.getByText('bold')).toBeInTheDocument();
+  });
+});
+
+describe('SegmentedReply defaultOpen', () => {
+  // History path: the user already clicked "View reasoning" once to
+  // trigger the fetch — landing on ANOTHER collapsed toggle would make it
+  // two clicks to see anything. defaultOpen renders the process expanded.
+  it('defaultOpen 时过程区直接展开，无需第二次点击', () => {
+    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
+    expect(screen.getByText(/先看素材/)).toBeInTheDocument();
+  });
+
+  it('defaultOpen 下仍可点击收起', () => {
+    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
+    fireEvent.click(screen.getAllByRole('button')[0]);
+    expect(screen.queryByText(/先看素材/)).toBeNull();
   });
 });

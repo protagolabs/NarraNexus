@@ -481,7 +481,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Segment mode: the m things the agent said, each with its
               // own collapsible process. Replaces the single content blob
               // — rendering both would print every sentence twice.
-              <SegmentedReply segments={segmentsForRender} showProcess />
+              // defaultOpen when the segments came from the event-log
+              // fetch: the user already clicked "View reasoning" once to
+              // get here, so the process shows immediately instead of
+              // behind a second toggle.
+              <SegmentedReply
+                segments={segmentsForRender}
+                showProcess
+                defaultOpen={!message.segments?.some((s) => s.reply)}
+              />
             ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper
               // (.markdown-content) renders at 0.95rem, but a plain user span

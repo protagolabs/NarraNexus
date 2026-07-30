@@ -13,6 +13,8 @@ stub: false
 
 - **fetch 已是轮次级**：一条消息一次 `getEventLog`，切段后服务段内
   全部 m 个片段；历史气泡点开「View reasoning」后从单块升级为按段。
+  fetch 路径传 `defaultOpen`（2026-07-30 r2）：用户已经点过一次，过程
+  直接展开，不落在第二层折叠入口上。
 - **零回复轮次不特殊处理**（design §3）：segments 里没有任何 reply
   就回落 legacy 路径——content 是 "(Agent decided no response
   needed)"，过程在全局 toggle 后面。isError 消息同样不走段模式。
