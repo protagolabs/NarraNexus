@@ -64,9 +64,10 @@ class RunCollection:
     """Result of consuming one ``AgentRuntime.run()`` invocation."""
 
     output_text: str = ""
-    """What the agent said, in arrival order: every ``AGENT_RESPONSE.delta``
-    plus every ``AGENT_THINKING.monologue`` segment (NexusPower's assistant
-    plain text, which streams as thinking under the monologue contract)."""
+    """What the agent said, in arrival order: every ``AGENT_RESPONSE.delta``,
+    plus — only when the caller opted in via ``include_monologue`` — every
+    ``AGENT_THINKING.monologue`` segment (NexusPower's assistant plain text,
+    which streams as thinking under the monologue contract)."""
 
     tool_calls: list[str] = field(default_factory=list)
     """Names of tools invoked by the agent, in arrival order."""
@@ -101,6 +102,7 @@ async def collect_run(
     working_source,
     on_progress: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
     on_event_id: Optional[Callable[[str], Awaitable[None]]] = None,
+    include_monologue: bool = False,
     **extra_kwargs,
 ) -> RunCollection:
     """Drive ``runtime.run(...)`` to completion and group its output.
@@ -122,6 +124,14 @@ async def collect_run(
     ``TurnActivity.note_event_id``) as soon as it's known, rather than waiting
     for the whole run to finish. Like ``on_progress``, it must never raise;
     any exception is swallowed so status reporting can't break the run.
+
+    ``include_monologue`` — opt-in — folds NexusPower monologue segments
+    (``AGENT_THINKING.monologue``) into ``output_text``. ONLY for callers
+    whose prompt tells the agent its plain text is delivered (today: bus
+    team rooms, whose replies auto-post to the shared room). Everywhere
+    else the monologue contract promises the agent its plain text is
+    private; relaying it to an inbox or an A2A response would leak
+    deliberation the agent never addressed to anyone.
     """
     text_parts: list[str] = []
     tool_calls: list[str] = []
@@ -144,19 +154,21 @@ async def collect_run(
         **extra_kwargs,
     ):
         mt = getattr(msg, "message_type", None)
+        # NexusPower: the agent's plain text streams as thinking with the
+        # ``monologue`` subset set — the assistant text the claude driver
+        # would emit as AGENT_RESPONSE. Only meaningful when the caller
+        # opted in (see include_monologue docstring); provider CoT arrives
+        # with monologue="" and never counts.
+        monologue = (
+            getattr(msg, "monologue", "")
+            if include_monologue and mt == MessageType.AGENT_THINKING
+            else ""
+        )
         if mt == MessageType.AGENT_RESPONSE:
             delta = getattr(msg, "delta", None)
             if delta:
                 text_parts.append(delta)
         elif mt == MessageType.AGENT_THINKING:
-            # NexusPower parity: under the monologue/expression contract
-            # the agent's plain text streams as thinking with the
-            # ``monologue`` subset set — it IS the assistant text that the
-            # claude driver would have emitted as AGENT_RESPONSE. Relaying
-            # triggers (bus team rooms, IM inboxes) must see it in
-            # output_text. Provider CoT arrives with monologue="" and
-            # stays out.
-            monologue = getattr(msg, "monologue", "")
             if monologue:
                 text_parts.append(monologue)
         elif mt == MessageType.TOOL_CALL:
@@ -212,10 +224,17 @@ async def collect_run(
                 _d = getattr(msg, "details", None)
                 if isinstance(_d, dict):
                     _tool = _d.get("tool_name")
+            # A monologue-carrying thinking frame is the agent SPEAKING —
+            # but only on opted-in surfaces, where that text really is
+            # delivered (``monologue`` is already "" otherwise). Report it
+            # as "response" so activity views don't show "thinking" while
+            # the room reply is being written.
             kind = (
                 "tool" if _tool
+                else "response" if (
+                    mt == MessageType.AGENT_RESPONSE or monologue
+                )
                 else "thinking" if mt == MessageType.AGENT_THINKING
-                else "response" if mt == MessageType.AGENT_RESPONSE
                 else "error" if mt == MessageType.ERROR
                 else None
             )
