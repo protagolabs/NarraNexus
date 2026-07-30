@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 过程面板挂载 + 直播答案按段渲染
+
+两处改动，同一个分工（过程/答案分离）：
+
+- **composer 上方挂 `ProcessPanel`**（仅 `isStreaming` 时）：Agent 干活
+  时过程在面板里滚动，结束即卸载——过程按回复切段折叠回各自气泡
+  （`lib/segmentTurn`），所以卸载不丢任何东西。
+- **直播中的当前轮**：原来渲染完整 `TurnTimeline`（过程+答案混排），
+  现在改为 `SegmentedReply(segmentTurn(currentEvents))` 只出答案。
+  过程若也在这里画，会和面板重复一遍。
 
 ## 2026-07-23 — day separators in the timeline
 

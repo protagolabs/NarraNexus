@@ -33,7 +33,9 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { TurnTimeline } from './TurnTimeline';
+import { ProcessPanel } from './ProcessPanel';
+import { SegmentedReply } from './SegmentedReply';
+import { segmentTurn } from '@/lib/segmentTurn';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
@@ -1092,7 +1094,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <TurnTimeline events={currentEvents} isStreaming />
+              {/* 直播中只出答案：过程在 composer 上方的 ProcessPanel 里。
+                  两处都画就会把同一份思考/工具渲染两遍。 */}
+              <SegmentedReply
+                segments={segmentTurn(currentEvents)}
+                isStreaming
+              />
               {/* Mid-stream artifact preview is independent of the timeline:
                   it surfaces created/uploaded artifacts inline as soon as
                   their tool_output lands, without waiting for the whole
@@ -1262,6 +1269,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
+        {/* Agent 干活时，过程在这里；答案在上面的气泡里。只在运行中挂载
+            ——结束后过程按回复切段折叠回各自气泡（lib/segmentTurn），所以
+            这块面板卸载不丢任何东西。 */}
+        {isStreaming && <ProcessPanel events={currentEvents} />}
+
         <div className="relative" data-help-id="chat.composer">
           <Composer
             key={agentId ?? '__none__'}

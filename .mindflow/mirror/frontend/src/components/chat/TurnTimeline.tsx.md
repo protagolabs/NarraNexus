@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 降级为只渲染过程（答案层迁出）
+
+聊天区过程面板改造确立新分工：**过程归时间线，答案归气泡**。
+
+- `ReplyBlock` / `NativeOutputBlock` → 删除。答案由 `SegmentedReply`
+  渲染（`lib/segmentTurn` 切段）；helper_llm 恢复徽标（含 legacy tag
+  兼容）随答案层一起迁到 `SegmentedReply`。
+- `PlanBlock` → 删除。plan 是「现在到哪了」，由 `ProcessPanel` 底部
+  固定区渲染，不参与滚动。
+- 组件体内先过滤出 process 事件再渲染——保留 reply 会让同一句话在
+  气泡和折叠区各出现一次。
+
+本组件现在的消费者：`ProcessPanel`（运行中）不用它——面板自己有更紧凑
+的 terminal 行渲染；`SegmentedReply` 的折叠详情区和 `MessageBubble`
+的历史详情用它渲染过程块。下方 2026-05-14 的 ANSWER/PROCESS 两层样式
+记录中 ANSWER 层的部分已随迁出成为历史。
 
 ## 2026-07-29 — `PlanBlock` + 流式回复渲染
 

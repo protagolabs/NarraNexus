@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — Segment 型别落户 types + `ToolCallEvent.pending`
+
+- `Segment` / `SegmentReply` / `ProcessEvent` 定义在这里而不是
+  `lib/segmentTurn.ts`：types 不能反向依赖 lib，切段函数从 types 导入。
+  `Segment` 是「一轮的一个用户可见片段」——process（导致它的思考/工具）
+  + reply（可为 null：整轮零回复时过程不丢）。
+- `ToolCallEvent.pending`：工具名已到、参数还在流式生成中。名字一到就
+  发 `pending=true` 的事件，参数齐了发同 `tool_call_id` 的完整事件覆盖。
+  不支持名字先行的框架只发一次完整事件（缺省即假），消费端无需分支。
 
 ## 2026-07-29 — NexusPower 专属的两个消息型别
 
