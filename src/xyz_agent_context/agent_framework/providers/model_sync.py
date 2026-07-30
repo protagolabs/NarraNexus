@@ -309,8 +309,11 @@ async def sync_source(
                 if led[mid].get(p) == PASS and (stale or (mid, p) in suspects)
             ]
 
-    # Oldest first so the daily cap drains the backlog in bounded, fair slices.
-    revalidate.sort(key=lambda pair: str(led[pair[0]].get("tested_at") or ""))
+    # Suspects first (a live user already hit them), then oldest first so the
+    # daily cap drains the backlog in bounded, fair slices.
+    revalidate.sort(
+        key=lambda pair: (pair not in suspects, str(led[pair[0]].get("tested_at") or ""))
+    )
     revalidate = revalidate[:_REVALIDATE_CAP]
 
     sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
@@ -371,7 +374,9 @@ async def sync_source(
 # Apply the ledger to the DB (cloud daily job overwrites every user's lists)
 # ---------------------------------------------------------------------------
 
-async def apply_ledger_to_db(db, *, sources: list[str] | None = None) -> dict[str, dict[str, int]]:
+async def apply_ledger_to_db(
+    db, *, sources: list[str] | None = None, ledger: dict[str, Any] | None = None
+) -> dict[str, dict[str, int]]:
     """Overwrite ``user_providers.models`` for EVERY row of the in-scope sources
     with the current ledger's per-protocol pass-lists.
 
@@ -389,7 +394,10 @@ async def apply_ledger_to_db(db, *, sources: list[str] | None = None) -> dict[st
     """
     import json
 
-    ledger = load_ledger()
+    if ledger is None:
+        # Callers holding a fresher in-memory/DB ledger pass it in — the file
+        # copy can be stale on a read-only cloud rootfs.
+        ledger = load_ledger()
     now = _now()
     out: dict[str, dict[str, int]] = {}
     for key in sources or ["netmind", "openrouter", "yunwu"]:

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — model_not_found 反哺探测嫌疑
+
+fallback-skip 判定之后：raw_exception 路径直接看 `skip_reason_detail`，inline
+路径扫 `ErrorMessage.action_reason`（response_processor 归因时写入），命中
+`model_not_found` 就调 [[model_health]]`.report_agent_slot_suspect`（解析当前
+agent slot 绑定→(source, protocol, model) 入嫌疑表，best-effort 永不抛）。
+只有确定性 model_not_found 触发——余额/限流/5xx 归因不同，不会误伤。
 
 ## 2026-07-29 (二次) — helper payload 过滤原生回放行
 

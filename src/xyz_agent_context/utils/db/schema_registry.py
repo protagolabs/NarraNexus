@@ -2030,6 +2030,52 @@ _register(
     )
 )
 
+# Model probe ledger — one row per aggregator source ("netmind" / "openrouter" /
+# "yunwu"). models_json holds that source's per-model probe verdicts (the same
+# {"models": {...}} shape as the committed JSON snapshot's per-source entry).
+# The DB copy is the durable one in cloud: the committed file resets to the
+# release-time snapshot on every deploy, which used to erase all revalidation
+# history between releases.
+_register(
+    TableDef(
+        name="model_probe_ledger",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("models_json", "TEXT", "MEDIUMTEXT"),
+            Column("generated_at", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_mpl_source", ["source"], unique=True)],
+    )
+)
+
+# Runtime model suspects — (source, model_id, protocol) tuples whose LIVE calls
+# hit a definitive model rejection (classify_self_serviceable ->
+# model_not_found). The daily model sync revalidates suspects ahead of the TTL
+# queue and clears them afterwards; the probe verdict stays authoritative, so a
+# false report costs one probe call and nothing else.
+_register(
+    TableDef(
+        name="model_probe_suspects",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("model_id", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("protocol", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("reason", "TEXT", "VARCHAR(64)"),
+            Column("occurrences", "INTEGER", "INT", nullable=False, default="1"),
+            Column("last_seen_at", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_mps_source_model_proto", ["source", "model_id", "protocol"], unique=True),
+        ],
+    )
+)
+
 
 # ============================================================================
 # DDL Generation

@@ -263,3 +263,21 @@ async def test_suspects_revalidated_regardless_of_ttl(monkeypatch):
     assert "CLEAN" not in {m for m, _ in calls}
     assert ledger["sources"]["netmind"]["models"]["SUS"]["anthropic"] == FAIL
     assert "SUS:anthropic" in res.flipped
+
+
+async def test_suspects_win_the_revalidation_cap(monkeypatch):
+    # With the per-run cap at 1, the fresh suspect must be probed before the
+    # older TTL-stale entry — a live user already hit the suspect.
+    monkeypatch.setattr(model_sync, "_REVALIDATE_CAP", 1)
+    _netmind_catalog(monkeypatch, "STALE_M", "SUS")
+    calls = _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "STALE_M": {"openai": PASS, "tested_at": _iso(40)},
+        "SUS": {"openai": PASS, "tested_at": FRESH},
+    }}}}
+
+    await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        suspects={("SUS", "openai")},
+    )
+    assert calls == [("SUS", "openai")]

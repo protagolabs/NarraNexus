@@ -23,8 +23,13 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.providers import model_sync
-from xyz_agent_context.agent_framework.providers.model_probe_ledger import load_ledger, save_ledger
+from xyz_agent_context.agent_framework.providers import model_health, model_sync
+from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+    load_ledger,
+    load_ledger_db,
+    save_ledger,
+    save_ledger_db,
+)
 
 DAILY_HOUR_UTC = 5
 
@@ -41,13 +46,22 @@ async def run_once() -> dict:
     """One full pass: refresh the ledger for every keyed source, then overwrite
     every user's provider lists in the DB. Returns a summary dict."""
     from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     plan = [
         ("netmind", os.environ.get("NETMIND_API_KEY"), None),
         ("openrouter", os.environ.get("OPENROUTER_API_KEY"), None),
         ("yunwu", os.environ.get("YUNWU_API_KEY"), os.environ.get("YUNWU_API_KEY")),
     ]
-    ledger = load_ledger()
+    db = await get_db_client()
+    # This runner is its own process/container — make sure the ledger/suspects
+    # tables exist even when it wins the startup race against the backend.
+    await auto_migrate(db._backend)
+
+    # DB carrier first (durable across deploys); committed file only seeds the
+    # very first pass after this table ships.
+    ledger = await load_ledger_db(db) or load_ledger()
+    suspects = await model_health.load_suspects(db)
     synced: list[str] = []
     logger.info("model_sync_runner: pass START")
     for source, key, yunwu_key in plan:
@@ -57,11 +71,14 @@ async def run_once() -> dict:
             res = await model_sync.sync_source(
                 source, keys={"openai": key, "anthropic": key},
                 yunwu_key=yunwu_key, ledger=ledger,
+                suspects=suspects.get(source),
             )
             synced.append(source)
             logger.info(
-                f"model_sync_runner[{source}]: probed={res.probed} added={len(res.added)} "
-                f"removed={len(res.removed)} openai={len(res.lists.get('openai', []))} "
+                f"model_sync_runner[{source}]: probed={res.probed} "
+                f"revalidated={res.revalidated} flipped={res.flipped or '[]'} "
+                f"added={len(res.added)} removed={len(res.removed)} "
+                f"openai={len(res.lists.get('openai', []))} "
                 f"anthropic={len(res.lists.get('anthropic', []))}"
             )
         except Exception as e:  # noqa: BLE001 — one source failing must not abort the rest
@@ -72,10 +89,12 @@ async def run_once() -> dict:
         return {"synced": [], "applied": {}}
 
     ledger["generated_at"] = model_sync._now()
-    save_ledger(ledger)
+    save_ledger(ledger)          # best-effort container-file copy
+    await save_ledger_db(db, ledger)
+    for source in synced:
+        await model_health.clear_suspects(db, source)
 
-    db = await get_db_client()
-    applied = await model_sync.apply_ledger_to_db(db, sources=synced)
+    applied = await model_sync.apply_ledger_to_db(db, sources=synced, ledger=ledger)
     # The free-tier card's catalogue comes from OUR gateway, not the upstream
     # probe — see refresh_free_tier_models. Same pass so a gateway config change
     # reaches existing cards without a manual step.

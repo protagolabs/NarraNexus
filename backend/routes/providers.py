@@ -600,11 +600,23 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework.providers import model_sync
+    from xyz_agent_context.agent_framework.providers import model_health, model_sync
+    from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+        load_ledger,
+        load_ledger_db,
+        save_ledger,
+        save_ledger_db,
+    )
 
     uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
+
+    # Same ledger discipline as the daily runner: the DB copy is durable, the
+    # container file is just the shipped seed and may be stale/read-only.
+    ledger = await load_ledger_db(service.db) or load_ledger()
+    suspects = await model_health.load_suspects(service.db)
+    synced_sources: list[str] = []
 
     # Group this user's provider rows by source so we probe each backend once.
     by_source: dict[str, list] = {}
@@ -638,10 +650,14 @@ async def sync_default_models(request: Request):
             keys = {"openai": anykey, "anthropic": anykey}
             yunwu_key = anykey if source == "yunwu" else None
             try:
-                res = await model_sync.sync_source(source, keys=keys, yunwu_key=yunwu_key)
+                res = await model_sync.sync_source(
+                    source, keys=keys, yunwu_key=yunwu_key,
+                    ledger=ledger, suspects=suspects.get(source),
+                )
             except Exception as e:  # noqa: BLE001 — catalog/probe failure shouldn't 500 the button
                 logger.warning(f"sync-defaults: {source} probe failed: {e}")
                 continue
+            synced_sources.append(source)
             for prov_id, prov in rows:
                 await _apply(prov_id, prov, list(res.lists.get(prov.protocol.value, [])))
         else:
@@ -654,6 +670,13 @@ async def sync_default_models(request: Request):
                 missing = [m for m in defaults if m not in existing]
                 if missing:
                     await _apply(prov_id, prov, existing + missing)
+
+    if synced_sources:
+        ledger["generated_at"] = model_sync._now()
+        save_ledger(ledger)  # best-effort file copy
+        await save_ledger_db(service.db, ledger)
+        for source in synced_sources:
+            await model_health.clear_suspects(service.db, source)
 
     return {
         "success": True,

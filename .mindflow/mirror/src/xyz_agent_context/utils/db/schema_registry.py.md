@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 新表 model_probe_ledger / model_probe_suspects
+
+探测 ledger 落 DB（一行一 source，models_json 与 committed 快照 per-source 同
+形）+ 运行时模型嫌疑表（(source, model_id, protocol) 唯一，occurrences 计数）。
+背景见 [[model_probe_ledger]] 与 [[model_health]]。
 
 ## 2026-07-29 — 摘掉 agent_cli_sessions 注册(T7)
 
