@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -73,3 +73,10 @@ fallback。但若把常量留在 `response_processor` 里定义，就会闭合�
 门面的统一导出（加进 `from .runtime_message import (...)` 块）。注意 `__all__` 里这条
 常量目前未列出（与 `ErrorMessage` 同样未列），但已可经包级 import 取用——纯导出改动，
 无 schema 形状变化。
+
+## 2026-07-30 — Agent Migration 导出
+
+新增 `from .migration_schema import (...)` 块,导出 `StandardizedAgentImport`、
+`MigrationSource/Agent/Skill/Memory/McpServer/Custom/Turn/Session`、`FrameworkDetection`、
+`MIGRATION_SCHEMA_VERSION`、`AWARENESS_IMPORT_CHAR_LIMIT`,并列进 `__all__`。纯导出,
+无 schema 形状变化。见 [[migration_schema]]。

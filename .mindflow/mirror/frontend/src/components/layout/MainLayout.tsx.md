@@ -4,6 +4,11 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+> 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
+> chat panel — the local-only, once-per-user "import your other agents" guided
+> flow (welcome modal → import, or a coach-mark pointing at the sidebar "+").
+> Superseded the earlier MigrationNudge banner.
+
 ## 2026-07-30 (2) — one drawer element, not two
 
 The pinned column and the slide-over used to be two separate

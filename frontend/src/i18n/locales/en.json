@@ -740,7 +740,8 @@
       "create": "Create",
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
-      "createTeam": "Create Team"
+      "createTeam": "Create Team",
+      "importAgent": "Create Agent (from other source)"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
@@ -789,6 +790,47 @@
       "title": "Drag to resize chat / artifacts",
       "drawerAriaLabel": "Resize panel",
       "drawerTitle": "Drag to resize the panel"
+    },
+    "importAgent": {
+      "title": "Import an Agent",
+      "previewTitle": "Review before importing",
+      "doneTitle": "Import complete",
+      "detecting": "Scanning your machine…",
+      "noneFound": "No other-framework agents found in the standard locations. Enter a path below to scan a specific folder.",
+      "manualPathLabel": "Or scan a specific folder",
+      "scan": "Scan",
+      "unnamed": "Untitled agent",
+      "skills": "Skills",
+      "memories": "Memories",
+      "mcpServers": "MCP servers",
+      "willCopy": "will copy",
+      "willMatch": "from marketplace",
+      "deferred": "not yet imported",
+      "secretWarning": "Some MCP servers carry credentials shown in plaintext. Review them before importing.",
+      "narrative": "Narrative",
+      "notes": "Notes",
+      "credentialNote": "Credential keys not imported (re-enter in Settings): {{keys}}",
+      "unmappedNote": "{{count}} file(s) were recognized but not mapped.",
+      "confirmImport": "Import",
+      "openAgent": "Open agent",
+      "awareness": "Awareness",
+      "skillsCopied": "Skills copied",
+      "skillsInstalled": "Skills installed",
+      "mcpAdded": "MCP servers added",
+      "doneMsg": "The agent was created and populated.",
+      "skillsUnmatchedNote": "Skills with no local source or marketplace match: {{names}}",
+      "stdioSkippedNote": "Local (stdio) MCP servers captured but not wired yet: {{names}}",
+      "sourceTitle": "Choose a source",
+      "frameworkHint": "We found agents from these frameworks on this machine. Pick one, or scan a folder directly.",
+      "sourceHint": "Pick which {{framework}} source to import.",
+      "countProjects": "{{count}} project(s)",
+      "countSources": "{{count}} source(s)",
+      "defaultSkills": "Default skills",
+      "sessionsHint": "{{count}} session(s) will each become a Narrative (summarized on import), with their turns kept as memory.",
+      "narrativesCreated": "Narratives",
+      "turnsRetained": "Memory turns",
+      "untitledSession": "Untitled session",
+      "turnCount": "{{count}} turns"
     }
   },
   "settings": {
@@ -1351,6 +1393,16 @@
       "browseTemplates": "Browse templates",
       "bookmarksLabel": "Meet your bookmark strip",
       "bookmarksHint": "Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes."
+    },
+    "migrationGuide": {
+      "title": "Import an existing agent",
+      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
+      "import": "Import",
+      "later": "Later"
+    },
+    "migrationCoachmark": {
+      "text": "Want to import later? Use the “+” → {{action}}.",
+      "gotIt": "Got it"
     }
   },
   "pages": {
@@ -2370,6 +2422,8 @@
   },
   "common": {
     "close": "Close",
+    "cancel": "Cancel",
+    "back": "Back",
     "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve."
   }
 }

@@ -11,6 +11,12 @@ stub: false
 timezone),与后端 exclude_none 对齐。非 2xx 由 `request()` 抛 `ApiError`(400=非法
 调度/不可改状态,403/404),调用方 catch 后用 `err.message` 提示。
 
+## 2026-07-28 — Agent Migration methods
+
+`migrateDetect` / `migrateScan` / `migrateApply` wrap `/api/migrate/*`. All three
+are local-only (503 on cloud — Agent Migration is a desktop feature). Types in
+[[migration]]; consumed by [[ImportAgentModal]].
+
 ## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
 
 `getAgentLlmConfig` 的 `data` 类型加可选 `free_tier?: {active, model}`：免费额度有余量时
