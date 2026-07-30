@@ -4,6 +4,16 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (r2) — 流式段 plain text + defaultOpen
+
+- **流式段不走 Markdown**：每 delta 全量重解析拖死主线程（与 ThinkingBlock
+  2026-05-12 同一教训），表现为「蹦几个字→卡住→整段一次性出来」。流式期间
+  渲染 plain pre-wrap + 光标，落定切 Markdown（旧 ReplyBlock 同款取舍）。
+- **defaultOpen**：历史气泡点一次「View reasoning」已经是一次点击，fetch
+  完落在又一层折叠入口上等于要点两次（Owner 反馈）。fetch 路径传
+  defaultOpen 全部展开，仍可手动收起；新鲜消息（stopStreaming 带 segments）
+  保持折叠入口一次点开。
+
 # SegmentedReply.tsx — 把 Segment[] 渲染成 agent 实际说话的那几次
 
 ## 为什么存在

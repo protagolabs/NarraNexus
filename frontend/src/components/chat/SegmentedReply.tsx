@@ -28,6 +28,13 @@ export interface SegmentedReplyProps {
   segments: Segment[];
   /** Whether the collapsed process details are available (true for history bubbles, false live). */
   showProcess?: boolean;
+  /**
+   * Start with every process region expanded. Used when the user already
+   * clicked once to get here (the "View reasoning" fetch on a historical
+   * bubble) — landing on another collapsed toggle would make it two
+   * clicks to see anything. Regions can still be collapsed by hand.
+   */
+  defaultOpen?: boolean;
   /** Live: the last segment is still growing — give it a streaming cursor. */
   isStreaming?: boolean;
 }
@@ -48,6 +55,7 @@ function fallbackKindFromReplyVia(via: string | undefined): FallbackKind {
 export const SegmentedReply = memo(function SegmentedReply({
   segments,
   showProcess = false,
+  defaultOpen = false,
   isStreaming = false,
 }: SegmentedReplyProps) {
   const { t } = useTranslation();
@@ -60,14 +68,14 @@ export const SegmentedReply = memo(function SegmentedReply({
     <div className="space-y-3">
       {segments.map((segment, index) => {
         const isLast = index === segments.length - 1;
-        const open = !!expanded[index];
+        const open = expanded[index] ?? defaultOpen;
         return (
           <div key={index} className="space-y-1">
             {showProcess && segment.process.length > 0 && (
               <div data-testid={`segment-details-${index}`}>
                 <button
                   type="button"
-                  onClick={() => setExpanded((prev) => ({ ...prev, [index]: !prev[index] }))}
+                  onClick={() => setExpanded((prev) => ({ ...prev, [index]: !(prev[index] ?? defaultOpen) }))}
                   className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                 >
                   <ChevronRight
@@ -106,7 +114,19 @@ export const SegmentedReply = memo(function SegmentedReply({
                     {t('chat.timeline.recoveredAfterError')}
                   </div>
                 )}
-                <Markdown content={segment.reply.content} />
+                {/* While the segment streams, render plain pre-wrap text:
+                    re-parsing the whole markdown per delta saturates the
+                    main thread and the UI visibly stalls, then the finished
+                    reply pops in at once (the same catch ThinkingBlock and
+                    the old ReplyBlock documented on 2026-05-12). Markdown
+                    renders on settle. */}
+                {isStreaming && (segment.reply.streaming || isLast) ? (
+                  <div className="whitespace-pre-wrap text-[0.95rem] leading-relaxed">
+                    {segment.reply.content}
+                  </div>
+                ) : (
+                  <Markdown content={segment.reply.content} />
+                )}
                 {isStreaming && isLast && (
                   <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[var(--accent-primary)] align-text-bottom" />
                 )}

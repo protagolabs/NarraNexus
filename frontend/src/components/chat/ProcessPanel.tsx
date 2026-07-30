@@ -9,6 +9,13 @@
  * scrolls here continuously — scannable like a terminal, not something
  * to read.
  *
+ * Visual language (2026-07-30, after owner feedback that the first cut
+ * was too flat): a real terminal frame — chrome header with a live
+ * status dot, elapsed timer and op counter; per-species row glyphs
+ * (`∴` thinking / `$` tool / `↳` output) with distinct ink levels and a
+ * silicon-highlighted tool name; a blinking block cursor on the last
+ * line. Everything uses theme tokens so both light and dark hold up.
+ *
  * The plan is pinned below the scroll area: it answers "where are we
  * now" and must not scroll away. Plans are full snapshots
  * (replace-on-write), so only the latest one renders.
@@ -18,7 +25,7 @@
  * lib/segmentTurn). So nothing is persisted here — this is a viewport,
  * not storage.
  */
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import type { TurnEvent } from '@/types';
@@ -28,12 +35,6 @@ export interface ProcessPanelProps {
   events: TurnEvent[];
 }
 
-const PLAN_MARK: Record<string, string> = {
-  completed: '✅',
-  in_progress: '▶',
-  pending: '○',
-};
-
 /** Max panel height as a viewport fraction — any taller pushes the composer out of view. */
 const MAX_HEIGHT_CLASS = 'max-h-[40vh]';
 
@@ -42,16 +43,49 @@ const MAX_HEIGHT_CLASS = 'max-h-[40vh]';
  *  from browser scroll rounding error. */
 const FOLLOW_THRESHOLD_PX = 24;
 
+/** "mcp__chat_module__get_chat_history" → "get_chat_history" — same
+ *  friendly-name rule TurnTimeline uses; the namespace is debug detail. */
+function friendlyToolName(toolName: string): string {
+  const parts = toolName.split('__');
+  return parts[parts.length - 1] || toolName;
+}
+
+/** Ticks once a second from mount; the panel mounts when the turn
+ *  starts, so this reads as the turn's elapsed time. */
+function useElapsedSeconds(): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, []);
+  return elapsed;
+}
+
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
 export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
+  const elapsed = useElapsedSeconds();
 
   const process = useMemo(
     () => events.filter(
       (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output',
     ),
     [events],
+  );
+
+  const toolCount = useMemo(
+    () => process.filter((e) => e.type === 'tool_call').length,
+    [process],
   );
 
   // Plans are full snapshots: each update replaces the previous one
@@ -63,6 +97,8 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
     }
     return undefined;
   }, [events]);
+
+  const planDone = plan ? plan.steps.filter((s) => s.status === 'completed').length : 0;
 
   // Auto-scroll to the bottom unless the user scrolled up — the same
   // bargain the message area makes: following is the default, but once
@@ -77,8 +113,37 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
   return (
     <div
       data-testid="process-panel"
-      className="mb-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)]"
+      className="mb-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
+      style={{ fontFamily: 'var(--font-mono)' }}
     >
+      {/* Terminal chrome: live dot + title on the left, elapsed timer and
+          op counter on the right. The dot pulses while mounted — mounted
+          IS running, so no extra state is needed. */}
+      <div
+        className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-1.5"
+      >
+        <span className="relative flex h-2 w-2 shrink-0">
+          <span
+            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+            style={{ background: 'var(--color-success)' }}
+          />
+          <span
+            className="relative inline-flex h-2 w-2 rounded-full"
+            style={{ background: 'var(--color-success)' }}
+          />
+        </span>
+        <span
+          className="text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: 'var(--nm-ink70)' }}
+        >
+          {t('chat.process.title', 'agent · process')}
+        </span>
+        <span className="ml-auto flex items-center gap-3 text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
+          <span>{toolCount} {t('chat.process.ops', 'ops')}</span>
+          <span>{formatElapsed(elapsed)}</span>
+        </span>
+      </div>
+
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -86,19 +151,18 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
           followRef.current =
             el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
         }}
-        className={cn(
-          MAX_HEIGHT_CLASS,
-          'space-y-1 overflow-y-auto px-3 py-2 font-mono text-xs',
-        )}
+        className={cn(MAX_HEIGHT_CLASS, 'overflow-y-auto px-3 py-2 text-xs leading-relaxed')}
       >
         {process.map((event) => {
           if (event.type === 'thinking') {
             return (
-              <div
-                key={event.id}
-                className="whitespace-pre-wrap text-[var(--text-tertiary)]"
-              >
-                · {event.content}
+              <div key={event.id} className="flex gap-2 py-0.5">
+                <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
+                  ∴
+                </span>
+                <span className="whitespace-pre-wrap italic" style={{ color: 'var(--nm-ink50)' }}>
+                  {event.content}
+                </span>
               </div>
             );
           }
@@ -112,49 +176,108 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
                 key={event.id}
                 data-testid={`tool-row-${event.id}`}
                 data-pending={event.pending ? 'true' : 'false'}
-                className="flex items-center gap-2 text-[var(--text-secondary)]"
+                className="flex items-center gap-2 rounded px-1 py-0.5 -mx-1 hover:bg-[var(--nm-paper-warm)]"
               >
                 {event.pending ? (
-                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  <Loader2
+                    className="h-3 w-3 shrink-0 animate-spin"
+                    style={{ color: 'var(--color-warning)' }}
+                  />
                 ) : (
-                  <span className="shrink-0">⚙</span>
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 select-none font-semibold"
+                    style={{ color: 'var(--color-success)' }}
+                  >
+                    $
+                  </span>
                 )}
-                <span className="text-[var(--accent-primary)]">{event.tool_name}</span>
-                <span className="truncate text-[var(--text-tertiary)]">
+                <span className="shrink-0 font-semibold" style={{ color: 'var(--color-silicon)' }}>
+                  {friendlyToolName(event.tool_name)}
+                </span>
+                <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
                   {event.pending ? '…' : String(firstArg ?? '')}
                 </span>
               </div>
             );
           }
           return (
-            <div key={event.id} className="truncate pl-4 text-[var(--text-tertiary)]">
-              ↳ {event.output}
+            <div key={event.id} className="flex gap-2 py-0.5 pl-5">
+              <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
+                ↳
+              </span>
+              <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
+                {event.output}
+              </span>
             </div>
           );
         })}
+        {/* Live cursor — the terminal's "still running" heartbeat. */}
+        <div aria-hidden="true" className="flex gap-2 py-0.5">
+          <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>
+          <span
+            className="inline-block w-2 animate-pulse select-none"
+            style={{ color: 'var(--nm-ink70)' }}
+          >
+            ▌
+          </span>
+        </div>
       </div>
 
       {plan && (
         <div
           data-testid="process-plan"
-          className="space-y-0.5 border-t border-[var(--border-subtle)] px-3 py-2 text-xs"
+          className="border-t border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-2 text-xs"
         >
-          <div className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
-            {t('chat.process.plan', 'Plan')}
-          </div>
-          {plan.steps.map((s, i) => (
-            <div
-              key={`${i}-${s.step}`}
-              className={cn(
-                'flex gap-2',
-                s.status === 'in_progress' && 'text-[var(--accent-primary)]',
-                s.status === 'completed' && 'text-[var(--text-tertiary)] line-through',
-              )}
+          <div className="mb-1.5 flex items-center gap-2">
+            <span
+              className="text-[10px] uppercase tracking-[0.18em]"
+              style={{ color: 'var(--nm-ink50)' }}
             >
-              <span className="shrink-0">{PLAN_MARK[s.status] ?? '○'}</span>
-              <span>{s.step}</span>
-            </div>
-          ))}
+              {t('chat.process.plan', 'Plan')}
+            </span>
+            <span className="text-[10px] tabular-nums" style={{ color: 'var(--nm-ink50)' }}>
+              {planDone}/{plan.steps.length}
+            </span>
+            {/* Mini progress bar: width follows completed/total. */}
+            <span
+              className="ml-1 h-1 flex-1 overflow-hidden rounded-full"
+              style={{ background: 'var(--nm-ink30)', maxWidth: 96 }}
+            >
+              <span
+                className="block h-full rounded-full transition-[width] duration-500"
+                style={{
+                  width: `${plan.steps.length ? Math.round((planDone / plan.steps.length) * 100) : 0}%`,
+                  background: 'var(--color-success)',
+                }}
+              />
+            </span>
+          </div>
+          <div className="space-y-0.5">
+            {plan.steps.map((s, i) => {
+              const active = s.status === 'in_progress';
+              const done = s.status === 'completed';
+              return (
+                <div
+                  key={`${i}-${s.step}`}
+                  className="flex items-center gap-2"
+                  style={{
+                    color: active
+                      ? 'var(--color-silicon)'
+                      : done
+                        ? 'var(--nm-ink50)'
+                        : 'var(--nm-ink70)',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  <span aria-hidden="true" className="shrink-0 select-none">
+                    {done ? '✓' : active ? '▶' : '○'}
+                  </span>
+                  <span className={cn(done && 'line-through')}>{s.step}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

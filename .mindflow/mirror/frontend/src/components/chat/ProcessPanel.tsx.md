@@ -4,6 +4,22 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (r2) — 终端化视觉升级（Owner 反馈：太单调）
+
+第一版只有灰字滚动。r2 换成真终端语言，全部走主题 token（亮暗都成立）：
+
+- **chrome 头部**：呼吸绿点（挂载即运行，不需额外状态）+ mono 大写标题
+  + 右侧 ops 计数与逐秒计时（挂载即回合开始，计时即回合耗时）。
+- **行符号分物种**：`∴` 思考（斜体 ink50）、`$` 工具（success 绿 + 工具名
+  silicon 加粗，MCP 前缀剥掉与 TurnTimeline 同规则）、`↳` 输出（缩进
+  ink50）；pending 行是 warning 色 spinner + 省略号。
+- **行尾 `❯ ▌` 闪烁光标**：终端的「还在跑」心跳。
+- **plan 底部**：n/m 计数 + 迷你进度条（success 填充），active 步 silicon
+  加粗 ▶，完成步 ✓ 划线。
+
+测试契约不变：tool-row-{id} / data-pending / process-plan / 空则 null /
+最后一份 plan 快照。
+
 # ProcessPanel.tsx — 运行中的 terminal 风格过程面板
 
 ## 为什么存在

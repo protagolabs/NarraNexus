@@ -240,7 +240,9 @@
       "details": "推理与工具"
     },
     "process": {
-      "plan": "计划"
+      "plan": "计划",
+      "title": "智能体 · 过程",
+      "ops": "次操作"
     }
   },
   "awareness": {

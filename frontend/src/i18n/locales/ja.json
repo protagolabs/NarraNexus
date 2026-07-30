@@ -196,7 +196,9 @@
       "details": "推論とツール"
     },
     "process": {
-      "plan": "プラン"
+      "plan": "プラン",
+      "title": "エージェント · プロセス",
+      "ops": "回の操作"
     }
   },
   "awareness": {

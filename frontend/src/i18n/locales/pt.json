@@ -196,7 +196,9 @@
       "details": "Raciocínio e ferramentas"
     },
     "process": {
-      "plan": "Plano"
+      "plan": "Plano",
+      "title": "agente · processo",
+      "ops": "ops"
     }
   },
   "awareness": {
