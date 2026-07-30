@@ -16,11 +16,11 @@ the write side (map → `apply_plan` → a populated NarraNexus agent).
   `migration_local_only` on cloud, because cloud's executor/backend is remote —
   there is no user filesystem to scan. Those two endpoints are desktop/local by
   nature.
-- **`/apply` is NOT local-gated** — it writes to NarraNexus and works wherever
-  the backend runs. It builds the plan (`build_plan`) and executes it
-  (`apply_plan`), with `user_id` from `resolve_current_user_id`. Local-skill
-  file-copy only fully succeeds when the backend is on the same machine as the
-  source; otherwise it degrades to marketplace-install / unmatched.
+- **`/apply` is local-gated too** (2026-07-30) — Agent Migration is a
+  desktop/local feature (Owner: cloud disables the whole thing). detect/scan
+  already 503 on cloud so there's no legitimate cloud path to `import_data`;
+  gating apply closes the direct-POST hole. It builds the plan (`build_plan`)
+  and executes it (`apply_plan`), `user_id` from `resolve_current_user_id`.
 - `scan` maps `FileNotFoundError` (no framework detected + no path) → 404, other
   extraction errors → 400. Extraction itself never raises (best-effort), so 400
   is rare.

@@ -85,11 +85,12 @@ class ApplyRequest(BaseModel):
 async def apply(request: Request, payload: ApplyRequest) -> dict:
     """Execute the migration: create/populate an agent from the scanned JSON.
 
-    Not local-gated — this writes to NarraNexus (works wherever the backend
-    runs). Local-skill file-copy only succeeds when the backend is on the same
-    machine as the source (desktop/local); it degrades to a marketplace install
-    otherwise. `user_id` comes from auth.
+    Local-only, like detect/scan: Agent Migration is a desktop/local feature
+    (Owner decision — cloud has no user filesystem to import from). detect/scan
+    already 503 on cloud, so there is no legitimate cloud path to import_data;
+    gating apply too closes the direct-POST hole. `user_id` comes from auth.
     """
+    _require_local_or_raise()
     user_id = await resolve_current_user_id(request)
     db = await get_db_client()
     plan = build_plan(payload.import_data)
