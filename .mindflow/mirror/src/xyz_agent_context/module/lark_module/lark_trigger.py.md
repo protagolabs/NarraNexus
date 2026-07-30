@@ -1,8 +1,50 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — the brand_mismatch breaker never actually tripped
+
+The 2026-05-27 entry below describes intent that **was never true in
+practice**. `_subscribe_loop` constructed its manager as
+`LarkCredentialManager(self.db)`, but the DB handle lives on the base as
+`_db` (`db` is the *manager's* own attribute name — that naming
+mismatch is what made the wrong spelling look right). So every
+detection raised AttributeError inside a `except Exception` that only
+logged: `auth_status` stayed `bot_ready`, `get_active_credentials` kept
+returning the dead credential, the watcher kept restarting a subscriber
+that could never receive a message, and both the frontend re-bind card
+([[LarkConfig]] State 5) and the agent's awareness of the state
+([[lark_module]]) were unreachable because the state was never written.
+Prod `narranexus-channels`, ~8 hits/24h, Base recvq4sePMnwA4.
+
+Three structural changes, because a one-character fix leaves the next
+typo just as likely:
+
+- **`_credential_manager()` is the only way this trigger reaches the
+  credential table.** The handle used to be hand-spelled at each call
+  site; three were right and the fourth was not. `pre_start` still
+  takes `db` as a parameter — it runs before `start()`, so `_db` is
+  still None there.
+- **`_handle_brand_mismatch` is a method, not an inlined except-branch.**
+  Buried in a 200-line `while` it was physically untestable, which is
+  why `test_error_translator` (error *text* only) was the closest thing
+  to coverage. Detection also split out as the pure module-level
+  `_is_brand_mismatch_error`, same rationale as `_compute_next_backoff`.
+- **The audit row now says whether the write landed** (`auth_status_set`
+  / `persist_error`). Persistence failure stays non-fatal — a DB hiccup
+  must not kill a subscriber — but previously a failed breaker looked
+  identical to a tripped one in the audit trail, with the truth only in
+  a log line nobody greps (incident lessons #3/#5).
+
+Deliberately NOT done: re-raising programming errors from that `except`.
+Tests catch them before prod, audit rows catch them in prod; making a
+live subscriber more fragile buys nothing.
+
+No migration or data repair. An affected credential is corrected the
+next time its subscriber hits 1000040351 — the state does not
+retroactively appear, and a user who already re-bound has no such row.
 
 ## 2026-07-29 — group rooms reply only when @-mentioned
 
@@ -67,6 +109,9 @@ main loop polling `t.is_alive()` via `await asyncio.sleep(1)`, callbacks via
 event loop — it never blocks the loop, so consolidation needs no change to it.
 
 ## 2026-05-27 — capture brand_mismatch (WS error 1000040351) at runtime
+
+> Design intent only — this did not actually work until 2026-07-30
+> (see the top entry). The mechanism described below is now real.
 
 The SDK WebSocket subscriber loop now checks every caught exception
 for `1000040351` / `"Incorrect domain name"`. On match we mark the
