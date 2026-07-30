@@ -352,6 +352,19 @@ _FALLBACK_NO_REPLY_INSTRUCTIONS = (
     "- Address the user directly, in first person as the agent.\n"
     "- Do NOT mention tools, send_message_to_user_directly, helper_llm, "
     "this fallback path, or any internal state.\n"
+    # The 2026-07-29 report: the agent's reasoning was pure intent ("let me
+    # try the image again"), the fallback voiced it, and the user was left
+    # waiting for a document nothing was producing. The turn ENDS when this
+    # message is sent, so a promise here can never come true.
+    "- Never promise or imply work in progress or about to start (\"I'll "
+    "do X\", \"let me try Y\", \"working on it\", \"one moment\"). This "
+    "turn ends the moment your message is sent, so nothing continues "
+    "afterwards. Describe only what already happened.\n"
+    "- If `<this_turn_activity>` shows the agent produced only intent and "
+    "no actual result, say plainly that it did not get the work done, and "
+    "give the user one concrete way forward (re-send, narrow the request, "
+    "supply what was missing). An honest \"this didn't happen\" is always "
+    "better than a confident-sounding reply about work that does not exist.\n"
     "- Keep it natural, useful, and proportional to the question."
 )
 
@@ -378,6 +391,21 @@ _FALLBACK_AFTER_ERROR_INSTRUCTIONS = (
     "language.\n"
     "- Keep it short — one paragraph plus optional next-step bullet."
 )
+
+
+def _fallback_instructions_for_mode(mode: str) -> str:
+    """The helper-LLM system prompt for a fallback ``mode``.
+
+    A named seam rather than an inline conditional: these two prompts are the
+    only text the platform itself puts in the user's mouth, so their contract
+    (no promises about work that isn't happening — see the no_reply rules) is
+    worth pinning in tests without constructing a stream.
+    """
+    return (
+        _FALLBACK_AFTER_ERROR_INSTRUCTIONS
+        if mode == "after_error"
+        else _FALLBACK_NO_REPLY_INSTRUCTIONS
+    )
 
 
 def _build_helper_user_input(
@@ -522,11 +550,7 @@ async def _generate_fallback_reply_stream(
     set_cost_context(agent_id, db)
     try:
         sdk = get_helper_sdk()
-        instructions = (
-            _FALLBACK_AFTER_ERROR_INSTRUCTIONS
-            if mode == "after_error"
-            else _FALLBACK_NO_REPLY_INSTRUCTIONS
-        )
+        instructions = _fallback_instructions_for_mode(mode)
         user_input_for_helper = _build_helper_user_input(
             mode=mode,
             context_messages=context_messages,
