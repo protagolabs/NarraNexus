@@ -4,6 +4,22 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
+
+选择器的拦截条件从 `netmindOnly && e.target.value !== 'claude_code'` 改成
+`!frameworkAllowedInCloud(e.target.value, role)`。**下面 2026-07-18 那段
+「只在切到非 claude_code 时提示」的判据已被本次改动取代**——那个形状把
+NexusPower 一起拒了。
+
+真正被拦的是**会骑用共享 CLI 凭据**的框架（云端镜像单 HOME，`~/.claude` /
+`~/.codex` 容器全局、由 staff 登录种下）。NexusPower 直接驱动 provider API、
+用所绑卡的 key 且拒绝 OAuth，所以云端放行；`codex_cli` 仍拦。规则只住
+[[agentFramework]] 的谓词里，不在这里重新推导——它此前在三处各推导一遍，
+NexusPower 上线后三处都还在拒。
+
+弹窗文案随之从「Desktop version only」改为「Staff only in cloud」（10 个语言
+包同步）：云端可用的框架不止一个了，旧文案不再是事实。
+
 ## 2026-07-29 — 同步走 `frameworkAcceptsProtocol()`
 
 与 [[AgentLlmConfigPanel]] 同一处改动：槽位 provider 过滤从「框架的那一个协议」

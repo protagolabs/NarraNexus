@@ -4,6 +4,16 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
+
+与 [[ModelDefaultsSettings]] 同一处改动：拦截条件改成
+`!frameworkAllowedInCloud(e.target.value, role)`。**下面 2026-07-18 那段的
+`e.target.value !== 'claude_code'` 判据已被取代**——它把 NexusPower 一起拒了。
+
+两个选择器必须同口径且都问 [[agentFramework]] 的同一个谓词：规则此前在这里、
+在 [[ModelDefaultsSettings]]、在后端路由各自内联了一遍，NexusPower 变成云端
+合法之后三处都还在拒。文案同步改为「Staff only in cloud」。
+
 ## 2026-07-29 — provider 过滤改问「框架收不收这个协议」
 
 原来按 `framework.protocol` 单值过滤 provider 下拉。NexusPower 直接驱动
