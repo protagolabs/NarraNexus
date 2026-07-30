@@ -183,6 +183,12 @@ class ExecutionState:
         }
         if display:
             new_step["display"] = display
+        if monologue:
+            # Persisted via events.event_log: the monologue SEGMENT in its
+            # chronological slot is what lets native turn replay rebuild
+            # assistant messages (text + tool_calls interleaving). The
+            # cumulative final_output below cannot — it has lost position.
+            new_step["monologue"] = monologue
         return replace(
             self,
             final_output=self.final_output + monologue,
