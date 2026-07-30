@@ -264,6 +264,7 @@ async def sync_source(
     reprobe_failed: bool = True,
     ledger: dict[str, Any] | None = None,
     suspects: set[tuple[str, str]] | None = None,
+    extra_models: dict[str, dict] | None = None,
 ) -> SyncResult:
     """Fetch ``source``'s catalog, diff against the ledger, probe new + (optionally)
     previously-failed models, revalidate stale/suspect PASS entries, drop models
@@ -273,6 +274,14 @@ async def sync_source(
     ``keys`` maps protocol -> api key used to probe that protocol (same key works
     for both on these aggregators). ``suspects`` is a set of (model_id, protocol)
     pairs reported as failing at runtime — they jump the TTL queue.
+
+    ``extra_models`` are ids the backend serves that its public catalog does
+    not list (the free-tier gateway routes several such NetMind models). They
+    are probed and TTL-revalidated exactly like catalog models but marked
+    ``extra`` in the ledger: never listed on the catalog cards (``res.lists``),
+    only consulted by the free-tier gate. ``None`` means "caller doesn't know
+    about extras" (the manual Update-models button) — existing extra entries
+    are left untouched rather than treated as gone.
     """
     cs = catalog_source(source, yunwu_key=yunwu_key)
     owns_ledger = ledger is None
@@ -286,6 +295,8 @@ async def sync_source(
         # An empty catalog is an upstream fault (API shape change, outage), not
         # "every model was retired" — proceeding would wipe every user's lists.
         raise RuntimeError(f"{cs.name} catalog returned no models — refusing to wipe lists")
+    extras = {m: meta for m, meta in (extra_models or {}).items() if m not in catalog}
+    universe: dict[str, dict] = {**catalog, **extras}
     res = SyncResult(source=cs.name)
 
     # Build the list of (model_id, protocol) pairs that need a probe this pass:
@@ -294,20 +305,29 @@ async def sync_source(
     # suspects (flip rules are stricter — see below).
     to_probe: list[tuple[str, str]] = []
     revalidate: list[tuple[str, str]] = []
-    for mid, meta in catalog.items():
-        if mid not in led:
+    for mid, meta in universe.items():
+        is_new = mid not in led
+        if is_new:
             res.added.append(mid)
             led[mid] = {**meta, "tested_at": _now()}
             to_probe += [(mid, p) for p in cs.protocols]
         else:
             led[mid].update(meta)  # refresh display/context — no call
-            if reprobe_failed:
-                to_probe += [(mid, p) for p in cs.protocols if led[mid].get(p) == FAIL]
-            stale = _is_stale(led[mid].get("tested_at"))
-            revalidate += [
-                (mid, p) for p in cs.protocols
-                if led[mid].get(p) == PASS and (stale or (mid, p) in suspects)
-            ]
+        # The catalog wins: a model it lists sheds any extra marker; a
+        # gateway-only id carries one so card lists can exclude it.
+        if mid in extras:
+            led[mid]["extra"] = True
+        else:
+            led[mid].pop("extra", None)
+        if is_new:
+            continue
+        if reprobe_failed:
+            to_probe += [(mid, p) for p in cs.protocols if led[mid].get(p) == FAIL]
+        stale = _is_stale(led[mid].get("tested_at"))
+        revalidate += [
+            (mid, p) for p in cs.protocols
+            if led[mid].get(p) == PASS and (stale or (mid, p) in suspects)
+        ]
 
     # Suspects first (a live user already hit them), then oldest first so the
     # daily cap drains the backlog in bounded, fair slices.
@@ -357,8 +377,14 @@ async def sync_source(
         for mid in {m for m, _, _ in reval_results} - transient_mids:
             led[mid]["tested_at"] = _now()
 
-    # Overwrite: drop models no longer in the catalog.
-    for mid in [m for m in led if m not in catalog]:
+    # Overwrite: drop models no longer in the catalog (or, when the caller
+    # provided the authoritative extras set, no longer served as an extra
+    # either). extra_models=None preserves existing extras — the button path
+    # doesn't know the gateway list and must not purge the runner's entries.
+    keep = set(universe)
+    if extra_models is None:
+        keep |= {m for m, r in led.items() if r.get("extra")}
+    for mid in [m for m in led if m not in keep]:
         res.removed.append(mid)
         del led[mid]
 
@@ -366,7 +392,11 @@ async def sync_source(
         ledger["generated_at"] = _now()
         save_ledger(ledger)
 
-    res.lists = {p: sorted(m for m, r in led.items() if r.get(p) == PASS) for p in cs.protocols}
+    # Card lists carry catalog models only; extras are free-tier routing facts.
+    res.lists = {
+        p: sorted(m for m, r in led.items() if r.get(p) == PASS and not r.get("extra"))
+        for p in cs.protocols
+    }
     return res
 
 
@@ -466,8 +496,79 @@ if __name__ == "__main__":
     sys.exit(asyncio.run(_cli()))
 
 
-async def refresh_free_tier_models(db) -> int:
-    """Overwrite every free-tier card's model list from the GATEWAY's catalogue.
+def _free_tier_wallet_client():
+    """Indirection seam so tests (and future transports) can swap the client."""
+    from xyz_agent_context.integrations.free_tier.wallet_client import WalletClient
+
+    return WalletClient.from_settings()
+
+
+def build_free_tier_entry(
+    ledger: dict[str, Any], gateway_models: list[str]
+) -> dict[str, list[str]]:
+    """Gate the gateway's catalogue by the netmind probe verdicts and persist
+    the result as the ledger's ``netmind_free`` source entry.
+
+    Per protocol a gateway model is listed unless its netmind verdict is FAIL.
+    An UNKNOWN verdict keeps the model: the gateway routes it today, and a
+    probe outage must never empty the free dropdown — the extras union gets it
+    probed on the next pass anyway. Writing the entry into the ledger makes
+    the gate readable by the sync consumers too (``get_default_models`` seeds
+    new free cards from it), so every writer agrees on one list.
+    """
+    netmind = source_models(ledger, "netmind")
+    free = source_models(ledger, "netmind_free")
+    free.clear()
+    lists: dict[str, list[str]] = {"openai": [], "anthropic": []}
+    for mid in gateway_models:
+        verdicts = netmind.get(mid, {})
+        entry: dict[str, Any] = {
+            "display_name": verdicts.get("display_name") or mid,
+            "context": verdicts.get("context"),
+            "tested_at": verdicts.get("tested_at") or _now(),
+        }
+        for proto in ("openai", "anthropic"):
+            entry[proto] = FAIL if verdicts.get(proto) == FAIL else PASS
+            if entry[proto] == PASS:
+                lists[proto].append(mid)
+        free[mid] = entry
+    return lists
+
+
+def compute_drift(ledger: dict[str, Any], gateway_models: list[str]) -> dict[str, list[str]]:
+    """What a human must reconcile between the gateway config and upstream.
+
+    - ``gateway_failing``: gateway-served models whose netmind verdict is FAIL
+      on some protocol — dead weight in the gateway config (already hidden
+      from free cards by the gate; the config entry itself needs a human).
+    - ``catalog_pass_not_in_gateway``: catalog models passing probes that the
+      gateway does not serve — candidates to add, which is a pricing decision
+      and therefore never automated.
+
+    Transient trouble is invisible here by construction: verdicts only flip
+    on definitive model errors, so overload/429/5xx never shows up as drift.
+    """
+    netmind = source_models(ledger, "netmind")
+    gateway = set(gateway_models)
+    failing = sorted(
+        f"{mid}:{proto}"
+        for mid in gateway
+        for proto in ("openai", "anthropic")
+        if netmind.get(mid, {}).get(proto) == FAIL
+    )
+    missing = sorted(
+        mid
+        for mid, r in netmind.items()
+        if mid not in gateway
+        and not r.get("extra")
+        and (r.get("openai") == PASS or r.get("anthropic") == PASS)
+    )
+    return {"gateway_failing": failing, "catalog_pass_not_in_gateway": missing}
+
+
+async def refresh_free_tier_models(db, *, ledger: dict[str, Any] | None = None) -> int:
+    """Overwrite every free-tier card's model list: the GATEWAY's catalogue
+    gated by the netmind probe verdicts (see ``build_free_tier_entry``).
 
     Separate from ``apply_ledger_to_db`` on purpose: the free tier's routable
     set is whatever the gateway was configured with (which is also the set it
@@ -482,12 +583,9 @@ async def refresh_free_tier_models(db) -> int:
     from xyz_agent_context.agent_framework.providers.free_tier import (
         FREE_TIER_SOURCE,
     )
-    from xyz_agent_context.integrations.free_tier.wallet_client import (
-        WalletClient,
-        WalletError,
-    )
+    from xyz_agent_context.integrations.free_tier.wallet_client import WalletError
 
-    client = WalletClient.from_settings()
+    client = _free_tier_wallet_client()
     if client is None:
         return 0
     try:
@@ -498,16 +596,25 @@ async def refresh_free_tier_models(db) -> int:
     if not models:
         return 0
 
-    payload = json.dumps(models)
+    if ledger is None:
+        from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+            load_ledger_db,
+        )
+
+        ledger = await load_ledger_db(db) or load_ledger()
+    lists = build_free_tier_entry(ledger, models)
+
     now = _now()
     updated = 0
     for proto in ("openai", "anthropic"):
         updated += await db.update(
             "user_providers",
             {"source": FREE_TIER_SOURCE, "protocol": proto},
-            {"models": payload, "updated_at": now},
+            {"models": json.dumps(lists[proto]), "updated_at": now},
         ) or 0
     logger.info(
-        f"[model_sync] free-tier catalogue: {len(models)} models -> {updated} row(s)"
+        f"[model_sync] free-tier catalogue: {len(models)} gateway models -> "
+        f"openai={len(lists['openai'])} anthropic={len(lists['anthropic'])} "
+        f"-> {updated} row(s)"
     )
     return updated

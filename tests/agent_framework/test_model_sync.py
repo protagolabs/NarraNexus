@@ -281,3 +281,164 @@ async def test_suspects_win_the_revalidation_cap(monkeypatch):
         suspects={("SUS", "openai")},
     )
     assert calls == [("SUS", "openai")]
+
+
+# ---------------------------------------------------------------------------
+# Gateway extras: probed like catalog models, kept in the ledger, but never
+# listed on netmind/system_pool cards (they are free-tier routing facts).
+# ---------------------------------------------------------------------------
+
+async def test_extra_models_probed_kept_and_excluded_from_card_lists(monkeypatch):
+    _netmind_catalog(monkeypatch, "A")
+    calls = _make_probe(monkeypatch, {("doubao/X", "anthropic"): model_sync.PROBE_MODEL_ERROR})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        extra_models={"doubao/X": {"display_name": "doubao/X"}},
+    )
+
+    led = ledger["sources"]["netmind"]["models"]
+    # Probed on both protocols, verdicts recorded, entry survives the
+    # gone-from-catalog removal, and carries the extra marker.
+    assert set(calls) == {("doubao/X", "openai"), ("doubao/X", "anthropic")}
+    assert led["doubao/X"]["openai"] == PASS
+    assert led["doubao/X"]["anthropic"] == FAIL
+    assert led["doubao/X"]["extra"] is True
+    # Never on the catalog card lists, even where it passes.
+    assert "doubao/X" not in res.lists["openai"]
+    assert res.lists["anthropic"] == ["A"]
+
+
+async def test_extras_preserved_when_caller_does_not_pass_them(monkeypatch):
+    # The manual "Update models" button calls sync_source without extras —
+    # that must not purge the runner-maintained extra entries.
+    _netmind_catalog(monkeypatch, "A")
+    _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "doubao/X": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH, "extra": True},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+    )
+    assert "doubao/X" in ledger["sources"]["netmind"]["models"]
+    assert "doubao/X" not in res.removed
+    assert "doubao/X" not in res.lists["openai"]
+
+
+async def test_extra_marker_cleared_when_model_enters_catalog(monkeypatch):
+    _netmind_catalog(monkeypatch, "doubao/X")
+    _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "doubao/X": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH, "extra": True},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        extra_models={"doubao/X": {"display_name": "doubao/X"}},
+    )
+    assert not ledger["sources"]["netmind"]["models"]["doubao/X"].get("extra")
+    assert "doubao/X" in res.lists["openai"]
+
+
+# ---------------------------------------------------------------------------
+# Free-tier entry: gateway list gated by netmind verdicts. FAIL hides a model;
+# an unknown verdict keeps it (a probe outage must never empty the dropdown).
+# ---------------------------------------------------------------------------
+
+def test_build_free_tier_entry_filters_fails_and_keeps_unknowns():
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "B": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
+        "dead": {"openai": FAIL, "anthropic": FAIL, "tested_at": FRESH},
+    }}}}
+    lists = model_sync.build_free_tier_entry(
+        ledger, ["A", "B", "dead", "unknown"]
+    )
+    assert lists["openai"] == ["A", "B", "unknown"]
+    assert lists["anthropic"] == ["A", "unknown"]
+    # Entry persisted for sync readers (provisioning's get_default_models).
+    free_led = ledger["sources"]["netmind_free"]["models"]
+    assert free_led["dead"]["openai"] == FAIL
+    assert free_led["unknown"]["anthropic"] == PASS
+
+
+async def test_refresh_free_tier_models_writes_gated_lists_per_protocol(monkeypatch):
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
+    }}}}
+
+    class FakeWallet:
+        async def served_models(self):
+            return ["A", "unknown"]
+
+    monkeypatch.setattr(
+        model_sync, "_free_tier_wallet_client", lambda: FakeWallet()
+    )
+
+    updates: list[tuple[dict, list]] = []
+
+    class FakeDB:
+        async def update(self, table, filters, data):
+            updates.append((filters, json.loads(data["models"])))
+            return 1
+
+    n = await model_sync.refresh_free_tier_models(FakeDB(), ledger=ledger)
+    assert n == 2
+    by_proto = {f["protocol"]: m for f, m in updates}
+    assert by_proto["openai"] == ["A", "unknown"]
+    assert by_proto["anthropic"] == ["unknown"]
+
+
+# ---------------------------------------------------------------------------
+# Drift report: what a human must reconcile between the gateway config and the
+# upstream catalog. Transient trouble is invisible here by construction —
+# verdicts only flip on definitive model errors.
+# ---------------------------------------------------------------------------
+
+def test_compute_drift_reports_failing_gateway_and_missing_catalog_passes():
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "new_pass": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "gw_dead": {"openai": FAIL, "anthropic": FAIL, "tested_at": FRESH, "extra": True},
+        "half": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
+    }}}}
+    drift = model_sync.compute_drift(ledger, ["A", "gw_dead", "half"])
+    assert drift["gateway_failing"] == ["gw_dead:anthropic", "gw_dead:openai", "half:anthropic"]
+    # extras never count as "missing from gateway" — they only exist there.
+    assert drift["catalog_pass_not_in_gateway"] == ["new_pass"]
+
+
+def test_compute_drift_empty_when_aligned():
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+    }}}}
+    drift = model_sync.compute_drift(ledger, ["A"])
+    assert not drift["gateway_failing"] and not drift["catalog_pass_not_in_gateway"]
+
+
+def test_get_default_models_netmind_free_prefers_gateway_gated_entry(monkeypatch):
+    # Once the daily pass has written the netmind_free ledger entry, new free
+    # cards must seed from it (gateway ∩ verdicts) — not from the raw netmind
+    # catalog passes, which include models the gateway cannot route or price.
+    from xyz_agent_context.agent_framework.providers import model_catalog
+    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+
+    def fake_ledger_models(source, protocol):
+        return {
+            ("netmind_free", "openai"): ["gw_ok"],
+            ("netmind", "openai"): ["gw_ok", "catalog_only"],
+        }.get((source, protocol), [])
+
+    monkeypatch.setattr(model_probe_ledger, "ledger_models", fake_ledger_models)
+    assert model_catalog.get_default_models("netmind_free", "openai") == ["gw_ok"]
+    # Entry absent (fresh install before the first daily pass) -> fall back to
+    # the netmind mapping as before.
+    def no_free_entry(source, protocol):
+        return [] if source == "netmind_free" else ["cat"]
+    monkeypatch.setattr(model_probe_ledger, "ledger_models", no_free_entry)
+    assert model_catalog.get_default_models("netmind_free", "openai") == ["cat"]

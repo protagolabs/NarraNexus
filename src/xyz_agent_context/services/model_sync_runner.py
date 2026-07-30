@@ -64,14 +64,33 @@ async def run_once() -> dict:
     suspects = await model_health.load_suspects(db)
     synced: list[str] = []
     logger.info("model_sync_runner: pass START")
+
+    # The free-tier gateway's catalogue, fetched once: it feeds the netmind
+    # probe pass (gateway-only models get probed as extras), the free-card
+    # gate, and the drift report. Unreachable gateway -> None extras, so
+    # existing extra entries survive untouched.
+    gateway_models: list[str] = []
+    try:
+        wallet = model_sync._free_tier_wallet_client()
+        if wallet is not None:
+            gateway_models = list(await wallet.served_models() or [])
+    except Exception as e:  # noqa: BLE001 — gateway trouble must not kill the pass
+        logger.warning(f"model_sync_runner: free-tier gateway catalogue unavailable: {e!r}")
+
     for source, key, yunwu_key in plan:
         if not key:
             continue
+        extras = (
+            {m: {"display_name": m} for m in gateway_models}
+            if source == "netmind" and gateway_models
+            else None
+        )
         try:
             res = await model_sync.sync_source(
                 source, keys={"openai": key, "anthropic": key},
                 yunwu_key=yunwu_key, ledger=ledger,
                 suspects=suspects.get(source),
+                extra_models=extras,
             )
             synced.append(source)
             logger.info(
@@ -88,6 +107,12 @@ async def run_once() -> dict:
         logger.warning("model_sync_runner: no provider keys in env — nothing synced")
         return {"synced": [], "applied": {}}
 
+    # Persist the free-tier gate INTO the ledger before saving, so both
+    # carriers ship the netmind_free entry (get_default_models seeds new free
+    # cards from it) in the same pass that computed the verdicts.
+    if gateway_models and "netmind" in synced:
+        model_sync.build_free_tier_entry(ledger, gateway_models)
+
     ledger["generated_at"] = model_sync._now()
     save_ledger(ledger)          # best-effort container-file copy
     await save_ledger_db(db, ledger)
@@ -95,10 +120,27 @@ async def run_once() -> dict:
         await model_health.clear_suspects(db, source)
 
     applied = await model_sync.apply_ledger_to_db(db, sources=synced, ledger=ledger)
-    # The free-tier card's catalogue comes from OUR gateway, not the upstream
-    # probe — see refresh_free_tier_models. Same pass so a gateway config change
-    # reaches existing cards without a manual step.
-    free_tier = await model_sync.refresh_free_tier_models(db)
+    # The free-tier card's catalogue comes from OUR gateway gated by the probe
+    # verdicts — see refresh_free_tier_models. Same pass so a gateway config
+    # change reaches existing cards without a manual step.
+    free_tier = await model_sync.refresh_free_tier_models(db, ledger=ledger)
+
+    # Drift between the gateway config and the upstream catalog is a human
+    # decision (pricing) — surface it, never act on it. The [MODEL-DRIFT]
+    # signature is what the deploy-side watcher alerts on; the service_audit
+    # row is the durable, SQL-able record (incident lesson #5).
+    if gateway_models and "netmind" in synced:
+        drift = model_sync.compute_drift(ledger, gateway_models)
+        if drift["gateway_failing"] or drift["catalog_pass_not_in_gateway"]:
+            from xyz_agent_context.services.service_audit import ServiceAuditor
+
+            logger.warning(
+                "[MODEL-DRIFT] netmind vs free-tier gateway: "
+                f"gateway_failing={drift['gateway_failing']} "
+                f"catalog_pass_not_in_gateway={drift['catalog_pass_not_in_gateway']}"
+            )
+            await ServiceAuditor("model_sync").error({"type": "model_drift", **drift})
+
     logger.info(
         f"model_sync_runner: pass DONE synced={synced} applied={applied} "
         f"free_tier_rows={free_tier}"
