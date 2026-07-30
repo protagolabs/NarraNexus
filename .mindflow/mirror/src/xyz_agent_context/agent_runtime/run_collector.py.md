@@ -14,8 +14,12 @@ PR #203 review 裁定（fix-first #1）：独白并入 output_text 是全局生�
 以为没人看的内部斟酌公开。**显式选择「收窄」方案**（review 给的二选一）：
 `collect_run(include_monologue=False)` 默认关闭，只有 prompt 已兑现「明文
 即送达」契约的调用方（今天 = bus 团队房间，trigger 传 `is_team`）打开。
-另修 on_progress 相位：带独白的 thinking 帧上报 "response"（agent 在说话），
-activity 视图不再在产出房间回复时显示 thinking。
+另修 on_progress 相位：带独白的 thinking 帧上报 "response"（agent 在说话）
+——但只在 opt-in 的 surface 上（独白私密时没人收到那段文本，上报「回复中」
+是假象）；activity 视图不再在产出房间回复时显示 thinking。承重接线
+`include_monologue=is_team` 由 tests/message_bus/test_team_monologue_wiring.py
+锁定（team owner → True / peer → False），防止重构漏 kwarg 让房间静默哑掉
+（#203 事故形态）。
 
 ## 2026-07-30 — output_text 纳入 NexusPower 独白（群聊 @mention 无回复修复）
 

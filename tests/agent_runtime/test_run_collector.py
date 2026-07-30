@@ -343,6 +343,27 @@ async def test_monologue_frame_reports_response_progress_kind():
 
 
 @pytest.mark.asyncio
+async def test_monologue_frame_stays_thinking_without_opt_in():
+    """On surfaces where monologue is private (no opt-in), nobody receives
+    that text — reporting "response" would show 'replying' in an activity
+    view while nothing ever lands. It stays "thinking"."""
+    seen: list[str] = []
+
+    async def on_progress(kind: str, _tool) -> None:
+        seen.append(kind)
+
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="the reply", monologue="the reply"),
+    ])
+    await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        on_progress=on_progress,
+    )
+    assert seen == ["thinking"]
+
+
+@pytest.mark.asyncio
 async def test_kwargs_forwarded_to_runtime_run():
     """Triggers pass trigger_extra_data / job_instance_id / forced_narrative_id
     etc. — collect_run must forward them verbatim."""
