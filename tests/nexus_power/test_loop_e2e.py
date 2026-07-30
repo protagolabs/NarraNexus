@@ -341,8 +341,11 @@ async def test_cancellation_synthesizes_pairs_and_closes_once():
         [_use("c1", "bash", {"command": "sleep"}), _done()],
     ])
     tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    # checks=3: loop-top + the two in-stream checks (_use, _done) pass;
+    # the POST-STREAM boundary sees the cancel — the call is recorded
+    # and open, which is exactly the pairing scenario this test locks.
     events, ledger = await _run(
-        _assembly(model, tools, cancel=CancelAfter(checks=1))
+        _assembly(model, tools, cancel=CancelAfter(checks=3))
     )
     types = [e.type for e in events]
     assert types.count(TYPE_TURN_DONE) == 1
