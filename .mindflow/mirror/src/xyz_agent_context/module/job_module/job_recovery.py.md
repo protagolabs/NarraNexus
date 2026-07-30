@@ -12,8 +12,9 @@ sits beside pause/resume as the third user-initiated lifecycle mutation. It
 merges the caller's time fields (`run_at` / `cron` / `interval_seconds` /
 `timezone`) into the job's existing `trigger_config`, revalidates through
 `TriggerConfig` (reusing its naive-run_at / IANA-tz / tz-required / interval
-validators), recomputes `next_run` via `compute_next_run`, and writes
-trigger_config + next_run atomically. Editable set = anything EXCEPT
+validators), recomputes `next_run` via `compute_next_run`, then persists the new
+trigger_config followed by next_run — 两次写入(`update_job_fields` 再 `update_next_run`,
+后者是 α+β 强制专用方法),**不是单事务原子**。Editable set = anything EXCEPT
 `_NON_EDITABLE_STATUSES` (running + the three terminals); a `paused` job stays
 paused (its later resume re-derives next_run anyway). A guard rejects clearing
 the last fireable field for the job's type so a job can't silently go dark.

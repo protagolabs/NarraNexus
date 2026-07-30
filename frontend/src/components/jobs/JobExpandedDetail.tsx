@@ -44,9 +44,9 @@ interface JobExpandedDetailProps {
   isPausing?: boolean;
   /** 暂停 Job 回调 */
   onPause?: (e: React.MouseEvent, jobId: string) => void;
-  /** 该状态是否允许编辑执行时间（非运行且非终态） */
+  /** Whether this status allows editing the execution time (non-running, non-terminal) */
   canEdit?: boolean;
-  /** 编辑执行时间回调 */
+  /** Edit-execution-time callback */
   onEdit?: (e: React.MouseEvent, job: Job) => void;
 }
 

@@ -151,8 +151,10 @@ async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
 
     Merges the provided time fields into the job's existing trigger_config,
     revalidates through TriggerConfig (naive run_at / IANA timezone / tz-required
-    / interval clamp), recomputes next_run from now, and writes trigger_config +
-    next_run atomically. The job's status is intentionally left unchanged.
+    / interval clamp), recomputes next_run from now, and persists the new
+    trigger_config followed by next_run (two writes: update_job_fields, then the
+    mandatory update_next_run for the alpha+beta pair — NOT a single transaction).
+    The job's status is intentionally left unchanged.
 
     Portable (repository only; no backend-specific SQL). Callers keep auth.
 

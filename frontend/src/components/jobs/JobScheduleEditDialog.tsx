@@ -1,13 +1,14 @@
 /**
- * JobScheduleEditDialog - 编辑定时任务「执行时间」的弹窗
+ * JobScheduleEditDialog - dialog for editing a job's execution time.
  *
- * 根据 job 的类型与现有 trigger_config 自适应表单模式：
- *   - one_off              → datetime-local 编辑 run_at
- *   - scheduled/ongoing+cron     → cron 表达式文本输入
- *   - scheduled/ongoing+interval → 间隔（秒）数字输入
- * 所有模式都可改时区（IANA）。提交时只回传被改动的字段（与后端
- * exclude_none 语义对齐），由后端重算 next_run。cron↔interval 不允许互切，
- * 只编辑任务当前使用的那种规则。
+ * The form adapts to the job type and its current trigger_config:
+ *   - one_off               → datetime-local for run_at
+ *   - scheduled/ongoing+cron     → cron expression text input
+ *   - scheduled/ongoing+interval → interval (seconds) number input
+ * Every mode can change the IANA timezone. Only changed fields are submitted
+ * (matching the backend exclude_none semantics); the backend recomputes
+ * next_run. scheduled/ongoing jobs may switch cron <-> interval; one_off is
+ * fixed to run_at (a true job_type conversion is out of scope here).
  */
 
 import { useMemo, useState } from 'react';
@@ -26,7 +27,8 @@ interface JobScheduleEditDialogProps {
 
 type Mode = 'run_at' | 'cron' | 'interval';
 
-/** IANA 时区列表：优先用运行时提供的完整列表，降级到常用集合。 */
+/** IANA timezone list: prefer the runtime-provided full set, fall back to a
+ *  common subset. */
 function listTimezones(current?: string): string[] {
   let zones: string[] = [];
   try {
@@ -43,7 +45,8 @@ function listTimezones(current?: string): string[] {
   return zones;
 }
 
-/** 当前时刻在指定时区的 naive ISO ("YYYY-MM-DDTHH:mm:ss")，用于过去时间校验。 */
+/** Current instant as a naive ISO ("YYYY-MM-DDTHH:mm:ss") in the given
+ *  timezone, used for the past-time guard on one_off run_at. */
 function nowInTz(tz: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
