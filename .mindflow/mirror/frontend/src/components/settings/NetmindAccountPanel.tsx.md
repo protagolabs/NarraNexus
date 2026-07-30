@@ -4,6 +4,34 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30（同日三改）— 取消/恢复订阅改用应用内确认框
+
+`handleCancel` / `handleReactivate` 原本用 `window.confirm`，是全仓库最后两处
+（另有 20 个文件早已走 `useConfirm`）。
+
+**这不是样式问题，是桌面端功能失效。** wry（Tauri 的 webview）**不渲染**原生
+confirm/alert/prompt，调用返回 falsy，于是 `if (!window.confirm(...)) return;` 直接
+早退 —— DMG 用户点「取消订阅」后**什么都不会发生，没有弹窗也没有报错**（违反铁律 #7：
+两种运行模式必须行为一致）。工单按 P2「UI/UX 不符」提的，实际严重度更高。
+
+**为什么此前没被发现**：这三条测试原本 `vi.spyOn(window, 'confirm').mockReturnValue(true)`
+—— mock 掉的恰恰是桌面端不存在的那个东西，所以 CI 永远绿。现在改为驱动真实的应用内
+对话框，并**断言 `window.confirm` 从未被调用**（断言缺席，而不是断言返回值），这才是
+能拦住回归的那条。
+
+**按钮文案刻意不用 Confirm/Cancel**：在一个「取消订阅」的对话框里，标着 Cancel 的按钮
+到底指「取消订阅」还是「取消这个对话框」是真有歧义。改成把两个结果说清楚：
+`Turn off auto-renew` / `Keep subscription`；恢复那个用 `Resume` / `Not now`。
+新增 6 个 i18n key，10 语言齐平；两条 message 沿用既有的 `cancelConfirm` /
+`reactivateConfirm`（已翻译，不动）。
+
+`{confirmDialog}` 必须挂在返回的 JSX 里，否则 `confirm()` 的 promise 永不 resolve、
+按钮点了没反应 —— 这个坑比 `window.confirm` 那个更难查，所以在挂载点写了注释。
+
+**未做**：仓库里还有 9 处 `window.alert`（artifacts ×4、teams ×4、download.ts）同样在
+桌面端不显示。那是「用户看不到错误提示」而非「操作静默失效」，且跨 7 个文件，另记
+todo，不混进这个工单。
+
 ## 2026-07-30（同日二改）— 回跳逻辑抽出文件
 
 本文件此前 959 行，越过 800 行上限（改前就已 855，本次一度 +104）。回跳这块内聚性

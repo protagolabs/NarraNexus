@@ -906,7 +906,13 @@
     "netmind": {
       "returnSubscribeSuccess": "Pagamento recebido — a aplicar à sua conta.",
       "returnTopupSuccess": "Recarga recebida — a atualizar o seu saldo.",
-      "returnCancelled": "Pagamento cancelado — não lhe foi cobrado nada."
+      "returnCancelled": "Pagamento cancelado — não lhe foi cobrado nada.",
+      "cancelConfirmTitle": "Desativar a renovação automática?",
+      "cancelConfirmAction": "Desativar a renovação",
+      "cancelConfirmKeep": "Manter a subscrição",
+      "reactivateConfirmTitle": "Retomar a renovação automática?",
+      "reactivateConfirmAction": "Retomar",
+      "reactivateConfirmDismiss": "Agora não"
     }
   },
   "system": {

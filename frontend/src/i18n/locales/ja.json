@@ -905,7 +905,13 @@
     "netmind": {
       "returnSubscribeSuccess": "お支払いを受け付けました — アカウントに反映しています。",
       "returnTopupSuccess": "チャージを受け付けました — 残高を更新しています。",
-      "returnCancelled": "支払いはキャンセルされました — 請求は発生していません。"
+      "returnCancelled": "支払いはキャンセルされました — 請求は発生していません。",
+      "cancelConfirmTitle": "自動更新をオフにしますか？",
+      "cancelConfirmAction": "自動更新をオフにする",
+      "cancelConfirmKeep": "サブスクを継続",
+      "reactivateConfirmTitle": "自動更新を再開しますか？",
+      "reactivateConfirmAction": "再開する",
+      "reactivateConfirmDismiss": "後で"
     }
   },
   "system": {

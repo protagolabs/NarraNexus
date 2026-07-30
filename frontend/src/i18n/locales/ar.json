@@ -914,7 +914,13 @@
     "netmind": {
       "returnSubscribeSuccess": "تم استلام الدفعة — يجري تطبيقها على حسابك الآن.",
       "returnTopupSuccess": "تم استلام الشحن — يجري تحديث رصيدك.",
-      "returnCancelled": "تم إلغاء الدفع — لم يتم خصم أي مبلغ منك."
+      "returnCancelled": "تم إلغاء الدفع — لم يتم خصم أي مبلغ منك.",
+      "cancelConfirmTitle": "إيقاف التجديد التلقائي؟",
+      "cancelConfirmAction": "إيقاف التجديد التلقائي",
+      "cancelConfirmKeep": "الإبقاء على الاشتراك",
+      "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
+      "reactivateConfirmAction": "استئناف",
+      "reactivateConfirmDismiss": "ليس الآن"
     }
   },
   "system": {

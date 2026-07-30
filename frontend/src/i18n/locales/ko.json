@@ -905,7 +905,13 @@
     "netmind": {
       "returnSubscribeSuccess": "결제가 확인되었습니다 — 계정에 적용하는 중입니다.",
       "returnTopupSuccess": "충전이 확인되었습니다 — 잔액을 갱신하고 있습니다.",
-      "returnCancelled": "결제가 취소되었습니다 — 요금이 청구되지 않았습니다."
+      "returnCancelled": "결제가 취소되었습니다 — 요금이 청구되지 않았습니다.",
+      "cancelConfirmTitle": "자동 갱신을 끌까요?",
+      "cancelConfirmAction": "자동 갱신 끄기",
+      "cancelConfirmKeep": "구독 유지",
+      "reactivateConfirmTitle": "자동 갱신을 재개할까요?",
+      "reactivateConfirmAction": "재개",
+      "reactivateConfirmDismiss": "나중에"
     }
   },
   "system": {

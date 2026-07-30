@@ -906,7 +906,13 @@
     "netmind": {
       "returnSubscribeSuccess": "Zahlung erhalten – wird jetzt auf dein Konto angewendet.",
       "returnTopupSuccess": "Aufladung erhalten – dein Guthaben wird aktualisiert.",
-      "returnCancelled": "Zahlung abgebrochen – dir wurde nichts berechnet."
+      "returnCancelled": "Zahlung abgebrochen – dir wurde nichts berechnet.",
+      "cancelConfirmTitle": "Automatische Verlängerung deaktivieren?",
+      "cancelConfirmAction": "Verlängerung deaktivieren",
+      "cancelConfirmKeep": "Abo behalten",
+      "reactivateConfirmTitle": "Automatische Verlängerung fortsetzen?",
+      "reactivateConfirmAction": "Fortsetzen",
+      "reactivateConfirmDismiss": "Jetzt nicht"
     }
   },
   "system": {

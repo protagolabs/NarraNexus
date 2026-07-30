@@ -906,7 +906,13 @@
     "netmind": {
       "returnSubscribeSuccess": "Paiement reçu — application à votre compte en cours.",
       "returnTopupSuccess": "Rechargement reçu — mise à jour de votre solde en cours.",
-      "returnCancelled": "Paiement annulé — aucun montant ne vous a été débité."
+      "returnCancelled": "Paiement annulé — aucun montant ne vous a été débité.",
+      "cancelConfirmTitle": "Désactiver le renouvellement automatique ?",
+      "cancelConfirmAction": "Désactiver le renouvellement",
+      "cancelConfirmKeep": "Conserver l’abonnement",
+      "reactivateConfirmTitle": "Reprendre le renouvellement automatique ?",
+      "reactivateConfirmAction": "Reprendre",
+      "reactivateConfirmDismiss": "Pas maintenant"
     }
   },
   "system": {
