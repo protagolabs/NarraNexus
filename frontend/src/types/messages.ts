@@ -260,10 +260,13 @@ export interface ChatMessage {
   // when rendering because message.content already shows the reply.
   timeline?: TurnEvent[];
   /**
-   * 这一轮的用户可见片段（含各自的过程），由 segmentTurn 切好、
-   * stopStreaming 时挂上。后端仍是一轮一条记录——这里只是把那一条渲染
-   * 成 agent 实际说话的 m 次。老消息为 undefined，回落到 content 单段
-   * 渲染；content 本身保留 join('\n\n') 的全文，通知/复制/搜索仍用它。
+   * This turn's user-facing segments (each with its own process), cut
+   * by segmentTurn and attached at stopStreaming. The backend still
+   * stores one record per turn — this just renders that one record as
+   * the m things the agent actually said. Older messages are undefined
+   * and fall back to single-blob content rendering; content itself
+   * keeps the join('\n\n') full text, which notifications, copy and
+   * search still consume.
    */
   segments?: Segment[];
 }
@@ -322,13 +325,15 @@ export interface ToolCallEvent {
   tool_call_id?: string;
   reply_via?: string;
   /**
-   * 工具名已到、参数还在流式生成中。
+   * The tool's name has arrived; its arguments are still streaming.
    *
-   * 参数是流式产生的，所以名字远早于「这次调用完成」就已知道。名字一到
-   * 就发一条 pending=true 的事件，参数齐了再发同 tool_call_id 的完整事件
-   * 覆盖它——界面因此能在参数生成期间就显示「正在用 bash」，而不是空等。
-   * 拿不到名字先行时机的框架只发一次完整事件（pending 缺省即假），消费端
-   * 无需分支。
+   * Arguments stream, so the name is known well before the call
+   * completes. A pending=true event ships as soon as the name lands;
+   * the complete event with the same tool_call_id then replaces it —
+   * so the UI can show "using bash" during argument generation instead
+   * of sitting blank. Frameworks that cannot report the name early
+   * just send the complete event once (pending defaults to false), so
+   * consumers need no branch.
    */
   pending?: boolean;
 }
@@ -379,27 +384,31 @@ export interface NativeOutputEvent {
 }
 
 /**
- * 过程事件 —— 属于面板 / 气泡折叠区，不是给用户读的答案。
+ * A process event — belongs to the panel / the bubble's collapsed
+ * region, not the answer the user reads.
  */
 export type ProcessEvent = ThinkingEvent | ToolCallEvent | ToolOutputEvent;
 
 export interface SegmentReply {
   content: string;
-  /** 走了哪个表达工具；原生模型文本为 undefined。 */
+  /** Which expression tool delivered it; undefined for native model text. */
   via?: string;
-  /** 该段仍在流式增长（驱动光标动画）。 */
+  /** The segment is still growing (drives the cursor animation). */
   streaming?: boolean;
 }
 
 /**
- * Segment —— 一轮里的一个「用户可见片段 + 导致它的过程」。
+ * Segment — one "user-facing fragment + the process that led to it"
+ * within a turn.
  *
- * 后端一轮仍是一条记录；前端把那一条渲染成 agent 实际说话的次数，
- * 每段带上它之前的思考与工具调用。切段由 lib/segmentTurn 完成。
+ * The backend still stores one record per turn; the frontend renders
+ * that record as the number of times the agent actually spoke, each
+ * segment carrying the thinking and tool calls before it. The cut is
+ * made by lib/segmentTurn.
  */
 export interface Segment {
   process: ProcessEvent[];
-  /** null = 这一轮没有用户可见回复（过程仍然保留）。 */
+  /** null = the turn produced no user-facing reply (process is kept). */
   reply: SegmentReply | null;
 }
 

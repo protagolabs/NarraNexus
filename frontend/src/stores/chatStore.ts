@@ -376,9 +376,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // therefore a normal history bubble from the moment it settles —
           // no separate flat-rendered "last turn" zone.
           timeline: session.currentEvents.length > 0 ? [...session.currentEvents] : undefined,
-          // 同一份事件再切一次段：MessageBubble 据此把这一条渲染成 agent
-          // 实际说话的 m 次，每次带自己那段过程。content 保留 join 全文
-          // ——通知、复制、搜索仍要一个纯文本载体，也是老消息的兜底。
+          // Cut the same events into segments: MessageBubble renders this
+          // one record as the m things the agent actually said, each with
+          // its own process. content keeps the joined full text —
+          // notifications, copy and search still want one plain-text
+          // carrier, and it is the fallback for older messages.
           segments: session.currentEvents.length > 0
             ? segmentTurn(session.currentEvents)
             : undefined,
@@ -491,13 +493,15 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 tool_name: toolName,
                 tool_input: args,
                 step: progress.step,
-                // 替换键：pending 版与完整版共享同一个 tool_call_id。
+                // Replacement key: the pending and completed forms share one tool_call_id.
                 tool_call_id: (progress.details?.tool_call_id as string | undefined),
               };
-              // 名字先到的 pending 条目要被完整版**原地替换**，不能各记一条。
-              // currentToolCalls 是回复提取的数据源（stopStreaming 从里面挑
-              // send_message_to_user_directly 的 content），多出一条参数为空
-              // 的重复项会注入一段空回复。
+              // A name-first pending entry must be replaced IN PLACE by the
+              // completed call — never kept as a second row. currentToolCalls
+              // is the reply-extraction source (stopStreaming picks
+              // send_message_to_user_directly content out of it), so a
+              // duplicate with empty arguments would inject an empty reply
+              // segment.
               const callId = (progress.details?.tool_call_id as string | undefined);
               const sameCallIdx = callId
                 ? session.currentToolCalls.findIndex(
@@ -552,9 +556,10 @@ export const useChatStore = create<ChatState>((_set, get) => {
                     });
                   }
                 } else {
-                  // 同一次调用只占一行：pending 版先落位，完整版按
-                  // tool_call_id 覆盖它（id 保持不变，React 才不会把它当
-                  // 新节点重挂）。
+                  // One row per call: the pending form lands first and the
+                  // completed form overwrites it by tool_call_id (the event id
+                  // is preserved so React updates the row instead of
+                  // remounting it).
                   const pendingIdx = callId
                     ? newEvents.findIndex(
                         (e) => e.type === 'tool_call' && e.tool_call_id === callId,

@@ -232,9 +232,11 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
 });
 
 export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps) {
-  // 分工：过程归时间线，答案归气泡（SegmentedReply，按 segmentTurn 切段）。
-  // 这里过滤掉答案层，否则同一句话会在气泡和折叠区各出现一次；plan 也不在
-  // 这里——它是 ProcessPanel 底部的固定区。
+  // Division of labour: process belongs to the timeline, answers to the
+  // bubble (SegmentedReply, cut by segmentTurn). The answer tier is
+  // filtered out here — keeping it would print the same sentence in both
+  // the bubble and the collapsed region. Plans don't render here either:
+  // they live in ProcessPanel's pinned footer.
   const processEvents = useMemo(
     () => events.filter(
       (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output',

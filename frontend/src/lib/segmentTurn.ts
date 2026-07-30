@@ -1,14 +1,17 @@
 /**
- * segmentTurn — 把一轮的事件序列按「用户可见片段」切段。
+ * segmentTurn — split one turn's event sequence at each user-facing
+ * fragment.
  *
- * 一轮天然长这样：[思考, 工具, 工具, 回复₁, 思考, 工具, 回复₂, …]。
- * 气泡要显示的是回复，而每个回复之前的过程属于它。所以在每个用户可见
- * 片段处切开即可。
+ * A turn naturally looks like [think, tool, tool, reply1, think, tool,
+ * reply2, ...]. The bubble shows the reply, and the process before each
+ * reply belongs to it — so cutting at every user-facing fragment is all
+ * the segmentation there is.
  *
- * 同一个函数服务三条路径——运行中的 currentEvents、刚结束的
- * message.timeline、刷新后 /event-log 的 timeline（经 timelineToEvents
- * 归一）——所以直播看到的和刷新后看到的必然一致：不是两份实现碰巧对上，
- * 而是同一份实现。
+ * One function serves three paths — the live currentEvents, the
+ * just-finished message.timeline, and the reloaded /event-log timeline
+ * (normalised by timelineToEvents) — so the live view and the
+ * post-refresh view agree by construction: one implementation, not two
+ * that happen to match.
  */
 import type {
   EventLogTimelineEntry,
@@ -35,7 +38,8 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
       process.push(event);
       continue;
     }
-    // plan 不属于任何一段：它是「现在到哪了」，由面板底部单独渲染。
+    // A plan belongs to no segment: it answers "where are we now" and
+    // renders separately at the bottom of the ProcessPanel.
     if (event.type === 'plan') continue;
 
     if (event.type === 'reply') {
@@ -43,8 +47,9 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
       continue;
     }
 
-    // native_output：连续的原生文本是同一句话被拆成了多个 delta，合并进
-    // 上一段；一旦中间夹了工具调用，那就是 agent 又说了一次，开新段。
+    // native_output: consecutive native text is one utterance split
+    // into deltas — merge it into the previous segment. A tool call in
+    // between means the agent spoke again: start a new segment.
     const last = segments[segments.length - 1];
     const mergeable =
       !!last && !!last.reply && last.reply.via === undefined && process.length === 0;
@@ -55,8 +60,9 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
     }
   }
 
-  // 末尾残留过程归到最后一段——「说完最后一句还干了活」正是该被看见的。
-  // 整轮没有任何回复时，产出一个 reply=null 的段，过程不丢。
+  // Trailing process attaches to the last segment — "kept working after
+  // the last sentence" is exactly the thing worth seeing. A turn with no
+  // reply at all yields one reply=null segment so no process is lost.
   if (process.length > 0) {
     const last = segments[segments.length - 1];
     if (last) last.process = [...last.process, ...process];
@@ -66,11 +72,13 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
 }
 
 /**
- * /event-log 的 timeline → TurnEvent[]。
+ * /event-log timeline → TurnEvent[].
  *
- * 这段逻辑原先内联在 MessageBubble 里并且**故意跳过 reply**（因为回复文本
- * 已经在 message.content 里渲染过一次）。切段需要 reply 作为切点，所以这里
- * 保留它——重复渲染改由「气泡只渲染 segment.reply」来避免。
+ * This logic used to live inline in MessageBubble and deliberately
+ * DROPPED 'reply' (the reply text was already rendered once from
+ * message.content). Segmentation needs the reply as its cut point, so
+ * it is kept here — the double-render is now prevented by the bubble
+ * rendering segment.reply only.
  */
 export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[] {
   const events: TurnEvent[] = [];
@@ -83,10 +91,12 @@ export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[]
         break;
       case 'tool_call': {
         const toolName = entry.tool_name || 'unknown';
-        // 持久化 timeline 没有 type='reply'：回复以 send_message 工具调用
-        // 的形式存储（tool_input.content 即回复文本）。直播路径 chatStore
-        // 做同样的 tool_call→reply 转换，这里对齐它，刷新后才切得出段。
-        // 回执 tool_output 照旧作为过程事件——直播也是这么进 currentEvents 的。
+        // The persisted timeline has no type='reply': a reply is stored
+        // as the send_message tool call itself (tool_input.content is the
+        // reply text). The live path (chatStore) performs this same
+        // tool_call→reply conversion; matching it here is what makes a
+        // reloaded turn segmentable at all. The acknowledgement
+        // tool_output stays a process event — same as the live path.
         if (toolName.includes('send_message_to_user_directly')) {
           const content = (entry.tool_input as Record<string, unknown> | undefined)?.content;
           if (typeof content === 'string' && content) {

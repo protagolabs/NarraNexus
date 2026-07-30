@@ -191,7 +191,13 @@
       }
     },
     "dateToday": "今日",
-    "dateYesterday": "昨日"
+    "dateYesterday": "昨日",
+    "segment": {
+      "details": "推論とツール"
+    },
+    "process": {
+      "plan": "プラン"
+    }
   },
   "awareness": {
     "common": {

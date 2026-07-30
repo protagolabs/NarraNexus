@@ -191,7 +191,13 @@
       }
     },
     "dateToday": "Aujourd'hui",
-    "dateYesterday": "Hier"
+    "dateYesterday": "Hier",
+    "segment": {
+      "details": "Raisonnement et outils"
+    },
+    "process": {
+      "plan": "Plan"
+    }
   },
   "awareness": {
     "common": {

@@ -195,7 +195,13 @@
       }
     },
     "dateToday": "اليوم",
-    "dateYesterday": "أمس"
+    "dateYesterday": "أمس",
+    "segment": {
+      "details": "الاستدلال والأدوات"
+    },
+    "process": {
+      "plan": "الخطة"
+    }
   },
   "awareness": {
     "common": {

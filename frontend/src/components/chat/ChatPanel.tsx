@@ -1094,8 +1094,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
-              {/* 直播中只出答案：过程在 composer 上方的 ProcessPanel 里。
-                  两处都画就会把同一份思考/工具渲染两遍。 */}
+              {/* Live view shows answers only: the process is in the
+                  ProcessPanel above the composer. Painting it here too
+                  would render the same thinking/tools twice. */}
               <SegmentedReply
                 segments={segmentTurn(currentEvents)}
                 isStreaming
@@ -1269,9 +1270,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
-        {/* Agent 干活时，过程在这里；答案在上面的气泡里。只在运行中挂载
-            ——结束后过程按回复切段折叠回各自气泡（lib/segmentTurn），所以
-            这块面板卸载不丢任何东西。 */}
+        {/* While the agent works, the process lives here; answers live
+            in the bubbles above. Mounted only while streaming — when the
+            turn ends the process folds back into each reply's bubble
+            (lib/segmentTurn), so unmounting the panel loses nothing. */}
         {isStreaming && <ProcessPanel events={currentEvents} />}
 
         <div className="relative" data-help-id="chat.composer">

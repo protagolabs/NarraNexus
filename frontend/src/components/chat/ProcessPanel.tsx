@@ -1,16 +1,22 @@
 /**
- * ProcessPanel — Agent 干活时，过程在这里；答案在上面的气泡里。
+ * ProcessPanel — while the agent works, the process lives here; the
+ * answer lives in the bubbles above.
  *
- * 为什么单独一个面板：过程和回复原先按时间顺序混在同一条 TurnTimeline 里，
- * 靠边框实线/虚线分层。信息不缺，但读的人要自己在噪音里找答案。分开之后
- * 气泡只有答案，过程在这里连续滚动——像 terminal 一样可以扫，不必读。
+ * Why a separate panel: process and replies used to share one
+ * chronological TurnTimeline, tiered only by solid-vs-dashed borders.
+ * Nothing was missing, but the reader had to find the answer inside the
+ * noise. Split out, the bubble carries only the answer and the process
+ * scrolls here continuously — scannable like a terminal, not something
+ * to read.
  *
- * plan 钉在底部、不参与滚动：它是「现在到哪了」的答案，不该被滚走。plan 是
- * 全量快照语义（replace-on-write），所以只渲染最后一份。
+ * The plan is pinned below the scroll area: it answers "where are we
+ * now" and must not scroll away. Plans are full snapshots
+ * (replace-on-write), so only the latest one renders.
  *
- * 只在运行中挂载；结束后由 ChatPanel 卸载，过程改为按回复切段折叠回各自
- * 气泡（见 lib/segmentTurn）。所以这里不做任何持久化——它是一块取景窗，
- * 不是存储。
+ * Mounted only while streaming; ChatPanel unmounts it when the turn
+ * ends and the process folds back into each reply's bubble (see
+ * lib/segmentTurn). So nothing is persisted here — this is a viewport,
+ * not storage.
  */
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,11 +34,12 @@ const PLAN_MARK: Record<string, string> = {
   pending: '○',
 };
 
-/** 面板最高占视口的比例——再高就把输入框挤出视野了。 */
+/** Max panel height as a viewport fraction — any taller pushes the composer out of view. */
 const MAX_HEIGHT_CLASS = 'max-h-[40vh]';
 
-/** 距底部多少像素内算「仍在跟随」。一次滚轮大约 100px，24 足够区分
- *  「用户往上翻」和「浏览器滚动的舍入误差」。 */
+/** Within how many pixels of the bottom still counts as "following".
+ *  One wheel notch is ~100px, so 24 separates "the user scrolled up"
+ *  from browser scroll rounding error. */
 const FOLLOW_THRESHOLD_PX = 24;
 
 export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelProps) {
@@ -47,7 +54,8 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
     [events],
   );
 
-  // plan 是全量快照：后一次更新整份替换前一次，所以取最后一条。
+  // Plans are full snapshots: each update replaces the previous one
+  // wholesale, so take the last.
   const plan = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const e = events[i];
@@ -56,8 +64,9 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
     return undefined;
   }, [events]);
 
-  // 自动滚到底，除非用户手动往上滚过——与消息区同一套取舍：跟随是默认，
-  // 用户一旦表达了「我要看上面」就不再抢走视口。
+  // Auto-scroll to the bottom unless the user scrolled up — the same
+  // bargain the message area makes: following is the default, but once
+  // someone says "I want to look up there", never steal the viewport.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && followRef.current) el.scrollTop = el.scrollHeight;
@@ -94,8 +103,9 @@ export const ProcessPanel = memo(function ProcessPanel({ events }: ProcessPanelP
             );
           }
           if (event.type === 'tool_call') {
-            // 显示第一个参数值作为一行摘要；参数没到就是省略号——这正是
-            // pending 的可见形态：名字已经确定，参数还在写。
+            // Show the first argument value as a one-line summary; an
+            // ellipsis until arguments arrive — the visible form of
+            // pending: name decided, arguments still being written.
             const firstArg = Object.values(event.tool_input ?? {})[0];
             return (
               <div
