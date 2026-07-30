@@ -1756,7 +1756,9 @@
       "resume": "再開",
       "resuming": "再開中...",
       "cancelJob": "ジョブをキャンセル",
-      "cancelling": "キャンセル中..."
+      "cancelling": "キャンセル中...",
+      "editSchedule": "時刻変更",
+      "savingSchedule": "保存中..."
     },
     "template": {
       "selectTemplate": "テンプレートを選択",
@@ -1785,6 +1787,26 @@
         "paused": "一時停止 {{count}} 件",
         "failed": "失敗 {{count}} 件"
       }
+    },
+    "editSchedule": {
+      "title": "実行時刻の変更",
+      "hint": "このジョブの実行タイミングを調整します。変更は次回実行時に反映されます。",
+      "runAt": "実行時刻",
+      "cron": "Cron 式",
+      "cronHint": "例: 0 8 * * * は毎日 08:00 に実行",
+      "intervalSeconds": "間隔（秒）",
+      "timezone": "タイムゾーン",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "invalidRunAt": "有効な日時を選択してください",
+      "invalidCron": "有効な Cron 式を入力してください",
+      "invalidInterval": "0 より大きい間隔を入力してください",
+      "pastTimeError": "選択した時刻は過去です",
+      "failedTitle": "変更に失敗しました",
+      "failedMessage": "実行時刻を更新できませんでした。もう一度お試しください。",
+      "modeLabel": "トリガー方式",
+      "modeInterval": "間隔",
+      "modeCron": "Cron 式"
     }
   },
   "artifacts": {

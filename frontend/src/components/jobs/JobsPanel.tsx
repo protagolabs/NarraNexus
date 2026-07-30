@@ -37,6 +37,7 @@ import { JobDependencyGraph } from './JobDependencyGraph';
 import { JobExecutionTimeline } from './JobExecutionTimeline';
 import { JobDetailPanel } from './JobDetailPanel';
 import { JobExpandedDetail } from './JobExpandedDetail';
+import { JobScheduleEditDialog } from './JobScheduleEditDialog';
 import { StatusDistributionBar } from './StatusDistributionBar';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 import type { Job } from '@/types/api';
@@ -115,6 +116,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
   const [resumingJobId, setResumingJobId] = useState<string | null>(null);
   const [pausingJobId, setPausingJobId] = useState<string | null>(null);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [failedExpanded, setFailedExpanded] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -207,6 +210,38 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     return ['active', 'pending'].includes(status);
   };
 
+  // Execution time is editable for any non-running, non-terminal job — mirrors
+  // the backend reschedule_job guard (_NON_EDITABLE_STATUSES).
+  const canEdit = (status: string) => {
+    return !['running', 'completed', 'cancelled', 'failed'].includes(status);
+  };
+
+  const handleEditSchedule = (e: React.MouseEvent, job: Job) => {
+    e.stopPropagation();
+    setEditingJob(job);
+  };
+
+  const handleSaveSchedule = async (
+    fields: { run_at?: string; cron?: string; interval_seconds?: number; timezone?: string },
+  ) => {
+    if (!editingJob) return;
+    setSavingSchedule(true);
+    try {
+      await api.updateJobSchedule(editingJob.job_id, fields);
+      setEditingJob(null);
+      refreshJobs(agentId, userId);
+    } catch (err) {
+      console.error('Reschedule job error:', err);
+      await alert({
+        title: t('jobs.editSchedule.failedTitle'),
+        message: err instanceof Error ? err.message : t('jobs.editSchedule.failedMessage'),
+        danger: true,
+      });
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   const handlePauseJob = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
     setPausingJobId(jobId);
@@ -255,6 +290,15 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const inner = (
     <>
       {confirmDialog}
+      {editingJob && (
+        <JobScheduleEditDialog
+          job={editingJob}
+          isOpen={!!editingJob}
+          saving={savingSchedule}
+          onClose={() => setEditingJob(null)}
+          onSave={handleSaveSchedule}
+        />
+      )}
       {/* Embedded mode drops the duplicate title (the host section already
           names the panel) but keeps the functional actions. */}
       <CardHeader className={cn(embedded && 'justify-end py-1')}>
@@ -455,6 +499,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                               canPause={canPause(job.status)}
                               isPausing={pausingJobId === job.job_id}
                               onPause={handlePauseJob}
+                              canEdit={canEdit(job.status)}
+                              onEdit={handleEditSchedule}
                             />
                           )}
                         </div>

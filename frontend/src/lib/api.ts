@@ -1380,6 +1380,19 @@ class ApiClient {
     return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
   }
 
+  /** Edit a job's execution time (schedule rule). Only send the changed fields;
+   *  omitted fields keep their existing trigger_config value. Throws ApiError
+   *  on 400 (invalid schedule / non-editable status) / 403 / 404. */
+  async updateJobSchedule(
+    jobId: string,
+    fields: { run_at?: string; cron?: string; interval_seconds?: number; timezone?: string },
+  ): Promise<{ success: boolean; job_id: string; next_run_at?: string; next_run_timezone?: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify(fields),
+    });
+  }
+
   // Lark / Feishu Integration API
   async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
     return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
