@@ -1765,7 +1765,9 @@
       "resume": "استئناف",
       "resuming": "جارٍ الاستئناف...",
       "cancelJob": "إلغاء المهمة",
-      "cancelling": "جارٍ الإلغاء..."
+      "cancelling": "جارٍ الإلغاء...",
+      "editSchedule": "تعديل الوقت",
+      "savingSchedule": "جارٍ الحفظ..."
     },
     "template": {
       "selectTemplate": "اختر قالبًا",
@@ -1794,6 +1796,26 @@
         "paused": "{{count}} متوقفة مؤقتًا",
         "failed": "{{count}} فاشلة"
       }
+    },
+    "editSchedule": {
+      "title": "تعديل وقت التنفيذ",
+      "hint": "اضبط موعد تشغيل هذه المهمة. تُطبَّق التغييرات عند التشغيل التالي.",
+      "runAt": "التشغيل في",
+      "cron": "تعبير cron",
+      "cronHint": "مثال: 0 8 * * * يعمل يوميًا في 08:00",
+      "intervalSeconds": "الفاصل (ثوانٍ)",
+      "timezone": "المنطقة الزمنية",
+      "save": "حفظ",
+      "cancel": "إلغاء",
+      "invalidRunAt": "الرجاء اختيار تاريخ ووقت صالحين",
+      "invalidCron": "الرجاء إدخال تعبير cron صالح",
+      "invalidInterval": "الرجاء إدخال فاصل أكبر من 0",
+      "pastTimeError": "الوقت المختار في الماضي",
+      "failedTitle": "فشل إعادة الجدولة",
+      "failedMessage": "تعذّر تحديث وقت التنفيذ. حاول مرة أخرى.",
+      "modeLabel": "وضع التشغيل",
+      "modeInterval": "الفاصل",
+      "modeCron": "تعبير cron"
     }
   },
   "artifacts": {

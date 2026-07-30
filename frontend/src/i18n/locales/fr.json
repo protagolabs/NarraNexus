@@ -1757,7 +1757,9 @@
       "resume": "Reprendre",
       "resuming": "Reprise...",
       "cancelJob": "Annuler la tâche",
-      "cancelling": "Annulation..."
+      "cancelling": "Annulation...",
+      "editSchedule": "Modifier l'heure",
+      "savingSchedule": "Enregistrement..."
     },
     "template": {
       "selectTemplate": "Sélectionner un modèle",
@@ -1786,6 +1788,26 @@
         "paused": "{{count}} en pause",
         "failed": "{{count}} échouées"
       }
+    },
+    "editSchedule": {
+      "title": "Modifier l'heure d'exécution",
+      "hint": "Ajustez le moment d'exécution de cette tâche. Les changements s'appliquent à la prochaine exécution.",
+      "runAt": "Exécuter à",
+      "cron": "Expression cron",
+      "cronHint": "ex. 0 8 * * * s'exécute chaque jour à 08:00",
+      "intervalSeconds": "Intervalle (secondes)",
+      "timezone": "Fuseau horaire",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "invalidRunAt": "Veuillez choisir une date et une heure valides",
+      "invalidCron": "Veuillez saisir une expression cron valide",
+      "invalidInterval": "Veuillez saisir un intervalle supérieur à 0",
+      "pastTimeError": "L'heure choisie est dans le passé",
+      "failedTitle": "Échec de la modification",
+      "failedMessage": "Impossible de mettre à jour l'heure d'exécution. Veuillez réessayer.",
+      "modeLabel": "Mode de déclenchement",
+      "modeInterval": "Intervalle",
+      "modeCron": "Expression cron"
     }
   },
   "artifacts": {

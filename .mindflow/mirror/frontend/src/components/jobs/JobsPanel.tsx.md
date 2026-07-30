@@ -1,7 +1,15 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — reschedule (编辑执行时间) 接线
+
+新增 `canEdit(status)`(= 非 running/completed/cancelled/failed)、`editingJob` /
+`savingSchedule` 状态、`handleEditSchedule`(打开弹窗)、`handleSaveSchedule`(调
+`api.updateJobSchedule`,成功 refreshJobs,失败走 `alert()` 显示 ApiError.message)。
+渲染 `JobScheduleEditDialog`(放在 `inner` fragment 顶部,embedded/非 embedded 都生效)。
+canEdit/onEdit 透传给 `JobExpandedDetail`。
 
 # JobsPanel.tsx — Root orchestrator for the Jobs panel
 

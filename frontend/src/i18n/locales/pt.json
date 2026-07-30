@@ -1757,7 +1757,9 @@
       "resume": "Retomar",
       "resuming": "Retomando...",
       "cancelJob": "Cancelar tarefa",
-      "cancelling": "Cancelando..."
+      "cancelling": "Cancelando...",
+      "editSchedule": "Editar hora",
+      "savingSchedule": "Salvando..."
     },
     "template": {
       "selectTemplate": "Selecionar modelo",
@@ -1786,6 +1788,26 @@
         "paused": "{{count}} pausadas",
         "failed": "{{count}} com falha"
       }
+    },
+    "editSchedule": {
+      "title": "Editar hora de execução",
+      "hint": "Ajuste quando esta tarefa é executada. As alterações valem na próxima execução.",
+      "runAt": "Executar em",
+      "cron": "Expressão cron",
+      "cronHint": "ex.: 0 8 * * * executa diariamente às 08:00",
+      "intervalSeconds": "Intervalo (segundos)",
+      "timezone": "Fuso horário",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "invalidRunAt": "Escolha uma data e hora válidas",
+      "invalidCron": "Insira uma expressão cron válida",
+      "invalidInterval": "Insira um intervalo maior que 0",
+      "pastTimeError": "A hora escolhida já passou",
+      "failedTitle": "Falha ao reagendar",
+      "failedMessage": "Não foi possível atualizar a hora de execução. Tente novamente.",
+      "modeLabel": "Modo de disparo",
+      "modeInterval": "Intervalo",
+      "modeCron": "Expressão cron"
     }
   },
   "artifacts": {

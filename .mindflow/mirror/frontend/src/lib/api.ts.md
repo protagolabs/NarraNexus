@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — updateJobSchedule (编辑执行时间)
+
+新增 `updateJobSchedule(jobId, fields)` → `PUT /api/dashboard/jobs/{id}/schedule`,
+镜像 pauseJob/resumeJob 模式。`fields` 只带被改的字段(run_at/cron/interval_seconds/
+timezone),与后端 exclude_none 对齐。非 2xx 由 `request()` 抛 `ApiError`(400=非法
+调度/不可改状态,403/404),调用方 catch 后用 `err.message` 提示。
 
 ## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
 

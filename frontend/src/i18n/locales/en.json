@@ -2063,7 +2063,9 @@
       "resume": "Resume",
       "resuming": "Resuming...",
       "cancelJob": "Cancel Job",
-      "cancelling": "Cancelling..."
+      "cancelling": "Cancelling...",
+      "editSchedule": "Edit Time",
+      "savingSchedule": "Saving..."
     },
     "template": {
       "selectTemplate": "Select Template",
@@ -2092,6 +2094,26 @@
         "paused": "{{count}} paused",
         "failed": "{{count}} failed"
       }
+    },
+    "editSchedule": {
+      "title": "Edit Execution Time",
+      "hint": "Adjust when this job runs. Changes take effect on the next run.",
+      "runAt": "Run at",
+      "cron": "Cron expression",
+      "cronHint": "e.g. 0 8 * * * runs daily at 08:00",
+      "intervalSeconds": "Interval (seconds)",
+      "timezone": "Timezone",
+      "save": "Save",
+      "cancel": "Cancel",
+      "invalidRunAt": "Please pick a valid date and time",
+      "invalidCron": "Please enter a valid cron expression",
+      "invalidInterval": "Please enter an interval greater than 0",
+      "pastTimeError": "The chosen time is in the past",
+      "failedTitle": "Reschedule failed",
+      "failedMessage": "Could not update the execution time. Please try again.",
+      "modeLabel": "Trigger mode",
+      "modeInterval": "Interval",
+      "modeCron": "Cron expression"
     }
   },
   "artifacts": {
