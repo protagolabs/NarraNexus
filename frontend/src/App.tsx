@@ -253,20 +253,6 @@ function App() {
     };
   }, [navigate]);
 
-  // Surface "quota exhausted" globally. api.ts dispatches a CustomEvent
-  // on HTTP 402 + error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER; we show a
-  // dismissible top banner prompting the user to configure their own
-  // provider. Auto-dismisses after 8s so it doesn't stick forever.
-  const [quotaExceeded, setQuotaExceeded] = useState(false);
-  useEffect(() => {
-    const handler = () => {
-      setQuotaExceeded(true);
-      window.setTimeout(() => setQuotaExceeded(false), 8000);
-    };
-    window.addEventListener('narranexus:quota-exceeded', handler);
-    return () => window.removeEventListener('narranexus:quota-exceeded', handler);
-  }, []);
-
   // Stale JWT: api.ts (REST 401) AND wsManager (WS AuthError frame) both
   // dispatch narranexus:auth-expired when the cloud rejects the token.
   // We logout via configStore so ProtectedRoute redirects to /login, AND
@@ -405,17 +391,6 @@ function App() {
       <MockBanner />
       <UpdateBanner />
       <ArenaProvisioningModal />
-      {quotaExceeded && (
-        <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
-          onClick={() => setQuotaExceeded(false)}
-          role="alert"
-        >
-          Free-tier quota exhausted. Open Settings → Providers to add your own
-          API key — or subscribe to a NetMind.AI plan and link it in Settings →
-          Account &amp; Subscription. (click to dismiss)
-        </div>
-      )}
       {sessionExpired && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"

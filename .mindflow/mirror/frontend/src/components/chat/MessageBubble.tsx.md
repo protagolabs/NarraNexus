@@ -4,6 +4,27 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 免费额度用完的两个入口（变现漏斗接回来）
+
+`actionReason === 'free_tier_exhausted'` 时在正文里多渲染两个按钮：**升级 Nexus Pro** →
+`/pay`、**用我自己的 provider** → `/app/settings?tab=providers`（`?tab=` 深链来自 #211，
+零新增 API）。
+
+第一个按钮**原本指 `/app/settings?tab=account`，2026-08-01 改为 `/pay`**：#223 的
+[[PayPage]] mint 完 checkout session 后同标签页 `location.replace` 直达 Stripe，一跳完成；
+而它每一种退化情况（已订阅 / 桌面 webview / 非 Power / 401）**都回落到账户页** —— 也就是
+这个按钮原来的目标。所以绕设置页换不到任何东西。套餐同期改名 Nexus Pro（#222），用词与既有
+「升级 Nexus Pro」对齐。
+
+**为什么只有这一个 reason 有按钮**：其他 reason 的补救措施用户自己能想到（换模型、改
+model id、给自己的账号充值）。免费额度用完是唯一一个「文案里那两条出路他都做不到」的情形
+—— 钱包不能自助充值、key 从未在他手里 —— 所以真正可行的两条路必须直接给出来。BYOK 卡余额
+不足**刻意不给**这两个按钮：那是他自己的账号，充值本来就可行，塞一个升级引导是劫持。
+
+本组件因此开始使用 `useNavigate`，三个既有测试文件随之补上 `MemoryRouter` —— 它们此前
+不带 Router 直接 render 能过，只是因为组件恰好没用过 router hook；运行时 chat 一直在
+`/app` 下。
+
 ## 2026-07-30 — 助手轮按段渲染（SegmentedReply）
 
 一轮后端仍是一条记录，但 agent 可能说了 m 次话。消息带 `segments`

@@ -4,6 +4,13 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
+
+配套 [[App.tsx]] 删除失效横幅：后端已无任何地方发
+`error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER`（2026-07-28 运行前配额门禁移除），这段
+`response.status === 402` 的解析与事件派发从此是死代码。402 本身仍由下面的通用抛错路径
+处理（resolver 的 `NO_PROVIDER_CONFIGURED` 仍走 402）。
+
 ## 2026-07-30 — updateJobSchedule (编辑执行时间)
 
 新增 `updateJobSchedule(jobId, fields)` → `PUT /api/dashboard/jobs/{id}/schedule`,

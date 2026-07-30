@@ -89,7 +89,7 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 # real-time layer already treats as self-serviceable.
 from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
-    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    OUT_OF_CREDIT_REASONS,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
@@ -133,8 +133,13 @@ _NO_QUOTA_ERROR_MARKERS = (
 # LIVE provider test actually observes whether the condition cleared, or a manual
 # action. Auth / legacy-quota pauses are NOT here — reconfiguring a key changes
 # config, which the static readiness check DOES observe.
+# Spread OUT_OF_CREDIT_REASONS rather than naming one: a balance top-up leaves
+# config unchanged for EVERY out-of-credit reason, so a new one must land here
+# automatically — naming just `insufficient_balance` is how the free-tier split
+# (2026-07-30) would otherwise have handed paused free-tier jobs back to the
+# blind time-based backstop.
 _EDGE_ONLY_RESUME_REASONS: frozenset[str] = frozenset({
-    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    *OUT_OF_CREDIT_REASONS,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 })

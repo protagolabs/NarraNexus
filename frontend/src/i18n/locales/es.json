@@ -195,7 +195,12 @@
         "generic": "Este turno no pudo ejecutarse por un problema de configuración que puedes corregir en Ajustes. Corrígelo y vuelve a enviar.",
         "executor_oom": "El entorno de ejecución se quedó sin memoria y el sistema lo detuvo. Divide la tarea en pasos más pequeños o reduce los módulos activos y vuelve a enviar.",
         "executor_unreachable": "Tu contenedor de ejecución no está disponible temporalmente. Suele recuperarse en unos segundos; vuelve a enviar este mensaje en breve.",
-        "infra_transient": "Este turno no se pudo ejecutar debido a un problema temporal de ejecución en la plataforma. Vuelve a enviar el mensaje en un momento."
+        "infra_transient": "Este turno no se pudo ejecutar debido a un problema temporal de ejecución en la plataforma. Vuelve a enviar el mensaje en un momento.",
+        "free_tier_exhausted": "Has agotado tu crédito gratuito — pasa a Nexus Pro, o añade tu propia clave de proveedor y cambia a ella el slot de este Agent."
+      },
+      "freeTier": {
+        "subscribe": "Obtener Nexus Pro",
+        "useOwnKey": "Usar mi proveedor"
       }
     },
     "dateToday": "Hoy",
