@@ -124,13 +124,21 @@ async def _seed_chat_history(db, agent_id: str, user_id: str, narrative, planned
     if not chat_inst or not planned.turns:
         return
     try:
-        base = _parse_ts(planned.started_at) or datetime.now(timezone.utc)
         recent = planned.turns[-_CHAT_HISTORY_MAX_TURNS:]
         messages = []
-        for i, t in enumerate(recent):
-            # Original turn time; synthesize a monotonic fallback (base + i) only
-            # when a turn has no timestamp, so intra-session order is preserved.
-            ts = t.ts or (base + timedelta(milliseconds=i)).isoformat()
+        # For turns missing a timestamp, synthesize one just after the LAST KNOWN
+        # timestamp (not the session start) so a gap sits adjacent to its real
+        # neighbours instead of jumping to the beginning. Claude .jsonl turns
+        # normally all carry timestamps; this is the edge case.
+        last_dt = _parse_ts(planned.started_at) or datetime.now(timezone.utc)
+        gap = 0
+        for t in recent:
+            dt = _parse_ts(t.ts)
+            if dt is not None:
+                last_dt, gap, ts = dt, 0, t.ts
+            else:
+                gap += 1
+                ts = (last_dt + timedelta(milliseconds=gap)).isoformat()
             messages.append({
                 "role": t.role,
                 "content": t.text,

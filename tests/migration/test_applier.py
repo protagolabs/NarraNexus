@@ -52,8 +52,8 @@ def _import_with_local_skill(skill_dir: Path) -> StandardizedAgentImport:
         sessions=[MigrationSession(
             session_id="s1", title="Plan the Q3 roadmap", started_at="2026-07-01T00:00:00Z",
             compact_text="Earlier: agreed on OKRs",
-            turns=[MigrationTurn(role="user", text="what is next"),
-                   MigrationTurn(role="assistant", text="ship the roadmap")],
+            turns=[MigrationTurn(role="user", text="what is next", ts="2026-07-01T00:00:00Z"),
+                   MigrationTurn(role="assistant", text="ship the roadmap", ts="2026-07-01T00:00:05Z")],
         )],
     )
 
@@ -151,7 +151,10 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     assert [m["role"] for m in msgs] == ["user", "assistant"]     # order preserved
     assert any("ship the roadmap" in m["content"] for m in msgs)
     assert all(m["meta_data"]["source"] == "imported" for m in msgs)
-    assert all(m["meta_data"]["timestamp"] for m in msgs)         # non-empty sort key
+    # THE core design decision: the sort key is the turn's ORIGINAL time, not
+    # import time — pin it so a refactor can't silently switch to now().
+    assert msgs[0]["meta_data"]["timestamp"] == "2026-07-01T00:00:00Z"
+    assert msgs[1]["meta_data"]["timestamp"] == "2026-07-01T00:00:05Z"
 
 
 @pytest.mark.asyncio

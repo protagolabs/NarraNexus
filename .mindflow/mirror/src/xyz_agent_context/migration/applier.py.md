@@ -52,6 +52,17 @@ counts.
     the unified timeline sorts by that field, so import-time would collapse the
     cross-narrative ordering. The chat instance id comes from
     `narrative.active_instances` (create_narrative already made it).
+    - ⚠️ **Known limitation (multi-session)**: ChatModule's history assembly
+      merges the current narrative's long-term with cross-narrative short-term
+      recency and caps the unified timeline at `MERGED_HISTORY_MAX` (~30) BY TIME
+      (`chat_module.py:546-561`; short-term has no time window since 2026-02-09).
+      Imported sessions all have OLD but DIFFERENT timestamps, so opening an
+      OLDER session's narrative can see its own seeded turns evicted by a NEWER
+      session's more-recent turns. The narrative's `current_summary` /
+      `dynamic_summary` still inject, so the agent isn't amnesiac, but "loads as
+      recent history" holds cleanly only for single-session / most-recent-session
+      imports. A proper fix (floor the current narrative in the cap) is a
+      ChatModule-side change on the owner-facing hot path — deferred.
   - **`MemoryEngine.retain(kind="event")`** `scope_type=narrative` — the
     append-only, searchable per-interaction index (surfaced via the `remember`
     tool). **Do not use `observation`**: it consolidates at threshold 4, so the
