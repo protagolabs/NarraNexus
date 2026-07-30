@@ -910,7 +910,13 @@
     "netmind": {
       "returnSubscribeSuccess": "Платёж получен — применяем его к вашему аккаунту.",
       "returnTopupSuccess": "Пополнение получено — обновляем баланс.",
-      "returnCancelled": "Платёж отменён — с вас ничего не списано."
+      "returnCancelled": "Платёж отменён — с вас ничего не списано.",
+      "cancelConfirmTitle": "Отключить автопродление?",
+      "cancelConfirmAction": "Отключить автопродление",
+      "cancelConfirmKeep": "Оставить подписку",
+      "reactivateConfirmTitle": "Возобновить автопродление?",
+      "reactivateConfirmAction": "Возобновить",
+      "reactivateConfirmDismiss": "Не сейчас"
     }
   },
   "system": {

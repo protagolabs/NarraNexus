@@ -385,34 +385,66 @@ test('pro × low: top-up promoted directly (no upsell — already Pro)', async (
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
 });
 
-test('S2: cancel via Manage → confirm true → api.cancelSubscription', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
+// Confirmation goes through the in-app dialog (useConfirm), never
+// window.confirm: wry (the Tauri webview) does not render the native dialogs, so
+// a native call resolves falsy and the handler bails out SILENTLY — the DMG user
+// clicks "Cancel subscription" and nothing at all happens. The pre-2026-07-30
+// tests here stubbed window.confirm, which is precisely why that was invisible.
+// `nativeConfirm` therefore asserts absence, not a return value.
+async function openManageDialog() {
+  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+}
+
+test('S2: cancel via Manage → in-app dialog, confirmed → api.cancelSubscription', async () => {
+  const nativeConfirm = vi.spyOn(window, 'confirm');
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   mockCancel.mockResolvedValue({ success: true, data: { status: 'auto_renew_off' } });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+  await openManageDialog();
+
+  // The dialog must be on screen and nothing may have been called yet.
+  expect(await screen.findByText(/Turn off auto-renew\?/)).toBeTruthy();
+  expect(mockCancel).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Turn off auto-renew$/ }));
   await waitFor(() => expect(mockCancel).toHaveBeenCalled());
+  expect(nativeConfirm).not.toHaveBeenCalled();
 });
 
-test('S2: cancel confirm dismissed → no api call', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
+test('S2: cancel dialog dismissed → no api call', async () => {
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+  await openManageDialog();
+  // "Keep subscription", not a bare "Cancel": next to a subscription-cancelling
+  // action, a button labelled Cancel is genuinely ambiguous.
+  fireEvent.click(await screen.findByRole('button', { name: /Keep subscription/ }));
   expect(mockCancel).not.toHaveBeenCalled();
 });
 
-test('S3: resume button → confirm true → api.reactivateSubscription', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
+test('S3: resume → in-app dialog, confirmed → api.reactivateSubscription', async () => {
+  const nativeConfirm = vi.spyOn(window, 'confirm');
   mockGetSubscription.mockResolvedValue(PRO_SUB(false));
   mockReactivate.mockResolvedValue({ success: true, data: { status: 'auto_renew_on' } });
   render(<NetmindAccountPanel />);
   fireEvent.click(await screen.findByRole('button', { name: /Resume auto-renew/ }));
+
+  expect(await screen.findByText(/Resume auto-renew\?/)).toBeTruthy();
+  expect(mockReactivate).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Resume$/ }));
   await waitFor(() => expect(mockReactivate).toHaveBeenCalled());
+  expect(nativeConfirm).not.toHaveBeenCalled();
+});
+
+test('S3: resume dialog dismissed → no api call', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(false));
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Resume auto-renew/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Not now/ }));
+  expect(mockReactivate).not.toHaveBeenCalled();
 });
 
 // ── runway view: free-tier bar / balance / grant / flow line / toggle ───────

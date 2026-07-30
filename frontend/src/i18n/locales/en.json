@@ -926,7 +926,13 @@
       "freeTierCreditLeft": "${{remaining}} left",
       "returnSubscribeSuccess": "Payment received — applying it to your account now.",
       "returnTopupSuccess": "Top-up received — updating your balance.",
-      "returnCancelled": "Payment cancelled — you have not been charged."
+      "returnCancelled": "Payment cancelled — you have not been charged.",
+      "cancelConfirmTitle": "Turn off auto-renew?",
+      "cancelConfirmAction": "Turn off auto-renew",
+      "cancelConfirmKeep": "Keep subscription",
+      "reactivateConfirmTitle": "Resume auto-renew?",
+      "reactivateConfirmAction": "Resume",
+      "reactivateConfirmDismiss": "Not now"
     },
     "modal": {
       "title": "Settings",

@@ -926,7 +926,13 @@
       "freeTierCreditLeft": "剩余 ${{remaining}}",
       "returnSubscribeSuccess": "已收到付款 —— 正在为你的账户生效。",
       "returnTopupSuccess": "充值已收到 —— 正在更新余额。",
-      "returnCancelled": "支付已取消 —— 未向你收取任何费用。"
+      "returnCancelled": "支付已取消 —— 未向你收取任何费用。",
+      "cancelConfirmTitle": "关闭自动续费？",
+      "cancelConfirmAction": "关闭自动续费",
+      "cancelConfirmKeep": "保留订阅",
+      "reactivateConfirmTitle": "恢复自动续费？",
+      "reactivateConfirmAction": "恢复",
+      "reactivateConfirmDismiss": "暂不"
     },
     "modal": {
       "title": "设置",
