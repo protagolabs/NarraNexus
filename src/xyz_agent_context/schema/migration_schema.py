@@ -23,6 +23,10 @@ SCHEMA_VERSION = "1.0"
 Framework = Literal["claude_code", "hermes", "openclaw", "codex", "custom"]
 Confidence = Literal["high", "medium", "low"]
 
+# Awareness is injected wholesale every turn, so the combined imported
+# instructions (global + project + local CLAUDE.md) are truncated to this cap.
+AWARENESS_IMPORT_CHAR_LIMIT = 24_000
+
 
 class MigrationSource(BaseModel):
     """Which framework we detected and how sure we are."""
@@ -51,6 +55,9 @@ class MigrationSkill(BaseModel):
     # Migration copies these VERBATIM (faithful reproduction) — preferred over a
     # same-name marketplace skill, which may be a different implementation.
     local_path: Optional[str] = None
+    # Where the skill came from within the framework: a per-project skill vs a
+    # user-global one. On a same-name clash the project skill wins (see applier).
+    scope: Literal["project", "global", ""] = ""
 
 
 class MigrationMemory(BaseModel):
@@ -80,6 +87,37 @@ class MigrationMcpServer(BaseModel):
     secret_fields: List[str] = Field(default_factory=list)
 
 
+class MigrationTurn(BaseModel):
+    """One real conversation turn extracted from a source session."""
+
+    role: Literal["user", "assistant"]
+    text: str
+    # ISO timestamp from the source transcript line, when present.
+    ts: str = ""
+
+
+class MigrationSession(BaseModel):
+    """One source conversation session → one NarraNexus Narrative.
+
+    For Claude Code, one `.jsonl` under ~/.claude/projects/<encoded-cwd>/.
+    `compact_text` is the source's own history rollup (Claude's
+    isCompactSummary lines) — high-value pre-summarized context; `turns` are
+    the real user/assistant messages (tool calls / thinking / sidechains
+    filtered out). The consumer summarizes (compact + recent turns) into the
+    Narrative's AI fields and retains `turns` as observation memory scoped to
+    that Narrative.
+    """
+
+    session_id: str
+    # Human-readable title (Claude Code: the rolling ai-title). Narrative name.
+    title: str = ""
+    # The source's own compacted-history summary text, if any.
+    compact_text: str = ""
+    turns: List["MigrationTurn"] = Field(default_factory=list)
+    # ISO timestamp of the session's start (earliest line / file mtime).
+    started_at: str = ""
+
+
 class MigrationCustom(BaseModel):
     # Files the scanner recognised but did not map to a dimension.
     unmapped_files: List[str] = Field(default_factory=list)
@@ -98,8 +136,10 @@ class StandardizedAgentImport(BaseModel):
     skills: List[MigrationSkill] = Field(default_factory=list)
     memory: List[MigrationMemory] = Field(default_factory=list)
     mcp_servers: List[MigrationMcpServer] = Field(default_factory=list)
-    # Condensed source-session text the agent later turns into a Narrative
-    # (Owner's self-summarize flow). Optional; empty when no session history.
+    # Per-session conversation history → one Narrative each (see MigrationSession).
+    sessions: List[MigrationSession] = Field(default_factory=list)
+    # DEPRECATED transitional field — the single concatenated seed from v1. Being
+    # replaced by `sessions[]`; removed once mapper/applier stop reading it.
     session_summary_seed: str = ""
     custom: MigrationCustom = Field(default_factory=MigrationCustom)
 

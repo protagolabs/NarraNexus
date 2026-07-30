@@ -260,7 +260,10 @@ from .migration_schema import (
     MigrationMemory,
     MigrationMcpServer,
     MigrationCustom,
+    MigrationTurn,
+    MigrationSession,
     FrameworkDetection,
+    AWARENESS_IMPORT_CHAR_LIMIT,
 )
 
 # ===== Export All =====
@@ -274,7 +277,10 @@ __all__ = [
     "MigrationMemory",
     "MigrationMcpServer",
     "MigrationCustom",
+    "MigrationTurn",
+    "MigrationSession",
     "FrameworkDetection",
+    "AWARENESS_IMPORT_CHAR_LIMIT",
     # Module Schema
     "ModuleConfig",
     "MCPServerConfig",

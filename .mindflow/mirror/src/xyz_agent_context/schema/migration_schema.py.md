@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/schema/migration_schema.py
 stub: false
-last_verified: 2026-07-21
+last_verified: 2026-07-30
 ---
 
 ## Why it exists
@@ -18,8 +18,17 @@ covers Claude Code / Hermes / OpenClaw / Codex / Custom.
 - **Credential policy**: MCP `env`/`headers` VALUES are carried (Owner decision
   2026-07-21 — MCP is useless without its auth; UI shows them plaintext + warns).
   Non-MCP secrets contribute KEY NAMES only via `custom.credential_keys`.
-- `session_summary_seed` feeds the Owner's narrative flow: the imported agent
-  self-summarizes it into a Narrative via its own `create_narrative` tool
-  (not a bulk raw-history import).
+- **Sessions → Narratives** (2026-07-30): `sessions: List[MigrationSession]` —
+  one source conversation session becomes one NarraNexus Narrative. Each carries
+  `title` (Claude's ai-title), `compact_text` (the source's own history rollup),
+  and `turns` (real user/assistant messages, tool/thinking/sidechain filtered).
+  The consumer summarizes (compact + recent turns) into the Narrative's AI fields
+  and retains `turns` as observation memory scoped to that Narrative. Replaces the
+  v1 single `session_summary_seed` blob (kept transitionally until the
+  mapper/applier stop reading it, then removed — no back-compat kept long-term).
+- `MigrationSkill.scope` (project|global) — on a same-name clash the project skill
+  wins (applier copies project last / dedups project-first).
+- `AWARENESS_IMPORT_CHAR_LIMIT` caps the combined global+project+local CLAUDE.md
+  that lands in Awareness (injected wholesale every turn, so bounded).
 - `FrameworkDetection` is the lighter `detect`-only result (framework + path +
   confidence + matched signals).
