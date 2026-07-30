@@ -24,14 +24,33 @@ stub: false
 - `sync_source(suspects=...)`：运行时上报的 (model, protocol) 嫌疑对无视 TTL
   立即复测（见 [[model_health]]），确定性失败当场翻 FAIL、当日移出列表。
 
-## 2026-07-28 — 免费卡的目录不走 ledger
+## 2026-07-30 — 免费卡 = 网关目录 ∩ 探测判定；网关独有模型入探测并集
 
-`apply_ledger_to_db` 刻意**不覆盖** `netmind_free` 行。免费额度经我们自己的
-网关打到 NetMind，而网关只路由（也只定价）配置里那 15 个模型 —— 把上游 43 个
-的探测结果盖上去，等于在下拉框里放一堆一调就 400 的选项。
+三个写入方（每日 job / provision 的 `get_default_models` / Update-models 按钮）
+曾各写各的 free 名单（裸网关 61 / netmind 通过名单 / 追加目录默认），互相覆盖。
+现在收敛到一份数据：
 
-免费卡的列表由 `refresh_free_tier_models` 直接问网关要，挂在同一趟日更里，
-这样改了 `pricing/models.json` 重新部署后，存量卡的下拉框会自动跟上。
+- `sync_source(extra_models=...)`：runner 把网关 served 列表并进探测宇宙。
+  网关独有 id（doubao、R1-Turbo 等公开目录不列但后端仍在服务的）照常探测、
+  照常 TTL 复测，但 ledger 里带 `extra` 标记——**永不进 netmind 卡列表**，只
+  服务 free 卡的门。目录收录某模型时 extra 标记自动脱落。`extra_models=None`
+  （按钮路径不知道网关列表）= 保留现有 extra 条目，不当"已下架"清除。
+- `build_free_tier_entry(ledger, gateway_models)`：按协议生成 free 名单——
+  网关模型除非 netmind 判定 FAIL 否则收录（**未知判定=收录**：网关今天在路由
+  它，probe 断供绝不能清空下拉；并集机制下下一趟就会探测到）。结果同时写成
+  ledger 的 `netmind_free` source 条目，`get_default_models("netmind_free")`
+  从它取种子——所有写入方对齐同一名单。
+- `compute_drift`：`gateway_failing`（网关还配着但判定 FAIL 的）+
+  `catalog_pass_not_in_gateway`（目录通过但网关没配的——加不加是定价决策，
+  永不自动化）。transient 天生不可见（判定只在确定性错误上翻转）。
+
+`apply_ledger_to_db` 仍然不碰 `netmind_free` 行；卡的覆写走
+`refresh_free_tier_models(db, ledger=)`（网关列表过门后按协议写入）。
+
+## 2026-07-28 — 免费卡的目录不走 ledger（原始设计，上节是其收敛版）
+
+免费额度经我们自己的网关打到 NetMind，而网关只路由（也只定价）配置里的模型
+—— 把上游全目录盖上去，等于在下拉框里放一堆一调就 400 的选项。
 
 # agent_framework/providers/model_sync.py — auto-discover & probe provider models
 

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_catalog.py
-last_verified: 2026-07-26
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `get_default_models("netmind_free")` 先读网关门后的条目
+
+每日 pass 把「网关∩判定」写成 ledger 的 netmind_free 条目后，新 free 卡的
+种子从它取——裸 netmind 通过名单含网关不路由/不计价的模型（sonnet-5 曾借此
+混进 free 下拉）。条目缺失（首次 pass 前的新装）才回落 netmind 映射。
 
 ## 2026-07-26 — `resolve_cli_alias` 把 `oauth_token` 并入 CLI 侧
 

@@ -4,6 +4,17 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (下午) — 网关目录并集 + free 门 + [MODEL-DRIFT]
+
+pass 开头单次取 free-tier 网关 served 列表：作为 `extra_models` 并进 netmind
+探测（网关独有模型有了判定与 TTL 复测）；sync 成功后
+`build_free_tier_entry` 把「网关∩判定」写进 ledger 的 netmind_free 条目**再**
+双写保存（两个载体都带上门后的名单）；`refresh_free_tier_models(db, ledger=)`
+用同一 ledger 覆写 free 卡。末尾 `compute_drift` 非空时打 `[MODEL-DRIFT]`
+WARNING（deploy 仓 watcher 的告警签名）+ `ServiceAuditor("model_sync").error`
+落 service_audit（教训 #5：DB 痕迹 > 日志）。网关不可达 = extras 传 None，
+现有 extra 条目原样保留，free 卡照旧不动。
+
 ## 2026-07-30 — DB ledger + 嫌疑复测接线
 
 pass 顺序变为：`auto_migrate`（runner 是独立容器，不能赌 backend 先建表）→
