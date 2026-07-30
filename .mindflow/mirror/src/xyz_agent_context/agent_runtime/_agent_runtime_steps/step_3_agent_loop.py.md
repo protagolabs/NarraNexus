@@ -4,6 +4,12 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — helper payload 过滤原生回放行
+
+`_build_helper_user_input` 的 history 过滤补两刀:role=tool 行(本就被排除)之外,
+content 为空/None 的 assistant 行(原生回放的 calls-only 消息)也不进 prose
+transcript——`str(None)` 曾会渲染出字面 `[assistant] None`。
+
 ## 2026-07-29 — 删除句柄机制(T5),−235 行
 
 删掉的是:进程级并发闸门(`_resume_handles_in_use` + `threading.Lock`)、四重校验

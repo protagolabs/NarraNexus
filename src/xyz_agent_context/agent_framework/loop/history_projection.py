@@ -44,6 +44,12 @@ from typing import Any
 
 _SYNTHETIC_MISSING_RESULT = "[no result was recorded for this call]"
 
+#: Frameworks whose driver consumes structured provider messages and can
+#: therefore receive native turn replays instead of flattened history.
+#: CLI-backed drivers (claude_code, codex_cli) flatten at their doorstep
+#: and structurally cannot — see the module docstring.
+NATIVE_REPLAY_FRAMEWORKS = frozenset({"nexus_power"})
+
 
 def fold_event_log_to_messages(entries: list[Any]) -> list[dict[str, Any]]:
     """Fold event_log entries (chronological) into provider messages.
