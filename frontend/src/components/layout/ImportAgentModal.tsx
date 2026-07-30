@@ -18,8 +18,8 @@
  * drill into the project list.
  *
  * LOCAL ONLY: detect/scan read the user's filesystem, so the parent only mounts
- * this in local mode. MCP credentials are shown in PLAINTEXT with a warning
- * (Owner decision) — the user confirms before importing. Each source session
+ * this in local mode. The preview flags MCP servers that carry secrets (it shows
+ * name + transport + a warning, never the credential values). Each source session
  * becomes one Narrative (summarized on apply) with its turns kept as memory.
  */
 

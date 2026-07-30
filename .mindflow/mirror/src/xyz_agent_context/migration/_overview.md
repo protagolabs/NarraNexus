@@ -45,8 +45,20 @@ on cloud** (no user filesystem there). In local/desktop mode the backend +
 executor run on the user's machine, so stdio-MCP servers are even coherent to
 import (v1.1 wiring).
 
-## Design
-`reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md` —
-holds the gaps (General Memory has no write tool → new `memory_retain` needed;
-NarraNexus MCP is URL/headers only; narrative = agent self-summarize) and the
-phasing (v1.0 scanner + skill flow; v1.1 Import Button + url-MCP; v2.0 stdio-MCP).
+## Phasing (intent carried here, not in the author's local notebook)
+
+- **v1.0 (shipped)** — full **Claude Code** import: combined CLAUDE.md → Awareness;
+  project+global skills (project wins); url-MCP; **per-session → Narrative** (one
+  helper_llm summary each, turns kept as `event` memory scoped to the Narrative).
+  Import Button UI + once-per-user guided flow. Local-only (503 on cloud).
+- **v1.1** — **stdio-MCP** wiring (needs a local-mode MCP data-model extension;
+  captured + surfaced today, not imported); **Codex / OpenClaw / Hermes session &
+  compact support** once their real layouts are verified (only Claude Code is
+  verified — until then those get static awareness/memory/skill/url-MCP mapping,
+  no per-session Narratives). See §7 of the design.
+- **v2.0** — a **Migration Skill**: agent-driven import via MCP tools (the same
+  `apply_plan` core), so the agent can import on its own, not just the button.
+
+> Fuller rationale (superseded gaps, alternatives weighed) lived in
+> `reference/self_notebook/specs/2026-07-{21,30}-agent-migration-*.md` (author's
+> local notebook, gitignored). The binding conclusions are the phasing above.

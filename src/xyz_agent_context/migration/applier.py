@@ -23,6 +23,7 @@ See reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -151,9 +152,15 @@ async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNar
     retained = 0
     for t in planned.turns:
         try:
+            # kind="event" (NOT observation): raw conversation turns are the
+            # append-only per-interaction index (default_scope=narrative, does
+            # NOT consolidate). Observation consolidates at threshold 4 → it would
+            # tombstone these dozens of turns into a few summaries ~90s after
+            # import, destroying the very history we imported. Distilled facts
+            # (step 2) correctly stay observation.
             await engine.retain(MemoryRecord(
                 agent_id=agent_id, scope_type=SCOPE_NARRATIVE, scope_id=narrative.id,
-                kind="observation", subtype="experience",
+                kind="event",
                 content_text=f"{t.role}: {t.text}", tags=["imported", "chat"],
                 proof_count=1, valid_at=_parse_ts(t.ts) or datetime.now(timezone.utc),
             ))
@@ -185,10 +192,14 @@ async def _copy_local_skill(agent_id: str, user_id: str, name: str, src: str) ->
     if dest.parent != skills_root:
         logger.warning(f"[migrate.apply] skill dest escaped skills/: {dest}")
         return False
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(src_path, dest)
+    def _copy() -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(src_path, dest)
+
+    # rmtree + copytree are blocking filesystem work — keep them off the loop.
+    await asyncio.to_thread(_copy)
     return True
 
 

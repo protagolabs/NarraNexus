@@ -171,6 +171,23 @@ def test_scan_claude_project_with_sessions(home):
     assert not any("sk-secret" in c for c in r.custom.credential_keys)
 
 
+def test_extract_exception_degrades_to_empty_sessions(home, monkeypatch):
+    # If extraction blows up mid-scan, extract() must degrade to an EMPTY
+    # StandardizedAgentImport (sessions=[]), not sessions="" — the latter fails
+    # pydantic validation and turns a recoverable parse error into a 400.
+    from xyz_agent_context.migration import extractors
+    def _boom(_base):
+        raise RuntimeError("kaboom")
+    monkeypatch.setattr(extractors, "_extract_claude_code", _boom)
+    agent, skills, memory, mcp, custom, sessions = extractors.extract("claude_code", "/x")
+    assert sessions == []                          # the bug: was ""
+    assert "kaboom" in custom.llm_fallback_notes
+    # and it packs into a valid schema without raising
+    _mk_claude_global(home)
+    r = scanner.scan(path=home / ".claude", framework="claude_code")
+    assert r.sessions == []
+
+
 def test_encode_cwd_replaces_all_non_alnum():
     # Claude Code encodes the cwd by replacing EVERY non-alphanumeric char with
     # '-', not just '/'. A '/'-only replace silently misses '_' and '.' and finds

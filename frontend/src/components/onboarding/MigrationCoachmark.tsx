@@ -25,6 +25,10 @@ export function MigrationCoachmark({ onDismiss }: { onDismiss: () => void }) {
 
   useEffect(() => {
     let intervalId = 0;
+    let attempts = 0;
+    const stop = () => {
+      if (intervalId) { window.clearInterval(intervalId); intervalId = 0; }
+    };
     const measure = () => {
       const el = document.querySelector(ANCHOR) as HTMLElement | null;
       const r = el?.getBoundingClientRect() ?? null;
@@ -35,19 +39,18 @@ export function MigrationCoachmark({ onDismiss }: { onDismiss: () => void }) {
         if (prev && next && prev.top === next.top && prev.right === next.right) return prev;
         return next;
       });
-      // The interval exists only to win the sidebar-mount race — stop polling
-      // once we have a real anchor (resize keeps it fresh afterwards).
-      if (next && intervalId) {
-        window.clearInterval(intervalId);
-        intervalId = 0;
-      }
+      // The interval only wins the sidebar-mount race. Stop once we have the
+      // anchor (resize keeps it fresh), or after ~10s if it never appears
+      // (e.g. the sidebar stays collapsed) so we don't poll for the whole session.
+      attempts += 1;
+      if (next || attempts >= 20) stop();
     };
     measure();
     window.addEventListener('resize', measure);
     intervalId = window.setInterval(measure, 500);
     return () => {
       window.removeEventListener('resize', measure);
-      if (intervalId) window.clearInterval(intervalId);
+      stop();
     };
   }, []);
 

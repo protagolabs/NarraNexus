@@ -15,6 +15,7 @@ writes anything to NarraNexus.
 Design: reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md
 """
 
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -52,7 +53,9 @@ class ScanRequest(BaseModel):
 async def detect(request: Request) -> dict:
     """List every known framework found in the standard home locations."""
     _require_local_or_raise()
-    detections = scanner.detect()
+    # scanner.detect walks the filesystem — run it off the event loop so it
+    # can't stall the shared loop (this fires on every local app load).
+    detections = await asyncio.to_thread(scanner.detect)
     return {"detections": [d.model_dump() for d in detections]}
 
 
@@ -61,7 +64,11 @@ async def scan(request: Request, payload: ScanRequest) -> dict:
     """Scan one source into the standardized JSON (detect + extract, no write)."""
     _require_local_or_raise()
     try:
-        result = scanner.scan(path=payload.path, framework=payload.framework)
+        # Extraction parses session .jsonl files that can be 100MB+ — keep that
+        # synchronous, blocking work off the event loop.
+        result = await asyncio.to_thread(
+            scanner.scan, path=payload.path, framework=payload.framework
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:  # noqa: BLE001

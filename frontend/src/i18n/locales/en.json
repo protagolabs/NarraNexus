@@ -795,7 +795,6 @@
       "title": "Import an Agent",
       "previewTitle": "Review before importing",
       "doneTitle": "Import complete",
-      "detectHint": "We scan this machine for agents from other frameworks (Claude Code, Codex, OpenClaw, Hermes). Pick one to import, or point us at a folder.",
       "detecting": "Scanning your machine…",
       "noneFound": "No other-framework agents found in the standard locations. Enter a path below to scan a specific folder.",
       "manualPathLabel": "Or scan a specific folder",
@@ -809,7 +808,6 @@
       "deferred": "not yet imported",
       "secretWarning": "Some MCP servers carry credentials shown in plaintext. Review them before importing.",
       "narrative": "Narrative",
-      "narrativeHint": "The agent will summarize the imported session context into its own starting Narrative on first run.",
       "notes": "Notes",
       "credentialNote": "Credential keys not imported (re-enter in Settings): {{keys}}",
       "unmappedNote": "{{count}} file(s) were recognized but not mapped.",
@@ -1395,6 +1393,16 @@
       "browseTemplates": "Browse templates",
       "bookmarksLabel": "Meet your bookmark strip",
       "bookmarksHint": "Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes."
+    },
+    "migrationGuide": {
+      "title": "Import an existing agent",
+      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
+      "import": "Import",
+      "later": "Later"
+    },
+    "migrationCoachmark": {
+      "text": "Want to import later? Use the “+” → {{action}}.",
+      "gotIt": "Got it"
     }
   },
   "pages": {
@@ -2417,17 +2425,5 @@
     "cancel": "Cancel",
     "back": "Back",
     "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve."
-  },
-  "onboarding": {
-    "migrationGuide": {
-      "title": "Import an existing agent",
-      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
-      "import": "Import",
-      "later": "Later"
-    },
-    "migrationCoachmark": {
-      "text": "Want to import later? Use the “+” → {{action}}.",
-      "gotIt": "Got it"
-    }
   }
 }

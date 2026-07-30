@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -291,3 +291,7 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 ## 2026-07-13 — office-watch 路由
 
 注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch/proxy.py.md`。
+
+## 2026-07-30 — Agent Migration 路由
+
+注册了 `migrate_router`(挂 `/api/migrate`,tags=["Migration"]):`/detect` `/scan` `/apply`,导入其他框架的 agent(Claude Code/Codex/OpenClaw/Hermes)进 NarraNexus。**local/desktop only** —— 三个端点都经 `_require_local_or_raise()` 在 cloud 返回 503(cloud 无用户文件系统)。见 `backend/routes/migrate.py.md`。

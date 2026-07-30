@@ -438,4 +438,4 @@ def extract(framework: Framework, path: str | Path):
         return _extract_custom(base)
     except Exception as e:  # noqa: BLE001 — extraction must never crash a scan
         logger.warning(f"migration.extract({framework}, {base}) failed: {e}")
-        return MigrationAgent(), [], [], [], MigrationCustom(llm_fallback_notes=str(e)), ""
+        return MigrationAgent(), [], [], [], MigrationCustom(llm_fallback_notes=str(e)), []

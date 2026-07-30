@@ -795,7 +795,6 @@
       "title": "导入 Agent",
       "previewTitle": "导入前确认",
       "doneTitle": "导入完成",
-      "detectHint": "我们会扫描本机上其他框架的 Agent(Claude Code、Codex、OpenClaw、Hermes)。选择一个导入,或指定一个文件夹。",
       "detecting": "正在扫描本机…",
       "noneFound": "在标准位置未找到其他框架的 Agent。可在下方输入路径扫描指定文件夹。",
       "manualPathLabel": "或扫描指定文件夹",
@@ -809,7 +808,6 @@
       "deferred": "暂未导入",
       "secretWarning": "部分 MCP 服务携带明文凭证,导入前请确认。",
       "narrative": "叙事",
-      "narrativeHint": "Agent 首次运行时会把导入的会话上下文总结成自己的初始叙事。",
       "notes": "说明",
       "credentialNote": "以下凭证未导入(请在设置中重新填写):{{keys}}",
       "unmappedNote": "有 {{count}} 个文件被识别但未映射。",
@@ -1395,6 +1393,16 @@
       "browseTemplates": "浏览模板",
       "bookmarksLabel": "认识侧边书签栏",
       "bookmarksHint": "任务、收件箱和 Agent 资料都在右侧边缘的书签中；有变化时书签会亮起。"
+    },
+    "migrationGuide": {
+      "title": "导入已有的 agent",
+      "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
+      "import": "导入",
+      "later": "以后再说"
+    },
+    "migrationCoachmark": {
+      "text": "想导入的话，点“+” → {{action}}。",
+      "gotIt": "知道了"
     }
   },
   "pages": {
@@ -2417,17 +2425,5 @@
     "cancel": "取消",
     "back": "返回",
     "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。"
-  },
-  "onboarding": {
-    "migrationGuide": {
-      "title": "导入已有的 agent",
-      "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
-      "import": "导入",
-      "later": "以后再说"
-    },
-    "migrationCoachmark": {
-      "text": "想导入的话，点“+” → {{action}}。",
-      "gotIt": "知道了"
-    }
   }
 }

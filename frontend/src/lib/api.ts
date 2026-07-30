@@ -2001,8 +2001,8 @@ class ApiClient {
   }
 
   // ── Agent Migration (import from other frameworks) ─────────────────────
-  // `/detect` + `/scan` are LOCAL ONLY (503 on cloud — they read the user's
-  // filesystem). `/apply` writes to NarraNexus wherever the backend runs.
+  // All three are LOCAL ONLY (503 on cloud) — Agent Migration reads the user's
+  // filesystem, which cloud doesn't have.
 
   /** List every known framework found in the standard home locations. */
   async migrateDetect(): Promise<MigrationDetectResponse> {

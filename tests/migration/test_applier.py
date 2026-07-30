@@ -125,11 +125,12 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     n = next(n for n in narrs if n.narrative_info.name == "Plan the Q3 roadmap")
     assert "ship the roadmap" in n.narrative_info.current_summary   # enriched via helper_llm
     assert n.topic_keywords == ["roadmap", "q3"]
-    # the imported turns are retained as observation memory scoped to the narrative
+    # the imported turns are retained as EVENT memory scoped to the narrative
+    # (event = append-only, not consolidated — observation would tombstone them)
     from xyz_agent_context.memory import MemoryEngine, SCOPE_NARRATIVE
-    obs = await MemoryEngine(db_client, res.agent_id).recall(
-        "observation", "roadmap", scope_type=SCOPE_NARRATIVE, scope_id=n.id, limit=10)
-    assert any("ship the roadmap" in o.content_text for o in obs)
+    evs = await MemoryEngine(db_client, res.agent_id).recall(
+        "event", "roadmap", scope_type=SCOPE_NARRATIVE, scope_id=n.id, limit=10)
+    assert any("ship the roadmap" in o.content_text for o in evs)
 
 
 @pytest.mark.asyncio
