@@ -923,7 +923,10 @@
       "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
       "linkNow": "Link it now",
       "linkFailed": "Linking failed:",
-      "freeTierCreditLeft": "${{remaining}} left"
+      "freeTierCreditLeft": "${{remaining}} left",
+      "returnSubscribeSuccess": "Payment received — applying it to your account now.",
+      "returnTopupSuccess": "Top-up received — updating your balance.",
+      "returnCancelled": "Payment cancelled — you have not been charged."
     },
     "modal": {
       "title": "Settings",

@@ -1,8 +1,50 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30（同日二改）— 回跳逻辑抽出文件
+
+本文件此前 959 行，越过 800 行上限（改前就已 855，本次一度 +104）。回跳这块内聚性
+好、且这个文件本身已有三个兄弟组件的拆法成例，于是抽成
+[[useNetmindPaymentReturn]]（两个 effect + 参数消费）+ [[NetmindReturnNotice]]
+（那一行 JSX）。面板只剩一行 hook 调用和一行条件渲染 → 870 行。
+
+面板级行为测试（63 条）**一条没改就全绿**，这既是抽取忠实的证据，也是当初把测试写在
+行为层而不是实现层换来的。抽出后的调用契约（两个回调必须引用稳定）记在 hook 的
+mirror 里 —— 传内联箭头函数会让延迟重读永远不触发，且不报错。
+
+剩下的 70 行超额是既有的，未在本次动 —— 那是没碰过的代码。
+
+## 2026-07-30 — 付款回跳通知（returnNotice）
+
+面板消费 `?status=success|cancelled&flow=subscription|topup`（由
+[[billing]] 的 `_return_urls` 写进 Stripe session），在卡片最顶部给一条通知，
+然后**把这两个参数从 URL 里剥掉**（`tab` 保留，否则刷新会把用户弹出这个面板）
+—— 剥掉是为了刷新不再重复宣告一笔早已结清的付款。`returnConsumed` ref 保证只
+消费一次；无法识别的 status 值直接忽略，不渲染空通知。
+
+**回跳分支刻意不再立刻 `load()`**：挂载 effect 在同一个 tick 里已经把那五个请求
+发过了，再读一遍只是翻倍、并不更新鲜。真正需要的是**稍后**再读一次 —— Stripe 在
+它自己完成的瞬间就跳转，比 NetMind 把额度记到账早一拍。所以另起一个以
+`returnNotice` 为 key 的 effect，`RETURN_SETTLE_MS` 后补读一次。**为什么必须另起
+一个**：定时器放在上面那个 effect 里会被自己清掉 —— 剥 query 会让它重跑，而
+cleanup 先执行。unmount 时清理（fire-and-forget 定时器打进已卸载的树，正是事故
+教训 #2 的形状）。文案同理只敢说「已收到充值，正在更新余额」——「已刷新」在那一刻
+还没被服务端证实。
+
+**success 时不直接调 `linkNetmind`，而是启动既有的 `pollUntilActive`。** 这不是
+偷懒：回跳的这个标签页是全新挂载、没有任何轮询在跑，而套餐生效在上游有延迟。
+直接调 link 可能撞上"订阅还没 ACTIVE"而失败，于是给一个刚付款成功的用户显示一条
+错误 —— 轮询的 ACTIVE 分支本来就是自动接入的正确位置（见 2026-07-20 条目）。
+topup 不轮询：充值从不改变套餐，轮 `/me` 纯属噪音（有测试钉住两个方向）。
+
+顺带：success 通知在场时**抑制** `awaitingPayment` 那行（"正在等待付款完成…"），
+它与"已收到付款"在同一屏上互相矛盾；轮询本身照常在跑。
+
+通知本身渲染在 loading/error 分支**之外** —— "我的钱到了吗"不该等面板那几个
+fetch，更不该因为其中一个失败就消失。
 
 ## 2026-07-20 (续) — 免费额度行值 token 化 + Link 按钮排版右置
 

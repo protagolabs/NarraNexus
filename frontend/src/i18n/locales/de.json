@@ -902,6 +902,11 @@
       "freeTierHowToSwitch": "Die Karte „Free Tier“ ist bereits mit deinen Agent- und Helper-Slots verbunden. Um deinen eigenen Schlüssel zu nutzen, füge unten einen Anbieter hinzu und wähle ihn in den Modell-Standards für den Agent-/Helper-Slot — wirksam ab der nächsten Nachricht.",
       "freeTierAnytime": "Du kannst jederzeit wechseln. Du musst das Gratis-Guthaben nicht zuerst aufbrauchen, und beim Wechsel verfällt es nicht — das Guthaben bleibt erhalten.",
       "freeTierNoDelete": "Solange Guthaben vorhanden ist, lässt sich die Free-Tier-Karte nicht löschen: Sie hält den einzigen Schlüssel dazu. Ist es aufgebraucht, kannst du sie entfernen."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Zahlung erhalten – wird jetzt auf dein Konto angewendet.",
+      "returnTopupSuccess": "Aufladung erhalten – dein Guthaben wird aktualisiert.",
+      "returnCancelled": "Zahlung abgebrochen – dir wurde nichts berechnet."
     }
   },
   "system": {

@@ -901,6 +901,11 @@
       "freeTierHowToSwitch": "「Free Tier」カードは Agent と Helper のスロットに設定済みです。自分のキーを使うには、下でプロバイダーを追加し、「モデル既定値」で Agent / Helper スロットに指定してください。次のメッセージから有効になります。",
       "freeTierAnytime": "いつでも切り替えられます。無料クレジットを使い切る必要はなく、切り替えても残高は消えません。戻すこともできます。",
       "freeTierNoDelete": "残高がある間、Free Tier カードは削除できません（その残高への唯一の鍵だからです）。使い切れば削除できます。"
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "お支払いを受け付けました — アカウントに反映しています。",
+      "returnTopupSuccess": "チャージを受け付けました — 残高を更新しています。",
+      "returnCancelled": "支払いはキャンセルされました — 請求は発生していません。"
     }
   },
   "system": {

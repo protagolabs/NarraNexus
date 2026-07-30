@@ -902,6 +902,11 @@
       "freeTierHowToSwitch": "O cartão “Free Tier” já está ligado aos seus slots de Agent e Helper. Para usar a sua própria chave, adicione um provedor abaixo e selecione-o para o slot Agent / Helper em Padrões de Modelo — vale a partir da próxima mensagem.",
       "freeTierAnytime": "Pode trocar quando quiser. Não precisa gastar o crédito gratuito primeiro, e trocar não o perde: o saldo permanece.",
       "freeTierNoDelete": "O cartão Free Tier não pode ser excluído enquanto houver saldo: ele guarda a única chave desse crédito. Depois de gasto, você pode removê-lo."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Pagamento recebido — a aplicar à sua conta.",
+      "returnTopupSuccess": "Recarga recebida — a atualizar o seu saldo.",
+      "returnCancelled": "Pagamento cancelado — não lhe foi cobrado nada."
     }
   },
   "system": {

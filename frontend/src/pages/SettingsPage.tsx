@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
@@ -291,7 +291,20 @@ export default function SettingsPage() {
   const items = NAV_ITEMS.filter(
     (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || hasPower),
   );
-  const [active, setActive] = useState(items[0]?.id ?? 'providers');
+  const [searchParams] = useSearchParams();
+  // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
+  // payer to /app/settings?tab=account&status=… after checkout (see
+  // backend/routes/billing.py::_return_urls) — without it they'd land on
+  // whatever pane happens to be first and read that as "my payment went
+  // nowhere". Only the FIRST render honors the URL: afterwards the user's clicks
+  // own the selection, so a stale query param can't fight them. An unknown id,
+  // or one this session cannot see (powerOnly / desktopOnly filtered it out),
+  // falls back to the first visible item rather than opening an empty pane.
+  const [active, setActive] = useState(() => {
+    const requested = searchParams.get('tab');
+    if (requested && items.some((it) => it.id === requested)) return requested;
+    return items[0]?.id ?? 'providers';
+  });
 
   return (
     <div className="h-full flex flex-col">

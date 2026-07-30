@@ -902,6 +902,11 @@
       "freeTierHowToSwitch": "La carte « Free Tier » est déjà reliée à vos emplacements Agent et Helper. Pour utiliser votre propre clé, ajoutez un fournisseur ci-dessous, puis sélectionnez-le pour l’emplacement Agent / Helper dans les Modèles par défaut — effectif dès votre prochain message.",
       "freeTierAnytime": "Vous pouvez changer à tout moment. Inutile d’épuiser le crédit gratuit d’abord, et changer ne le fait pas perdre : le solde reste disponible.",
       "freeTierNoDelete": "La carte Free Tier ne peut pas être supprimée tant qu’il reste du crédit : elle détient l’unique clé de ce solde. Une fois épuisé, vous pourrez la retirer."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Paiement reçu — application à votre compte en cours.",
+      "returnTopupSuccess": "Rechargement reçu — mise à jour de votre solde en cours.",
+      "returnCancelled": "Paiement annulé — aucun montant ne vous a été débité."
     }
   },
   "system": {

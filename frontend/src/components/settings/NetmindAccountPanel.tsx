@@ -55,6 +55,8 @@ import {
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
+import { NetmindReturnNotice } from './NetmindReturnNotice';
+import { useNetmindPaymentReturn } from './useNetmindPaymentReturn';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
 
@@ -351,6 +353,12 @@ export function NetmindAccountPanel() {
       mounted.current = false;
     };
   }, [isPowerUser, load, refreshNetStatus]);
+
+  // Post-payment return: consume Stripe's query params, then let the hook drive
+  // the delayed money re-read and (for a subscription) the bounded plan-flip
+  // poll. Both callbacks must stay referentially stable — see the hook's
+  // docstring for why. Declared after them so neither is read before init.
+  const returnNotice = useNetmindPaymentReturn(isPowerUser, load, pollUntilActive);
 
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
@@ -716,6 +724,10 @@ export function NetmindAccountPanel() {
         </p>
       </div>
 
+      {/* Answers the question the payer arrived with, so it sits above the
+          loading/error branches — see NetmindReturnNotice. */}
+      {returnNotice && <NetmindReturnNotice notice={returnNotice} />}
+
       {state === 'loading' && (
         <p className="px-4 py-4 text-sm text-[var(--text-secondary)]">
           {t('settings.netmind.loading', 'Loading…')}
@@ -787,7 +799,10 @@ export function NetmindAccountPanel() {
             onCancel={handleCancel}
             onReactivate={handleReactivate}
           />
-          {polling && (
+          {/* Suppressed on a successful return: the payer is standing here
+              having already paid, and "waiting for payment to complete" would
+              contradict the notice above. The poll is still running. */}
+          {polling && returnNotice?.status !== 'success' && (
             <p className="text-xs text-[var(--text-tertiary)]">
               {t('settings.netmind.awaitingPayment',
                 'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
