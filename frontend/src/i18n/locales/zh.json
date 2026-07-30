@@ -786,7 +786,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "调整面板大小",
-      "title": "拖动以调整对话／制品大小"
+      "title": "拖动以调整对话／制品大小",
+      "drawerAriaLabel": "调整面板宽度",
+      "drawerTitle": "拖动以调整面板宽度"
     }
   },
   "settings": {
@@ -2068,7 +2070,9 @@
       "resume": "恢复",
       "resuming": "正在恢复…",
       "cancelJob": "取消任务",
-      "cancelling": "正在取消…"
+      "cancelling": "正在取消…",
+      "editSchedule": "改时间",
+      "savingSchedule": "保存中..."
     },
     "template": {
       "selectTemplate": "选择模板",
@@ -2097,6 +2101,26 @@
         "paused": "{{count}} 个已暂停",
         "failed": "{{count}} 个已失败"
       }
+    },
+    "editSchedule": {
+      "title": "修改执行时间",
+      "hint": "调整该任务的执行时间，修改在下次运行时生效。",
+      "runAt": "执行时间",
+      "cron": "Cron 表达式",
+      "cronHint": "例如 0 8 * * * 表示每天 08:00 执行",
+      "intervalSeconds": "间隔（秒）",
+      "timezone": "时区",
+      "save": "保存",
+      "cancel": "取消",
+      "invalidRunAt": "请选择有效的日期和时间",
+      "invalidCron": "请输入有效的 Cron 表达式",
+      "invalidInterval": "请输入大于 0 的间隔",
+      "pastTimeError": "所选时间已过去",
+      "failedTitle": "修改失败",
+      "failedMessage": "无法更新执行时间，请重试。",
+      "modeLabel": "触发方式",
+      "modeInterval": "间隔",
+      "modeCron": "Cron 表达式"
     }
   },
   "artifacts": {

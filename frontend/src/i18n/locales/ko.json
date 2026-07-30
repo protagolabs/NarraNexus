@@ -715,7 +715,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "패널 크기 조정",
-      "title": "드래그하여 채팅 / 아티팩트 크기 조정"
+      "title": "드래그하여 채팅 / 아티팩트 크기 조정",
+      "drawerAriaLabel": "패널 너비 조정",
+      "drawerTitle": "드래그하여 패널 너비 조정"
     }
   },
   "settings": {
@@ -1761,7 +1763,9 @@
       "resume": "재개",
       "resuming": "재개 중...",
       "cancelJob": "작업 취소",
-      "cancelling": "취소 중..."
+      "cancelling": "취소 중...",
+      "editSchedule": "시간 변경",
+      "savingSchedule": "저장 중..."
     },
     "template": {
       "selectTemplate": "템플릿 선택",
@@ -1790,6 +1794,26 @@
         "paused": "일시중지 {{count}}개",
         "failed": "실패 {{count}}개"
       }
+    },
+    "editSchedule": {
+      "title": "실행 시간 변경",
+      "hint": "이 작업의 실행 시점을 조정합니다. 변경 사항은 다음 실행부터 적용됩니다.",
+      "runAt": "실행 시간",
+      "cron": "Cron 표현식",
+      "cronHint": "예: 0 8 * * * 는 매일 08:00에 실행",
+      "intervalSeconds": "간격(초)",
+      "timezone": "시간대",
+      "save": "저장",
+      "cancel": "취소",
+      "invalidRunAt": "유효한 날짜와 시간을 선택하세요",
+      "invalidCron": "유효한 Cron 표현식을 입력하세요",
+      "invalidInterval": "0보다 큰 간격을 입력하세요",
+      "pastTimeError": "선택한 시간이 과거입니다",
+      "failedTitle": "변경 실패",
+      "failedMessage": "실행 시간을 업데이트하지 못했습니다. 다시 시도하세요.",
+      "modeLabel": "트리거 방식",
+      "modeInterval": "간격",
+      "modeCron": "Cron 표현식"
     }
   },
   "artifacts": {

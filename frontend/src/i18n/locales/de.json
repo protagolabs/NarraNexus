@@ -716,7 +716,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Panels anpassen",
-      "title": "Ziehen, um Chat / Artefakte anzupassen"
+      "title": "Ziehen, um Chat / Artefakte anzupassen",
+      "drawerAriaLabel": "Panelbreite anpassen",
+      "drawerTitle": "Ziehen, um die Panelbreite anzupassen"
     }
   },
   "settings": {
@@ -1762,7 +1764,9 @@
       "resume": "Fortsetzen",
       "resuming": "Wird fortgesetzt...",
       "cancelJob": "Job abbrechen",
-      "cancelling": "Wird abgebrochen..."
+      "cancelling": "Wird abgebrochen...",
+      "editSchedule": "Zeit ändern",
+      "savingSchedule": "Speichern..."
     },
     "template": {
       "selectTemplate": "Vorlage auswählen",
@@ -1791,6 +1795,26 @@
         "paused": "{{count}} pausiert",
         "failed": "{{count}} fehlgeschlagen"
       }
+    },
+    "editSchedule": {
+      "title": "Ausführungszeit ändern",
+      "hint": "Passen Sie an, wann dieser Job läuft. Änderungen gelten ab der nächsten Ausführung.",
+      "runAt": "Ausführen am",
+      "cron": "Cron-Ausdruck",
+      "cronHint": "z. B. 0 8 * * * läuft täglich um 08:00",
+      "intervalSeconds": "Intervall (Sekunden)",
+      "timezone": "Zeitzone",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "invalidRunAt": "Bitte ein gültiges Datum und eine gültige Uhrzeit wählen",
+      "invalidCron": "Bitte einen gültigen Cron-Ausdruck eingeben",
+      "invalidInterval": "Bitte ein Intervall größer als 0 eingeben",
+      "pastTimeError": "Die gewählte Zeit liegt in der Vergangenheit",
+      "failedTitle": "Änderung fehlgeschlagen",
+      "failedMessage": "Die Ausführungszeit konnte nicht aktualisiert werden. Bitte erneut versuchen.",
+      "modeLabel": "Auslösemodus",
+      "modeInterval": "Intervall",
+      "modeCron": "Cron-Ausdruck"
     }
   },
   "artifacts": {

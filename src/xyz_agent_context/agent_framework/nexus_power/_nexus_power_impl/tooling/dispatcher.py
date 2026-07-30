@@ -35,6 +35,20 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
 )
 
 
+def _missing_required(spec: ToolSpec, args: dict) -> list[str]:
+    required = spec.input_schema.get("required") or ()
+    return [name for name in required if name not in args]
+
+
+def _compact_schema(spec: ToolSpec) -> str:
+    import json
+
+    try:
+        return json.dumps(spec.input_schema, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(spec.input_schema)
+
+
 class ToolDispatcher:
     """Channel registry + policy checkpoint + routing."""
 
@@ -100,6 +114,24 @@ class ToolDispatcher:
             # Label tool: adjudicated, then short-circuited — the event
             # stream carries the meaning; delivery is the consumer's job.
             return ToolResult(call_id=call.id, ok=True, content="delivered")
+
+        missing = _missing_required(spec, call.args)
+        if missing:
+            # Pre-dispatch schema validation (hermes-shape): a call with
+            # required fields absent never reaches a handler — handlers'
+            # own fallbacks turned this into misleading errors (write
+            # without `path` resolved to the workspace root and failed
+            # as `Is a directory`). The schema comes back with the
+            # error so the model can re-emit a complete call.
+            return ToolResult(
+                call_id=call.id,
+                ok=False,
+                error=(
+                    f"invalid arguments for {call.name}: missing required "
+                    f"{missing}. The tool was NOT executed. Expected "
+                    f"schema: {_compact_schema(spec)}"
+                ),
+            )
 
         for channel in self._channels:
             if any(s.name == call.name for s in channel.list_tools()):

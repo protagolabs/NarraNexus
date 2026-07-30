@@ -716,7 +716,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Redimensionar paneles",
-      "title": "Arrastra para redimensionar chat / artefactos"
+      "title": "Arrastra para redimensionar chat / artefactos",
+      "drawerAriaLabel": "Redimensionar el panel",
+      "drawerTitle": "Arrastra para redimensionar el panel"
     }
   },
   "settings": {
@@ -1762,7 +1764,9 @@
       "resume": "Reanudar",
       "resuming": "Reanudando...",
       "cancelJob": "Cancelar trabajo",
-      "cancelling": "Cancelando..."
+      "cancelling": "Cancelando...",
+      "editSchedule": "Editar hora",
+      "savingSchedule": "Guardando..."
     },
     "template": {
       "selectTemplate": "Seleccionar plantilla",
@@ -1791,6 +1795,26 @@
         "paused": "{{count}} pausados",
         "failed": "{{count}} fallidos"
       }
+    },
+    "editSchedule": {
+      "title": "Editar hora de ejecución",
+      "hint": "Ajusta cuándo se ejecuta esta tarea. Los cambios se aplican en la próxima ejecución.",
+      "runAt": "Ejecutar a las",
+      "cron": "Expresión cron",
+      "cronHint": "p. ej. 0 8 * * * se ejecuta a diario a las 08:00",
+      "intervalSeconds": "Intervalo (segundos)",
+      "timezone": "Zona horaria",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "invalidRunAt": "Elige una fecha y hora válidas",
+      "invalidCron": "Introduce una expresión cron válida",
+      "invalidInterval": "Introduce un intervalo mayor que 0",
+      "pastTimeError": "La hora elegida ya pasó",
+      "failedTitle": "Error al reprogramar",
+      "failedMessage": "No se pudo actualizar la hora de ejecución. Inténtalo de nuevo.",
+      "modeLabel": "Modo de activación",
+      "modeInterval": "Intervalo",
+      "modeCron": "Expresión cron"
     }
   },
   "artifacts": {

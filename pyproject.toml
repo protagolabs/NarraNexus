@@ -13,7 +13,7 @@ dependencies = [
     "anthropic>=0.72.0",
     "claude-agent-sdk~=0.1.43",
     "openai>=2.7.1",
-    "openai-agents>=0.5.0",
+    "openai-agents>=0.19.1",
     # Official OpenAI Codex SDK — drives CodexSDKv2 (the v2 agent-loop
     # driver registered under `codex_cli_v2`). Pinned to 0.1.x because
     # the package is beta — accept patch/beta bumps inside 0.1, but

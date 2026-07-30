@@ -187,9 +187,27 @@ def test_litellm_route_follows_the_protocol_not_the_base_url():
     assert route("minimax/minimax-m2.5", "https://x/anthropic", "anthropic") == (
         "anthropic/minimax/minimax-m2.5"
     )
-    # Already-routed ids are left alone; no base_url = litellm's own syntax.
-    assert route("openai/gpt-5.4", base, "openai") == "openai/gpt-5.4"
+    # No base_url = litellm's own syntax, passed through untouched.
     assert route("gpt-5.4", "", "openai") == "gpt-5.4"
+
+
+def test_litellm_route_prepends_even_when_id_carries_the_route_name():
+    """Platform ids can EMBED the route name: NetMind's Claude models are
+    literally called ``anthropic/claude-sonnet-5`` and its GPT models
+    ``openai/gpt-5.4``. litellm consumes the first path segment as its
+    routing prefix, so returning such ids unchanged sends the BARE name
+    upstream — and NetMind has no bare aliases, it answers
+    404 "unknown model: claude-sonnet-5" (dev incident 2026-07-30).
+    With a custom base_url the route is therefore ALWAYS prepended:
+    litellm eats the outer copy and the full platform id reaches the wire.
+    """
+    route = LiteLLMModelClient._litellm_model
+    anthropic_base = "https://api.netmind.ai/inference-api/anthropic"
+    openai_base = "https://api.netmind.ai/inference-api/openai/v1"
+    assert route("anthropic/claude-sonnet-5", anthropic_base, "anthropic") == (
+        "anthropic/anthropic/claude-sonnet-5"
+    )
+    assert route("openai/gpt-5.4", openai_base, "openai") == "openai/openai/gpt-5.4"
 
 
 def test_tool_dialect_rewrite_is_anthropic_only():
@@ -246,3 +264,53 @@ def test_cache_breakpoints_also_mark_block_form_content():
     assert blocks[-1]["cache_control"] == {"type": "ephemeral"}
     # The original request is untouched (marking copies).
     assert "cache_control" not in request.messages[1]["content"][-1]
+
+
+@pytest.mark.asyncio
+async def test_truncated_arguments_carry_parse_error_not_raw():
+    """A stream cut mid-arguments (max_tokens) must NOT silently become
+    ``{"_raw": ...}`` args — the tool_use event carries a parse_error so
+    the loop can answer the call instead of executing it."""
+    chunks = [
+        _chunk({"tool_calls": [{"index": 0, "id": "c1",
+                                "function": {"name": "write_file"}}]}),
+        _chunk({"tool_calls": [{"index": 0,
+                                "function": {"arguments": '{"path": "a.html", "content": "<htm'}}]}),
+        _chunk(finish="length"),
+    ]
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    events = [e async for e in client.stream_step(request)]
+    tool_use = next(e for e in events if e.kind == "tool_use")
+    assert tool_use.payload["args"] == {}
+    assert "_raw" not in tool_use.payload["args"]
+    assert tool_use.payload["parse_error"]
+    assert events[-1].payload["stop_reason"] == "length"
+
+
+@pytest.mark.asyncio
+async def test_well_formed_arguments_have_no_parse_error():
+    chunks = [
+        _chunk({"tool_calls": [{"index": 0, "id": "c1",
+                                "function": {"name": "bash",
+                                             "arguments": '{"command": "ls"}'}}]}),
+        _chunk(finish="tool_calls"),
+    ]
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    events = [e async for e in client.stream_step(request)]
+    tool_use = next(e for e in events if e.kind == "tool_use")
+    assert tool_use.payload["args"] == {"command": "ls"}
+    assert tool_use.payload["parse_error"] is None
