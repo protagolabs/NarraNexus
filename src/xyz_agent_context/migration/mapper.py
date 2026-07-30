@@ -41,6 +41,31 @@ class PlannedSkill(BaseModel):
     name: str
     # Source dir to copy verbatim (faithful reproduction). None → try marketplace.
     local_path: Optional[str] = None
+    # project | global | "" — a same-name project skill wins (dedup done upstream).
+    scope: str = ""
+
+
+class PlannedTurn(BaseModel):
+    role: str
+    text: str
+    ts: str = ""
+
+
+class PlannedNarrative(BaseModel):
+    """One source session → one Narrative to create.
+
+    `summary_source` is the text the consumer feeds a helper_llm to fill the
+    Narrative's AI fields (description / current_summary / topic_hint /
+    dynamic_summary); `turns` are retained as observation memory scoped to the
+    created Narrative. `title` (Claude's ai-title) becomes the Narrative name
+    directly (no LLM).
+    """
+
+    session_id: str
+    title: str
+    started_at: str = ""
+    summary_source: str = ""
+    turns: List[PlannedTurn] = Field(default_factory=list)
 
 
 class MigrationPlan(BaseModel):
@@ -52,6 +77,8 @@ class MigrationPlan(BaseModel):
     # Skills to reproduce. `local_path` set → copy the files verbatim (faithful
     # migration); else fall back to a same-name Skill Marketplace install.
     skills: List[PlannedSkill] = Field(default_factory=list)
+    # One planned Narrative per source session (Owner: session → Narrative).
+    narratives: List[PlannedNarrative] = Field(default_factory=list)
     # url-MCP servers importable now (name/url/headers).
     mcp_url_servers: List[MigrationMcpServer] = Field(default_factory=list)
     # stdio-MCP servers captured but NOT wired yet (need local-mode data-model
@@ -64,6 +91,9 @@ class MigrationPlan(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+# Cap on the text handed to the per-session summarizer LLM.
+_SUMMARY_SOURCE_CHAR_LIMIT = 24_000
+
 _NARRATIVE_INSTR = (
     "Summarize the imported context below in your own words as a concise memory "
     "thread, then call create_narrative(title, description) to file it as your "
@@ -72,12 +102,34 @@ _NARRATIVE_INSTR = (
 )
 
 
+def _summary_source(session) -> str:
+    """Text fed to the summarizer: the source's own compact rollup first (already
+    condensed history), then the recent real turns rendered as a transcript."""
+    parts = []
+    if session.compact_text.strip():
+        parts.append(f"[Earlier history summary]\n{session.compact_text.strip()}")
+    if session.turns:
+        transcript = "\n".join(f"{t.role.capitalize()}: {t.text}" for t in session.turns)
+        parts.append(f"[Recent turns]\n{transcript}")
+    return "\n\n".join(parts)[:_SUMMARY_SOURCE_CHAR_LIMIT]
+
+
 def build_plan(imp: StandardizedAgentImport) -> MigrationPlan:
     plan = MigrationPlan(
         agent_name=imp.agent.name or "Imported Agent",
         awareness_markdown=imp.agent.system_prompt or "",
         memory=[PlannedMemory(content=m.content, source=m.source_file) for m in imp.memory],
-        skills=[PlannedSkill(name=s.name, local_path=s.local_path) for s in imp.skills],
+        skills=[PlannedSkill(name=s.name, local_path=s.local_path, scope=s.scope) for s in imp.skills],
+        narratives=[
+            PlannedNarrative(
+                session_id=s.session_id,
+                title=s.title or "Imported session",
+                started_at=s.started_at,
+                summary_source=_summary_source(s),
+                turns=[PlannedTurn(role=t.role, text=t.text, ts=t.ts) for t in s.turns],
+            )
+            for s in imp.sessions
+        ],
     )
 
     for srv in imp.mcp_servers:

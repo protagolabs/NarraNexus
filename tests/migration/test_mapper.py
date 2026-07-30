@@ -9,8 +9,10 @@ from xyz_agent_context.schema.migration_schema import (
     MigrationCustom,
     MigrationMcpServer,
     MigrationMemory,
+    MigrationSession,
     MigrationSkill,
     MigrationSource,
+    MigrationTurn,
     StandardizedAgentImport,
 )
 
@@ -60,6 +62,31 @@ def test_plan_narrative_instruction_from_seed():
 def test_plan_no_seed_no_narrative():
     p = build_plan(_imp(session_summary_seed=""))
     assert p.narrative_instruction == ""
+
+
+def test_plan_narratives_from_sessions():
+    imp = _imp(sessions=[
+        MigrationSession(
+            session_id="s1", title="Refactor auth", started_at="2026-07-01T00:00:00Z",
+            compact_text="Earlier: set up JWT",
+            turns=[MigrationTurn(role="user", text="help me"),
+                   MigrationTurn(role="assistant", text="sure")],
+        ),
+    ])
+    p = build_plan(imp)
+    assert len(p.narratives) == 1
+    n = p.narratives[0]
+    assert n.title == "Refactor auth"                       # ai-title → name (no LLM)
+    assert n.session_id == "s1"
+    assert "set up JWT" in n.summary_source                 # compact first
+    assert "User: help me" in n.summary_source              # then rendered turns
+    assert [t.role for t in n.turns] == ["user", "assistant"]  # turns carried for memory
+
+
+def test_plan_skill_scope_carried():
+    p = build_plan(_imp())
+    web = next(s for s in p.skills if s.name == "web-search")
+    assert web.scope in ("project", "global", "")           # scope threaded through
 
 
 def test_plan_credential_and_custom_warnings():
