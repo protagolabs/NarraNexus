@@ -5,6 +5,9 @@
  * @description: Render pieces shared between the single-agent ProcessPanel
  *   and the team roster's per-member process detail.
  */
+/* eslint-disable react-refresh/only-export-components -- this file exists to
+   share the terminal-row component AND its helpers; HMR granularity is a fair
+   trade for a single source of truth on the process look. */
 import type { TFunction } from 'i18next';
 import { Loader2 } from 'lucide-react';
 import type { Step, TurnEvent } from '@/types';
