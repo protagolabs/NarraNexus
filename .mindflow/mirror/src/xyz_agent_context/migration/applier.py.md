@@ -42,12 +42,21 @@ counts.
   deterministic fallback so a failed/absent LLM never breaks import. Then
   `NarrativeService.create_narrative` (sets name/description) → we overwrite the
   fields create doesn't set → `save_narrative_to_db`. NO agent loop, NO embeddings
-  (routing is BM25). The session's turns are `MemoryEngine.retain`'d as **`event`**
-  records `scope_type=narrative`, `scope_id=<narrative>` — event is the append-only
-  per-interaction index that does NOT consolidate. **Do not use `observation`**:
-  it consolidates at threshold 4, so the background worker would tombstone the
-  dozens of imported turns into a few summaries ~90s after import, destroying the
-  history. Distilled facts (the `memory[]` step) correctly stay `observation`/world.
+  (routing is BM25). The session's turns are written TWO ways:
+  - **`_seed_chat_history`** → the Narrative's ChatModule instance memory
+    (`add_instance_json_format_memory("ChatModule", <chat instance>, ...)`), so
+    they load as normal **recent history** when the user opens that narrative.
+    ChatModule reads THIS store (`search_instance_json_format_memory`), never the
+    event memory below. The message `meta_data.timestamp` is each turn's
+    **ORIGINAL** time — a multi-session import writes all narratives at once, and
+    the unified timeline sorts by that field, so import-time would collapse the
+    cross-narrative ordering. The chat instance id comes from
+    `narrative.active_instances` (create_narrative already made it).
+  - **`MemoryEngine.retain(kind="event")`** `scope_type=narrative` — the
+    append-only, searchable per-interaction index (surfaced via the `remember`
+    tool). **Do not use `observation`**: it consolidates at threshold 4, so the
+    background worker would tombstone the imported turns into summaries ~90s after
+    import. Distilled facts (the `memory[]` step) correctly stay `observation`/world.
 - Every write is best-effort (per-item try/except) so one failure doesn't abort the
   rest; the result records what landed.
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
@@ -50,6 +50,7 @@ from xyz_agent_context.repository.instance_awareness_repository import (
     InstanceAwarenessRepository,
 )
 from xyz_agent_context.repository.mcp_repository import MCPRepository
+from xyz_agent_context.repository.event_memory_repository import EventMemoryRepository
 from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
 from xyz_agent_context.utils.workspace_paths import agent_workspace_path
 
@@ -103,6 +104,45 @@ def _parse_ts(s: str) -> Optional[datetime]:
         return None
 
 
+# How many recent turns to seed into ChatModule instance memory as "recent
+# history". The unified timeline caps to MERGED_HISTORY_MAX (~30) at load, so a
+# little headroom is plenty; the full turn set stays searchable as event memory.
+_CHAT_HISTORY_MAX_TURNS = 40
+
+
+async def _seed_chat_history(db, agent_id: str, user_id: str, narrative, planned: PlannedNarrative) -> None:
+    """Seed the Narrative's ChatModule instance memory with the recent turns so
+    they load as normal recent history (ChatModule reads this store, NOT the
+    event memory). The sort key is each turn's ORIGINAL timestamp — a multi-
+    session import writes all narratives at once, so using import-time would
+    collapse the cross-narrative timeline; the real turn times keep it correct.
+    Best-effort: never break import on a chat-history write."""
+    chat_inst = next(
+        (i for i in (narrative.active_instances or []) if i.module_class == "ChatModule"),
+        None,
+    )
+    if not chat_inst or not planned.turns:
+        return
+    try:
+        base = _parse_ts(planned.started_at) or datetime.now(timezone.utc)
+        recent = planned.turns[-_CHAT_HISTORY_MAX_TURNS:]
+        messages = []
+        for i, t in enumerate(recent):
+            # Original turn time; synthesize a monotonic fallback (base + i) only
+            # when a turn has no timestamp, so intra-session order is preserved.
+            ts = t.ts or (base + timedelta(milliseconds=i)).isoformat()
+            messages.append({
+                "role": t.role,
+                "content": t.text,
+                "meta_data": {"timestamp": ts, "narrative_id": narrative.id, "source": "imported"},
+            })
+        memory = {"messages": messages, "updated_at": datetime.now(timezone.utc).isoformat()}
+        repo = EventMemoryRepository(agent_id, user_id, db)
+        await repo.add_instance_json_format_memory("ChatModule", chat_inst.instance_id, memory)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[migrate.apply] chat-history seed failed for {narrative.id}: {e}")
+
+
 async def _summarize_session(planned: PlannedNarrative) -> _NarrativeSummary:
     """One helper_llm call → the Narrative's AI fields. Best-effort: on any
     failure (or empty source) fall back to a deterministic summary from the
@@ -149,6 +189,11 @@ async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNar
     await svc.save_narrative_to_db(narrative)
 
     # retain the real turns as event memory scoped to this Narrative
+    # Also write the recent turns into this Narrative's ChatModule instance
+    # memory, so they load as normal "recent history" when the user opens the
+    # narrative (the event memory below is search-only — never auto-injected).
+    await _seed_chat_history(db, agent_id, user_id, narrative, planned)
+
     engine = MemoryEngine(db, agent_id)
     retained = 0
     for t in planned.turns:
