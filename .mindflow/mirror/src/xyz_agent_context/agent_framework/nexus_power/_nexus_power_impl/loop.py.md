@@ -4,6 +4,17 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 残缺参数的调用「被回答」而不是被执行
+
+参数 JSON 没解析成功的 tool call(典型:输出 token 上限把 arguments 流切断,
+finish_reason=length)在 DISPATCH 里短路:不过 hook、不进通道,直接合成错误
+result 回给模型。措辞工具无关(铁律 #4)且明说自救路径——length 停机时点名
+「输出上限 N 切断了参数,请分多次小调用/用编辑工具增量扩展」;业界实测弱模型
+拿到裸 parse error 不会可靠自修复(codex#19765)。stop_reason 经 _stream_step
+的 step_meta 出参带到 DISPATCH(tool_use 事件先于 done 到达,截断上下文只能
+事后补)。旧行为=带着 {} 参数执行,write_file 落到 workspace 根报
+「Is a directory」,把模型引向路径排查死胡同(2026-07-30 事故)。
+
 ## 2026-07-30 — tool_use_start 不再被 continue 吞掉
 
 `_stream_step` 原来在 `include_arg_deltas` 分支里对 tool_use_start 做完

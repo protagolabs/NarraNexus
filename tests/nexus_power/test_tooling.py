@@ -356,3 +356,47 @@ async def test_shell_still_receives_turn_scoped_env(workspace):
     toolset = BuiltinToolset(scoped, enabled_groups=frozenset({"shell"}))
     got = await toolset.call("bash", {"command": "echo $AGENT_SCOPED"}, scoped)
     assert got.ok and "yes-please" in got.content
+
+
+@pytest.mark.asyncio
+async def test_write_tools_refuse_missing_path(ctx, workspace):
+    """A write-shaped call whose ``path`` never arrived (truncated or
+    malformed arguments) must fail with an actionable error — the old
+    fallback resolved to the workspace ROOT and surfaced
+    ``[Errno 21] Is a directory``, sending the model down a
+    path-debugging rabbit hole."""
+    toolset = BuiltinToolset(ctx, enabled_groups=frozenset({"files"}))
+    for name, args in (
+        ("write_file", {"content": "x"}),
+        ("edit_file", {"old": "a", "new": "b"}),
+        ("read_file", {}),
+    ):
+        result = await toolset.call(name, args, ctx)
+        assert not result.ok
+        assert "path" in (result.error or "")
+        assert "Is a directory" not in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_rejects_missing_required_args_before_routing(ctx, engine):
+    """Hermes-style pre-dispatch validation: required fields missing →
+    the schema comes back to the model and the handler never runs."""
+    dispatcher = ToolDispatcher(
+        (BuiltinToolset(ctx, enabled_groups=frozenset({"files"})),),
+        policy=engine,
+        ctx=ctx,
+    )
+    result = await dispatcher.execute(
+        ToolCall(id="1", name="write_file", args={"content": "hello"})
+    )
+    assert not result.ok
+    assert "path" in result.error and "NOT executed" in result.error
+    # And nothing was written anywhere in the workspace.
+    assert list((ctx_dir := __import__("pathlib").Path(ctx.workspace)).glob("**/*")) == [
+        ctx_dir / "hello.txt"
+    ]
+    # A complete call still routes normally.
+    ok = await dispatcher.execute(
+        ToolCall(id="2", name="write_file", args={"path": "out.txt", "content": "hi"})
+    )
+    assert ok.ok

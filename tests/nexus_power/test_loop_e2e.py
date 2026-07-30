@@ -540,3 +540,49 @@ def test_adapter_maps_tool_use_start_to_a_pending_tool_call():
     # Same key as the completed call ("arguments", the legacy contract),
     # so consumers replace by tool_call_id without a special shape.
     assert item["arguments"] == {}
+
+
+def _broken_use(cid, name, parse_error, index=0):
+    return ModelEvent(kind="tool_use", content_index=index,
+                      payload={"call_id": cid, "tool_name": name, "args": {},
+                               "parse_error": parse_error})
+
+
+@pytest.mark.asyncio
+async def test_truncated_tool_call_is_answered_not_executed():
+    """Arguments cut by the output-token limit: the call must NOT reach
+    the tool (the old path executed with empty args and surfaced
+    misleading errors like ``Is a directory``); the model gets an error
+    result naming the truncation and how to recover."""
+    model = FakeModel([
+        [_broken_use("c1", "write_file", "unterminated string at char 812"),
+         _done(stop="length")],
+        [_text("understood"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(name="write_file", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    assert tools.executed == []  # never dispatched
+    result = next(e for e in events if e.type == TYPE_TOOL_RESULT)
+    error = result.payload["error"]
+    assert "truncated" in error
+    assert "8192" in error  # the limit, so the model can reason about size
+    assert "NOT executed" in error
+    # The turn still closes normally after the model's second step.
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+@pytest.mark.asyncio
+async def test_malformed_tool_call_without_truncation_names_the_json_error():
+    model = FakeModel([
+        [_broken_use("c1", "bash", "expected ',' at char 40"),
+         _done(stop="tool_use")],
+        [_text("ok"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    assert tools.executed == []
+    result = next(e for e in events if e.type == TYPE_TOOL_RESULT)
+    error = result.payload["error"]
+    assert "malformed JSON" in error and "expected ','" in error

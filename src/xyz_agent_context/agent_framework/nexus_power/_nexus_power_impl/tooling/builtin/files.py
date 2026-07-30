@@ -128,11 +128,25 @@ def specs() -> list[ToolSpec]:
 
 
 def _resolve(ctx: ToolContext, raw: str | None) -> Path:
+    """Directory tools may default to the workspace root; FILE tools must
+    not (see ``_require_path``): a per-file handler that silently lands
+    on the root turns "argument never arrived" into ``Is a directory``."""
     workspace = Path(ctx.workspace).resolve()
     if not raw:
         return workspace
     candidate = Path(raw)
     return (candidate if candidate.is_absolute() else workspace / candidate).resolve()
+
+
+def _require_path(call_id: str, args: dict) -> ToolResult | None:
+    """The dispatcher already validates required fields; the tool that
+    touches the filesystem does not get to assume someone else checked
+    (same lesson as the glob climb-out, 2026-07-29 review)."""
+    if not args.get("path"):
+        return ToolResult(
+            call_id=call_id, ok=False, error="missing required argument: path"
+        )
+    return None
 
 
 def _truncate(text: str, cap: int = _MAX_READ_CHARS) -> str:
@@ -142,6 +156,8 @@ def _truncate(text: str, cap: int = _MAX_READ_CHARS) -> str:
 
 
 async def read_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    if (guard := _require_path(call_id, args)) is not None:
+        return guard
     path = _resolve(ctx, args.get("path"))
     if not path.is_file():
         return ToolResult(call_id=call_id, ok=False, error=f"not a file: {path}")
@@ -159,6 +175,8 @@ async def read_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
 
 
 async def write_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    if (guard := _require_path(call_id, args)) is not None:
+        return guard
     path = _resolve(ctx, args.get("path"))
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +187,8 @@ async def write_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
 
 
 async def edit_file(call_id: str, args: dict, ctx: ToolContext) -> ToolResult:
+    if (guard := _require_path(call_id, args)) is not None:
+        return guard
     path = _resolve(ctx, args.get("path"))
     if not path.is_file():
         return ToolResult(call_id=call_id, ok=False, error=f"not a file: {path}")
