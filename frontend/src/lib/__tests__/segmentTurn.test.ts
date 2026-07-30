@@ -4,8 +4,8 @@
  * 零回复不丢过程、连续 native_output 合并。
  */
 import { describe, it, expect } from 'vitest';
-import { segmentTurn } from '../segmentTurn';
-import type { TurnEvent } from '@/types';
+import { segmentTurn, timelineToEvents } from '../segmentTurn';
+import type { EventLogTimelineEntry, TurnEvent } from '@/types';
 
 const think = (id: string, content: string): TurnEvent =>
   ({ id, ts: 0, type: 'thinking', content });
@@ -57,5 +57,60 @@ describe('segmentTurn', () => {
 
   it('空输入产出空数组', () => {
     expect(segmentTurn([])).toEqual([]);
+  });
+});
+
+describe('timelineToEvents', () => {
+  it('保留 reply，使 event-log 的 timeline 可以直接切段', () => {
+    const tl: EventLogTimelineEntry[] = [
+      { type: 'thinking', content: '想一下' },
+      { type: 'tool_call', tool_name: 'bash', tool_input: { command: 'ls' } },
+      { type: 'tool_output', tool_name: 'bash', tool_output: 'a.txt' },
+      { type: 'reply', content: '好了', reply_via: 'send_message_to_user_directly' },
+    ];
+    const events = timelineToEvents(tl);
+    expect(events.map((e) => e.type)).toEqual(
+      ['thinking', 'tool_call', 'tool_output', 'reply'],
+    );
+    const segs = segmentTurn(events);
+    expect(segs).toHaveLength(1);
+    expect(segs[0].reply?.content).toBe('好了');
+    expect(segs[0].process).toHaveLength(3);
+  });
+
+  it('丢掉内容为空的 thinking / native_output 条目', () => {
+    const events = timelineToEvents([
+      { type: 'thinking', content: '' },
+      { type: 'native_output', content: '' },
+      { type: 'thinking', content: '有内容' },
+    ]);
+    expect(events).toHaveLength(1);
+  });
+
+  it('直播事件与 event-log timeline 切出同样的段——这是本设计的核心保证', () => {
+    // 同一轮的两种表示：WebSocket 收到的 TurnEvent，和刷新后从
+    // /event-log 拿到的 timeline。两者必须切出一致的结果。
+    const live: TurnEvent[] = [
+      { id: 'a', ts: 0, type: 'thinking', content: '想一下' },
+      { id: 'b', ts: 1, type: 'tool_call', tool_name: 'bash', tool_input: { command: 'ls' } },
+      { id: 'c', ts: 2, type: 'reply', content: '第一句' },
+      { id: 'd', ts: 3, type: 'tool_call', tool_name: 'glob', tool_input: { pattern: '*' } },
+      { id: 'e', ts: 4, type: 'reply', content: '第二句' },
+    ];
+    const reloaded = timelineToEvents([
+      { type: 'thinking', content: '想一下' },
+      { type: 'tool_call', tool_name: 'bash', tool_input: { command: 'ls' } },
+      { type: 'reply', content: '第一句' },
+      { type: 'tool_call', tool_name: 'glob', tool_input: { pattern: '*' } },
+      { type: 'reply', content: '第二句' },
+    ]);
+
+    const shape = (segs: ReturnType<typeof segmentTurn>) =>
+      segs.map((s) => ({
+        reply: s.reply?.content ?? null,
+        process: s.process.map((p) => p.type),
+      }));
+
+    expect(shape(segmentTurn(reloaded))).toEqual(shape(segmentTurn(live)));
   });
 });
