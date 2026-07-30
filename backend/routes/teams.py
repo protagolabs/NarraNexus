@@ -443,18 +443,25 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
                 # "no signal for N minutes" from.
                 "last_signal_at": format_for_api(row.get("updated_at")),
                 "steps": steps,
+                # The current turn's events-row id, once note_event_id() has
+                # bound it — lets the frontend fetch the full event_log via
+                # the existing event-log endpoint.
+                "event_id": row.get("event_id"),
             })
         elif status == "queued":
             entry.update({
                 "queued_count": waiting["count"],
                 "queued_since": format_for_api(waiting["oldest_at"]),
             })
+            if row is not None:
+                entry["event_id"] = row.get("event_id")
         elif row is not None and steps["items"]:
             # Idle, but we still hold the trace of the turn it just finished.
             entry.update({
                 "finished_at": format_for_api(row.get("updated_at")),
                 "steps": steps,
                 "tool_count": row.get("tool_count") or 0,
+                "event_id": row.get("event_id"),
             })
         out.append(entry)
     return out

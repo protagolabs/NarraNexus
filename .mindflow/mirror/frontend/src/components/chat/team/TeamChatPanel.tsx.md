@@ -1,14 +1,40 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — guide 横幅退役：空房 hero + member bar 的 `?` popover
+
+`TeamRoomGuide` 那条常驻灰字横幅整个删掉（文件已删），寻址规则改由
+[[TeamRoomHero]] 提供的两个出口承载：空房时 `messages.length === 0` 分支渲染
+hero（替掉原来的 `Users2 + chat.team.empty` 块，`chat.team.empty|emptyHint|
+emptyHintWithLead` 三个 key 就此在代码里无人读），有消息之后靠 member bar 里
+`?` 按钮弹出的 `GuideRuleCards` popover。横幅是「提示债」——为一个用户只需要
+知道两次的事实永久占掉一条房间宽度，还得靠 localStorage 记折叠状态才勉强能忍。
+新方案两处都是按需出现，`nx.team.guide.*` 记忆随之消失，无需迁移。
+
+`?` 容器接管了原先 Settings2 身上的 `ml-auto`（Settings2 去掉，否则两个
+`ml-auto` 会把设置钮推到自己一组里）。popover 靠 `guideRef` + document 上的
+`mousedown` 监听外点关闭，且只在 `guideOpen` 为真时挂监听——常挂会让每次点击
+都过一遍这段判断。
+
+## 2026-07-30 — 两栏布局：roster 常驻，console/气泡退役
+
+Timeline+Composer 外包一层两栏容器，右侧挂常驻 [[TeamRosterPanel]]（桌面
+恒显，窄屏由 member bar 的 Users2 钮开 overlay drawer）。据此退役两个旧
+表面：顶部折叠 console（TeamActivityConsole 文件已删）和消息流底部的
+TeamActivityBubble——后者的 idle-trace 保留期正是「跑完后气泡赖着不走」
+的根源。消息流只剩本文件内的 TypingIndicator：仅 running 成员渲染、无
+统计、回复落地即消失；点击它展开 roster 里该成员的详情（expandedId 状态
+由本组件持有，两侧共享同一高亮，这就是 roster 用受控 props 的原因）。
+
 
 ## 2026-07-28 — moved into `chat/team/`, activity + guidance split out
 
 The surface reached three files, so it became a package (铁律 #23):
 [[TeamActivityConsole]] (status console + transcript bubble) and
-[[TeamRoomGuide]] (addressing help) moved out of this file; the panel now
+`TeamRoomGuide` (addressing help, retired 2026-07-30) moved out of this file; the panel now
 composes them. `@/components/chat/TeamChatPanel` → `@/components/chat/team`.
 
 What the panel itself kept:

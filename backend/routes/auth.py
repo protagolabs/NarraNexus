@@ -898,7 +898,7 @@ async def delete_agent(
     Deletion order is from leaf to root to ensure foreign key safety:
     1. Instance Memory dynamic tables
     2. Narrative Memory dynamic tables
-    3. Jobs
+    3. Jobs + resumable CLI session handles
     4. Instance-Narrative Links
     5. Instance subsidiary data (social_entities, awareness, module_report_memory)
     6. Module Instances
@@ -1014,6 +1014,13 @@ async def delete_agent(
         cnt = result if isinstance(result, int) else 0
         if cnt > 0:
             stats["instance_jobs"] = cnt
+
+        # NOTE (2026-07-29): step 5b used to prune `agent_cli_sessions` here,
+        # because a stored CLI session handle outlived both the agent and its
+        # workspace and a recycled agent_id would inherit one pointing at a dead
+        # transcript. That table is gone — the adapter writes the CLI transcript
+        # per turn and deletes it when the turn ends, so nothing durable is left
+        # keyed on an agent_id. Deleting from it here would now raise.
 
         # 6. Instance-Narrative Links (by instance_id)
         if instance_ids:

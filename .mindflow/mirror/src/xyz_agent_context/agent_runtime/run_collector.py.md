@@ -1,10 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-07-27
+last_verified: 2026-07-30
 stub: false
 ---
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
+
+## 2026-07-30 — output_text 纳入 NexusPower 独白（群聊 @mention 无回复修复）
+
+`output_text` 的语义从「AGENT_RESPONSE delta 拼接」升级为「agent 说的话」：
+AGENT_RESPONSE delta + `AGENT_THINKING.monologue` 子集按到达顺序拼接。
+NexusPower 独白契约下 assistant 明文以 thinking 形态流出（monologue 标记），
+它就是 claude driver 会走 AGENT_RESPONSE 的那段文本；team room 契约「明文
+自动上墙」依赖 output_text，此前拿到空串导致 @mention 回复整段蒸发（dev
+evt_238abc4b0b0c4dca：final_output 里躺着完整回复、房间零消息）。provider
+CoT 的 monologue 恒为空串，不会把推理泄进 IM 转发。
+
+## 2026-07-30 — 捕获 Step-0 的 event_id
+
+`RunCollection.event_id` + 可选 `on_event_id` 回调：Step 0 完成的
+ProgressMessage 已在 `details.event_id` 里携带本 turn 的 events 行 id，
+collect_run 在消费循环里抓第一个出现的 id（first-id-wins，最多回调一次），
+让 bus 侧（`TurnActivity.note_event_id`）在 turn 还在跑时就能把活动行绑到
+events 行——这是团队房间 UI 拉取"刚跑完那轮完整 event_log"的缺失一环，
+且完全不触碰 runtime 本身。回调异常吞掉（状态上报绝不能弄坏 run，与
+on_progress 同一纪律）。
 
 ## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
 

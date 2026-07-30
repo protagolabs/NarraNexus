@@ -19,11 +19,16 @@ boundary, used by BOTH ends:
 
 Keeping this in the core package (not backend/) so both the executor
 service entrypoint and the driver can import it without a backend dep.
+
 """
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import hmac
 from typing import Any, Optional
+
+from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
@@ -34,6 +39,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_user_config,
     snapshot_user_config,
 )
+from xyz_agent_context.settings import settings
 
 # Maps the snapshot keys to their dataclass types for reconstruction.
 _CONFIG_TYPES = {
@@ -44,6 +50,18 @@ _CONFIG_TYPES = {
     "cli_helper": CliHelperConfig,
 }
 
+# NOTE (2026-07-29): the resume-auth block lived here — an HMAC over
+# (resume_session_id, working_path, framework, issued_at), signed by the
+# orchestrator and verified by the executor. It existed because a CLI session
+# handle names a resource OUTSIDE the request, living in a CLAUDE_CONFIG_DIR
+# shared by all tenants, so on an intentionally unauthenticated /agent-loop a
+# guessed handle plus a guessable working_path would replay another tenant's
+# conversation.
+#
+# No handle crosses this boundary anymore. The claude adapter writes the CLI
+# transcript itself, inside the executor, and deletes it when the turn ends —
+# so there is nothing durable on disk to replay and nothing to authorize.
+# See agent_framework/adapters/claude/transcript.py.
 
 def serialize_provider_configs() -> dict[str, Optional[dict]]:
     """Snapshot the current task's resolved provider configs as plain dicts.
@@ -97,8 +115,9 @@ def build_agent_loop_request(
     cancels by aborting the HTTP stream; the executor observes client
     disconnect. Provider configs are snapshotted here so the scoped creds
     cross the boundary explicitly (they normally ride a ContextVar).
+
     """
-    return {
+    body: dict[str, Any] = {
         "framework": framework,
         "working_path": working_path,
         "messages": messages,
@@ -110,3 +129,4 @@ def build_agent_loop_request(
         "disallowed_tools": disallowed_tools or [],
         "provider_configs": serialize_provider_configs(),
     }
+    return body

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-06-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `NarrativeSearchResult.raw_score`
+
+新增字段，承载未 squash 的 BM25 原始分。`similarity_score` 保留给展示和 LLM
+prompt，但**判据不能用它**：`s/(s+1)` 压缩了候选之间的间距，而间距是这里唯一
+可比的信号（IDF 按候选集现算，绝对值无跨 agent 意义）。见 [[routing_gate.py]]。
+参与者 narrative 走合成中性分、无 BM25 分，`raw_score` 保持 0.0。
 
 > 2026-06-23：`TriggerType` 新增 `MESSAGE_BUS = "message_bus"`，用于把团队群聊
 > (message bus) 的 Event 与 1:1 聊天区分开（侧栏预览据此过滤；见 [[event_service]]

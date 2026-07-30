@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -50,6 +50,13 @@ cursor — filter them here and cursors freeze and the scan never converges.
 `stop()` also sets an event so the loop leaves its interval sleep at once instead
 of waiting out up to `POLL_MAX_INTERVAL`, and cancels in-flight dispatches so the
 loop that owns them doesn't leak them.
+
+## 2026-07-30 — team turns bind their event_id onto the activity row
+
+The team branch also hands `act.note_event_id` to `_invoke_runtime` as
+`on_event_id`; `collect_run` fires it once when the Step-0 progress message
+surfaces the turn's events-row id. Non-team invocations pass nothing — the
+parameter defaults to None end to end.
 
 ## 2026-07-28 — team activity scoped by `turn()`
 
@@ -242,10 +249,6 @@ sees the owner's human name, not the opaque NetMind userSystemCode. The
 that hex must stay. The caller resolves `owner_name` via
 `UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
 [[user_repository.py]]).
-
-last_verified: 2026-06-09
-stub: false
----
 
 ## 2026-06-09 — `_get_channel_info` SQL dialect bug (silent bus-delivery break)
 

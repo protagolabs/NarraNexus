@@ -291,9 +291,18 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     # or a source we haven't probed).
     from xyz_agent_context.agent_framework.providers.model_probe_ledger import ledger_models
 
-    # The free-tier card proxies the SAME upstream catalogue as a NetMind card
-    # (our gateway forwards to NetMind), so it reads netmind's ledger entry
-    # instead of maintaining a second list that would silently drift.
+    # The free-tier card is gated by OUR gateway: the daily pass writes the
+    # gateway-∩-verdicts list as the ledger's own netmind_free entry
+    # (model_sync.build_free_tier_entry). Prefer it — the raw netmind passes
+    # include models the gateway cannot route or price.
+    if source == "netmind_free":
+        gated = ledger_models("netmind_free", protocol)
+        if gated:
+            return gated
+
+    # Otherwise the free-tier card proxies the SAME upstream catalogue as a
+    # NetMind card (our gateway forwards to NetMind), so it reads netmind's
+    # ledger entry instead of maintaining a second list that would drift.
     ledger_source = "netmind" if source == "netmind_free" else source
     if ledger_source in ("netmind", "system_pool", "openrouter", "yunwu"):
         synced = ledger_models(ledger_source, protocol)

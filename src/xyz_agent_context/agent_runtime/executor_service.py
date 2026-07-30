@@ -19,6 +19,18 @@ Security shape (why this exists):
   * Because the executor process does NOT set ``AGENT_EXECUTOR_URL``,
     ``get_agent_loop_driver`` here resolves to the LOCAL claude/codex
     driver (no self-recursion).
+  * EVERY field of the body describes only THIS request, which is what
+    makes leaving the endpoint unauthenticated tolerable. That property
+    held once before and was lost: a ``resume_session_id`` named a CLI
+    transcript in a ``CLAUDE_CONFIG_DIR`` shared across tenants, so a
+    direct caller with a guessed handle could replay someone else's
+    conversation — which is why that one capability used to carry a
+    per-call HMAC (``EXECUTOR_RESUME_HMAC_SECRET``). Both the field and
+    the signature are gone (2026-07-29): the claude adapter writes the
+    CLI transcript itself, inside this container, and deletes it when the
+    turn ends, so nothing durable exists for a caller to point at.
+    Anything added to this body later must preserve the property or
+    re-earn it the same way.
 
 Per-agent / per-user workspace isolation is a deployment concern layered
 on top (mount only that user's workspace into the container) — out of
@@ -36,7 +48,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
 # Importing the package registers the built-in agent-loop drivers
-# (claude_code / codex_cli) into the registry.
+# (claude_code / codex_cli / nexus_power) into the registry.
 import xyz_agent_context.agent_framework  # noqa: F401
 from xyz_agent_context.agent_framework.loop.driver import (
     get_agent_loop_driver,
@@ -176,6 +188,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
     # Re-apply the orchestrator's resolved (scoped) provider configs onto
     # THIS task's ContextVars, so the CLI authenticates with the right key.
     apply_provider_configs(body.get("provider_configs") or {})
+
 
     # AGENT_EXECUTOR_URL is unset in the executor container → local driver.
     driver = get_agent_loop_driver(framework, working_path=working_path)

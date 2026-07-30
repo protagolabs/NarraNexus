@@ -79,6 +79,9 @@ export interface TeamMemberActivity {
   queued_since?: string | null;
   /** running / stalled, and idle when a previous turn's trace survives. */
   steps?: TeamActivitySteps | null;
+  /** `events` row id of the member's current/last turn — fetch the full
+   *  event_log detail through the existing event-log endpoint. */
+  event_id?: string | null;
 }
 
 export interface TeamChatHistoryResponse {

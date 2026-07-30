@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-09
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — 被打断 turn 的持久化标记
+
+`hook_persist_turn` 读 `params.io_data.interrupted`:无回复时占位文案改为
+"(Interrupted by user)"(它不是 no_response,IM 源也照常写行),assistant
+meta_data 加 `interrupted: true`。此前用户 Stop 的 turn 根本到不了这里
+(runtime 在 Step 4 前 raise)——见 [[agent_runtime]] 2026-07-30 条目。
 
 ## 2026-07-09 — `_synthesize_attachment_markers` collapses to a wrapper
 

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — settings shell follows the active locale
+
+The page title, master navigation, and every section header/action owned by
+this shell now resolve through `pages.settings` locale keys. Navigation items
+store translation keys rather than display strings, so visibility filtering
+remains language-neutral. Child panels retain responsibility for their own
+copy.
 
 ## 2026-07-13 — Account nav gate: cloudOnly → powerOnly (per-user)
 
