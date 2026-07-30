@@ -2263,11 +2263,15 @@
     "back": "返回"
   },
   "onboarding": {
-    "migrationNudge": {
+    "migrationGuide": {
       "title": "导入已有的 agent",
-      "body": "在本机检测到 {{frameworks}} 的 agent。是否导入到 NarraNexus?",
+      "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
       "import": "导入",
-      "dismiss": "以后再说"
+      "later": "以后再说"
+    },
+    "migrationCoachmark": {
+      "text": "想导入的话，点“+” → Create Agent (from other source)。",
+      "gotIt": "知道了"
     }
   }
 }

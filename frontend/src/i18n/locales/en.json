@@ -2263,11 +2263,15 @@
     "back": "Back"
   },
   "onboarding": {
-    "migrationNudge": {
+    "migrationGuide": {
       "title": "Import an existing agent",
-      "body": "Found agents from {{frameworks}} on this machine. Import one into NarraNexus?",
+      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
       "import": "Import",
-      "dismiss": "Not now"
+      "later": "Later"
+    },
+    "migrationCoachmark": {
+      "text": "Want to import later? Use “+” → Create Agent (from other source).",
+      "gotIt": "Got it"
     }
   }
 }

@@ -4,8 +4,10 @@ last_verified: 2026-07-30
 stub: false
 ---
 
-> 2026-07-30: mounts [[MigrationNudge]] beside [[OnboardingChecklist]] above the
-> chat panel — the local-only "import an existing agent" startup prompt.
+> 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
+> chat panel — the local-only, once-per-user "import your other agents" guided
+> flow (welcome modal → import, or a coach-mark pointing at the sidebar "+").
+> Superseded the earlier MigrationNudge banner.
 
 
 ## 2026-07-28 — TeamChatPanel import follows the package move
