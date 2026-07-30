@@ -31,6 +31,10 @@ Track = Literal["model", "ui"]
 TYPE_TEXT_DELTA = "text_delta"
 TYPE_THINKING_DELTA = "thinking_delta"
 TYPE_TOOL_USE = "tool_use"
+# ui track only: the tool's name is known before its arguments finish
+# streaming. The UI shows "using X" immediately; the completed TYPE_TOOL_USE
+# then carries the full arguments and replaces it, keyed by call_id.
+TYPE_TOOL_USE_START = "tool_use_start"
 TYPE_TOOL_ARG_DELTA = "tool_arg_delta"  # ui track only: streamed argument field text
 TYPE_TOOL_RESULT = "tool_result"
 TYPE_COMPACTION = "compaction"          # replacement entry; see CompactionPayload
@@ -44,6 +48,7 @@ VALID_EVENT_TYPES = frozenset(
         TYPE_TEXT_DELTA,
         TYPE_THINKING_DELTA,
         TYPE_TOOL_USE,
+        TYPE_TOOL_USE_START,
         TYPE_TOOL_ARG_DELTA,
         TYPE_TOOL_RESULT,
         TYPE_COMPACTION,

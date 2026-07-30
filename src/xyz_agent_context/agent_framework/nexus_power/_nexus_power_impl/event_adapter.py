@@ -57,6 +57,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_RESULT,
     TYPE_TOOL_USE,
+    TYPE_TOOL_USE_START,
     TYPE_TURN_DONE,
     LoopEvent,
 )
@@ -97,6 +98,23 @@ class LegacyEventAdapter:
                         "delta": payload["text"],
                         "call_id": payload.get("call_id", ""),
                         "tool_name": payload.get("tool_name", ""),
+                    },
+                }
+            ]
+        if etype == TYPE_TOOL_USE_START:
+            # Name-first pending call: same legacy item shape (and the
+            # same "arguments" key) as the completed call, so consumers
+            # replace it in place by tool_call_id instead of learning a
+            # new message type.
+            return [
+                {
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
+                    "item": {
+                        "type": ITEM_TYPE_TOOL_CALL,
+                        "tool_call_id": payload.get("call_id", ""),
+                        "tool_name": payload.get("tool_name", ""),
+                        "arguments": {},
+                        "pending": True,
                     },
                 }
             ]

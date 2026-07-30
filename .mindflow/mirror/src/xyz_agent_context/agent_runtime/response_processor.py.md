@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — pending tool_call 帧的三条纪律
+
+1. details 增带 `tool_call_id` + `pending`——前端按 tool_call_id 把 pending
+   行原地替换成完整版，两帧都要带键。
+2. pending 帧 `state_update=None`：只有完整调用 record_tool_call，两帧都记
+   会翻倍步数和持久化 timeline。
+3. 用户回复工具（`_looks_like_user_reply_tool`）的 pending 帧整帧丢弃：
+   回复已经走 reply-delta 直播，空参数回复帧会往轮次内容里注入一个空气泡。
 
 ## 2026-07-29 (三次) — thinking_item 的 monologue 路由
 

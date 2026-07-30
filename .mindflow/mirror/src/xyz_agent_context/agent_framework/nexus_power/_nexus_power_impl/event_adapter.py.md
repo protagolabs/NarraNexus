@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/event_adapter.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — TYPE_TOOL_USE_START → pending tool_call
+
+映射为与完整调用**同形状**的 legacy `tool_call_item`（同用 `arguments` 键，
+空 dict）+ `pending: True`。消费端按 tool_call_id 原地替换即可，不必学习
+新消息型别；不支持名字先行的框架只发一次完整事件，消费端无需分支。
+
 # event_adapter — 遗留 dict 契约唯一翻译点
 
 ## 2026-07-29 — text_delta 的 thinking_item 打 monologue 标

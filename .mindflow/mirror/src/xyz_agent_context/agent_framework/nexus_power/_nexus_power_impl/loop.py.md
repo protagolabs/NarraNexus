@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/loop.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — tool_use_start 不再被 continue 吞掉
+
+`_stream_step` 原来在 `include_arg_deltas` 分支里对 tool_use_start 做完
+extractor 设置就 `continue`，事件到不了账本。现在设置完落到
+`ledger.record_model_event`，由账本发「名字先行」ui 事件（TYPE_TOOL_USE_START）。
+
 # loop — 相位推进器(≤500 行门禁)
 
 ## 2026-07-30 — 流内取消:显式 aclose + 后流边界
