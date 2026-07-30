@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
     FAIL,
     PASS,
     load_ledger,
+    passing_models,
     save_ledger,
     source_models,
 )
@@ -311,6 +312,9 @@ async def sync_source(
             res.added.append(mid)
             led[mid] = {**meta, "tested_at": _now()}
             to_probe += [(mid, p) for p in cs.protocols]
+        elif mid in extras:
+            for k, v in meta.items():  # bare-id extras meta only fills gaps
+                led[mid].setdefault(k, v)
         else:
             led[mid].update(meta)  # refresh display/context — no call
         # The catalog wins: a model it lists sheds any extra marker; a
@@ -322,7 +326,9 @@ async def sync_source(
         if is_new:
             continue
         if reprobe_failed:
-            to_probe += [(mid, p) for p in cs.protocols if led[mid].get(p) == FAIL]
+            to_probe += [
+                (mid, p) for p in cs.protocols if led[mid].get(p) in (FAIL, None)
+            ]
         stale = _is_stale(led[mid].get("tested_at"))
         revalidate += [
             (mid, p) for p in cs.protocols
@@ -347,7 +353,13 @@ async def sync_source(
         reval_results = await asyncio.gather(*(run(m, p) for m, p in revalidate))
 
     for mid, proto, verdict in probe_results:
-        led[mid][proto] = PASS if verdict == PROBE_OK else FAIL
+        # Transient trouble writes NOTHING: a missing verdict is "unknown",
+        # which the free gate keeps and the next pass re-probes. Persisting it
+        # as FAIL would hide the model for a day over one 429/timeout.
+        if verdict == PROBE_OK:
+            led[mid][proto] = PASS
+        elif verdict == PROBE_MODEL_ERROR:
+            led[mid][proto] = FAIL
         led[mid]["tested_at"] = _now()
     res.probed = len(to_probe)
     res.revalidated = len(revalidate)
@@ -393,10 +405,7 @@ async def sync_source(
         save_ledger(ledger)
 
     # Card lists carry catalog models only; extras are free-tier routing facts.
-    res.lists = {
-        p: sorted(m for m, r in led.items() if r.get(p) == PASS and not r.get("extra"))
-        for p in cs.protocols
-    }
+    res.lists = {p: sorted(passing_models(led, p)) for p in cs.protocols}
     return res
 
 
@@ -436,7 +445,7 @@ async def apply_ledger_to_db(
             continue
         db_sources = [key] + (["system_pool"] if key == "netmind" else [])
         for proto in ("openai", "anthropic"):
-            passing = sorted(m for m, r in models_map.items() if r.get(proto) == PASS)
+            passing = sorted(passing_models(models_map, proto))
             payload = json.dumps(passing)
             for ds in db_sources:
                 n = await db.update(
@@ -491,11 +500,6 @@ async def _cli() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    import sys
-    sys.exit(asyncio.run(_cli()))
-
-
 def _free_tier_wallet_client():
     """Indirection seam so tests (and future transports) can swap the client."""
     from xyz_agent_context.integrations.free_tier.wallet_client import WalletClient
@@ -503,7 +507,7 @@ def _free_tier_wallet_client():
     return WalletClient.from_settings()
 
 
-def build_free_tier_entry(
+def apply_free_tier_gate(
     ledger: dict[str, Any], gateway_models: list[str]
 ) -> dict[str, list[str]]:
     """Gate the gateway's catalogue by the netmind probe verdicts and persist
@@ -550,11 +554,17 @@ def compute_drift(ledger: dict[str, Any], gateway_models: list[str]) -> dict[str
     """
     netmind = source_models(ledger, "netmind")
     gateway = set(gateway_models)
+    # Only an id that fails on EVERY protocol is dead config. A lone-protocol
+    # FAIL (most OSS models have no Anthropic endpoint) is normal and would
+    # otherwise make this alert fire on every single pass — a permanently-lit
+    # alarm is an alarm turned off (incident lesson #3).
     failing = sorted(
-        f"{mid}:{proto}"
+        mid
         for mid in gateway
-        for proto in ("openai", "anthropic")
-        if netmind.get(mid, {}).get(proto) == FAIL
+        if all(
+            netmind.get(mid, {}).get(proto) == FAIL
+            for proto in ("openai", "anthropic")
+        )
     )
     missing = sorted(
         mid
@@ -568,7 +578,7 @@ def compute_drift(ledger: dict[str, Any], gateway_models: list[str]) -> dict[str
 
 async def refresh_free_tier_models(db, *, ledger: dict[str, Any] | None = None) -> int:
     """Overwrite every free-tier card's model list: the GATEWAY's catalogue
-    gated by the netmind probe verdicts (see ``build_free_tier_entry``).
+    gated by the netmind probe verdicts (see ``apply_free_tier_gate``).
 
     Separate from ``apply_ledger_to_db`` on purpose: the free tier's routable
     set is whatever the gateway was configured with (which is also the set it
@@ -602,7 +612,7 @@ async def refresh_free_tier_models(db, *, ledger: dict[str, Any] | None = None) 
         )
 
         ledger = await load_ledger_db(db) or load_ledger()
-    lists = build_free_tier_entry(ledger, models)
+    lists = apply_free_tier_gate(ledger, models)
 
     now = _now()
     updated = 0
@@ -618,3 +628,8 @@ async def refresh_free_tier_models(db, *, ledger: dict[str, Any] | None = None) 
         f"-> {updated} row(s)"
     )
     return updated
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(asyncio.run(_cli()))

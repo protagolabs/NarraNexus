@@ -192,16 +192,16 @@ async def test_revalidation_is_capped_oldest_first(monkeypatch):
     _netmind_catalog(monkeypatch, "OLDEST", "OLDER", "OLD")
     calls = _make_probe(monkeypatch, {})
     ledger = {"generated_at": None, "sources": {"netmind": {"models": {
-        "OLDEST": {"openai": PASS, "tested_at": _iso(40)},
-        "OLDER": {"openai": PASS, "tested_at": _iso(30)},
-        "OLD": {"openai": PASS, "tested_at": _iso(20)},
+        "OLDEST": {"openai": PASS, "anthropic": PASS, "tested_at": _iso(40)},
+        "OLDER": {"openai": PASS, "anthropic": PASS, "tested_at": _iso(30)},
+        "OLD": {"openai": PASS, "anthropic": PASS, "tested_at": _iso(20)},
     }}}}
 
     res = await model_sync.sync_source(
         "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
     )
 
-    assert set(calls) == {("OLDEST", "openai"), ("OLDER", "openai")}
+    assert set(calls) == {("OLDEST", "openai"), ("OLDEST", "anthropic")}
     assert res.revalidated == 2
 
 
@@ -272,8 +272,8 @@ async def test_suspects_win_the_revalidation_cap(monkeypatch):
     _netmind_catalog(monkeypatch, "STALE_M", "SUS")
     calls = _make_probe(monkeypatch, {})
     ledger = {"generated_at": None, "sources": {"netmind": {"models": {
-        "STALE_M": {"openai": PASS, "tested_at": _iso(40)},
-        "SUS": {"openai": PASS, "tested_at": FRESH},
+        "STALE_M": {"openai": PASS, "anthropic": PASS, "tested_at": _iso(40)},
+        "SUS": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
     }}}}
 
     await model_sync.sync_source(
@@ -356,7 +356,7 @@ def test_build_free_tier_entry_filters_fails_and_keeps_unknowns():
         "B": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
         "dead": {"openai": FAIL, "anthropic": FAIL, "tested_at": FRESH},
     }}}}
-    lists = model_sync.build_free_tier_entry(
+    lists = model_sync.apply_free_tier_gate(
         ledger, ["A", "B", "dead", "unknown"]
     )
     assert lists["openai"] == ["A", "B", "unknown"]
@@ -408,7 +408,9 @@ def test_compute_drift_reports_failing_gateway_and_missing_catalog_passes():
         "half": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
     }}}}
     drift = model_sync.compute_drift(ledger, ["A", "gw_dead", "half"])
-    assert drift["gateway_failing"] == ["gw_dead:anthropic", "gw_dead:openai", "half:anthropic"]
+    # Only ALL-protocol failures are drift: "half" has no anthropic endpoint,
+    # which is a perfectly normal single-protocol model, not dead config.
+    assert drift["gateway_failing"] == ["gw_dead"]
     # extras never count as "missing from gateway" — they only exist there.
     assert drift["catalog_pass_not_in_gateway"] == ["new_pass"]
 
@@ -442,3 +444,90 @@ def test_get_default_models_netmind_free_prefers_gateway_gated_entry(monkeypatch
         return [] if source == "netmind_free" else ["cat"]
     monkeypatch.setattr(model_probe_ledger, "ledger_models", no_free_entry)
     assert model_catalog.get_default_models("netmind_free", "openai") == ["cat"]
+
+
+# ---------------------------------------------------------------------------
+# Review round (PR #201): the extra invariant must hold at EVERY read gate,
+# transient never persists as FAIL, and lone-protocol gaps are not drift.
+# ---------------------------------------------------------------------------
+
+async def test_apply_ledger_to_db_never_lists_extras(monkeypatch):
+    led = {"sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "anthropic": PASS},
+        "gw_only": {"openai": PASS, "anthropic": PASS, "extra": True},
+    }}}}
+    monkeypatch.setattr(model_sync, "load_ledger", lambda: led)
+
+    calls: list[tuple[str, str, list]] = []
+
+    class FakeDB:
+        async def update(self, table, filters, data):
+            calls.append((filters["source"], filters["protocol"], json.loads(data["models"])))
+            return 1
+
+    await model_sync.apply_ledger_to_db(FakeDB(), sources=["netmind"])
+    for _s, _p, models in calls:
+        assert "gw_only" not in models
+    assert any("A" in models for _s, _p, models in calls)
+
+
+def test_ledger_models_never_lists_extras(monkeypatch):
+    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+
+    led = {"sources": {"netmind": {"models": {
+        "A": {"openai": PASS},
+        "gw_only": {"openai": PASS, "extra": True},
+    }}}}
+    monkeypatch.setattr(model_probe_ledger, "load_ledger", lambda: led)
+    assert model_probe_ledger.ledger_models("netmind", "openai") == ["A"]
+    assert model_probe_ledger.ledger_models("system_pool", "openai") == ["A"]
+
+
+async def test_new_model_transient_probe_stays_unknown_and_reprobes(monkeypatch):
+    # First pass: the new model's probe hits transient trouble -> verdict must
+    # stay ABSENT (unknown keeps it in the free dropdown), and the next pass
+    # must probe it again even though it is no longer "new".
+    _netmind_catalog(monkeypatch, "N")
+    calls = _make_probe(monkeypatch, {
+        ("N", "openai"): model_sync.PROBE_TRANSIENT,
+        ("N", "anthropic"): model_sync.PROBE_TRANSIENT,
+    })
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {}}}}
+    await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+    entry = ledger["sources"]["netmind"]["models"]["N"]
+    assert "openai" not in entry and "anthropic" not in entry
+
+    calls.clear()
+    await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+    assert set(calls) == {("N", "openai"), ("N", "anthropic")}
+
+
+def test_compute_drift_ignores_single_protocol_gaps():
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "openai_only": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
+    }}}}
+    drift = model_sync.compute_drift(ledger, ["openai_only"])
+    assert drift["gateway_failing"] == []
+
+
+async def test_extras_meta_does_not_clobber_known_display_name(monkeypatch):
+    # A model that left the catalog but is still served by the gateway keeps
+    # its human display_name — the bare-id extras meta only fills gaps.
+    async def fake_catalog():
+        return {"A": {"display_name": "A", "context": "1M"}}
+    monkeypatch.setattr(model_sync, "_fetch_netmind_catalog", fake_catalog)
+    _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "gone/X": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH,
+                    "display_name": "Nice Name", "extra": True},
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+    }}}}
+    await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        extra_models={"gone/X": {"display_name": "gone/X"}},
+    )
+    assert ledger["sources"]["netmind"]["models"]["gone/X"]["display_name"] == "Nice Name"
