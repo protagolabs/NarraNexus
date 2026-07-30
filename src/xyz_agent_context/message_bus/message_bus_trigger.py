@@ -649,6 +649,12 @@ class MessageBusTrigger:
                     retrieval_anchor=build_bus_anchor(messages),
                     on_progress=on_progress,
                     on_event_id=on_event_id,
+                    # Team rooms are the one surface whose prompt tells the
+                    # agent its plain text IS the delivered reply (auto-posted
+                    # to the room), so NexusPower monologue joins the collected
+                    # text. The peer-DM/inbox branch keeps the monologue
+                    # private — its prompt makes no such promise.
+                    include_monologue=is_team,
                 )
 
             # On success: advance cursor
@@ -1086,6 +1092,7 @@ class MessageBusTrigger:
         retrieval_anchor: str = "",
         on_progress=None,
         on_event_id=None,
+        include_monologue: bool = False,
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -1116,6 +1123,7 @@ class MessageBusTrigger:
             working_source=WorkingSource.MESSAGE_BUS,
             on_progress=on_progress,
             on_event_id=on_event_id,
+            include_monologue=include_monologue,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,

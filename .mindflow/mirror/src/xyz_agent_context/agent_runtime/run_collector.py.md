@@ -6,6 +6,17 @@ stub: false
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
 
+## 2026-07-30 (二次) — 独白并入改为显式 opt-in（`include_monologue`）
+
+PR #203 review 裁定（fix-first #1）：独白并入 output_text 是全局生效的，但
+只有 team room 的 prompt 对 agent 说过「你的明文会被发出去」。peer DM→
+收件箱、A2A 这些面上，NexusPower 宪法承诺明文私密——全局并入等于把 agent
+以为没人看的内部斟酌公开。**显式选择「收窄」方案**（review 给的二选一）：
+`collect_run(include_monologue=False)` 默认关闭，只有 prompt 已兑现「明文
+即送达」契约的调用方（今天 = bus 团队房间，trigger 传 `is_team`）打开。
+另修 on_progress 相位：带独白的 thinking 帧上报 "response"（agent 在说话），
+activity 视图不再在产出房间回复时显示 thinking。
+
 ## 2026-07-30 — output_text 纳入 NexusPower 独白（群聊 @mention 无回复修复）
 
 `output_text` 的语义从「AGENT_RESPONSE delta 拼接」升级为「agent 说的话」：

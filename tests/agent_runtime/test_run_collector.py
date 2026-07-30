@@ -263,8 +263,28 @@ async def test_nexus_monologue_reaches_output_text():
     result = await collect_run(
         runtime, agent_id="a", user_id="u",
         input_content="hi", working_source="message_bus",
+        include_monologue=True,
     )
     assert result.output_text == "Reply part one. Reply part two."
+
+
+@pytest.mark.asyncio
+async def test_monologue_excluded_unless_opted_in():
+    """Privacy guard: only surfaces whose PROMPT told the agent "your
+    plain text is delivered" (team rooms) may opt in. Everywhere else
+    the constitution's promise — plain text is private — must hold, or
+    a peer-DM inbox / A2A response would expose internal deliberation
+    the agent believed nobody would read."""
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="private deliberation",
+                      monologue="private deliberation"),
+        _delta("polished reply"),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+    )
+    assert result.output_text == "polished reply"
 
 
 @pytest.mark.asyncio
@@ -295,8 +315,31 @@ async def test_monologue_and_response_deltas_interleave_in_order():
     result = await collect_run(
         runtime, agent_id="a", user_id="u",
         input_content="hi", working_source="message_bus",
+        include_monologue=True,
     )
     assert result.output_text == "First. Second. Third."
+
+
+@pytest.mark.asyncio
+async def test_monologue_frame_reports_response_progress_kind():
+    """The team activity view mirrors on_progress; a monologue frame is
+    the agent SPEAKING (its text is about to be posted to the room), so
+    it must read as "response", not "thinking"."""
+    seen: list[str] = []
+
+    async def on_progress(kind: str, _tool) -> None:
+        seen.append(kind)
+
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="cot only"),
+        AgentThinking(thinking_content="the reply", monologue="the reply"),
+    ])
+    await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        include_monologue=True, on_progress=on_progress,
+    )
+    assert seen == ["thinking", "response"]
 
 
 @pytest.mark.asyncio
