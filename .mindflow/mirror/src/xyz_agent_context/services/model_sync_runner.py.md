@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/services/model_sync_runner.py
-last_verified: 2026-06-24
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — DB ledger + 嫌疑复测接线
+
+pass 顺序变为：`auto_migrate`（runner 是独立容器，不能赌 backend 先建表）→
+DB 加载 ledger（无则文件种子）→ `load_suspects` 注入 `sync_source(suspects=)` →
+双写 ledger（文件 best-effort + DB）→ 按 source 清嫌疑 → `apply_ledger_to_db`
+显式传入内存 ledger（旧代码在 apply 里从文件重读——云端文件写失败时会拿旧
+快照覆盖 DB，已修）。日志行加了 revalidated/flipped。
 
 # services/model_sync_runner.py — daily driver for provider model auto-sync
 

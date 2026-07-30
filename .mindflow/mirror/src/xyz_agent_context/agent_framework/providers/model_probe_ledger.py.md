@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_probe_ledger.py
-last_verified: 2026-06-24
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — DB 成为耐久载体，文件降级为种子
+
+云端容器每次部署都把 ledger 文件重置回 release 快照，复测历史（tested_at 时钟、
+pass→fail 翻转）全部丢失——这是"PASS 终身信任"问题的一半根源。新增
+`model_probe_ledger` 表（一行一个 source），`load_ledger_db` / `save_ledger_db`
+是异步 DB 层；写方（daily runner、Update models 按钮）DB 优先加载、双写回存，
+文件只做首跑种子和 `model_catalog` 的同步读路径。注意 DB driver 会把时间样式
+字符串解析成 datetime，load 时归一化回 isoformat。
 
 # agent_framework/providers/model_probe_ledger.py — the probe dedup cache (read/write)
 

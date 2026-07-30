@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — claude_oauth 模型列也改为读时覆盖
+
+镜像 codex_oauth 的模式：`get_user_config` 对 claude_oauth 行永远返回 CLI 家族
+别名（`get_default_models("claude_oauth","anthropic")` = opus/sonnet/haiku），
+无视存量 `models` 列。动机：别名机制上线前建的卡存的是 pinned 完整版本 id，
+上游一下线，slot 自愈的 membership 测试恰恰是对着这列做的——死 id 看起来
+"合法"，agent 就永远跑在死模型上。覆盖之后自愈会在下次 resolve 把这类 slot
+修到活别名。代价：用户不能再自定义该卡模型列（与 codex 一致，前端已隐藏
+Edit）。CODEX_CURATED_MODELS 注释补了人工核对 SOP + catalog 一致性 pin 测试。
 
 ## 2026-07-29 — `nexus_power` 进 `_SUPPORTED_AGENT_FRAMEWORKS`
 

@@ -62,7 +62,11 @@ def _is_cloud_mode() -> bool:
 # codex_oauth-only scoping in ``agentFramework.ts::getModelsForSlot``.
 #
 # Verified 2026-06-02 by running interactive ``codex`` and reading
-# "Select Model and Effort" menu.
+# "Select Model and Effort" menu. This list has NO automatic refresh path
+# (OAuth CLIs are out of model_sync's scope) — re-run that verification
+# whenever OpenAI ships/retires a codex model, and keep every id registered
+# in model_catalog (pinned by
+# test_codex_curated_models_stay_registered_in_catalog).
 CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
 
 
@@ -150,6 +154,18 @@ class UserProviderService:
             # DB migration needed.
             if row.get("source") == "codex_oauth":
                 stored_models = list(CODEX_CURATED_MODELS)
+            elif row.get("source") == "claude_oauth":
+                # Same override for claude_oauth, with the CLI family ALIASES
+                # (the claude CLI resolves opus|sonnet|haiku to the newest of
+                # each family, so this list can never go stale). Legacy cards
+                # stored pinned full ids; once those died upstream they still
+                # looked valid to the slot self-heal, whose membership test
+                # runs against this very list — the override makes self-heal
+                # repair such slots to a live alias on the next resolve.
+                from xyz_agent_context.agent_framework.providers.model_catalog import (
+                    get_default_models,
+                )
+                stored_models = get_default_models("claude_oauth", "anthropic")
             elif row.get("models"):
                 stored_models = json.loads(row["models"])
             else:

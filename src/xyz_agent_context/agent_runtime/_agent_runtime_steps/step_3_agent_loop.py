@@ -32,6 +32,7 @@ from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
 from xyz_agent_context.agent_framework.llm.failure import (
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
     classify_self_serviceable,
     self_serviceable_user_message,
     classify_executor_infra_failure,
@@ -1013,6 +1014,34 @@ async def step_3_agent_loop(
     skip_kind, skip_reason_detail, skip_target_type = _fallback_skip_decision(
         agent_loop_response, captured_error
     )
+
+    # Runtime model-health feedback: a classified model_not_found means the
+    # bound model was definitively rejected by its endpoint. Report the acting
+    # slot's (source, model, protocol) as a probe suspect so the next model
+    # sync revalidates it ahead of the TTL queue and dead entries leave the
+    # dropdowns (providers/model_health). Best-effort by contract.
+    _mnf = SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND
+    model_rejected = (
+        skip_kind == "raw_exception"
+        and skip_target_type == SELF_SERVICEABLE_ERROR_TYPE
+        and skip_reason_detail == _mnf
+    ) or (
+        skip_kind == "inline"
+        and any(
+            isinstance(m, ErrorMessage)
+            and getattr(m, "error_type", "") == SELF_SERVICEABLE_ERROR_TYPE
+            and getattr(m, "action_reason", None) == _mnf
+            for m in agent_loop_response
+        )
+    )
+    if model_rejected:
+        from xyz_agent_context.agent_framework.providers.model_health import (
+            report_agent_slot_suspect,
+        )
+
+        await report_agent_slot_suspect(
+            db_client, user_id=ctx.user_id, agent_id=ctx.agent_id, reason=_mnf
+        )
 
     if skip_kind == "inline":
         logger.warning(

@@ -1184,10 +1184,16 @@ export function ProviderSettings() {
                 className="px-4 py-2 text-sm rounded-lg text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 disabled:opacity-40 transition-colors">
                 {testing === prov.provider_id ? '...' : t('settings.provider.test')}
               </button>
-              <button onClick={() => openEditModels(prov)}
-                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-                {t('settings.provider.edit')}
-              </button>
+              {/* OAuth cards' model lists are code-owned (codex: curated
+                  constant; claude: CLI family aliases) — the backend overrides
+                  the stored column at read time, so editing here would be a
+                  silent no-op. */}
+              {prov.source !== 'claude_oauth' && prov.source !== 'codex_oauth' && (
+                <button onClick={() => openEditModels(prov)}
+                  className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                  {t('settings.provider.edit')}
+                </button>
+              )}
               <button onClick={() => { handleDelete(prov.provider_id); setDetailProviderId(null) }}
                 className="px-4 py-2 text-sm rounded-lg text-[var(--color-error)] hover:bg-[var(--color-error)]/5 transition-colors">
                 {t('settings.provider.delete')}

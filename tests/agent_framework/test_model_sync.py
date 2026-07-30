@@ -1,10 +1,19 @@
 """Diff/dedup logic for the model-probe sync engine."""
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from xyz_agent_context.agent_framework.providers import model_sync
 from xyz_agent_context.agent_framework.providers.model_probe_ledger import PASS, FAIL
+
+
+def _iso(days_ago: float = 0.0) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+
+
+FRESH = _iso(0)                # well inside the re-probe TTL
+STALE = _iso(30)               # far past the re-probe TTL
 
 
 async def test_sync_dedup_and_overwrite(monkeypatch):
@@ -22,14 +31,14 @@ async def test_sync_dedup_and_overwrite(monkeypatch):
 
     async def fake_probe(client, base, protocol, model, key):
         probe_calls.append((model, protocol))
-        return True  # everything probed this run passes (B's anthropic flips)
+        return model_sync.PROBE_OK  # everything probed passes (B's anthropic flips)
 
     monkeypatch.setattr(model_sync, "_probe", fake_probe)
 
     ledger = {"generated_at": None, "sources": {"netmind": {"models": {
-        "A": {"openai": PASS, "anthropic": PASS, "tested_at": "x"},
-        "B": {"openai": PASS, "anthropic": FAIL, "tested_at": "x"},
-        "D": {"openai": PASS, "anthropic": PASS, "tested_at": "x"},
+        "A": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "B": {"openai": PASS, "anthropic": FAIL, "tested_at": FRESH},
+        "D": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
     }}}}
 
     res = await model_sync.sync_source(
@@ -62,7 +71,8 @@ async def test_system_pool_maps_to_netmind(monkeypatch):
     monkeypatch.setattr(model_sync, "_fetch_netmind_catalog", fake_catalog)
 
     async def fake_probe(client, base, protocol, model, key):
-        return protocol == "openai"  # X works on openai only
+        # X works on openai only
+        return model_sync.PROBE_OK if protocol == "openai" else model_sync.PROBE_MODEL_ERROR
 
     monkeypatch.setattr(model_sync, "_probe", fake_probe)
 
@@ -99,3 +109,175 @@ async def test_apply_ledger_to_db_overwrites_all_rows(monkeypatch):
     # system_pool rows overwritten from the same netmind ledger entry
     assert by[("system_pool", "openai")] == ["A", "B"]
     assert by[("system_pool", "anthropic")] == ["A"]
+
+
+# ---------------------------------------------------------------------------
+# Stale-PASS revalidation (TTL re-probe) — pass entries are no longer trusted
+# forever; only a definitive model error flips them to fail.
+# ---------------------------------------------------------------------------
+
+def _make_probe(monkeypatch, verdicts: dict[tuple[str, str], str]):
+    """Install a fake probe answering per (model, protocol); records calls."""
+    calls: list[tuple[str, str]] = []
+
+    async def fake_probe(client, base, protocol, model, key):
+        calls.append((model, protocol))
+        return verdicts.get((model, protocol), model_sync.PROBE_OK)
+
+    monkeypatch.setattr(model_sync, "_probe", fake_probe)
+    return calls
+
+
+def _netmind_catalog(monkeypatch, *mids: str):
+    async def fake_catalog():
+        return {m: {"display_name": m, "context": None} for m in mids}
+    monkeypatch.setattr(model_sync, "_fetch_netmind_catalog", fake_catalog)
+
+
+async def test_stale_pass_revalidated_and_flips_only_on_model_error(monkeypatch):
+    _netmind_catalog(monkeypatch, "OLD", "NEW_ENOUGH")
+    calls = _make_probe(monkeypatch, {
+        ("OLD", "anthropic"): model_sync.PROBE_MODEL_ERROR,  # definitively dead
+        ("OLD", "openai"): model_sync.PROBE_OK,              # still fine
+    })
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "OLD": {"openai": PASS, "anthropic": PASS, "tested_at": STALE},
+        "NEW_ENOUGH": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+
+    led = ledger["sources"]["netmind"]["models"]
+    # Fresh PASS entries are still trusted — no probe call.
+    assert "NEW_ENOUGH" not in {m for m, _ in calls}
+    # Stale PASS entries get revalidated on both protocols.
+    assert ("OLD", "openai") in calls and ("OLD", "anthropic") in calls
+    # Definitive model error flips pass -> fail; OK refreshes the clock.
+    assert led["OLD"]["anthropic"] == FAIL
+    assert led["OLD"]["openai"] == PASS
+    assert led["OLD"]["tested_at"] != STALE
+    assert "OLD" not in res.lists["anthropic"]
+    assert "OLD" in res.lists["openai"]
+    assert "OLD:anthropic" in res.flipped
+
+
+async def test_stale_pass_transient_error_keeps_pass_and_retries_next_run(monkeypatch):
+    _netmind_catalog(monkeypatch, "FLAKY")
+    _make_probe(monkeypatch, {
+        ("FLAKY", "openai"): model_sync.PROBE_TRANSIENT,   # 429 / 5xx / network
+        ("FLAKY", "anthropic"): model_sync.PROBE_OK,
+    })
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "FLAKY": {"openai": PASS, "anthropic": PASS, "tested_at": STALE},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+
+    entry = ledger["sources"]["netmind"]["models"]["FLAKY"]
+    # Transient failure must NOT flip a passing model (it would empty user
+    # dropdowns on a rate-limit blip) — keep PASS, keep the old clock so the
+    # next run retries.
+    assert entry["openai"] == PASS
+    assert entry["tested_at"] == STALE
+    assert "FLAKY" in res.lists["openai"]
+    assert res.flipped == []
+
+
+async def test_revalidation_is_capped_oldest_first(monkeypatch):
+    monkeypatch.setattr(model_sync, "_REVALIDATE_CAP", 2)
+    _netmind_catalog(monkeypatch, "OLDEST", "OLDER", "OLD")
+    calls = _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "OLDEST": {"openai": PASS, "tested_at": _iso(40)},
+        "OLDER": {"openai": PASS, "tested_at": _iso(30)},
+        "OLD": {"openai": PASS, "tested_at": _iso(20)},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+
+    assert set(calls) == {("OLDEST", "openai"), ("OLDER", "openai")}
+    assert res.revalidated == 2
+
+
+async def test_mass_definitive_failure_does_not_flip_anything(monkeypatch):
+    # A dead/overdrawn platform key makes EVERY probe fail definitively.
+    # Flipping all of them would wipe every user's dropdown — the guard keeps
+    # the ledger untouched when a revalidation pass has zero OK results.
+    mids = [f"M{i}" for i in range(6)]
+    _netmind_catalog(monkeypatch, *mids)
+    _make_probe(monkeypatch, {(m, "openai"): model_sync.PROBE_MODEL_ERROR for m in mids})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        m: {"openai": PASS, "tested_at": STALE} for m in mids
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+    )
+
+    led = ledger["sources"]["netmind"]["models"]
+    assert all(led[m]["openai"] == PASS for m in mids)
+    assert res.flipped == []
+    assert sorted(res.lists["openai"]) == sorted(mids)
+
+
+async def test_empty_catalog_refuses_to_wipe(monkeypatch):
+    async def empty_catalog():
+        return {}
+    monkeypatch.setattr(model_sync, "_fetch_netmind_catalog", empty_catalog)
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "A": {"openai": PASS, "tested_at": FRESH},
+    }}}}
+
+    with pytest.raises(RuntimeError):
+        await model_sync.sync_source(
+            "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger
+        )
+    # Ledger untouched — A survives an upstream catalog outage.
+    assert ledger["sources"]["netmind"]["models"]["A"]["openai"] == PASS
+
+
+async def test_suspects_revalidated_regardless_of_ttl(monkeypatch):
+    _netmind_catalog(monkeypatch, "SUS", "CLEAN")
+    calls = _make_probe(monkeypatch, {
+        ("SUS", "anthropic"): model_sync.PROBE_MODEL_ERROR,
+        ("SUS", "openai"): model_sync.PROBE_OK,
+    })
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "SUS": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+        "CLEAN": {"openai": PASS, "anthropic": PASS, "tested_at": FRESH},
+    }}}}
+
+    res = await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        suspects={("SUS", "anthropic"), ("SUS", "openai")},
+    )
+
+    # Runtime-reported suspects jump the TTL queue; untouched fresh entries don't.
+    assert ("SUS", "anthropic") in calls
+    assert "CLEAN" not in {m for m, _ in calls}
+    assert ledger["sources"]["netmind"]["models"]["SUS"]["anthropic"] == FAIL
+    assert "SUS:anthropic" in res.flipped
+
+
+async def test_suspects_win_the_revalidation_cap(monkeypatch):
+    # With the per-run cap at 1, the fresh suspect must be probed before the
+    # older TTL-stale entry — a live user already hit the suspect.
+    monkeypatch.setattr(model_sync, "_REVALIDATE_CAP", 1)
+    _netmind_catalog(monkeypatch, "STALE_M", "SUS")
+    calls = _make_probe(monkeypatch, {})
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "STALE_M": {"openai": PASS, "tested_at": _iso(40)},
+        "SUS": {"openai": PASS, "tested_at": FRESH},
+    }}}}
+
+    await model_sync.sync_source(
+        "netmind", keys={"openai": "k", "anthropic": "k"}, ledger=ledger,
+        suspects={("SUS", "openai")},
+    )
+    assert calls == [("SUS", "openai")]

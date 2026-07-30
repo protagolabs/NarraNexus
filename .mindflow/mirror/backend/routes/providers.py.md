@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-29
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — sync-defaults 与 daily runner 共用 ledger 纪律
+
+Update models 按钮改为：DB 优先加载 ledger、带 suspects 调 `sync_source`、
+结束后双写（文件 best-effort + DB）并清已复测 source 的嫌疑——否则按钮一按，
+用户 key 的探测结果只落容器文件，下次部署即蒸发。
 
 ## 2026-07-29 — 框架切换门禁改用 cloud_policy 谓词
 

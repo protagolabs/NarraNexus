@@ -1,7 +1,12 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-26
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — OAuth 卡隐藏 Edit models
+
+claude_oauth / codex_oauth 的模型列表是代码所有（读时覆盖），编辑是静默无效
+操作——直接不渲染 Edit 按钮，别让用户改了个寂寞。
 
 ## 2026-07-26 — Claude 卡片 Section C：setup-token 粘贴连接
 
