@@ -1096,11 +1096,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <div className="flex-1 min-w-0">
               {/* Live view shows answers only: the process is in the
                   ProcessPanel above the composer. Painting it here too
-                  would render the same thinking/tools twice. */}
-              <SegmentedReply
-                segments={segmentTurn(currentEvents)}
-                isStreaming
-              />
+                  would render the same thinking/tools twice.
+
+                  The reply streams inside the same silicon bubble the
+                  settled MessageBubble will use — a bare string next to
+                  the avatar that suddenly gains a bubble on settle reads
+                  as two different things. Rendered only once a reply has
+                  visible content, so no empty blue box shows while the
+                  agent is still thinking/tooling. */}
+              {(() => {
+                const liveSegments = segmentTurn(currentEvents);
+                if (!liveSegments.some((s) => s.reply?.content)) return null;
+                return (
+                  <div
+                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
+                    style={{
+                      background: 'var(--color-silicon-soft)',
+                      color: 'var(--nm-ink)',
+                      border: '1px solid var(--color-silicon-hair)',
+                      borderLeft: '3px solid var(--color-silicon)',
+                    }}
+                  >
+                    <div className="text-sm break-words leading-relaxed">
+                      <SegmentedReply segments={liveSegments} isStreaming />
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Mid-stream artifact preview is independent of the timeline:
                   it surfaces created/uploaded artifacts inline as soon as
                   their tool_output lands, without waiting for the whole
