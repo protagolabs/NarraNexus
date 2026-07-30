@@ -88,11 +88,13 @@ class NexusPowerLoop:
 
                 # ---- MODEL_STREAM (with overflow-compaction retry) --------
                 step_calls: list[ToolCall] = []
+                step_meta: dict[str, str] = {}
                 attempt = 0
                 while True:
                     step_calls, error = [], None
+                    step_meta.clear()
                     try:
-                        async for ev in self._stream_step(request, step_calls):
+                        async for ev in self._stream_step(request, step_calls, step_meta):
                             yield ev
                     except Exception as exc:  # noqa: BLE001 - classified below
                         error = a.errors.classify(exc)
@@ -144,6 +146,22 @@ class NexusPowerLoop:
                         async for ev in self._interrupt("cancelled by user"):
                             yield ev
                         return
+                    if call.parse_error is not None:
+                        # Codex-shape recovery: a call whose argument JSON
+                        # never parsed is ANSWERED, not executed — no
+                        # hooks, no channel. The error names the real
+                        # cause (a "length" stop means the output-token
+                        # limit cut the arguments) so the model can
+                        # split the work instead of chasing the tool's
+                        # misleading downstream failure.
+                        result = unparsed_call_result(
+                            call,
+                            stop_reason=step_meta.get("stop_reason", ""),
+                            max_output_tokens=a.model.profile.max_output_tokens,
+                        )
+                        for ev in ledger.record_tool_result(call.id, result):
+                            yield await self._log(ev)
+                        continue
                     outcome = await a.hooks.fire(
                         HookEvent.PRE_TOOL_USE, {"call": call}
                     )
@@ -215,7 +233,10 @@ class NexusPowerLoop:
         )
 
     async def _stream_step(
-        self, request: ModelRequest, step_calls: list[ToolCall]
+        self,
+        request: ModelRequest,
+        step_calls: list[ToolCall],
+        step_meta: dict[str, str] | None = None,
     ) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
         extractors: dict[int, StreamingArgExtractor] = {}
@@ -264,6 +285,10 @@ class NexusPowerLoop:
                             self._arg_delta_event(delta, stream_meta.get(index))
                         )
                 continue
+            if kind == "done" and step_meta is not None:
+                step_meta["stop_reason"] = str(
+                    model_event.payload.get("stop_reason", "")
+                )
             events = ledger.record_model_event(model_event)
             if kind == "tool_use":
                 payload = model_event.payload
@@ -272,6 +297,7 @@ class NexusPowerLoop:
                         id=str(payload["call_id"]),
                         name=str(payload["tool_name"]),
                         args=dict(payload.get("args") or {}),
+                        parse_error=payload.get("parse_error"),
                     )
                 )
                 index = int(model_event.content_index)
@@ -362,3 +388,29 @@ def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
         ok=False,
         error="denied by hook: " + ("; ".join(notes) or "vetoed"),
     )
+
+
+def unparsed_call_result(
+    call: ToolCall, *, stop_reason: str, max_output_tokens: int
+) -> ToolResult:
+    """The answer for a call whose argument JSON never parsed.
+
+    Wording is tool-agnostic (iron rule #4) and states the recovery
+    path explicitly — weaker models do not reliably self-repair from a
+    bare parse error (measured across the industry; codex#19765)."""
+    if stop_reason == "length":
+        error = (
+            f"arguments truncated ({call.parse_error}): the response hit "
+            f"the output token limit ({max_output_tokens}) before the "
+            "arguments finished streaming. The tool was NOT executed. "
+            "Re-issue the call with less content per call — produce the "
+            "output in smaller pieces across multiple calls, or use an "
+            "editing tool to extend existing content incrementally."
+        )
+    else:
+        error = (
+            f"malformed JSON arguments ({call.parse_error}). The tool was "
+            "NOT executed. Re-emit the complete call as one valid JSON "
+            "object."
+        )
+    return ToolResult(call_id=call.id, ok=False, error=error)

@@ -60,11 +60,19 @@ class ToolSpec:
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One model-initiated call (arguments complete)."""
+    """One model-initiated call (arguments complete).
+
+    ``parse_error`` is set when the argument JSON never parsed (typically
+    a stream cut by the output-token limit). Such a call must be ANSWERED,
+    never executed — running it with partial args produced misleading
+    downstream failures (a write_file without ``path`` resolved to the
+    workspace root and surfaced ``Is a directory``, 2026-07-30 incident).
+    """
 
     id: str
     name: str
     args: dict[str, Any]
+    parse_error: str | None = None
 
 
 @dataclass(frozen=True)

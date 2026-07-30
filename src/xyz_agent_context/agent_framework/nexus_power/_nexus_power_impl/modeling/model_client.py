@@ -102,14 +102,16 @@ class LiteLLMModelClient:
         for index in sorted(calls):
             call = calls[index]
             raw = "".join(call["arguments"])
+            args, parse_error = _parse_args(raw)
             yield ModelEvent(
                 kind="tool_use",
                 content_index=index,
                 payload={
                     "call_id": call["id"] or f"call_{index}_{uuid.uuid4().hex[:8]}",
                     "tool_name": call["name"],
-                    "args": _parse_args(raw),
+                    "args": args,
                     "raw_arguments": raw,
+                    "parse_error": parse_error,
                 },
             )
         yield ModelEvent(
@@ -238,14 +240,21 @@ class AnthropicDirectClient:
         yield  # pragma: no cover - makes this an async generator
 
 
-def _parse_args(raw: str) -> dict[str, Any]:
+def _parse_args(raw: str) -> tuple[dict[str, Any], str | None]:
+    """(args, parse_error). Broken argument JSON is NOT smuggled through
+    under a synthetic key — the old ``{"_raw": raw}`` fallback let a
+    truncated call execute with its real fields missing, and the tool's
+    complaint pointed everywhere but the truncation. The error travels
+    explicitly so the dispatch layer can answer the call instead."""
     if not raw:
-        return {}
+        return {}, None
     try:
         parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return {"_raw": raw}
-    return parsed if isinstance(parsed, dict) else {"_raw": raw}
+    except json.JSONDecodeError as exc:
+        return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}"
+    if not isinstance(parsed, dict):
+        return {}, f"expected a JSON object, got {type(parsed).__name__}"
+    return parsed, None
 
 
 def _extract_usage(raw: Any) -> Usage | None:
