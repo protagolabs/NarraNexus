@@ -4,6 +4,23 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (二次) — 兜底回复不许承诺没在做的事
+
+`_FALLBACK_NO_REPLY_INSTRUCTIONS` 加两条规则:(1) 禁止任何"我来做 / 让我试试 /
+稍等"式的进行中或即将开始的表述——**这条消息发出去,这一轮就结束了**,承诺永远
+不可能兑现;(2) 当 `<this_turn_activity>` 显示 agent 只产出了意图、没有任何实际
+结果时,必须直说没做成 + 给一条具体出路。同时把选 prompt 的内联三元表达式提成
+`_fallback_instructions_for_mode(mode)`——这两段是**平台唯一替用户的 agent 张嘴
+说话**的文本,值得有个能被测试钉住的接缝(见
+`tests/agent_runtime/test_fallback_reply_honesty.py`)。
+
+触发事件(2026-07-29 Jiaxi 报障):用户让 agent 看图写 Word,agent loop 一轮结束、
+零工具调用,思考内容只有"我来用图像理解能力重新试试"。no_reply 兜底的指令是
+"把 agent 本该说的话说出来",于是它忠实地把这句意图讲给了用户——用户等一份
+没有任何东西在生产的文档。**一轮没干完是允许的**(铁律 #14 不强停、#15 不评判
+模型);不允许的是**我们生成的文字**声称有活在干。区分点:管的是平台自己编的
+话,不是模型的行为。
+
 ## 2026-07-30 — model_not_found 反哺探测嫌疑
 
 fallback-skip 判定之后：raw_exception 路径直接看 `skip_reason_detail`，inline
