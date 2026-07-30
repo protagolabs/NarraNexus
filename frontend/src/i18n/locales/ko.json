@@ -2025,6 +2025,7 @@
     "noticeTitle": "잠시만요",
     "actionFailedTitle": "실행되지 않았습니다",
     "savedTo": "{{path}} 에 저장했습니다",
-    "downloadFailed": "다운로드 실패: {{error}}"
+    "downloadFailed": "다운로드 실패: {{error}}",
+    "doneTitle": "완료"
   }
 }

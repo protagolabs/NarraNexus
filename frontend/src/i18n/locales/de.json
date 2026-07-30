@@ -2026,6 +2026,7 @@
     "noticeTitle": "Einen Moment",
     "actionFailedTitle": "Das hat nicht funktioniert",
     "savedTo": "Gespeichert unter {{path}}",
-    "downloadFailed": "Download fehlgeschlagen: {{error}}"
+    "downloadFailed": "Download fehlgeschlagen: {{error}}",
+    "doneTitle": "Fertig"
   }
 }

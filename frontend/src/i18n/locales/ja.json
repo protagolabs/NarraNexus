@@ -2025,6 +2025,7 @@
     "noticeTitle": "少しお待ちください",
     "actionFailedTitle": "うまくいきませんでした",
     "savedTo": "{{path}} に保存しました",
-    "downloadFailed": "ダウンロードに失敗しました: {{error}}"
+    "downloadFailed": "ダウンロードに失敗しました: {{error}}",
+    "doneTitle": "完了"
   }
 }

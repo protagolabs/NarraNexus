@@ -22,7 +22,7 @@ import {
   Eye,
   Plus,
 } from 'lucide-react';
-import { Button, Badge, ScrollArea, useConfirm, Dialog } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm, useNotice, Dialog } from '@/components/ui';
 import { useConfigStore, useArtifactStore } from '@/stores';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
@@ -96,7 +96,7 @@ export function TreeNode({
   // render window.alert, so the outcome has to be reported in-app. Threading a
   // callback up through the recursion would buy nothing — an idle dialog is a
   // useState plus a null render.
-  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
+  const { notifyDone, notifyError, dialog: noticeDialog } = useNotice();
   // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
   // auto-expanded only top-level folders; sub-folders showed their name
   // but nothing inside, easily misread as "sub-folders are ignored". The
@@ -163,22 +163,17 @@ export function TreeNode({
                       // Desktop saves to ~/Downloads with no download shelf, so
                       // without this a successful save looks like a no-op.
                       if (savedPath) {
-                        void showNotice({
-                          title: t('common.noticeTitle', 'Just a moment'),
-                          message: t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
-                          okText: t('common.ok', 'OK'),
-                        });
+                        void notifyDone(
+                          t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                        );
                       }
                     })
                     .catch((e) =>
-                      showNotice({
-                        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
-                        message: t('common.downloadFailed', 'Download failed: {{error}}', {
+                      notifyError(
+                        t('common.downloadFailed', 'Download failed: {{error}}', {
                           error: String(e),
                         }),
-                        okText: t('common.ok', 'OK'),
-                        danger: true,
-                      }),
+                      ),
                     )
                 }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"

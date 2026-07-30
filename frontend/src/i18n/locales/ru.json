@@ -2030,6 +2030,7 @@
     "noticeTitle": "Одну секунду",
     "actionFailedTitle": "Не получилось",
     "savedTo": "Сохранено в {{path}}",
-    "downloadFailed": "Не удалось скачать: {{error}}"
+    "downloadFailed": "Не удалось скачать: {{error}}",
+    "doneTitle": "Готово"
   }
 }

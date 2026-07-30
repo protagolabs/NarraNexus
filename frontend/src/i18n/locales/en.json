@@ -2441,6 +2441,7 @@
     "noticeTitle": "Just a moment",
     "actionFailedTitle": "That didn’t work",
     "savedTo": "Saved to {{path}}",
-    "downloadFailed": "Download failed: {{error}}"
+    "downloadFailed": "Download failed: {{error}}",
+    "doneTitle": "Done"
   }
 }

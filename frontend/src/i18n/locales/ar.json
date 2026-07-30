@@ -2034,6 +2034,7 @@
     "noticeTitle": "لحظة واحدة",
     "actionFailedTitle": "لم تنجح العملية",
     "savedTo": "تم الحفظ في {{path}}",
-    "downloadFailed": "فشل التنزيل: {{error}}"
+    "downloadFailed": "فشل التنزيل: {{error}}",
+    "doneTitle": "تم"
   }
 }

@@ -22,8 +22,20 @@ import { describe, expect, test } from 'vitest';
 
 const SRC = resolve(__dirname, '../../');
 
-/** `window.alert(...)` and friends — the CALL, so prose mentioning them is fine. */
-const NATIVE_DIALOG_CALL = /\bwindow\s*\.\s*(alert|confirm|prompt)\s*\(/;
+/**
+ * The equivalent ways to reach the same three globals. All are the CALL (or the
+ * binding that enables it), so prose naming the APIs stays fine.
+ *
+ * A bare `alert(...)` is deliberately NOT banned: `useConfirm()` returns a
+ * function literally named `alert`, so `const { alert } = useConfirm(); alert(…)`
+ * is correct code that such a pattern would flag. The destructure-from-window
+ * case below is what closes that gap from the other side.
+ */
+const NATIVE_DIALOG_PATTERNS = [
+  /\b(window|globalThis|self)\s*\.\s*(alert|confirm|prompt)\s*\(/,
+  // `const { alert } = window` / `= globalThis` — the call site then looks local.
+  /\{[^}]*\b(alert|confirm|prompt)\b[^}]*\}\s*=\s*(window|globalThis|self)\b/,
+];
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -50,7 +62,7 @@ function nativeDialogCalls(file: string): string[] {
     .filter(({ line }) => {
       const t = line.trim();
       if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return false;
-      return NATIVE_DIALOG_CALL.test(line);
+      return NATIVE_DIALOG_PATTERNS.some((re) => re.test(line));
     })
     .map(({ line, no }) => `${relative(SRC, file)}:${no}  ${line.trim()}`);
 }

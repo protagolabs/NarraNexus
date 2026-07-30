@@ -12,7 +12,7 @@ export { ThemeToggle } from './ThemeToggle';
 export { LanguageToggle } from './LanguageToggle';
 export { Markdown, MarkdownPreview } from './Markdown';
 export { Dialog, DialogContent, DialogFooter } from './Dialog';
-export { useConfirm } from './ConfirmDialog';
+export { useConfirm, useNotice } from './ConfirmDialog';
 export type { ConfirmOptions, AlertOptions } from './ConfirmDialog';
 export { KPICard } from './KPICard';
 export type { KPIColor } from './KPICard';

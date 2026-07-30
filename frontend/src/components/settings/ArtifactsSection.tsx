@@ -14,7 +14,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, RefreshCw } from 'lucide-react';
-import { Button, Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { artifactsApi } from '@/services/artifactsApi';
 import type { Artifact } from '@/types/artifact';
@@ -46,7 +46,7 @@ function formatRelativeTime(iso: string): string {
 export default function ArtifactsSection() {
   const { t } = useTranslation();
   // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
-  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
+  const { notifyError, dialog: noticeDialog } = useNotice();
   const { userId } = useConfigStore();
   const [items, setItems] = useState<Artifact[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -105,12 +105,7 @@ export default function ArtifactsSection() {
       setConfirmOpen(false);
       await refresh();
     } catch (e) {
-      void showNotice({
-        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
-        message: t('settings.artifacts.bulkDeleteFailed', { error: String(e) }),
-        okText: t('common.ok', 'OK'),
-        danger: true,
-      });
+      void notifyError(t('settings.artifacts.bulkDeleteFailed', { error: String(e) }));
     } finally {
       setSubmitting(false);
     }

@@ -7,12 +7,17 @@ stub: false
 ## 2026-07-30 — 原生 alert 换成应用内通知
 
 wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
-切换嵌入模式失败时只表现为「模式没变」。顺带注册了 `artifacts.url.toggleFailed` —— 它此前只有代码里的内联兜底、en.json 未注册，于是非英语用户一律看到英文。改用 `useConfirm().alert`（[[ConfirmDialog]]），与仓库既有的 20+ 处 confirm /
-2 处 alert 先例同一套写法。
+切换嵌入模式失败时只表现为「模式没变」。顺带注册了 `artifacts.url.toggleFailed` —— 它此前只有代码里的内联兜底、en.json 未注册，于是非英语用户一律看到英文。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
 
-标题与 OK 按钮都显式传 i18n 值：`ConfirmDialog` 的默认值 `'Notice'` / `'OK'` 是硬编码
-英文、不走 i18n，不传就会让非英语用户看到英文外壳。新增共享 key
-`common.{{noticeTitle,actionFailedTitle,ok}}`（10 语言）。
+**chrome 不在调用点重复**：标题 / OK 文案 / danger 由 `useNotice` 提供，调用点只写
+message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名），改文案要改 9 处。这同时把
+`useConfirm` 默认值 `'Notice'` / `'OK'` 硬编码英文、不走 i18n 的洞补在一处 ——
+不必去动那个 20+ 调用方共用的原语。共享 key
+`common.{noticeTitle,doneTitle,actionFailedTitle,ok}`，10 语言。
+
+`notifyDone` 与 `notifyPending` 是分开的：`noticeTitle` 的 10 个译法都是「请稍候」语义
+（稍等一下 / 少しお待ちください / Одну секунду），拿它当成功提示的标题会让用户以为还在
+进行中 —— 所以成功走 `doneTitle`。
 
 用一条**仓库级静态契约测试**钉住（`lib/__tests__/no-native-dialogs.test.ts`）：扫描全部
 源文件，禁止任何 `window.alert/confirm/prompt` 调用。这类 bug 前两轮都是靠人读代码发现的

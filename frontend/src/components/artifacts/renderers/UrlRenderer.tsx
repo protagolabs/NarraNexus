@@ -54,7 +54,7 @@ import type { Artifact, UrlArtifactDoc } from '@/types/artifact';
 import { effectiveEmbedMode } from '@/types/artifact';
 import { artifactsApi, fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
-import { useConfirm } from '@/components/ui';
+import { useNotice } from '@/components/ui';
 
 interface Props {
   artifact: Artifact;
@@ -63,7 +63,7 @@ interface Props {
 export default function UrlRenderer({ artifact }: Props) {
   const { t } = useTranslation();
   // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
-  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
+  const { notifyError, dialog: noticeDialog } = useNotice();
   const [refreshKey, setRefreshKey] = useState(0);
   const { url: rawUrl, error: rawError } = useArtifactRawUrl(
     artifact.agent_id,
@@ -96,14 +96,9 @@ export default function UrlRenderer({ artifact }: Props) {
       await artifactsApi.setEmbedMode(artifact.agent_id, artifact.artifact_id, mode);
       setRefreshKey((k) => k + 1); // re-mint token + refetch the doc
     } catch (e) {
-      void showNotice({
-        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
-        message: t('artifacts.url.toggleFailed', 'Could not change mode: {{error}}', {
-          error: String(e),
-        }),
-        okText: t('common.ok', 'OK'),
-        danger: true,
-      });
+      void notifyError(
+        t('artifacts.url.toggleFailed', 'Could not change mode: {{error}}', { error: String(e) }),
+      );
     } finally {
       setBusy(false);
     }

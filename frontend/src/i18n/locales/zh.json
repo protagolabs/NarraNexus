@@ -2441,6 +2441,7 @@
     "noticeTitle": "稍等一下",
     "actionFailedTitle": "没成功",
     "savedTo": "已保存到 {{path}}",
-    "downloadFailed": "下载失败：{{error}}"
+    "downloadFailed": "下载失败：{{error}}",
+    "doneTitle": "已完成"
   }
 }

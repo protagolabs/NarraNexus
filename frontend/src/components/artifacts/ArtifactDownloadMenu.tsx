@@ -33,7 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
-import { useConfirm } from '@/components/ui';
+import { useNotice } from '@/components/ui';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { downloadFile } from '@/lib/download';
@@ -70,7 +70,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   const { t } = useTranslation();
   // In-app notices only: wry does not render window.alert, so a native one is
   // invisible on the DMG (see ui/ConfirmDialog).
-  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
+  const { notifyPending, notifyDone, notifyError, dialog: noticeDialog } = useNotice();
   const isChart = artifact.kind === 'application/vnd.echarts+json';
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
@@ -125,11 +125,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   const exportChartImage = (type: 'png' | 'jpeg') => {
     const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
     if (!instance) {
-      void showNotice({
-        title: t('common.noticeTitle', 'Just a moment'),
-        message: t('artifacts.download.chartLoading'),
-        okText: t('common.ok', 'OK'),
-      });
+      void notifyPending(t('artifacts.download.chartLoading'));
       return;
     }
     const dataUrl = instance.getDataURL({
@@ -195,24 +191,19 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
                       // Desktop has no download shelf — without this the save is
                       // indistinguishable from nothing happening.
                       if (savedPath) {
-                        void showNotice({
-                          title: t('common.noticeTitle', 'Just a moment'),
-                          message: t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
-                          okText: t('common.ok', 'OK'),
-                        });
+                        void notifyDone(
+                          t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                        );
                       }
                     })
                     .catch((e) => {
                       // Previously absent entirely: an unhandled rejection in the
                       // browser, an invisible alert on the DMG.
-                      void showNotice({
-                        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
-                        message: t('common.downloadFailed', 'Download failed: {{error}}', {
+                      void notifyError(
+                        t('common.downloadFailed', 'Download failed: {{error}}', {
                           error: String(e),
                         }),
-                        okText: t('common.ok', 'OK'),
-                        danger: true,
-                      });
+                      );
                     });
                 }}
                 className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"

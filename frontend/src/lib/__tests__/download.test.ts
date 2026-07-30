@@ -35,6 +35,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // restoreAllMocks does NOT undo stubGlobal, and the browser-surface tests
+  // replace `URL` with a plain object that is not a constructor — leaving that
+  // in place is a trap for the next test added to this file.
+  vi.unstubAllGlobals();
 });
 
 describe('downloadFile — desktop surface', () => {
