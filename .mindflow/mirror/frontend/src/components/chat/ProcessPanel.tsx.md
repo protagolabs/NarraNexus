@@ -4,6 +4,13 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (r4) — 渲染件抽到 process/processShared.tsx
+
+PHASE_LABEL_KEYS / friendlyToolName / formatElapsed / deriveActivity /
+Activity 和事件行渲染（∴/$/↳，现为 ProcessEventRows 组件）剪切到
+[[processShared]]，本文件只保留面板外壳（折叠头、滚动跟随、plan 区）。
+行为、样式、testid 零变化——抽取只为团队成员详情复用同一套终端渲染。
+
 ## 2026-07-30 (r3) — 收进 pipeline 阶段 + 可折叠（Owner 反馈第二轮）
 
 - **pipeline 阶段行收进面板**：原消息区悬浮的「Starting up…/Loading
