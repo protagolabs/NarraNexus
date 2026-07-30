@@ -356,6 +356,31 @@ export interface NativeOutputEvent {
   content: string;
 }
 
+/**
+ * 过程事件 —— 属于面板 / 气泡折叠区，不是给用户读的答案。
+ */
+export type ProcessEvent = ThinkingEvent | ToolCallEvent | ToolOutputEvent;
+
+export interface SegmentReply {
+  content: string;
+  /** 走了哪个表达工具；原生模型文本为 undefined。 */
+  via?: string;
+  /** 该段仍在流式增长（驱动光标动画）。 */
+  streaming?: boolean;
+}
+
+/**
+ * Segment —— 一轮里的一个「用户可见片段 + 导致它的过程」。
+ *
+ * 后端一轮仍是一条记录；前端把那一条渲染成 agent 实际说话的次数，
+ * 每段带上它之前的思考与工具调用。切段由 lib/segmentTurn 完成。
+ */
+export interface Segment {
+  process: ProcessEvent[];
+  /** null = 这一轮没有用户可见回复（过程仍然保留）。 */
+  reply: SegmentReply | null;
+}
+
 export type TurnEvent =
   | ThinkingEvent
   | ToolCallEvent
