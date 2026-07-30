@@ -4,6 +4,12 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — onboarding 的 models 支持按协议 dict（PR #204）
+
+`onboard_one_key`/`_build_dual_providers` 的 `models` 除单列表外接受
+`{protocol: [ids]}`——free 门产出的 openai/anthropic 名单确实不同，单列表会
+把整卡摊平。dict 中某协议缺失/为空时回落 `get_default_models`。
+
 ## 2026-07-30 — claude_oauth 模型列也改为读时覆盖
 
 镜像 codex_oauth 的模式：`get_user_config` 对 claude_oauth 行永远返回 CLI 家族
