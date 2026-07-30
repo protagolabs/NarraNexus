@@ -33,7 +33,10 @@ export function TeamManagementModal({ open, onClose }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
-  const { confirm, dialog } = useConfirm();
+  // Same instance also serves the failure notices below: wry does not render
+  // window.alert, so every one of these catch blocks was silent on the DMG —
+  // and none of them has any other feedback (no inline error state).
+  const { confirm, alert: showNotice, dialog } = useConfirm();
 
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -78,7 +81,12 @@ export function TeamManagementModal({ open, onClose }: Props) {
       if (tid) setSelectedTeamId(tid);
       setNewTeamName('');
     } catch (e) {
-      window.alert(t('teams.alert.createFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void showNotice({
+        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+        message: t('teams.alert.createFailed', { error: e instanceof Error ? e.message : String(e) }),
+        okText: t('common.ok', 'OK'),
+        danger: true,
+      });
     } finally {
       setCreating(false);
     }
@@ -97,7 +105,12 @@ export function TeamManagementModal({ open, onClose }: Props) {
         lead_agent_id: editLead,
       });
     } catch (e) {
-      window.alert(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void showNotice({
+        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+        message: t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }),
+        okText: t('common.ok', 'OK'),
+        danger: true,
+      });
     } finally {
       setSavingMeta(false);
     }
@@ -116,7 +129,12 @@ export function TeamManagementModal({ open, onClose }: Props) {
       await deleteTeam(selected.team.team_id);
       setSelectedTeamId(null);
     } catch (e) {
-      window.alert(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void showNotice({
+        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+        message: t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }),
+        okText: t('common.ok', 'OK'),
+        danger: true,
+      });
     }
   };
 
@@ -137,11 +155,14 @@ export function TeamManagementModal({ open, onClose }: Props) {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      window.alert(
-        inTeam
+      void showNotice({
+        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+        message: inTeam
           ? t('teams.alert.removeFailed', { error: msg })
           : t('teams.alert.addFailed', { error: msg }),
-      );
+        okText: t('common.ok', 'OK'),
+        danger: true,
+      });
     }
   };
 

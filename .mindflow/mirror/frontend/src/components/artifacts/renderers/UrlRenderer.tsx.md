@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/UrlRenderer.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 原生 alert 换成应用内通知
+
+wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
+切换嵌入模式失败时只表现为「模式没变」。顺带注册了 `artifacts.url.toggleFailed` —— 它此前只有代码里的内联兜底、en.json 未注册，于是非英语用户一律看到英文。改用 `useConfirm().alert`（[[ConfirmDialog]]），与仓库既有的 20+ 处 confirm /
+2 处 alert 先例同一套写法。
+
+标题与 OK 按钮都显式传 i18n 值：`ConfirmDialog` 的默认值 `'Notice'` / `'OK'` 是硬编码
+英文、不走 i18n，不传就会让非英语用户看到英文外壳。新增共享 key
+`common.{{noticeTitle,actionFailedTitle,ok}}`（10 语言）。
+
+用一条**仓库级静态契约测试**钉住（`lib/__tests__/no-native-dialogs.test.ts`）：扫描全部
+源文件，禁止任何 `window.alert/confirm/prompt` 调用。这类 bug 前两轮都是靠人读代码发现的
+—— 单元测试反而 stub 掉了 `window.confirm` 因而什么都没证明。grep 是唯一能覆盖「还没被
+写出来的文件」的断言。
 
 # UrlRenderer.tsx — renderer for URL-tab artifacts (application/x-url)
 

@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 原生 alert 换成应用内通知
+
+wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
+创建/保存/删除团队、增删成员失败时**完全无提示**（这四个 catch 块除了 alert 什么都不做，没有 inline 错误态，用户无法区分「失败了」和「我没点上」）。复用了本文件已有的 `useConfirm()` 实例和 `{dialog}` 挂载点，只多取一个 `alert`。改用 `useConfirm().alert`（[[ConfirmDialog]]），与仓库既有的 20+ 处 confirm /
+2 处 alert 先例同一套写法。
+
+标题与 OK 按钮都显式传 i18n 值：`ConfirmDialog` 的默认值 `'Notice'` / `'OK'` 是硬编码
+英文、不走 i18n，不传就会让非英语用户看到英文外壳。新增共享 key
+`common.{{noticeTitle,actionFailedTitle,ok}}`（10 语言）。
+
+用一条**仓库级静态契约测试**钉住（`lib/__tests__/no-native-dialogs.test.ts`）：扫描全部
+源文件，禁止任何 `window.alert/confirm/prompt` 调用。这类 bug 前两轮都是靠人读代码发现的
+—— 单元测试反而 stub 掉了 `window.confirm` 因而什么都没证明。grep 是唯一能覆盖「还没被
+写出来的文件」的断言。
 
 # TeamManagementModal.tsx — Full team CRUD modal (create / manage the teams behind the group chats)
 

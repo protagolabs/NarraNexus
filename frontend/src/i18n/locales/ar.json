@@ -1909,6 +1909,9 @@
       "zoomInAria": "تكبير",
       "close": "إغلاق (Esc)",
       "closeAria": "إغلاق التكبير"
+    },
+    "url": {
+      "toggleFailed": "تعذّر تغيير الوضع: {{error}}"
     }
   },
   "skills": {
@@ -2026,6 +2029,11 @@
   },
   "common": {
     "close": "Close",
-    "betaTooltip": "NarraNexus في مرحلة تجريبية (بيتا). قد تتغير الميزات وقد تحدث مشكلات عرضية — ملاحظاتكم تساعدنا على التحسين."
+    "betaTooltip": "NarraNexus في مرحلة تجريبية (بيتا). قد تتغير الميزات وقد تحدث مشكلات عرضية — ملاحظاتكم تساعدنا على التحسين.",
+    "ok": "حسنًا",
+    "noticeTitle": "لحظة واحدة",
+    "actionFailedTitle": "لم تنجح العملية",
+    "savedTo": "تم الحفظ في {{path}}",
+    "downloadFailed": "فشل التنزيل: {{error}}"
   }
 }

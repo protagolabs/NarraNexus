@@ -1900,6 +1900,9 @@
       "zoomInAria": "拡大",
       "close": "閉じる（Esc）",
       "closeAria": "ズームを閉じる"
+    },
+    "url": {
+      "toggleFailed": "モードを変更できませんでした: {{error}}"
     }
   },
   "skills": {
@@ -2017,6 +2020,11 @@
   },
   "common": {
     "close": "Close",
-    "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。"
+    "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。",
+    "ok": "OK",
+    "noticeTitle": "少しお待ちください",
+    "actionFailedTitle": "うまくいきませんでした",
+    "savedTo": "{{path}} に保存しました",
+    "downloadFailed": "ダウンロードに失敗しました: {{error}}"
   }
 }

@@ -4,6 +4,21 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 原生 alert 换成应用内通知
+
+wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
+workspace 文件下载失败无提示。注意 `TreeNode` 自己拿一个 `useConfirm()` 实例 —— 下载按钮和它的 URL 都在这个子组件里，把回调穿过递归换不到任何好处（空闲的 dialog 只是一个 useState + null 渲染）。改用 `useConfirm().alert`（[[ConfirmDialog]]），与仓库既有的 20+ 处 confirm /
+2 处 alert 先例同一套写法。
+
+标题与 OK 按钮都显式传 i18n 值：`ConfirmDialog` 的默认值 `'Notice'` / `'OK'` 是硬编码
+英文、不走 i18n，不传就会让非英语用户看到英文外壳。新增共享 key
+`common.{{noticeTitle,actionFailedTitle,ok}}`（10 语言）。
+
+用一条**仓库级静态契约测试**钉住（`lib/__tests__/no-native-dialogs.test.ts`）：扫描全部
+源文件，禁止任何 `window.alert/confirm/prompt` 调用。这类 bug 前两轮都是靠人读代码发现的
+—— 单元测试反而 stub 掉了 `window.confirm` 因而什么都没证明。grep 是唯一能覆盖「还没被
+写出来的文件」的断言。
+
 ## 2026-07-30 — the file preview needs code width
 
 Owner, same report as [[AwarenessPanel]]'s edit modal: "workspace 里文件查看也

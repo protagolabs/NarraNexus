@@ -92,6 +92,11 @@ export function TreeNode({
   userId,
 }: TreeNodeProps) {
   const { t } = useTranslation();
+  // Own instance: the download button and its URL live here, and wry does not
+  // render window.alert, so the outcome has to be reported in-app. Threading a
+  // callback up through the recursion would buy nothing — an idle dialog is a
+  // useState plus a null render.
+  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
   // auto-expanded only top-level folders; sub-folders showed their name
   // but nothing inside, easily misread as "sub-folders are ignored". The
@@ -153,7 +158,28 @@ export function TreeNode({
                     // Workspace files are auth-gated (X-User-Id / JWT); a plain
                     // <a download> can't carry those headers — see lib/download.ts.
                     authHeaders: api.getAuthHeaders(),
-                  }).catch((e) => window.alert(`Download failed: ${String(e)}`))
+                  })
+                    .then((savedPath) => {
+                      // Desktop saves to ~/Downloads with no download shelf, so
+                      // without this a successful save looks like a no-op.
+                      if (savedPath) {
+                        void showNotice({
+                          title: t('common.noticeTitle', 'Just a moment'),
+                          message: t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                          okText: t('common.ok', 'OK'),
+                        });
+                      }
+                    })
+                    .catch((e) =>
+                      showNotice({
+                        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+                        message: t('common.downloadFailed', 'Download failed: {{error}}', {
+                          error: String(e),
+                        }),
+                        okText: t('common.ok', 'OK'),
+                        danger: true,
+                      }),
+                    )
                 }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
                 title={t('awareness.workspace.download')}
@@ -205,6 +231,7 @@ export function TreeNode({
           ))}
         </div>
       )}
+      {noticeDialog}
     </div>
   );
 }

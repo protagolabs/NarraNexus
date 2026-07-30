@@ -33,7 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { Minus, Trash2, Maximize2, Plus } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
-import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import NewTabOmnibox from './NewTabOmnibox';
 
 interface Props {
@@ -44,6 +44,8 @@ interface Props {
 
 export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
   const { t } = useTranslation();
+  // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
+  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const artifacts = useArtifactStore((s) => s.artifacts);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
@@ -88,7 +90,12 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
       await deleteArtifact(agentId, deleteTarget.artifact_id);
       setDeleteTarget(null);
     } catch (e) {
-      window.alert(t('artifacts.tabStrip.deleteFailed', { error: String(e) }));
+      void showNotice({
+        title: t('common.actionFailedTitle', 'That didn\u2019t work'),
+        message: t('artifacts.tabStrip.deleteFailed', { error: String(e) }),
+        okText: t('common.ok', 'OK'),
+        danger: true,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -142,6 +149,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
           </Button>
         </DialogFooter>
       </Dialog>
+      {noticeDialog}
     </>
   );
 }

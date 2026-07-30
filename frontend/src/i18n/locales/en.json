@@ -2257,6 +2257,9 @@
       "zoomInAria": "Zoom in",
       "close": "Close (Esc)",
       "closeAria": "Close zoom"
+    },
+    "url": {
+      "toggleFailed": "Could not change mode: {{error}}"
     }
   },
   "skills": {
@@ -2433,6 +2436,11 @@
     "close": "Close",
     "cancel": "Cancel",
     "back": "Back",
-    "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve."
+    "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve.",
+    "ok": "OK",
+    "noticeTitle": "Just a moment",
+    "actionFailedTitle": "That didn’t work",
+    "savedTo": "Saved to {{path}}",
+    "downloadFailed": "Download failed: {{error}}"
   }
 }
