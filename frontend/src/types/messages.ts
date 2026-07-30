@@ -77,6 +77,11 @@ export interface AgentToolCall extends BaseMessage {
   tool_name: string;
   tool_input: Record<string, unknown>;
   tool_output?: string;
+  /** Stable per-call key — how a pending call and its completed form are
+   *  recognised as the same call rather than two. */
+  tool_call_id?: string;
+  /** Name known, arguments still streaming (see ToolCallEvent.pending). */
+  pending?: boolean;
   // Backend tags the originating progress message with a step like
   // "3.4.{N}"; the matching tool_output progress shares the same step.
   // chatStore uses it to backfill tool_output onto the right call when
@@ -309,6 +314,16 @@ export interface ToolCallEvent {
   tool_input: Record<string, unknown>;
   tool_call_id?: string;
   reply_via?: string;
+  /**
+   * 工具名已到、参数还在流式生成中。
+   *
+   * 参数是流式产生的，所以名字远早于「这次调用完成」就已知道。名字一到
+   * 就发一条 pending=true 的事件，参数齐了再发同 tool_call_id 的完整事件
+   * 覆盖它——界面因此能在参数生成期间就显示「正在用 bash」，而不是空等。
+   * 拿不到名字先行时机的框架只发一次完整事件（pending 缺省即假），消费端
+   * 无需分支。
+   */
+  pending?: boolean;
 }
 
 export interface ToolOutputEvent {

@@ -484,12 +484,28 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 tool_name: toolName,
                 tool_input: args,
                 step: progress.step,
+                // 替换键：pending 版与完整版共享同一个 tool_call_id。
+                tool_call_id: (progress.details?.tool_call_id as string | undefined),
               };
-              const exists = session.currentToolCalls.some(
+              // 名字先到的 pending 条目要被完整版**原地替换**，不能各记一条。
+              // currentToolCalls 是回复提取的数据源（stopStreaming 从里面挑
+              // send_message_to_user_directly 的 content），多出一条参数为空
+              // 的重复项会注入一段空回复。
+              const callId = (progress.details?.tool_call_id as string | undefined);
+              const sameCallIdx = callId
+                ? session.currentToolCalls.findIndex(
+                    (t) => (t as AgentToolCall & { tool_call_id?: string }).tool_call_id === callId,
+                  )
+                : -1;
+              const exists = sameCallIdx < 0 && session.currentToolCalls.some(
                 (t) => t.tool_name === toolCall.tool_name && t.timestamp === toolCall.timestamp
               );
+              if (sameCallIdx >= 0) {
+                newToolCalls = [...session.currentToolCalls];
+                newToolCalls[sameCallIdx] = toolCall;
+              }
               if (!exists) {
-                newToolCalls = [...session.currentToolCalls, toolCall];
+                if (sameCallIdx < 0) newToolCalls = [...session.currentToolCalls, toolCall];
 
                 // Inline timeline: a send_message_to_user_directly tool
                 // call carries the agent's actual reply in its content
@@ -529,14 +545,25 @@ export const useChatStore = create<ChatState>((_set, get) => {
                     });
                   }
                 } else {
-                  newEvents.push({
+                  // 同一次调用只占一行：pending 版先落位，完整版按
+                  // tool_call_id 覆盖它（id 保持不变，React 才不会把它当
+                  // 新节点重挂）。
+                  const pendingIdx = callId
+                    ? newEvents.findIndex(
+                        (e) => e.type === 'tool_call' && e.tool_call_id === callId,
+                      )
+                    : -1;
+                  const nextCall: TurnEvent = {
                     type: 'tool_call',
-                    id: generateId(),
+                    id: pendingIdx >= 0 ? newEvents[pendingIdx].id : generateId(),
                     ts: progress.timestamp,
                     tool_name: toolName,
                     tool_input: args,
-                    tool_call_id: (progress.details?.tool_call_id as string | undefined),
-                  });
+                    tool_call_id: callId,
+                    pending: !!progress.details?.pending,
+                  };
+                  if (pendingIdx >= 0) newEvents[pendingIdx] = nextCall;
+                  else newEvents.push(nextCall);
                 }
               }
             } else if (outputStr !== undefined) {
