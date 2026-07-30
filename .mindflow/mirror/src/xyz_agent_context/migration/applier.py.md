@@ -59,3 +59,12 @@ counts.
   invoked inside the fn) so tests can monkeypatch `applier.get_helper_sdk`.
 - helper_llm summary uses the user's configured helper slot → its cost is the
   user's (local). Cloud disables the whole import feature, so no cloud summary.
+- ⚠️ **Must resolve the owner's provider config first.** Before the narrative
+  loop, `apply_plan` calls `resolve_and_set_provider_for_user(user_id, db,
+  agent_id=...)` — the migrate route runs OUTSIDE the per-turn context that
+  `AgentRuntime.run` sets, so without this `get_helper_sdk()` falls through to the
+  platform default OpenAI key (stale → 401) and every summary silently degrades to
+  the deterministic fallback. Same defect + fix as every detached background
+  helper task (see `providers.resolver.inject_owner_helper_credentials`). Verified
+  live: with it, the summary uses the user's anthropic helper (real keywords);
+  without it, 401 → fallback.

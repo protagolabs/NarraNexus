@@ -298,6 +298,20 @@ async def apply_plan(
     #    created + enriched + saved directly (no agent loop), and its turns are
     #    retained as observation memory scoped to that Narrative. Best-effort per
     #    session so one bad session never aborts the rest.
+    if plan.narratives:
+        # Load the OWNER's effective LLM config onto this task so the per-session
+        # summarizer's helper_llm uses the USER's configured provider — not the
+        # platform default, whose stale key 401s (same defect + fix as every
+        # detached background helper task; see providers.resolver
+        # inject_owner_helper_credentials). Without this the summaries silently
+        # degrade to the deterministic fallback.
+        try:
+            from xyz_agent_context.agent_framework.providers.resolver import (
+                resolve_and_set_provider_for_user,
+            )
+            await resolve_and_set_provider_for_user(user_id, db, agent_id=agent_id)
+        except Exception as e:  # noqa: BLE001 — degrade to fallback summaries, never abort
+            logger.warning(f"[migrate.apply] provider resolve failed; summaries degrade: {e}")
     for planned in plan.narratives:
         try:
             n = await _import_narrative(db, agent_id, user_id, planned)
