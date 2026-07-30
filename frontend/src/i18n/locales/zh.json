@@ -156,9 +156,12 @@
       },
       "guide": {
         "title": "这个群怎么用",
+        "plainTitle": "直接说",
         "plain": "直接发消息（不 @ 任何人）——由团队负责人接手。",
         "plainWithLead": "直接发消息（不 @ 任何人）——由 {{name}} 接手。",
+        "mentionTitle": "@指定成员",
         "mention": "@ 某位队友，点名让 TA 处理。",
+        "broadcastTitle": "@all 全员广播",
         "broadcast": "@all 会通知全体——每位成员都会完整跑一轮，请谨慎使用。",
         "relay": "队友之间可以互相 @ 接力；在你不发言的情况下，最多接力 4 次后自动停止。"
       },

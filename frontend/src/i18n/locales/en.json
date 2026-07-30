@@ -156,9 +156,12 @@
       },
       "guide": {
         "title": "How this room works",
+        "plainTitle": "Just talk",
         "plain": "Send a message with no @ — the team lead picks it up.",
         "plainWithLead": "Send a message with no @ — {{name}} picks it up.",
+        "mentionTitle": "Address one agent",
         "mention": "@ a teammate to address them directly.",
+        "broadcastTitle": "Broadcast to all",
         "broadcast": "@all addresses everyone — each member runs a full turn, so use it sparingly.",
         "relay": "Teammates can @ each other to hand work off; the relay stops after 4 hops without a message from you."
       },

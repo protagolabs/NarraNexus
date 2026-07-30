@@ -91,10 +91,10 @@ function typingButtons() {
     .filter((b) => (b.getAttribute('aria-label') || '').startsWith('chat.team.typing'));
 }
 
-async function renderRoom(activity: unknown[]) {
+async function renderRoom(activity: unknown[], messages: unknown[] = [MESSAGE]) {
   getTeamChatMock.mockResolvedValue({
     success: true,
-    messages: [MESSAGE],
+    messages,
     activity,
     lead_agent_id: 'a1',
   });
@@ -151,5 +151,36 @@ describe('TeamChatPanel · two-pane room', () => {
     ]);
 
     expect(typingButtons()).toHaveLength(0);
+  });
+});
+
+/**
+ * The addressing rules used to be a permanent grey banner above the transcript.
+ * They now live in two on-demand places: the empty room's hero, and a `?`
+ * popover in the member bar that works for the whole life of the room.
+ */
+describe('TeamChatPanel · addressing help', () => {
+  test('help button toggles the guide popover', async () => {
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+
+    // Not standing chrome — nothing on screen until the user asks.
+    expect(screen.queryByText('chat.team.guide.plainTitle')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('chat.team.guide.title'));
+    expect(screen.getByText('chat.team.guide.plainTitle')).toBeTruthy();
+    expect(screen.getByText('chat.team.guide.plainWithLead(Ana)')).toBeTruthy();
+
+    // Clicking anywhere else dismisses it, like any popover.
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('chat.team.guide.plainTitle')).toBeNull();
+  });
+
+  test('an empty room shows the hero instead of the transcript', async () => {
+    await renderRoom([], []);
+
+    // The room names itself in the hero on top of the member bar's copy.
+    expect(screen.getAllByText('Desk')).toHaveLength(2);
+    expect(screen.getByText('chat.team.guide.plainTitle')).toBeTruthy();
+    expect(screen.getByText('chat.team.guide.relay')).toBeTruthy();
   });
 });

@@ -123,9 +123,12 @@
       },
       "guide": {
         "title": "Como esta sala funciona",
+        "plainTitle": "Fale direto",
         "plain": "Envie uma mensagem sem @ — o líder da equipe assume.",
         "plainWithLead": "Envie uma mensagem sem @ — {{name}} assume.",
+        "mentionTitle": "Fale com um agente",
         "mention": "@ um colega para falar diretamente com ele.",
+        "broadcastTitle": "Transmita para todos",
         "broadcast": "@all fala com todos — cada membro executa um turno completo, então use com moderação.",
         "relay": "Os colegas podem se @ para passar o trabalho adiante; sem uma mensagem sua, o revezamento para após 4 saltos."
       },

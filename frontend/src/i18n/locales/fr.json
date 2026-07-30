@@ -123,9 +123,12 @@
       },
       "guide": {
         "title": "Comment fonctionne ce salon",
+        "plainTitle": "Écris simplement",
         "plain": "Envoie un message sans @ — le responsable de l'équipe s'en charge.",
         "plainWithLead": "Envoie un message sans @ — {{name}} s'en charge.",
+        "mentionTitle": "Interpeller un agent",
         "mention": "@ un coéquipier pour t'adresser directement à lui.",
+        "broadcastTitle": "Diffuser à tous",
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
         "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
       },

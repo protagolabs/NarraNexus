@@ -18,14 +18,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, FileText, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
-import { TeamRoomGuide } from './TeamRoomGuide';
+import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -129,6 +129,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // Narrow screens have no room for a standing column, so the roster becomes a
   // drawer over the transcript.
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false);
+  // The addressing rules on demand. They fill the empty room's hero; once the
+  // transcript owns the space this popover is the only way back to them.
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideRef = useRef<HTMLDivElement | null>(null);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<BusAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -197,6 +201,17 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
   // One clock for every duration on screen, so rows never disagree by a tick.
   const now = nowTick || Date.now();
+
+  // A popover the user opened to read one thing must close on the next click
+  // anywhere else — otherwise it sits over the transcript until re-clicked.
+  useEffect(() => {
+    if (!guideOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (guideRef.current && !guideRef.current.contains(e.target as Node)) setGuideOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [guideOpen]);
 
   const nameOf = useCallback(
     (agentId: string) => members.find((m) => m.agent_id === agentId)?.name || agentId,
@@ -431,20 +446,36 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           <Users2 className="w-3.5 h-3.5" />
         </button>
 
+        {/* The addressing rules, on demand. The empty room's hero states them
+            once; after the first message this is the only way back to them. */}
+        <div className="relative ml-auto shrink-0" ref={guideRef}>
+          <button
+            type="button"
+            onClick={() => setGuideOpen((v) => !v)}
+            aria-expanded={guideOpen}
+            aria-label={t('chat.team.guide.title')}
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
+          {guideOpen && (
+            <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--nm-paper)] p-3 shadow-lg">
+              <GuideRuleCards leadName={leadName} accent={accent} />
+            </div>
+          )}
+        </div>
+
         {/* Team settings (detail page). */}
         <button
           type="button"
           onClick={() => navigate(`/app/teams/${teamId}`)}
           title={t('chat.team.teamSettings')}
           aria-label={t('chat.team.teamSettings')}
-          className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
         >
           <Settings2 className="w-3.5 h-3.5" />
         </button>
       </div>
-
-      {/* How this room is addressed — folded away once the user has read it. */}
-      <TeamRoomGuide teamId={teamId} leadName={leadName} />
 
       {/* Two panes: the conversation on the left, the standing roster on the
           right. The roster replaced the folded activity console — "what is
@@ -455,15 +486,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           {/* Timeline */}
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
             {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--text-tertiary)]">
-                <Users2 className="w-6 h-6 opacity-40" />
-                <div className="text-sm">{t('chat.team.empty')}</div>
-                <div className="text-xs max-w-[260px]">
-                  {leadName
-                    ? t('chat.team.emptyHintWithLead', { name: leadName })
-                    : t('chat.team.emptyHint')}
-                </div>
-              </div>
+              <TeamRoomHero
+                teamName={team.team.name}
+                memberNames={members.map((m) => m.name || m.agent_id)}
+                leadName={leadName}
+                accent={accent}
+              />
             ) : (
               <div className="space-y-5">
                 {messages.map((m) => {

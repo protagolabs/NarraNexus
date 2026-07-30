@@ -123,9 +123,12 @@
       },
       "guide": {
         "title": "So funktioniert dieser Raum",
+        "plainTitle": "Einfach schreiben",
         "plain": "Nachricht ohne @ senden — die Teamleitung übernimmt.",
         "plainWithLead": "Nachricht ohne @ senden — {{name}} übernimmt.",
+        "mentionTitle": "Ein Mitglied ansprechen",
         "mention": "@ ein Teammitglied, um es direkt anzusprechen.",
+        "broadcastTitle": "An alle senden",
         "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
         "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
       },

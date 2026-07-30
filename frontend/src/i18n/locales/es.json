@@ -123,9 +123,12 @@
       },
       "guide": {
         "title": "Cómo funciona esta sala",
+        "plainTitle": "Escribe sin más",
         "plain": "Envía un mensaje sin @ — lo atiende el responsable del equipo.",
         "plainWithLead": "Envía un mensaje sin @ — lo atiende {{name}}.",
+        "mentionTitle": "Dirígete a un agente",
         "mention": "@ a un compañero para dirigirte a él directamente.",
+        "broadcastTitle": "Difunde a todos",
         "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
         "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
       },
