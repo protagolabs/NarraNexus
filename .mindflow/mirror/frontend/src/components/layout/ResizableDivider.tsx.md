@@ -1,8 +1,38 @@
 ---
 code_file: frontend/src/components/layout/ResizableDivider.tsx
-last_verified: 2026-05-14
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `onResizeStart`, optional `title`, and live-follow drag
+
+Two API additions, both driven by the Owner's "拖拉的逻辑很奇怪" report:
+
+- **`onResizeStart?()`** fires on pointerdown, before any move. [[MainLayout]]
+  uses it to enter dragging mode — which is what lets the artifact column
+  freeze its iframe *before* the first dragged frame lands. Deriving that from
+  the first `onResize` instead would be wrong: the parent's re-render would
+  clobber the flex-grow it had just written imperatively, and the user would
+  see the pane snap back on the first pixel of movement.
+- **`title?`** so a second instance can describe itself. The default tooltip
+  is hardcoded chat ↔ artifacts wording, and the divider is now also used for
+  the pinned bookmark drawer.
+- **`marginClassName?`** — the escape hatch for the "Gotcha" at the bottom of
+  this file. The second instance lives directly in `<main>`, which carries
+  `md:gap-3`; that gap lands on *both* sides of the handle and stacks with the
+  default `mx-1` into a ~30px blank strip. [[MainLayout]] passes `-mx-2` to
+  cancel the surplus. It **replaces** the default margin rather than adding to
+  it, because two competing Tailwind margin utilities resolve by stylesheet
+  order — writing `mx-1 -mx-2` would be a coin flip.
+
+**The perf design changed shape** (the "Perf design — why two callbacks"
+section below describes the retired iteration 2): `onResize` no longer moves a
+ghost preview line. The panes themselves now track the cursor — still with
+zero React renders, because the parent writes `flex-grow` / `width` straight
+to the DOM. What used to force the ghost-line compromise (an artifact
+`<iframe>` reflowing 60×/s) is solved at the other end instead:
+[[ArtifactColumn]] pins its content width for the duration of the drag. So we
+now get live-follow AND zero reflow, rather than trading one for the other.
 
 # ResizableDivider.tsx — Vertical drag handle between two flex panes
 
@@ -88,4 +118,7 @@ The handle is `w-1.5 mx-1` — 6 px wide with 4 px margin each side, total
 intrude into the chat / artifact gutter. The flex parent must use
 `gap-0` (not `gap-N`) in the chat-artifact group, otherwise the gap
 stacks on top of the divider's margins and creates an uncomfortably
-wide blank strip.
+wide blank strip. Where the parent's gap can't be removed (the pinned-drawer
+instance sits in `<main>`, which needs its `md:gap-3` for the other columns),
+pass `marginClassName` with a negative margin instead — see the 2026-07-30
+entry above.

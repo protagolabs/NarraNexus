@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactTabStrip.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — width budget: actions on demand, "+" pinned outside the scroller
+
+Owner report: the artifacts page "数据不全". Cause was a width budget, not
+missing data. Every tab rendered its three action buttons (zoom / minimize /
+delete) unconditionally, putting a ~200px floor under each tab. The artifact
+column's minimum is 320px — its normal size whenever the chat keeps most of
+the room — so ONE tab filled the strip and pushed the "+" new-tab entry past
+the right edge, reachable only by horizontally scrolling a row whose scrollbar
+isn't visible. Effectively: the controls existed but couldn't be found.
+
+- Actions now occupy space only on the **active** tab, or while a tab is
+  hovered / holds focus. Inactive tabs collapse to their truncated title.
+- They collapse via `w-0 opacity-0`, deliberately **not** `hidden`: a
+  `display: none` subtree can't take focus, so `group-focus-within` would
+  never fire and keyboard users would lose zoom / minimize / delete outright.
+- The **"+" moved out of the scrolling row** into a sibling that can't scroll
+  away, so the new-tab entry is always on screen.
 
 ## 2026-07-22 — trailing "+" new-tab entry
 

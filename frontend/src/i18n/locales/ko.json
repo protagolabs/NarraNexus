@@ -710,7 +710,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "패널 크기 조정",
-      "title": "드래그하여 채팅 / 아티팩트 크기 조정"
+      "title": "드래그하여 채팅 / 아티팩트 크기 조정",
+      "drawerAriaLabel": "패널 너비 조정",
+      "drawerTitle": "드래그하여 패널 너비 조정"
     }
   },
   "settings": {

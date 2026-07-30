@@ -4,12 +4,14 @@
  * @description: Slide-over shell for bookmark panel content.
  *
  * Two modes:
- *   Slide-over (pinned=false): right-anchored overlay 440px wide.
+ *   Slide-over (pinned=false): overlay 440px wide, anchored `edgeReservePx`
+ *     from the right edge so it stops SHORT of the bookmark strip.
  *     - bg: var(--nm-paper)
  *     - left-edge shadow: -2px 0 var(--nm-elev-edge)
- *     - transparent backdrop; click backdrop or Esc → onClose
- *     - role="dialog" aria-modal
- *   Pinned (pinned=true): static column frame, no backdrop, no aria-modal.
+ *     - transparent backdrop (also stops short of the strip); click backdrop
+ *       or Esc → onClose
+ *     - role="dialog", NOT aria-modal — the strip stays operable
+ *   Pinned (pinned=true): static column frame, no backdrop.
  *
  * Header: mono uppercase title + Pin/PinOff toggle + X close.
  *
@@ -35,6 +37,14 @@ interface BookmarkDrawerProps {
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
   title: string;
+  /**
+   * Width of the right edge the slide-over must NOT cover — the bookmark
+   * strip plus the layout gutter (see MainLayout). Both the panel and the
+   * click-capturing backdrop are inset by this much, which is what makes
+   * "click another tab" switch panels in ONE click instead of requiring the
+   * user to close this one first. Ignored in pinned mode. Default 0.
+   */
+  edgeReservePx?: number;
   children: ReactNode;
 }
 
@@ -48,6 +58,7 @@ export function BookmarkDrawer({
   onPinnedChange,
   onClose,
   title,
+  edgeReservePx = 0,
   children,
 }: BookmarkDrawerProps) {
   // Keyboard Esc handler — only for slide-over mode (not pinned)
@@ -91,23 +102,29 @@ export function BookmarkDrawer({
     );
   }
 
-  // Slide-over mode: portal overlay
+  // Slide-over mode: portal overlay, inset from the right by edgeReservePx so
+  // the bookmark strip stays both visible and clickable underneath.
   return createPortal(
-    <div className="fixed inset-y-0 right-0 z-[200] flex pointer-events-none">
-      {/* Transparent backdrop — covers the page to capture outside clicks */}
+    <div
+      className="fixed inset-y-0 z-[200] flex pointer-events-none"
+      style={{ right: edgeReservePx, width: `min(440px, 100vw - ${edgeReservePx}px)` }}
+    >
+      {/* Transparent backdrop — captures outside clicks, but leaves the
+          reserved edge alone so strip clicks reach the strip, not this. */}
       <div
-        className="fixed inset-0 pointer-events-auto"
+        className="fixed inset-y-0 left-0 pointer-events-auto"
+        style={{ right: edgeReservePx }}
         data-drawer-backdrop=""
         onClick={onClose}
       />
 
-      {/* Drawer panel */}
+      {/* Drawer panel. NOT aria-modal: the bookmark strip beside it is a live
+          switcher, and aria-modal would hide it from screen readers. */}
       <div
         role="dialog"
-        aria-modal={true}
         aria-label={title}
         className={cn(
-          'relative flex flex-col w-full max-w-[440px] h-full pointer-events-auto',
+          'relative flex flex-col w-full h-full pointer-events-auto',
           'animate-slide-in-right',
         )}
         style={{

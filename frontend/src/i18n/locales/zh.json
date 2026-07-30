@@ -781,7 +781,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "调整面板大小",
-      "title": "拖动以调整对话／制品大小"
+      "title": "拖动以调整对话／制品大小",
+      "drawerAriaLabel": "调整面板宽度",
+      "drawerTitle": "拖动以调整面板宽度"
     }
   },
   "settings": {

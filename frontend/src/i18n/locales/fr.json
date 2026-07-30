@@ -711,7 +711,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Redimensionner les panneaux",
-      "title": "Glisser pour redimensionner chat / artefacts"
+      "title": "Glisser pour redimensionner chat / artefacts",
+      "drawerAriaLabel": "Redimensionner le panneau",
+      "drawerTitle": "Glisser pour redimensionner le panneau"
     }
   },
   "settings": {
