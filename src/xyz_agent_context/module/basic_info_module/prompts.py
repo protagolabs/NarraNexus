@@ -342,7 +342,7 @@ feedback unless the user asked you to.
 # prompt (the section becomes a static pointer) and emits the original
 # section — wording preserved verbatim — through get_turn_context() into the
 # "[Turn context]" block of the current user message. Flag OFF renders the
-# untouched legacy template above, byte-identical to the pre-R4 layout.
+# untouched legacy template above, functionally equivalent to the pre-R4 layout.
 #
 # BASIC_INFO_REAL_WORLD_TURN_TEMPLATE must stay byte-identical to the span
 # inside BASIC_INFO_MODULE_INSTRUCTIONS — the stable template is derived by

@@ -9,7 +9,8 @@ into a "[Turn context]" block prepended to the CURRENT user message, so
 the system prompt stays byte-stable across turns (provider prefix caches).
 
 Locks the R4a contract:
-- kill-switch OFF  → assembly byte-identical to the pre-R4 layout
+- kill-switch OFF  → assembly restores the pre-R4 section PLACEMENT (not the
+  pre-R4 bytes: the three determinism normalisations are unconditional)
   (temporal + full narrative template in the system prompt, recent actions
   appended to the system prompt, current user message == input_content);
 - kill-switch ON   → volatile sections appear ONLY in the LLM-facing
@@ -139,11 +140,17 @@ async def _build(runtime: ContextRuntime, narrative: Narrative, ctx: ContextData
 
 
 # =========================================================================
-# Kill-switch OFF — byte-identical to the pre-R4 layout
+# Kill-switch OFF — pre-R4 layout restored
+#
+# "Restored", not "byte-identical": the OFF path still applies the three
+# unconditional determinism normalisations (narrative timestamp
+# canonicalisation, module-block (priority, name) total order, mcp_servers
+# sort). This test therefore asserts each volatile section is back in the
+# system prompt and absent from the message — placement, not bytes.
 # =========================================================================
 
 @pytest.mark.asyncio
-async def test_flag_off_keeps_legacy_layout_byte_identical(db_client, monkeypatch):
+async def test_flag_off_restores_legacy_section_placement(db_client, monkeypatch):
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
     runtime = await _runtime(db_client, monkeypatch)
     narrative = _narrative()
@@ -365,3 +372,66 @@ async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatc
     )
     # Legacy layout: the second-resolution temporal block breaks the prefix.
     assert h1 != h2
+
+
+# =========================================================================
+# Empty turn context — never emit a header with nothing under it
+# =========================================================================
+
+@pytest.mark.asyncio
+async def test_empty_turn_context_yields_no_header(db_client, monkeypatch):
+    """Every part empty → the block is "" , not a lone header.
+
+    A header-only block would prepend "[Turn context]" plus a separator to the
+    user's message: tokens spent on a heading, and an instruction pointing at a
+    section that does not exist. Same reason the timeline reading-guide is only
+    emitted when there is a timeline to read.
+
+    Reachable via the fail-open branches: the temporal block is the one part
+    that normally always renders, so this is what a turn looks like when it
+    raises (DB hiccup on the user row) and there is no narrative, no module
+    turn context and no recent actions.
+    """
+    monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
+    runtime = await _runtime(db_client, monkeypatch)
+
+    async def _boom(_user_id):
+        raise RuntimeError("temporal lookup failed")
+
+    monkeypatch.setattr(runtime, "_build_user_temporal_block", _boom)
+
+    # No narrative, no temporal context, no module blocks, no recent actions.
+    block = await runtime._build_turn_context_block(
+        [],  # active_instances
+        ContextData(agent_id=AGENT_ID, user_id=USER_ID, input_content="hi"),
+        narrative_list=[],
+    )
+
+    assert block == ""
+    assert TURN_CONTEXT_HEADER not in block
+
+
+@pytest.mark.asyncio
+async def test_empty_turn_context_leaves_user_message_unwrapped(db_client, monkeypatch):
+    """The call site must not wrap an empty block either.
+
+    Guarding only the builder would still leave the assembler prefixing
+    "\n\n[User message]\n\n" — a separator with nothing above it.
+    """
+    monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
+    runtime = await _runtime(db_client, monkeypatch)
+    monkeypatch.setattr(
+        type(runtime), "_build_turn_context_block",
+        _always_empty_turn_context, raising=True,
+    )
+
+    _system_prompt, final_messages = await _build(runtime, _narrative(), _ctx_data())
+    user_msg = final_messages[-1]["content"]
+
+    assert user_msg == "what time is it?"
+    assert USER_MESSAGE_SEPARATOR not in user_msg
+    assert not user_msg.startswith("\n")
+
+
+async def _always_empty_turn_context(self, *args, **kwargs) -> str:
+    return ""

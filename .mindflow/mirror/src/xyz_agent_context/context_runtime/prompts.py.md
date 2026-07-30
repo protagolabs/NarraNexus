@@ -10,9 +10,6 @@ stub: false
 materializer 的驱逐逻辑决定；留在这里就等于把指南和它描述的内容拆到两层，预算
 不够时两者会不一致（指南在、行没了）。这是本文件"只放静态词汇"原则的一个例外
 面：**当一段文案的正确性取决于另一层的运行期决策时，它就该跟那层走。**
-last_verified: 2026-07-28
-stub: false
----
 
 ## 2026-07-28 — R4a：新增 `TURN_CONTEXT_HEADER` / `USER_MESSAGE_SEPARATOR`
 

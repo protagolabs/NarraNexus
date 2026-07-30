@@ -28,9 +28,6 @@ stub: false
 计费口径没变、也不许变：reply-delta **不计入** `final_output`——它是表达工具
 参数的投影，真正的 final_output 仍来自工具调用本身。两边都算就是双计，只算
 delta 就会在非流式路径上丢内容。
-last_verified: 2026-07-28
-stub: false
----
 
 ## 2026-07-28 — `DATA_TYPE_RESUME_FAILED` marker → mark_resume_failed（resume 化 R3）
 

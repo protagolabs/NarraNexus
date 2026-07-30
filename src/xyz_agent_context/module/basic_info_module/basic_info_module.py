@@ -129,7 +129,7 @@ class BasicInfoModule(XYZBaseModule):
         Flag ON  → stable template ({current_time} span replaced by a static
                    pointer) so the output is byte-stable across turns; the
                    volatile span travels via get_turn_context() instead.
-        Flag OFF → untouched legacy template, byte-identical to pre-R4.
+        Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
 
         Same include_volatile split as the narrative prompt builder
         (PromptBuilder.build_main_prompt), with the flag read here because

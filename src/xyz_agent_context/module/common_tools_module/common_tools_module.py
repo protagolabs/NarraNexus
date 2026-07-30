@@ -268,7 +268,7 @@ class CommonToolsModule(XYZBaseModule):
         With the R4 relocation flag ON the output is the constant
         COMMON_TOOLS_INSTRUCTIONS (byte-stable across turns) and the
         appendices travel via get_turn_context(); flag OFF keeps the legacy
-        single-block rendering, byte-identical to pre-R4.
+        single-block rendering, functionally equivalent to pre-R4.
         """
         sections = [self.instructions]
         if not settings.prompt_turn_context_relocation_enabled:

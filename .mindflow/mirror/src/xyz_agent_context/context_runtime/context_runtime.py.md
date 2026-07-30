@@ -12,9 +12,6 @@ stub: false
 存在的时间线（prod 2026-07-29）。注意本文件 `run()` 里打的
 `System Prompt built: N characters` 是在 preamble / recent-actions 拼接**之前**
 的数字——排查提示词尺寸时别把它当最终值。
-last_verified: 2026-07-28
-stub: false
----
 
 ## 2026-07-28 — R4d：module 块全序排序 + 诊断改按发射序并加前缀分桶哈希
 
@@ -116,6 +113,10 @@ LLM-facing 的 current_user_content，**绝不动 `ctx_data.input_content`** →
   升序稳定排序，与 `_build_module_instructions_prompt` 同语义）→ recent_actions。
   逐 part fail-open（warning + 跳过，不打死轮次）。R4a 阶段无模块 override
   （R4b 才逐模块搬），模块块为空。
+  **所有 part 都为空时返回 `""` 而非只剩 header**，调用点同样跳过包裹 ——
+  否则会给用户原话前缀两个空行加一个"分隔了个寂寞"的 `--- User message ---`，
+  并让模型去找一个不存在的小节。这条路径只在 temporal 失败（唯一常驻 part）
+  且无 narrative / 无模块块 / 无 recent_actions 时可达。
 - `build_input_for_framework` 新增 kw 参数 `narrative_list`（run() 传入；None =
   无 narrative turn 块）；`[Turn context]` + `--- User message ---` separator 前置
   拼接在附件 marker 逻辑**之前**。
@@ -132,9 +133,15 @@ LLM-facing 的 current_user_content，**绝不动 `ctx_data.input_content`** →
   marker)**，claude/codex 适配器 `messages.pop()` 原样取走，零适配器改动（铁律 #9）。
 
 Plan：`reference/self_notebook/plans/2026-07-25-r4-prompt-stability.plan.md`（R4a）。
-Tests：`tests/context_runtime/test_turn_context_relocation.py`（开关字节等价 /
-装配顺序 / 模块收集 fail-open / sys_sha256 稳定性）、`test_temporal_context.py`
-（建造点迁移）。
+Tests：`tests/context_runtime/test_turn_context_relocation.py`（开关关闭时恢复
+pre-R4 **小节位置** / 装配顺序 / 模块收集 fail-open / sys_sha256 稳定性 /
+空 turn context 不发 header）、`test_temporal_context.py`（建造点迁移）。
+
+**用词更正（2026-07-29，PR #185 review）**：早期注释与文档写的"开关关闭 =
+与 pre-R4 字节相同"是夸大。关闭开关恢复的是**小节位置**，不是字节流 ——
+三条 determinism normalisation（narrative 时间戳规范化、模块块 (priority, name)
+全序、mcp_servers 排序）是无条件生效的，它们不搬运也不丢弃任何内容，但确实改字节。
+module 级的"这段模板没动"仍然是准确的窄声明，只有 assembly 级的说法被改掉。
 
 ## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
 

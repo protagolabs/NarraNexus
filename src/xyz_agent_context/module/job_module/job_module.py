@@ -102,7 +102,7 @@ from xyz_agent_context.settings import settings
 # the "listed above" location wording is corrected to point at the turn
 # context) while the jobs table travels via get_turn_context() into the
 # "[Turn context]" block of the current message. Flag OFF renders the legacy
-# template, byte-identical to pre-R4.
+# template, functionally equivalent to pre-R4.
 # =============================================================================
 
 JOB_MODULE_INSTRUCTIONS = """
@@ -355,7 +355,7 @@ class JobModule(XYZBaseModule):
         Flag ON  → stable template ({jobs_information} replaced by a static
                    pointer) so the output is byte-stable across turns; the
                    jobs table travels via get_turn_context() instead.
-        Flag OFF → untouched legacy template, byte-identical to pre-R4.
+        Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
         """
         self.instructions = (
             JOB_MODULE_INSTRUCTIONS_STABLE

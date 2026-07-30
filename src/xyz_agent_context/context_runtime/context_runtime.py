@@ -357,8 +357,11 @@ class ContextRuntime:
         # section (Part 0 temporal, narrative updated_at/current_summary,
         # recent_actions) moves to the [Turn context] block of the current
         # user message (see build_input_for_framework) so the system prompt
-        # stays byte-stable across turns. When disabled, assembly below is
-        # byte-identical to the pre-R4 layout.
+        # stays byte-stable across turns. When disabled, the assembly below
+        # restores the pre-R4 SECTION PLACEMENT — not the pre-R4 byte stream:
+        # the three determinism normalisations (narrative timestamp
+        # canonicalisation, module-block (priority, name) total order,
+        # mcp_servers sort) are unconditional and still apply.
         relocation_enabled = settings.prompt_turn_context_relocation_enabled
 
         # ========================================================================
@@ -732,6 +735,14 @@ class ContextRuntime:
         except Exception as e:  # noqa: BLE001 — fail-open per part
             logger.warning(f"        Turn context: failed to build recent actions: {e}")
 
+        # Header-only means every part was empty or failed. Returning it would
+        # prepend "[Turn context]" with nothing under it to the user's message —
+        # tokens spent on a heading, and an instruction to read a section that
+        # does not exist. Same reasoning that moved the timeline reading-guide
+        # out of the system prompt: never announce content that isn't there.
+        if len(parts) == 1:
+            return ""
+
         return "\n\n".join(parts)
 
     async def _build_auxiliary_narratives_prompt(
@@ -943,13 +954,22 @@ class ContextRuntime:
                     active_instances, ctx_data, narrative_list
                 )
                 turn_context_chars = len(turn_context_block)
-                current_user_content = (
-                    f"{turn_context_block}\n\n{USER_MESSAGE_SEPARATOR}\n\n{current_user_content}"
-                )
-                logger.debug(
-                    f"        Prepended [Turn context] block: {turn_context_chars} chars "
-                    f"(persisted input_content stays original)"
-                )
+                # An empty block means no part produced content. Wrapping anyway
+                # would prefix the user's words with two blank lines and a lone
+                # [User message] separator that separates nothing — so send the
+                # message through untouched instead.
+                if turn_context_block:
+                    current_user_content = (
+                        f"{turn_context_block}\n\n{USER_MESSAGE_SEPARATOR}\n\n{current_user_content}"
+                    )
+                    logger.debug(
+                        f"        Prepended [Turn context] block: {turn_context_chars} chars "
+                        f"(persisted input_content stays original)"
+                    )
+                else:
+                    logger.debug(
+                        "        Turn context empty — user message sent unwrapped"
+                    )
             except Exception as e:  # noqa: BLE001 — turn context must never break a turn
                 logger.warning(f"        Failed to assemble [Turn context] block: {e}")
 

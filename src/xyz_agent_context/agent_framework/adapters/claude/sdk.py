@@ -779,15 +779,17 @@ class ClaudeAgentSDK:
         logger.trace("[FULL_SYSTEM_PROMPT]\n{}", system_prompt)
         logger.trace("[USER_PROMPT]\n{}", this_turn_user_message)
 
-        # stderr 回调：将 Claude Code CLI 的错误输出记录到日志
-        # SDK 默认会静默丢弃 stderr，导致认证失败、进程崩溃等问题完全不可见
+        # stderr callback: route the Claude Code CLI's error output into our log.
+        # The SDK discards stderr silently by default, which makes auth failures
+        # and process crashes completely invisible.
         cli_stderr_lines: list[str] = []
         def _on_cli_stderr(line: str) -> None:
             cli_stderr_lines.append(line)
             logger.warning(f"[Claude CLI stderr] {line}")
 
         # Step 1: Build ClaudeAgentOptions
-        # 从 api_config 构建传给 Claude CLI 子进程的环境变量（仅包含非空值）
+        # Environment for the Claude CLI child process, built from api_config
+        # (non-empty values only).
         cli_env: dict[str, str] = claude_config.to_cli_env()
 
         # OAuth runs against an isolated CLAUDE_CONFIG_DIR (see to_cli_env):
@@ -796,15 +798,17 @@ class ClaudeAgentSDK:
         if claude_config.auth_type == "oauth":
             _stage_claude_oauth_credentials(cli_env["CLAUDE_CONFIG_DIR"])
 
-        # 确保 CLI 子进程绕过代理直连 localhost 的 MCP 服务器。
-        # 系统若设置了 http_proxy / https_proxy（如 VPN 代理），会导致
-        # Claude Code CLI 访问 localhost:780x 时走代理返回 502 Bad Gateway。
+        # Make the CLI child reach our localhost MCP servers directly instead of
+        # through a proxy. With http_proxy / https_proxy set system-wide (a VPN
+        # proxy, typically), the CLI's requests to localhost:780x go through it
+        # and come back 502 Bad Gateway.
         no_proxy_hosts = "localhost,127.0.0.1"
         cli_env["NO_PROXY"] = no_proxy_hosts
         cli_env["no_proxy"] = no_proxy_hosts
 
-        # 清除 CLAUDECODE 环境变量，避免嵌套会话检测导致子进程拒绝启动。
-        # 当后端从 Claude Code 终端内启动时，子进程会继承此变量。
+        # Clear CLAUDECODE so the CLI's nested-session detection does not refuse
+        # to start. The backend inherits this variable whenever it is itself
+        # launched from inside a Claude Code terminal.
         cli_env["CLAUDECODE"] = ""
 
         # Disable Claude Code's deferred tool loading for non-Claude models.
@@ -891,8 +895,8 @@ class ClaudeAgentSDK:
             max_turns=None,
             max_buffer_size=50 * 1024 * 1024,  # 50MB buffer size for large MCP responses (PDF parsing etc.)
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
-            stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
-            env=cli_env,  # 传递 Anthropic API Key 等环境变量给 Claude CLI
+            stderr=_on_cli_stderr,  # capture the CLI's error output
+            env=cli_env,  # pass the API key and friends to the Claude CLI
             hooks={
                 "PreToolUse": [
                     # Match the union of tools this guard cares about. The
@@ -960,9 +964,10 @@ class ClaudeAgentSDK:
             # here so an early failure (e.g. connect() raising) does not
             # cause the finally to NameError on the cleanup access.
             message_task: asyncio.Task | None = None
-            # 去重集合：include_partial_messages=True 时，partial AssistantMessage
-            # 和 complete AssistantMessage 都会携带同一个 ToolUseBlock，导致重复
-            # 的 tool_call_item。通过 tool_call_id 去重，只保留首次出现。
+            # Dedup set. With include_partial_messages=True the SAME ToolUseBlock
+            # arrives on both the partial and the complete AssistantMessage, which
+            # would emit the tool_call_item twice. Keyed on tool_call_id, first
+            # occurrence wins.
             seen_tool_call_ids: set[str] = set()
             try:
                 client = ClaudeSDKClient(options=run_options)
@@ -1102,9 +1107,9 @@ class ClaudeAgentSDK:
                     msg_type = type(message).__name__
                     if message_count <= 5 or message_count % 20 == 0:
                         logger.debug(f"[ClaudeAgentSDK] Message #{message_count}: {msg_type}")
-                    # 检测 AssistantMessage 的 error 字段（认证失败、额度不足等）
+                    # Check AssistantMessage.error (auth failure, quota exhausted, …)
                     if msg_type == "AssistantMessage" and hasattr(message, 'error') and message.error:
-                        logger.error(f"[ClaudeAgentSDK] Claude API 返回错误: {message.error}")
+                        logger.error(f"[ClaudeAgentSDK] Claude API returned an error: {message.error}")
                         # Dump CLI stderr + full message repr so we can see which
                         # field the upstream rejected. Without this the 'error' is
                         # just 'invalid_request' with no way to diagnose.
@@ -1144,10 +1149,10 @@ class ClaudeAgentSDK:
                             )
                             continue
 
-                    # output_transfer 返回事件列表（一条消息可能产生多个事件）
+                    # output_transfer returns a LIST — one message can yield several events.
                     events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)
                     for event in events:
-                        # 对 tool_call_item 按 tool_call_id 去重
+                        # Dedup tool_call_item by tool_call_id.
                         item = event.get("item", {}) if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT else {}
                         if item.get("type") == ITEM_TYPE_TOOL_CALL:
                             tool_id = item.get("tool_call_id", "")
@@ -1172,13 +1177,13 @@ class ClaudeAgentSDK:
                     await _graceful_cli_shutdown(client, cancellation)
                 if message_count == 0:
                     logger.error(
-                        "[ClaudeAgentSDK] ⚠️ 收到 0 条消息！可能原因：\n"
-                        "  1. Claude Code 未登录（终端运行 `claude` 完成认证）\n"
-                        "  2. Claude Code CLI 进程崩溃\n"
-                        "  3. API 认证失败或额度耗尽"
+                        "[ClaudeAgentSDK] Received 0 messages. Likely causes:\n"
+                        "  1. Claude Code is not logged in (run `claude` in a terminal to authenticate)\n"
+                        "  2. The Claude Code CLI process crashed\n"
+                        "  3. API auth failed, or the quota is exhausted"
                     )
                     if cli_stderr_lines:
-                        logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
                     # Surface the silent void as a real error so response_processor
                     # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
                     # instead of the pipeline treating "no messages" as "agent
@@ -1195,7 +1200,7 @@ class ClaudeAgentSDK:
                 await _drain_stderr_after_failure(cli_stderr_lines)
                 logger.exception(f"Error in agent_loop: {e}")
                 if cli_stderr_lines:
-                    logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                    logger.exception("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
                 raise
             finally:
                 # Make sure any still-pending message_task is cancelled and

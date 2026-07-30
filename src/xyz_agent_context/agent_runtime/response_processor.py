@@ -650,7 +650,7 @@ class ResponseProcessor:
             tool_output_num = state.tool_output_count + 1
             logger.info(f"Tool output #{tool_output_num} received: {len(output)} chars")
 
-            # 查找对应的 tool_call 信息用于展示。
+            # Find the tool_call this output answers, for the display row.
             # Prefer the id when the driver reported one: the positional rule
             # below ("Nth output belongs to the Nth call") is wrong for PARALLEL
             # calls, where every call arrives before any output and the outputs

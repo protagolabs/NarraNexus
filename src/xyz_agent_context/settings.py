@@ -146,7 +146,12 @@ class Settings(BaseSettings):
     # caches (Anthropic byte-prefix, DeepSeek/vLLM block-hash) can hit.
     # Relocation moves bytes, it never drops them — the model still sees
     # every relocated section each turn. Off = context assembly is
-    # byte-identical to the pre-R4 layout. Independent from
+    # functionally equivalent to the pre-R4 layout — NOT byte-identical, which
+    # earlier wording claimed: the OFF path still applies three unconditional
+    # determinism normalisations (narrative timestamp canonicalisation,
+    # module-block (priority, name) total order, mcp_servers sort). Those move
+    # no content and drop none, but they do change bytes, so "off" restores the
+    # old STRUCTURE, not the old byte stream. Independent from
     # the synthetic transcript: relocation benefits every framework and
     # every turn; resume is claude_code-only. This is a fail-open ops gate,
     # not a backwards-compatibility shim.
