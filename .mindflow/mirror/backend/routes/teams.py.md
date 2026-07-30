@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — activity payload carries `event_id`
+
+Every branch of `_member_activity` that has an activity row now also
+surfaces `row["event_id"]` — the `events` row of the member's current/most
+recent turn (written by `TurnActivity.note_event_id`). The frontend roster
+uses it to fetch the finished turn's full event_log through the EXISTING
+`/agents/{agent_id}/event-log/{event_id}` endpoint; no new route.
 
 ## 2026-07-28 — four-state activity payload, UTC-marked timestamps
 

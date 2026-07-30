@@ -41,7 +41,8 @@ async def _room(db_client) -> LocalMessageBus:
     return LocalMessageBus(db_client._backend)
 
 
-async def _write_activity(db, agent_id, *, state, updated_at, started_at=None, steps=None):
+async def _write_activity(db, agent_id, *, state, updated_at, started_at=None, steps=None,
+                           event_id=None):
     await db.insert("bus_agent_activity", {
         "agent_id": agent_id,
         "channel_id": ROOM,
@@ -51,6 +52,7 @@ async def _write_activity(db, agent_id, *, state, updated_at, started_at=None, s
         "steps": steps,
         "started_at": (started_at or updated_at),
         "updated_at": updated_at,
+        "event_id": event_id,
     })
 
 
@@ -195,6 +197,27 @@ async def test_activity_covers_every_member_in_order(db_client):
     bus = await _room(db_client)
     rows = await _member_activity(db_client, bus, ROOM, MEMBERS)
     assert [r["agent_id"] for r in rows] == MEMBERS
+
+
+@pytest.mark.asyncio
+async def test_payload_carries_event_id_when_present(db_client):
+    """The activity payload surfaces the turn's event_id so the frontend can
+    fetch the finished turn's full event_log via the existing endpoint."""
+    bus = await _room(db_client)
+    now = datetime.now(timezone.utc)
+    await _write_activity(
+        db_client, "agent_a", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "replying", "at": "x"}], "dropped": 0}',
+        event_id="evt_abc",
+    )
+    await _write_activity(
+        db_client, "agent_b", state="running", updated_at=now.isoformat(),
+        event_id="evt_def",
+    )
+
+    rows = _by_id(await _member_activity(db_client, bus, ROOM, MEMBERS))
+    assert rows["agent_a"]["event_id"] == "evt_abc"
+    assert rows["agent_b"]["event_id"] == "evt_def"
 
 
 @pytest.mark.asyncio
