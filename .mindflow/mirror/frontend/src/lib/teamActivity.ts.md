@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/teamActivity.ts
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — lastRunSummary（roster 空闲行）
+
+`lastRunSummary(a, now)`：finished_at 缺失 → null（从未跑过）；否则
+{durationMs, agoMs}。给右侧成员栏的空闲行画「ran 3m12s · 5m ago」——
+比一句永远不变的"idle"多一层"它上次干了多久、多久之前"的可感知性。
+
 
 # teamActivity.ts — the team-room status vocabulary
 

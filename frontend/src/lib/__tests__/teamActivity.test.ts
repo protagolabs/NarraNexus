@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from 'vitest';
 import {
+  lastRunSummary,
   RECENT_TURN_WINDOW_MS,
   STATUS_TONES,
   buildTimeline,
@@ -214,5 +215,21 @@ describe('STATUS_TONES', () => {
   test('stalled and queued are visually distinct, not the same chip', () => {
     expect(STATUS_TONES.stalled.color).not.toBe(STATUS_TONES.queued.color);
     expect(STATUS_TONES.stalled.labelKey).not.toBe(STATUS_TONES.queued.labelKey);
+  });
+});
+
+describe('lastRunSummary', () => {
+  test('reports duration and how long ago for a finished turn', () => {
+    const a = {
+      agent_id: 'x', status: 'idle',
+      started_at: '2026-07-30T10:00:00Z', finished_at: '2026-07-30T10:03:12Z',
+    } as TeamMemberActivity;
+    const now = Date.parse('2026-07-30T10:08:12Z');
+    expect(lastRunSummary(a, now)).toEqual({ durationMs: 192_000, agoMs: 300_000 });
+  });
+
+  test('returns null when the member has never run', () => {
+    const a = { agent_id: 'x', status: 'idle' } as TeamMemberActivity;
+    expect(lastRunSummary(a, Date.now())).toBeNull();
   });
 });
