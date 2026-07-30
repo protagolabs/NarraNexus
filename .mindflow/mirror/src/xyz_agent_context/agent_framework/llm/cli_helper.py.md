@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `_run_oneshot` 返回 HelperUsage，不再是 (text, in, out)
+
+新增 `HelperUsage` frozen dataclass（四桶 + `any_recorded`），`_run_oneshot` 及
+其 claude / codex 两个实现、两个调用点全部改用它。
+
+原来的三元组**没有位置放 cache 计数器** —— 而这条路径跑的正是 agent_loop 那个
+会报出六位数 cache_read 的同一个 CLI，于是每次 one-shot 都当作全无缓存记账。
+
+两个分支的 provider 形状不同，处理也不同，这是有意的：
+- **claude 分支**：Anthropic 形状，三桶互斥、计价 1x / 1.25x / 0.1x，分开保留。
+- **codex 分支**：OpenAI 形状，input 总数**已经包含**缓存输入、cached 只是明细，
+  没有独立桶可拆，所以 cache 两位留 0 —— 是判断结果，不是漏写。
+
+`any_recorded` 把记账条件从 `in > 0 or out > 0` 放宽到「任一桶非零」，理由同
+[[anthropic_helper]] 同日条目。
+
+顺带确认：`_DEFAULT_CLAUDE_HELPER_MODEL = "haiku"` 就是库里 207 行裸 `haiku`
+的来源，定价侧靠 [[model_pricing]] 的别名归一化接住。
+
+Tests：`tests/agent_framework/test_helper_cache_accounting.py`；存量
+`test_cli_helper.py` / `test_helper_json_repair.py` 的 stub 已随契约更新。
+
 
 ## 2026-07-28 — Claude CLI cache usage normalization
 

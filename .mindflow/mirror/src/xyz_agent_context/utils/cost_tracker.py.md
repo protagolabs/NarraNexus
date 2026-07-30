@@ -1,5 +1,29 @@
 # cost_tracker.py
 
+## 2026-07-30 — 手写价目表移出；成本按 cache 三档计价
+
+内联的 `MODEL_PRICING`(两条)整个删掉，定价改由 [[model_pricing]] 解析。
+删它的理由不是重构洁癖：查线上库时那两条**没有一条命中实际在跑的 model**，
+于是 llm_function / llm_stream / embedding 共 2254 次调用全部记 $0；而唯一命中
+过的 `gemini-2.5-flash` 还是半价（0.15/0.60 vs 实价 0.30/2.50）。
+
+`calculate_cost` 新增 `cache_read_tokens` / `cache_creation_tokens` 两参，返回
+值多一个 `cache_cost`。**这推翻了 2026-07-23 那条「金额计算完全不碰 cache 字段」
+的决定**：当时的前提是「agent_loop 走 sdk_cost_usd 已含折扣，helper 路径根本不
+传 cache」。第二个前提今天不成立了 —— helper SDK 开始上报三档（见
+[[anthropic_helper]] / [[cli_helper]] 同日条目），若仍按单一 input 价计，一次
+全缓存命中的调用会被高估约 10 倍（cache read 是 0.1x）。
+
+**无 cache 定价的 model 回退到 input 价，不是回退到 0**：没有公布缓存档位的
+model 不等于缓存免费，记 0 会让「我们开了缓存」看起来把成本砍到没有 —— 正是这次
+改动要防的假胜利。
+
+`record_cost` 签名不变（cache 两参 2026-07-23 就在了），只是现在会把它们透传给
+`calculate_cost` 而不只是写库。
+
+Tests：`tests/utils/test_model_pricing.py`。
+
+
 ## 2026-07-28 — 配额扣减钩子删除
 
 `record_cost` 尾部那段「`provider_source=="system"` 就调
