@@ -4,6 +4,25 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (2) — one drawer element, not two
+
+The pinned column and the slide-over used to be two separate
+`<BookmarkDrawer>` elements in different tree positions, which remounted the
+panel (and dropped the user's in-panel state) on every pin toggle — see
+[[BookmarkDrawer]]'s entry for the full diagnosis and why the obvious
+"one element, keep the portal" fix does NOT work.
+
+Now: a single `<BookmarkDrawer>` at the pinned column's slot, always rendered
+when there's an agent, with `open`/`pinned`/`pinnedWidth`/`columnRef` as props.
+It positions itself `fixed` when unpinned, so occupying that slot in the flex
+row costs nothing in slide-over mode. The styled wrapper div that used to frame
+the pinned column moved INTO the component — a wrapper on one branch only is
+itself a positional difference, i.e. another remount.
+
+**Do not re-split this on the grounds that "the two modes look unrelated".**
+They are one element on purpose, and `drawerPinToggle.test.tsx` fails
+immediately if they aren't.
+
 ## 2026-07-30 — right-side UX pass: strip never covered, everything drags
 
 Owner report, three symptoms, one theme — the right side behaved as if each

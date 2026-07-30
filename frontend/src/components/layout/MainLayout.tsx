@@ -388,30 +388,26 @@ export function ChatView() {
         />
       )}
 
-      {/* Pinned drawer — a static paper-warm column, only when the user
-          explicitly pinned the bookmark drawer. The default experience is
-          the slide-over (rendered below via portal) so chat keeps the
-          space (spec §6). Width is user-set (see drawerWidth). */}
-      {drawerPinned && drawerTab && agentId && (
-        <div
-          ref={drawerColRef}
-          className="shrink-0 flex flex-col rounded-[var(--radius-md)] overflow-hidden"
-          style={{
-            width: drawerWidth,
-            background: 'var(--nm-paper-warm)',
-            border: '1px solid var(--nm-hairline)',
-          }}
+      {/* The bookmark drawer — ONE element for both modes, deliberately.
+          Pinned it renders here as a static column; unpinned it portals out to
+          body as a slide-over. Keeping it a single element at a single position
+          in the React tree is what stops a pin/unpin toggle from unmounting the
+          panel and silently discarding everything the user had set up inside it
+          (filters, view mode, expanded rows). Do NOT split this back into two
+          conditional <BookmarkDrawer> elements. */}
+      {agentId && (
+        <BookmarkDrawer
+          open={drawerTab !== null}
+          pinned={drawerPinned}
+          onPinnedChange={handlePinnedChange}
+          onClose={handleDrawerClose}
+          title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
+          edgeReservePx={isMobile ? 0 : STRIP_WIDTH_PX + RAIL_GUTTER_PX}
+          pinnedWidth={drawerWidth}
+          columnRef={drawerColRef}
         >
-          <BookmarkDrawer
-            open
-            pinned
-            onPinnedChange={handlePinnedChange}
-            onClose={handleDrawerClose}
-            title={tr(tabLabelKey(drawerTab))}
-          >
-            <BookmarkPanelHost tab={drawerTab} agentId={agentId} />
-          </BookmarkDrawer>
-        </div>
+          {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
+        </BookmarkDrawer>
       )}
 
       {/* Bookmark strip — the paper edge. ~36px (spec §2). Desktop only; on
@@ -430,21 +426,6 @@ export function ChatView() {
           is reserved for content and the page guide isn't tuned for touch. */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
 
-      {/* Slide-over drawer (default, unpinned). `edgeReservePx` keeps it — and
-          its click-capturing backdrop — clear of the bookmark strip, so the
-          strip stays visible and one click switches panels. */}
-      {!drawerPinned && agentId && (
-        <BookmarkDrawer
-          open={drawerTab !== null}
-          pinned={false}
-          onPinnedChange={handlePinnedChange}
-          onClose={handleDrawerClose}
-          title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
-          edgeReservePx={isMobile ? 0 : STRIP_WIDTH_PX + RAIL_GUTTER_PX}
-        >
-          {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
-        </BookmarkDrawer>
-      )}
     </main>
   );
 }

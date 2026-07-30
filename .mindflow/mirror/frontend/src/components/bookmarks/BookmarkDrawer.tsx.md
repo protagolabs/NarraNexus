@@ -4,6 +4,47 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 (2) — pin/unpin no longer remounts the panel; the portal is gone
+
+Owner: "点击/取消 然后页面上的交互感觉怪怪的". The weirdness was state loss.
+[[MainLayout]] rendered the two modes as two SEPARATE `<BookmarkDrawer>`
+elements (one inline in the flex row, one in a `!drawerPinned &&` branch), so
+toggling the pin unmounted one and mounted the other. Everything the user had
+set up inside the panel reset to defaults — job status filter, view mode,
+expanded rows, scroll position. Data survived (it lives in `preloadStore`), the
+user's *choices* did not, which is why it read as "the UI changed things behind
+my back" rather than as a reload.
+
+**The first fix attempt was wrong, and the tests caught it.** Collapsing to one
+element is necessary but not sufficient: this component still returned a bare
+`<div>` for pinned and `createPortal(<div>…)` for the slide-over. A portal is
+its own node type, so switching in and out of one IS a tree-shape change and
+remounts the subtree just the same. React has no reparent primitive — moving a
+subtree to a different DOM parent always unmounts it. Worth remembering before
+reaching for portals to "just move" live UI.
+
+**What actually works**: the panel's DOM position never moves.
+- The slide-over is `position: fixed` (out of flow → consumes no layout space)
+  rendered exactly where the pinned column sits. **No portal at all.**
+- Both modes are the same `<div>`, differing only in className/style, inside a
+  fragment whose child slots don't shift (the backdrop renders as `false` when
+  pinned rather than disappearing from the child list).
+- So `if (pinned) return …` as a separate early return is now FORBIDDEN here —
+  two returns of different shapes reintroduce the remount.
+
+**Accepted cost of dropping the portal**: the overlay now lives in `<main>`'s
+stacking context (`relative z-10`) instead of on `<body>`, so it no longer
+paints over the fixed sidebar (z-40). The two only overlap on mobile with the
+off-canvas nav open, where nav-over-content is the expected behaviour. Modals
+(z-1000, still portalled) continue to cover the drawer correctly.
+
+**Also**: the pinned column now owns its own frame and `pinnedWidth` (the
+caller used to wrap it in a styled div — a wrapper is exactly the kind of
+positional difference that caused the remount), and header buttons finally got
+`title` attributes. The pin/unpin/close labels had existed as `aria-label` only
+since 2026-06-10, so hovering the pin explained nothing — which is how the
+Owner ended up having to ask what the button did.
+
 ## 2026-07-30 — the slide-over no longer covers the strip (`edgeReservePx`)
 
 **The bug**: opening a tab (say Awareness) made the rest of the rail

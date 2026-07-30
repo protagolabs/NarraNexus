@@ -186,8 +186,10 @@ describe('BookmarkDrawer — the strip is never covered', () => {
   it('insets the panel itself by the reserved edge', () => {
     renderSlideOver();
     const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
-    // The panel fills its wrapper; the wrapper carries the offset.
-    expect((panel.parentElement as HTMLElement).style.right).toBe(`${RESERVE}px`);
+    // The panel carries the offset directly — there is no wrapper. It is
+    // `position: fixed` in place rather than portalled, so that toggling pin
+    // doesn't move it in the DOM (which would remount the panel inside).
+    expect(panel.style.right).toBe(`${RESERVE}px`);
   });
 
   it('is not aria-modal — the strip beside it stays operable', () => {
