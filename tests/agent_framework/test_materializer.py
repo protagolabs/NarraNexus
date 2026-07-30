@@ -14,8 +14,10 @@ list), while the file strategy works on a copy.
 from __future__ import annotations
 
 from xyz_agent_context.agent_framework.adapters.materializer import (
+    assemble_argv_prompt,
     flatten_for_argv,
     flatten_for_file,
+    split_for_argv,
 )
 
 _FOOTER = (
@@ -109,6 +111,64 @@ def test_argv_byte_ceiling_truncates_at_utf8_boundary():
     head = system_prompt.rsplit("\n\n[...", 1)[0]
     assert head == "汉" * 66  # 200 // 3 = 66 whole chars survive
     head.encode("utf-8")  # must be valid UTF-8
+
+
+# ---------------- claude two-stage split (agent-loop resume) --------
+
+
+def test_split_plus_assemble_equals_flatten_byte_identical():
+    """The R2/R3 split must compose back to the single-stage function
+    byte-for-byte — including the caller-list mutation (one pop each)."""
+    m_flat, m_split = _msgs(), _msgs()
+    flat_prompt, flat_user = flatten_for_argv(m_flat)
+    base, entries, user = split_for_argv(m_split)
+    assert user == flat_user
+    assert assemble_argv_prompt(base, entries) == flat_prompt
+    assert m_split == m_flat  # both paths popped exactly once
+
+
+def test_split_plus_assemble_byte_identical_under_eviction_and_ceilings():
+    def _long_msgs():
+        return [
+            {"role": "system", "content": "S" * 80},
+            {"role": "user", "content": "old-job " + "y" * 40, "_source": "job"},
+            {"role": "user", "content": "old-chat " + "汉" * 40, "_source": "chat"},
+            {"role": "user", "content": "final"},
+        ]
+
+    caps = dict(max_prompt_chars=150, max_prompt_bytes=200, max_history_chars=60)
+    flat_prompt, _ = flatten_for_argv(_long_msgs(), **caps)
+    base, entries, _ = split_for_argv(_long_msgs())
+    assert assemble_argv_prompt(base, entries, **caps) == flat_prompt
+
+
+def test_split_pops_exactly_once_and_returns_raw_parts():
+    messages = _msgs()
+    base, entries, user = split_for_argv(messages)
+    assert user == "now reply"
+    assert len(messages) == 4  # load-bearing mutation, same as flatten
+    assert base == "SYS-A\nSYS-B\n"  # bare prompt: no history appended yet
+    assert entries == [
+        {"role": "user", "content": "hello", "source": "chat"},
+        {"role": "assistant", "content": "hi there", "source": "chat"},
+    ]
+
+
+def test_assemble_with_empty_history_omits_history_tail():
+    """Resume turns assemble with [] — the prompt is the bare system prompt
+    (history lives in the CLI session file), no header/footer appended."""
+    base, entries, _ = split_for_argv(_msgs())
+    assert entries  # the turn HAS history; the caller chose to omit it
+    prompt = assemble_argv_prompt(base, [])
+    assert prompt == base
+    assert "Chat History" not in prompt
+
+
+def test_assemble_ceilings_still_apply_to_bare_prompt():
+    # Belt-and-braces: a resume-turn system prompt can overrun argv alone.
+    prompt = assemble_argv_prompt("S" * 300, [], max_prompt_chars=100)
+    assert prompt.endswith("[...truncated due to length limit...]")
+    assert prompt.startswith("S" * 100)
 
 
 # ---------------- codex strategy (file) -----------------------------

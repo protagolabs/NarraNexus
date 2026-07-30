@@ -95,6 +95,13 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
 
+# NOTE (2026-07-29): the in-process concurrent-resume guard, the four-fold
+# handle validation and `_resolve_resume_session_id` used to live here. The
+# claude adapter now authors the CLI transcript itself every turn with a
+# fresh session id, so there is no stored handle to validate, nothing that
+# can go stale, and no shared handle two runs could both claim — which is
+# what the lease existed to prevent. See adapters/claude/transcript.py.
+
 def _truncate(text: str, limit: int) -> str:
     """Tail-truncate ``text`` to ``limit`` bytes, appending a clear
     marker so the LLM knows content was dropped."""
@@ -830,17 +837,6 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
-    # The materialized turn bundle — one explicit object instead of four
-    # loose locals, so every driver demonstrably eats the same thing.
-    # driver_kwargs() reproduces the historical call shape exactly
-    # (including empty→None normalization); cancellation stays separate.
-    turn_input = TurnInput(
-        messages=messages,
-        mcp_servers=ctx.mcp_servers,
-        disallowed_tools=tuple(extra_disallowed_tools),
-        extra_env=skill_env_vars,
-    )
-
     # `captured_error` defers the ErrorMessage yield until AFTER the
     # recovery phase, so frontend renders the recovered reply FIRST and
     # the warning badge SECOND. Yielding ErrorMessage immediately on
@@ -859,21 +855,35 @@ async def step_3_agent_loop(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
     )
-    # Per-user executor routing (cloud): ask the broker to ensure this
-    # user's Executor container and use its URL. Returns None when no
-    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
-    # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.loop.broker_client import (
-        ensure_executor,
-        wait_until_ready,
-    )
-
-    # Executor ensure/warm is INSIDE the try so a cold-start failure
+    # Executor ensure/warm is INSIDE this try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
     # drop, and is surfaced as an actionable ``infra_transient`` error rather
     # than escaping step_3 as a raw exception (issue ②'s bare-ClientConnectorError).
+    #
+    # Resume is no longer decided here (2026-07-29). The claude adapter authors
+    # the CLI transcript itself every turn, so step_3 has nothing to look up,
+    # validate or lease — see adapters/claude/transcript.py.
     try:
+        # The materialized turn bundle — one explicit object instead of loose
+        # locals, so every driver demonstrably eats the same thing.
+        # driver_kwargs() reproduces the historical call shape exactly
+        # (including empty→None normalization); cancellation stays separate.
+        turn_input = TurnInput(
+            messages=messages,
+            mcp_servers=ctx.mcp_servers,
+            disallowed_tools=tuple(extra_disallowed_tools),
+            extra_env=skill_env_vars,
+        )
+        # Per-user executor routing (cloud): ask the broker to ensure this
+        # user's Executor container and use its URL. Returns None when no
+        # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+        # so get_agent_loop_driver falls back. This is the cold-start point.
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            ensure_executor,
+            wait_until_ready,
+        )
+
         ensured = await ensure_executor(ctx.user_id)
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
@@ -1114,6 +1124,15 @@ async def step_3_agent_loop(
         substeps=substeps
     )
 
+    # CLI session handle companions — only filled when the run reported a
+    # resumable session id (Claude Code's ResultMessage only, in v1). The
+    # canonical framework name and the config fingerprint were computed up
+    # front by the resume-decision block (before 3.4), in the scope where the
+    # ambient per-task claude_config ContextVar is guaranteed live — step_4
+    # never recomputes. Fail-open there means the fingerprint may be None,
+    # in which case step_4 skips persistence — resume capture must never
+    # hurt a turn.
+
     # Return unified execution result
     yield PathExecutionResult(
         final_output=state.final_output,
@@ -1126,6 +1145,9 @@ async def step_3_agent_loop(
         cache_read_tokens=state.cache_read_tokens,
         cache_creation_tokens=state.cache_creation_tokens,
         num_turns=state.num_turns,
+        cli_session_id=state.cli_session_id,
+        # Propagated even without a new session id: step_4 must delete the
+        # stale handle regardless of whether the cold retry reported one.
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

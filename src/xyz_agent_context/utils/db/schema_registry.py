@@ -632,6 +632,18 @@ _register(
     )
 )
 
+# NOTE (2026-07-29): `agent_cli_sessions` was registered here (as #17) — one
+# row per (agent_id, platform_session_id, framework) holding a resumable CLI
+# session handle. The claude adapter now authors the CLI transcript itself
+# every turn and deletes it when the turn ends, so there is no handle to
+# store. The mechanism never shipped beyond its feature branch.
+#
+# `auto_migrate()` only creates and adds — it never drops — so a dev database
+# that already ran the old code keeps an empty orphan table. Left alone
+# deliberately: an unused empty table is harmless, whereas committing a DROP
+# would put a destructive migration in the repo (铁律 #6). Drop it by hand if
+# it bothers you.
+
 
 # 20. bus_channels (text primary key, no auto-increment)
 _register(

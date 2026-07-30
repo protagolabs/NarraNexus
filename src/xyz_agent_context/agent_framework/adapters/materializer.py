@@ -18,7 +18,13 @@ side by side so the materialization step is one explicit, shared seam:
   char AND byte ceilings (Linux MAX_ARG_STRLEN), history budget with
   source-aware eviction, truncation labels. **Mutates the caller's
   list** (pops the final user message) — a load-bearing quirk, see the
-  function docstring.
+  function docstring. Internally two stages (agent-loop resume R2/R3):
+  ``split_for_argv`` (the pop + system/history split, exactly once per
+  turn) and ``assemble_argv_prompt`` (budget/eviction/ceilings). The
+  claude adapter drives the stages itself so a resume turn can assemble
+  with an empty history and the stale-handle cold retry can re-assemble
+  with the preserved entries; composed, they are byte-identical to the
+  single-stage function.
 - ``flatten_for_file``  — codex strategy: file-delivered prompt
   (``instructions.md``), no byte ceiling, generous char budgets, same
   source-aware eviction; operates on a copy.
@@ -46,6 +52,18 @@ from loguru import logger
 # claude/argv defaults — see the long rationale comment in
 # adapters/claude/sdk.py @ agent_loop (argv MAX_ARG_STRLEN 128 KiB;
 # 115K chars measured against real module_instructions load 2026-07-03).
+#
+# STILL LOAD-BEARING, despite the main path no longer using them (2026-07-29).
+# Since the claude adapter authors the CLI's resume transcript itself, history
+# normally travels in that file and never reaches argv — so the history budget
+# and its source-aware eviction look dead. They are not: writing the transcript
+# is fail-open, and when it cannot be written the adapter falls back to folding
+# history into the argv prompt exactly as before. These ceilings are what keeps
+# that fallback from overrunning MAX_ARG_STRLEN.
+#
+# Recorded because "the main path stopped using it" is a tempting reason to
+# delete a limit, and the failure it would reintroduce only shows up on the rare
+# path (read-only config dir, full disk).
 ARGV_MAX_PROMPT_CHARS = 115_000
 ARGV_MAX_PROMPT_BYTES = 120 * 1024
 ARGV_MAX_HISTORY_CHARS = 50_000
@@ -130,29 +148,27 @@ def _format_entry(e: dict[str, Any]) -> str:
     return f"{label}: {e['content']}"
 
 
-def flatten_for_argv(
+def split_for_argv(
     messages: list[dict[str, Any]],
-    *,
-    max_prompt_chars: int = ARGV_MAX_PROMPT_CHARS,
-    max_prompt_bytes: int = ARGV_MAX_PROMPT_BYTES,
-    max_history_chars: int = ARGV_MAX_HISTORY_CHARS,
-) -> tuple[str, str]:
-    """Claude-strategy flatten: (system_prompt, this_turn_user_message).
+) -> tuple[str, list[dict[str, Any]], str]:
+    """Claude-strategy stage 1: split ``messages`` into
+    ``(base_system_prompt, history_entries, this_turn_user_message)``.
 
-    Lifted verbatim from the inline block in
-    ``ClaudeAgentSDK.agent_loop`` (2026-05-19 source-aware truncation
-    design). Behavior contract:
+    Split out of ``flatten_for_argv`` (2026-07-28, agent-loop resume R2/R3)
+    so the claude adapter can decide PER RUN whether the history entries go
+    into the prompt: a resume turn assembles with ``[]`` (history lives in
+    the CLI session file), and the stale-handle cold retry re-assembles with
+    the SAME preserved entries — without re-splitting (the pop already
+    happened exactly once).
+
+    Behavior contract (unchanged from the historical inline code):
 
     1. system rows concatenate in order (+"\\n" each).
     2. The LAST message is POPPED off the caller's list as the per-turn
        user message. The mutation is observable by step_3's fallback
        path, which later reads the same list — do not "fix" it to a
-       copy without sweeping that consumer.
-    3. History budget = min(max_history_chars, ceiling - system - block
-       overhead); within budget, evict the OLDEST background-trigger
-       row first (``_source`` != "chat"), then the oldest chat row.
-    4. Char ceiling then byte ceiling (UTF-8-safe cut) apply to the
-       final prompt, each appending its own truncation marker.
+       copy without sweeping that consumer. The pop happens exactly
+       ONCE per turn, here.
     """
     system_prompt = ""
     history_entries: list[dict[str, Any]] = []  # ordered oldest -> newest
@@ -167,6 +183,34 @@ def flatten_for_argv(
                 "content": msg.get("content", ""),
                 "source": msg.get("_source", "chat"),
             })
+    return system_prompt, history_entries, this_turn_user_message
+
+
+def assemble_argv_prompt(
+    base_system_prompt: str,
+    history_entries: list[dict[str, Any]],
+    *,
+    max_prompt_chars: int = ARGV_MAX_PROMPT_CHARS,
+    max_prompt_bytes: int = ARGV_MAX_PROMPT_BYTES,
+    max_history_chars: int = ARGV_MAX_HISTORY_CHARS,
+) -> str:
+    """Claude-strategy stage 2: append history within budget and enforce
+    the argv char + UTF-8-byte ceilings.
+
+    Composed with ``split_for_argv`` this is byte-identical to the
+    historical single-stage ``flatten_for_argv``. Behavior contract:
+
+    1. History budget = min(max_history_chars, ceiling - system - block
+       overhead); within budget, evict the OLDEST background-trigger
+       row first (``source`` != "chat"), then the oldest chat row.
+    2. Char ceiling then byte ceiling (UTF-8-safe cut) apply to the
+       final prompt, each appending its own truncation marker.
+
+    Resume turns call this with EMPTY ``history_entries`` (the history
+    lives in the CLI session file) — the ceilings still apply to the bare
+    system prompt (belt-and-braces: it can overrun argv on its own).
+    """
+    system_prompt = base_system_prompt
 
     # Char budget reserved for history within max_prompt_chars.
     # If system_prompt alone is already near/over the ceiling we send NO
@@ -256,6 +300,36 @@ def flatten_for_argv(
         system_prompt = _encoded[:max_prompt_bytes].decode("utf-8", errors="ignore")
         system_prompt += "\n\n[...truncated due to byte limit...]"
 
+    return system_prompt
+
+
+def flatten_for_argv(
+    messages: list[dict[str, Any]],
+    *,
+    max_prompt_chars: int = ARGV_MAX_PROMPT_CHARS,
+    max_prompt_bytes: int = ARGV_MAX_PROMPT_BYTES,
+    max_history_chars: int = ARGV_MAX_HISTORY_CHARS,
+) -> tuple[str, str]:
+    """Claude-strategy flatten: (system_prompt, this_turn_user_message).
+
+    Lifted verbatim from the inline block in
+    ``ClaudeAgentSDK.agent_loop`` (2026-05-19 source-aware truncation
+    design), now the trivial composition of ``split_for_argv`` (pops the
+    caller's last message — load-bearing, see its docstring) and
+    ``assemble_argv_prompt`` (budget/eviction/ceilings). History ALWAYS
+    folds into the prompt on this path; a caller that needs the
+    resume-aware split drives the two stages itself (the claude adapter).
+    """
+    base_system_prompt, history_entries, this_turn_user_message = (
+        split_for_argv(messages)
+    )
+    system_prompt = assemble_argv_prompt(
+        base_system_prompt,
+        history_entries,
+        max_prompt_chars=max_prompt_chars,
+        max_prompt_bytes=max_prompt_bytes,
+        max_history_chars=max_history_chars,
+    )
     return system_prompt, this_turn_user_message
 
 

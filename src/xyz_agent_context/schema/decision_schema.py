@@ -211,6 +211,18 @@ class PathExecutionResult(BaseModel):
         description="Model calls the framework made during this run (None = not reported)"
     )
 
+    # OBSERVATIONAL only: the session id the CLI reported for this run. Nothing
+    # looks it up — the adapter resumes a transcript it wrote itself, so there is
+    # no handle store for this to become. Kept because it is the one record of
+    # what session a turn actually ran under, which is worth having when
+    # debugging resume behaviour. Its three former companions
+    # (cli_framework / cli_config_fingerprint / cli_working_path) existed solely
+    # to validate a STORED handle and went with it (2026-07-29).
+    cli_session_id: Optional[str] = Field(
+        default=None,
+        description="CLI session id the run reported (ResultMessage.session_id; None = not reported)"
+    )
+
     # ========== Context Data ==========
     # Context data (for Hook)
     # AGENT_LOOP: From context.ctx_data (ContextData object)

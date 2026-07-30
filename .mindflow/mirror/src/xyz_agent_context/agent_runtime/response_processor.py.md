@@ -4,6 +4,21 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (二次) — 删除 DATA_TYPE_RESUME_FAILED 分支(T5)
+
+随 [[execution_state]] 的 `mark_resume_failed` 一起删。该分支的唯一作用是把 adapter
+的内部 marker 转成一次 state 更新,好让 step_4 清理过期句柄行——那张表的写入路径
+已不存在。
+
+## 2026-07-29 — tool_output 优先按 id 配对
+
+`ITEM_TYPE_TOOL_CALL_OUTPUT` 分支:从事件里取 `tool_call_id` 透传给
+`record_tool_output`([[execution_state]] 同日条目),并且**展示用的 tool_call
+查找也改成优先按 id**,位置配对降为回落(驱动没报 id 时才用)。
+
+修的是本文件注释自己就点明过的问题:并行工具调用时所有 call 先到达、output 按
+完成顺序返回,于是"第 N 个 output 对应第 N 个 call"不成立,前端会显示错的工具名。
+
 ## 2026-07-29 — REPLY_DELTA / PLAN 两条分支
 
 新增 `ResponseType.REPLY_DELTA` / `PLAN` 及其处理分支，产出
@@ -13,6 +28,17 @@ stub: false
 计费口径没变、也不许变：reply-delta **不计入** `final_output`——它是表达工具
 参数的投影，真正的 final_output 仍来自工具调用本身。两边都算就是双计，只算
 delta 就会在非流式路径上丢内容。
+
+## 2026-07-28 — `DATA_TYPE_RESUME_FAILED` marker → mark_resume_failed（resume 化 R3）
+
+`_handle_raw_response_event` 新增分支（**DATA_TYPE_ERROR 之前**）：适配器的
+`response.resume_failed` marker（常量来自 [[events.py]]；陈旧句柄 → 同轮冷
+启动重试已跑）→ `ProcessedResponse(message=None,
+state_update={"method": "mark_resume_failed"})` + 一条
+`[AGENT-LOOP-RESUME] resume failed …` warning。**刻意不产出 ErrorMessage**
+——重试已把这轮补成正常轮，用户不感知（铁律 #16）；信号只推
+ExecutionState.resume_failed，由 step_4 删陈旧句柄行。测试：
+tests/agent_runtime/test_resume_failed_threading.py。
 
 ## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
 
@@ -28,6 +54,12 @@ delta 就会在非流式路径上丢内容。
 首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
 `claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
 用户引进死胡同。
+
+## 2026-07-25 — response.done 透传 cli_session_id(resume 化 R1,纯搬运)
+
+accumulate_usage args 新增 `"cli_session_id": data.get("session_id")`。None =
+框架没报(只有 Claude Code 的 ResultMessage 带);合并语义在 ExecutionState
+(latest-non-None-wins,见 execution_state.py.md 同日条目)。
 
 ## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
 

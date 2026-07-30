@@ -53,10 +53,12 @@ class TurnInput:
         step_3 merges into mcp_servers before the call and drivers must
         see the merged dict). Empty extra_env/disallowed_tools become
         None so driver defaults behave exactly as before.
+
         """
-        return {
+        kwargs: dict[str, Any] = {
             "messages": self.messages,
             "mcp_servers": self.mcp_servers,
             "extra_env": self.extra_env or None,
             "disallowed_tools": list(self.disallowed_tools) or None,
         }
+        return kwargs

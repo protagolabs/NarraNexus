@@ -4,11 +4,21 @@ last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — 移除 `AgentCliSession` 导出
+
+`cli_session.py` 随 T7 删除(表已摘掉注册,见 [[schema_registry]]),门面同步去掉
+re-export 与 `__all__` 条目。纯转发改动。
+
 ## 2026-07-29 — 导出 `AgentPlan` / `AgentReplyDelta`
 
 跟着 [[runtime_message]] 新增的两个 NexusPower 专属型别一起进公共导出面——
 消费方（[[response_processor]]、路由层）从 `schema` 顶层取，不去 reach 进
 子模块。
+
+## 2026-07-25 — 导出 `AgentCliSession`
+
+门面新增 re-export `AgentCliSession`（[[cli_session]]，可 resume 的 CLI 会话
+句柄模型），供 step_4 / repository 从 `schema` 顶层引用。纯转发。
 
 ## 2026-07-22 — export URL-tab models
 

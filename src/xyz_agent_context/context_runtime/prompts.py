@@ -129,6 +129,20 @@ recent dialogue is recent dialogue regardless of channel.
 # the prompt budget — emitting the guide from here meant the model
 # could be told how to read a timeline that had just been evicted.
 
+# ============================================================================
+# Turn-context block (R4 turn-context relocation, 2026-07-25)
+# Per-turn volatile content (temporal block, narrative volatile state, module
+# get_turn_context blocks, recent background activity) is prepended to the
+# CURRENT user message under this header, keeping the system prompt
+# byte-stable across turns so provider prefix caches can hit. The header
+# labels the block as background data — it deliberately does NOT instruct the
+# model to quote or restate it. USER_MESSAGE_SEPARATOR makes "everything
+# below is the user's own words" unambiguous.
+# ============================================================================
+TURN_CONTEXT_HEADER = "[Turn context — regenerated every turn; not part of the user's words]"
+
+USER_MESSAGE_SEPARATOR = "--- User message ---"
+
 # 2026-05-20 (Fix #2 P2): recent background-activity records (the centered
 # small-text items in the chat UI) — surfaced as a compact list, separate from
 # the conversation timeline, each with an event id for view_event() drill-down.

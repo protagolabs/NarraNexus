@@ -1,8 +1,110 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除句柄机制(T5),−235 行
+
+删掉的是:进程级并发闸门(`_resume_handles_in_use` + `threading.Lock`)、四重校验
+`_resolve_resume_session_id`(叙事 / 指纹 / 工作路径 / 框架)、其包装
+`_acquire_resume_session`、`_log_resume_cold`、lease 的 `try/finally`(退化为
+`try/except`——那个 finally 存在的唯一理由就是释放 lease)、`resume_fingerprint()`
+调用、`cli_config_fingerprint` 伴随字段、`TurnInput.resume_session_id` 传参。
+
+**为什么整套都不需要了**:[[transcript]] 让 adapter 每轮自己写 transcript、用全新
+uuid4 resume。于是没有存下来的句柄要查、没有东西会过期(校验的全部目的)、也没有
+共享句柄会被两个 run 同时claim(lease 的全部目的)。
+
+**T2 实测确认它在空转**:日志里 `resume decision: RESUME cli_session=…` 存的句柄,
+正是我们上一轮自己生成的 uuid4(step_4 把它当 CLI 签发的存下来了),而我们每轮都
+会覆盖它。四重校验算出什么都不影响结果。
+
+顺带:**R5(叙事锚点降级)整项作废**。它要解决的是"叙事切换 → 校验不通过 → 冷启动",
+而现在既没有校验也没有锚点。实测里那次白付 55,308 全价的形态,结构上不可能再发生。
+
+## 2026-07-28 — 并发 resume 守卫：同一句柄同时只许一个 run 持有（review FIX 1）
+
+同一 agent 的两个 run 可以并发（用户在聊，同 agent+owner 的 JobModule
+trigger 同时触发）。R2 之前二者都是冷启动、无共享外部文件；R2 之后二者会
+**解析出同一个 cli_session_id 并各起一个 `--resume <同一 id>` 的 CLI**，
+两个写者共用一份 session JSONL。这种失败**不匹配** R3 兜底的
+"No conversation found" 谓词，会直接以硬错误冒出——即本次 feature 自己引入的
+新危害，必须在此处闸掉。
+
+- 新增进程内守卫：`_resume_handles_in_use: set` + `_resume_handle_lock`
+  （`threading.Lock`），键 = 表唯一键同一三元组
+  `(agent_id, platform_session_id, framework)`。
+  `_try_acquire_resume_handle` / `_release_resume_handle` 是 test-and-set /
+  释放。**输者立刻冷启动**（`COLD reason=handle_in_use`），**绝不阻塞等待**
+  ——等待会把 resume 从优化变成依赖、并让一轮卡在另一个长 run 后面（铁律 #14）。
+- 为什么用 `threading.Lock` 而不是 asyncio.Lock / 裸 set：临界区是无 await 的
+  test-and-set，asyncio.Lock 毫无收益还要像 [[db_factory]] 那样维护 per-loop
+  注册表（asyncio 原语绑定创建它的 loop）；而本进程**可能有多个线程各自的
+  event loop**（MCP 容器每模块一个线程 loop），危害与哪个 loop 驱动无关，
+  所以守卫必须 loop 无关且共享。裸 set 单操作在 GIL 下原子，但 check-then-add
+  这对不是，故取锁；锁持有微秒级、绝不跨 await，既不会死锁也不拖慢 loop。
+- 新增 `_acquire_resume_session(...) -> (resume_session_id, lease_key)`：
+  = 原校验闸门 `_resolve_resume_session_id`（保持纯校验、签名不变）+ 命中后
+  才 lease。**lease 放在校验之后**：本来就不会 resume 的 run 不许挡住会
+  resume 的那个。step_3 只许调这个 wrapper。
+- COLD 日志格式抽成模块级 `_log_resume_cold(...)`，`handle_in_use`（在校验闸门
+  之外决策）与闸门内八种 reason 共用同一形状，便于日志分析。
+- **step_3 主体：resume 决策整块挪进 driver 那个 try**，末尾加 `finally` 释放
+  lease。lease 必须**在 try 内**获取：若在 try 外获取，acquire 与 `try:` 之间
+  任何抛错都会把键永久卡住（该 agent+session 在本进程余生里 resume 静默失效）。
+  finally 覆盖四个出口——正常结束、`except Exception`、取消
+  （CancelledError 属 BaseException，绕过 except 仍走 finally）、
+  以及被弃用 generator 的 `aclose()`（GeneratorExit 落在 try 内的某个 yield）。
+  释放函数**故意是同步的**：GeneratorExit 在飞时 await 会触发
+  "async generator ignored GeneratorExit"，可能跳过释放。
+- **连带修的真 bug**（否则上面的"airtight"是假的）：`@timed` 的
+  asyncgen wrapper 用 `async for item in fn(...)` 转发，而 `async for`
+  **不会关闭被迭代的 generator**——消费者 aclose 外层 wrapper 时，被包裹的
+  step_3 只是挂着，它的 finally 要等 asyncgen GC finalizer 才跑（实测
+  `aclose()` + `sleep(0)` 之后仍未释放）。已在 [[_timing.py]] 用
+  `contextlib.aclosing` 修正：关闭立刻穿透。这条对**所有** `@timed` 异步
+  生成器的 finally 清理契约都成立，不只 resume。
+- **残留（已接受、fail-open）**：消费者用 `break` **丢弃**管线而不是关闭它
+  （`agent_runtime.run()` 在取消时正是这么做的），`async for` 不会把关闭往下
+  传，此时 finally 由 asyncgen GC finalizer 在一两个 loop tick 后跑（实测
+  <10ms），而非同步。有界、自愈，最坏代价一次多余冷启动。若哪天要做到完全
+  同步，需要在 `agent_runtime.run` 与 [[step_3_execute_path.py]] 两处的
+  `async for` 上加 `aclosing`——本次刻意不动主管线取消路径。
+- **刻意的局限**（措辞对齐 [[admission.py]]）：守卫是**进程内**的。云端今天
+  orchestrator 单进程，一个守卫看得见所有 run；多副本部署需要按同一三元组
+  做共享（Redis）守卫，上面两个 helper 就是那个缝。
+- 测试：tests/agent_runtime/test_resume_concurrency_guard.py（lease 语义 +
+  驱动真 step_3 验证正常结束/异常/中途 aclose 三条路径都释放，以及
+  A 持有时 B 端到端冷启动）；tests/utils/logging/test_logging.py 补 aclosing 回归钉。
+
+## 2026-07-28 — resume 决策 + TurnInput 注入（resume 化 R2/R3，dev 新结构重实现）
+
+R1 只捕获；本条把查表/校验/注入接上（旧分支 be9c8ecd 的 step_3 部分在
+dev 新结构上的重做——注入通道从裸 kwarg 换成 TurnInput 字段）：
+
+- 新增模块级 `_resolve_resume_session_id(agent_id, session, framework,
+  config_fingerprint, working_path, db_client)`（旧分支逐字移植）：开关
+  （`settings.agent_loop_resume_enabled`）+ 句柄存在 + **三锚全符**
+  （narrative / fingerprint / working_path）才返回存储的 cli_session_id；
+  其余一律 None = 冷启动。**fail-open 到底**：查表/校验任何异常 → None +
+  warning，优化永不打死轮次。铁律 #4：纯通用会话延续规则，无场景硬编码。
+  每次决策恰好一条可 grep 日志：`[step_3] resume decision: RESUME …` 或
+  `[step_3] resume decision: COLD reason=<flag_disabled|no_platform_session|
+  fingerprint_unavailable|no_handle|narrative_changed|fingerprint_mismatch|
+  working_path_changed|lookup_error:*> …`。
+- 决策块置于 framework 解析之后、executor ensure 之前：canonical
+  `cli_framework` 归一化与 `cli_config_fingerprint` 计算**上提到此处**
+  （一次计算，决策与末尾 PathExecutionResult 组装共用；R1 原在组装处的
+  重复计算段删除）。v1 只有 claude_code 走查询；codex 完全不碰。
+- **TurnInput 构造移到决策块之后**（frozen dataclass，不能事后改），带
+  `resume_session_id=`；driver_kwargs() 只在非 None 时发键（理由见
+  [[turn_input.py]]——codex v2 的 ignored-kwargs WARNING 不被恒 None 字段
+  刷屏）。
+- PathExecutionResult 新增 `resume_failed=state.resume_failed` 透传——
+  **无条件**（冷启动重试可能没报新 session_id，step_4 仍要删陈旧句柄）；
+  CLI 句柄三伴随字段改为 `… if state.cli_session_id else None` 内联条件。
+- 测试：tests/agent_runtime/test_resume_decision.py（九个决策用例）。
 
 ## 2026-07-28 — 不再现发会话票
 
@@ -21,6 +123,17 @@ ClaudeConfig、finally 里吊销」的逻辑整段删除，连带 `gateway_unava
 [[turn_input.py]] `TurnInput`，调用点改为
 `driver.agent_loop(cancellation=..., **turn_input.driver_kwargs())`。
 driver_kwargs() 复刻历史形状（含空值→None 归一），零行为变化。
+
+## 2026-07-25 — PathExecutionResult 组装处补 CLI 句柄四字段（resume 化 R1）
+
+组装前新增一小段：`state.cli_session_id` 非空时（只有 Claude 路径会报）填
+`cli_framework`（framework_name 归一化到 canonical：claude→claude_code、
+codex→codex_cli——存储键不能依赖用户 slot 恰好用了哪个别名）、
+`cli_working_path=agent_working_path`、`cli_config_fingerprint` 经 ambient
+`claude_config` 代理调 `resume_fingerprint()`。**指纹必须在 step_3 算**：本轮
+的 per-task ContextVar 在此作用域保证还活着；step_4 不重算。fail-open：任何
+异常 → None + warning，step_4 随之跳过持久化——resume 捕获永远不许伤害轮次。
+本期只捕获不 resume（R2 的查表/注入还没接）。
 
 ## 2026-07-24 — 透传 `context.disallowed_tools` 到 driver kwargs（B++）
 

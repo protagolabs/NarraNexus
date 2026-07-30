@@ -64,6 +64,11 @@ class ExecutionState:
     streamed_output_tokens: int = 0
     streamed_cache_read_tokens: int = 0
     streamed_cache_creation_tokens: int = 0
+    # Resumable CLI session handle (ResultMessage.session_id). Latest
+    # non-None report wins — NEVER accumulated (same rule as num_turns).
+    # None = the framework reported no handle (non-Claude paths).
+    cli_session_id: Optional[str] = None
+
 
     def append_text(self, text: str) -> 'ExecutionState':
         """
@@ -115,12 +120,24 @@ class ExecutionState:
             all_steps=self.all_steps + (new_step,),
         )
 
-    def record_tool_output(self, output: str) -> 'ExecutionState':
+    def record_tool_output(self, output: str, tool_call_id: str = "") -> 'ExecutionState':
         """
         Record tool output, returns a new state object
 
         Args:
             output: Tool output content
+            tool_call_id: Id of the ``tool_call`` this output answers. Empty when
+                the driver did not report one — deliberately NOT fabricated, so
+                a consumer can tell "no id available" from "id known" and fall
+                back to positional pairing only when it must.
+
+                Why it is stored at all: the per-turn transcript handed to the
+                CLI rebuilds ``tool_use`` / ``tool_result`` pairs from
+                ``events.event_log``, and that format pairs strictly by id. With
+                PARALLEL tool calls every call arrives before any output and the
+                outputs return in completion order, so the Nth output is not the
+                Nth call — a positional rebuild mis-pairs them, and a mis-paired
+                ``tool_result`` is an API 400 on every subsequent turn.
 
         Returns:
             New ExecutionState object
@@ -128,6 +145,7 @@ class ExecutionState:
         new_step = {
             "type": "tool_output",
             "output": output,
+            "tool_call_id": tool_call_id,
         }
         return replace(
             self,
@@ -171,6 +189,7 @@ class ExecutionState:
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
         num_turns: int | None = None,
+        cli_session_id: str | None = None,
     ) -> 'ExecutionState':
         """
         Accumulate token usage from an Agent Loop turn.
@@ -185,6 +204,9 @@ class ExecutionState:
             num_turns: Model-call count reported by the framework for this run.
                 Latest non-None report wins (it is already a per-run total,
                 not a per-event delta, so it must NOT be accumulated).
+            cli_session_id: Resumable CLI session handle for this run.
+                Latest non-None report wins (a per-run identifier, never
+                accumulated — same rule as num_turns).
 
         Returns:
             New ExecutionState object with updated token counts
@@ -198,6 +220,7 @@ class ExecutionState:
             cache_read_tokens=self.cache_read_tokens + (cache_read_tokens or 0),
             cache_creation_tokens=self.cache_creation_tokens + (cache_creation_tokens or 0),
             num_turns=num_turns if num_turns is not None else self.num_turns,
+            cli_session_id=cli_session_id if cli_session_id is not None else self.cli_session_id,
         )
 
     def accumulate_streamed_usage(

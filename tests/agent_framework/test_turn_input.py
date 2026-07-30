@@ -68,6 +68,14 @@ def test_turn_input_is_frozen():
         ti.messages = []  # type: ignore[misc]
 
 
+def test_driver_kwargs_carries_no_resume_key():
+    """The field is gone (2026-07-29): the claude adapter authors its own
+    transcript, so no session id crosses this bundle. Asserted rather than
+    simply dropped — re-introducing the key would silently start spamming
+    CodexSDKv2's ignored-kwargs WARNING once per turn again."""
+    assert "resume_session_id" not in _mk().driver_kwargs()
+
+
 def test_driver_kwargs_excludes_cancellation_and_streaming():
     """cancellation stays a separately-passed argument (it is per-run
     control flow, not turn content); streaming keeps its driver default."""

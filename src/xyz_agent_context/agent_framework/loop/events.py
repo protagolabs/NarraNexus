@@ -74,6 +74,7 @@ DATA_TYPE_USAGE = "response.usage"
 # tool_call_item remains the authoritative record).
 DATA_TYPE_REPLY_DELTA = "response.reply.delta"
 
+
 # ---------------------------------------------------------------------------
 # item.type values (run_item_stream_event)
 # ---------------------------------------------------------------------------
