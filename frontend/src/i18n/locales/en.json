@@ -167,6 +167,13 @@
         "broadcast": "@all addresses everyone — each member runs a full turn, so use it sparingly.",
         "relay": "Teammates can @ each other to hand work off; the relay stops after 4 hops without a message from you."
       },
+      "roster": {
+        "title": "Members",
+        "lastRun": "ran {{duration}} · {{ago}} ago",
+        "neverRan": "no runs yet",
+        "noProcess": "No process record for this turn",
+        "loading": "Loading process…"
+      },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned"
     },

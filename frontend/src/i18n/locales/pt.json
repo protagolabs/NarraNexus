@@ -134,6 +134,13 @@
         "broadcast": "@all fala com todos — cada membro executa um turno completo, então use com moderação.",
         "relay": "Os colegas podem se @ para passar o trabalho adiante; sem uma mensagem sua, o revezamento para após 4 saltos."
       },
+      "roster": {
+        "title": "Membros",
+        "lastRun": "durou {{duration}} · há {{ago}}",
+        "neverRan": "ainda sem execuções",
+        "noProcess": "Sem registro de processo para este turno",
+        "loading": "Carregando processo…"
+      },
       "emptyHintWithLead": "Envie uma mensagem para começar — {{name}} assume, ou use @ para falar com outra pessoa diretamente.",
       "leadTitle": "{{name}} · responde quando ninguém é mencionado"
     },

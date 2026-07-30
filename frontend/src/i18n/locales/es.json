@@ -134,6 +134,13 @@
         "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
         "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
       },
+      "roster": {
+        "title": "Miembros",
+        "lastRun": "duró {{duration}} · hace {{ago}}",
+        "neverRan": "aún sin ejecuciones",
+        "noProcess": "No hay registro de proceso para este turno",
+        "loading": "Cargando proceso…"
+      },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
       "leadTitle": "{{name}} · responde cuando no se menciona a nadie"
     },
