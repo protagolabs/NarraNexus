@@ -801,7 +801,10 @@
       "sourceHint": "选择要导入的 {{framework}} 来源。",
       "countProjects": "{{count}} 个 project",
       "countSources": "{{count}} 个来源",
-      "defaultSkills": "默认技能"
+      "defaultSkills": "默认技能",
+      "sessionsHint": "{{count}} 个会话将各自成为一条 Narrative(导入时总结),其对话轮作为记忆保留。",
+      "narrativesCreated": "叙事",
+      "turnsRetained": "记忆轮次"
     }
   },
   "settings": {

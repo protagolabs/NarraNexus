@@ -17,8 +17,10 @@ from xyz_agent_context.schema.migration_schema import (
     MigrationAgent,
     MigrationMcpServer,
     MigrationMemory,
+    MigrationSession,
     MigrationSkill,
     MigrationSource,
+    MigrationTurn,
     StandardizedAgentImport,
 )
 from xyz_agent_context.repository.agent_repository import AgentRepository
@@ -47,8 +49,27 @@ def _import_with_local_skill(skill_dir: Path) -> StandardizedAgentImport:
         ],
         mcp_servers=[MigrationMcpServer(name="remote", transport="url", url="https://h/sse",
                                         headers={"Authorization": "Bearer x"})],
-        session_summary_seed="we planned the Q3 roadmap",
+        sessions=[MigrationSession(
+            session_id="s1", title="Plan the Q3 roadmap", started_at="2026-07-01T00:00:00Z",
+            compact_text="Earlier: agreed on OKRs",
+            turns=[MigrationTurn(role="user", text="what is next"),
+                   MigrationTurn(role="assistant", text="ship the roadmap")],
+        )],
     )
+
+
+class _FakeHelperSDK:
+    """Stub for get_helper_sdk() — returns a fixed structured summary so applier
+    tests never hit a real LLM."""
+    async def llm_function(self, instructions, user_input, output_type):
+        class _R:
+            final_output = output_type(
+                description="A Q3 roadmap planning session",
+                current_summary="Agreed OKRs; next is to ship the roadmap.",
+                topic_hint="q3 roadmap", topic_keywords=["roadmap", "q3"],
+                dynamic_summary=["Agreed on OKRs", "Decided to ship the roadmap"],
+            )
+        return _R()
 
 
 @pytest.mark.asyncio
@@ -64,6 +85,9 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
         return {"installed": ["netmind-vision", "officecli"], "skipped": [], "failed": []}
     import xyz_agent_context.marketplace.skill_marketplace_service as sms
     monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _fake_defaults)
+    # Stub the session-summary helper LLM (one call per imported session).
+    import xyz_agent_context.migration.applier as applier_mod
+    monkeypatch.setattr(applier_mod, "get_helper_sdk", lambda: _FakeHelperSDK())
 
     res = await apply_plan(db_client, user_id="user_x", plan=plan)
 
@@ -88,9 +112,24 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     copied = agent_workspace_path(res.agent_id, "user_x") / "skills" / "myskill" / "SKILL.md"
     assert copied.exists()
 
-    # url-mcp added; narrative instruction passed through
+    # url-mcp added
     assert res.mcp_added == ["remote"]
-    assert "create_narrative" in res.narrative_instruction and "Q3 roadmap" in res.narrative_instruction
+
+    # session → Narrative created (summarized), turns retained as scoped memory
+    assert res.narratives_created == ["Plan the Q3 roadmap"]
+    assert res.memory_turns_retained == 2
+    from xyz_agent_context.narrative.narrative_service import NarrativeService
+    narrs = await NarrativeService(res.agent_id, db_client).load_narratives_by_agent_user(
+        res.agent_id, "user_x", 10)
+    assert any(n.narrative_info.name == "Plan the Q3 roadmap" for n in narrs)
+    n = next(n for n in narrs if n.narrative_info.name == "Plan the Q3 roadmap")
+    assert "ship the roadmap" in n.narrative_info.current_summary   # enriched via helper_llm
+    assert n.topic_keywords == ["roadmap", "q3"]
+    # the imported turns are retained as observation memory scoped to the narrative
+    from xyz_agent_context.memory import MemoryEngine, SCOPE_NARRATIVE
+    obs = await MemoryEngine(db_client, res.agent_id).recall(
+        "observation", "roadmap", scope_type=SCOPE_NARRATIVE, scope_id=n.id, limit=10)
+    assert any("ship the roadmap" in o.content_text for o in obs)
 
 
 @pytest.mark.asyncio

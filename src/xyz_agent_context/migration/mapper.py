@@ -13,8 +13,8 @@ executes:
 - Skills     ← skills[]      (name-matched against the Skill Marketplace)
 - MCP        ← mcp_servers[] transport=url  (importable now via the mcp API);
               transport=stdio deferred to local-mode wiring (v1.1)
-- Narrative  ← session_summary_seed  (the agent SELF-summarizes it via
-              `create_narrative` — Owner's flow; not a bulk history import)
+- Narrative  ← sessions[]  (one PlannedNarrative per session; the consumer
+              summarizes each via helper_llm + keeps its turns as memory)
 
 Both consumers (Import Button backend, Migration Skill) build the same plan.
 See reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md.
@@ -84,22 +84,12 @@ class MigrationPlan(BaseModel):
     # stdio-MCP servers captured but NOT wired yet (need local-mode data-model
     # extension, v1.1) — surfaced so the user sees them.
     mcp_stdio_servers: List[MigrationMcpServer] = Field(default_factory=list)
-    # If the source had sessions, the instruction the agent runs to self-author
-    # a Narrative summarizing the imported context.
-    narrative_instruction: str = ""
     # Human-facing warnings for the preview (secrets, unsupported, unmapped).
     warnings: List[str] = Field(default_factory=list)
 
 
 # Cap on the text handed to the per-session summarizer LLM.
 _SUMMARY_SOURCE_CHAR_LIMIT = 24_000
-
-_NARRATIVE_INSTR = (
-    "Summarize the imported context below in your own words as a concise memory "
-    "thread, then call create_narrative(title, description) to file it as your "
-    "starting Narrative. Do not copy it verbatim — capture the gist, ongoing "
-    "goals, and who the user is.\n\n=== imported session context ===\n{seed}"
-)
 
 
 def _summary_source(session) -> str:
@@ -150,8 +140,11 @@ def build_plan(imp: StandardizedAgentImport) -> MigrationPlan:
             f"but not imported yet (local-mode wiring is v1.1); set up equivalents manually."
         )
 
-    if imp.session_summary_seed.strip():
-        plan.narrative_instruction = _NARRATIVE_INSTR.format(seed=imp.session_summary_seed)
+    if plan.narratives:
+        plan.warnings.append(
+            f"{len(plan.narratives)} session(s) will each be summarized into a "
+            f"Narrative (helper LLM) with their turns kept as memory."
+        )
 
     if imp.custom.unmapped_files:
         plan.warnings.append(

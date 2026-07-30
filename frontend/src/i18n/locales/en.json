@@ -801,7 +801,10 @@
       "sourceHint": "Pick which {{framework}} source to import.",
       "countProjects": "{{count}} project(s)",
       "countSources": "{{count}} source(s)",
-      "defaultSkills": "Default skills"
+      "defaultSkills": "Default skills",
+      "sessionsHint": "{{count}} session(s) will each become a Narrative (summarized on import), with their turns kept as memory.",
+      "narrativesCreated": "Narratives",
+      "turnsRetained": "Memory turns"
     }
   },
   "settings": {

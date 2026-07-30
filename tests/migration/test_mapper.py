@@ -28,7 +28,6 @@ def _imp(**over) -> StandardizedAgentImport:
                                headers={"Authorization": "Bearer x"}, secret_fields=["headers.Authorization"]),
             MigrationMcpServer(name="fs", transport="stdio", command="npx", args=["-y", "srv"]),
         ],
-        session_summary_seed="we discussed the Q3 roadmap",
         custom=MigrationCustom(credential_keys=["OPENAI_API_KEY"]),
     )
     base.update(over)
@@ -51,17 +50,6 @@ def test_plan_splits_mcp_url_vs_stdio():
     # stdio not-imported warning + secret warning both present
     assert any("stdio MCP" in w for w in p.warnings)
     assert any("secrets" in w and "remote" in w for w in p.warnings)
-
-
-def test_plan_narrative_instruction_from_seed():
-    p = build_plan(_imp())
-    assert "create_narrative" in p.narrative_instruction
-    assert "Q3 roadmap" in p.narrative_instruction
-
-
-def test_plan_no_seed_no_narrative():
-    p = build_plan(_imp(session_summary_seed=""))
-    assert p.narrative_instruction == ""
 
 
 def test_plan_narratives_from_sessions():

@@ -138,9 +138,6 @@ class StandardizedAgentImport(BaseModel):
     mcp_servers: List[MigrationMcpServer] = Field(default_factory=list)
     # Per-session conversation history → one Narrative each (see MigrationSession).
     sessions: List[MigrationSession] = Field(default_factory=list)
-    # DEPRECATED transitional field — the single concatenated seed from v1. Being
-    # replaced by `sessions[]`; removed once mapper/applier stop reading it.
-    session_summary_seed: str = ""
     custom: MigrationCustom = Field(default_factory=MigrationCustom)
 
 

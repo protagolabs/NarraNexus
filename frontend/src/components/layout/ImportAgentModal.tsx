@@ -19,8 +19,8 @@
  *
  * LOCAL ONLY: detect/scan read the user's filesystem, so the parent only mounts
  * this in local mode. MCP credentials are shown in PLAINTEXT with a warning
- * (Owner decision) — the user confirms before importing. Narrative is NOT
- * imported here; the agent self-authors it from `session_summary_seed` later.
+ * (Owner decision) — the user confirms before importing. Each source session
+ * becomes one Narrative (summarized on apply) with its turns kept as memory.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -490,10 +490,10 @@ function PreviewStage({ scan }: { scan: StandardizedAgentImport }) {
         </div>
       )}
 
-      {scan.session_summary_seed.trim() && (
+      {scan.sessions.length > 0 && (
         <Section title={t('layout.importAgent.narrative')}>
           <p className="text-[11px] text-[var(--nm-ink-soft)]">
-            {t('layout.importAgent.narrativeHint')}
+            {t('layout.importAgent.sessionsHint', { count: scan.sessions.length })}
           </p>
         </Section>
       )}
@@ -551,6 +551,8 @@ function DoneStage({ result }: { result: MigrationApplyResult }) {
     [t('layout.importAgent.skillsCopied'), String(result.skills_copied.length)],
     [t('layout.importAgent.skillsInstalled'), String(result.skills_installed.length)],
     [t('layout.importAgent.mcpAdded'), String(result.mcp_added.length)],
+    [t('layout.importAgent.narrativesCreated'), String(result.narratives_created.length)],
+    [t('layout.importAgent.turnsRetained'), String(result.memory_turns_retained)],
   ];
   return (
     <div className="space-y-4 text-xs">

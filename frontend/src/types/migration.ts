@@ -44,6 +44,21 @@ export interface MigrationSkill {
   source: string;
   install_hint: string;
   local_path: string | null;
+  scope: 'project' | 'global' | '';
+}
+
+export interface MigrationTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  ts: string;
+}
+
+export interface MigrationSession {
+  session_id: string;
+  title: string;
+  compact_text: string;
+  turns: MigrationTurn[];
+  started_at: string;
 }
 
 export interface MigrationMemory {
@@ -76,7 +91,7 @@ export interface StandardizedAgentImport {
   skills: MigrationSkill[];
   memory: MigrationMemory[];
   mcp_servers: MigrationMcpServer[];
-  session_summary_seed: string;
+  sessions: MigrationSession[];
   custom: MigrationCustom;
 }
 
@@ -96,6 +111,7 @@ export interface MigrationApplyResult {
   skills_unmatched: string[];
   mcp_added: string[];
   mcp_stdio_skipped: string[];
-  narrative_instruction: string;
+  narratives_created: string[];
+  memory_turns_retained: number;
   warnings: string[];
 }
