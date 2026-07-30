@@ -34,6 +34,13 @@ message、刷新后 `/event-log` 的 timeline（经 `timelineToEvents` 归一）
 message.content 渲染过）。切段需要 reply 作切点，所以这里保留——
 重复渲染改由「气泡只渲染 segment.reply」来避免。
 
+**关键事实（2026-07-30 实测）**：后端 `/event-log` 的 timeline **从不产
+type='reply'**——回复以 `send_message_to_user_directly` 的 tool_call
+条目存储（`tool_input.content` 即回复文本，`reply_via` 在条目上）。
+所以这里把 send_message 的 tool_call 转成 reply 事件（与直播路径
+chatStore 的同一转换对齐）；回执 tool_output 照旧作为过程事件。不做
+这个转换，NexusPower 的历史轮次切不出任何 reply，刷新后整体回落单段。
+
 ## 上下游
 
 - 型别 `Segment` / `SegmentReply` / `ProcessEvent` 定义在

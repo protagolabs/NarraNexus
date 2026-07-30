@@ -81,14 +81,27 @@ export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[]
       case 'thinking':
         if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
         break;
-      case 'tool_call':
+      case 'tool_call': {
+        const toolName = entry.tool_name || 'unknown';
+        // 持久化 timeline 没有 type='reply'：回复以 send_message 工具调用
+        // 的形式存储（tool_input.content 即回复文本）。直播路径 chatStore
+        // 做同样的 tool_call→reply 转换，这里对齐它，刷新后才切得出段。
+        // 回执 tool_output 照旧作为过程事件——直播也是这么进 currentEvents 的。
+        if (toolName.includes('send_message_to_user_directly')) {
+          const content = (entry.tool_input as Record<string, unknown> | undefined)?.content;
+          if (typeof content === 'string' && content) {
+            events.push({ id, ts, type: 'reply', content, reply_via: entry.reply_via });
+          }
+          break;
+        }
         events.push({
           id, ts, type: 'tool_call',
-          tool_name: entry.tool_name || 'unknown',
+          tool_name: toolName,
           tool_input: entry.tool_input || {},
           reply_via: entry.reply_via,
         });
         break;
+      }
       case 'tool_output':
         events.push({
           id, ts, type: 'tool_output',
