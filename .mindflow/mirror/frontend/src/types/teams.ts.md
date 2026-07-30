@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — TeamMemberActivity.event_id
+
+The activity payload now carries the `events` row id of the member's
+current/most recent turn (written server-side by `TurnActivity.note_event_id`).
+The roster's expanded detail uses it to fetch the finished turn's full
+event_log through the existing event-log endpoint — the missing link that
+lets a team room show single-agent-grade process detail without a new route.
 
 ## 2026-07-28 — activity gains states, steps and the lead
 
