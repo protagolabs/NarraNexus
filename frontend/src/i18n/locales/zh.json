@@ -2257,6 +2257,9 @@
       "zoomInAria": "放大",
       "close": "关闭（Esc）",
       "closeAria": "关闭放大"
+    },
+    "url": {
+      "toggleFailed": "切换模式失败：{{error}}"
     }
   },
   "skills": {
@@ -2433,6 +2436,12 @@
     "close": "Close",
     "cancel": "取消",
     "back": "返回",
-    "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。"
+    "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。",
+    "ok": "好",
+    "noticeTitle": "稍等一下",
+    "actionFailedTitle": "没成功",
+    "savedTo": "已保存到 {{path}}",
+    "downloadFailed": "下载失败：{{error}}",
+    "doneTitle": "已完成"
   }
 }

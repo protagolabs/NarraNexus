@@ -1901,6 +1901,9 @@
       "zoomInAria": "Ampliar",
       "close": "Cerrar (Esc)",
       "closeAria": "Cerrar zoom"
+    },
+    "url": {
+      "toggleFailed": "No se pudo cambiar de modo: {{error}}"
     }
   },
   "skills": {
@@ -2018,6 +2021,12 @@
   },
   "common": {
     "close": "Close",
-    "betaTooltip": "NarraNexus está en fase beta. Las funciones pueden cambiar y pueden producirse errores ocasionales; tus comentarios nos ayudan a mejorar."
+    "betaTooltip": "NarraNexus está en fase beta. Las funciones pueden cambiar y pueden producirse errores ocasionales; tus comentarios nos ayudan a mejorar.",
+    "ok": "Aceptar",
+    "noticeTitle": "Un momento",
+    "actionFailedTitle": "No se pudo completar",
+    "savedTo": "Guardado en {{path}}",
+    "downloadFailed": "Error al descargar: {{error}}",
+    "doneTitle": "Listo"
   }
 }

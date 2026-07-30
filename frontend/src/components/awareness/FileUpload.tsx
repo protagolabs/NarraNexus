@@ -22,7 +22,7 @@ import {
   Eye,
   Plus,
 } from 'lucide-react';
-import { Button, Badge, ScrollArea, useConfirm, Dialog } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm, useNotice, Dialog } from '@/components/ui';
 import { useConfigStore, useArtifactStore } from '@/stores';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
@@ -92,6 +92,11 @@ export function TreeNode({
   userId,
 }: TreeNodeProps) {
   const { t } = useTranslation();
+  // Own instance: the download button and its URL live here, and wry does not
+  // render window.alert, so the outcome has to be reported in-app. Threading a
+  // callback up through the recursion would buy nothing — an idle dialog is a
+  // useState plus a null render.
+  const { notifyDone, notifyError, dialog: noticeDialog } = useNotice();
   // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
   // auto-expanded only top-level folders; sub-folders showed their name
   // but nothing inside, easily misread as "sub-folders are ignored". The
@@ -153,7 +158,23 @@ export function TreeNode({
                     // Workspace files are auth-gated (X-User-Id / JWT); a plain
                     // <a download> can't carry those headers — see lib/download.ts.
                     authHeaders: api.getAuthHeaders(),
-                  }).catch((e) => window.alert(`Download failed: ${String(e)}`))
+                  })
+                    .then((savedPath) => {
+                      // Desktop saves to ~/Downloads with no download shelf, so
+                      // without this a successful save looks like a no-op.
+                      if (savedPath) {
+                        void notifyDone(
+                          t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                        );
+                      }
+                    })
+                    .catch((e) =>
+                      notifyError(
+                        t('common.downloadFailed', 'Download failed: {{error}}', {
+                          error: String(e),
+                        }),
+                      ),
+                    )
                 }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
                 title={t('awareness.workspace.download')}
@@ -205,6 +226,7 @@ export function TreeNode({
           ))}
         </div>
       )}
+      {noticeDialog}
     </div>
   );
 }

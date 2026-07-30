@@ -1900,6 +1900,9 @@
       "zoomInAria": "확대",
       "close": "닫기 (Esc)",
       "closeAria": "확대 닫기"
+    },
+    "url": {
+      "toggleFailed": "모드를 변경할 수 없습니다: {{error}}"
     }
   },
   "skills": {
@@ -2017,6 +2020,12 @@
   },
   "common": {
     "close": "Close",
-    "betaTooltip": "NarraNexus는 현재 베타 버전입니다. 기능이 변경될 수 있고 간헐적으로 문제가 발생할 수 있습니다. 피드백을 환영합니다."
+    "betaTooltip": "NarraNexus는 현재 베타 버전입니다. 기능이 변경될 수 있고 간헐적으로 문제가 발생할 수 있습니다. 피드백을 환영합니다.",
+    "ok": "확인",
+    "noticeTitle": "잠시만요",
+    "actionFailedTitle": "실행되지 않았습니다",
+    "savedTo": "{{path}} 에 저장했습니다",
+    "downloadFailed": "다운로드 실패: {{error}}",
+    "doneTitle": "완료"
   }
 }
