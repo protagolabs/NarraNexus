@@ -63,6 +63,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.pr
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
+    StepRetry,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
@@ -696,15 +697,49 @@ async def test_continuation_turn_does_not_leak_into_later_steps():
 
 
 @pytest.mark.asyncio
-async def test_prefill_repair_is_attempted_only_once():
-    """If the continuation turn does not satisfy the backend either, the
-    turn fails honestly — a repair that keeps re-firing is a spin loop."""
-    model = FakeModel([
-        BadRequestError(_PREFILL_400),
-        BadRequestError(_PREFILL_400),
-    ])
-    events, _ = await _run(_prefilled(model))
+async def test_the_continuation_turn_is_added_at_most_once():
+    """The REPAIR is one-shot — re-appending it every round would be a
+    spin loop, and each copy compounds the instruction. Retrying the
+    request is a separate question, settled by the retry policy: the
+    rejection is usually about which backend answered, not about what we
+    sent (see the classifier). When those retries run out the turn fails
+    honestly rather than looping."""
+    model = FakeModel([BadRequestError(_PREFILL_400)] * 6)
+    events, _ = await _run(
+        _prefilled(model, retry=StepRetry(base_delay_s=0.0)),
+    )
 
-    assert len(model.requests) == 2
+    repaired = [
+        r for r in model.requests
+        if any(m.get("content") == CONTINUE_PREFILL for m in r.messages)
+    ]
+    assert len(repaired) >= 1
+    # Every repaired request carries exactly one copy of it.
+    for r in repaired:
+        assert sum(m.get("content") == CONTINUE_PREFILL for m in r.messages) == 1
     assert [e.type for e in events].count(TYPE_ERROR) == 1
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    assert len(model.requests) < 6  # gave up rather than draining the script
+
+
+@pytest.mark.asyncio
+async def test_prefill_rejection_keeps_retrying_after_the_repair():
+    """The repair is one-shot, but the ERROR is not fatal after it.
+
+    Probed 2026-07-31: the conversation that drew this 400 in a live turn
+    replayed clean three times out of three, because the upstream
+    load-balances and only some backends refuse. Giving up after the
+    single repair let one unlucky draw kill a turn that had already
+    written its file (agent_560a2bf191ba, dev 2026-07-31)."""
+    model = FakeModel([
+        BadRequestError(_PREFILL_400),   # repair arms here
+        BadRequestError(_PREFILL_400),   # unlucky backend again
+        [_text("landed"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(
+        _assembly(model, FakeTools(), retry=StepRetry(base_delay_s=0.0)),
+    )
+
+    assert len(model.requests) == 3          # repair + one real retry
+    assert not [e for e in events if e.type == TYPE_ERROR]
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1

@@ -52,7 +52,7 @@ def classifier():
         (Exception("mystery failure"), ErrorType.UNKNOWN, False),
         # The prefill marker must beat the BadRequestError class name —
         # the loop repairs this shape, it does not die on it.
-        (BadRequestError(PREFILL_400), ErrorType.PREFILL_REJECTED, False),
+        (BadRequestError(PREFILL_400), ErrorType.PREFILL_REJECTED, True),
     ],
 )
 def test_classification_table(classifier, exc, expected, retryable):
