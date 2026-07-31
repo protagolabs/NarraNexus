@@ -14,6 +14,10 @@ loop (output dominated the visible sum — live case agent_39b2b72b823b).
 A subline under in/out (`cost.popover.cache`, zh+en) shows read/write
 cache tokens when non-zero, so "input" being mostly cheap cache reads is
 visible rather than implied. Backend counterpart: [[agents/cost.py]].
+Every cache field is read with `?? 0`: a response from a backend build
+predating the fields has no such keys, and undefined in a sum renders
+"NaNM" — hit live the same day (hot-reloaded frontend against a
+not-yet-restarted backend).
 
 ## 2026-07-28 — main/helper role labels
 

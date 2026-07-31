@@ -4,43 +4,48 @@
  * @description: Regression tests for provider-neutral token usage labels.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { CostPopover } from '../CostPopover';
+import type { CostSummary } from '@/types/api';
 
 // Cache-heavy shape on purpose: the live regression was an agent whose
 // input side was >99% cache tokens, which the popover used to drop entirely
 // (showing "input 213" for a 1.2M-token week and making the helper row look
 // bigger than the main loop).
+const cacheHeavySummary: CostSummary = {
+  total_cost_usd: 0,
+  total_input_tokens: 100,
+  total_output_tokens: 50,
+  total_cache_read_tokens: 820,
+  total_cache_creation_tokens: 110,
+  by_model: {
+    '__main_model__': {
+      cost: 0,
+      input_tokens: 80,
+      output_tokens: 40,
+      cache_read_tokens: 800,
+      cache_creation_tokens: 100,
+      call_count: 1,
+    },
+    '__helper_model__': {
+      cost: 0,
+      input_tokens: 20,
+      output_tokens: 10,
+      cache_read_tokens: 20,
+      cache_creation_tokens: 10,
+      call_count: 1,
+    },
+  },
+  daily: [],
+};
+
+const mockState = { costSummary: cacheHeavySummary };
+
 vi.mock('@/stores', () => ({
   useConfigStore: () => ({ agentId: 'agent_test' }),
   usePreloadStore: () => ({
-    costSummary: {
-      total_cost_usd: 0,
-      total_input_tokens: 100,
-      total_output_tokens: 50,
-      total_cache_read_tokens: 820,
-      total_cache_creation_tokens: 110,
-      by_model: {
-        '__main_model__': {
-          cost: 0,
-          input_tokens: 80,
-          output_tokens: 40,
-          cache_read_tokens: 800,
-          cache_creation_tokens: 100,
-          call_count: 1,
-        },
-        '__helper_model__': {
-          cost: 0,
-          input_tokens: 20,
-          output_tokens: 10,
-          cache_read_tokens: 20,
-          cache_creation_tokens: 10,
-          call_count: 1,
-        },
-      },
-      daily: [],
-    },
+    costSummary: mockState.costSummary,
     costLoading: false,
     refreshCost: vi.fn(),
   }),
@@ -56,6 +61,10 @@ vi.mock('@/lib/api', () => ({
 }));
 
 describe('CostPopover', () => {
+  beforeEach(() => {
+    mockState.costSummary = cacheHeavySummary;
+  });
+
   it('shows provider-neutral labels for main and helper usage', () => {
     render(<CostPopover />);
 
@@ -91,5 +100,36 @@ describe('CostPopover', () => {
     expect(screen.getByText('60')).toBeInTheDocument();
     const rows = screen.getAllByText(/^1\.0k$/);
     expect(rows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders numbers, not NaN, when a summary lacks the cache fields', () => {
+    // A backend build predating the cache fields (or a response cached by
+    // one) sends no cache keys at all. undefined in a sum renders "NaNM" —
+    // the live regression right after deploying the cache-aware frontend
+    // against a not-yet-restarted backend.
+    mockState.costSummary = {
+      total_cost_usd: 0,
+      total_input_tokens: 100,
+      total_output_tokens: 50,
+      by_model: {
+        '__main_model__': {
+          cost: 0,
+          input_tokens: 80,
+          output_tokens: 40,
+          call_count: 1,
+        },
+      },
+      daily: [{ date: '2026-07-30', input_tokens: 100, output_tokens: 50 }],
+    };
+    render(<CostPopover />);
+
+    fireEvent.click(
+      screen.getByTitle('Token usage — click for details'),
+    );
+
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    // Totals fall back to input+output alone, and the cache line is hidden.
+    expect(screen.getAllByText('150').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/incl\. cache read/)).not.toBeInTheDocument();
   });
 });

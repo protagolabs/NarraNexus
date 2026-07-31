@@ -559,12 +559,15 @@ export interface MCPValidateAllResponse extends ApiResponse {
 // cache_creation_tokens are separate. On a cache-warm agent the cache buckets
 // hold >99% of the input side — display code must sum all three or it
 // understates input by orders of magnitude.
+// The cache fields are optional: a response served by a backend build that
+// predates them has no such keys, and summing undefined renders "NaN".
+// Consumers must `?? 0`.
 export interface CostModelBreakdown {
   cost: number;
   input_tokens: number;
   output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
   call_count: number;
 }
 
@@ -572,16 +575,16 @@ export interface CostDailyEntry {
   date: string;
   input_tokens: number;
   output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
 
 export interface CostSummary {
   total_cost_usd: number;
   total_input_tokens: number;
   total_output_tokens: number;
-  total_cache_read_tokens: number;
-  total_cache_creation_tokens: number;
+  total_cache_read_tokens?: number;
+  total_cache_creation_tokens?: number;
   by_model: Record<string, CostModelBreakdown>;
   daily: CostDailyEntry[];
 }
@@ -594,8 +597,8 @@ export interface CostRecord {
   model: string;
   input_tokens: number;
   output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
   total_cost_usd: number;
   created_at?: string;
 }

@@ -41,16 +41,19 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
   const { t } = useTranslation();
   // input_tokens is only the full-rate bucket; the model also read the two
   // cache buckets (write 1.25x, read 0.1x). Display input as all three or a
-  // cache-warm agent shows "input 213" for a 1.2M-token week.
-  const totalInputSide =
-    summary.total_input_tokens +
-    summary.total_cache_read_tokens +
-    summary.total_cache_creation_tokens;
+  // cache-warm agent shows "input 213" for a 1.2M-token week. `?? 0`: a
+  // response from a backend build predating the cache fields has no such
+  // keys, and undefined in a sum renders as "NaN".
+  const cacheRead = summary.total_cache_read_tokens ?? 0;
+  const cacheWrite = summary.total_cache_creation_tokens ?? 0;
+  const totalInputSide = summary.total_input_tokens + cacheRead + cacheWrite;
   const totalTokens = totalInputSide + summary.total_output_tokens;
-  const hasCache =
-    summary.total_cache_read_tokens > 0 || summary.total_cache_creation_tokens > 0;
+  const hasCache = cacheRead > 0 || cacheWrite > 0;
   const modelTokens = (d: CostModelBreakdown) =>
-    d.input_tokens + d.cache_read_tokens + d.cache_creation_tokens + d.output_tokens;
+    d.input_tokens +
+    (d.cache_read_tokens ?? 0) +
+    (d.cache_creation_tokens ?? 0) +
+    d.output_tokens;
   const models = Object.entries(summary.by_model).sort(
     ([, a], [, b]) => modelTokens(b) - modelTokens(a)
   );
@@ -68,8 +71,8 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
         {hasCache && (
           <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
             {t('cost.popover.cache', {
-              read: formatTokens(summary.total_cache_read_tokens),
-              write: formatTokens(summary.total_cache_creation_tokens),
+              read: formatTokens(cacheRead),
+              write: formatTokens(cacheWrite),
             })}
           </div>
         )}
@@ -115,8 +118,8 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
               <span className="font-medium text-[var(--text-primary)]">
                 {formatTokens(
                   entry.input_tokens +
-                    entry.cache_read_tokens +
-                    entry.cache_creation_tokens +
+                    (entry.cache_read_tokens ?? 0) +
+                    (entry.cache_creation_tokens ?? 0) +
                     entry.output_tokens
                 )}
               </span>
