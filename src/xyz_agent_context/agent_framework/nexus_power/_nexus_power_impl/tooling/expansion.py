@@ -26,6 +26,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import McpSer
 
 AddServersFn = Callable[[dict[str, McpServerSpec]], Awaitable[None]]
 AddEnvFn = Callable[[dict[str, str]], None]
+AddExpressiveFn = Callable[[tuple[str, ...]], None]
 
 
 @dataclass(frozen=True)
@@ -38,10 +39,17 @@ class Expandable:
     mcp_servers: dict[str, McpServerSpec] = field(default_factory=dict)
     skill_dirs: tuple[str, ...] = ()
     extra_env: dict[str, str] = field(default_factory=dict)
+    # Delivery tools this capability contributes (fully-qualified names).
+    # Expanding grants them to the expression contract, so a reply tool
+    # that ARRIVES via expansion is recognized as a reply tool — without
+    # this, a channel capability loaded mid-turn would deliver through a
+    # tool the harness still calls non-expressive.
+    expressive_tools: tuple[str, ...] = ()
 
 
 class CapabilityExpander:
-    """Executes expansions against injected seams (MCP attach, env merge)."""
+    """Executes expansions against injected seams (MCP attach, env merge,
+    expression grant)."""
 
     def __init__(
         self,
@@ -49,10 +57,12 @@ class CapabilityExpander:
         *,
         add_mcp_servers: AddServersFn,
         add_env: AddEnvFn,
+        add_expressive: AddExpressiveFn | None = None,
     ) -> None:
         self._catalog = {e.key: e for e in catalog}
         self._add_mcp_servers = add_mcp_servers
         self._add_env = add_env
+        self._add_expressive = add_expressive
         self._expanded: set[str] = set()
 
     def card_index(self) -> str:
@@ -76,6 +86,8 @@ class CapabilityExpander:
             await self._add_mcp_servers(dict(expandable.mcp_servers))
         if expandable.extra_env:
             self._add_env(dict(expandable.extra_env))
+        if expandable.expressive_tools and self._add_expressive is not None:
+            self._add_expressive(expandable.expressive_tools)
         self._expanded.add(key)
         return expandable.instructions or f"(capability '{key}' is now active)"
 

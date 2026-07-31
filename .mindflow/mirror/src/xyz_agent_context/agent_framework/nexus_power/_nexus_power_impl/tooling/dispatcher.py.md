@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/tooling/dispatcher.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)(配套:C2 落地)
+
+`visible_tools` 删除每通道 `sorted(name)`——排序会把中途展开的新工具**插进
+MCP 段中间**,把插入点之后的字节全部挤出 provider 缓存前缀,正好违反本文件
+自己承诺的「expansion appends, never resorts」。现顺序=(通道序,注册序);
+注册序确定性由通道自己保证(见 [[mcp_channel]] 同日条目)。工具数组初始顺序
+因此一次性变化(旧用户首轮 cache miss 一次,之后照常)。
 
 ## 2026-07-30 — 派发前 required 校验(hermes 形)
 

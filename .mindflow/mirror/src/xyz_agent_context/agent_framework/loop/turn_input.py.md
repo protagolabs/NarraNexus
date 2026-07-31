@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+新增 `agent_id`(恒发;NexusPower 落 ToolContext,CLI driver 经 **kwargs 忽略)
+与 `expressive_tools`(空则**不发键**——mute 保持 driver 默认;非空发 list)。
+来源:[[context_runtime.py]] 模块声明收集 → step_3 组包。
+
 ## 2026-07-29 (二次) — 删除 resume_session_id 字段(T6)
 
 字段与 `driver_kwargs()` 里的条件发射一起删。上游已无生产者:[[step_3_agent_loop]]

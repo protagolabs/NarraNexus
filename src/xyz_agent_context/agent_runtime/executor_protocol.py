@@ -108,6 +108,8 @@ def build_agent_loop_request(
     extra_env: Optional[dict[str, str]],
     streaming: bool = True,
     disallowed_tools: Optional[list[str]] = None,
+    agent_id: str = "agent",
+    expressive_tools: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -127,6 +129,11 @@ def build_agent_loop_request(
         # Setup-residency: per-agent tool suppression must cross the network
         # boundary explicitly (it is per-run state, like the messages).
         "disallowed_tools": disallowed_tools or [],
+        # Delivery declaration: the reply surface is per-run state too —
+        # NexusPower inside the executor needs it to enforce the
+        # monologue contract with the right tools.
+        "agent_id": agent_id,
+        "expressive_tools": expressive_tools or [],
         "provider_configs": serialize_provider_configs(),
     }
     return body

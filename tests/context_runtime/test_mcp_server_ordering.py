@@ -57,7 +57,7 @@ async def _collect_server_order(monkeypatch, instances) -> list[str]:
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = AGENT_ID
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
-    _messages, mcp_servers, _dis = await runtime.build_input_for_framework(
+    _messages, mcp_servers, _dis, _expr = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=instances,

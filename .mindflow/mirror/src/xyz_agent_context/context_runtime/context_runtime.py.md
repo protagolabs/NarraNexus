@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`build_input_for_framework` 在 MCP 收集环里同批收集各模块
+`get_expressive_tools()`(fail-open,姿态同 disallowed),收集后按
+**(priority, module_class) 全序排**(R4d 同源,与 _build_turn_context_block /
+_sorted_module_instructions 完全一致)再去重——**首位即默认回复工具**且会被
+冻进框架稳定前缀,所以顺序必须由优先级驱动、跨回合确定。**不能**依赖
+active_instances 原序:那是 created_at DESC 的公共实例序(review 2026-07-31
+抓出的 bug:后建的 channel 实例会抢走首位,把 lark_cli 写进 constitution
+默认例子,还让新建实例静默打穿全量 cache)。返回值 3 元组 → 4 元组;
+`ContextRuntimeOutput.expressive_tools` 承载。
 
 ## 2026-07-29 (二次) — 原生 turn 回放(NexusPower)
 

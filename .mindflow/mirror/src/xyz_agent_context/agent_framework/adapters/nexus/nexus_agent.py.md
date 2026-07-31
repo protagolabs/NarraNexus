@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+删除 `_reply_tool_names` 子串猜测(server 名含 "chat" → 猜 reply 工具):
+expressive 只读 kwargs(平台经 TurnInput 声明)。改名/换 server 不再静默把
+agent 变哑;channel 回复工具(lark_cli 等)也随声明进入表达面。agent_id
+同批开始真实传入(旧值恒 "agent")。
 
 ## 2026-07-29 — 冷启动路径上钉死 litellm 本地价目表
 

@@ -264,6 +264,15 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
+    async def get_expressive_tools(self) -> list[str]:
+        """The owner-chat delivery tool. ChatModule is priority 1, so the
+        (priority, module_class)-sorted collection puts this first and it
+        becomes the turn's DEFAULT reply tool (the one the framework's
+        constitution names as its example). Derived from get_mcp_config's
+        server_name — a rename must not silently mute the agent."""
+        config = await self.get_mcp_config()
+        return [f"mcp__{config.server_name}__send_message_to_user_directly"]
+
     def create_mcp_server(self) -> Optional[Any]:
         """
         Create MCP Server

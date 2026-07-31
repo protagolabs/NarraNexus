@@ -18,7 +18,7 @@ semantics never scatter into if-statements across the loop.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import LoopEvent
 from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolCall
@@ -26,10 +26,26 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import Tool
 
 class ExpressionContract:
     """Name-list based ExpressionPolicy (per-agent customization = a new
-    implementation swapped into the assembly)."""
+    implementation swapped into the assembly).
 
-    def __init__(self, expressive_tools: frozenset[str]) -> None:
-        self._names = expressive_tools
+    The list is INCREMENTAL: a capability expansion may grant delivery
+    tools mid-turn (``add_tools``), so the reminder rendered on the
+    dynamic tail always names the current surface. Declaration order is
+    preserved (the first name is the turn's default reply tool); growth
+    never touches the stable prompt prefix — only the per-step tail
+    reads ``names()``.
+    """
+
+    def __init__(self, expressive_tools: Iterable[str]) -> None:
+        # dict-as-ordered-set: preserves declaration order, dedupes.
+        self._names: dict[str, None] = dict.fromkeys(expressive_tools)
+
+    def add_tools(self, names: Iterable[str]) -> None:
+        for name in names:
+            self._names.setdefault(name)
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._names)
 
     def is_expressive(self, name: str) -> bool:
         return name in self._names

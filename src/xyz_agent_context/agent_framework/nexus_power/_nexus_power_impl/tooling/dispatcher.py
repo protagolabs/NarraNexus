@@ -7,8 +7,9 @@ capability channel (ToolExecutor implementation).
 
 Invariants:
   - ``visible_tools()`` = union of channel tools − disallowed
-    (∩ allowlist when set), in (channel order, name) order with a
-    generation cache — expansion appends, never resorts (constraint C2);
+    (∩ allowlist when set), in (channel order, registration order) with
+    a generation cache — expansion appends, never resorts (constraint
+    C2; channels own deterministic registration);
   - every ``execute`` passes the PolicyEngine first (fail-closed); a
     deny is an error-shaped result, never an exception;
   - label tools (``marker_only`` annotation or the injected marker
@@ -80,7 +81,12 @@ class ToolDispatcher:
         seen: set[str] = set()
         visible: list[ToolSpec] = []
         for channel in self._channels:
-            for spec in sorted(channel.list_tools(), key=lambda s: s.name):
+            # Registration order, NEVER a name sort (constraint C2): a
+            # mid-turn expansion must APPEND its tools to the array —
+            # sorting here would insert them into the middle and move
+            # every byte after the insertion point out of the provider's
+            # cached prefix. Channels own deterministic registration.
+            for spec in channel.list_tools():
                 if spec.name in seen:
                     logger.warning(f"duplicate tool name {spec.name!r}: first wins")
                     continue

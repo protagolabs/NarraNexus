@@ -74,7 +74,15 @@ class ToolChannel(Protocol):
     capability expansion all arrive as new channels; the dispatcher and
     the loop never change for them."""
 
-    def list_tools(self) -> list[ToolSpec]: ...
+    def list_tools(self) -> list[ToolSpec]:
+        """Current tool inventory, in a DETERMINISTIC, APPEND-ONLY order
+        (constraint C2). The dispatcher concatenates channel lists
+        verbatim — no name sort downstream — and the result is the
+        provider-visible tool array whose byte prefix the cache keys on.
+        A channel that reorders (or registers in a racy order) silently
+        invalidates every cached prefix behind the reorder point; new
+        tools must append after existing ones."""
+        ...
 
     async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult: ...
 

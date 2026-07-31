@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+TurnInput 组包新增 `agent_id=ctx.agent_id` 与
+`expressive_tools=context.expressive_tools`(3.2 模块声明的投递面)。此前
+适配缝空转:NexusPower 靠 server 名含 "chat" 猜回复工具、agent_id 恒
+"agent"(2026-07-31 排查确认的生产缺陷)。
 
 ## 2026-07-30 (二次) — 兜底回复不许承诺没在做的事
 

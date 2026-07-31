@@ -47,6 +47,10 @@ class PromptInputs:
     capability_instructions: str = ""     # initial expansions' instructions
     identity: str = ""                    # optional extra identity line
     plan_block: str = ""                  # current plan, re-injected every step
+    # The turn's default reply tool (the first platform-declared
+    # expressive tool). Rendered into the constitution's example slot;
+    # frozen at assembly so the stable prefix never moves mid-turn.
+    default_reply_tool: str = ""
 
 
 @dataclass(frozen=True)

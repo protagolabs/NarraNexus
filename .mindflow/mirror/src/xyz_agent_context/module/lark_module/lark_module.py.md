@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`reply_tool_names = ("lark_cli",)`:绑定后向框架声明 Lark 投递面。此前
+NexusPower 只认猜出来的 chat 工具,harness reminder 与 channel 模板的
+「必须用 lark_cli 回」正面对打(2026-07-31 排查)。
 
 ## 2026-07-29 — incremental-auth guide: self-service scope requests + the group-read scope
 
