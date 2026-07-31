@@ -26,6 +26,7 @@ import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
+import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -550,6 +551,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                             )}
                           </div>
                           <BusAttachmentList attachments={m.attachments} />
+                          {/* This turn's full process — single-chat parity.
+                              Only agent replies whose turn was recorded carry
+                              an event_id (legacy rows degrade to no button). */}
+                          {!mine && m.event_id && (
+                            <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                          )}
                         </div>
                         {/* Meta row outside the bubble, aligned to its side. */}
                         <div

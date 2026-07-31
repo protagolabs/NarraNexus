@@ -135,6 +135,7 @@
       "roster": {
         "title": "メンバー",
         "lastRun": "{{duration}} 実行 · {{ago}} 前",
+        "lastRunAgoOnly": "{{ago}}前に完了",
         "neverRan": "まだ実行していません",
         "noProcess": "このターンの処理記録はありません",
         "loading": "処理を読み込み中…"

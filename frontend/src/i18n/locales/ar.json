@@ -139,6 +139,7 @@
       "roster": {
         "title": "الأعضاء",
         "lastRun": "استغرق {{duration}} · قبل {{ago}}",
+        "lastRunAgoOnly": "انتهى قبل {{ago}}",
         "neverRan": "لم يُشغَّل بعد",
         "noProcess": "لا يوجد سجل عملية لهذه الجولة",
         "loading": "جارٍ تحميل العملية…"

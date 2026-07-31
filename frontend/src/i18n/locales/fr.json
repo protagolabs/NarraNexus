@@ -135,6 +135,7 @@
       "roster": {
         "title": "Membres",
         "lastRun": "a duré {{duration}} · il y a {{ago}}",
+        "lastRunAgoOnly": "terminé il y a {{ago}}",
         "neverRan": "jamais exécuté",
         "noProcess": "Aucun enregistrement de processus pour ce tour",
         "loading": "Chargement du processus…"

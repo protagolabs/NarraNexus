@@ -23,12 +23,10 @@
  * one selection is how they drift apart.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
-import { timelineToEvents } from '@/lib/segmentTurn';
 import {
   STATUS_TONES,
   buildTimeline,
@@ -39,8 +37,10 @@ import {
   phaseLabelKey,
   toMs,
 } from '@/lib/teamActivity';
-import { ProcessEventRows, friendlyToolName } from '../process/processShared';
-import type { AgentInfo, TurnEvent } from '@/types';
+import { friendlyToolName } from '../process/processShared';
+import { TurnTimeline } from '../TurnTimeline';
+import { isProcessEvent, useTurnDetail } from './useTurnDetail';
+import type { AgentInfo } from '@/types';
 import type { TeamMemberActivity } from '@/types/teams';
 
 export interface TeamRosterPanelProps {
@@ -60,62 +60,6 @@ export interface TeamRosterPanelProps {
   onOpenSettings?: () => void;
   /** Shell override — the narrow-screen drawer reuses the same rows. */
   className?: string;
-}
-
-/**
- * A settled result for one turn. "Loading" is deliberately NOT a member of
- * this union: it is the absence of a settled state for the current key, so the
- * effect never has to write it — a synchronous setState inside an effect is a
- * cascading render (and an eslint error in this repo).
- */
-type DetailState =
-  | { key: string; kind: 'ready'; events: TurnEvent[] }
-  | { key: string; kind: 'empty' };
-
-const isProcessEvent = (e: TurnEvent) =>
-  e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output';
-
-/**
- * One finished turn's persisted process, fetched on demand.
- *
- * Keyed by `agent:event` and cached for that key: the room polls every 3s, so
- * a re-render per tick must not become a request per tick. The key also decides
- * the race — a response whose turn is no longer the current one is dropped
- * rather than painted over a newer turn's detail.
- */
-function useMemberTurnDetail(
-  agentId: string,
-  eventId: string | null | undefined,
-  open: boolean,
-): DetailState | null {
-  const [state, setState] = useState<DetailState | null>(null);
-  const requestedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!open || !eventId) return;
-    const key = `${agentId}:${eventId}`;
-    // Already in flight or already held for this exact turn. (Deliberately not
-    // an unmount-scoped `alive` flag: collapsing mid-flight would then strand
-    // the row forever, since re-expanding hits this same cache line.)
-    if (requestedRef.current === key) return;
-    requestedRef.current = key;
-
-    api
-      .getEventLog(agentId, eventId)
-      .then((r) => {
-        if (requestedRef.current !== key) return;
-        if (r.success && r.timeline && r.timeline.length > 0) {
-          setState({ key, kind: 'ready', events: timelineToEvents(r.timeline) });
-        } else {
-          setState({ key, kind: 'empty' });
-        }
-      })
-      .catch(() => {
-        if (requestedRef.current === key) setState({ key, kind: 'empty' });
-      });
-  }, [open, agentId, eventId]);
-
-  return state;
 }
 
 /**
@@ -195,6 +139,11 @@ function RowMetric({ activity, now }: { activity: TeamMemberActivity; now: numbe
 
   const last = lastRunSummary(activity, now);
   if (!last) return <>{t('chat.team.roster.neverRan')}</>;
+  // Legacy rows without started_at have no honest duration — say when it
+  // finished rather than invent a "ran 0s".
+  if (last.durationMs === null) {
+    return <>{t('chat.team.roster.lastRunAgoOnly', { ago: formatDuration(last.agoMs) })}</>;
+  }
   return (
     <>
       {t('chat.team.roster.lastRun', {
@@ -236,7 +185,7 @@ function MemberDetail({
 }) {
   const { t } = useTranslation();
   const live = activity.status === 'running' || activity.status === 'stalled';
-  const detail = useMemberTurnDetail(activity.agent_id, live ? null : activity.event_id, open);
+  const detail = useTurnDetail(activity.agent_id, live ? null : activity.event_id, open);
 
   if (!open) return null;
 
@@ -264,7 +213,10 @@ function MemberDetail({
       </span>
     );
   } else if (settled.kind === 'ready') {
-    body = <ProcessEventRows process={settled.events.filter(isProcessEvent)} />;
+    // Same renderer as the single-chat "View reasoning & tools" disclosure —
+    // THINKING blocks in Markdown, expandable tool args — not the compact
+    // one-line ProcessPanel rail (user feedback 2026-07-31).
+    body = <TurnTimeline events={settled.events.filter(isProcessEvent)} />;
   } else {
     body = <span className="text-[var(--text-tertiary)]">{t('chat.team.roster.noProcess')}</span>;
   }

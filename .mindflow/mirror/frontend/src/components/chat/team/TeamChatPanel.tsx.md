@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 每条 agent 回复挂自己的 reasoning 展开条
+
+气泡内 `BusAttachmentList` 之后渲染 [[TeamMessageProcess]]（仅
+`!is_user && m.event_id`）——单聊 MessageBubble "View reasoning & tools"
+的团队版。数据链：trigger 发帖时把 turn 的 event_id 写进
+`bus_messages.event_id` → chat GET 序列化 → 气泡按需 `getEventLog`。
+历史消息 event_id 为 null，自然不显示按钮（无死按钮）。分工：**消息气泡
+负责历史（每条 turn 各自可开）**，roster 详情只负责 live/最近一轮。
 
 ## 2026-07-30 — guide 横幅退役：空房 hero + member bar 的 `?` popover
 

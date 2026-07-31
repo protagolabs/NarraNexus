@@ -694,6 +694,11 @@ _register(
             # and points into the per-user shared area; markers are built from it
             # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
             Column("attachments", "TEXT", "TEXT", nullable=True),
+            # events row id of the turn that produced this message (agent
+            # replies posted by the trigger). NULL for user messages and for
+            # rows written before the column existed. Powers the per-message
+            # "view reasoning & tools" disclosure in the team transcript.
+            Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

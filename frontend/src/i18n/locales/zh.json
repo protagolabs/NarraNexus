@@ -168,6 +168,7 @@
       "roster": {
         "title": "成员",
         "lastRun": "上次运行 {{duration}} · {{ago}}前",
+        "lastRunAgoOnly": "{{ago}} 前完成",
         "neverRan": "还没运行过",
         "noProcess": "该轮次没有过程记录",
         "loading": "过程加载中…"

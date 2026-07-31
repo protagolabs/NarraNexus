@@ -37,6 +37,9 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** `events` row id of the turn that produced this reply — drives the
+   *  per-message reasoning disclosure. Null for user messages / legacy rows. */
+  event_id?: string | null;
   created_at: string;
 }
 

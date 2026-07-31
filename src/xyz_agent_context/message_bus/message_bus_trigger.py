@@ -640,7 +640,7 @@ class MessageBusTrigger:
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
                 # execution `prompt` is far noisier. See 2026-06-01 design.
-                response_text = await self._invoke_runtime(
+                response_text, turn_event_id = await self._invoke_runtime(
                     agent_id=agent_id,
                     sender_agent_id=trigger_message.from_agent,
                     prompt=prompt,
@@ -691,6 +691,9 @@ class MessageBusTrigger:
                         to_channel=channel_id,
                         content=response_text,
                         mentions=mentions or None,
+                        # Stamp the reply with the turn that produced it, so
+                        # the transcript can open this turn's full event_log.
+                        event_id=turn_event_id,
                     )
                 else:
                     # Write response to inbox
@@ -1093,11 +1096,14 @@ class MessageBusTrigger:
         on_progress=None,
         on_event_id=None,
         include_monologue: bool = False,
-    ) -> str:
+    ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
-        Returns the collected agent response text.
+        Returns ``(response_text, event_id)`` — the collected agent response
+        text plus the turn's events-row id (None if the run died before
+        Step 0). The team branch stamps the id onto the reply it posts back
+        into the room, so the transcript can open that turn's event_log.
 
         `on_event_id`, when provided (team branch only), is forwarded to
         `collect_run` so the turn's events-row id gets bound onto the
@@ -1148,10 +1154,11 @@ class MessageBusTrigger:
             )
             return (
                 f"⚠️ I couldn't process your message right now "
-                f"({collection.error.error_type}). {collection.error.error_message}"
+                f"({collection.error.error_type}). {collection.error.error_message}",
+                collection.event_id,
             )
 
-        return collection.output_text
+        return collection.output_text, collection.event_id
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

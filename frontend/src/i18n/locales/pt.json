@@ -135,6 +135,7 @@
       "roster": {
         "title": "Membros",
         "lastRun": "durou {{duration}} · há {{ago}}",
+        "lastRunAgoOnly": "terminou há {{ago}}",
         "neverRan": "ainda sem execuções",
         "noProcess": "Sem registro de processo para este turno",
         "loading": "Carregando processo…"

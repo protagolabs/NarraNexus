@@ -135,6 +135,7 @@
       "roster": {
         "title": "멤버",
         "lastRun": "{{duration}} 실행 · {{ago}} 전",
+        "lastRunAgoOnly": "{{ago}} 전 완료",
         "neverRan": "아직 실행한 적 없음",
         "noProcess": "이 턴의 처리 기록이 없습니다",
         "loading": "처리 과정 불러오는 중…"

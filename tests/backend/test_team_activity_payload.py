@@ -200,6 +200,29 @@ async def test_activity_covers_every_member_in_order(db_client):
 
 
 @pytest.mark.asyncio
+async def test_idle_carries_started_at_for_duration(db_client):
+    """The roster's "ran Ns" derives from started_at→finished_at. The idle
+    branch used to omit started_at (only running/stalled carried it), so every
+    finished turn rendered as a confident "ran 0s" while the DB held the真 value.
+    """
+    bus = await _room(db_client)
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(seconds=45)
+    await _write_activity(
+        db_client, "agent_a", state="idle", updated_at=now.isoformat(),
+        started_at=start.isoformat(),
+        steps='{"items": [{"phase": "replying", "at": "x"}], "dropped": 0}',
+    )
+
+    row = _by_id(await _member_activity(db_client, bus, ROOM, MEMBERS))["agent_a"]
+    assert row["status"] == "idle"
+    assert row["started_at"] is not None and row["started_at"].endswith("Z")
+    started = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+    finished = datetime.fromisoformat(row["finished_at"].replace("Z", "+00:00"))
+    assert 40 <= (finished - started).total_seconds() <= 50
+
+
+@pytest.mark.asyncio
 async def test_payload_carries_event_id_when_present(db_client):
     """The activity payload surfaces the turn's event_id so the frontend can
     fetch the finished turn's full event_log via the existing endpoint."""
