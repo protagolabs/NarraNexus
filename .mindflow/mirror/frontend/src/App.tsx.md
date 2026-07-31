@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — /pay 路由(官网→Stripe 跳板)
+
+新增顶层受保护路由 `/pay` → [[PayPage]](lazy)。放在 ProtectedRoute 里
+是设计的一半:未登录访客由既有的 `/login?next=%2Fpay` 机制兜住,付费意图
+穿越登录/注册存活——这正是 P0「登录后未跳回付费页」的修复。ProtectedRoute
+/ LoginPage 的 next 链路本身没改(验证过三条登录路径都已支持)。
 
 ## 2026-07-23 — Locked Use startup re-assert
 

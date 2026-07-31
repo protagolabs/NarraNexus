@@ -1418,6 +1418,12 @@
     }
   },
   "pages": {
+    "pay": {
+      "working": "正在前往支付页…",
+      "errorTitle": "无法发起支付",
+      "retry": "重试",
+      "goAccount": "打开账户页"
+    },
     "login": {
       "changeMode": "切换模式",
       "cloudAccess": "云端 · 接入",

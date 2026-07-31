@@ -33,6 +33,7 @@ const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
 // before login during visual review. Not linked from any nav.
 const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
+const PayPage = lazy(() => import('@/pages/PayPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -97,9 +98,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn) {
     // Preserve the URL the user was trying to reach so LoginPage can send
     // them back after auth. This is what makes "Install in NarraNexus →
-    // Cloud" from www.narra.nexus land on the import page, not /chat.
-    // RegisterPage does NOT read `next` yet — fresh signups still land on
-    // the default. Tracked as a known edge case.
+    // Cloud" from www.narra.nexus land on the import page, not /chat, and
+    // what carries the /pay payment intent through login. Signup honors it
+    // too: SignUpDialog lives ON /login (the URL keeps ?next=) and its
+    // onRegistered chains into the same emailLogin onSuccess that reads it —
+    // verified 2026-07-31, all three auth paths return to `next`.
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
   }
@@ -478,6 +481,15 @@ function App() {
         <Route
           path="/setup"
           element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
+        />
+
+        {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
+            ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
+            the payment intent survives login/signup; PayPage then mints the
+            checkout session and redirects. */}
+        <Route
+          path="/pay"
+          element={<ProtectedRoute><PayPage /></ProtectedRoute>}
         />
 
         {/* Protected app routes */}
