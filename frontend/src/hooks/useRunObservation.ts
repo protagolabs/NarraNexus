@@ -248,9 +248,17 @@ export function useRunObservation(
   useEffect(() => {
     endedRef.current = snap.status === 'ended';
   }, [snap.status]);
+  // Set SYNCHRONOUSLY when the server says this run can never be
+  // streamed by this client (Forbidden / NotFound / DBError). endedRef
+  // lags a render behind (it follows reducer state through an effect),
+  // and the server closes the socket right after the error frame — an
+  // onclose racing that effect would still schedule a retry. A fatal
+  // protocol answer is not a network blip; retrying has zero upside.
+  const fatalRef = useRef(false);
 
   useEffect(() => {
     dispatch({ type: 'reset' });
+    fatalRef.current = false;
     if (!runId || !enabled || !userId) return;
 
     let ws: WebSocket | null = null;
@@ -280,14 +288,37 @@ export function useRunObservation(
         try {
           const raw = JSON.parse(event.data) as Record<string, unknown>;
           if (raw.type === 'heartbeat') return;
-          attempts = 0; // frames flowing — reset the backoff ladder
+          if (raw.type === 'error') {
+            // Protocol-terminal errors (the server closes right after
+            // these): stop the ladder AND settle the snapshot so the
+            // panel stops pretending something is coming. Other error
+            // frames are run-level events — dispatch, but do NOT reset
+            // the ladder: an error frame is not progress.
+            const et = raw.error_type as string | undefined;
+            if (et === 'Forbidden' || et === 'NotFound' || et === 'DBError') {
+              fatalRef.current = true;
+              dispatch({ type: 'frame', raw });
+              dispatch({
+                type: 'frame',
+                raw: {
+                  type: 'run_ended',
+                  state: 'failed',
+                  error_message: raw.error_message,
+                },
+              });
+              return;
+            }
+            dispatch({ type: 'frame', raw });
+            return;
+          }
+          attempts = 0; // progress frames flowing — reset the backoff ladder
           dispatch({ type: 'frame', raw });
         } catch {
           // one bad frame must not kill the observer
         }
       };
       ws.onclose = () => {
-        if (disposed || endedRef.current) return;
+        if (disposed || endedRef.current || fatalRef.current) return;
         // The run may still be alive (network blip / backend deploy) —
         // keep observing with capped backoff. run_ended/complete flip
         // endedRef and stop the ladder.

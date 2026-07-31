@@ -4,6 +4,18 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (三次) — 可见性判定改「agent 属主」（review R2 Critical #1）
+
+`events.user_id` 是**触发方 key** 不是属主列：team run 写的是发送方
+（`usr_<uid>`，agent→agent 中继则是 agent_id），channel run 在 owner
+解析失败时退化为 agent_id。拿请求者与它相等比对会把所有可观察 team
+run 判 Forbidden——恰好是 run 观察的旗舰面。改为：相等走快路径
+（chat 型 run），否则 `AgentRepository.resolve_owner(agent_id)` 反查
+属主比对；无法证明属主即不可见（fail-closed，覆盖上一轮的「无主行」
+分支）。local（requesting 为空）行为不变。测试：
+tests/backend/test_reconnect_visibility.py（5 条：usr_ 前缀/中继
+agent/非属主拒/幽灵 agent 拒/chat 快路径）。
+
 ## 2026-07-31 (二次) — review 扫尾：归属收紧 + 状态检查降频
 
 - 归属校验补「cloud 模式下 events.user_id 为空即拒」：event_stream
@@ -11,7 +23,7 @@ stub: false
   用户可见（旧形状本 PR 放大了影响面，review Minor #7）。
 - tail-follow 的 events 终态/心跳检查降频到每 3 拍一次
   （_TAIL_FOLLOW_STATE_CHECK_TICKS）——它只负责结束 follow，迟几秒
-  不可见，稳态查询量减半。
+  不可见，稳态查询量降约 1/3（每拍 2 次 → 1⅓ 次）。
 
 ## 2026-07-31 — 跨进程 run 的观察：replay-only 分支升级为 DB tail-follow
 

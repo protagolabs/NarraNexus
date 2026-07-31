@@ -157,27 +157,35 @@ async def _handle_reconnect(
             await websocket.close()
         return
 
-    # Visibility check — user must own this run (cloud mode). Local mode
-    # may have requesting_user_id missing; we still enforce match when
-    # the row has a user_id. A row with NO recorded owner is invisible
-    # in cloud mode, not public: event_stream carries the full
-    # thinking/tool trace for every run now, so failing open on missing
-    # ownership would hand it to any authenticated user who guesses a
-    # run id.
+    # Visibility check — the requester must OWN THE AGENT that ran this
+    # run. ``events.user_id`` is NOT an ownership column: it stores the
+    # run's triggering key — the requester itself on chat/manyfold runs,
+    # but the SENDER on team-bus runs (``usr_<uid>``, or a relaying
+    # agent_id on agent→agent turns), and a channel run can degrade to
+    # the agent_id when owner resolution failed at trigger time.
+    # Comparing the requester against it verbatim would Forbid every
+    # observable team run — the exact surface run observation exists
+    # for. So: fast-path on equality (chat-style runs), otherwise
+    # resolve the agent's owner and compare. No provable ownership → no
+    # visibility (event_stream carries the full thinking/tool trace).
+    # Local mode may have requesting_user_id missing → unchanged, allow.
     row_user_id = events_row.get("user_id")
-    owner_mismatch = bool(
-        requesting_user_id and row_user_id and requesting_user_id != row_user_id
-    )
-    if owner_mismatch or (_is_cloud_mode() and not row_user_id):
-        with suppress(Exception):
-            await websocket.send_json({
-                "type": "error",
-                "error_message": "Run does not belong to this user",
-                "error_type": "Forbidden",
-            })
-        with suppress(Exception):
-            await websocket.close()
-        return
+    if requesting_user_id and requesting_user_id != row_user_id:
+        from xyz_agent_context.repository.agent_repository import AgentRepository
+
+        owner = await AgentRepository(db).resolve_owner(
+            events_row.get("agent_id") or ""
+        )
+        if not owner or owner != requesting_user_id:
+            with suppress(Exception):
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Run does not belong to this user",
+                    "error_type": "Forbidden",
+                })
+            with suppress(Exception):
+                await websocket.close()
+            return
 
     # Extract the user's original input + the canonical timestamp that
     # ChatModule will later use when persisting this turn into
@@ -332,8 +340,8 @@ _TAIL_FOLLOW_POLL_S = 1.0
 
 # The events-row terminal/heartbeat check runs every Nth poll tick: it
 # exists only to END the follow, so a few seconds of lag is invisible,
-# and skipping it on the other ticks halves this path's steady-state
-# query load.
+# and skipping it on the other ticks cuts this path's steady-state
+# query load by about a third (2 queries/tick → 1⅓).
 _TAIL_FOLLOW_STATE_CHECK_TICKS = 3
 
 

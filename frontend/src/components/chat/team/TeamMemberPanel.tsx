@@ -155,7 +155,12 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     : 'var(--nm-ink30)';
 
   let body: React.ReactNode;
-  if (live) {
+  if (live && observation.errorMessage && observation.events.length === 0) {
+    // The observe channel answered with a terminal error (e.g. the run
+    // is not visible to this client) — say so instead of spinning a
+    // "starting up" promise that can never be kept.
+    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.detailLoadFailed')}</span>;
+  } else if (live) {
     const hasObservation = processEvents.length > 0 || phases.length > 0;
     body = (
       <>

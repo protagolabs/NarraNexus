@@ -4,6 +4,15 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (三次) — 退避阶梯只认进展帧 + fatal 协议错停梯（review R2 #2）
+
+原来任何帧（含 error）都把 attempts 归零，而服务端 Forbidden/NotFound/
+DBError 都是「error 帧 + 立即 close」→ 1s 一次的重连风暴。现在：
+error 帧不重置阶梯；三种协议终态错误置 `fatalRef`（同步旗标——
+endedRef 经 effect 迟一拍，会输给紧随的 onclose）并合成
+run_ended(failed) 让快照落终态。TeamMemberPanel 相应在
+errorMessage+零事件时显示 detailLoadFailed 而不是永转的 startingUp。
+
 ## 2026-07-31 (二次) — run_reconnect = 回放重启（review Important #1）
 
 观察端点每次 attach 都从 seq 0 全量回放，而重连梯子不换 effect key ——

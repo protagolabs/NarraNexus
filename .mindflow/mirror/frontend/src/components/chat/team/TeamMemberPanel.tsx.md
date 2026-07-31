@@ -4,6 +4,11 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (二次) — 观察通道 fatal 错误的诚实展示
+
+live 成员 + observation.errorMessage + 零事件 → 显示 detailLoadFailed，
+不再挂着永远兑现不了的 "Starting up…"（配合 hook 的 fatal 停梯）。
+
 # TeamMemberPanel.tsx — 成员详情 = 迷你 ProcessPanel
 
 ## 为什么存在
