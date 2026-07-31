@@ -73,6 +73,19 @@ def test_other_bad_requests_are_not_mistaken_for_prefill(classifier):
     assert err.error_type is ErrorType.INVALID_REQUEST
 
 
+def test_the_input_plus_output_wall_compacts_instead_of_dying(classifier):
+    """Anthropic's joint limit shares no wording with the other overflow
+    markers, so before this row it landed on the BadRequestError line
+    and killed the turn outright. The output clamp should keep us off
+    the wall; this is the net under it."""
+    err = classifier.classify(BadRequestError(
+        "input length and `max_tokens` exceed context limit: "
+        "154321 + 128000 > 200000, decrease input length or `max_tokens`"
+    ))
+    assert err.error_type is ErrorType.CONTEXT_OVERFLOW
+    assert err.retryable is True
+
+
 def test_exception_chain_is_traversed(classifier):
     try:
         try:

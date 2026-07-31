@@ -52,6 +52,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.exp
     ExpressionContract,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
+    CONTINUE_PREFILL,
     NexusPowerLoop,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
@@ -580,8 +581,8 @@ async def test_truncation_wording_survives_a_stop_reason_that_lies():
     """The gateway reported ``tool_use`` for a call its own output cap
     severed. Trusting it produced the "malformed JSON — re-emit the
     complete call" wording, which reads as an escaping bug: the model
-    re-sent the same oversized call and looped (agent 初号机, dev
-    2026-07-30, three rounds). The JSON's own shape decides."""
+    re-sent the same oversized call and looped (agent_560a2bf191ba,
+    dev 2026-07-30, three rounds). The JSON's own shape decides."""
     model = FakeModel([
         [_broken_use("c1", "write_file", "Expecting ',' delimiter at char 35 of 35",
                      truncated=True),
@@ -657,6 +658,41 @@ async def test_prefill_rejection_retries_once_with_a_continuation_turn():
     assert not [e for e in events if e.type == TYPE_ERROR]
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
     assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_continuation_turn_does_not_leak_into_later_steps():
+    """The repair is armed once per turn but must only APPLY to the
+    shape it repairs. Once the turn moves on, the projection ends in a
+    tool result — appending "continue where you stopped, do not repeat
+    anything" there is a lie that suppresses the model's normal
+    post-tool narration, and in the Anthropic dialect (tool results ride
+    inside user messages) it also stacks two user turns in a row."""
+    model = FakeModel([
+        BadRequestError(_PREFILL_400),
+        # Repair lands; the model now calls a tool, which moves the
+        # conversation past the assistant-final shape.
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    assembly = _assembly(
+        model,
+        FakeTools([ToolSpec(name="bash", description="", input_schema={})]),
+        projector=PassthroughProjector([
+            {"role": "user", "content": "write the game"},
+            {"role": "assistant", "content": "I'll build the"},
+        ]),
+    )
+    events, _ = await _run(assembly)
+
+    repair = model.requests[1]
+    assert repair.messages[-1]["content"] == CONTINUE_PREFILL  # applied here…
+    after_tool = model.requests[2]
+    assert after_tool.messages[-1]["role"] == "tool"           # …and not here
+    assert all(
+        m.get("content") != CONTINUE_PREFILL for m in after_tool.messages[1:]
+    )
+    assert not [e for e in events if e.type == TYPE_ERROR]
 
 
 @pytest.mark.asyncio

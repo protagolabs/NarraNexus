@@ -21,8 +21,12 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any, AsyncIterator
+from urllib.parse import urlparse
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+    output_budget,
+)
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelEvent,
     ModelRequest,
@@ -42,6 +46,18 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 # (stacks/narranexus-app/litellm/prefill_compat.py).
 PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
 
+# Hostnames of our own gateway. The header above is a private agreement
+# with it and buys nothing at a third party — a direct OpenAI/DeepSeek
+# call would just carry our internal vocabulary off-site.
+_OWN_GATEWAY_HOSTS = ("litellm", "127.0.0.1", "localhost")
+
+
+def _is_own_gateway(base_url: str) -> bool:
+    if not base_url:
+        return False
+    host = urlparse(base_url).hostname or ""
+    return host in _OWN_GATEWAY_HOSTS
+
 
 class LiteLLMModelClient:
     """Every provider goes through litellm first (dialects are data)."""
@@ -54,11 +70,14 @@ class LiteLLMModelClient:
         params = request.params
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
-        extra.setdefault("max_tokens", self.profile.max_output_tokens)
-        extra["extra_headers"] = {
-            **(extra.get("extra_headers") or {}),
-            **PREFILL_SELF_HANDLED_HEADER,
-        }
+        extra.setdefault(
+            "max_tokens", output_budget(self.profile, request.input_tokens_estimate)
+        )
+        if _is_own_gateway(params.base_url):
+            extra["extra_headers"] = {
+                **(extra.get("extra_headers") or {}),
+                **PREFILL_SELF_HANDLED_HEADER,
+            }
         tools = self._dialect_tools(request.tools, params.base_url, params.provider)
 
         calls: dict[int, dict[str, Any]] = {}
@@ -282,6 +301,9 @@ def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
     return parsed, None, False
 
 
+_JSON_LITERALS = ("true", "false", "null")
+
+
 def _is_cut_short(raw: str, exc: json.JSONDecodeError) -> bool:
     """Whether ``raw`` is a valid JSON prefix that simply ran out.
 
@@ -292,13 +314,22 @@ def _is_cut_short(raw: str, exc: json.JSONDecodeError) -> bool:
     trusting it sent the model chasing an escaping bug that did not
     exist.
 
-    Two signatures, both exhaustive over CPython's decoder: a string that
-    never closes (the cut landed inside a value), or a failure at the
-    very end of the buffer (it landed between tokens). Genuine damage —
-    a bad escape, a stray delimiter, a raw control character — always
-    fails STRICTLY INSIDE the buffer, which is what keeps the two apart.
+    Four signatures, because a cut can land in four places. Two are
+    obvious — a string that never closes, or a failure at the very end
+    of the buffer. The other two look like damage and are not: a bare
+    literal (``tru``) and a ``\\uXXXX`` escape (``\\u00``) both report
+    STRICTLY INSIDE the buffer, and both would otherwise be answered
+    with the escaping advice this whole change exists to stop sending.
+
+    Genuine damage stays outside all four: ``trX`` is not a prefix of
+    any literal, and ``\\uZZZZ`` carries a full-length remainder.
     """
-    return exc.msg.startswith("Unterminated string") or exc.pos >= len(raw)
+    if exc.msg.startswith("Unterminated string") or exc.pos >= len(raw):
+        return True
+    tail = raw[exc.pos:]
+    if any(lit.startswith(tail) and lit != tail for lit in _JSON_LITERALS):
+        return True
+    return exc.msg.startswith("Invalid \\uXXXX escape") and len(tail) < 5
 
 
 def _extract_usage(raw: Any) -> Usage | None:

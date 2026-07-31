@@ -40,6 +40,17 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import Le
 _CHARS_PER_TOKEN = 4
 
 
+def estimate_message_tokens(messages: Sequence[dict]) -> int:
+    """Rough size of a projected conversation, same ratio as above.
+
+    Sizing only, and deliberately shared with the compaction estimate:
+    the output clamp needs a number on the FIRST step of a turn, where
+    the ledger has no measured input yet but the projection already
+    carries every earlier turn.
+    """
+    return sum(len(str(m.get("content", ""))) for m in messages) // _CHARS_PER_TOKEN
+
+
 class ToolResultPruner:
     """Deterministic tool-result pruning (v1 default).
 

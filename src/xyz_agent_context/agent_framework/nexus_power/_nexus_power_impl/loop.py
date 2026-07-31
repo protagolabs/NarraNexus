@@ -43,6 +43,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelRequest,
+    ProviderMessage,
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
     ToolCall,
@@ -53,6 +54,9 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.hoo
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.arg_stream import (
     StreamingArgExtractor,
+)
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+    estimate_message_tokens,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
@@ -249,10 +253,17 @@ class NexusPowerLoop:
     def _build_request(self) -> ModelRequest:
         a = self._a
         messages = a.projector.project(self._ledger, a.model.profile)
-        if self._continuation_turn:
+        if self._continuation_turn and _ends_with_assistant(messages):
             # Transport repair, not turn history: it exists to satisfy a
             # backend that rejects a trailing assistant message, so it
             # stays out of the ledger and never reaches the next turn.
+            #
+            # Gated on the shape it repairs, not just on the flag. Once
+            # the turn moves on, the projection ends in a tool result and
+            # this instruction would be a lie that actively suppresses
+            # the model's normal post-tool narration — and, in the
+            # Anthropic dialect where tool results ride in user messages,
+            # would stack two user turns in a row.
             messages = [*messages, {"role": "user", "content": CONTINUE_PREFILL}]
         tools = [spec.as_openai_tool() for spec in a.tools.visible_tools()]
         return ModelRequest(
@@ -260,6 +271,12 @@ class NexusPowerLoop:
             tools=tools,
             params=a.params,
             cache_plan=plan_cache(messages, a.model.profile),
+            # The measurement is better but is zero on the turn's first
+            # step, which is exactly the step whose projection already
+            # carries every earlier turn — so take whichever is larger.
+            input_tokens_estimate=max(
+                self._ledger.last_input_tokens(), estimate_message_tokens(messages)
+            ),
         )
 
     async def _stream_step(
@@ -425,6 +442,9 @@ def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
 # corroborating signal only — see ``unparsed_call_result``.
 _TRUNCATING_STOP_REASONS = frozenset({"length", "max_tokens"})
 
+def _ends_with_assistant(messages: list[ProviderMessage]) -> bool:
+    return bool(messages) and messages[-1].get("role") == "assistant"
+
 
 def unparsed_call_result(
     call: ToolCall, *, stop_reason: str, max_output_tokens: int
@@ -441,7 +461,7 @@ def unparsed_call_result(
     so naming the wrong one is worse than saying nothing: a gateway that
     reported ``tool_use`` for a severed call had the model hunting an
     escaping bug and re-sending the same oversized arguments until the
-    turn died (agent 初号机, dev 2026-07-30). ``stop_reason`` stays in
+    turn died (agent_560a2bf191ba, dev 2026-07-30). ``stop_reason`` stays in
     as corroboration because a truthful provider reports it before the
     JSON is even suspicious, but it can no longer veto the evidence.
     """

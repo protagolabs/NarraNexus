@@ -53,6 +53,13 @@ _OVERFLOW_MESSAGE_MARKERS: tuple[str, ...] = (
     "input is too long",
     "too many tokens",
     "exceeds the maximum number of tokens",
+    # Anthropic's input+output wall, whose wording shares no marker with
+    # the rows above: "input length and `max_tokens` exceed context
+    # limit: 154321 + 128000 > 200000". The output clamp is what should
+    # keep us off it; these are here so a miss compacts and retries
+    # instead of dying as an unretryable INVALID_REQUEST.
+    "context limit",
+    "exceed context",
 )
 
 # Assistant-prefill rejection. Real Anthropic accepts a conversation
