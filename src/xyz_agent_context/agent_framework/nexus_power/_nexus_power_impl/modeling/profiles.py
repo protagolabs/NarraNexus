@@ -33,13 +33,9 @@ a loop against an 8_192 ceiling). Cost and depth are the caller's dials
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Callable
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import ProviderProfile
-from xyz_agent_context.agent_framework.providers.model_catalog import (
-    get_context_window,
-    get_max_output_tokens,
-)
+from xyz_agent_context.agent_framework.providers.model_catalog import get_model_meta
 
 _DEFAULT = ProviderProfile(name="default")
 
@@ -145,29 +141,30 @@ def _with_model_limits(profile: ProviderProfile, model: str) -> ProviderProfile:
     question, and the two promptly disagreed (128_000 against the
     catalog's 115_200) the first time this was written locally.
 
-    Unknown model → the dialect row's conservative defaults. A ceiling
-    that is too small truncates arguments, which the model can at least
-    be told about; one that is too large fails the request outright.
+    RAISING the ceiling additionally requires a measured window, because
+    the two only mean anything together. The clamp sizes output against
+    ``output_wall``, and an unmeasured window falls back to the dialect
+    row's ``context_window`` — a number that describes the PROTOCOL, not
+    this model. Pairing a model-measured ceiling with a protocol-guessed
+    wall is the same defect as inventing a short wall, pointed the other
+    way: GLM-5.1 would have jumped 8_192 → 117_964 under a borrowed
+    200_000 wall, and it sits in the default NetMind dropdown.
+
+    LOWERING never needs a window — a smaller ceiling cannot overrun a
+    wall — so a catalog entry below the default applies unconditionally
+    (DeepSeek-V3's real 7_200 is under the 8_192 default and should
+    win). Unknown model → the dialect row's conservative defaults.
     """
-    ceiling = _catalog_lookup(get_max_output_tokens, model)
-    window = _catalog_lookup(get_context_window, model)
-    if ceiling is None and window is None:
+    meta = get_model_meta(model)
+    if meta is None:
         return profile
+    ceiling = profile.max_output_tokens
+    if meta.max_output_tokens is not None:
+        raising = meta.max_output_tokens > ceiling
+        if not raising or meta.context_window is not None:
+            ceiling = meta.max_output_tokens
     return replace(
         profile,
-        max_output_tokens=ceiling or profile.max_output_tokens,
-        vendor_context_window=window,
+        max_output_tokens=ceiling,
+        vendor_context_window=meta.context_window or profile.vendor_context_window,
     )
-
-
-def _catalog_lookup(getter: Callable[[str], int | None], model: str) -> int | None:
-    """Catalog ids are exact. Retry once without a routing prefix so a
-    platform id (``anthropic/claude-opus-4-8``) still resolves when only
-    the bare id is registered — the reverse is already covered, both
-    forms being registered for the NetMind entries."""
-    if not model:
-        return None
-    found = getter(model)
-    if found is None and "/" in model:
-        found = getter(model.split("/", 1)[1])
-    return found

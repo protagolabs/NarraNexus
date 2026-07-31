@@ -17,6 +17,13 @@ stub: false
 opus-4-8 吃下 144_065 input + 128_000 max_tokens 仍 200;haiku@64000→200、
 haiku@128000→**400**。
 
+新增 `get_model_meta(model_id)`:**带路由前缀回退的唯一入口**,`get_max_output_tokens` /
+`get_context_window` 都改走它。前缀归一化必须在这里而不是调用方——写在调用方就是每家抄
+一份(nexus_power 先这么干过,结果 anthropic_helper 拿平台 id 仍查不到);而且需要两个字段
+的调用方应当**一次解析 meta**,否则两次独立查找各自回退,可能把 A 行的 ceiling 配上 B 行
+的 window。`get_all_known_models()` 同步带上 `context_window`,否则前端从
+`/api/providers/catalog` 拿不到新字段。
+
 消费方从两个变成三个:`adapters/openai_agents`、`llm/anthropic_helper`,加上
 `nexus_power/_nexus_power_impl/modeling/profiles.py`。**新增/修改模型上限只改这里**,
 别在框架侧再建表(2026-07-31 有过一次,当场和本表的 115_200 对不上)。

@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.pr
 from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_context_window,
     get_max_output_tokens,
+    get_model_meta,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
@@ -146,6 +147,47 @@ def test_measured_models_still_clamp_against_their_real_wall():
     assert output_budget(haiku, 180_000) < haiku.max_output_tokens
 
 
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        # Catalog knows a ceiling but NOT a window. Raising here would
+        # pair a model-measured ceiling with the anthropic dialect row's
+        # 200_000 — a PROTOCOL number, not this model's window. Both of
+        # the first two sit in the default NetMind dropdown.
+        ("zai-org/GLM-5.1", 8_192),
+        ("minimax/minimax-m2.7", 8_192),
+        ("moonshotai/Kimi-K2.5", 8_192),
+        ("google/gemini-3.1-pro-preview", 8_192),
+        # Lowering needs no window — a smaller ceiling cannot overrun a
+        # wall, and 7_200 is this model's real limit.
+        ("deepseek-ai/DeepSeek-V3", 7_200),
+    ],
+)
+def test_a_ceiling_is_only_raised_when_the_wall_is_known_too(model, expected):
+    profile = resolve_profile(model, "anthropic")
+    assert profile.max_output_tokens == expected
+    assert profile.vendor_context_window is None
+    # And the clamp must not size against the protocol row's window.
+    assert output_budget(profile, 130_000) <= expected
+
+
+def test_one_catalog_entry_supplies_both_numbers():
+    """Two independent lookups could fall back differently and pair one
+    row's ceiling with another row's window. The meta is resolved once."""
+    meta = get_model_meta("anthropic/claude-opus-4-8")
+    profile = resolve_profile("anthropic/claude-opus-4-8", "anthropic")
+    assert profile.max_output_tokens == meta.max_output_tokens
+    assert profile.vendor_context_window == meta.context_window
+
+
+def test_prefix_normalization_lives_in_the_catalog_so_all_callers_get_it():
+    """It was written inside nexus_power first, which left the other two
+    consumers unable to resolve a platform id — the per-caller
+    duplication this catalog exists to prevent."""
+    assert get_max_output_tokens("anthropic/claude-opus-4-8") == 115_200
+    assert get_context_window("anthropic/claude-opus-4-8") == 1_000_000
+
+
 def test_limits_come_from_the_platform_catalog_not_a_local_copy():
     """One question, one answer. A private table here would be a second
     source of truth for the same number — and the first draft of it
@@ -156,16 +198,8 @@ def test_limits_come_from_the_platform_catalog_not_a_local_copy():
     already read the same catalog."""
     for model in ("claude-opus-4-8", "claude-haiku-4-5", "anthropic/claude-opus-4-8"):
         profile = resolve_profile(model, "anthropic")
-        assert profile.max_output_tokens == _catalog_max(model)
-        assert profile.vendor_context_window == _catalog_window(model)
-
-
-def _catalog_max(model):
-    return get_max_output_tokens(model) or get_max_output_tokens(model.split("/")[-1])
-
-
-def _catalog_window(model):
-    return get_context_window(model) or get_context_window(model.split("/")[-1])
+        assert profile.max_output_tokens == get_max_output_tokens(model)
+        assert profile.vendor_context_window == get_context_window(model)
 
 
 def test_input_estimate_counts_tool_call_arguments():

@@ -335,13 +335,36 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     return []
 
 
+def get_model_meta(model_id: str) -> Optional[ModelMeta]:
+    """
+    Look up a model's metadata, tolerating a routing prefix.
+
+    Platform ids carry the upstream router's prefix ("anthropic/" on
+    NetMind), so an exact miss retries on the bare id. Resolving the
+    WHOLE meta in one call — rather than looking each field up
+    separately — is what keeps a model's numbers coming from a single
+    entry: two independent lookups can each fall back differently and
+    pair one row's ceiling with another row's window.
+
+    The normalization lives here rather than in a caller so every
+    consumer inherits it; a copy per caller is the duplication this
+    catalog exists to prevent.
+    """
+    if not model_id:
+        return None
+    meta = _KNOWN_MODELS.get(model_id)
+    if meta is None and "/" in model_id:
+        meta = _KNOWN_MODELS.get(model_id.split("/", 1)[1])
+    return meta
+
+
 def get_max_output_tokens(model_id: str) -> Optional[int]:
     """
     Look up the max output tokens for a given model ID.
 
     Returns None if the model is not found.
     """
-    meta = _KNOWN_MODELS.get(model_id)
+    meta = get_model_meta(model_id)
     return meta.max_output_tokens if meta else None
 
 
@@ -350,10 +373,11 @@ def get_context_window(model_id: str) -> Optional[int]:
     Look up the hard `input + max_tokens` limit for a given model ID.
 
     Returns None if unverified — callers must fall back to a budget of
-    their own rather than inventing a wall, since a wall shorter than
-    the real one silently shrinks every request near it.
+    their own rather than inventing a wall, since a wall of our own
+    invention is wrong in both directions: too short silently shrinks
+    every request near it, too long stops the clamp protecting anything.
     """
-    meta = _KNOWN_MODELS.get(model_id)
+    meta = get_model_meta(model_id)
     return meta.context_window if meta else None
 
 
@@ -379,6 +403,7 @@ def get_all_known_models() -> dict[str, dict]:
             "model_id": m.model_id,
             "display_name": m.display_name,
             "max_output_tokens": m.max_output_tokens,
+            "context_window": m.context_window,
         }
         for model_id, m in _KNOWN_MODELS.items()
     }
