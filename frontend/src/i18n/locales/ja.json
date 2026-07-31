@@ -1236,6 +1236,7 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
       }

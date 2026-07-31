@@ -1283,6 +1283,9 @@ class ApiClient {
         action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed';
         reason: string;
       } | null;
+      /** The bound agent provider couldn't back the new framework and was
+       *  unbound server-side — the editor has to drop it from its draft. */
+      slot_cleared: boolean;
     };
   }> {
     return this.request(`/api/providers/agent-framework`, {

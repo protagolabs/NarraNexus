@@ -1237,6 +1237,7 @@
         "failed": "Échec de la mise à jour ({{stage}})."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
       }
