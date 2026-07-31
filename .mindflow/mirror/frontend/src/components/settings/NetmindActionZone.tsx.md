@@ -25,6 +25,13 @@ Bug「套餐/付费入口不醒目」(官网定价页跳进设置页后找不到
 其余 8 个 locale 本来就没有这三个 key(走 t() 内联英文缺省,已同步更新),
 维持原状。测试 NetmindAccountPanel.test.tsx 的 label 正则同步。
 
+Review 修正(同日):按钮加 `whitespace-nowrap`(Button sm 是固定 h-8,
+label 折行会溢出边框);注释里的中文 bug 标题按铁律 #1 移除。新增
+`netmindI18nDefaults.test.ts` 防漂移测试——面板测试 mock 了 useTranslation
+(回落内联缺省),locale JSON 无覆盖,内联与 en.json 漂移时 816 绿也照样
+上线错文案;该测试上线当场抓到存量漂移 `proMemberActive`(内联还是旧的
+"on popular models",en.json 已是 "up to 50% off"),已修内联。
+
 ## 2026-07-18 (续) — pro 管理弹窗顶部加已订阅套餐卡
 
 "管理订阅与余额"弹窗内容顺序变为：[[NetmindUpsellCard]]（`subscribed` 模式，

@@ -5,7 +5,7 @@
  * @description The Pro plan card. Two modes:
  *   - upsell (default): shown at the decision moment (Free user whose free
  *     tier is used up), leading with the perks that differentiate Pro from a
- *     same-priced top-up, with an "Upgrade to Pro" CTA.
+ *     same-priced top-up, with an "Upgrade to Nexus Pro" CTA.
  *   - subscribed: the SAME plan intro inside a Pro user's manage dialog —
  *     the CTA is replaced by a "Subscribed" state chip, so the user can see
  *     what their plan includes right where they'd cancel it.

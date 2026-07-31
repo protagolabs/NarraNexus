@@ -6,7 +6,7 @@
  * panel: at most ONE promoted spend action, everything else demoted.
  *
  *   pro_cancelled            → Resume auto-renew + "Add credits" modal
- *   free × low               → Upgrade-to-Pro card inline; top-up behind a link
+ *   free × low               → Upgrade-to-Nexus-Pro card inline; top-up behind a link
  *   pro_active × low         → top-up promoted directly (already Pro — no upsell)
  *   free × healthy           → "Upgrade or top up" opens a MODAL (Pro card +
  *                              "just top up" link) — never two peer spend buttons
@@ -87,13 +87,19 @@ export function NetmindActionZone({
   );
 
   // A real outline button, not a 12px text link: this is the panel's payment
-  // entry, and users coming from the pricing page couldn't find it (bug
-  // "套餐/付费入口不醒目"). Outline, not accent — it stays subordinate to any
-  // promoted CTA next to it (e.g. Resume auto-renew), preserving the
-  // one-promoted-spend-action rule.
+  // entry, and users coming from the pricing page couldn't find it (P2 bug,
+  // 2026-07-31). Outline, not accent — it stays subordinate to any promoted
+  // CTA next to it (e.g. Resume auto-renew), preserving the
+  // one-promoted-spend-action rule. whitespace-nowrap: Button's sm size is a
+  // fixed h-8, so a wrapped label would overflow the border.
   const manageTrigger = (label: string) => (
     <div className="flex justify-end">
-      <Button variant="outline" size="sm" onClick={() => setManageOpen(true)}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="whitespace-nowrap"
+        onClick={() => setManageOpen(true)}
+      >
         {label} ›
       </Button>
     </div>
@@ -135,7 +141,7 @@ export function NetmindActionZone({
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
-              {t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}
+              {t('settings.netmind.proMemberActive', 'Member pricing active — up to 50% off')}
             </p>
             <Button variant="accent" size="sm" onClick={onReactivate} disabled={busy}>
               {busy
@@ -210,7 +216,7 @@ export function NetmindActionZone({
       <div className="space-y-3">
         <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
           <span aria-hidden>✦</span>
-          <span>{t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}</span>
+          <span>{t('settings.netmind.proMemberActive', 'Member pricing active — up to 50% off')}</span>
         </div>
         {manageTrigger(t('settings.netmind.manageSubscription', 'Top up or manage subscription'))}
       </div>
