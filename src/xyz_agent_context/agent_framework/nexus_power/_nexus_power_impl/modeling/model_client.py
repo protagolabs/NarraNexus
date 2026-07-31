@@ -21,14 +21,42 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any, AsyncIterator
+from urllib.parse import urlparse
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+    output_budget,
+)
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelEvent,
     ModelRequest,
     ProviderMessage,
     ProviderProfile,
 )
+
+
+# Told to the gateway, which otherwise defends every client against
+# prefill-rejecting upstreams by appending a continuation turn to EVERY
+# conversation that ends with an assistant message. That defence costs a
+# repeated clause on backends that would have accepted the prefill, and
+# it cannot help a client that could simply retry. This loop can (see
+# ``NexusPowerLoop`` PREFILL_REJECTED), so it opts out and pays the cost
+# only on an actual rejection. The claude CLI cannot, so it stays
+# covered. Renaming this header is a deploy-repo lockstep change
+# (stacks/narranexus-app/litellm/prefill_compat.py).
+PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
+
+# Hostnames of our own gateway. The header above is a private agreement
+# with it and buys nothing at a third party — a direct OpenAI/DeepSeek
+# call would just carry our internal vocabulary off-site.
+_OWN_GATEWAY_HOSTS = ("litellm", "127.0.0.1", "localhost")
+
+
+def _is_own_gateway(base_url: str) -> bool:
+    if not base_url:
+        return False
+    host = urlparse(base_url).hostname or ""
+    return host in _OWN_GATEWAY_HOSTS
 
 
 class LiteLLMModelClient:
@@ -42,7 +70,14 @@ class LiteLLMModelClient:
         params = request.params
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
-        extra.setdefault("max_tokens", self.profile.max_output_tokens)
+        extra.setdefault(
+            "max_tokens", output_budget(self.profile, request.input_tokens_estimate)
+        )
+        if _is_own_gateway(params.base_url):
+            extra["extra_headers"] = {
+                **(extra.get("extra_headers") or {}),
+                **PREFILL_SELF_HANDLED_HEADER,
+            }
         tools = self._dialect_tools(request.tools, params.base_url, params.provider)
 
         calls: dict[int, dict[str, Any]] = {}
@@ -102,7 +137,7 @@ class LiteLLMModelClient:
         for index in sorted(calls):
             call = calls[index]
             raw = "".join(call["arguments"])
-            args, parse_error = _parse_args(raw)
+            args, parse_error, truncated = _parse_args(raw)
             yield ModelEvent(
                 kind="tool_use",
                 content_index=index,
@@ -112,6 +147,7 @@ class LiteLLMModelClient:
                     "args": args,
                     "raw_arguments": raw,
                     "parse_error": parse_error,
+                    "args_truncated": truncated,
                 },
             )
         yield ModelEvent(
@@ -247,21 +283,60 @@ class AnthropicDirectClient:
         yield  # pragma: no cover - makes this an async generator
 
 
-def _parse_args(raw: str) -> tuple[dict[str, Any], str | None]:
-    """(args, parse_error). Broken argument JSON is NOT smuggled through
-    under a synthetic key — the old ``{"_raw": raw}`` fallback let a
-    truncated call execute with its real fields missing, and the tool's
-    complaint pointed everywhere but the truncation. The error travels
-    explicitly so the dispatch layer can answer the call instead."""
+def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
+    """(args, parse_error, truncated). Broken argument JSON is NOT
+    smuggled through under a synthetic key — the old ``{"_raw": raw}``
+    fallback let a truncated call execute with its real fields missing,
+    and the tool's complaint pointed everywhere but the truncation. The
+    error travels explicitly so the dispatch layer can answer the call
+    instead."""
     if not raw:
-        return {}, None
+        return {}, None, False
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}"
+        return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}", _is_cut_short(raw, exc)
     if not isinstance(parsed, dict):
-        return {}, f"expected a JSON object, got {type(parsed).__name__}"
-    return parsed, None
+        return {}, f"expected a JSON object, got {type(parsed).__name__}", False
+    return parsed, None, False
+
+
+_JSON_LITERALS = ("true", "false", "null")
+
+
+def _is_cut_short(raw: str, exc: json.JSONDecodeError) -> bool:
+    """Whether ``raw`` is a valid JSON prefix that simply ran out.
+
+    Read off the bytes rather than the provider's ``stop_reason``: the
+    NetMind free-tier gateway reports ``tool_use`` for a call its own
+    output cap severed (reproduced 2026-07-31 — max_tokens=2000,
+    output_tokens=2000, arguments cut to ``{"path": "game.html"``), and
+    trusting it sent the model chasing an escaping bug that did not
+    exist.
+
+    Four signatures, because a cut can land in four places. Two are
+    obvious — a string that never closes, or a failure at the very end
+    of the buffer. The other two look like damage and are not: a bare
+    literal (``tru``) and a ``\\uXXXX`` escape (``\\u00``) both report
+    STRICTLY INSIDE the buffer, and both would otherwise be answered
+    with the escaping advice this whole change exists to stop sending.
+
+    Genuine damage stays outside all four: ``trX`` is not a prefix of
+    any literal, and ``\\uZZZZ`` carries a full-length remainder.
+
+    Not a classifier with a proof — the last rule cannot separate a
+    ``\\uXXXX`` cut in half from a bad escape that happens to sit in the
+    final characters, and nothing in the bytes can. It resolves toward
+    "truncated" because "send it smaller" misleads a model less than
+    "fix your escaping" does. Treat these four as measured cases, not as
+    a closed set to build further rules on.
+    """
+    if exc.msg.startswith("Unterminated string") or exc.pos >= len(raw):
+        return True
+    tail = raw[exc.pos:]
+    if any(lit.startswith(tail) and lit != tail for lit in _JSON_LITERALS):
+        return True
+    return exc.msg.startswith("Invalid \\uXXXX escape") and len(tail) < 5
 
 
 def _extract_usage(raw: Any) -> Usage | None:

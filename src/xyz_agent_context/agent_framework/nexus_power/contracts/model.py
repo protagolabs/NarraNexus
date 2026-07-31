@@ -37,6 +37,29 @@ class ProviderProfile:
     max_breakpoints: int = 4           # Anthropic-style cache_control budget
     context_window: int = 128_000      # tokens; compaction thresholds key off this
     max_output_tokens: int = 8_192
+    # The provider's HARD ``input + max_tokens`` limit, which is a
+    # different number from ``context_window`` above: that one is the
+    # budget we choose to manage against (and compact against), this one
+    # is the wall the request 400s at. Keeping them apart lets the
+    # output clamp use the real wall without moving compaction's
+    # trigger.
+    #
+    # ``None`` means unmeasured — read it through ``output_wall``, never
+    # directly. A literal default here silently diverged from
+    # ``context_window`` the moment a row set only the latter, and the
+    # clamp then sized against a wall SHORTER than the window we manage,
+    # cutting the free tier's default model from 8_192 to 1_024.
+    vendor_context_window: int | None = None
+
+    @property
+    def output_wall(self) -> int:
+        """The limit the output clamp sizes against.
+
+        Unmeasured providers fall back to the managed budget, so "no
+        measurement" can never mean "a wall we invented" — the two are
+        equal by construction rather than by a matching literal.
+        """
+        return self.vendor_context_window or self.context_window
 
 
 @dataclass(frozen=True)
@@ -80,6 +103,10 @@ class ModelRequest:
     tools: list[dict[str, Any]]        # OpenAI function-tool schema dicts
     params: ModelParams
     cache_plan: CachePlan = field(default_factory=CachePlan)
+    # What this request's input is expected to cost, so the client can
+    # leave room for it under the provider's input+output wall. Zero
+    # means "unknown" and the client asks for the full ceiling.
+    input_tokens_estimate: int = 0
 
 
 # R3: a closed kind vocabulary. Providers may evolve freely — we always

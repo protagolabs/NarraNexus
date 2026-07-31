@@ -6,6 +6,8 @@
 translation (fake litellm stream), usage normalization, compaction.
 """
 
+import json
+
 import pytest
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
@@ -17,12 +19,14 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
+    estimate_message_tokens,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
     LiteLLMModelClient,
     _extract_usage,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+    output_budget,
     resolve_profile,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
@@ -39,6 +43,121 @@ def test_profile_resolution():
     assert resolve_profile("deepseek-chat", None).name == "deepseek"
     assert resolve_profile("claude-opus-x", None).name == "anthropic"
     assert resolve_profile("totally-unknown", None).name == "default"
+
+
+def test_output_ceilings_are_the_vendor_maximums():
+    """The ceiling is the vendor's published maximum, not a house number.
+
+    An under-set ceiling is not a safe default: it truncates tool
+    arguments mid-JSON, which the model cannot see and cannot recover
+    from (2026-07-30 incident)."""
+    assert resolve_profile("claude-opus-4-8", "anthropic").max_output_tokens == 128_000
+    assert resolve_profile("claude-sonnet-5", "anthropic").max_output_tokens == 128_000
+
+
+def test_haiku_keeps_its_own_lower_ceiling():
+    """Haiku caps at 64K where the rest of the line allows 128K."""
+    profile = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert profile.max_output_tokens == 64_000
+    # Same dialect as the rest of the line — only the ceiling differs.
+    assert profile.cache_style == "breakpoints"
+    assert profile.supports_arg_delta is True
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "Qwen/Qwen2.5-7B-Instruct",
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "XiaomiMiMo/MiMo-V2.5",
+        "some-model-we-have-never-measured",
+    ],
+)
+def test_the_anthropic_PROTOCOL_never_grants_a_vendor_ceiling(model):
+    """``provider`` is the PROTOCOL ("anthropic"/"openai"), not the vendor
+    — nexus_agent passes the resolved protocol straight through. The
+    NetMind free-tier card speaks the anthropic protocol while serving
+    Qwen, DeepSeek and MiMo, so keying the ceiling off the provider would
+    hand a 7B model a 128K output request and 400 every call.
+
+    Dialect still comes from the protocol (that part IS protocol-shaped);
+    only the ceiling is a fact about the model."""
+    profile = resolve_profile(model, "anthropic")
+    assert profile.max_output_tokens == 8_192  # conservative default
+    assert profile.cache_style == "breakpoints"  # protocol dialect intact
+
+
+def test_ceiling_follows_the_model_even_with_no_provider():
+    assert resolve_profile("anthropic/claude-opus-4-8", None).max_output_tokens == 128_000
+    assert resolve_profile("claude-haiku-4-5", None).max_output_tokens == 64_000
+
+
+def test_output_budget_leaves_room_for_the_input():
+    """Anthropic rejects ``input + max_tokens > context_window``. Measured
+    2026-07-31 on the dev gateway: opus-4-8 took 144_065 input alongside
+    max_tokens=128_000 (so its real window is far past 200K), but Haiku's
+    window really is 200K, and our own compaction only trips at 150K —
+    leaving a band where an unclamped 64K request would exceed it."""
+    haiku = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert output_budget(haiku, 0) == 64_000            # nothing to give back
+    assert output_budget(haiku, 150_000) < 64_000       # the band that would 400
+    assert output_budget(haiku, 150_000) + 150_000 <= haiku.vendor_context_window
+
+    opus = resolve_profile("claude-opus-4-8", "anthropic")
+    assert output_budget(opus, 144_065) == 128_000      # 1M window: never binds
+
+
+def test_output_budget_never_returns_a_useless_or_negative_ceiling():
+    haiku = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert output_budget(haiku, 10_000_000) > 0
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-ai/DeepSeek-V4-Pro", "Qwen/Qwen2.5-7B-Instruct", "unmeasured-model"],
+)
+def test_the_clamp_never_undercuts_the_window_we_manage(model):
+    """A model with no measured wall must not be clamped below its own
+    ceiling anywhere inside the window this module manages.
+
+    The wall and the managed budget are separate numbers precisely so
+    the clamp can use the real one — but an unmeasured wall must fall
+    back to the managed budget, not to a dataclass literal. Left
+    diverging, the free tier's own default agent model was clamped from
+    8_192 down to 1_024 at 130K input, which is the very truncation this
+    change exists to remove."""
+    profile = resolve_profile(model, "anthropic")
+    for estimate in (0, 100_000, 130_000, profile.context_window - 20_000):
+        assert output_budget(profile, estimate) == profile.max_output_tokens
+
+
+def test_measured_models_still_clamp_against_their_real_wall():
+    """The fallback must not blunt the clamp where a wall IS known."""
+    haiku = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert output_budget(haiku, 180_000) < haiku.max_output_tokens
+
+
+def test_input_estimate_counts_tool_call_arguments():
+    """A tool-only assistant step carries its payload in ``tool_calls``
+    and sets ``content`` to None (turn_ledger._fold_step_message). Sizing
+    off ``content`` alone estimated a 16KB write_file at ONE token —
+    and this estimate is the clamp's only signal on a turn's first step,
+    where the ledger has no measurement yet."""
+    big = "X" * 16_000
+    messages = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "c1", "type": "function",
+            "function": {"name": "write_file",
+                         "arguments": json.dumps({"path": "g.html", "content": big})},
+        }],
+    }]
+    estimate = estimate_message_tokens(messages)
+    assert estimate > 3_000  # same order as the arguments it carries
+    # Over-counting is the safe direction for a clamp; under-counting is
+    # what lets a request sail past the wall.
+    assert estimate >= len(big) // 4
 
 
 def test_cache_plan_breakpoints_only_for_breakpoint_dialects():
@@ -314,3 +433,93 @@ async def test_well_formed_arguments_have_no_parse_error():
     tool_use = next(e for e in events if e.kind == "tool_use")
     assert tool_use.payload["args"] == {"command": "ls"}
     assert tool_use.payload["parse_error"] is None
+    assert tool_use.payload["args_truncated"] is False
+
+
+async def _tool_use_for(arguments: str, *, finish: str):
+    chunks = [
+        _chunk({"tool_calls": [{"index": 0, "id": "c1",
+                                "function": {"name": "write_file"}}]}),
+        _chunk({"tool_calls": [{"index": 0,
+                                "function": {"arguments": arguments}}]}),
+        _chunk(finish=finish),
+    ]
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    events = [e async for e in client.stream_step(request)]
+    return next(e for e in events if e.kind == "tool_use")
+
+
+async def _headers_for(base_url: str):
+    chunks = [_chunk({"content": "hi"}), _chunk(finish="stop")]
+    fake = _FakeLitellm(chunks)
+    client = LiteLLMModelClient(resolve_profile("claude", "anthropic"), fake)
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url=base_url),
+    )
+    [e async for e in client.stream_step(request)]
+    return ((fake.last_kwargs or {}).get("extra") or {}).get("extra_headers") or {}
+
+
+@pytest.mark.asyncio
+async def test_prefill_opt_out_header_only_goes_to_our_own_gateway():
+    """It is a private agreement with our proxy. A direct vendor call
+    gains nothing from it and should not carry our internal vocabulary
+    off-site."""
+    assert "x-nexus-prefill-retry" in await _headers_for("http://litellm:4000")
+    assert "x-nexus-prefill-retry" not in await _headers_for("https://api.anthropic.com")
+    assert "x-nexus-prefill-retry" not in await _headers_for("https://api.deepseek.com")
+
+
+@pytest.mark.asyncio
+async def test_truncation_is_read_off_the_json_not_off_stop_reason():
+    """``stop_reason`` is the upstream's word and gateways get it wrong:
+    the NetMind free-tier gateway reports ``tool_use`` for a call its own
+    output cap severed (reproduced 2026-07-31 at max_tokens=2000, args
+    cut to ``{"path": "game.html"``). Truncation is therefore decided by
+    the shape of the JSON we actually received — a valid prefix that ran
+    out — never by a field the provider can misreport."""
+    tool_use = await _tool_use_for('{"path": "game.html"', finish="tool_calls")
+    assert tool_use.payload["args_truncated"] is True
+    # Unterminated string: the cut landed inside a value, not at the end.
+    mid_string = await _tool_use_for('{"path": "a.html", "content": "<htm',
+                                     finish="tool_calls")
+    assert mid_string.payload["args_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_genuinely_malformed_json_is_not_reported_as_truncation():
+    """Bad escaping and stray delimiters fail in the MIDDLE of the buffer.
+    Calling those "truncated" would send the model off to split a call
+    that was never too long."""
+    bad_escape = await _tool_use_for(r'{"path": "a\q.html"}', finish="tool_calls")
+    assert bad_escape.payload["parse_error"]
+    assert bad_escape.payload["args_truncated"] is False
+    double_comma = await _tool_use_for('{"a": 1,, "b": 2}', finish="tool_calls")
+    assert double_comma.payload["args_truncated"] is False
+    # Not a prefix of any literal, and a full-length bad escape: damage.
+    assert (await _tool_use_for('{"a": trX', finish="tool_calls")
+            ).payload["args_truncated"] is False
+    assert (await _tool_use_for(r'{"a": "\uZZZZ"}', finish="tool_calls")
+            ).payload["args_truncated"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments",
+    ['{"a": tru', '{"a": fals', '{"a": nul', r'{"a": "x\u00'],
+)
+async def test_a_cut_inside_a_literal_or_escape_is_still_truncation(arguments):
+    """These fail STRICTLY INSIDE the buffer, so the end-of-buffer rule
+    misses them — and they are exactly the shapes that would otherwise
+    be answered with the escaping red herring."""
+    tool_use = await _tool_use_for(arguments, finish="tool_calls")
+    assert tool_use.payload["args_truncated"] is True
