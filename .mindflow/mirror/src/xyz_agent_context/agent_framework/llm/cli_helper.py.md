@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — codex 一发内核抽到 [[cli_oneshot]]
+
+`_run_codex_oneshot_inner` 的驱动构造 + 事件解析(text.delta /
+response.done / 错误事件 type+message 合并)整体迁入共享模块
+`llm/cli_oneshot.py`(PR #224 review 第 5 条:verify_live 是第三份
+拷贝)。本文件保留:_codex_ctx 装/卸(helper 自己的槽位配置)、
+_HELPER_CWD、"空文本+错误 → RuntimeError(供 #68 is_credential_error
+分类)"的收尾语义。
 
 ## 2026-07-28 — Claude CLI cache usage normalization
 

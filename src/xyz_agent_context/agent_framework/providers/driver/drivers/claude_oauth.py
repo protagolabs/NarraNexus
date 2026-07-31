@@ -34,7 +34,11 @@ from xyz_agent_context.agent_framework.api_config import (
     CliHelperConfig,
 )
 from xyz_agent_context.agent_framework.providers.driver.base import (
+    VERIFY_DEAD,
+    VERIFY_OK,
+    VERIFY_UNKNOWN,
     DriverHealth,
+    VerifyVerdict,
     _DriverBase,
 )
 from xyz_agent_context.agent_framework.providers.driver.derive import (
@@ -141,7 +145,7 @@ class ClaudeOAuthDriver(_DriverBase):
             detail=f"credentials file not found at {path}",
         )
 
-    async def verify_live(self) -> tuple[bool, str]:
+    async def verify_live(self) -> tuple[VerifyVerdict, str]:
         """Real end-to-end check for BOTH auth modes: one one-shot CLI call.
 
         The 2026-07-23 incident's probe lied ("logged in ✓" over a dead
@@ -149,12 +153,22 @@ class ClaudeOAuthDriver(_DriverBase):
         ``oauth_token`` only, and the host-``oauth`` Test path kept an
         unconditional pass until the 2026-07-31 codex P0 exposed the same
         lie across every host-CLI credential. Now both modes make an
-        actual ``claude`` CLI request — the same transport the agent loop
-        uses; ``build_claude_config`` already selects the credential
-        channel per mode (token → env var, host oauth → the CLI's own
-        store). Expensive (spawns the CLI, bills one tiny subscription
-        call), so it runs only on explicit user action or a readiness
-        edge, never from ``probe()``.
+        actual ``claude`` CLI request. Expensive (spawns the CLI, bills one
+        tiny subscription call), so it runs only on explicit user action or
+        a readiness edge, never from ``probe()``.
+
+        Host-oauth is NOT "the CLI's own store": ``to_cli_env`` points
+        ``CLAUDE_CONFIG_DIR`` at the ISOLATED oauth config dir (the #72 /
+        2026-07-09 leak fix), whose ``.credentials.json`` only exists after
+        ``_stage_claude_oauth_credentials`` copies it from the host store
+        (Keychain / ~/.claude). The agent path stages on every spawn
+        (adapters/claude/sdk.py); this path must stage too, or a fresh
+        ``claude login`` that has never run a turn verifies as dead —
+        the PR #224 review's Critical.
+
+        Tri-state: "dead" only when the CLI itself refused or there is
+        verifiably nothing to try; environment gaps (control-plane node,
+        timeout) are "unknown" and must not block readiness recovery.
 
         A single tool-free turn is NOT the agent_loop, so bounding it with
         helper-scale timeouts does not violate 铁律 #14 (same rationale as
@@ -162,28 +176,53 @@ class ClaudeOAuthDriver(_DriverBase):
         token itself.
         """
         import asyncio
+        import os
         import shutil
 
         from xyz_agent_context.settings import settings as _settings
 
+        # Control-plane guard BEFORE any local inspection: with the executor
+        # seam active this container's PATH / credential store say nothing
+        # about the machine that actually runs the CLI.
+        if (os.getenv("AGENT_EXECUTOR_URL") or "").strip():
+            return VERIFY_UNKNOWN, (
+                "cannot verify from the control plane — the claude CLI runs "
+                "on the per-user executor"
+            )
+
         if self._is_token_mode():
             if not (self.card.api_key or ""):
-                return False, "no setup-token stored"
+                return VERIFY_DEAD, "no setup-token stored"
         else:
             # Host-oauth: don't spend a CLI spawn when the credential store
             # is verifiably empty — probe() already knows how to look
             # (credentials file, macOS Keychain).
             health = await self.probe()
             if not health.ok:
-                return False, health.detail
+                return VERIFY_DEAD, health.detail
         if shutil.which("claude") is None:
-            return False, "claude CLI not found on PATH — cannot verify"
+            return VERIFY_DEAD, "claude CLI not found on PATH — cannot verify"
 
         env = self.build_claude_config("haiku").to_cli_env()
         env["API_TIMEOUT_MS"] = str(_settings.helper_cli_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = "0"
 
-        async def _one_shot() -> tuple[bool, str]:
+        if not self._is_token_mode():
+            # Stage the host credential into the isolated CLAUDE_CONFIG_DIR —
+            # the same call the agent adapter makes before every spawn.
+            # Without it a healthy, freshly-logged-in host credential fails
+            # verification on any install that has not run an agent turn yet.
+            from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+                _stage_claude_oauth_credentials,
+            )
+
+            try:
+                _stage_claude_oauth_credentials(env["CLAUDE_CONFIG_DIR"])
+            except Exception as exc:  # noqa: BLE001 — staging is environmental
+                summary = str(exc).splitlines()[0][:200]
+                return VERIFY_UNKNOWN, f"could not stage credentials: {summary}"
+
+        async def _one_shot() -> tuple[VerifyVerdict, str]:
             from claude_agent_sdk import (
                 AssistantMessage,
                 ClaudeAgentOptions,
@@ -205,8 +244,8 @@ class ClaudeOAuthDriver(_DriverBase):
                         if isinstance(block, TextBlock) and block.text.strip():
                             got_text = True
             if got_text:
-                return True, "credentials verified — live CLI call succeeded"
-            return False, "CLI run produced no reply — credentials may be invalid"
+                return VERIFY_OK, "credentials verified — live CLI call succeeded"
+            return VERIFY_DEAD, "CLI run produced no reply — credentials may be invalid"
 
         try:
             return await asyncio.wait_for(
@@ -214,15 +253,19 @@ class ClaudeOAuthDriver(_DriverBase):
                 timeout=_settings.helper_cli_total_timeout_seconds,
             )
         except asyncio.TimeoutError:
-            return False, (
+            # A hung CLI is indistinguishable from a slow network — not a
+            # credential verdict.
+            return VERIFY_UNKNOWN, (
                 "verification timed out after "
                 f"{_settings.helper_cli_total_timeout_seconds}s"
             )
         except Exception as exc:  # noqa: BLE001 — verdict, not control flow
-            # The SDK surfaces auth failures as process errors; summarize
-            # the first line only so env/token material can never leak.
+            # Unlike codex (terminal error EVENTS), the claude SDK surfaces
+            # auth failures as process errors — an exception here IS the
+            # CLI refusing, so it stays "dead". Summarize the first line
+            # only so env/token material can never leak.
             summary = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
-            return False, f"live verification failed: {summary}"
+            return VERIFY_DEAD, f"live verification failed: {summary}"
 
     @staticmethod
     async def _keychain_has_credentials() -> bool:

@@ -315,7 +315,7 @@ async def test_test_provider_routes_oauth_token_to_live_verify(monkeypatch):
 
     async def _fake_verify(self):
         called["hit"] = True
-        return True, "live CLI call succeeded"
+        return "ok", "live CLI call succeeded"
 
     monkeypatch.setattr(
         claude_oauth_mod.ClaudeOAuthDriver, "verify_live", _fake_verify
@@ -344,7 +344,7 @@ async def test_test_provider_oauth_also_runs_live_verify(monkeypatch):
 
     async def _fake_verify(self):
         called["hit"] = True
-        return False, "host CLI credentials expired — run `claude login`"
+        return "dead", "host CLI credentials expired — run `claude login`"
 
     monkeypatch.setattr(
         claude_oauth_mod.ClaudeOAuthDriver, "verify_live", _fake_verify

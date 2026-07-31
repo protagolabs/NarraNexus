@@ -13,6 +13,15 @@ user_service 里仍是无条件放行,直到 codex P0 暴露同类谎报。重�
 `build_claude_config` 本就按模式选凭证通道(token→env 注入,host→CLI
 自己的存储),一发调用天然两用。成功/失败文案改为模式无关措辞。
 
+Review 轮修正(同日,PR #224 Critical):host-oauth 一发**必须先
+staging**——to_cli_env 把 CLAUDE_CONFIG_DIR 指向隔离目录(#72 泄漏修复),
+其 .credentials.json 只有 `_stage_claude_oauth_credentials`(agent
+adapter 每次 spawn 前调)会写;不 staging 则刚 `claude login` 还没跑过
+turn 的健康凭证会被验成死的。verify_live 现与 adapter 同步 staging。
+返回改三态:executor 模式/超时/staging 失败 → unknown;token 缺失/
+probe 失败/无 CLI/CLI 拒绝(claude SDK 把 auth 失败作为进程异常抛出,
+与 codex 相反,异常即 dead)→ dead。
+
 # claude_oauth.py — Claude subscription driver (host-CLI OAuth + setup-token)
 
 一张 claude_oauth 卡，两种凭据运输层，按 `auth_type` 分：

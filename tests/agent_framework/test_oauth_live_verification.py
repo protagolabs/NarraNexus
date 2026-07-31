@@ -5,41 +5,53 @@
 @description: The Test button must not lie about host-CLI OAuth credentials.
 
 P0 bug: ``user_service.test_provider`` answered ``auth_type == "oauth"``
-with an unconditional ``True, "OAuth provider (managed by Claude Code
-CLI)"`` — expired codex (or claude) CLI credentials still showed
-"usable" and passed the connection test, and ``ProviderReadiness``
-(which delegates here) happily re-armed paused jobs onto dead
-credentials. Same defect class as the 2026-07-23 oauth_token incident,
-fixed then for oauth_token only.
+with an unconditional ``True`` — expired codex (or claude) CLI
+credentials still showed "usable", and ``ProviderReadiness`` (which
+delegates here) re-armed paused jobs onto dead credentials.
 
-Contract pinned here:
+Contract pinned here (post PR #224 review):
+- ``verify_live`` is TRI-STATE: "ok" / "dead" / "unknown". Only a
+  verified-dead credential may block; environment gaps (control-plane
+  node, timeout, missing model list) are "unknown" and map to
+  True-with-caveat in ``test_provider`` so readiness recovery is never
+  blocked over a situation nobody verified.
 - oauth rows delegate to the driver's ``verify_live`` — a real one-shot
   through the same CLI transport the agent uses. No unconditional pass.
 - codex rows resolve the codex driver even when driver_type is missing
   (legacy rows): protocol openai → codex_oauth, else claude_oauth.
-- ``CodexOAuthDriver.verify_live`` fails fast (no CLI spawn) when the
-  credentials file is missing or the codex binary is absent; reports the
-  CLI's terminal error event (e.g. unauthorized) as a failure; and only
-  reports success when the CLI actually replied.
-- ``ClaudeOAuthDriver.verify_live`` (host-oauth mode) fails fast when
-  the host credential store has nothing to verify.
+- claude host-oauth STAGES the host credential into the isolated
+  CLAUDE_CONFIG_DIR before spawning (review Critical: without staging a
+  freshly-logged-in healthy credential verifies dead).
 - ``registry.test_provider`` (transient-config path, api-key onboarding
   only) fails CLOSED for oauth configs instead of failing open.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import sys
+import types
 
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+from xyz_agent_context.agent_framework.providers.driver.base import (
+    VERIFY_DEAD,
+    VERIFY_OK,
+    VERIFY_UNKNOWN,
+    ProviderCard,
+)
 from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
     CodexOAuthDriver,
 )
 from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
     ClaudeOAuthDriver,
 )
+
+
+@pytest.fixture(autouse=True)
+def _local_node(monkeypatch):
+    """Tests model the LOCAL install (the P0's environment) by default —
+    the executor seam must read as absent."""
+    monkeypatch.delenv("AGENT_EXECUTOR_URL", raising=False)
 
 
 def _codex_card(**overrides) -> ProviderCard:
@@ -60,14 +72,36 @@ def _codex_card(**overrides) -> ProviderCard:
     return ProviderCard(**base)
 
 
+def _claude_card(**overrides) -> ProviderCard:
+    base = dict(
+        provider_id="prov_claude",
+        user_id="user_x",
+        name="Claude Code Login",
+        source="user",
+        protocol="anthropic",
+        auth_type="oauth",
+        api_key="",
+        base_url="",
+        models=["opus"],
+        driver_type="claude_oauth",
+        auth_ref="claude-cli:~/.claude/.credentials.json",
+    )
+    base.update(overrides)
+    return ProviderCard(**base)
+
+
+async def _no_keychain() -> bool:
+    return False
+
+
 # ---------------------------------------------------------------------------
 # CodexOAuthDriver.verify_live
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_codex_verify_live_fails_fast_without_credentials(monkeypatch, tmp_path):
-    """Missing auth.json → immediate failure, no CLI spawn."""
+async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path):
+    """Missing auth.json → verified-dead, no CLI spawn."""
     from xyz_agent_context.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
@@ -76,21 +110,20 @@ async def test_codex_verify_live_fails_fast_without_credentials(monkeypatch, tmp
         mod, "resolve_codex_credentials_path", lambda ref: tmp_path / "absent.json"
     )
     spawned = []
-    driver = CodexOAuthDriver(_codex_card())
     monkeypatch.setattr(
         "xyz_agent_context.agent_framework.get_agent_loop_driver",
         lambda **kw: spawned.append(kw),
     )
 
-    ok, msg = await driver.verify_live()
+    verdict, msg = await CodexOAuthDriver(_codex_card()).verify_live()
 
-    assert ok is False
+    assert verdict == VERIFY_DEAD
     assert "not found" in msg
     assert spawned == []
 
 
 @pytest.mark.asyncio
-async def test_codex_verify_live_fails_fast_without_cli(monkeypatch, tmp_path):
+async def test_codex_verify_live_dead_without_cli(monkeypatch, tmp_path):
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
     from xyz_agent_context.agent_framework.providers.driver.drivers import (
@@ -100,10 +133,32 @@ async def test_codex_verify_live_fails_fast_without_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "resolve_codex_credentials_path", lambda ref: auth)
     monkeypatch.setattr("shutil.which", lambda name: None)
 
-    ok, msg = await CodexOAuthDriver(_codex_card()).verify_live()
+    verdict, msg = await CodexOAuthDriver(_codex_card()).verify_live()
 
-    assert ok is False
+    assert verdict == VERIFY_DEAD
     assert "codex CLI not found" in msg
+
+
+@pytest.mark.asyncio
+async def test_codex_verify_live_unknown_on_control_plane(monkeypatch):
+    """AGENT_EXECUTOR_URL set = this container never runs the CLI. Local
+    state must not even be inspected — the verdict is undecidable here."""
+    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://broker:9000")
+
+    inspected = []
+    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+        codex_oauth as mod,
+    )
+
+    monkeypatch.setattr(
+        mod, "resolve_codex_credentials_path", lambda ref: inspected.append(ref)
+    )
+
+    verdict, msg = await CodexOAuthDriver(_codex_card()).verify_live()
+
+    assert verdict == VERIFY_UNKNOWN
+    assert "control plane" in msg
+    assert inspected == []
 
 
 class _FakeDriver:
@@ -138,7 +193,7 @@ def _wire_codex_oneshot(monkeypatch, tmp_path, events):
 
 
 @pytest.mark.asyncio
-async def test_codex_verify_live_reports_unauthorized(monkeypatch, tmp_path):
+async def test_codex_verify_live_reports_unauthorized_as_dead(monkeypatch, tmp_path):
     """The codex CLI surfaces dead credentials as a terminal error EVENT —
     exactly the case the old unconditional True papered over."""
     _wire_codex_oneshot(
@@ -156,14 +211,14 @@ async def test_codex_verify_live_reports_unauthorized(monkeypatch, tmp_path):
         ],
     )
 
-    ok, msg = await CodexOAuthDriver(_codex_card()).verify_live()
+    verdict, msg = await CodexOAuthDriver(_codex_card()).verify_live()
 
-    assert ok is False
+    assert verdict == VERIFY_DEAD
     assert "unauthorized" in msg
 
 
 @pytest.mark.asyncio
-async def test_codex_verify_live_succeeds_on_real_reply(monkeypatch, tmp_path):
+async def test_codex_verify_live_ok_on_real_reply(monkeypatch, tmp_path):
     _wire_codex_oneshot(
         monkeypatch,
         tmp_path,
@@ -176,14 +231,14 @@ async def test_codex_verify_live_succeeds_on_real_reply(monkeypatch, tmp_path):
         ],
     )
 
-    ok, msg = await CodexOAuthDriver(_codex_card()).verify_live()
+    verdict, msg = await CodexOAuthDriver(_codex_card()).verify_live()
 
-    assert ok is True
+    assert verdict == VERIFY_OK
     assert "live" in msg.lower()
 
 
 @pytest.mark.asyncio
-async def test_codex_verify_live_silence_is_failure(monkeypatch, tmp_path):
+async def test_codex_verify_live_silence_is_dead(monkeypatch, tmp_path):
     """A run that produces neither text nor an error event must not pass."""
     _wire_codex_oneshot(
         monkeypatch,
@@ -191,9 +246,58 @@ async def test_codex_verify_live_silence_is_failure(monkeypatch, tmp_path):
         [{"type": "raw_response_event", "data": {"type": "response.done"}}],
     )
 
-    ok, msg = await CodexOAuthDriver(_codex_card()).verify_live()
+    verdict, _ = await CodexOAuthDriver(_codex_card()).verify_live()
 
-    assert ok is False
+    assert verdict == VERIFY_DEAD
+
+
+@pytest.mark.asyncio
+async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_path):
+    """The verification model must come from the catalog's curated list,
+    not the stored models column (dead pinned ids must not read as dead
+    credentials). Guards the review finding that the curated lookup was
+    dead code returning []."""
+    captured = {}
+
+    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+        codex_oauth as mod,
+    )
+
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}")
+    monkeypatch.setattr(mod, "resolve_codex_credentials_path", lambda ref: auth)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/codex")
+
+    import xyz_agent_context.agent_framework as fw
+
+    monkeypatch.setattr(
+        fw,
+        "get_agent_loop_driver",
+        lambda **kw: _FakeDriver(
+            [{"type": "raw_response_event", "data": {"type": "response.text.delta", "delta": "OK"}}]
+        ),
+    )
+
+    driver = CodexOAuthDriver(_codex_card(models=["gpt-ancient-retired"]))
+    orig_build = driver.build_codex_config
+
+    def spy_build(model, **kw):
+        captured["model"] = model
+        return orig_build(model, **kw)
+
+    monkeypatch.setattr(driver, "build_codex_config", spy_build)
+
+    verdict, _ = await driver.verify_live()
+
+    assert verdict == VERIFY_OK
+    from xyz_agent_context.agent_framework.providers.model_catalog import (
+        get_default_models,
+    )
+
+    curated = get_default_models("codex_oauth", "openai")
+    assert curated, "curated codex defaults must exist in the catalog"
+    assert captured["model"] == curated[0]
+    assert captured["model"] != "gpt-ancient-retired"
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +306,7 @@ async def test_codex_verify_live_silence_is_failure(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_claude_host_oauth_verify_live_fails_fast_without_credentials(
+async def test_claude_host_oauth_verify_live_dead_without_credentials(
     monkeypatch, tmp_path
 ):
     from xyz_agent_context.agent_framework.providers.driver.drivers import (
@@ -216,31 +320,75 @@ async def test_claude_host_oauth_verify_live_fails_fast_without_credentials(
         ClaudeOAuthDriver, "_keychain_has_credentials", staticmethod(_no_keychain)
     )
 
-    card = ProviderCard(
-        provider_id="prov_claude",
-        user_id="user_x",
-        name="Claude Code Login",
-        source="user",
-        protocol="anthropic",
-        auth_type="oauth",
-        api_key="",
-        base_url="",
-        models=["opus"],
-        driver_type="claude_oauth",
-        auth_ref="claude-cli:~/.claude/.credentials.json",
-    )
-    ok, msg = await ClaudeOAuthDriver(card).verify_live()
+    verdict, msg = await ClaudeOAuthDriver(_claude_card()).verify_live()
 
-    assert ok is False
+    assert verdict == VERIFY_DEAD
     assert "not found" in msg
 
 
-async def _no_keychain() -> bool:
-    return False
+@pytest.mark.asyncio
+async def test_claude_host_oauth_verify_live_stages_then_succeeds(
+    monkeypatch, tmp_path
+):
+    """Review Critical: host-oauth points CLAUDE_CONFIG_DIR at the ISOLATED
+    dir, whose credentials only exist after staging. A healthy host login
+    must verify OK — which requires the staging call the agent adapter
+    makes before every spawn."""
+    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+        claude_oauth as mod,
+    )
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as claude_sdk
+
+    creds = tmp_path / ".credentials.json"
+    creds.write_text("{}")
+    monkeypatch.setattr(mod, "resolve_claude_credentials_path", lambda ref: creds)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/claude")
+
+    staged = []
+    monkeypatch.setattr(
+        claude_sdk,
+        "_stage_claude_oauth_credentials",
+        lambda config_dir: staged.append(str(config_dir)),
+    )
+
+    # Stub the claude SDK so the one-shot "replies" without spawning.
+    class _TextBlock:
+        def __init__(self, text):
+            self.text = text
+
+    class _AssistantMessage:
+        def __init__(self):
+            self.content = [_TextBlock("OK")]
+
+    async def _fake_query(*, prompt, options):
+        yield _AssistantMessage()
+
+    fake_sdk = types.SimpleNamespace(
+        AssistantMessage=_AssistantMessage,
+        TextBlock=_TextBlock,
+        ClaudeAgentOptions=lambda **kw: types.SimpleNamespace(**kw),
+        query=_fake_query,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+
+    verdict, msg = await ClaudeOAuthDriver(_claude_card()).verify_live()
+
+    assert verdict == VERIFY_OK
+    assert staged, "host-oauth verification must stage credentials before spawning"
+
+
+@pytest.mark.asyncio
+async def test_claude_verify_live_unknown_on_control_plane(monkeypatch):
+    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://broker:9000")
+
+    verdict, msg = await ClaudeOAuthDriver(_claude_card()).verify_live()
+
+    assert verdict == VERIFY_UNKNOWN
+    assert "control plane" in msg
 
 
 # ---------------------------------------------------------------------------
-# user_service.test_provider — oauth rows delegate, never uncondition-pass
+# user_service.test_provider — oauth rows delegate; tri-state mapping
 # ---------------------------------------------------------------------------
 
 
@@ -284,7 +432,7 @@ async def test_oauth_row_delegates_to_driver_verify_live(db_client, monkeypatch)
 
     async def fake_verify(self):
         calls.append(type(self).__name__)
-        return False, "access token could not be refreshed — run `codex login`"
+        return VERIFY_DEAD, "access token could not be refreshed — run `codex login`"
 
     monkeypatch.setattr(CodexOAuthDriver, "verify_live", fake_verify)
 
@@ -307,7 +455,7 @@ async def test_oauth_row_without_driver_type_resolves_by_protocol(db_client, mon
 
     async def fake_verify(self):
         calls.append(type(self).__name__)
-        return True, "live"
+        return VERIFY_OK, "live"
 
     monkeypatch.setattr(CodexOAuthDriver, "verify_live", fake_verify)
 
@@ -326,7 +474,7 @@ async def test_oauth_row_never_passes_unconditionally(db_client, monkeypatch):
     )
 
     async def dead(self):
-        return False, "expired"
+        return VERIFY_DEAD, "expired"
 
     monkeypatch.setattr(CodexOAuthDriver, "verify_live", dead)
 
@@ -335,6 +483,27 @@ async def test_oauth_row_never_passes_unconditionally(db_client, monkeypatch):
 
     assert ok is False
     assert "managed by Claude Code CLI" not in msg
+
+
+@pytest.mark.asyncio
+async def test_oauth_unknown_verdict_does_not_block(db_client, monkeypatch):
+    """Review item 4: "cannot verify here" must NOT read as "credential is
+    dead" — a False here would permanently block ProviderReadiness's edge
+    recovery (the only path that re-arms PAUSED_NO_QUOTA jobs)."""
+    from xyz_agent_context.agent_framework.providers.user_service import (
+        UserProviderService,
+    )
+
+    async def undecidable(self):
+        return VERIFY_UNKNOWN, "cannot verify from the control plane"
+
+    monkeypatch.setattr(CodexOAuthDriver, "verify_live", undecidable)
+
+    await _seed_oauth_row(db_client)
+    ok, msg = await UserProviderService(db_client).test_provider("user_x", "prov_oauth")
+
+    assert ok is True
+    assert "not live-verified" in msg
 
 
 # ---------------------------------------------------------------------------

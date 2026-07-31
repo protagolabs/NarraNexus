@@ -38,7 +38,11 @@ from xyz_agent_context.agent_framework.api_config import (
     CodexConfig,
 )
 from xyz_agent_context.agent_framework.providers.driver.base import (
+    VERIFY_DEAD,
+    VERIFY_OK,
+    VERIFY_UNKNOWN,
     DriverHealth,
+    VerifyVerdict,
     _DriverBase,
 )
 from xyz_agent_context.agent_framework.providers.driver.derive import (
@@ -99,7 +103,7 @@ class CodexOAuthDriver(_DriverBase):
             reasoning_effort=reasoning_effort,
         )
 
-    async def verify_live(self) -> tuple[bool, str]:
+    async def verify_live(self) -> tuple[VerifyVerdict, str]:
         """Real end-to-end check: one one-shot ``codex exec`` call.
 
         The P0 this fixes (2026-07-31): the Test button answered every
@@ -108,13 +112,21 @@ class CodexOAuthDriver(_DriverBase):
         re-armed paused jobs onto them. Existence of ``auth.json`` is not
         health: the file survives while its refresh token dies. The only
         honest verdict is the same transport the agent uses, so this runs
-        one tool-free turn through the registered codex agent-loop driver.
+        one tool-free turn through the registered codex agent-loop driver
+        (via the shared ``run_codex_cli_oneshot``).
+
+        Tri-state, not bool: this process may not be the node that runs the
+        CLI at all. On cloud the agent loop executes in per-user executor
+        containers (AGENT_EXECUTOR_URL set) and the control-plane image
+        does not ship ``codex`` — every local check here would misread
+        "different node" as "dead credential" and permanently block the
+        readiness edge that re-arms paused jobs. That case is "unknown",
+        never "dead".
 
         The codex driver reads its config from the ambient ``_codex_ctx``
         ContextVar (the AGENT slot's config, not this card's), so the
         card's own CodexConfig is installed for the duration and reset
-        after — the same pattern as ``CliHelperSDK._run_codex_oneshot``.
-        Dead credentials surface as a terminal error EVENT
+        after. Dead credentials surface as a terminal error EVENT
         (error_type="unauthorized"), not an exception.
 
         Expensive (spawns the CLI), so it runs only on explicit user
@@ -125,16 +137,31 @@ class CodexOAuthDriver(_DriverBase):
         import asyncio
         import os
         import shutil
-        import tempfile
 
-        # Fail fast without spawning: no credentials file → nothing to verify.
+        # Control-plane guard BEFORE any local inspection: with the executor
+        # seam active, this container's PATH and ~/.codex say nothing about
+        # the machine that actually runs the CLI.
+        if (os.getenv("AGENT_EXECUTOR_URL") or "").strip():
+            return VERIFY_UNKNOWN, (
+                "cannot verify from the control plane — the codex CLI runs "
+                "on the per-user executor"
+            )
+
+        # Fail fast without spawning: no credentials file → nothing to try.
         health = await self.probe()
         if not health.ok:
-            return False, health.detail
+            return VERIFY_DEAD, health.detail
         if shutil.which("codex") is None:
-            return False, "codex CLI not found on PATH — cannot verify"
+            return VERIFY_DEAD, (
+                "codex CLI not found on PATH — install it (or run "
+                "`codex login` on the machine that has it)"
+            )
 
         from xyz_agent_context.agent_framework.api_config import _codex_ctx
+        from xyz_agent_context.agent_framework.llm.cli_oneshot import (
+            oneshot_cwd,
+            run_codex_cli_oneshot,
+        )
         from xyz_agent_context.agent_framework.providers.model_catalog import (
             get_default_models,
         )
@@ -143,73 +170,45 @@ class CodexOAuthDriver(_DriverBase):
         # Curated default first: stored `models` may carry pinned ids that
         # upstream has retired (the 2026-07-30 dead-pinned-id lesson), and a
         # verification must not fail on a dead model name while the
-        # credential is fine.
+        # credential is fine. The curated list lives in the catalog
+        # (single source with user_service.CODEX_CURATED_MODELS).
         defaults = get_default_models("codex_oauth", "openai")
         model = defaults[0] if defaults else (self.card.models[0] if self.card.models else "")
         if not model:
-            return False, "no codex model available to verify with"
-
-        async def _one_shot() -> tuple[bool, str]:
-            from xyz_agent_context.agent_framework import get_agent_loop_driver
-            from xyz_agent_context.agent_framework.loop.events import (
-                DATA_TYPE_ERROR,
-                DATA_TYPE_TEXT_DELTA,
-                TYPE_RAW_RESPONSE_EVENT,
-            )
-
-            # Disposable, per-uid cwd: same containment rationale as
-            # CliHelperSDK's _HELPER_CWD (writable_roots must never be the
-            # backend process cwd).
-            cwd = os.path.join(
-                tempfile.gettempdir(), f"narranexus-verify-{os.getuid()}"
-            )
-            os.makedirs(cwd, mode=0o700, exist_ok=True)
-            driver = get_agent_loop_driver(framework="codex_cli", working_path=cwd)
-            got_text = False
-            err_msg = ""
-            async for ev in driver.agent_loop(
-                messages=[
-                    {"role": "system", "content": "Reply with exactly: OK"},
-                    {"role": "user", "content": "ping"},
-                ],
-                mcp_servers={},
-            ):
-                if not isinstance(ev, dict) or ev.get("type") != TYPE_RAW_RESPONSE_EVENT:
-                    continue
-                data = ev.get("data") or {}
-                dtype = data.get("type")
-                if dtype == DATA_TYPE_TEXT_DELTA and (data.get("delta") or ""):
-                    got_text = True
-                elif dtype == DATA_TYPE_ERROR:
-                    # Keep type AND message: codex phrases auth failures as
-                    # error_type="unauthorized" with a message that carries no
-                    # credential marker on its own (same lesson as
-                    # cli_helper's codex one-shot).
-                    _etype = str(data.get("error_type") or "").strip()
-                    _emsg = str(data.get("error_message") or "").strip()
-                    err_msg = ": ".join(p for p in (_etype, _emsg) if p) or "codex error"
-            if err_msg:
-                return False, f"live verification failed: {err_msg[:200]}"
-            if got_text:
-                return True, "credentials verified — live codex CLI call succeeded"
-            return False, "CLI run produced no reply — credentials may be invalid"
+            # A missing model list is a config gap, not a credential verdict.
+            return VERIFY_UNKNOWN, "no codex model available to verify with"
 
         token = _codex_ctx.set(self.build_codex_config(model))
         try:
-            return await asyncio.wait_for(
-                _one_shot(),
+            result = await asyncio.wait_for(
+                run_codex_cli_oneshot(
+                    "Reply with exactly: OK",
+                    "ping",
+                    working_path=oneshot_cwd("verify"),
+                ),
                 timeout=_settings.helper_cli_total_timeout_seconds,
             )
         except asyncio.TimeoutError:
-            return False, (
+            # A hung CLI is indistinguishable from a slow network — not a
+            # credential verdict.
+            return VERIFY_UNKNOWN, (
                 "verification timed out after "
                 f"{_settings.helper_cli_total_timeout_seconds}s"
             )
         except Exception as exc:  # noqa: BLE001 — verdict, not control flow
+            # Codex reports credential failures as terminal error EVENTS
+            # (handled below); an exception here is environmental (spawn
+            # failure, seam error) — undecidable, not dead.
             summary = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
-            return False, f"live verification failed: {summary}"
+            return VERIFY_UNKNOWN, f"could not run live verification: {summary}"
         finally:
             _codex_ctx.reset(token)
+
+        if result.error:
+            return VERIFY_DEAD, f"live verification failed: {result.error[:200]}"
+        if result.text.strip():
+            return VERIFY_OK, "credentials verified — live codex CLI call succeeded"
+        return VERIFY_DEAD, "CLI run produced no reply — credentials may be invalid"
 
     async def probe(self) -> DriverHealth:
         """Check whether the host CLI credentials file actually exists.

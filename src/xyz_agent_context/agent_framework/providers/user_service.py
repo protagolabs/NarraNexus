@@ -22,6 +22,9 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.providers.model_catalog import (
+    get_default_models,
+)
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
 )
@@ -69,7 +72,12 @@ def _is_cloud_mode() -> bool:
 # whenever OpenAI ships/retires a codex model, and keep every id registered
 # in model_catalog (pinned by
 # test_codex_curated_models_stay_registered_in_catalog).
-CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+#
+# The values live in model_catalog._DEFAULT_MODELS[("codex_oauth", "openai")]
+# since 2026-07-31: keeping the literal HERE left get_default_models() empty
+# for codex, so codex verify_live's "curated defaults first" guard silently
+# fell back to the stale stored models column. One table, two consumers.
+CODEX_CURATED_MODELS = get_default_models("codex_oauth", "openai")
 
 
 def validate_slot_binding(
@@ -1044,6 +1052,8 @@ class UserProviderService:
 
         if row.get("auth_type") in ("oauth", "oauth_token"):
             from xyz_agent_context.agent_framework.providers.driver.base import (
+                VERIFY_DEAD,
+                VERIFY_OK,
                 ProviderCard,
             )
             from xyz_agent_context.agent_framework.providers.driver.registry import (
@@ -1070,7 +1080,18 @@ class UserProviderService:
                     f"{health.detail} (existence check only — driver "
                     f"{driver_type!r} has no live verification)"
                 )
-            return await verify()
+            # Tri-state → bool mapping for the two consumers of this method
+            # (the Test button and ProviderReadiness): only a VERIFIED-dead
+            # credential maps to False. "unknown" (control-plane node,
+            # timeout, missing model list) maps to True-with-caveat — a
+            # False here would permanently block the readiness edge that
+            # re-arms PAUSED_NO_QUOTA jobs over a situation nobody verified.
+            verdict, detail = await verify()
+            if verdict == VERIFY_OK:
+                return True, detail
+            if verdict == VERIFY_DEAD:
+                return False, detail
+            return True, f"{detail} (not live-verified)"
 
         return await self.test_provider_config(
             card_type=row["protocol"],

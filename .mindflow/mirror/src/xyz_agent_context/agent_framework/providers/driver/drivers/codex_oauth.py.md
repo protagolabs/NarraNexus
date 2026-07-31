@@ -25,6 +25,14 @@ ProviderReadiness 借同一条路把暂停的 job 重新武装到死凭证上。
 
 测试:tests/agent_framework/test_oauth_live_verification.py。
 
+Review 轮修正(同日,PR #224):返回改三态(见 [[base]] VerifyVerdict)
+——`AGENT_EXECUTOR_URL` 存在时**先于一切本地检查**返回 unknown(控制面
+容器没装 codex、~/.codex 也不是执行面的,本地检查全是误判来源);超时
+/spawn 异常也是 unknown(codex 的凭证失败走错误事件,异常是环境问题);
+只有错误事件/无凭证文件/无 CLI/无回话是 dead。一发脚手架换用共享
+[[cli_oneshot]];curated 模型防线因 catalog 补键而真正生效(此前
+get_default_models 对 codex 返回 [],防线是死代码)。
+
 ## 2026-06-17 — override build_codex_config(凭证 ref 特例归位)
 
 agent slot 现在走 `build_codex_config`(不再是 resolver 的 free function)。本
