@@ -144,9 +144,15 @@ class NexusPowerLoop:
                         # The turn ends mid-assistant-message and this
                         # backend refuses to continue one. Ask for the
                         # continuation explicitly and replay the step;
-                        # the user sees one uninterrupted turn. Armed
-                        # once: a repair that keeps re-firing is a spin
-                        # loop, and the second rejection is real.
+                        # the user sees one uninterrupted turn.
+                        #
+                        # Armed once — re-appending the instruction every
+                        # round would be a spin loop, and each copy
+                        # compounds it. That is a bound on the REPAIR,
+                        # not a verdict on the error: most of these
+                        # rejections are about which upstream backend
+                        # answered, so the retry policy still gets its
+                        # turn afterwards (see the classifier).
                         self._continuation_turn = True
                         request = self._build_request()
                         continue
