@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/settings/NetmindActionZone.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 付费入口从 12px 文字链接升级为 outline 按钮 + 文案改直白
+
+Bug「套餐/付费入口不醒目」(官网定价页跳进设置页后找不到付费按钮):
+`manageTrigger` 原来是 `text-xs text-secondary` 的裸文字链接,极易被忽略。
+两处修复,Modal 逻辑不动(决策 2026-07-31,不改跳 Stripe):
+
+1. **视觉**:manageTrigger 换成 `Button variant="outline" size="sm"`。
+   选 outline 不选 accent——pro_cancelled 态它旁边就是 accent 的
+   Resume auto-renew,入口必须保持从属,不破坏"至多一个主推花钱动作"
+   铁律。
+2. **文案**(zh/en,弹窗标题同 key 跟随):
+   - free `managePlan`: 管理套餐与余额 → **升级或充值** / Upgrade or top up
+     ("管理"对没有套餐的免费用户是错误暗示)
+   - pro_active `manageSubscription`: 管理订阅与余额 → **充值或管理订阅** /
+     Top up or manage subscription(钱的动作放前面)
+   - pro_cancelled `manageBalance`: 管理余额 → **充值** / Add credits
+     (弹窗内容就只有充值 + 定价链接,名实一致)
+
+其余 8 个 locale 本来就没有这三个 key(走 t() 内联英文缺省,已同步更新),
+维持原状。测试 NetmindAccountPanel.test.tsx 的 label 正则同步。
 
 ## 2026-07-18 (续) — pro 管理弹窗顶部加已订阅套餐卡
 

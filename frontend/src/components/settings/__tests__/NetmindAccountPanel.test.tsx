@@ -282,7 +282,7 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   expect(screen.queryByRole('button', { name: /Subscribe to Pro/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
-  expect(screen.getByRole('button', { name: /Manage plan & credits/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Upgrade or top up/ })).toBeTruthy();
 });
 
 test('free × healthy: Manage opens a MODAL — Pro card leads, top-up demoted to a link (no peer choice)', async () => {
@@ -292,7 +292,7 @@ test('free × healthy: Manage opens a MODAL — Pro card leads, top-up demoted t
   render(<NetmindAccountPanel />);
   // closed by default — no Pro card, no top-up in the DOM yet
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
-  fireEvent.click(await screen.findByRole('button', { name: /Manage plan & credits/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade or top up/ }));
   // modal shows the Pro value card as the lead action…
   expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
   expect(screen.getByText(/Up to 50% off/)).toBeTruthy();
@@ -357,7 +357,7 @@ test('pro × healthy: member-pricing note, cancel hidden behind Manage', async (
   expect(await screen.findByText(/Member · valid until/)).toBeTruthy();
   expect(screen.getByText(/Member pricing active/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Cancel subscription/ })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Top up or manage subscription/ }));
   expect(screen.getByRole('button', { name: /Cancel subscription/ })).toBeTruthy();
 });
 
@@ -365,7 +365,7 @@ test('pro manage dialog: plan intro shown as Subscribed — perks visible, no up
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Top up or manage subscription/ }));
   // Plan card in subscribed state: name + badge + perks…
   expect(screen.getByText('NetMind Pro')).toBeTruthy();
   expect(screen.getByText(/Subscribed/)).toBeTruthy();
@@ -392,7 +392,7 @@ test('pro × low: top-up promoted directly (no upsell — already Pro)', async (
 // tests here stubbed window.confirm, which is precisely why that was invisible.
 // `nativeConfirm` therefore asserts absence, not a return value.
 async function openManageDialog() {
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Top up or manage subscription/ }));
   fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
 }
 
