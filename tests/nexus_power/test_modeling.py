@@ -41,6 +41,27 @@ def test_profile_resolution():
     assert resolve_profile("totally-unknown", None).name == "default"
 
 
+def test_output_ceilings_are_the_vendor_maximums():
+    """The ceiling is the vendor's published maximum, not a house number.
+
+    An under-set ceiling is not a safe default: it truncates tool
+    arguments mid-JSON, which the model cannot see and cannot recover
+    from (2026-07-30 incident)."""
+    assert resolve_profile("claude-opus-4-8", "anthropic").max_output_tokens == 128_000
+    assert resolve_profile("claude-sonnet-5", "anthropic").max_output_tokens == 128_000
+
+
+def test_haiku_keeps_its_own_lower_ceiling_even_under_the_anthropic_provider():
+    """Haiku caps at 64K where the rest of the line allows 128K. The row
+    must win over ``anthropic`` on a provider match too, or every Haiku
+    request would ask for double the vendor limit and 400."""
+    profile = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert profile.max_output_tokens == 64_000
+    # Same dialect as the rest of the line — only the ceiling differs.
+    assert profile.cache_style == "breakpoints"
+    assert profile.supports_arg_delta is True
+
+
 def test_cache_plan_breakpoints_only_for_breakpoint_dialects():
     messages = [
         {"role": "system", "content": "a"},
@@ -314,3 +335,52 @@ async def test_well_formed_arguments_have_no_parse_error():
     tool_use = next(e for e in events if e.kind == "tool_use")
     assert tool_use.payload["args"] == {"command": "ls"}
     assert tool_use.payload["parse_error"] is None
+    assert tool_use.payload["args_truncated"] is False
+
+
+async def _tool_use_for(arguments: str, *, finish: str):
+    chunks = [
+        _chunk({"tool_calls": [{"index": 0, "id": "c1",
+                                "function": {"name": "write_file"}}]}),
+        _chunk({"tool_calls": [{"index": 0,
+                                "function": {"arguments": arguments}}]}),
+        _chunk(finish=finish),
+    ]
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    events = [e async for e in client.stream_step(request)]
+    return next(e for e in events if e.kind == "tool_use")
+
+
+@pytest.mark.asyncio
+async def test_truncation_is_read_off_the_json_not_off_stop_reason():
+    """``stop_reason`` is the upstream's word and gateways get it wrong:
+    the NetMind free-tier gateway reports ``tool_use`` for a call its own
+    output cap severed (reproduced 2026-07-31 at max_tokens=2000, args
+    cut to ``{"path": "game.html"``). Truncation is therefore decided by
+    the shape of the JSON we actually received — a valid prefix that ran
+    out — never by a field the provider can misreport."""
+    tool_use = await _tool_use_for('{"path": "game.html"', finish="tool_calls")
+    assert tool_use.payload["args_truncated"] is True
+    # Unterminated string: the cut landed inside a value, not at the end.
+    mid_string = await _tool_use_for('{"path": "a.html", "content": "<htm',
+                                     finish="tool_calls")
+    assert mid_string.payload["args_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_genuinely_malformed_json_is_not_reported_as_truncation():
+    """Bad escaping and stray delimiters fail in the MIDDLE of the buffer.
+    Calling those "truncated" would send the model off to split a call
+    that was never too long."""
+    bad_escape = await _tool_use_for(r'{"path": "a\q.html"}', finish="tool_calls")
+    assert bad_escape.payload["parse_error"]
+    assert bad_escape.payload["args_truncated"] is False
+    double_comma = await _tool_use_for('{"a": 1,, "b": 2}', finish="tool_calls")
+    assert double_comma.payload["args_truncated"] is False

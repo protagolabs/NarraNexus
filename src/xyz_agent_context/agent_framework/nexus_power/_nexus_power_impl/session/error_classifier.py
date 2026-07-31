@@ -55,6 +55,16 @@ _OVERFLOW_MESSAGE_MARKERS: tuple[str, ...] = (
     "exceeds the maximum number of tokens",
 )
 
+# Assistant-prefill rejection. Real Anthropic accepts a conversation
+# that ends with an assistant turn; some backends behind a load-balancing
+# gateway do not, and answer 400. Matched BEFORE the class-name table
+# because the wrapper is a plain BadRequestError, which would otherwise
+# claim it as a dead-end INVALID_REQUEST.
+_PREFILL_MESSAGE_MARKERS: tuple[str, ...] = (
+    "does not support assistant message prefill",
+    "must end with a user message",
+)
+
 _MESSAGE_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
     ("invalid api key", ErrorType.AUTHENTICATION_FAILED, False),
     ("incorrect api key", ErrorType.AUTHENTICATION_FAILED, False),
@@ -82,6 +92,13 @@ class DefaultErrorClassifier:
         for marker in _OVERFLOW_MESSAGE_MARKERS:
             if marker in lowered:
                 return _wrap(exc, ErrorType.CONTEXT_OVERFLOW, message, retryable=True)
+        for marker in _PREFILL_MESSAGE_MARKERS:
+            if marker in lowered:
+                # retryable=False on purpose: the loop repairs the request
+                # first, so replaying it verbatim would just fail again.
+                return _wrap(
+                    exc, ErrorType.PREFILL_REJECTED, message, retryable=False
+                )
         for marker, error_type, retryable in _CLASS_NAME_RULES:
             if marker in names:
                 return _wrap(exc, error_type, message, retryable=retryable)

@@ -67,12 +67,19 @@ class ToolCall:
     never executed — running it with partial args produced misleading
     downstream failures (a write_file without ``path`` resolved to the
     workspace root and surfaced ``Is a directory``, 2026-07-30 incident).
+
+    ``truncated`` distinguishes the two ways that parse can fail, because
+    they need opposite advice: arguments severed mid-stream must be sent
+    again SMALLER, while genuinely malformed JSON must be sent again
+    CORRECTED. It is decided from the received bytes, not from the
+    provider's ``stop_reason`` — gateways misreport that field.
     """
 
     id: str
     name: str
     args: dict[str, Any]
     parse_error: str | None = None
+    truncated: bool = False
 
 
 @dataclass(frozen=True)

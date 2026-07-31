@@ -62,6 +62,17 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.tur
 )
 
 
+# Sent only after a backend has actually refused a trailing assistant
+# message. Worded to buy back what the repair costs: the model is being
+# asked to resume its own sentence, so it must not restate the part the
+# user already has.
+CONTINUE_PREFILL = (
+    "Continue your previous message exactly where it stopped. "
+    "Do not repeat any earlier content and do not add any preamble — "
+    "output only the continuation."
+)
+
+
 class NexusPowerLoop:
     """One instance runs one turn (no cross-turn state: stateless worker)."""
 
@@ -69,6 +80,7 @@ class NexusPowerLoop:
         self._a = assembly
         self._ledger = ledger
         self._closed = False
+        self._continuation_turn = False  # prefill repair, armed at most once
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
@@ -121,6 +133,19 @@ class NexusPowerLoop:
                         async for ev in self._fail(error):
                             yield ev
                         return
+                    if (
+                        error.error_type is ErrorType.PREFILL_REJECTED
+                        and not self._continuation_turn
+                    ):
+                        # The turn ends mid-assistant-message and this
+                        # backend refuses to continue one. Ask for the
+                        # continuation explicitly and replay the step;
+                        # the user sees one uninterrupted turn. Armed
+                        # once: a repair that keeps re-firing is a spin
+                        # loop, and the second rejection is real.
+                        self._continuation_turn = True
+                        request = self._build_request()
+                        continue
                     attempt += 1
                     if error.retryable and await a.retry.should_retry(error, attempt):
                         continue
@@ -224,6 +249,11 @@ class NexusPowerLoop:
     def _build_request(self) -> ModelRequest:
         a = self._a
         messages = a.projector.project(self._ledger, a.model.profile)
+        if self._continuation_turn:
+            # Transport repair, not turn history: it exists to satisfy a
+            # backend that rejects a trailing assistant message, so it
+            # stays out of the ledger and never reaches the next turn.
+            messages = [*messages, {"role": "user", "content": CONTINUE_PREFILL}]
         tools = [spec.as_openai_tool() for spec in a.tools.visible_tools()]
         return ModelRequest(
             messages=messages,
@@ -298,6 +328,7 @@ class NexusPowerLoop:
                         name=str(payload["tool_name"]),
                         args=dict(payload.get("args") or {}),
                         parse_error=payload.get("parse_error"),
+                        truncated=bool(payload.get("args_truncated")),
                     )
                 )
                 index = int(model_event.content_index)
@@ -390,6 +421,11 @@ def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
     )
 
 
+# Stop reasons that admit the output cap severed the response. Kept as a
+# corroborating signal only — see ``unparsed_call_result``.
+_TRUNCATING_STOP_REASONS = frozenset({"length", "max_tokens"})
+
+
 def unparsed_call_result(
     call: ToolCall, *, stop_reason: str, max_output_tokens: int
 ) -> ToolResult:
@@ -397,15 +433,27 @@ def unparsed_call_result(
 
     Wording is tool-agnostic (iron rule #4) and states the recovery
     path explicitly — weaker models do not reliably self-repair from a
-    bare parse error (measured across the industry; codex#19765)."""
-    if stop_reason == "length":
+    bare parse error (measured across the industry; codex#19765).
+
+    Which recovery to name is decided PRIMARILY by the received bytes
+    (``call.truncated``), and only secondarily by ``stop_reason``. The
+    two answers are opposites — send it smaller versus send it correct —
+    so naming the wrong one is worse than saying nothing: a gateway that
+    reported ``tool_use`` for a severed call had the model hunting an
+    escaping bug and re-sending the same oversized arguments until the
+    turn died (agent 初号机, dev 2026-07-30). ``stop_reason`` stays in
+    as corroboration because a truthful provider reports it before the
+    JSON is even suspicious, but it can no longer veto the evidence.
+    """
+    if call.truncated or stop_reason in _TRUNCATING_STOP_REASONS:
         error = (
-            f"arguments truncated ({call.parse_error}): the response hit "
-            f"the output token limit ({max_output_tokens}) before the "
-            "arguments finished streaming. The tool was NOT executed. "
-            "Re-issue the call with less content per call — produce the "
-            "output in smaller pieces across multiple calls, or use an "
-            "editing tool to extend existing content incrementally."
+            f"arguments truncated ({call.parse_error}): the argument JSON "
+            "stops mid-value, so the response ended before the arguments "
+            "finished streaming — normally the output token limit "
+            f"({max_output_tokens}). The tool was NOT executed. Re-issue "
+            "the call with less content per call — produce the output in "
+            "smaller pieces across multiple calls, or use an editing tool "
+            "to extend existing content incrementally."
         )
     else:
         error = (

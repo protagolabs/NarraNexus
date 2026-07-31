@@ -10,6 +10,13 @@ argument-delta support). No row ever encodes a judgement about a
 model's fitness (iron rule #15): unknown providers resolve to a
 conservative default so every user model runs — it merely forgoes the
 optimizations until its row is measured in.
+
+``max_output_tokens`` is the VENDOR maximum, never a house budget. A
+ceiling set below what the model allows does not save anything: it
+severs tool arguments mid-JSON, and the model cannot see the cut or
+recover from it (2026-07-30 incident — a single write_file retried into
+a loop against an 8_192 ceiling). Cost and depth are the caller's dials
+(iron rule #15), not this table's.
 """
 
 from __future__ import annotations
@@ -21,13 +28,24 @@ _DEFAULT = ProviderProfile(name="default")
 # name -> profile. Matching is by substring against provider then model
 # (lowercased), first hit wins; order matters only for overlapping keys.
 _PROFILES: tuple[ProviderProfile, ...] = (
+    # Ahead of "anthropic" on purpose: matching walks profiles in order
+    # and the provider string alone ("anthropic") would otherwise claim
+    # every Haiku request for a row whose ceiling Haiku cannot serve.
+    ProviderProfile(
+        name="haiku",
+        cache_style="breakpoints",
+        thinking_replay="strip",
+        supports_arg_delta=True,
+        context_window=200_000,
+        max_output_tokens=64_000,  # vendor maximum for the Haiku line
+    ),
     ProviderProfile(
         name="anthropic",
         cache_style="breakpoints",
         thinking_replay="strip",
         supports_arg_delta=True,
         context_window=200_000,
-        max_output_tokens=8_192,
+        max_output_tokens=128_000,  # vendor maximum for Opus and Sonnet
     ),
     ProviderProfile(
         name="deepseek",

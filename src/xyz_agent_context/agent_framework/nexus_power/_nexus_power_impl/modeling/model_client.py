@@ -31,6 +31,18 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 )
 
 
+# Told to the gateway, which otherwise defends every client against
+# prefill-rejecting upstreams by appending a continuation turn to EVERY
+# conversation that ends with an assistant message. That defence costs a
+# repeated clause on backends that would have accepted the prefill, and
+# it cannot help a client that could simply retry. This loop can (see
+# ``NexusPowerLoop`` PREFILL_REJECTED), so it opts out and pays the cost
+# only on an actual rejection. The claude CLI cannot, so it stays
+# covered. Renaming this header is a deploy-repo lockstep change
+# (stacks/narranexus-app/litellm/prefill_compat.py).
+PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
+
+
 class LiteLLMModelClient:
     """Every provider goes through litellm first (dialects are data)."""
 
@@ -43,6 +55,10 @@ class LiteLLMModelClient:
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
         extra.setdefault("max_tokens", self.profile.max_output_tokens)
+        extra["extra_headers"] = {
+            **(extra.get("extra_headers") or {}),
+            **PREFILL_SELF_HANDLED_HEADER,
+        }
         tools = self._dialect_tools(request.tools, params.base_url, params.provider)
 
         calls: dict[int, dict[str, Any]] = {}
@@ -102,7 +118,7 @@ class LiteLLMModelClient:
         for index in sorted(calls):
             call = calls[index]
             raw = "".join(call["arguments"])
-            args, parse_error = _parse_args(raw)
+            args, parse_error, truncated = _parse_args(raw)
             yield ModelEvent(
                 kind="tool_use",
                 content_index=index,
@@ -112,6 +128,7 @@ class LiteLLMModelClient:
                     "args": args,
                     "raw_arguments": raw,
                     "parse_error": parse_error,
+                    "args_truncated": truncated,
                 },
             )
         yield ModelEvent(
@@ -247,21 +264,41 @@ class AnthropicDirectClient:
         yield  # pragma: no cover - makes this an async generator
 
 
-def _parse_args(raw: str) -> tuple[dict[str, Any], str | None]:
-    """(args, parse_error). Broken argument JSON is NOT smuggled through
-    under a synthetic key — the old ``{"_raw": raw}`` fallback let a
-    truncated call execute with its real fields missing, and the tool's
-    complaint pointed everywhere but the truncation. The error travels
-    explicitly so the dispatch layer can answer the call instead."""
+def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
+    """(args, parse_error, truncated). Broken argument JSON is NOT
+    smuggled through under a synthetic key — the old ``{"_raw": raw}``
+    fallback let a truncated call execute with its real fields missing,
+    and the tool's complaint pointed everywhere but the truncation. The
+    error travels explicitly so the dispatch layer can answer the call
+    instead."""
     if not raw:
-        return {}, None
+        return {}, None, False
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}"
+        return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}", _is_cut_short(raw, exc)
     if not isinstance(parsed, dict):
-        return {}, f"expected a JSON object, got {type(parsed).__name__}"
-    return parsed, None
+        return {}, f"expected a JSON object, got {type(parsed).__name__}", False
+    return parsed, None, False
+
+
+def _is_cut_short(raw: str, exc: json.JSONDecodeError) -> bool:
+    """Whether ``raw`` is a valid JSON prefix that simply ran out.
+
+    Read off the bytes rather than the provider's ``stop_reason``: the
+    NetMind free-tier gateway reports ``tool_use`` for a call its own
+    output cap severed (reproduced 2026-07-31 — max_tokens=2000,
+    output_tokens=2000, arguments cut to ``{"path": "game.html"``), and
+    trusting it sent the model chasing an escaping bug that did not
+    exist.
+
+    Two signatures, both exhaustive over CPython's decoder: a string that
+    never closes (the cut landed inside a value), or a failure at the
+    very end of the buffer (it landed between tokens). Genuine damage —
+    a bad escape, a stray delimiter, a raw control character — always
+    fails STRICTLY INSIDE the buffer, which is what keeps the two apart.
+    """
+    return exc.msg.startswith("Unterminated string") or exc.pos >= len(raw)
 
 
 def _extract_usage(raw: Any) -> Usage | None:

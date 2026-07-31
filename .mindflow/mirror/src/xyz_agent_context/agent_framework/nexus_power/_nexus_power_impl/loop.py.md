@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/loop.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 截断措辞不再被 stop_reason 一票否决
+
+unparsed_call_result 现在主要看 call.truncated(字节证据),stop_reason 降级为佐
+证(_TRUNCATING_STOP_REASONS 增补 "max_tokens",Anthropic 原生词汇,原来只认
+OpenAI 的 "length")。两条自救方向是相反的——「发小一点」vs「发对一点」——所以
+点错比不说更糟:网关把被切断的调用报成 tool_use,模型据此判定是转义问题,原样重
+发同一个 15KB 调用,连撞三轮直到 turn 结束(agent 初号机,dev 2026-07-30)。
+
+## 2026-07-31 — prefill 被拒:补一轮续写 user 消息,只补一次
+
+某些后端拒绝以 assistant 结尾的对话。真 Anthropic 接受,所以**原样发,撞了再
+修**——网关那种无条件预防式改写会对本来能接受的后端也白付代价。
+PREFILL_REJECTED 在 MODEL_STREAM 的错误分支里拦下(和 CONTEXT_OVERFLOW 同一位
+置、同一形状:修请求→重放 step),置 _continuation_turn 后 _build_request 在投影
+结果**后面**追加 CONTINUE_PREFILL 用户消息。
+
+两条纪律:①只武装一次,反复重放就是自旋,第二次被拒是真失败;②追加的消息是
+**传输层修复不是轮次历史**,不进账本、不带到下一轮——它只为满足某个后端而存在。
 
 ## 2026-07-30 — 残缺参数的调用「被回答」而不是被执行
 

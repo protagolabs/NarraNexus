@@ -24,6 +24,17 @@ class RateLimitError(Exception):
     pass
 
 
+class BadRequestError(Exception):
+    """Named like litellm's, so the class-name table would claim it."""
+
+
+# Verbatim from the NetMind free-tier gateway (dev, 2026-07-30).
+PREFILL_400 = (
+    "litellm.BadRequestError: AnthropicException - This model does not support "
+    "assistant message prefill. The conversation must end with a user message."
+)
+
+
 @pytest.fixture()
 def classifier():
     return DefaultErrorClassifier()
@@ -39,6 +50,9 @@ def classifier():
         (Exception("Incorrect API key provided"), ErrorType.AUTHENTICATION_FAILED, False),
         (Exception("Your credit balance is too low"), ErrorType.BILLING_ERROR, False),
         (Exception("mystery failure"), ErrorType.UNKNOWN, False),
+        # The prefill marker must beat the BadRequestError class name —
+        # the loop repairs this shape, it does not die on it.
+        (BadRequestError(PREFILL_400), ErrorType.PREFILL_REJECTED, False),
     ],
 )
 def test_classification_table(classifier, exc, expected, retryable):
@@ -46,6 +60,17 @@ def test_classification_table(classifier, exc, expected, retryable):
     assert err.error_type is expected
     assert err.retryable is retryable
     assert err.provider_raw is exc
+
+
+def test_prefill_rejection_stays_invalid_request_for_legacy_consumers(classifier):
+    """New vocabulary never leaks to the platform's old consumers."""
+    err = classifier.classify(BadRequestError(PREFILL_400))
+    assert err.legacy_error_type() == ErrorType.INVALID_REQUEST.value
+
+
+def test_other_bad_requests_are_not_mistaken_for_prefill(classifier):
+    err = classifier.classify(BadRequestError("model `nope` does not exist"))
+    assert err.error_type is ErrorType.INVALID_REQUEST
 
 
 def test_exception_chain_is_traversed(classifier):

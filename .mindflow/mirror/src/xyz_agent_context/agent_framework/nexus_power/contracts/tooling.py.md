@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/tooling.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — ToolCall.truncated
+
+parse 失败分两种,给的建议正好相反:被流切断→**发小一点**,JSON 写坏→**发对一
+点**。所以除 parse_error 外再带一个 truncated 布尔,由 model_client 从收到的字
+节判定而非上游 stop_reason(网关会谎报,见该文件 mirror)。指错方向比不指更糟——
+模型会去修一个不存在的转义 bug。
 
 ## 2026-07-30 — ToolCall.parse_error
 

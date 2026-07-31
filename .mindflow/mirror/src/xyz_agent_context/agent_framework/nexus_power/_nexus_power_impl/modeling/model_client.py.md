@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 截断从字节判,不从 stop_reason 判
+
+_parse_args 三返回值 (args, parse_error, truncated)。truncated 由 _is_cut_short
+从收到的字节判定,**不看上游 stop_reason**:NetMind 免费档网关对被自己输出上限
+切断的调用报 stop_reason="tool_use"(2026-07-31 实测复现,max_tokens=2000、
+output_tokens=2000、参数被切成 `{"path": "game.html"`)。信了它就会把「太长了」
+说成「JSON 写坏了」,两种自救方向正好相反。
+
+判据两条,对 CPython 解码器是完备的:msg 以 "Unterminated string" 开头(切口落在
+值内部),或 exc.pos >= len(raw)(切口落在 token 之间)。真损坏——坏转义、多余分
+隔符、裸控制字符——必定报在缓冲区**中间**,这正是两者的分界。
+
+## 2026-07-31 — 向网关声明「prefill 我自己重试」
+
+extra_headers 里恒带 PREFILL_SELF_HANDLED_HEADER。网关 hook 默认给所有「以
+assistant 结尾」的对话补一句续写 user 消息以躲开某些后端的 400,代价是对本来能
+接受 prefill 的后端也白付一次重复措辞。本循环能自己重试(见 loop 的
+PREFILL_REJECTED),所以退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
+重试路径,继续被网关兜着。改名是 deploy 仓 lockstep 改动
+(stacks/narranexus-app/litellm/prefill_compat.py),但两边不同步是**安全的**——
+认不出的 header 只会让 hook 继续改写,即今天的行为。
 
 ## 2026-07-30 — _parse_args 不再静默 {"_raw": ...}
 
