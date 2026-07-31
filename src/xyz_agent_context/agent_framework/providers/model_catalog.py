@@ -34,6 +34,11 @@ class ModelMeta:
     model_id: str
     display_name: str
     max_output_tokens: Optional[int] = None   # 90% of model limit
+    # The provider's hard `input + max_tokens` limit — the number a
+    # request 400s at, not a budget we choose. Only meaningful for
+    # callers that size output against the room the input leaves;
+    # `None` means unverified, and they fall back to their own budget.
+    context_window: Optional[int] = None
 
 
 # =============================================================================
@@ -67,8 +72,10 @@ _register(
     # how its inference router dispatches; the prefix is part of the
     # model id, not a separate provider. max_output_tokens matches the
     # native Claude limits because NetMind is a transparent proxy here.
-    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)", max_output_tokens=115200),
-    ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)", max_output_tokens=115200),
+    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)",
+              max_output_tokens=115200, context_window=1_000_000),
     ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
     ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
     ModelMeta("Qwen/Qwen3.6-35B-A3B", "Qwen3.6 35B-A3B"),
@@ -78,10 +85,14 @@ _register(
 # max_output_tokens left None for models whose official limits we haven't
 # independently verified; callers fall back to the provider's own cap.
 _register(
-    ModelMeta("claude-opus-4-8", "Claude Opus 4.8", max_output_tokens=115200),
-    ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6", max_output_tokens=115200),
-    ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5"),
-    ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)"),
+    ModelMeta("claude-opus-4-8", "Claude Opus 4.8",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5",
+              max_output_tokens=57600, context_window=200_000),
+    ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)",
+              max_output_tokens=57600, context_window=200_000),
     # Claude Code CLI family aliases — always resolve to the latest model of
     # each family. Used by the Claude OAuth candidate list so it never goes
     # stale; only valid on the CLI (`claude --model opus`), not the raw API.
@@ -332,6 +343,18 @@ def get_max_output_tokens(model_id: str) -> Optional[int]:
     """
     meta = _KNOWN_MODELS.get(model_id)
     return meta.max_output_tokens if meta else None
+
+
+def get_context_window(model_id: str) -> Optional[int]:
+    """
+    Look up the hard `input + max_tokens` limit for a given model ID.
+
+    Returns None if unverified — callers must fall back to a budget of
+    their own rather than inventing a wall, since a wall shorter than
+    the real one silently shrinks every request near it.
+    """
+    meta = _KNOWN_MODELS.get(model_id)
+    return meta.context_window if meta else None
 
 
 def get_model_display_name(model_id: str) -> str:

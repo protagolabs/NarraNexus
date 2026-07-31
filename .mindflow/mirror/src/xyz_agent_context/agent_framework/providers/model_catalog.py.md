@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_catalog.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — ModelMeta 增 context_window;nexus_power 也接进来了
+
+新增可选 `context_window` + `get_context_window(model_id)`:provider 的**硬墙**
+(`input + max_tokens` 超了就 400),不是我们自选的预算。只有「按输入剩余空间决定输出
+上限」的调用方才需要它;`None`=未核实,调用方必须回落到自己的预算——**编一堵比真实墙
+矮的墙,会把靠近它的每个请求悄悄压小**(nexus_power 就这么把免费档默认模型自己压到
+1_024 过)。
+
+同批填上:Claude 三行的 context_window(opus/sonnet 1M、haiku 200K),以及 haiku 一直
+空着的 `max_output_tokens=57600`(=90% × 64_000)。dev 网关实测:
+opus-4-8 吃下 144_065 input + 128_000 max_tokens 仍 200;haiku@64000→200、
+haiku@128000→**400**。
+
+消费方从两个变成三个:`adapters/openai_agents`、`llm/anthropic_helper`,加上
+`nexus_power/_nexus_power_impl/modeling/profiles.py`。**新增/修改模型上限只改这里**,
+别在框架侧再建表(2026-07-31 有过一次,当场和本表的 115_200 对不上)。
 
 ## 2026-07-30 — `get_default_models("netmind_free")` 先读网关门后的条目
 

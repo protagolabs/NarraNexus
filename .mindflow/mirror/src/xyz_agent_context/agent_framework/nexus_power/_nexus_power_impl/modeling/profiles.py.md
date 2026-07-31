@@ -16,8 +16,16 @@ stub: false
 于是 Qwen2.5-7B(32K 窗口)会被要求吐 128K,每个请求必炸。8_192 时代这个错误无害,
 抬高上限把它引爆——**这是抬上限时最容易漏的一步**。
 
-现在上限走 `_MODEL_LIMITS`,只按 model id 子串命中;表里没有的模型一律留在保守默认
-8_192。宁可截断(有明确自救路径)也不要整条请求被拒。
+现在上限**不由本表提供**,而是 `resolve_profile` 叠加
+`providers/model_catalog`——平台唯一的按 model id 索引的事实源,
+`adapters/openai_agents` 和 `llm/anthropic_helper` 早就在读它。本地再建一张表就是
+同一个问题的第二个答案,而且第一版当场就和 catalog 打架(我写 128_000,catalog 是
+115_200)。catalog 的约定是「90% of model limit」,留了固定安全边距;查不到的模型回落
+本表的保守默认 8_192。宁可截断(有明确自救路径)也不要整条请求被拒。
+
+副作用是**任何走我们自己 client 的框架都受益**(Owner 2026-07-31 提出的方向):加一个
+模型 = 改 catalog 一行,而不是每个调用方各改一行。catalog 是精确匹配,所以本文件多一层
+「去掉路由前缀再查一次」的回退,让平台 id(`anthropic/claude-opus-4-8`)也能命中。
 
 ## 2026-07-31 — output_budget:给输入留出位置
 

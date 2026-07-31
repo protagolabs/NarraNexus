@@ -29,6 +29,10 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.pr
     output_budget,
     resolve_profile,
 )
+from xyz_agent_context.agent_framework.providers.model_catalog import (
+    get_context_window,
+    get_max_output_tokens,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
@@ -45,20 +49,25 @@ def test_profile_resolution():
     assert resolve_profile("totally-unknown", None).name == "default"
 
 
-def test_output_ceilings_are_the_vendor_maximums():
-    """The ceiling is the vendor's published maximum, not a house number.
+def test_output_ceilings_come_from_the_catalog():
+    """115_200 is the catalog's standing "90% of the model limit" margin
+    on Claude's 128K, not a number this module chose.
 
     An under-set ceiling is not a safe default: it truncates tool
     arguments mid-JSON, which the model cannot see and cannot recover
-    from (2026-07-30 incident)."""
-    assert resolve_profile("claude-opus-4-8", "anthropic").max_output_tokens == 128_000
-    assert resolve_profile("claude-sonnet-5", "anthropic").max_output_tokens == 128_000
+    from (2026-07-30 incident, against an 8_192 ceiling)."""
+    assert resolve_profile("claude-opus-4-8", "anthropic").max_output_tokens == 115_200
+    assert resolve_profile("claude-sonnet-4-6", "anthropic").max_output_tokens == 115_200
+    # The platform id NetMind actually dispatches on resolves too.
+    assert resolve_profile("anthropic/claude-opus-4-8", "anthropic").max_output_tokens == 115_200
 
 
 def test_haiku_keeps_its_own_lower_ceiling():
-    """Haiku caps at 64K where the rest of the line allows 128K."""
+    """Haiku's real limit is 64K against 128K for the rest of the line,
+    so it lands at 57_600 where they land at 115_200. Measured on the dev
+    gateway 2026-07-31: haiku@64000 -> 200, haiku@128000 -> 400."""
     profile = resolve_profile("claude-haiku-4-5", "anthropic")
-    assert profile.max_output_tokens == 64_000
+    assert profile.max_output_tokens == 57_600
     # Same dialect as the rest of the line — only the ceiling differs.
     assert profile.cache_style == "breakpoints"
     assert profile.supports_arg_delta is True
@@ -88,8 +97,8 @@ def test_the_anthropic_PROTOCOL_never_grants_a_vendor_ceiling(model):
 
 
 def test_ceiling_follows_the_model_even_with_no_provider():
-    assert resolve_profile("anthropic/claude-opus-4-8", None).max_output_tokens == 128_000
-    assert resolve_profile("claude-haiku-4-5", None).max_output_tokens == 64_000
+    assert resolve_profile("anthropic/claude-opus-4-8", None).max_output_tokens == 115_200
+    assert resolve_profile("claude-haiku-4-5", None).max_output_tokens == 57_600
 
 
 def test_output_budget_leaves_room_for_the_input():
@@ -99,12 +108,12 @@ def test_output_budget_leaves_room_for_the_input():
     window really is 200K, and our own compaction only trips at 150K —
     leaving a band where an unclamped 64K request would exceed it."""
     haiku = resolve_profile("claude-haiku-4-5", "anthropic")
-    assert output_budget(haiku, 0) == 64_000            # nothing to give back
-    assert output_budget(haiku, 150_000) < 64_000       # the band that would 400
+    assert output_budget(haiku, 0) == 57_600            # nothing to give back
+    assert output_budget(haiku, 150_000) < 57_600       # the band that would 400
     assert output_budget(haiku, 150_000) + 150_000 <= haiku.vendor_context_window
 
     opus = resolve_profile("claude-opus-4-8", "anthropic")
-    assert output_budget(opus, 144_065) == 128_000      # 1M window: never binds
+    assert output_budget(opus, 144_065) == 115_200      # 1M window: never binds
 
 
 def test_output_budget_never_returns_a_useless_or_negative_ceiling():
@@ -135,6 +144,28 @@ def test_measured_models_still_clamp_against_their_real_wall():
     """The fallback must not blunt the clamp where a wall IS known."""
     haiku = resolve_profile("claude-haiku-4-5", "anthropic")
     assert output_budget(haiku, 180_000) < haiku.max_output_tokens
+
+
+def test_limits_come_from_the_platform_catalog_not_a_local_copy():
+    """One question, one answer. A private table here would be a second
+    source of truth for the same number — and the first draft of it
+    promptly disagreed with the catalog (128_000 vs 115_200).
+
+    This also means every framework that goes through our own client
+    shares the numbers: adapters/openai_agents and llm/anthropic_helper
+    already read the same catalog."""
+    for model in ("claude-opus-4-8", "claude-haiku-4-5", "anthropic/claude-opus-4-8"):
+        profile = resolve_profile(model, "anthropic")
+        assert profile.max_output_tokens == _catalog_max(model)
+        assert profile.vendor_context_window == _catalog_window(model)
+
+
+def _catalog_max(model):
+    return get_max_output_tokens(model) or get_max_output_tokens(model.split("/")[-1])
+
+
+def _catalog_window(model):
+    return get_context_window(model) or get_context_window(model.split("/")[-1])
 
 
 def test_input_estimate_counts_tool_call_arguments():
