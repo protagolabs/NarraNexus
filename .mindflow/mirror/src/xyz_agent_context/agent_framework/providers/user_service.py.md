@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 绑定规则第 2 条 + 切框架会清掉跑不了的绑定
+
+`validate_slot_binding` 的 agent 槽位加上「订阅凭据」这一条，调
+[[provider_schema]] 的 `framework_can_drive_provider`。两个写入口
+（本类的 `set_slot` 与 [[slot_service]] 的 `set_agent_slot`）共用它，一次
+收紧两处。**helper_llm 不受影响**——OAuth helper 由 CliHelperSDK 一次性跑
+CLI，与 agent 框架无关，所以第 2 条刻意只管 agent 槽。
+
+`set_user_agent_framework` 现在返回 `bool`（是否清了绑定）：切框架**不是**
+槽位写入，没有任何别的地方会重新校验它，于是「绑着 Claude Code Login 切到
+NexusPower」会把 `validate_slot_binding` 拒绝的那个组合原样留在库里，唯一
+的暴露点是 agent 跑到一半。所以这里读一次已绑卡，新框架驱动不了就清空
+`provider_id`/`model` 并 warning 一行。
+
+两个刻意的边界：**dangling provider_id 不动**（provider 行已被删的清理归
+`remove_provider`，这里再写一次只会跟它抢）；返回值经
+`POST /api/providers/agent-framework` 的 `slot_cleared` 传给前端——编辑器据
+此同步草稿**和**已保存快照，否则表单会带着一个用户没碰过的空 provider 变
+dirty。
 
 ## 2026-07-30 — onboarding 的 models 支持按协议 dict（PR #204）
 

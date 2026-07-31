@@ -1245,6 +1245,7 @@
         "failed": "فشل {{stage}} التحديث."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "لا تُعرض سوى أُطر العمل التي يمكن لمزوّديك المتصلين تشغيلها فعليًا.",
         "cloudFrameworkLockedTitle": "للموظفين فقط في السحابة",
         "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية."
       }

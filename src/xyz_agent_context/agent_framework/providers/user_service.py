@@ -26,6 +26,7 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
 )
 from xyz_agent_context.schema.provider_schema import (
+    CLI_FRAMEWORK_BY_OAUTH_SOURCE,
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -33,6 +34,7 @@ from xyz_agent_context.schema.provider_schema import (
     ProviderSource,
     SlotConfig,
     SlotName,
+    framework_can_drive_provider,
     get_slot_required_protocols,
 )
 
@@ -85,25 +87,49 @@ def validate_slot_binding(
     Rules:
       1. Protocol — the agent slot follows the framework (claude_code →
          anthropic, codex_cli → openai); other slots keep their static
-         requirement. This is the ONLY gate on the codex agent slot: any
-         openai-protocol provider (codex_oauth / user / netmind / yunwu /
+         requirement. This is the ONLY protocol gate on the codex agent slot:
+         any openai-protocol provider (codex_oauth / user / netmind / yunwu /
          openrouter) is accepted. Codex targets OpenAI's Responses API
          (wire_api="responses"); whether a given endpoint actually serves it
          is the provider's characteristic, not something the platform polices
          at config time (binding rule #15). A mismatch surfaces at agent-loop
          time — the same accepted cost as any user-chosen endpoint.
-      2. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
+      2. Subscription credential (AGENT slot) — a card carrying a CLI
+         subscription (auth_type oauth / oauth_token) is redeemable ONLY by
+         the framework whose CLI owns that credential. This is NOT the
+         platform judging providers: nexus_power physically cannot spend a
+         Claude Code login (it drives the HTTP API and rejects subscription
+         auth in ``nexus_agent._resolve_provider``), so accepting the binding
+         here only defers a certain failure to the middle of a run.
+      3. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
          subscription login covers both slots. The OAuth credential can't make
          DIRECT Messages / Chat-Completions calls, but the resolver routes an
          OAuth helper to a CliHelperConfig and CliHelperSDK runs the helper's
          structured calls one-shot through the same CLI as the agent
-         (build_cli_helper_config) — so no reject here.
+         (build_cli_helper_config) — so no reject here. Rule 2 is agent-slot
+         only for exactly that reason.
     """
     required = get_slot_required_protocols(slot_name, agent_framework=agent_framework)
     if required and prov["protocol"] not in [p.value for p in required]:
         raise ValueError(
             f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, "
             f"got '{prov['protocol']}'"
+        )
+
+    if slot_name == SlotName.AGENT.value and not framework_can_drive_provider(
+        agent_framework,
+        source=prov.get("source", ""),
+        auth_type=prov.get("auth_type", "api_key"),
+        protocol=prov["protocol"],
+    ):
+        owner_framework = CLI_FRAMEWORK_BY_OAUTH_SOURCE.get(prov.get("source", ""))
+        raise ValueError(
+            f"Provider '{prov.get('name') or prov.get('provider_id')}' signs in "
+            f"through a CLI subscription, so it can only back the "
+            f"'{owner_framework or 'matching CLI'}' agent framework — not "
+            f"'{agent_framework}'. Either switch this agent to "
+            f"'{owner_framework or 'that framework'}', or bind an API-key "
+            f"provider instead."
         )
 
     # helper_llm ACCEPTS OAuth (claude_oauth / codex_oauth) — no reject: the
@@ -879,8 +905,12 @@ class UserProviderService:
             return "claude_code"
         return (row.get("agent_framework") or "claude_code")
 
-    async def set_user_agent_framework(self, user_id: str, framework: str) -> None:
+    async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
         """Persist the user's coding-agent framework choice.
+
+        Returns True when the agent slot's provider binding had to be
+        cleared (see below) — the route passes that on so the editor can
+        show an empty provider picker instead of a stale one.
 
         Upserts ``user_slots[user_id, slot_name='agent'].agent_framework``.
         If the user has no agent slot row yet (provider_id/model not
@@ -888,6 +918,15 @@ class UserProviderService:
         the framework choice is preserved until they wire the slot.
         provider_resolver still rejects the call at agent_loop time
         when provider_id is empty — same as today.
+
+        If the currently bound provider CANNOT back the new framework
+        (``framework_can_drive_provider`` — e.g. a Claude Code Login card
+        while switching to nexus_power), the binding is CLEARED rather than
+        left behind. A framework switch is not a slot write, so nothing else
+        re-validates it: keeping the row would persist exactly the
+        combination ``validate_slot_binding`` refuses, and the only place it
+        would surface is the middle of an agent run. Clearing also matches
+        what both framework pickers already do to their local draft.
 
         Raises ``ValueError`` for unknown framework values.
         """
@@ -901,11 +940,42 @@ class UserProviderService:
             "user_slots", {"user_id": user_id, "slot_name": "agent"}
         )
         now = datetime.now(timezone.utc).isoformat()
+        cleared = False
         if existing:
+            payload: Dict[str, Any] = {
+                "agent_framework": framework,
+                "updated_at": now,
+            }
+            bound_pid = existing.get("provider_id") or ""
+            if bound_pid:
+                prov = await self.db.get_one(
+                    "user_providers",
+                    {"user_id": user_id, "provider_id": bound_pid},
+                )
+                # A dangling provider_id (row already deleted) is left alone:
+                # remove_provider owns that cleanup, and inventing a second
+                # writer for it here would just race that one.
+                if prov and not framework_can_drive_provider(
+                    framework,
+                    source=prov.get("source", ""),
+                    auth_type=prov.get("auth_type", "api_key"),
+                    protocol=prov.get("protocol", ""),
+                ):
+                    logger.warning(
+                        f"[providers] agent framework -> {framework!r} for "
+                        f"user={user_id!r}: clearing agent slot bound to "
+                        f"provider {bound_pid!r} "
+                        f"(source={prov.get('source')!r}, "
+                        f"auth={prov.get('auth_type')!r}) — that card cannot "
+                        f"back the new framework."
+                    )
+                    payload["provider_id"] = ""
+                    payload["model"] = ""
+                    cleared = True
             await self.db.update(
                 "user_slots",
                 {"user_id": user_id, "slot_name": "agent"},
-                {"agent_framework": framework, "updated_at": now},
+                payload,
             )
         else:
             # Stub row: framework choice survives even if the agent
@@ -924,6 +994,7 @@ class UserProviderService:
                     "updated_at": now,
                 },
             )
+        return cleared
 
     async def validate_slots(self, user_id: str) -> list[str]:
         """Validate all slots are configured."""

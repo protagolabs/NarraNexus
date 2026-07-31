@@ -1518,6 +1518,7 @@
         "openButton": "Open batch manager…"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Only the frameworks your connected providers can actually run are listed.",
         "label": "Model Defaults",
         "hint": "The framework and model every agent inherits by default. Per-agent overrides live in the chat page.",
         "thinking": "Thinking",

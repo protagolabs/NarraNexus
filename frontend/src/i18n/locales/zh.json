@@ -1518,6 +1518,7 @@
         "openButton": "打开批量管理器…"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "这里只列出当前已连接的服务商能驱动的框架。",
         "label": "模型默认值",
         "hint": "所有 Agent 默认继承的框架和模型。每个 Agent 的单独配置可在对话页面中修改。",
         "thinking": "思考",
