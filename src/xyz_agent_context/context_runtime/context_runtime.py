@@ -1065,9 +1065,15 @@ class ContextRuntime:
         disallowed_tools: list[str] = []
         # Delivery declaration (NexusPower reply contract): each module
         # states which of its tools DELIVER content to a human. Collected
-        # in instance (priority) order — the first entry is the turn's
-        # default reply tool — and deduplicated.
-        expressive_tools: list[str] = []
+        # per module, then sorted by the TOTAL (priority, module_class)
+        # order — the same R4d order every module surface uses. NOT the
+        # active_instances order: that is created_at-driven (see
+        # get_public_instances), so a later-created channel instance
+        # would steal the first slot. The first entry becomes the turn's
+        # DEFAULT reply tool and is frozen into the framework's stable
+        # prompt prefix — it must be priority-driven (chat=1 outranks
+        # every channel) and deterministic across turns.
+        expressive_declarations: list[tuple[int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0
 
@@ -1102,11 +1108,11 @@ class ContextRuntime:
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
                 try:
-                    declare = getattr(inst.module, "get_expressive_tools", None)
-                    declared = await declare() if declare is not None else []
-                    for tool_name in declared:
-                        if tool_name not in expressive_tools:
-                            expressive_tools.append(tool_name)
+                    declared = await inst.module.get_expressive_tools()
+                    if declared:
+                        expressive_declarations.append(
+                            (inst.module.config.priority, inst.module_class, list(declared))
+                        )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_expressive_tools failed for "
@@ -1124,6 +1130,13 @@ class ContextRuntime:
         # deterministic; the cross-server merge order inside the CLI is the
         # one link we cannot control, see the claude adapter.)
         mcp_servers = dict(sorted(mcp_servers.items()))
+
+        expressive_declarations.sort(key=lambda kv: (kv[0], kv[1]))
+        expressive_tools: list[str] = []
+        for _, _, declared in expressive_declarations:
+            for tool_name in declared:
+                if tool_name not in expressive_tools:
+                    expressive_tools.append(tool_name)
 
         logger.debug(
             f"      build_input_for_framework() completed: {len(final_messages)} messages, "

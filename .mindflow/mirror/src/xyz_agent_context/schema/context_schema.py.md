@@ -7,8 +7,8 @@ stub: false
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 `ContextRuntimeOutput` 新增 `expressive_tools: List[str] = []`(投递声明载体,
-模块优先级序;由 [[context_runtime.py]] 填充,[[step_3_agent_loop.py]] 经
-TurnInput 透传)。纯载体,无逻辑。
+(priority, module_class) 全序,首位=默认回复工具;由 [[context_runtime.py]]
+填充,[[step_3_agent_loop.py]] 经 TurnInput 透传)。纯载体,无逻辑。
 
 ## 2026-07-24 — `ContextRuntimeOutput.disallowed_tools`（setup-residency B++）
 

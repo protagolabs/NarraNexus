@@ -283,6 +283,41 @@ async def test_dispatcher_preserves_registration_order_append_only(ctx, engine):
     assert [s.name for s in dispatcher.visible_tools()] == ["zebra", "alpha", "aardvark"]
 
 
+def test_builtin_toolset_order_is_deterministic(ctx):
+    """The C2 contract on a REAL channel: two separately built toolsets
+    with the same groups expose identical (registration-order) name
+    sequences — code order, not name order, not dict-iteration luck."""
+    groups = frozenset({"files", "shell", "context"})
+    a = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
+    b = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
+    assert a == b and len(a) > 0
+
+
+def test_mcp_channel_registers_batches_append_only():
+    """The C2 contract on the REAL MCP channel: batches register in
+    server-name order within a batch, and a later batch APPENDS after an
+    earlier one — never interleaves or resorts."""
+    from types import SimpleNamespace
+
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.mcp_channel import (
+        McpToolChannel,
+    )
+
+    def _tool(name):
+        return SimpleNamespace(
+            name=name, description="", inputSchema={"type": "object"}, annotations=None
+        )
+
+    channel = McpToolChannel({})
+    # Batch 1: two servers, registered in server-name order.
+    channel._register_tools("beta", [_tool("zz"), _tool("aa")])
+    # Batch 2 (a later expansion): appends after batch 1 even though its
+    # server name sorts first.
+    channel._register_tools("alpha", [_tool("mm")])
+    names = [s.name for s in channel.list_tools()]
+    assert names == ["mcp__beta__zz", "mcp__beta__aa", "mcp__alpha__mm"]
+
+
 def test_shell_confinement_blocks_the_documented_escapes(engine, ctx):
     """Regression for acceptance case `safety` (2026-07-29): the file
     tools denied /etc/passwd and the model simply ran `bash head -1
