@@ -1,7 +1,19 @@
 ---
 code_file: frontend/src/components/cost/CostPopover.tsx
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — cache buckets counted into every displayed total
+
+Every sum (grand total, in/out line, per-model rows + their sort key,
+daily rows) now includes `cache_read_tokens` + `cache_creation_tokens`.
+`input_tokens` from the API is only the full-rate bucket; on a cache-warm
+agent the cache buckets are >99% of the input side, so the popover showed
+"input 213" for a 1.2M-token week and ranked the helper above the main
+loop (output dominated the visible sum — live case agent_39b2b72b823b).
+A subline under in/out (`cost.popover.cache`, zh+en) shows read/write
+cache tokens when non-zero, so "input" being mostly cheap cache reads is
+visible rather than implied. Backend counterpart: [[agents/cost.py]].
 
 ## 2026-07-28 — main/helper role labels
 

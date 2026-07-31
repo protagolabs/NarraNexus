@@ -15,7 +15,7 @@ import { Button } from '@/components/ui';
 import { usePreloadStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { CostSummary } from '@/types/api';
+import type { CostModelBreakdown, CostSummary } from '@/types/api';
 
 type CostView = 'agent' | 'all';
 
@@ -39,9 +39,20 @@ function shortModelName(
 
 function SummaryContent({ summary }: { summary: CostSummary }) {
   const { t } = useTranslation();
-  const totalTokens = summary.total_input_tokens + summary.total_output_tokens;
+  // input_tokens is only the full-rate bucket; the model also read the two
+  // cache buckets (write 1.25x, read 0.1x). Display input as all three or a
+  // cache-warm agent shows "input 213" for a 1.2M-token week.
+  const totalInputSide =
+    summary.total_input_tokens +
+    summary.total_cache_read_tokens +
+    summary.total_cache_creation_tokens;
+  const totalTokens = totalInputSide + summary.total_output_tokens;
+  const hasCache =
+    summary.total_cache_read_tokens > 0 || summary.total_cache_creation_tokens > 0;
+  const modelTokens = (d: CostModelBreakdown) =>
+    d.input_tokens + d.cache_read_tokens + d.cache_creation_tokens + d.output_tokens;
   const models = Object.entries(summary.by_model).sort(
-    ([, a], [, b]) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens)
+    ([, a], [, b]) => modelTokens(b) - modelTokens(a)
   );
 
   return (
@@ -52,8 +63,16 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           {formatTokens(totalTokens)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-          {t('cost.popover.inOut', { in: formatTokens(summary.total_input_tokens), out: formatTokens(summary.total_output_tokens) })}
+          {t('cost.popover.inOut', { in: formatTokens(totalInputSide), out: formatTokens(summary.total_output_tokens) })}
         </div>
+        {hasCache && (
+          <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+            {t('cost.popover.cache', {
+              read: formatTokens(summary.total_cache_read_tokens),
+              write: formatTokens(summary.total_cache_creation_tokens),
+            })}
+          </div>
+        )}
       </div>
 
       {/* Per-model breakdown */}
@@ -76,7 +95,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
                   x{data.call_count}
                 </span>
                 <span className="font-medium text-[var(--text-primary)] min-w-[50px] text-right">
-                  {formatTokens(data.input_tokens + data.output_tokens)}
+                  {formatTokens(modelTokens(data))}
                 </span>
               </div>
             </div>
@@ -94,7 +113,12 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
             <div key={entry.date} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-tertiary)]">{entry.date.slice(5)}</span>
               <span className="font-medium text-[var(--text-primary)]">
-                {formatTokens(entry.input_tokens + entry.output_tokens)}
+                {formatTokens(
+                  entry.input_tokens +
+                    entry.cache_read_tokens +
+                    entry.cache_creation_tokens +
+                    entry.output_tokens
+                )}
               </span>
             </div>
           ))}
