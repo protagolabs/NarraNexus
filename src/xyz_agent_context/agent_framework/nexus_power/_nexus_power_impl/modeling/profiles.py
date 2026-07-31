@@ -106,9 +106,7 @@ def output_budget(profile: ProviderProfile, input_tokens_estimate: int) -> int:
     """
     if input_tokens_estimate <= 0:
         return profile.max_output_tokens
-    headroom = (
-        profile.vendor_context_window - input_tokens_estimate - _HEADROOM_MARGIN_TOKENS
-    )
+    headroom = profile.output_wall - input_tokens_estimate - _HEADROOM_MARGIN_TOKENS
     return max(_MIN_OUTPUT_TOKENS, min(profile.max_output_tokens, headroom))
 
 

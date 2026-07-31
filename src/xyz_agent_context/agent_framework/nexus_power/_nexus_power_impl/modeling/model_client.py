@@ -323,6 +323,13 @@ def _is_cut_short(raw: str, exc: json.JSONDecodeError) -> bool:
 
     Genuine damage stays outside all four: ``trX`` is not a prefix of
     any literal, and ``\\uZZZZ`` carries a full-length remainder.
+
+    Not a classifier with a proof — the last rule cannot separate a
+    ``\\uXXXX`` cut in half from a bad escape that happens to sit in the
+    final characters, and nothing in the bytes can. It resolves toward
+    "truncated" because "send it smaller" misleads a model less than
+    "fix your escaping" does. Treat these four as measured cases, not as
+    a closed set to build further rules on.
     """
     if exc.msg.startswith("Unterminated string") or exc.pos >= len(raw):
         return True

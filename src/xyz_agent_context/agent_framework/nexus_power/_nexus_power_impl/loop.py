@@ -442,8 +442,12 @@ def call_denied_by_hook(call: ToolCall, notes: tuple[str, ...]):
 # corroborating signal only — see ``unparsed_call_result``.
 _TRUNCATING_STOP_REASONS = frozenset({"length", "max_tokens"})
 
+
+
 def _ends_with_assistant(messages: list[ProviderMessage]) -> bool:
     return bool(messages) and messages[-1].get("role") == "assistant"
+
+
 
 
 def unparsed_call_result(

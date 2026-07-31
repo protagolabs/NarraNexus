@@ -6,6 +6,8 @@
 translation (fake litellm stream), usage normalization, compaction.
 """
 
+import json
+
 import pytest
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
@@ -17,6 +19,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
+    estimate_message_tokens,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
     LiteLLMModelClient,
@@ -107,6 +110,54 @@ def test_output_budget_leaves_room_for_the_input():
 def test_output_budget_never_returns_a_useless_or_negative_ceiling():
     haiku = resolve_profile("claude-haiku-4-5", "anthropic")
     assert output_budget(haiku, 10_000_000) > 0
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-ai/DeepSeek-V4-Pro", "Qwen/Qwen2.5-7B-Instruct", "unmeasured-model"],
+)
+def test_the_clamp_never_undercuts_the_window_we_manage(model):
+    """A model with no measured wall must not be clamped below its own
+    ceiling anywhere inside the window this module manages.
+
+    The wall and the managed budget are separate numbers precisely so
+    the clamp can use the real one — but an unmeasured wall must fall
+    back to the managed budget, not to a dataclass literal. Left
+    diverging, the free tier's own default agent model was clamped from
+    8_192 down to 1_024 at 130K input, which is the very truncation this
+    change exists to remove."""
+    profile = resolve_profile(model, "anthropic")
+    for estimate in (0, 100_000, 130_000, profile.context_window - 20_000):
+        assert output_budget(profile, estimate) == profile.max_output_tokens
+
+
+def test_measured_models_still_clamp_against_their_real_wall():
+    """The fallback must not blunt the clamp where a wall IS known."""
+    haiku = resolve_profile("claude-haiku-4-5", "anthropic")
+    assert output_budget(haiku, 180_000) < haiku.max_output_tokens
+
+
+def test_input_estimate_counts_tool_call_arguments():
+    """A tool-only assistant step carries its payload in ``tool_calls``
+    and sets ``content`` to None (turn_ledger._fold_step_message). Sizing
+    off ``content`` alone estimated a 16KB write_file at ONE token —
+    and this estimate is the clamp's only signal on a turn's first step,
+    where the ledger has no measurement yet."""
+    big = "X" * 16_000
+    messages = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "c1", "type": "function",
+            "function": {"name": "write_file",
+                         "arguments": json.dumps({"path": "g.html", "content": big})},
+        }],
+    }]
+    estimate = estimate_message_tokens(messages)
+    assert estimate > 3_000  # same order as the arguments it carries
+    # Over-counting is the safe direction for a clamp; under-counting is
+    # what lets a request sail past the wall.
+    assert estimate >= len(big) // 4
 
 
 def test_cache_plan_breakpoints_only_for_breakpoint_dialects():

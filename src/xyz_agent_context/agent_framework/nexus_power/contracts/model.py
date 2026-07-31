@@ -42,8 +42,24 @@ class ProviderProfile:
     # budget we choose to manage against (and compact against), this one
     # is the wall the request 400s at. Keeping them apart lets the
     # output clamp use the real wall without moving compaction's
-    # trigger. Defaults to the managed budget for unmeasured providers.
-    vendor_context_window: int = 128_000
+    # trigger.
+    #
+    # ``None`` means unmeasured — read it through ``output_wall``, never
+    # directly. A literal default here silently diverged from
+    # ``context_window`` the moment a row set only the latter, and the
+    # clamp then sized against a wall SHORTER than the window we manage,
+    # cutting the free tier's default model from 8_192 to 1_024.
+    vendor_context_window: int | None = None
+
+    @property
+    def output_wall(self) -> int:
+        """The limit the output clamp sizes against.
+
+        Unmeasured providers fall back to the managed budget, so "no
+        measurement" can never mean "a wall we invented" — the two are
+        equal by construction rather than by a matching literal.
+        """
+        return self.vendor_context_window or self.context_window
 
 
 @dataclass(frozen=True)

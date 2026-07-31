@@ -30,6 +30,10 @@ dev 网关实测:opus-4-8 吃下 `input_tokens=144065` + `max_tokens=128000` 仍
 这条钳制**永不触发**。真正需要它的是 Haiku:真实窗口就是 200K,而我们的压缩要到
 150K 才触发,中间留了一段「未压缩但已超限」的带。
 
+钳制读 `profile.output_wall`(未实测则回落到 context_window),**不读
+`vendor_context_window` 原始值**——见 contracts/model mirror,那里记着字面量默认值造成
+分叉、把免费档默认模型自己压到 1_024 的那次。
+
 因此 ProviderProfile 分了两个窗口字段,不是冗余:`context_window` 是我们**选择**管理
 和压缩的预算,`vendor_context_window` 是请求会 400 的**硬墙**。分开才能让钳制用真实
 墙、同时不动压缩阈值(把 Opus 的 context_window 直接改成 1M 会让压缩推迟到 750K,
