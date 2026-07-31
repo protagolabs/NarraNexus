@@ -16,8 +16,26 @@ stub: false
 于是 Qwen2.5-7B(32K 窗口)会被要求吐 128K,每个请求必炸。8_192 时代这个错误无害,
 抬高上限把它引爆——**这是抬上限时最容易漏的一步**。
 
-现在上限走 `_MODEL_LIMITS`,只按 model id 子串命中;表里没有的模型一律留在保守默认
-8_192。宁可截断(有明确自救路径)也不要整条请求被拒。
+现在上限**不由本表提供**,而是 `resolve_profile` 叠加
+`providers/model_catalog`——平台唯一的按 model id 索引的事实源,
+`adapters/openai_agents` 和 `llm/anthropic_helper` 早就在读它。本地再建一张表就是
+同一个问题的第二个答案,而且第一版当场就和 catalog 打架(我写 128_000,catalog 是
+115_200)。catalog 的约定是「90% of model limit」,留了固定安全边距;查不到的模型回落
+本表的保守默认 8_192。宁可截断(有明确自救路径)也不要整条请求被拒。
+
+副作用是**任何走我们自己 client 的框架都受益**(Owner 2026-07-31 提出的方向):加一个
+模型 = 改 catalog 一行,而不是每个调用方各改一行。前缀归一化(`anthropic/xxx` 查不到就
+去掉前缀再查)**下沉在 catalog 的 `get_model_meta` 里**,不在本文件——写在调用方等于每个
+消费方各抄一份,正是本改造要消灭的模式;而且一次解析出整个 meta 再读两个字段,避免两次
+独立查找各自回退、把 A 行的 ceiling 和 B 行的 window 配成一对。
+
+**关键纪律:抬高上限必须同时有实测的 window,压低则不需要。** 删掉 `_MODEL_LIMITS` 时
+差点连它的安全属性一起删掉了——「表里没有的模型留在保守默认」。catalog 里有一批行只填了
+`max_output_tokens` 没填 `context_window`(GLM-5.1、minimax-m2.7、Kimi、gemini),无差别
+overlay 会把它们从 8_192 抬到 58_981~117_964,而 wall 回落到 **anthropic 协议行**的
+200_000——那是协议的数字不是这些模型的窗口。这和「编一堵矮墙」是同一个错误,只是方向相反,
+而 GLM-5.1 / minimax 就在 NetMind 默认下拉里。压低无条件生效(DeepSeek-V3 真实 7_200
+低于默认 8_192,小上限撞不破任何墙)。
 
 ## 2026-07-31 — output_budget:给输入留出位置
 

@@ -11,8 +11,19 @@ model's fitness (iron rule #15): unknown providers resolve to a
 conservative default so every user model runs — it merely forgoes the
 optimizations until its row is measured in.
 
-``max_output_tokens`` is the VENDOR maximum, never a house budget. A
-ceiling set below what the model allows does not save anything: it
+Per-model limits are NOT this table's to invent: ``resolve_profile``
+overlays ``providers/model_catalog``, the platform-wide source that
+``adapters/openai_agents`` and ``llm/anthropic_helper`` already read. So
+every framework that goes through our own client gets the same numbers,
+and adding a model is one catalog row rather than one row per caller.
+
+The rows here carry DIALECT only, keyed by protocol. That distinction
+is load-bearing: ``provider`` is the resolved protocol, and one protocol
+serves many vendors — NetMind's free-tier card speaks anthropic while
+serving Qwen, DeepSeek and MiMo. Keying a ceiling off it would hand a 7B
+model a 128K output request.
+
+A ceiling set below what the model allows does not save anything: it
 severs tool arguments mid-JSON, and the model cannot see the cut or
 recover from it (2026-07-30 incident — a single write_file retried into
 a loop against an 8_192 ceiling). Cost and depth are the caller's dials
@@ -24,6 +35,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import ProviderProfile
+from xyz_agent_context.agent_framework.providers.model_catalog import get_model_meta
 
 _DEFAULT = ProviderProfile(name="default")
 
@@ -57,21 +69,6 @@ _PROFILES: tuple[ProviderProfile, ...] = (
     ),
 )
 
-
-# (model marker, output ceiling, vendor context window). Keyed off the
-# MODEL, never the provider: ``provider`` here is the resolved PROTOCOL
-# ("anthropic" / "openai" — see nexus_agent), and one protocol serves
-# many vendors. NetMind's free-tier card speaks the anthropic protocol
-# while serving Qwen, DeepSeek and MiMo, so a protocol-keyed ceiling
-# would hand a 7B model a 128K output request and 400 every call.
-# A model absent from this table keeps the conservative default: a
-# too-small ceiling truncates arguments, but a too-large one fails the
-# request outright, and we only know the numbers we have measured.
-_MODEL_LIMITS: tuple[tuple[str, int, int], ...] = (
-    ("claude-haiku", 64_000, 200_000),
-    ("claude-opus", 128_000, 1_000_000),
-    ("claude-sonnet", 128_000, 1_000_000),
-)
 
 # Room left for the request framing the estimate cannot see (tool
 # schemas, system preamble, the provider's own bookkeeping).
@@ -136,10 +133,38 @@ def _dialect_profile(model: str, provider: str | None) -> ProviderProfile:
 
 
 def _with_model_limits(profile: ProviderProfile, model: str) -> ProviderProfile:
-    lowered = (model or "").lower()
-    for marker, ceiling, window in _MODEL_LIMITS:
-        if marker in lowered:
-            return replace(
-                profile, max_output_tokens=ceiling, vendor_context_window=window
-            )
-    return profile
+    """Overlay the platform's model catalog onto the dialect row.
+
+    The catalog is the single source of truth for per-model limits and is
+    already what ``adapters/openai_agents`` and ``llm/anthropic_helper``
+    read — a second table here would be a second answer to the same
+    question, and the two promptly disagreed (128_000 against the
+    catalog's 115_200) the first time this was written locally.
+
+    RAISING the ceiling additionally requires a measured window, because
+    the two only mean anything together. The clamp sizes output against
+    ``output_wall``, and an unmeasured window falls back to the dialect
+    row's ``context_window`` — a number that describes the PROTOCOL, not
+    this model. Pairing a model-measured ceiling with a protocol-guessed
+    wall is the same defect as inventing a short wall, pointed the other
+    way: GLM-5.1 would have jumped 8_192 → 117_964 under a borrowed
+    200_000 wall, and it sits in the default NetMind dropdown.
+
+    LOWERING never needs a window — a smaller ceiling cannot overrun a
+    wall — so a catalog entry below the default applies unconditionally
+    (DeepSeek-V3's real 7_200 is under the 8_192 default and should
+    win). Unknown model → the dialect row's conservative defaults.
+    """
+    meta = get_model_meta(model)
+    if meta is None:
+        return profile
+    ceiling = profile.max_output_tokens
+    if meta.max_output_tokens is not None:
+        raising = meta.max_output_tokens > ceiling
+        if not raising or meta.context_window is not None:
+            ceiling = meta.max_output_tokens
+    return replace(
+        profile,
+        max_output_tokens=ceiling,
+        vendor_context_window=meta.context_window or profile.vendor_context_window,
+    )
