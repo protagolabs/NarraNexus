@@ -1,8 +1,19 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 无条件 reconcile → 心跳判活清扫（启动 + 周期）
+
+原「backend 启动把所有 state='running' 行翻 failed」在 trigger run 也被
+记录后是误杀器（trigger run 活在别的容器，backend 重启不代表它死了）。
+换成 [[run_recorder]] 的 `sweep_stale_runs`：只翻心跳停跳 ≥3 拍的行，
+启动跑一次 + 每 60s（HEARTBEAT_INTERVAL_S*2）周期跑 —— 任何进程里
+孤儿化的 run 都会在 ~90s+一个周期内落账，不再依赖「恰好 backend 重启」
+这个偶然时机。周期 task 带 done-callback（lesson #2），shutdown 时
+cancel（stale_run_sweep_task）。代价：backend 自己带走的 run 最多晚
+~90s 才翻 failed —— 读侧 run_is_live 已经把它当死的，UI 无感。
 
 ## 2026-07-28 — manyfold sync router + config-change webhook middleware
 

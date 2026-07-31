@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} wartend",
         "finishedAgo": "vor {{duration}} fertig",
         "startedAt": "gestartet um {{time}}",
-        "stepOngoing": "{{duration}}, läuft",
         "stepsDropped": "{{n}} frühere Schritte nicht angezeigt",
         "noSteps": "Noch keine Schritte aufgezeichnet."
       },
@@ -139,7 +138,9 @@
         "lastRun": "lief {{duration}} · vor {{ago}}",
         "lastRunAgoOnly": "vor {{ago}} beendet",
         "neverRan": "noch nie gelaufen",
-        "loading": "Prozess wird geladen…"
+        "loading": "Prozess wird geladen…",
+        "workingCount": "{{count}} aktiv",
+        "process": "Prozess"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird"

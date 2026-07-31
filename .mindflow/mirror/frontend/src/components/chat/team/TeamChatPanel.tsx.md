@@ -4,6 +4,12 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 — roster v2 接线：accent 下传 + drawer 不再定宽
+
+TeamRosterPanel 拿到 `accent`（团队色）画选中态；移动端 drawer 的
+className 去掉 w-64 —— 宽度归 roster 自己（256↔430px 呼吸），定宽会
+把展开变宽顶掉（cn 是 tailwind-merge，后写的宽度赢）。
+
 ## 2026-07-31 — 每条 agent 回复挂自己的 reasoning 展开条
 
 气泡内 `BusAttachmentList` 之后渲染 [[TeamMessageProcess]]（仅

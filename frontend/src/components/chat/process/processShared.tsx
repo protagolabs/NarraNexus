@@ -61,6 +61,62 @@ export function deriveActivity(
   return { text: t('chat.execution.startingUp', 'Starting up…') };
 }
 
+/** The panel's "alive" indicator: a ping halo while live, a still dot
+ *  otherwise. Color is the caller's tone (success green for a healthy
+ *  run, warning amber for a stalled one, muted for idle). */
+export function LiveDot({ color, live }: { color: string; live: boolean }) {
+  return (
+    <span className="relative flex h-2 w-2 shrink-0">
+      {live && (
+        <span
+          className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+          style={{ background: color }}
+        />
+      )}
+      <span
+        className="relative inline-flex h-2 w-2 rounded-full"
+        style={{ background: color }}
+      />
+    </span>
+  );
+}
+
+/** One pipeline phase line: ✓ once settled, a spinner while running.
+ *  Shared by ProcessPanel and the team member panel so "loading
+ *  context…" reads identically everywhere. */
+export function PhaseRow({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      {done ? (
+        <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-success)' }}>
+          ✓
+        </span>
+      ) : (
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin" style={{ color: 'var(--color-silicon)' }} />
+      )}
+      <span style={{ color: done ? 'var(--nm-ink50)' : 'var(--color-silicon)' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/** The terminal's "still running" heartbeat: a prompt glyph and a
+ *  pulsing block cursor pinned under the last row. */
+export function LiveCursorRow() {
+  return (
+    <div aria-hidden="true" className="flex gap-2 py-0.5">
+      <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>
+      <span
+        className="inline-block w-2 animate-pulse select-none"
+        style={{ color: 'var(--nm-ink70)' }}
+      >
+        ▌
+      </span>
+    </div>
+  );
+}
+
 /** Terminal-style rows for one turn's process events (thinking / tool
  *  call / tool output). Shared by the single-agent ProcessPanel and the
  *  team roster's member detail. Pure render — no scrolling, no state. */

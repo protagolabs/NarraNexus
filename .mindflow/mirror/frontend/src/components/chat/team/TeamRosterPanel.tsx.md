@@ -4,6 +4,24 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 — v2 质感重做（Owner 反馈「廉价、没有质感」）
+
+- **列会呼吸**：常态 w-64，成员展开时 `transition-[width]` 到
+  `min(430px,92vw)`（terminal 要排面），transcript（flex-1 min-w-0）
+  自动让位；motion-reduce 免动画。
+- **行有身份**：RingAvatar + AvatarWithStatus 角标（running=绿 /
+  queued=amber / stalled=error / idle=灰）、可读的状态词（StatusLine，
+  running 时 `$ tool`）替换 1.5px 色点、lead 徽从 2px 隐形点改为
+  avatar 左上 accent 圆徽、chevron affordance（hover 显现/展开旋转）、
+  选中态 = accent 内嵌竖线 + silicon wash（与 transcript 打字气泡
+  高亮同一语言，accent 由 TeamChatPanel 传团队色）。
+- **头条带活信息**：working 数 + LiveDot 呼吸灯。
+- **详情换心脏**：MemberDetail/PhaseTimeline/CurrentAction 移除，
+  换 [[TeamMemberPanel]]（迷你 ProcessPanel：live 走
+  useRunObservation 真流，idle 保留 TurnTimeline）。
+- 沿袭不变：members 驱动行、activity 只装饰；expandedId 受控单选；
+  stalled 行 amber wash；RowMetric 语义。
+
 ## 2026-07-31 — detail renders TurnTimeline; fetch hook extracted; ago-only metric
 
 Three changes from the 2026-07-31 user feedback round:

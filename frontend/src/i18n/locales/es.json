@@ -117,7 +117,6 @@
         "waitingFor": "esperando {{duration}}",
         "finishedAgo": "terminado hace {{duration}}",
         "startedAt": "iniciado a las {{time}}",
-        "stepOngoing": "{{duration}}, en curso",
         "stepsDropped": "{{n}} pasos anteriores no mostrados",
         "noSteps": "Aún no hay pasos registrados."
       },
@@ -139,7 +138,9 @@
         "lastRun": "duró {{duration}} · hace {{ago}}",
         "lastRunAgoOnly": "terminó hace {{ago}}",
         "neverRan": "aún sin ejecuciones",
-        "loading": "Cargando proceso…"
+        "loading": "Cargando proceso…",
+        "workingCount": "{{count}} trabajando",
+        "process": "proceso"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
       "leadTitle": "{{name}} · responde cuando no se menciona a nadie"

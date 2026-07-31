@@ -119,7 +119,6 @@
         "waitingFor": "ждёт {{duration}}",
         "finishedAgo": "завершено {{duration}} назад",
         "startedAt": "начато в {{time}}",
-        "stepOngoing": "{{duration}}, выполняется",
         "stepsDropped": "предыдущие шаги не показаны: {{n}}",
         "noSteps": "Шаги пока не записаны."
       },
@@ -141,7 +140,9 @@
         "lastRun": "выполнялся {{duration}} · {{ago}} назад",
         "lastRunAgoOnly": "завершено {{ago}} назад",
         "neverRan": "ещё не запускался",
-        "loading": "Загрузка процесса…"
+        "loading": "Загрузка процесса…",
+        "workingCount": "{{count}} в работе",
+        "process": "процесс"
       },
       "emptyHintWithLead": "Отправьте сообщение, чтобы начать — им займётся {{name}}, либо обратитесь к кому-то другому через @.",
       "leadTitle": "{{name}} · отвечает, когда никто не упомянут"

@@ -32,8 +32,7 @@ from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.agent_runtime.run_collector import RunError, collect_run
+from xyz_agent_context.agent_runtime.run_collector import RunError
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_INBOX_WRITE_FAILED,
@@ -1877,7 +1876,6 @@ class LarkTrigger(ChannelTriggerBase):
         # ProviderResolver can't map to an API key.
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        runtime = AgentRuntime()
         # Clean retrieval anchor for narrative routing. Graceful: the anchor is
         # a retrieval optimization, so its failure must never break the agent run
         # (narrative falls back to input_content). See 2026-06-01 design.
@@ -1905,8 +1903,11 @@ class LarkTrigger(ChannelTriggerBase):
             trigger_extra_data["attachments"] = [
                 a.model_dump(mode="json") for a in attachments
             ]
-        result = await collect_run(
-            runtime,
+        # Through the client seam like every other trigger — admission
+        # gating + run recording (observability) come with it.
+        from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
+
+        result = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,

@@ -39,6 +39,9 @@ import type { Step, TurnEvent } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   PHASE_LABEL_KEYS,
+  LiveCursorRow,
+  LiveDot,
+  PhaseRow,
   formatElapsed,
   deriveActivity,
   ProcessEventRows,
@@ -150,16 +153,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
         onClick={() => setCollapsed((c) => !c)}
         className="flex w-full items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--nm-paper-warm)] px-3 py-1.5 text-left"
       >
-        <span className="relative flex h-2 w-2 shrink-0">
-          <span
-            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
-            style={{ background: 'var(--color-success)' }}
-          />
-          <span
-            className="relative inline-flex h-2 w-2 rounded-full"
-            style={{ background: 'var(--color-success)' }}
-          />
-        </span>
+        <LiveDot color="var(--color-success)" live />
         {collapsed ? (
           <span
             data-testid="process-activity"
@@ -243,20 +237,12 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
                 used to float in the message area live here now. */}
             {phases.map((phase) => {
               const key = PHASE_LABEL_KEYS[phase.step];
-              const done = phaseDone(phase);
               return (
-                <div key={phase.step} className="flex items-center gap-2 py-0.5">
-                  {done ? (
-                    <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-success)' }}>
-                      ✓
-                    </span>
-                  ) : (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" style={{ color: 'var(--color-silicon)' }} />
-                  )}
-                  <span style={{ color: done ? 'var(--nm-ink50)' : 'var(--color-silicon)' }}>
-                    {key ? t(key) : phase.title}
-                  </span>
-                </div>
+                <PhaseRow
+                  key={phase.step}
+                  done={phaseDone(phase)}
+                  label={key ? t(key) : phase.title}
+                />
               );
             })}
 
@@ -271,15 +257,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
 
             <ProcessEventRows process={process} />
             {/* Live cursor — the terminal's "still running" heartbeat. */}
-            <div aria-hidden="true" className="flex gap-2 py-0.5">
-              <span className="select-none" style={{ color: 'var(--color-silicon)' }}>❯</span>
-              <span
-                className="inline-block w-2 animate-pulse select-none"
-                style={{ color: 'var(--nm-ink70)' }}
-              >
-                ▌
-              </span>
-            </div>
+            <LiveCursorRow />
           </div>
 
           {plan && (

@@ -12,3 +12,4 @@
 export { TeamChatPanel } from './TeamChatPanel';
 export { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 export { TeamRosterPanel } from './TeamRosterPanel';
+export { TeamMemberPanel } from './TeamMemberPanel';

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/ProcessPanel.tsx
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 阶段行 / 呼吸灯 / 活光标改用 processShared 共享件
+
+行为零变化：同款 markup 移入 processShared（LiveDot / PhaseRow /
+LiveCursorRow），本文件改为消费 —— team 成员终端卡与单聊自此共享
+同一实现。
 
 ## 2026-07-30 (r4) — 渲染件抽到 process/processShared.tsx
 

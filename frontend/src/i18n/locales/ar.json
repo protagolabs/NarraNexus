@@ -121,7 +121,6 @@
         "waitingFor": "بالانتظار منذ {{duration}}",
         "finishedAgo": "انتهى قبل {{duration}}",
         "startedAt": "بدأ في {{time}}",
-        "stepOngoing": "{{duration}}، جارٍ",
         "stepsDropped": "{{n}} خطوات سابقة غير معروضة",
         "noSteps": "لم تُسجَّل أي خطوات بعد."
       },
@@ -143,7 +142,9 @@
         "lastRun": "استغرق {{duration}} · قبل {{ago}}",
         "lastRunAgoOnly": "انتهى قبل {{ago}}",
         "neverRan": "لم يُشغَّل بعد",
-        "loading": "جارٍ تحميل العملية…"
+        "loading": "جارٍ تحميل العملية…",
+        "workingCount": "{{count}} قيد العمل",
+        "process": "العملية"
       },
       "emptyHintWithLead": "أرسل رسالة للبدء — يتولّاها {{name}}، أو استخدم @ لمخاطبة شخص آخر مباشرة.",
       "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد"

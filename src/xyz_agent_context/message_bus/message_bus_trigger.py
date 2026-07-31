@@ -550,12 +550,12 @@ class MessageBusTrigger:
                 return False
 
     async def _get_agent_owner(self, agent_id: str) -> str:
-        """Look up the owner user_id for an agent. Returns "" if unknown."""
+        """Look up the owner user_id for an agent. Returns "" if unknown.
+        Delegates to the shared AgentRepository.resolve_owner seam."""
         try:
+            from xyz_agent_context.repository.agent_repository import AgentRepository
             from xyz_agent_context.utils.db.db_factory import get_db_client
-            db = await get_db_client()
-            row = await db.get_one("agents", {"agent_id": agent_id})
-            return (row or {}).get("created_by", "") or ""
+            return await AgentRepository(await get_db_client()).resolve_owner(agent_id)
         except Exception as e:
             logger.warning(f"_get_agent_owner({agent_id}) failed: {e}")
             return ""
