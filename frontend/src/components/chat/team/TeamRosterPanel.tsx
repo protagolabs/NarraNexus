@@ -12,7 +12,7 @@
  * always, including members the activity poll never mentioned (absent
  * from `activity` = idle with no trace).
  *
- * v2 (2026-07-31, owner feedback: "质感"):
+ * v2 (2026-07-31, owner feedback: the column must not read cheap):
  * - The column BREATHES: 256px at rest, and when a member's detail is
  *   open it animates to 430px so the terminal card gets real width —
  *   the transcript pane (flex-1 min-w-0) yields automatically.

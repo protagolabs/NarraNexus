@@ -101,6 +101,24 @@ describe('applyObservationFrame', () => {
     expect(plans[0].type === 'plan' && plans[0].steps).toHaveLength(2);
   });
 
+  it('a reconnect replay does not stack the trace twice', () => {
+    // The observe endpoint replays from seq 0 on every attach; the
+    // run_reconnect frame that leads each replay must reset the
+    // snapshot, otherwise a mid-run socket drop + backoff reopen
+    // doubles every block.
+    const replay: Array<Record<string, unknown>> = [
+      { type: 'run_reconnect', run_id: 'evt_1', state: 'running', started_at: '2026-07-31T10:00:00Z' },
+      { type: 'replay', kind: 'thinking_segment', seq: 1, payload: 'pondering' },
+      {
+        type: 'replay', kind: 'tool_output', seq: 2,
+        payload: JSON.stringify({ output: 'file.txt', step: '3.4.1' }),
+      },
+    ];
+    const snap = feed([...replay, ...replay]); // drop + reopen → full replay again
+    expect(snap.events.map((e) => e.type)).toEqual(['thinking', 'tool_output']);
+    expect(snap.events[0].type === 'thinking' && snap.events[0].content).toBe('pondering');
+  });
+
   it('run_ended is terminal and carries the state + error', () => {
     const snap = feed([
       { type: 'run_reconnect', run_id: 'evt_1', state: 'running' },

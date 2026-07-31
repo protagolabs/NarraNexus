@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-07-31
 ---
 
+## 2026-07-31 (二次) — run_stream 补 finally 兜底网（review Minor #3）
+
+宿主 task 在生成器挂起点被 cancel 抛 CancelledError（BaseException，
+不进 except Exception）——原来这条路径靠周期清扫兜（~90s+60s）。补与
+run_and_collect 对称的 finally `_spawn_finalize(failed)`；用
+`finalize_deferred` 旗标防它与 GeneratorExit 分支的 deferred finalize
+双重竞速（spawn 是 task，finally 执行瞬间 recorder.state 还没翻终态，
+仅看 state 会双开两个不同终态的 finalize）。
+
 ## 2026-07-31 — 咽喉点挂载 RunRecorder：所有 trigger run 可观察
 
 `run_and_collect` / `run_stream` 都在此挂 [[run_recorder]]：装饰器

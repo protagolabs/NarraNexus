@@ -150,7 +150,6 @@
         "waitingFor": "已等待 {{duration}}",
         "finishedAgo": "{{duration}} 前完成",
         "startedAt": "开始于 {{time}}",
-        "stepOngoing": "{{duration}}，进行中",
         "stepsDropped": "更早的 {{n}} 个步骤未显示",
         "noSteps": "暂无步骤记录。"
       },

@@ -4,6 +4,15 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (二次) — review 扫尾：归属收紧 + 状态检查降频
+
+- 归属校验补「cloud 模式下 events.user_id 为空即拒」：event_stream
+  现在装着全量 thinking/tool trace，无主行 fail-open 等于对全体已认证
+  用户可见（旧形状本 PR 放大了影响面，review Minor #7）。
+- tail-follow 的 events 终态/心跳检查降频到每 3 拍一次
+  （_TAIL_FOLLOW_STATE_CHECK_TICKS）——它只负责结束 follow，迟几秒
+  不可见，稳态查询量减半。
+
 ## 2026-07-31 — 跨进程 run 的观察：replay-only 分支升级为 DB tail-follow
 
 `_handle_reconnect` 遇到「running 但本进程无 BackgroundRun」（= run 活
@@ -140,8 +149,9 @@ Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
 - `run_reconnect` —— reconnect 模式入口
 - `replay` —— history 回放
 - `run_ended` —— terminal state + final_output
-- `reconnect_warning` —— run 在其他 backend 实例上活着，本连接拿不到 live stream
 - 之前已有：`stopping`, `cancelled`, `error`, `heartbeat`, `complete`, ...
+- （`reconnect_warning` 已删除，2026-07-31：跨进程分支改 tail-follow，
+  不再有「拿不到 live stream」的道歉帧）
 
 ## 2026-05-13 — Stop 三段 ACK 协议（Phase A C3）
 

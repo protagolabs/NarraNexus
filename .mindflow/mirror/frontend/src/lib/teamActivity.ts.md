@@ -4,6 +4,15 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 — buildTimeline / TimelineEntry 删除（PR #219 review 扫尾）
+
+roster v2 用 TeamMemberPanel（观察通道真流）取代 PhaseTimeline 后，
+`buildTimeline` 的生产消费者归零，连同 `TimelineEntry` 与 10 份 locale
+的 `chat.team.activity.stepOngoing` 一起删除（铁律 #8：不留「只有
+自己的测试证明自己活着」的导出）。`toMs` 保留（lastRunSummary /
+elapsedSince 内用）。若 dashboard 未来需要 poll 步骤时间线，从 git
+历史找回比留死代码干净。
+
 ## 2026-07-31 — lastRunSummary：start 未知 → durationMs null，不再编造 "0s"
 
 `durationMs` 类型变为 `number | null`：payload 缺 `started_at`（老数据）时返回

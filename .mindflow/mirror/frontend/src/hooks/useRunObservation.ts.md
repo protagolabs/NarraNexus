@@ -4,6 +4,14 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (二次) — run_reconnect = 回放重启（review Important #1）
+
+观察端点每次 attach 都从 seq 0 全量回放，而重连梯子不换 effect key ——
+reducer 若在旧快照上叠新回放，整条 trace 翻倍（tool_output 无条件
+push 必重复）。修法取协议语义：`run_reconnect`（回放必然首帧）分支从
+INITIAL 起算，「收到 run_reconnect = 一段完整回放开始」自带幂等，未来
+任何新的重放入口免疫。测试锁定（reconnect replay does not stack）。
+
 # useRunObservation.ts — 任意 run 的前端观察通道
 
 ## 为什么存在

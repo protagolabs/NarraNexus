@@ -159,9 +159,16 @@ async def _handle_reconnect(
 
     # Visibility check — user must own this run (cloud mode). Local mode
     # may have requesting_user_id missing; we still enforce match when
-    # the row has a user_id.
+    # the row has a user_id. A row with NO recorded owner is invisible
+    # in cloud mode, not public: event_stream carries the full
+    # thinking/tool trace for every run now, so failing open on missing
+    # ownership would hand it to any authenticated user who guesses a
+    # run id.
     row_user_id = events_row.get("user_id")
-    if requesting_user_id and row_user_id and requesting_user_id != row_user_id:
+    owner_mismatch = bool(
+        requesting_user_id and row_user_id and requesting_user_id != row_user_id
+    )
+    if owner_mismatch or (_is_cloud_mode() and not row_user_id):
         with suppress(Exception):
             await websocket.send_json({
                 "type": "error",
@@ -323,6 +330,12 @@ async def _handle_reconnect(
 # frame contract stays the same.
 _TAIL_FOLLOW_POLL_S = 1.0
 
+# The events-row terminal/heartbeat check runs every Nth poll tick: it
+# exists only to END the follow, so a few seconds of lag is invisible,
+# and skipping it on the other ticks halves this path's steady-state
+# query load.
+_TAIL_FOLLOW_STATE_CHECK_TICKS = 3
+
 
 async def _follow_run_from_db(
     websocket: WebSocket,
@@ -349,6 +362,7 @@ async def _follow_run_from_db(
     # (with a websocket.disconnect message) the moment the peer goes
     # away, letting the poll loop double as the disconnect wait.
     disconnect_task = asyncio.create_task(websocket.receive())
+    tick = 0
     try:
         while True:
             done, _ = await asyncio.wait(
@@ -391,6 +405,10 @@ async def _follow_run_from_db(
                     f"mid-send; run continues."
                 )
                 return
+
+            tick += 1
+            if tick % _TAIL_FOLLOW_STATE_CHECK_TICKS:
+                continue
 
             try:
                 events_row = await db.get_one("events", {"event_id": run_id})

@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} wartend",
         "finishedAgo": "vor {{duration}} fertig",
         "startedAt": "gestartet um {{time}}",
-        "stepOngoing": "{{duration}}, läuft",
         "stepsDropped": "{{n}} frühere Schritte nicht angezeigt",
         "noSteps": "Noch keine Schritte aufgezeichnet."
       },

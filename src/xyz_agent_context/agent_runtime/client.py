@@ -254,6 +254,7 @@ class InProcessAgentRuntimeClient:
             STATE_CANCELLED,
             STATE_COMPLETED,
             STATE_FAILED,
+            TERMINAL_STATES,
             normalise_event,
         )
 
@@ -264,6 +265,11 @@ class InProcessAgentRuntimeClient:
             extra_kwargs["working_source"] = working_source
 
         recorder = await _new_recorder()
+        # Set when a terminal handler already scheduled a DEFERRED finalize
+        # (a task, not awaited) — the recorder's state is still non-terminal
+        # at that instant, so the finally-net below must not double-spawn a
+        # second, competing terminal state.
+        finalize_deferred = False
         try:
             # Admission gate held for the lifetime of the stream (rule #14:
             # delays start; the slot frees when the stream is exhausted).
@@ -299,6 +305,7 @@ class InProcessAgentRuntimeClient:
                     recorder, STATE_CANCELLED,
                     cancel_reason="stream consumer closed",
                 )
+                finalize_deferred = True
             raise
         except Exception as e:
             if recorder is not None:
@@ -309,6 +316,20 @@ class InProcessAgentRuntimeClient:
                         error_message=str(e),
                     )
             raise
+        finally:
+            # Host task cancelled at a suspension point (deploy restart,
+            # trigger shutdown): CancelledError is a BaseException, so no
+            # except-branch above ran. Settle the row on a task of its own
+            # — same net run_and_collect carries.
+            if (
+                recorder is not None
+                and not finalize_deferred
+                and recorder.state not in TERMINAL_STATES
+            ):
+                _spawn_finalize(
+                    recorder, STATE_FAILED,
+                    error_message="run interrupted (host task cancelled)",
+                )
 
 
 def get_agent_runtime_client() -> AgentRuntimeClient:

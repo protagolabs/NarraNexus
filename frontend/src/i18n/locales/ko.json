@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} 대기",
         "finishedAgo": "{{duration}} 전 완료",
         "startedAt": "{{time}}에 시작",
-        "stepOngoing": "{{duration}}, 진행 중",
         "stepsDropped": "이전 {{n}}개 단계는 표시되지 않음",
         "noSteps": "아직 기록된 단계가 없습니다."
       },

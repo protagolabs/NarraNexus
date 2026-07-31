@@ -117,7 +117,6 @@
         "waitingFor": "en attente depuis {{duration}}",
         "finishedAgo": "terminé il y a {{duration}}",
         "startedAt": "démarré à {{time}}",
-        "stepOngoing": "{{duration}}, en cours",
         "stepsDropped": "{{n}} étapes antérieures non affichées",
         "noSteps": "Aucune étape enregistrée pour l'instant."
       },

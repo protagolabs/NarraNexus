@@ -16,7 +16,6 @@
  */
 
 import type {
-  TeamActivityStep,
   TeamMemberActivity,
   TeamMemberStatus,
 } from '@/types/teams';
@@ -128,41 +127,6 @@ export function phaseLabelKey(phase?: string | null): { key: string; values?: Re
   if (phase === 'thinking') return { key: 'chat.team.activity.thinking' };
   if (phase === 'replying') return { key: 'chat.team.activity.replying' };
   return { key: 'chat.team.activity.running' };
-}
-
-export interface TimelineEntry extends TeamActivityStep {
-  /** ms spent in this phase; for the last entry of a live turn, so far. */
-  durationMs: number;
-  /** True for the final entry while the turn is still running. */
-  ongoing: boolean;
-}
-
-/**
- * Turn the stored step list into renderable entries with per-step durations.
- *
- * A step's duration is the gap to the NEXT step; the final step of a live turn
- * runs up to `now` (and is flagged `ongoing` so the UI can say "in progress"
- * rather than implying it finished). For a turn that has ended, `endedAt`
- * closes the final step instead.
- */
-export function buildTimeline(
-  steps: TeamActivityStep[] | undefined | null,
-  now: number,
-  opts: { live: boolean; endedAt?: string | null } = { live: true },
-): TimelineEntry[] {
-  if (!steps || steps.length === 0) return [];
-  const closing = opts.live ? now : (toMs(opts.endedAt) ?? now);
-  return steps.map((step, i) => {
-    const start = toMs(step.at);
-    const nextRaw = i + 1 < steps.length ? toMs(steps[i + 1].at) : closing;
-    const next = nextRaw ?? closing;
-    const last = i === steps.length - 1;
-    return {
-      ...step,
-      durationMs: start === null ? 0 : Math.max(0, next - start),
-      ongoing: last && opts.live,
-    };
-  });
 }
 
 /** Roster ordering: attention-worthy first, then by name for stability. */

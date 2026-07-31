@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} 待機",
         "finishedAgo": "{{duration}} 前に完了",
         "startedAt": "{{time}} に開始",
-        "stepOngoing": "{{duration}}、進行中",
         "stepsDropped": "それ以前の {{n}} ステップは非表示",
         "noSteps": "まだステップの記録がありません。"
       },

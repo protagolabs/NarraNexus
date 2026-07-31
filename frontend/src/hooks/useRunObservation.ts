@@ -73,12 +73,19 @@ export function applyObservationFrame(
 
   // Protocol metadata frames (absorbed by the translator) first.
   if (t === 'run_reconnect') {
+    // A run_reconnect frame is ALWAYS the first frame of a full replay
+    // (the endpoint replays event_stream from seq 0 on every attach),
+    // so it restarts the snapshot from scratch. This makes the reducer
+    // idempotent across observer-socket reconnects — without it, a
+    // mid-run drop + backoff reopen would stack the whole trace twice
+    // (tool_output rows append unconditionally; thinking would merge
+    // doubled content).
     const startedRaw = raw.started_at as string | null | undefined;
     const startedMs = startedRaw ? Date.parse(startedRaw) : NaN;
     return {
-      ...snap,
+      ...INITIAL,
       status: 'live',
-      startedAt: Number.isFinite(startedMs) ? startedMs : snap.startedAt,
+      startedAt: Number.isFinite(startedMs) ? startedMs : null,
     };
   }
   if (t === 'run_ended') {

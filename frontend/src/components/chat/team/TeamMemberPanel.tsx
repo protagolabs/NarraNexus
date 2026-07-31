@@ -16,8 +16,9 @@
  * moments before the observation socket delivers.
  *
  * An idle member keeps the persisted `event_log` view (TurnTimeline —
- * the reasoning-&-tools renderer拍板 2026-07-31): history questions are
- * answered by history data, live questions by the live stream.
+ * the reasoning-&-tools renderer, owner decision 2026-07-31): history
+ * questions are answered by history data, live questions by the live
+ * stream.
  */
 
 import { useEffect, useMemo, useRef } from 'react';

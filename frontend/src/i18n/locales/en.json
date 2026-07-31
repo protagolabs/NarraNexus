@@ -150,7 +150,6 @@
         "waitingFor": "waiting {{duration}}",
         "finishedAgo": "done {{duration}} ago",
         "startedAt": "started at {{time}}",
-        "stepOngoing": "{{duration}}, ongoing",
         "stepsDropped": "{{n}} earlier steps not shown",
         "noSteps": "No steps recorded yet."
       },

@@ -121,7 +121,6 @@
         "waitingFor": "بالانتظار منذ {{duration}}",
         "finishedAgo": "انتهى قبل {{duration}}",
         "startedAt": "بدأ في {{time}}",
-        "stepOngoing": "{{duration}}، جارٍ",
         "stepsDropped": "{{n}} خطوات سابقة غير معروضة",
         "noSteps": "لم تُسجَّل أي خطوات بعد."
       },
