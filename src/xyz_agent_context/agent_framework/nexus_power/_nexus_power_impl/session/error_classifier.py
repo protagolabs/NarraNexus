@@ -101,10 +101,18 @@ class DefaultErrorClassifier:
                 return _wrap(exc, ErrorType.CONTEXT_OVERFLOW, message, retryable=True)
         for marker in _PREFILL_MESSAGE_MARKERS:
             if marker in lowered:
-                # retryable=False on purpose: the loop repairs the request
-                # first, so replaying it verbatim would just fail again.
+                # Retryable, because the shape is usually innocent. Probed
+                # on the dev gateway 2026-07-31: the exact conversation
+                # that drew this 400 in a live turn — ending in a tool
+                # result, not an assistant message — replayed clean three
+                # times out of three. The upstream load-balances and only
+                # SOME backends refuse, so the rejection says far more
+                # about which backend answered than about what we sent.
+                # It belongs with the flaky-transport errors; the loop's
+                # continuation repair still handles the genuine case
+                # where the conversation really does end mid-assistant.
                 return _wrap(
-                    exc, ErrorType.PREFILL_REJECTED, message, retryable=False
+                    exc, ErrorType.PREFILL_REJECTED, message, retryable=True
                 )
         for marker, error_type, retryable in _CLASS_NAME_RULES:
             if marker in names:
