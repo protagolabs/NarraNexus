@@ -4,6 +4,14 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 (PR review) — failure is 'error', not 'empty', and retryable
+
+A network/server failure used to settle as `kind: 'empty'` — rendered as
+"no process record", a false statement about a turn that has one, cached
+forever. Now it settles as `kind: 'error'` (consumers show
+`chat.team.detailLoadFailed`) and clears the request marker, so the next
+open re-fetches instead of hitting the cache line.
+
 # team/useTurnDetail.ts — one finished turn's process, fetched once
 
 ## Why it exists

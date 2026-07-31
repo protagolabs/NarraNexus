@@ -67,6 +67,22 @@ test('an empty timeline degrades to the no-process note', async () => {
   render(<TeamMessageProcess agentId="agent_a" eventId="evt_1" />);
   fireEvent.click(screen.getByText('chat.message.viewReasoning'));
   await waitFor(() => {
-    expect(screen.getByText('chat.team.roster.noProcess')).toBeTruthy();
+    expect(screen.getByText('chat.team.noProcess')).toBeTruthy();
   });
+});
+
+test('a failed fetch says so — and reopening retries instead of caching the failure', async () => {
+  getEventLogMock.mockRejectedValueOnce(new Error('500'));
+  render(<TeamMessageProcess agentId="agent_a" eventId="evt_1" />);
+
+  fireEvent.click(screen.getByText('chat.message.viewReasoning'));
+  // A network failure must not masquerade as "no process record".
+  await waitFor(() => expect(screen.getByText('chat.team.detailLoadFailed')).toBeTruthy());
+  expect(screen.queryByText('chat.team.noProcess')).toBeNull();
+
+  // Close and reopen → a fresh request (the default mock now succeeds).
+  fireEvent.click(screen.getByText('chat.message.hideReasoning'));
+  fireEvent.click(screen.getByText('chat.message.viewReasoning'));
+  await waitFor(() => expect(screen.getByText('pondering the answer')).toBeTruthy());
+  expect(getEventLogMock).toHaveBeenCalledTimes(2);
 });

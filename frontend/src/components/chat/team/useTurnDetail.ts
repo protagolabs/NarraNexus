@@ -19,10 +19,15 @@ import type { TurnEvent } from '@/types';
  * this union: it is the absence of a settled state for the current key, so the
  * effect never has to write it — a synchronous setState inside an effect is a
  * cascading render (and an eslint error in this repo).
+ *
+ * 'empty' means the turn genuinely has no recorded process; 'error' means we
+ * could not find out (network/server failure). Collapsing the two would tell
+ * the user "no process record" about a turn that has one.
  */
 export type TurnDetailState =
   | { key: string; kind: 'ready'; events: TurnEvent[] }
-  | { key: string; kind: 'empty' };
+  | { key: string; kind: 'empty' }
+  | { key: string; kind: 'error' };
 
 export const isProcessEvent = (e: TurnEvent) =>
   e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output';
@@ -60,7 +65,12 @@ export function useTurnDetail(
         }
       })
       .catch(() => {
-        if (requestedRef.current === key) setState({ key, kind: 'empty' });
+        if (requestedRef.current !== key) return;
+        // Unlike a settled 'ready'/'empty', a failure is retryable: clearing
+        // the request marker means the next open (the effect re-runs when
+        // `open` flips) issues a fresh fetch instead of hitting the cache line.
+        requestedRef.current = null;
+        setState({ key, kind: 'error' });
       });
   }, [open, agentId, eventId]);
 

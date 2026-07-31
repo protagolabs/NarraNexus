@@ -23,7 +23,11 @@ same [[TurnTimeline]] renderer, so the two surfaces cannot drift.
 - Open state is local (unlike the roster's controlled expansion): each
   message's disclosure is independent and nothing else needs the selection.
 - Fetch via [[useTurnDetail]] — lazy on first open, cached per turn, race-safe.
-- Empty timeline → `chat.team.roster.noProcess` note (shared key).
+- Empty timeline → `chat.team.noProcess`; fetch failure →
+  `chat.team.detailLoadFailed` (distinct states — a failure must not read as
+  "no record", and reopening retries it). Both keys live at `chat.team.*`,
+  NOT under `roster.*`, precisely because they are shared with the roster
+  (moved 2026-07-31 per PR review).
 
 ## Gotchas
 

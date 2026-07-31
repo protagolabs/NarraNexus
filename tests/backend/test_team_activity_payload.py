@@ -203,7 +203,7 @@ async def test_activity_covers_every_member_in_order(db_client):
 async def test_idle_carries_started_at_for_duration(db_client):
     """The roster's "ran Ns" derives from started_at→finished_at. The idle
     branch used to omit started_at (only running/stalled carried it), so every
-    finished turn rendered as a confident "ran 0s" while the DB held the真 value.
+    finished turn rendered as a confident "ran 0s" while the DB held the real value.
     """
     bus = await _room(db_client)
     now = datetime.now(timezone.utc)

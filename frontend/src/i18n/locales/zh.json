@@ -165,12 +165,13 @@
         "broadcast": "@all 会通知全体——每位成员都会完整跑一轮，请谨慎使用。",
         "relay": "队友之间可以互相 @ 接力；在你不发言的情况下，最多接力 4 次后自动停止。"
       },
+      "noProcess": "该轮次没有过程记录",
+      "detailLoadFailed": "过程记录加载失败，请重试。",
       "roster": {
         "title": "成员",
         "lastRun": "上次运行 {{duration}} · {{ago}}前",
         "lastRunAgoOnly": "{{ago}} 前完成",
         "neverRan": "还没运行过",
-        "noProcess": "该轮次没有过程记录",
         "loading": "过程加载中…"
       },
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",

@@ -132,12 +132,13 @@
         "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
         "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
       },
+      "noProcess": "Kein Prozessprotokoll für diese Runde",
+      "detailLoadFailed": "Der Prozess konnte nicht geladen werden. Bitte erneut versuchen.",
       "roster": {
         "title": "Mitglieder",
         "lastRun": "lief {{duration}} · vor {{ago}}",
         "lastRunAgoOnly": "vor {{ago}} beendet",
         "neverRan": "noch nie gelaufen",
-        "noProcess": "Kein Prozessprotokoll für diese Runde",
         "loading": "Prozess wird geladen…"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",

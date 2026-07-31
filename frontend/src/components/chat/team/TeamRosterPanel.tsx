@@ -204,7 +204,7 @@ function MemberDetail({
       </span>
     );
   } else if (!activity.event_id) {
-    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.roster.noProcess')}</span>;
+    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.noProcess')}</span>;
   } else if (!settled) {
     body = (
       <span className="flex items-center gap-2 text-[var(--text-tertiary)]">
@@ -217,8 +217,12 @@ function MemberDetail({
     // THINKING blocks in Markdown, expandable tool args — not the compact
     // one-line ProcessPanel rail (user feedback 2026-07-31).
     body = <TurnTimeline events={settled.events.filter(isProcessEvent)} />;
+  } else if (settled.kind === 'error') {
+    // A failed fetch is not "no record" — say so; collapsing and re-expanding
+    // retries (useTurnDetail clears its request marker on failure).
+    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.detailLoadFailed')}</span>;
   } else {
-    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.roster.noProcess')}</span>;
+    body = <span className="text-[var(--text-tertiary)]">{t('chat.team.noProcess')}</span>;
   }
 
   return (

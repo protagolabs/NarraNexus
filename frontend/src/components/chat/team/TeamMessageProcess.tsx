@@ -49,7 +49,12 @@ export function TeamMessageProcess({
       )}
       {open && detail?.kind === 'empty' && (
         <div className="mt-2 text-xs text-[var(--text-tertiary)]">
-          {t('chat.team.roster.noProcess')}
+          {t('chat.team.noProcess')}
+        </div>
+      )}
+      {open && detail?.kind === 'error' && (
+        <div className="mt-2 text-xs text-[var(--text-tertiary)]">
+          {t('chat.team.detailLoadFailed')}
         </div>
       )}
     </div>
