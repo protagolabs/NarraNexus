@@ -24,7 +24,7 @@
     "cloud": "云端",
     "localMode": "本地模式",
     "cloudMode": "云端模式",
-    "marketplace": "技能市场"
+    "marketplace": "市场"
   },
   "chat": {
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
@@ -2272,7 +2272,7 @@
       "github": "GitHub",
       "zip": "Zip",
       "showDisabled": "显示已禁用",
-      "marketplace": "技能市场"
+      "marketplace": "市场"
     },
     "error": {
       "title": "错误",
@@ -2370,10 +2370,10 @@
       }
     },
     "marketplace": {
-      "title": "技能市场",
+      "title": "市场",
       "searchPlaceholder": "搜索技能…",
       "empty": "没有找到技能",
-      "unavailable": "技能市场暂时不可用，请检查网络后重试。",
+      "unavailable": "市场暂时不可用，请检查网络后重试。",
       "install": "安装",
       "installed": "已安装",
       "updateAvailable": "可更新",
