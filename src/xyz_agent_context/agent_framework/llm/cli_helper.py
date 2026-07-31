@@ -33,18 +33,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import tempfile
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
-
-from xyz_agent_context.agent_framework.loop.events import (
-    DATA_TYPE_DONE,
-    DATA_TYPE_ERROR,
-    DATA_TYPE_TEXT_DELTA,
-    TYPE_RAW_RESPONSE_EVENT,
-)
 from pydantic import BaseModel, TypeAdapter
 
 from xyz_agent_context.agent_framework.api_config import (
@@ -80,11 +71,13 @@ _DEFAULT_CODEX_HELPER_MODEL = "gpt-5.4-mini"
 # Neutral cwd / sandbox root for the CLI one-shots — the claude branch is
 # tool-free (allowed_tools=[]) and the codex branch points its writable_roots
 # here (never the backend cwd), so any codex file op is confined to this
-# disposable dir. One shared dir avoids per-call mkdtemp churn. UID-suffixed +
-# 0o700 so another local user can't pre-create / read it on a shared host.
-_HELPER_CWD = os.path.join(
-    tempfile.gettempdir(), f"narranexus-cli-helper-{os.getuid()}"
-)
+# disposable dir. Provisioned via cli_oneshot.oneshot_cwd, which also
+# verifies st_uid ownership before reuse (a same-named dir pre-created by
+# another user on a shared host must not be silently adopted).
+def _helper_cwd() -> str:
+    from xyz_agent_context.agent_framework.llm.cli_oneshot import oneshot_cwd
+
+    return oneshot_cwd("cli-helper")
 
 
 class CliHelperSDK:
@@ -174,7 +167,7 @@ class CliHelperSDK:
             f"auth={'token' if env.get('ANTHROPIC_AUTH_TOKEN') else ('key' if env.get('ANTHROPIC_API_KEY') else 'none')}, "
             f"config_dir={env.get('CLAUDE_CONFIG_DIR')}"
         )
-        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
+        helper_cwd = _helper_cwd()
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             model=resolve_cli_alias(model_name, auth_type=cli_helper_config.auth_type),
@@ -182,7 +175,7 @@ class CliHelperSDK:
             allowed_tools=[],      # pure completion — no tool use
             mcp_servers={},
             max_turns=1,
-            cwd=_HELPER_CWD,
+            cwd=helper_cwd,
         )
 
         async def _consume() -> tuple[str, int, int]:
@@ -273,13 +266,12 @@ class CliHelperSDK:
         # shared runner passes system_prompt/user_input as separate messages
         # for exactly that reason (mirrors _run_claude_oneshot).
         #
-        # working_path=_HELPER_CWD keeps the helper's artifacts in ITS
-        # namespace (see the _HELPER_CWD comment); driver construction, event
+        # working_path=_helper_cwd() keeps the helper's artifacts in ITS
+        # namespace (see the _helper_cwd comment); driver construction, event
         # parsing and the error-event contract live in cli_oneshot (shared
         # with CodexOAuthDriver.verify_live since the PR #224 review).
-        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
         result = await run_codex_cli_oneshot(
-            system_prompt, user_input, working_path=_HELPER_CWD
+            system_prompt, user_input, working_path=_helper_cwd()
         )
         if not result.text and result.error:
             # Raise a classifiable error — otherwise the empty text falls

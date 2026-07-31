@@ -168,7 +168,11 @@ class ClaudeOAuthDriver(_DriverBase):
 
         Tri-state: "dead" only when the CLI itself refused or there is
         verifiably nothing to try; environment gaps (control-plane node,
-        timeout) are "unknown" and must not block readiness recovery.
+        timeout, no launchable CLI binary) are "unknown" and must not
+        block readiness recovery. The control-plane guard covers ONLY
+        host-oauth: token mode is node-independent (credential rides the
+        env, the backend image ships the claude CLI) and stays verifiable
+        on the control plane — as it has been since 2026-07-23.
 
         A single tool-free turn is NOT the agent_loop, so bounding it with
         helper-scale timeouts does not violate 铁律 #14 (same rationale as
@@ -176,32 +180,40 @@ class ClaudeOAuthDriver(_DriverBase):
         token itself.
         """
         import asyncio
-        import os
-        import shutil
 
+        from xyz_agent_context.agent_framework.adapters.claude.cli_binary import (
+            resolve_cli_path,
+        )
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            executor_seam_active,
+        )
         from xyz_agent_context.settings import settings as _settings
 
-        # Control-plane guard BEFORE any local inspection: with the executor
-        # seam active this container's PATH / credential store say nothing
-        # about the machine that actually runs the CLI.
-        if (os.getenv("AGENT_EXECUTOR_URL") or "").strip():
-            return VERIFY_UNKNOWN, (
-                "cannot verify from the control plane — the claude CLI runs "
-                "on the per-user executor"
-            )
-
         if self._is_token_mode():
+            # Token mode is node-independent — the credential rides the env
+            # (CLAUDE_CODE_OAUTH_TOKEN) and the backend image ships the
+            # claude CLI, so verifying ON the control plane is valid (and
+            # has been since 2026-07-23). The seam guard below is only for
+            # host-credential-store modes.
             if not (self.card.api_key or ""):
                 return VERIFY_DEAD, "no setup-token stored"
         else:
-            # Host-oauth: don't spend a CLI spawn when the credential store
-            # is verifiably empty — probe() already knows how to look
+            # Control-plane guard BEFORE any local inspection: host-oauth
+            # judges the HOST credential store, and with the executor seam
+            # active (BROKER_URL on dev/prod, AGENT_EXECUTOR_URL as the
+            # static fallback) this container's store says nothing about
+            # the machine that actually runs the CLI.
+            if executor_seam_active():
+                return VERIFY_UNKNOWN, (
+                    "cannot verify from the control plane — the claude CLI "
+                    "runs on the per-user executor"
+                )
+            # Don't spend a CLI spawn when the credential store is
+            # verifiably empty — probe() already knows how to look
             # (credentials file, macOS Keychain).
             health = await self.probe()
             if not health.ok:
                 return VERIFY_DEAD, health.detail
-        if shutil.which("claude") is None:
-            return VERIFY_DEAD, "claude CLI not found on PATH — cannot verify"
 
         env = self.build_claude_config("haiku").to_cli_env()
         env["API_TIMEOUT_MS"] = str(_settings.helper_cli_timeout_ms)
@@ -230,13 +242,22 @@ class ClaudeOAuthDriver(_DriverBase):
                 query,
             )
 
-            options = ClaudeAgentOptions(
+            # cli_path mirrors the agent adapter (adapters/claude/sdk.py):
+            # resolve_cli_path() honours CLAUDE_CLI_PATH pins and fail-opens
+            # to the SDK's bundled CLI on None — verification must run the
+            # SAME binary the agent runs, and must not require a PATH
+            # `claude` that the agent itself doesn't need.
+            options_kwargs: dict = dict(
                 env=env,
                 model="haiku",
                 max_turns=1,
                 allowed_tools=[],
                 system_prompt="Reply with exactly: OK",
             )
+            cli_path = resolve_cli_path()
+            if cli_path is not None:
+                options_kwargs["cli_path"] = cli_path
+            options = ClaudeAgentOptions(**options_kwargs)
             got_text = False
             async for message in query(prompt="ping", options=options):
                 if isinstance(message, AssistantMessage):
@@ -262,9 +283,15 @@ class ClaudeOAuthDriver(_DriverBase):
         except Exception as exc:  # noqa: BLE001 — verdict, not control flow
             # Unlike codex (terminal error EVENTS), the claude SDK surfaces
             # auth failures as process errors — an exception here IS the
-            # CLI refusing, so it stays "dead". Summarize the first line
-            # only so env/token material can never leak.
+            # CLI refusing, so it maps to "dead". One carve-out: the SDK's
+            # CLINotFoundError means no binary could be launched at all
+            # (resolve_cli_path fail-opens to the bundled CLI, so this is a
+            # broken install, not a credential verdict) — undecidable.
+            # Summarize the first line only so env/token material can
+            # never leak.
             summary = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+            if "CLINotFound" in type(exc).__name__:
+                return VERIFY_UNKNOWN, f"claude CLI unavailable: {summary}"
             return VERIFY_DEAD, f"live verification failed: {summary}"
 
     @staticmethod

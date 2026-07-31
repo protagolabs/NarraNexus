@@ -116,12 +116,14 @@ class CodexOAuthDriver(_DriverBase):
         (via the shared ``run_codex_cli_oneshot``).
 
         Tri-state, not bool: this process may not be the node that runs the
-        CLI at all. On cloud the agent loop executes in per-user executor
-        containers (AGENT_EXECUTOR_URL set) and the control-plane image
-        does not ship ``codex`` — every local check here would misread
-        "different node" as "dead credential" and permanently block the
-        readiness edge that re-arms paused jobs. That case is "unknown",
-        never "dead".
+        CLI at all. On cloud the agent loop executes in broker-managed
+        per-user executor containers (``BROKER_URL`` — what the deploy
+        stack actually sets; ``AGENT_EXECUTOR_URL`` is the static
+        fallback, see ``executor_seam_active``) and the control-plane
+        image does not ship ``codex`` — every local check here would
+        misread "different node" as "dead credential" and permanently
+        block the readiness edge that re-arms paused jobs. That case is
+        "unknown", never "dead".
 
         The codex driver reads its config from the ambient ``_codex_ctx``
         ContextVar (the AGENT slot's config, not this card's), so the
@@ -138,10 +140,16 @@ class CodexOAuthDriver(_DriverBase):
         import os
         import shutil
 
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            executor_seam_active,
+        )
+
         # Control-plane guard BEFORE any local inspection: with the executor
-        # seam active, this container's PATH and ~/.codex say nothing about
-        # the machine that actually runs the CLI.
-        if (os.getenv("AGENT_EXECUTOR_URL") or "").strip():
+        # seam active (broker-managed per-user executors via BROKER_URL — the
+        # shape dev/prod compose actually deploys — or the static
+        # AGENT_EXECUTOR_URL fallback), this container's PATH and ~/.codex say
+        # nothing about the machine that actually runs the CLI.
+        if executor_seam_active():
             return VERIFY_UNKNOWN, (
                 "cannot verify from the control plane — the codex CLI runs "
                 "on the per-user executor"

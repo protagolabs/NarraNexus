@@ -13,6 +13,10 @@ response.done / 错误事件 type+message 合并)整体迁入共享模块
 _HELPER_CWD、"空文本+错误 → RuntimeError(供 #68 is_credential_error
 分类)"的收尾语义。
 
+Review 第 3 轮跟进:事件常量的 4 个残留 import 删除;`_HELPER_CWD`
+裸 makedirs 换 `oneshot_cwd("cli-helper")`(补上共享主机属主校验,
+namespace 与 verify 的分开)。
+
 ## 2026-07-28 — Claude CLI cache usage normalization
 
 Claude Code's `ResultMessage.usage` follows Anthropic's split cache shape.

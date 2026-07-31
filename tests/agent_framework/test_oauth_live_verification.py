@@ -50,8 +50,9 @@ from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth imp
 @pytest.fixture(autouse=True)
 def _local_node(monkeypatch):
     """Tests model the LOCAL install (the P0's environment) by default —
-    the executor seam must read as absent."""
+    the executor seam (both spellings) must read as absent."""
     monkeypatch.delenv("AGENT_EXECUTOR_URL", raising=False)
+    monkeypatch.delenv("BROKER_URL", raising=False)
 
 
 def _codex_card(**overrides) -> ProviderCard:
@@ -141,9 +142,11 @@ async def test_codex_verify_live_dead_without_cli(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_codex_verify_live_unknown_on_control_plane(monkeypatch):
-    """AGENT_EXECUTOR_URL set = this container never runs the CLI. Local
+    """BROKER_URL set = this container never runs the CLI (that is the env
+    dev/prod compose actually sets — the first guard keyed on
+    AGENT_EXECUTOR_URL alone and was dead on cloud, review round 3). Local
     state must not even be inspected — the verdict is undecidable here."""
-    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://broker:9000")
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
 
     inspected = []
     from xyz_agent_context.agent_framework.providers.driver.drivers import (
@@ -379,12 +382,101 @@ async def test_claude_host_oauth_verify_live_stages_then_succeeds(
 
 @pytest.mark.asyncio
 async def test_claude_verify_live_unknown_on_control_plane(monkeypatch):
-    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://broker:9000")
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
 
     verdict, msg = await ClaudeOAuthDriver(_claude_card()).verify_live()
 
     assert verdict == VERIFY_UNKNOWN
     assert "control plane" in msg
+
+
+@pytest.mark.asyncio
+async def test_codex_verify_live_unknown_with_static_executor_env(monkeypatch):
+    """The static AGENT_EXECUTOR_URL spelling still counts as the seam."""
+    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://executor:8020")
+
+    verdict, _ = await CodexOAuthDriver(_codex_card()).verify_live()
+
+    assert verdict == VERIFY_UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_claude_token_mode_verifies_on_control_plane(monkeypatch):
+    """Review round 3: token mode is node-independent — the credential rides
+    the env and the backend image ships the claude CLI. The seam guard must
+    NOT demote a working control-plane verification to unknown (it has been
+    verifying there since 2026-07-23)."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    class _TextBlock:
+        def __init__(self, text):
+            self.text = text
+
+    class _AssistantMessage:
+        def __init__(self):
+            self.content = [_TextBlock("OK")]
+
+    async def _fake_query(*, prompt, options):
+        yield _AssistantMessage()
+
+    fake_sdk = types.SimpleNamespace(
+        AssistantMessage=_AssistantMessage,
+        TextBlock=_TextBlock,
+        ClaudeAgentOptions=lambda **kw: types.SimpleNamespace(**kw),
+        query=_fake_query,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+
+    card = _claude_card(auth_type="oauth_token", api_key="sk-ant-oat01-test")
+    verdict, _ = await ClaudeOAuthDriver(card).verify_live()
+
+    assert verdict == VERIFY_OK
+
+
+@pytest.mark.asyncio
+async def test_claude_cli_not_found_is_unknown(monkeypatch, tmp_path):
+    """A missing/broken CLI install (SDK CLINotFoundError) is environmental —
+    resolve_cli_path fail-opens to the bundled CLI, so "cannot launch" says
+    nothing about the credential. Must not block readiness as dead."""
+    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+        claude_oauth as mod,
+    )
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as claude_sdk
+
+    creds = tmp_path / ".credentials.json"
+    creds.write_text("{}")
+    monkeypatch.setattr(mod, "resolve_claude_credentials_path", lambda ref: creds)
+    monkeypatch.setattr(
+        claude_sdk, "_stage_claude_oauth_credentials", lambda config_dir: None
+    )
+
+    class CLINotFoundError(Exception):
+        pass
+
+    class _TextBlock:
+        def __init__(self, text):
+            self.text = text
+
+    class _AssistantMessage:
+        def __init__(self):
+            self.content = []
+
+    async def _raising_query(*, prompt, options):
+        raise CLINotFoundError("claude binary not found")
+        yield  # pragma: no cover — makes this an async generator
+
+    fake_sdk = types.SimpleNamespace(
+        AssistantMessage=_AssistantMessage,
+        TextBlock=_TextBlock,
+        ClaudeAgentOptions=lambda **kw: types.SimpleNamespace(**kw),
+        query=_raising_query,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+
+    verdict, msg = await ClaudeOAuthDriver(_claude_card()).verify_live()
+
+    assert verdict == VERIFY_UNKNOWN
+    assert "unavailable" in msg
 
 
 # ---------------------------------------------------------------------------

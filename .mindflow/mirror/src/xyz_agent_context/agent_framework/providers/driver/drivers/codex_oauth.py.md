@@ -26,8 +26,11 @@ ProviderReadiness 借同一条路把暂停的 job 重新武装到死凭证上。
 测试:tests/agent_framework/test_oauth_live_verification.py。
 
 Review 轮修正(同日,PR #224):返回改三态(见 [[base]] VerifyVerdict)
-——`AGENT_EXECUTOR_URL` 存在时**先于一切本地检查**返回 unknown(控制面
-容器没装 codex、~/.codex 也不是执行面的,本地检查全是误判来源);超时
+——executor seam 生效时**先于一切本地检查**返回 unknown(判据是
+`broker_client.executor_seam_active()`:BROKER_URL(dev/prod compose 实际
+设的)或静态 AGENT_EXECUTOR_URL。第一版只认后者,在云上是死守卫——
+review 第 3 轮抓出);控制面容器没装 codex、~/.codex 也不是执行面的,
+本地检查全是误判来源;超时
 /spawn 异常也是 unknown(codex 的凭证失败走错误事件,异常是环境问题);
 只有错误事件/无凭证文件/无 CLI/无回话是 dead。一发脚手架换用共享
 [[cli_oneshot]];curated 模型防线因 catalog 补键而真正生效(此前

@@ -18,9 +18,16 @@ staging**——to_cli_env 把 CLAUDE_CONFIG_DIR 指向隔离目录(#72 泄漏修
 其 .credentials.json 只有 `_stage_claude_oauth_credentials`(agent
 adapter 每次 spawn 前调)会写;不 staging 则刚 `claude login` 还没跑过
 turn 的健康凭证会被验成死的。verify_live 现与 adapter 同步 staging。
-返回改三态:executor 模式/超时/staging 失败 → unknown;token 缺失/
-probe 失败/无 CLI/CLI 拒绝(claude SDK 把 auth 失败作为进程异常抛出,
-与 codex 相反,异常即 dead)→ dead。
+返回改三态:executor seam(`executor_seam_active()`,BROKER_URL 或
+AGENT_EXECUTOR_URL——review 第 3 轮:只认后者在云上是死守卫)/超时/
+staging 失败/CLINotFoundError(resolve_cli_path 对无外部二进制 fail-open
+到 bundled,"起不来"不是凭证判决)→ unknown;token 缺失/probe 失败/
+CLI 拒绝(claude SDK 把 auth 失败作为进程异常抛出,与 codex 相反,
+其余异常即 dead)→ dead。**seam 守卫只罩 host-oauth**:token 模式凭证
+随 env 注入、backend 镜像有 claude CLI,控制面上验证有效(2026-07-23
+起如此),不得连坐降为 unknown。一发与 agent 同二进制:
+ClaudeAgentOptions 带 `cli_path=resolve_cli_path()`(尊重 CLAUDE_CLI_PATH
+钉版)。
 
 # claude_oauth.py — Claude subscription driver (host-CLI OAuth + setup-token)
 
