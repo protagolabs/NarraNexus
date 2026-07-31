@@ -1418,6 +1418,12 @@
     }
   },
   "pages": {
+    "pay": {
+      "working": "Taking you to checkout…",
+      "errorTitle": "Couldn't start checkout",
+      "retry": "Try again",
+      "goAccount": "Open account page"
+    },
     "login": {
       "changeMode": "Change mode",
       "cloudAccess": "Cloud · Access",

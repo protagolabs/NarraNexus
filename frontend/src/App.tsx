@@ -33,6 +33,7 @@ const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
 // before login during visual review. Not linked from any nav.
 const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
+const PayPage = lazy(() => import('@/pages/PayPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -478,6 +479,15 @@ function App() {
         <Route
           path="/setup"
           element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
+        />
+
+        {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
+            ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
+            the payment intent survives login/signup; PayPage then mints the
+            checkout session and redirects. */}
+        <Route
+          path="/pay"
+          element={<ProtectedRoute><PayPage /></ProtectedRoute>}
         />
 
         {/* Protected app routes */}
