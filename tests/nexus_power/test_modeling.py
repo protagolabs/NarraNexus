@@ -30,6 +30,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.pr
     resolve_profile,
 )
 from xyz_agent_context.agent_framework.providers.model_catalog import (
+    _KNOWN_MODELS,
     get_context_window,
     get_max_output_tokens,
     get_model_meta,
@@ -158,6 +159,8 @@ def test_measured_models_still_clamp_against_their_real_wall():
         ("minimax/minimax-m2.7", 8_192),
         ("moonshotai/Kimi-K2.5", 8_192),
         ("google/gemini-3.1-pro-preview", 8_192),
+        ("google/gemini-3.1-flash-lite-preview", 8_192),
+        ("zai-org/GLM-5", 8_192),
         # Lowering needs no window — a smaller ceiling cannot overrun a
         # wall, and 7_200 is this model's real limit.
         ("deepseek-ai/DeepSeek-V3", 7_200),
@@ -183,9 +186,24 @@ def test_one_catalog_entry_supplies_both_numbers():
 def test_prefix_normalization_lives_in_the_catalog_so_all_callers_get_it():
     """It was written inside nexus_power first, which left the other two
     consumers unable to resolve a platform id — the per-caller
-    duplication this catalog exists to prevent."""
+    duplication this catalog exists to prevent.
+
+    The ids here must be ones ONLY the fallback can resolve: an
+    aggregator prefix over a bare registered name. An earlier version of
+    this test used ``anthropic/claude-opus-4-8``, which is itself
+    registered, so it hit the exact-match path and the fallback could be
+    deleted outright with every test still green."""
+    for model, ceiling, window in (
+        ("yunwu/claude-opus-4-8", 115_200, 1_000_000),
+        ("openrouter/claude-haiku-4-5", 57_600, 200_000),
+    ):
+        assert model not in _KNOWN_MODELS  # only reachable via the fallback
+        assert get_max_output_tokens(model) == ceiling
+        assert get_context_window(model) == window
+
+    # Exact match still wins where the prefixed id IS registered.
+    assert "anthropic/claude-opus-4-8" in _KNOWN_MODELS
     assert get_max_output_tokens("anthropic/claude-opus-4-8") == 115_200
-    assert get_context_window("anthropic/claude-opus-4-8") == 1_000_000
 
 
 def test_limits_come_from_the_platform_catalog_not_a_local_copy():

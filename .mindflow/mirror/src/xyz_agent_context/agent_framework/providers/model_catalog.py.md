@@ -24,6 +24,16 @@ haiku@128000→**400**。
 的 window。`get_all_known_models()` 同步带上 `context_window`,否则前端从
 `/api/providers/catalog` 拿不到新字段。
 
+**回退下沉的副作用要一起记住,不是只有收益**:`get_max_output_tokens` 自带回退之后,
+另外两个消费方的取值跟着变了。catalog 里「裸名且有 ceiling」的只有四条 Claude
+(`claude-opus-4-8`/`claude-sonnet-4-6`=115_200、`claude-haiku-4-5(-20251001)`=57_600),
+所以实际影响面是 `yunwu/claude-*`、`openrouter/claude-*` 这类聚合商路由 id 在
+`llm/anthropic_helper` 里从 `_DEFAULT_MAX_TOKENS=4096` 跳到 115_200/57_600。方向是对的
+(那是 Anthropic 真实上限),但**这两个消费方没有 profiles 那套「抬高需实测 window」的
+护栏**,它们直接拿 ceiling 当 max_tokens 用。万一某个聚合商对 claude 的 max_tokens
+卡得比原厂低,原先稳过的 4096 请求会变 400。影响面限于 helper 类原子调用(不在
+agent_loop 上),暂不加护栏,但下次聚合商报 400 先想到这里。
+
 消费方从两个变成三个:`adapters/openai_agents`、`llm/anthropic_helper`,加上
 `nexus_power/_nexus_power_impl/modeling/profiles.py`。**新增/修改模型上限只改这里**,
 别在框架侧再建表(2026-07-31 有过一次,当场和本表的 115_200 对不上)。
