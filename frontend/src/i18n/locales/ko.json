@@ -139,7 +139,9 @@
         "lastRun": "{{duration}} 실행 · {{ago}} 전",
         "lastRunAgoOnly": "{{ago}} 전 완료",
         "neverRan": "아직 실행한 적 없음",
-        "loading": "처리 과정 불러오는 중…"
+        "loading": "처리 과정 불러오는 중…",
+        "workingCount": "{{count}}개 작업 중",
+        "process": "프로세스"
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리"

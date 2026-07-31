@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — translateReconnectFrame 导出（观察面共用翻译器）
+
+[[useRunObservation]] 消费同一个观察端点（任意 run by run_id），必须
+说同一种帧方言 —— 导出唯一翻译器，聊天重连与观察两个面不会漂移。
+纯可见性变更，逻辑未动。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

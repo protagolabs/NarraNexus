@@ -139,7 +139,9 @@
         "lastRun": "durou {{duration}} · há {{ago}}",
         "lastRunAgoOnly": "terminou há {{ago}}",
         "neverRan": "ainda sem execuções",
-        "loading": "Carregando processo…"
+        "loading": "Carregando processo…",
+        "workingCount": "{{count}} trabalhando",
+        "process": "processo"
       },
       "emptyHintWithLead": "Envie uma mensagem para começar — {{name}} assume, ou use @ para falar com outra pessoa diretamente.",
       "leadTitle": "{{name}} · responde quando ninguém é mencionado"

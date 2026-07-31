@@ -137,27 +137,26 @@ describe('TeamRosterPanel', () => {
     expect(getEventLogMock).toHaveBeenCalledTimes(1);
   });
 
-  test('expanded running member renders the live phase timeline, no fetch', () => {
-    renderPanel({
+  test('expanded running member opens the live terminal card, no event-log fetch', () => {
+    const { container } = renderPanel({
       expandedId: 'a1',
       activity: [
         {
           ...RUNNING,
           phase: 'thinking',
-          steps: {
-            items: [
-              { phase: 'starting', at: '2026-07-28T08:58:00Z' },
-              { phase: 'thinking', at: '2026-07-28T08:58:30Z' },
-            ],
-            dropped: 0,
-          },
+          event_id: 'evt_live',
         },
         IDLE_WITH_RUN,
       ],
     });
 
-    expect(screen.getByText('chat.team.activity.starting')).toBeTruthy();
-    expect(screen.getByText(/stepOngoing/)).toBeTruthy();
+    // v2: the detail is a mini ProcessPanel fed by the run-observation
+    // channel; before the socket delivers, the card shows the honest
+    // "starting up" fallback rather than pretending it knows more.
+    expect(screen.getByTestId('member-panel-a1')).toBeTruthy();
+    expect(screen.getByText('chat.execution.startingUp')).toBeTruthy();
+    // The column breathes: an open member widens the aside for the terminal.
+    expect(container.querySelector('aside')?.className).toContain('430px');
     // A running turn's process is not in the event log yet — it is written at
     // the end of the turn — so there is nothing to fetch.
     expect(getEventLogMock).not.toHaveBeenCalled();

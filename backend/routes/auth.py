@@ -436,12 +436,20 @@ async def get_agents(request: Request):
         if agent_ids:
             placeholders = ",".join(["%s"] * len(agent_ids))
             try:
+                # Chat-surface runs only. Since trigger runs (lark / team /
+                # job / ...) are also recorded as state='running'
+                # (run_recorder), an unfiltered SELECT would make ChatPanel
+                # auto-attach the web chat to e.g. a Lark turn. 'chat' and
+                # 'manyfold' are exactly the BackgroundRun surfaces this
+                # enrichment always described; every other run is observable
+                # through the WS observe endpoint instead.
                 run_rows = await db_client.execute(
                     f"""
                     SELECT event_id, agent_id, state, started_at, last_event_at,
                            tool_call_count, current_stage
                     FROM events
                     WHERE state = 'running' AND user_id = %s
+                      AND `trigger` IN ('chat', 'manyfold')
                       AND agent_id IN ({placeholders})
                     """,
                     (user_id, *agent_ids),

@@ -143,7 +143,9 @@
         "lastRun": "استغرق {{duration}} · قبل {{ago}}",
         "lastRunAgoOnly": "انتهى قبل {{ago}}",
         "neverRan": "لم يُشغَّل بعد",
-        "loading": "جارٍ تحميل العملية…"
+        "loading": "جارٍ تحميل العملية…",
+        "workingCount": "{{count}} قيد العمل",
+        "process": "العملية"
       },
       "emptyHintWithLead": "أرسل رسالة للبدء — يتولّاها {{name}}، أو استخدم @ لمخاطبة شخص آخر مباشرة.",
       "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد"

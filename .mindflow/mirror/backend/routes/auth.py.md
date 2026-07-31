@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — active_run 富集只认 chat/manyfold 来源
+
+`/api/auth/agents` 的 running 行 SELECT 加 `` `trigger` IN
+('chat','manyfold') ``：trigger run（lark/team/job）现在也是
+state='running'（run 可观察性），不滤的话 ChatPanel 的 auto-reconnect
+会把网页聊天接到一条 Lark turn 上。chat/manyfold 恰好是 BackgroundRun
+的两个面 —— 本富集从来描述的就是它们；其余 run 走 WS 观察端点
+（tail-follow）看，不进聊天页。依赖 step 0 的诚实 trigger 标签
+（[[step_0_initialize]]）。
 
 ## 2026-07-29 — 删除 agent_cli_sessions 的级联清理(T7)
 

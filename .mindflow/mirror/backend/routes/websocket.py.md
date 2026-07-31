@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-15
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 跨进程 run 的观察：replay-only 分支升级为 DB tail-follow
+
+`_handle_reconnect` 遇到「running 但本进程无 BackgroundRun」（= run 活
+在 trigger 容器 / 别的 backend 实例）不再 reconnect_warning+close，而是
+`_follow_run_from_db`：记住回放末 seq，每 `_TAIL_FOLLOW_POLL_S`（1s）
+增量拉 `event_stream WHERE seq > last` 下发（帧型仍是 `replay`，前端
+无感知），终态发 `run_ended`，心跳停跳按既有规则报 run_ended(failed)
+（只读，不改行 —— 周期清扫负责落账）。挂起的 `websocket.receive()`
+兼作断线信号（观察路径客户端不发应用帧），asyncio.wait 的 timeout 就是
+轮询节拍。低延迟需求出现时，这个循环内部就是换 Redis pub/sub 的 seam，
+帧契约不动（铁律 #20）。这是 team roster / 未来 dashboard 观察 trigger
+run 的读侧通道。测试：tests/backend/test_reconnect_tail_follow.py。
 
 ## 2026-07-15 — 用户 MCP 装配为 spec 形状（headers 随行）
 
@@ -114,8 +127,10 @@ Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
 4. state != running → 推 `{type: run_ended, final_output}` 关闭 WS
 5. state == running + active_runs 有该 run → subscribe broadcaster + 
    forward live events
-6. state == running 但本进程 active_runs 没有（在另一台 backend
-   instance）→ 推 `reconnect_warning`、关 WS
+6. state == running 但本进程 active_runs 没有（run 活在 trigger 容器 /
+   另一台 backend instance）→ `_follow_run_from_db` tail-follow：
+   增量推 `replay` 帧直到终态（2026-07-31 起；心跳停跳则
+   run_ended(failed)）
 
 **协议变化**
 

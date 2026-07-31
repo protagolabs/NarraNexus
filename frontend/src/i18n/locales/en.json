@@ -172,7 +172,9 @@
         "lastRun": "ran {{duration}} · {{ago}} ago",
         "lastRunAgoOnly": "finished {{ago}} ago",
         "neverRan": "no runs yet",
-        "loading": "Loading process…"
+        "loading": "Loading process…",
+        "workingCount": "{{count}} working",
+        "process": "process"
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned"

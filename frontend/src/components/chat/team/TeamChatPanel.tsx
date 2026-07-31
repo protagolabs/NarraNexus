@@ -811,11 +811,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           now={now}
           expandedId={rosterExpandedId}
           onToggle={toggleRoster}
+          accent={accent}
           onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
           className="hidden md:flex"
         />
 
-        {/* Narrow screens: the same rows, over the transcript. */}
+        {/* Narrow screens: the same rows, over the transcript. The drawer
+            keeps the roster's own breathing width (256px ↔ 430px capped
+            at 92vw) — a fixed width here would undo the expansion. */}
         {mobileRosterOpen && (
           <TeamRosterPanel
             members={members}
@@ -824,8 +827,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             now={now}
             expandedId={rosterExpandedId}
             onToggle={toggleRoster}
+            accent={accent}
             onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-            className="absolute inset-y-0 right-0 z-20 flex w-64 border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
+            className="absolute inset-y-0 right-0 z-20 flex border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
           />
         )}
       </div>

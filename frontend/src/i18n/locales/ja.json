@@ -139,7 +139,9 @@
         "lastRun": "{{duration}} 実行 · {{ago}} 前",
         "lastRunAgoOnly": "{{ago}}前に完了",
         "neverRan": "まだ実行していません",
-        "loading": "処理を読み込み中…"
+        "loading": "処理を読み込み中…",
+        "workingCount": "{{count}} 件実行中",
+        "process": "プロセス"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応"

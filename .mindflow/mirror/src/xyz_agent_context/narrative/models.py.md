@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — TriggerType 与 WorkingSource 1:1 对齐
+
+新增 JOB/A2A/CALLBACK/SKILL_STUDY/LARK/SLACK/TELEGRAM/WECHAT/
+NARRAMESSENGER/DISCORD/MANYFOLD 成员：step 0 现在把 working_source
+直接映射进 `events.trigger`（原来除 message_bus 外一律记 chat，lark/job
+run 全被标成"聊天"）。读侧依赖这个诚实标签：侧栏预览滤 MESSAGE_BUS
+（不变）、**聊天页 active_run 自动接管只认 chat/manyfold**（否则 trigger
+run 变 running 后会被单聊页面劫持，见 [[auth]]）、dashboard 按来源分组。
+repository/crud 的 `TriggerType(row["trigger"])` 回读要求新值必须是合法
+成员 —— 这是扩枚举而非直接存字符串的原因。
 
 ## 2026-07-29 — `NarrativeSearchResult.raw_score`
 

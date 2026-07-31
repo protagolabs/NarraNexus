@@ -1,8 +1,10 @@
 ---
 code_file: frontend/src/components/chat/team/index.ts
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — barrel 增补 TeamMemberPanel（roster v2 的终端卡）
 
 # team/index.ts — barrel for the team group-chat surface
 

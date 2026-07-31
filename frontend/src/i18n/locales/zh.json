@@ -172,7 +172,9 @@
         "lastRun": "上次运行 {{duration}} · {{ago}}前",
         "lastRunAgoOnly": "{{ago}} 前完成",
         "neverRan": "还没运行过",
-        "loading": "过程加载中…"
+        "loading": "过程加载中…",
+        "workingCount": "{{count}} 个在忙",
+        "process": "过程"
       },
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
       "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手"
