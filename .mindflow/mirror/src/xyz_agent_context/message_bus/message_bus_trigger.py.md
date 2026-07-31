@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — team reply rows are stamped with their turn's event_id
+
+`_invoke_runtime` now returns `(response_text, event_id)` (from
+`RunCollection.event_id`; None if the run died before Step 0 — including the
+error-string path, which still carries whatever id Step 0 produced). The team
+branch passes it to `bus.send_message(event_id=...)` so every posted reply
+row references the turn that produced it — the per-MESSAGE handle behind the
+transcript's reasoning disclosure, complementing `note_event_id`'s
+per-MEMBER latest-turn binding on the activity row.
 
 ## 2026-07-30 — 只有 team room 分支对 collect_run 开 `include_monologue`
 

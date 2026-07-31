@@ -132,11 +132,13 @@
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
         "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
       },
+      "noProcess": "Aucun enregistrement de processus pour ce tour",
+      "detailLoadFailed": "Impossible de charger le processus. Réessayez.",
       "roster": {
         "title": "Membres",
         "lastRun": "a duré {{duration}} · il y a {{ago}}",
+        "lastRunAgoOnly": "terminé il y a {{ago}}",
         "neverRan": "jamais exécuté",
-        "noProcess": "Aucun enregistrement de processus pour ce tour",
         "loading": "Chargement du processus…"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",

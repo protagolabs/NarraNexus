@@ -43,7 +43,7 @@ async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
 def _recording_invoke(seen: dict):
     async def _record(*args, **kwargs):
         seen.update(kwargs)
-        return ""
+        return "", None
 
     return _record
 

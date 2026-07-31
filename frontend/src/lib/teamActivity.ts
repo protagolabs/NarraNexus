@@ -73,16 +73,20 @@ export function toMs(iso?: string | null): number | null {
 /**
  * Duration + recency of an idle member's last finished turn — the roster's
  * "ran 3m12s · 5m ago" line. Null when it has never run (no finished_at).
+ *
+ * `durationMs` is null when started_at is absent (legacy rows): the turn DID
+ * run for an unknown time, and rendering that as "0s" is a wrong number, not
+ * a safe default. Clock-skewed end<start still clamps to 0.
  */
 export function lastRunSummary(
   a: TeamMemberActivity,
   now: number,
-): { durationMs: number; agoMs: number } | null {
+): { durationMs: number | null; agoMs: number } | null {
   const end = toMs(a.finished_at);
   if (end === null) return null;
   const start = toMs(a.started_at);
   return {
-    durationMs: start !== null && end >= start ? end - start : 0,
+    durationMs: start === null ? null : Math.max(0, end - start),
     agoMs: Math.max(0, now - end),
   };
 }

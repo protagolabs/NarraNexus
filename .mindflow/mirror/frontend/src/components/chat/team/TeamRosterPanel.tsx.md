@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — detail renders TurnTimeline; fetch hook extracted; ago-only metric
+
+Three changes from the 2026-07-31 user feedback round:
+
+- **Idle detail now renders [[TurnTimeline]]** (the single-chat "view
+  reasoning & tools" renderer: THINKING header + Markdown body, expandable
+  tool args) instead of `ProcessEventRows`' compact one-line rail. The
+  "Depends on processShared for ProcessEventRows" note below is history —
+  only `friendlyToolName` remains from there.
+- **`useMemberTurnDetail` moved out** to [[useTurnDetail]] (verbatim, renamed
+  `useTurnDetail`) because the transcript's per-message disclosure
+  ([[TeamMessageProcess]]) needs the identical fetch/cache/race behaviour.
+- **`RowMetric` handles `durationMs: null`** (legacy rows without started_at)
+  via `chat.team.roster.lastRunAgoOnly` — "finished Nm ago" instead of a
+  fabricated "ran 0s". See [[teamActivity]].
 
 # team/TeamRosterPanel.tsx — the room's standing member column
 

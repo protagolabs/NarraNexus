@@ -168,4 +168,14 @@ describe('lastRunSummary', () => {
     const a = { agent_id: 'x', status: 'idle' } as TeamMemberActivity;
     expect(lastRunSummary(a, Date.now())).toBeNull();
   });
+
+  test('an unknown start yields a null duration, never a confident "0s"', () => {
+    // Legacy rows / payloads without started_at: the turn DID run, we just
+    // don't know for how long. 0 would render as "ran 0s" — a wrong number.
+    const a = {
+      agent_id: 'x', status: 'idle', finished_at: '2026-07-30T10:03:12Z',
+    } as TeamMemberActivity;
+    const now = Date.parse('2026-07-30T10:08:12Z');
+    expect(lastRunSummary(a, now)).toEqual({ durationMs: null, agoMs: 300_000 });
+  });
 });

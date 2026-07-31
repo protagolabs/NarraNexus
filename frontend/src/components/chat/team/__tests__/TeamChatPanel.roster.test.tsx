@@ -184,3 +184,44 @@ describe('TeamChatPanel · addressing help', () => {
     expect(screen.getByText('chat.team.guide.relay')).toBeTruthy();
   });
 });
+
+describe('TeamChatPanel · per-message reasoning disclosure', () => {
+  const AGENT_REPLY = {
+    message_id: 'm2',
+    from_agent: 'a2',
+    author_name: 'Bruno',
+    is_user: false,
+    content: 'done — summary attached',
+    event_id: 'evt_9',
+    created_at: '2026-07-30T09:01:00Z',
+  };
+  const LEGACY_REPLY = {
+    message_id: 'm3',
+    from_agent: 'a1',
+    author_name: 'Ana',
+    is_user: false,
+    content: 'older reply from before the column existed',
+    event_id: null,
+    created_at: '2026-07-30T09:02:00Z',
+  };
+
+  test('an agent reply with an event_id offers the disclosure; legacy and user rows do not', async () => {
+    await renderRoom([RUNNING, IDLE_WITH_TRACE], [MESSAGE, AGENT_REPLY, LEGACY_REPLY]);
+
+    // Exactly one bubble carries the affordance — m2. The user message and the
+    // legacy (event_id: null) reply degrade to a plain bubble, no dead button.
+    expect(screen.getAllByText('chat.message.viewReasoning')).toHaveLength(1);
+  });
+
+  test('opening the disclosure fetches that turn and renders its process', async () => {
+    getEventLogMock.mockResolvedValue({
+      success: true,
+      timeline: [{ type: 'thinking', content: 'weighing options' }],
+    });
+    await renderRoom([RUNNING, IDLE_WITH_TRACE], [MESSAGE, AGENT_REPLY]);
+
+    fireEvent.click(screen.getByText('chat.message.viewReasoning'));
+    expect(await screen.findByText('weighing options')).toBeTruthy();
+    expect(getEventLogMock).toHaveBeenCalledWith('a2', 'evt_9');
+  });
+});

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/teamActivity.ts
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — lastRunSummary：start 未知 → durationMs null，不再编造 "0s"
+
+`durationMs` 类型变为 `number | null`：payload 缺 `started_at`（老数据）时返回
+null，让 UI 显示"何时完成"而不是一个错误的 "ran 0s"。时钟偏移（end<start）仍
+clamp 到 0。真正的修复在后端（[[teams]] idle 分支补发 started_at）；这里是
+防御层——缺数据永远不该渲染成一个自信的数字。
 
 ## 2026-07-30 — 裁掉 console 时代的三个符号
 

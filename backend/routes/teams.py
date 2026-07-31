@@ -374,6 +374,9 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
             "is_user": is_user,
             "content": m.content,
             "attachments": m.attachments,
+            # Turn that produced this reply (None for user messages / legacy
+            # rows) — powers the per-message reasoning disclosure.
+            "event_id": m.event_id,
             "created_at": format_for_api(m.created_at),
         })
 
@@ -458,6 +461,9 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
         elif row is not None and steps["items"]:
             # Idle, but we still hold the trace of the turn it just finished.
             entry.update({
+                # started_at→finished_at is where the roster's "ran Ns" comes
+                # from; omitting the start made every finished turn read "0s".
+                "started_at": format_for_api(row.get("started_at")),
                 "finished_at": format_for_api(row.get("updated_at")),
                 "steps": steps,
                 "tool_count": row.get("tool_count") or 0,

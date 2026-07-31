@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — send_message persists event_id
+
+`send_message` gained `event_id: Optional[str] = None`; persisted on the
+`bus_messages` row and surfaced by `_row_to_message`. Only the trigger's team
+branch passes it (the turn that produced the reply); every other caller keeps
+the default None.
 
 ## 2026-07-28 — batched room pending summary + the poison threshold moves here
 

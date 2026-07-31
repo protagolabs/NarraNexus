@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — bus_messages.event_id (additive)
+
+The `events` row id of the turn that produced an agent reply, stamped by the
+trigger's team branch at post time. NULL for user messages and legacy rows.
+Powers the transcript's per-message "view reasoning & tools" disclosure —
+unlike `bus_agent_activity.event_id` (one row per member, latest turn only),
+this one gives every historical message its own handle.
 
 ## 2026-07-30 — bus_agent_activity.event_id (additive)
 
