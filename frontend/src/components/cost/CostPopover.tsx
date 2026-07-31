@@ -26,6 +26,11 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
+/** Format USD cost; sub-cent amounts keep enough digits to be non-zero. */
+function formatCost(n: number): string {
+  return n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
+}
+
 /** Short model name for display (drop date suffixes) */
 function shortModelName(
   model: string,
@@ -48,12 +53,27 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
   const cacheWrite = summary.total_cache_creation_tokens ?? 0;
   const totalInputSide = summary.total_input_tokens + cacheRead + cacheWrite;
   const totalTokens = totalInputSide + summary.total_output_tokens;
-  const hasCache = cacheRead > 0 || cacheWrite > 0;
   const modelTokens = (d: CostModelBreakdown) =>
     d.input_tokens +
     (d.cache_read_tokens ?? 0) +
     (d.cache_creation_tokens ?? 0) +
     d.output_tokens;
+
+  // The raw token total reads scary on a cache-warm agent — 1.2M of it may be
+  // 0.1x-priced cache reads. Hit rate + real cost are the two numbers that
+  // carry the good news; cost only when known (> 0), because unpriced models
+  // book $0 and a "$0.00" here would read as "free" rather than "unknown".
+  const cacheHitRate =
+    totalInputSide > 0 ? Math.round((cacheRead / totalInputSide) * 100) : 0;
+  const subParts: string[] = [];
+  if (cacheRead > 0) {
+    subParts.push(t('cost.popover.cacheHit', { rate: cacheHitRate }));
+  }
+  if (summary.total_cost_usd > 0) {
+    subParts.push(
+      t('cost.popover.totalCost', { cost: formatCost(summary.total_cost_usd) })
+    );
+  }
   const models = Object.entries(summary.by_model).sort(
     ([, a], [, b]) => modelTokens(b) - modelTokens(a)
   );
@@ -68,12 +88,15 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
           {t('cost.popover.inOut', { in: formatTokens(totalInputSide), out: formatTokens(summary.total_output_tokens) })}
         </div>
-        {hasCache && (
-          <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-            {t('cost.popover.cache', {
+        {subParts.length > 0 && (
+          <div
+            className="text-[10px] text-[var(--text-tertiary)] mt-0.5"
+            title={t('cost.popover.cacheDetail', {
               read: formatTokens(cacheRead),
               write: formatTokens(cacheWrite),
             })}
+          >
+            {subParts.join(' · ')}
           </div>
         )}
       </div>
@@ -100,6 +123,11 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
                 <span className="font-medium text-[var(--text-primary)] min-w-[50px] text-right">
                   {formatTokens(modelTokens(data))}
                 </span>
+                {data.cost > 0 && (
+                  <span className="text-[10px] text-[var(--text-tertiary)] min-w-[42px] text-right">
+                    {formatCost(data.cost)}
+                  </span>
+                )}
               </div>
             </div>
           ))}

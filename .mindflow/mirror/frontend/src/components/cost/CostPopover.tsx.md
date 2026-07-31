@@ -11,13 +11,23 @@ daily rows) now includes `cache_read_tokens` + `cache_creation_tokens`.
 agent the cache buckets are >99% of the input side, so the popover showed
 "input 213" for a 1.2M-token week and ranked the helper above the main
 loop (output dominated the visible sum — live case agent_39b2b72b823b).
-A subline under in/out (`cost.popover.cache`, zh+en) shows read/write
-cache tokens when non-zero, so "input" being mostly cheap cache reads is
-visible rather than implied. Backend counterpart: [[agents/cost.py]].
+Backend counterpart: [[agents/cost.py]].
 Every cache field is read with `?? 0`: a response from a backend build
 predating the fields has no such keys, and undefined in a sum renders
 "NaNM" — hit live the same day (hot-reloaded frontend against a
 not-yet-restarted backend).
+
+Subline design (owner-picked over a cost-headline variant): the raw
+token total reads scary once cache is counted (1.2M of which is
+0.1x-priced reads), so the subline carries the good news as
+"{rate}% cache hit · {cost} total" — hit rate is rate-free math
+(read / input side), cost appears ONLY when > 0 because unpriced models
+book $0 and "$0.00" would read as "free" rather than "unknown". Raw
+read/write counts moved to the subline's hover tooltip
+(`cost.popover.cacheDetail`). Per-model rows append their real cost
+(`by_model[].cost`, hidden at $0) — that is what makes "helper ran 18x
+but cost $0.19" visible, the original complaint behind this whole fix.
+Keys `cacheHit` / `totalCost` / `cacheDetail` filled in all 10 locales.
 
 ## 2026-07-28 — main/helper role labels
 

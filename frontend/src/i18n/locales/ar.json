@@ -1077,6 +1077,9 @@
     "popover": {
       "triggerTitle": "استخدام الرموز — انقر للتفاصيل",
       "inOut": "{{in}} داخل / {{out}} خارج",
+      "cacheHit": "نسبة إصابة التخزين المؤقت {{rate}}٪",
+      "totalCost": "الإجمالي {{cost}}",
+      "cacheDetail": "قراءة التخزين المؤقت {{read}} · كتابة {{write}}",
       "byModel": "حسب النموذج",
       "daily": "يومي",
       "viewAgent": "الوكيل",
