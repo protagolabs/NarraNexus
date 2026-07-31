@@ -90,11 +90,10 @@ describe('CostPopover', () => {
     expect(screen.getByText('1.1k')).toBeInTheDocument();
     // in/out line: input side includes both cache buckets (1030 → "1.0k").
     expect(screen.getByText('1.0k in / 50 out')).toBeInTheDocument();
-    // The subline leads with the hit rate (820/1030 → 80%); the raw
-    // read/write counts live in its tooltip. Cost part hidden at $0.
+    // The subline shows the hit rate (820/1030 → 80%); the raw read/write
+    // counts live in its tooltip.
     const subline = screen.getByText('80% cache hit');
     expect(subline).toHaveAttribute('title', 'cache read 820 · write 110');
-    expect(screen.queryByText(/total/)).not.toBeInTheDocument();
     // Per-model rows: main 80+40+800+100=1020 ("1.0k"), helper 20+10+20+10=60.
     // Without the cache buckets the helper row (30) would outrank main (120)
     // in the old sort — the live regression this guards against.
@@ -134,7 +133,7 @@ describe('CostPopover', () => {
     expect(screen.queryByText(/cache hit/)).not.toBeInTheDocument();
   });
 
-  it('shows real cost in the subline and per-model rows when priced', () => {
+  it('keeps cost off the face; token figures carry it as hover tooltips', () => {
     mockState.costSummary = {
       ...cacheHeavySummary,
       total_cost_usd: 2.39,
@@ -155,8 +154,25 @@ describe('CostPopover', () => {
       screen.getByTitle('Token usage — click for details'),
     );
 
-    expect(screen.getByText('80% cache hit · $2.39 total')).toBeInTheDocument();
-    expect(screen.getByText('$2.20')).toBeInTheDocument();
-    expect(screen.getByText('$0.19')).toBeInTheDocument();
+    // No visible dollar amounts anywhere on the panel.
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+    // Grand total tooltip carries the total cost…
+    expect(screen.getByText('1.1k')).toHaveAttribute('title', '$2.39 total');
+    // …and each model row's token figure carries its own.
+    expect(screen.getByText('1.0k')).toHaveAttribute('title', '$2.20');
+    expect(screen.getByText('60')).toHaveAttribute('title', '$0.19');
+  });
+
+  it('renders no cost tooltip when the model is unpriced ($0)', () => {
+    render(<CostPopover />);
+
+    fireEvent.click(
+      screen.getByTitle('Token usage — click for details'),
+    );
+
+    // Default mock books $0 everywhere: a "$0.00" tooltip would read as
+    // "free" rather than "unknown", so there must be none at all.
+    expect(screen.getByText('1.1k')).not.toHaveAttribute('title');
+    expect(screen.getByText('60')).not.toHaveAttribute('title');
   });
 });

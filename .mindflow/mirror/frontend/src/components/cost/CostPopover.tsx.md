@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/cost/CostPopover.tsx
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 ---
 
 ## 2026-07-30 — cache buckets counted into every displayed total
@@ -17,17 +17,17 @@ predating the fields has no such keys, and undefined in a sum renders
 "NaNM" — hit live the same day (hot-reloaded frontend against a
 not-yet-restarted backend).
 
-Subline design (owner-picked over a cost-headline variant): the raw
-token total reads scary once cache is counted (1.2M of which is
-0.1x-priced reads), so the subline carries the good news as
-"{rate}% cache hit · {cost} total" — hit rate is rate-free math
-(read / input side), cost appears ONLY when > 0 because unpriced models
-book $0 and "$0.00" would read as "free" rather than "unknown". Raw
-read/write counts moved to the subline's hover tooltip
-(`cost.popover.cacheDetail`). Per-model rows append their real cost
-(`by_model[].cost`, hidden at $0) — that is what makes "helper ran 18x
-but cost $0.19" visible, the original complaint behind this whole fix.
-Keys `cacheHit` / `totalCost` / `cacheDetail` filled in all 10 locales.
+Subline design (owner-picked, refined 07-31): the raw token total reads
+scary once cache is counted (1.2M of which is 0.1x-priced reads), so the
+visible subline is the hit rate — rate-free math (read / input side).
+**Money never appears on the face of the panel** (owner preference):
+cost lives in hover tooltips on the token figures — the grand total
+carries `totalCost` ("$2.39 total"), each per-model token figure carries
+its own bare cost (`by_model[].cost`). Cost tooltips render ONLY when
+> 0 — unpriced models book $0 and "$0.00" would read as "free" rather
+than "unknown". Raw cache read/write counts sit in the hit-rate line's
+tooltip (`cost.popover.cacheDetail`). Keys `cacheHit` / `totalCost` /
+`cacheDetail` filled in all 10 locales.
 
 ## 2026-07-28 — main/helper role labels
 

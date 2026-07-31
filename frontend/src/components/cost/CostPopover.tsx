@@ -60,20 +60,17 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
     d.output_tokens;
 
   // The raw token total reads scary on a cache-warm agent — 1.2M of it may be
-  // 0.1x-priced cache reads. Hit rate + real cost are the two numbers that
-  // carry the good news; cost only when known (> 0), because unpriced models
-  // book $0 and a "$0.00" here would read as "free" rather than "unknown".
+  // 0.1x-priced cache reads. The hit rate carries the good news visibly
+  // (rate-free math); real cost lives in hover tooltips on the token figures
+  // (owner preference: no money on the face of the panel). Cost tooltips
+  // appear only when > 0 — unpriced models book $0 and a "$0.00" would read
+  // as "free" rather than "unknown".
   const cacheHitRate =
     totalInputSide > 0 ? Math.round((cacheRead / totalInputSide) * 100) : 0;
-  const subParts: string[] = [];
-  if (cacheRead > 0) {
-    subParts.push(t('cost.popover.cacheHit', { rate: cacheHitRate }));
-  }
-  if (summary.total_cost_usd > 0) {
-    subParts.push(
-      t('cost.popover.totalCost', { cost: formatCost(summary.total_cost_usd) })
-    );
-  }
+  const totalCostTip =
+    summary.total_cost_usd > 0
+      ? t('cost.popover.totalCost', { cost: formatCost(summary.total_cost_usd) })
+      : undefined;
   const models = Object.entries(summary.by_model).sort(
     ([, a], [, b]) => modelTokens(b) - modelTokens(a)
   );
@@ -82,13 +79,16 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
     <div className="space-y-3">
       {/* Total */}
       <div className="text-center pb-2 border-b border-[var(--border-subtle)]">
-        <div className="text-2xl font-bold text-[var(--text-primary)]">
+        <div
+          className="text-2xl font-bold text-[var(--text-primary)]"
+          title={totalCostTip}
+        >
           {formatTokens(totalTokens)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
           {t('cost.popover.inOut', { in: formatTokens(totalInputSide), out: formatTokens(summary.total_output_tokens) })}
         </div>
-        {subParts.length > 0 && (
+        {cacheRead > 0 && (
           <div
             className="text-[10px] text-[var(--text-tertiary)] mt-0.5"
             title={t('cost.popover.cacheDetail', {
@@ -96,7 +96,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
               write: formatTokens(cacheWrite),
             })}
           >
-            {subParts.join(' · ')}
+            {t('cost.popover.cacheHit', { rate: cacheHitRate })}
           </div>
         )}
       </div>
@@ -120,14 +120,12 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
                 <span className="text-[10px] text-[var(--text-tertiary)]">
                   x{data.call_count}
                 </span>
-                <span className="font-medium text-[var(--text-primary)] min-w-[50px] text-right">
+                <span
+                  className="font-medium text-[var(--text-primary)] min-w-[50px] text-right"
+                  title={data.cost > 0 ? formatCost(data.cost) : undefined}
+                >
                   {formatTokens(modelTokens(data))}
                 </span>
-                {data.cost > 0 && (
-                  <span className="text-[10px] text-[var(--text-tertiary)] min-w-[42px] text-right">
-                    {formatCost(data.cost)}
-                  </span>
-                )}
               </div>
             </div>
           ))}
