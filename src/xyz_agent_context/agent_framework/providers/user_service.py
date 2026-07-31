@@ -1029,22 +1029,20 @@ class UserProviderService:
 
         Loads the persisted row, then delegates to ``test_provider_config``
         so the transient-ProviderConfig construction lives in exactly one
-        place. The OAuth short-circuit stays HERE: a stored oauth row means
-        the CLI holds real credentials, so "connected" is truthful — the
-        stateless twin deliberately rejects oauth (no stored credential to
-        stand behind that claim).
+        place. Both OAuth flavours delegate to the driver's ``verify_live``
+        — a real one-shot through the same CLI transport the agent uses.
+        The old ``oauth`` branch answered with an unconditional pass
+        ("the CLI holds real credentials, so connected is truthful") —
+        false: the CLI can hold EXPIRED credentials, and the pass leaked
+        into ProviderReadiness, re-arming paused jobs onto dead codex
+        logins (P0, 2026-07-31). Same defect class the 2026-07-23 incident
+        already proved for ``oauth_token``.
         """
         row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
         if not row:
             return False, "Provider not found"
 
-        if row.get("auth_type") == "oauth":
-            return True, "OAuth provider (managed by Claude Code CLI)"
-
-        if row.get("auth_type") == "oauth_token":
-            # The token is in OUR hands (unlike host-CLI oauth), so the Test
-            # button can be honest: a real one-shot CLI call instead of the
-            # existence-check that lied through the 2026-07-23 incident.
+        if row.get("auth_type") in ("oauth", "oauth_token"):
             from xyz_agent_context.agent_framework.providers.driver.base import (
                 ProviderCard,
             )
@@ -1053,13 +1051,24 @@ class UserProviderService:
             )
 
             card = ProviderCard.from_row(row)
-            driver_cls = get_driver_class(card.driver_type or "claude_oauth")
-            verify = getattr(
-                driver_cls(card) if driver_cls else None, "verify_token_live", None
+            # Legacy rows predate the driver_type column: derive from the
+            # protocol — openai OAuth is the codex CLI, anthropic the claude
+            # CLI. (The old default of claude_oauth mis-verified codex rows.)
+            driver_type = card.driver_type or (
+                "codex_oauth" if (row.get("protocol") or "") == "openai" else "claude_oauth"
             )
+            driver_cls = get_driver_class(driver_type)
+            if driver_cls is None:
+                return False, f"unknown driver {driver_type!r} — cannot verify"
+            driver = driver_cls(card)
+            verify = getattr(driver, "verify_live", None)
             if verify is None:
-                return False, (
-                    f"driver {card.driver_type!r} has no live token verification"
+                # No live capability: report the cheap existence probe, but
+                # say so — never dress an existence check up as connectivity.
+                health = await driver.probe()
+                return health.ok, (
+                    f"{health.detail} (existence check only — driver "
+                    f"{driver_type!r} has no live verification)"
                 )
             return await verify()
 

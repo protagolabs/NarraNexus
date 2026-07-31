@@ -90,7 +90,7 @@ class ClaudeOAuthDriver(_DriverBase):
         exist while its token family is dead, and this probe used to check
         a DIFFERENT store (the unsuffixed host entry) than the one the
         runtime read. So the probe now (a) says exactly which store it
-        checked and (b) for token mode points at ``verify_token_live`` as
+        checked and (b) for token mode points at ``verify_live`` as
         the real verdict. It stays cheap (no network) because the Settings
         page calls it on every load.
         """
@@ -141,16 +141,20 @@ class ClaudeOAuthDriver(_DriverBase):
             detail=f"credentials file not found at {path}",
         )
 
-    async def verify_token_live(self) -> tuple[bool, str]:
-        """Real end-to-end check for token mode: one one-shot CLI call.
+    async def verify_live(self) -> tuple[bool, str]:
+        """Real end-to-end check for BOTH auth modes: one one-shot CLI call.
 
         The 2026-07-23 incident's probe lied ("logged in ✓" over a dead
-        credential) because it only checked existence. For ``oauth_token``
-        the credential is in OUR hands, so the explicit Test button makes
-        an actual ``claude`` CLI request with the stored token — the same
-        transport the agent loop uses. Expensive (spawns the CLI, bills one
-        tiny subscription call), so it runs only on explicit user action,
-        never from ``probe()``.
+        credential) because it only checked existence — fixed then for
+        ``oauth_token`` only, and the host-``oauth`` Test path kept an
+        unconditional pass until the 2026-07-31 codex P0 exposed the same
+        lie across every host-CLI credential. Now both modes make an
+        actual ``claude`` CLI request — the same transport the agent loop
+        uses; ``build_claude_config`` already selects the credential
+        channel per mode (token → env var, host oauth → the CLI's own
+        store). Expensive (spawns the CLI, bills one tiny subscription
+        call), so it runs only on explicit user action or a readiness
+        edge, never from ``probe()``.
 
         A single tool-free turn is NOT the agent_loop, so bounding it with
         helper-scale timeouts does not violate 铁律 #14 (same rationale as
@@ -162,8 +166,16 @@ class ClaudeOAuthDriver(_DriverBase):
 
         from xyz_agent_context.settings import settings as _settings
 
-        if not (self.card.api_key or ""):
-            return False, "no setup-token stored"
+        if self._is_token_mode():
+            if not (self.card.api_key or ""):
+                return False, "no setup-token stored"
+        else:
+            # Host-oauth: don't spend a CLI spawn when the credential store
+            # is verifiably empty — probe() already knows how to look
+            # (credentials file, macOS Keychain).
+            health = await self.probe()
+            if not health.ok:
+                return False, health.detail
         if shutil.which("claude") is None:
             return False, "claude CLI not found on PATH — cannot verify"
 
@@ -193,8 +205,8 @@ class ClaudeOAuthDriver(_DriverBase):
                         if isinstance(block, TextBlock) and block.text.strip():
                             got_text = True
             if got_text:
-                return True, "setup-token verified — live CLI call succeeded"
-            return False, "CLI run produced no reply — token may be invalid"
+                return True, "credentials verified — live CLI call succeeded"
+            return False, "CLI run produced no reply — credentials may be invalid"
 
         try:
             return await asyncio.wait_for(

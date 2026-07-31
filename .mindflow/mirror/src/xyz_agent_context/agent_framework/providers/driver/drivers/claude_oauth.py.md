@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-07-26
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
+
+2026-07-23 只给 oauth_token 修了"存在≠健康";host-CLI `oauth` 模式在
+user_service 里仍是无条件放行,直到 codex P0 暴露同类谎报。重命名为
+`verify_live` 并覆盖两种模式:token 模式逻辑不变;host 模式先 probe()
+(凭证文件/Keychain 存在性)快速失败、再跑同一个一发 CLI 调用——
+`build_claude_config` 本就按模式选凭证通道(token→env 注入,host→CLI
+自己的存储),一发调用天然两用。成功/失败文案改为模式无关措辞。
 
 # claude_oauth.py — Claude subscription driver (host-CLI OAuth + setup-token)
 
