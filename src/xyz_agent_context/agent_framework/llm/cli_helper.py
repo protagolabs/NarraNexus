@@ -33,18 +33,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import tempfile
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
-
-from xyz_agent_context.agent_framework.loop.events import (
-    DATA_TYPE_DONE,
-    DATA_TYPE_ERROR,
-    DATA_TYPE_TEXT_DELTA,
-    TYPE_RAW_RESPONSE_EVENT,
-)
 from pydantic import BaseModel, TypeAdapter
 
 from xyz_agent_context.agent_framework.api_config import (
@@ -80,11 +71,13 @@ _DEFAULT_CODEX_HELPER_MODEL = "gpt-5.4-mini"
 # Neutral cwd / sandbox root for the CLI one-shots — the claude branch is
 # tool-free (allowed_tools=[]) and the codex branch points its writable_roots
 # here (never the backend cwd), so any codex file op is confined to this
-# disposable dir. One shared dir avoids per-call mkdtemp churn. UID-suffixed +
-# 0o700 so another local user can't pre-create / read it on a shared host.
-_HELPER_CWD = os.path.join(
-    tempfile.gettempdir(), f"narranexus-cli-helper-{os.getuid()}"
-)
+# disposable dir. Provisioned via cli_oneshot.oneshot_cwd, which also
+# verifies st_uid ownership before reuse (a same-named dir pre-created by
+# another user on a shared host must not be silently adopted).
+def _helper_cwd() -> str:
+    from xyz_agent_context.agent_framework.llm.cli_oneshot import oneshot_cwd
+
+    return oneshot_cwd("cli-helper")
 
 
 class CliHelperSDK:
@@ -174,7 +167,7 @@ class CliHelperSDK:
             f"auth={'token' if env.get('ANTHROPIC_AUTH_TOKEN') else ('key' if env.get('ANTHROPIC_API_KEY') else 'none')}, "
             f"config_dir={env.get('CLAUDE_CONFIG_DIR')}"
         )
-        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
+        helper_cwd = _helper_cwd()
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             model=resolve_cli_alias(model_name, auth_type=cli_helper_config.auth_type),
@@ -182,7 +175,7 @@ class CliHelperSDK:
             allowed_tools=[],      # pure completion — no tool use
             mcp_servers={},
             max_turns=1,
-            cwd=_HELPER_CWD,
+            cwd=helper_cwd,
         )
 
         async def _consume() -> tuple[str, int, int]:
@@ -264,76 +257,30 @@ class CliHelperSDK:
     async def _run_codex_oneshot_inner(
         self, system_prompt: str, user_input: str
     ) -> tuple[str, int, int]:
-        from xyz_agent_context.agent_framework import get_agent_loop_driver
-
-        # working_path=_HELPER_CWD: (1) it is a REQUIRED arg for the executor
-        # seam (RemoteAgentLoopDriver.__init__) — omitting it TypeErrors once
-        # AGENT_EXECUTOR_URL is set; (2) it confines codex's writable_roots /
-        # cwd to a disposable per-uid temp dir instead of the backend process
-        # cwd, so a prompt-injected helper input (narrative/entity text) can't
-        # touch the app tree. The dir must exist before the driver spawns.
-        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
-        driver = get_agent_loop_driver(
-            framework="codex_cli", working_path=_HELPER_CWD
+        from xyz_agent_context.agent_framework.llm.cli_oneshot import (
+            run_codex_cli_oneshot,
         )
+
         # The codex driver derives instructions.md ONLY from role=="system"
-        # messages and pops the LAST message as the per-turn user turn. The
-        # schema/instructions MUST ride a system message — folding them into
-        # the user content leaves instructions.md empty and the codex CLI exits
-        # on startup ("model instructions file is empty"), so the codex helper
-        # never ran. Mirrors _run_claude_oneshot, which passes system_prompt and
-        # user_input separately.
-        text_parts: list[str] = []
-        in_tok = out_tok = 0
-        err_msg = ""
-        async for ev in driver.agent_loop(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input},
-            ],
-            mcp_servers={},
-        ):
-            # The codex driver's translator (output_transfer, codex_official)
-            # emits internal events shaped {"type":"raw_response_event",
-            # "data":{...}} — the visible assistant text streams as
-            # data.type=="response.text.delta" and the terminal usage lands on
-            # data.type=="response.done". (An earlier draft read ev["raw_event"]
-            # / ev["usage"], keys this translator never sets, so no text was
-            # ever accumulated and every structured call failed JSON extraction
-            # on an empty body.)
-            if not isinstance(ev, dict) or ev.get("type") != TYPE_RAW_RESPONSE_EVENT:
-                continue
-            data = ev.get("data") or {}
-            dtype = data.get("type")
-            if dtype == DATA_TYPE_TEXT_DELTA:
-                delta = data.get("delta") or ""
-                if delta:
-                    text_parts.append(delta)
-            elif dtype == DATA_TYPE_DONE:
-                usage = data.get("usage")
-                if isinstance(usage, dict):
-                    in_tok = int(usage.get("input_tokens", in_tok) or in_tok)
-                    out_tok = int(usage.get("output_tokens", out_tok) or out_tok)
-            elif dtype == DATA_TYPE_ERROR:
-                # Codex surfaces auth / quota failures as a terminal error
-                # EVENT, not an exception. Capture it so the helper raises a
-                # classifiable error below — otherwise the empty text falls
-                # through to a misleading "could not extract JSON" on an empty
-                # body, masking the real cause (e.g. "unauthorized — re-login")
-                # and defeating the #68 credential-failure alerting, which keys
-                # off is_credential_error reading the error text.
-                # Keep BOTH the type and the message: codex phrases auth
-                # failures as error_type="unauthorized" with a message
-                # ("access token could not be refreshed …") that carries no
-                # credential marker on its own, so dropping the type would make
-                # is_credential_error miss it.
-                _etype = str(data.get("error_type") or "").strip()
-                _emsg = str(data.get("error_message") or "").strip()
-                err_msg = ": ".join(p for p in (_etype, _emsg) if p) or "codex error"
-        text = "".join(text_parts)
-        if not text and err_msg:
-            raise RuntimeError(f"codex CLI helper failed: {err_msg}")
-        return text, in_tok, out_tok
+        # messages and pops the LAST message as the per-turn user turn — the
+        # shared runner passes system_prompt/user_input as separate messages
+        # for exactly that reason (mirrors _run_claude_oneshot).
+        #
+        # working_path=_helper_cwd() keeps the helper's artifacts in ITS
+        # namespace (see the _helper_cwd comment); driver construction, event
+        # parsing and the error-event contract live in cli_oneshot (shared
+        # with CodexOAuthDriver.verify_live since the PR #224 review).
+        result = await run_codex_cli_oneshot(
+            system_prompt, user_input, working_path=_helper_cwd()
+        )
+        if not result.text and result.error:
+            # Raise a classifiable error — otherwise the empty text falls
+            # through to a misleading "could not extract JSON" on an empty
+            # body, masking the real cause (e.g. "unauthorized — re-login")
+            # and defeating the #68 credential-failure alerting, which keys
+            # off is_credential_error reading the error text.
+            raise RuntimeError(f"codex CLI helper failed: {result.error}")
+        return result.text, result.input_tokens, result.output_tokens
 
     async def _run_oneshot(
         self, system_prompt: str, user_input: str, model_name: str

@@ -22,6 +22,9 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.providers.model_catalog import (
+    get_default_models,
+)
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
 )
@@ -69,7 +72,12 @@ def _is_cloud_mode() -> bool:
 # whenever OpenAI ships/retires a codex model, and keep every id registered
 # in model_catalog (pinned by
 # test_codex_curated_models_stay_registered_in_catalog).
-CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+#
+# The values live in model_catalog._DEFAULT_MODELS[("codex_oauth", "openai")]
+# since 2026-07-31: keeping the literal HERE left get_default_models() empty
+# for codex, so codex verify_live's "curated defaults first" guard silently
+# fell back to the stale stored models column. One table, two consumers.
+CODEX_CURATED_MODELS = get_default_models("codex_oauth", "openai")
 
 
 def validate_slot_binding(
@@ -1029,23 +1037,23 @@ class UserProviderService:
 
         Loads the persisted row, then delegates to ``test_provider_config``
         so the transient-ProviderConfig construction lives in exactly one
-        place. The OAuth short-circuit stays HERE: a stored oauth row means
-        the CLI holds real credentials, so "connected" is truthful — the
-        stateless twin deliberately rejects oauth (no stored credential to
-        stand behind that claim).
+        place. Both OAuth flavours delegate to the driver's ``verify_live``
+        — a real one-shot through the same CLI transport the agent uses.
+        The old ``oauth`` branch answered with an unconditional pass
+        ("the CLI holds real credentials, so connected is truthful") —
+        false: the CLI can hold EXPIRED credentials, and the pass leaked
+        into ProviderReadiness, re-arming paused jobs onto dead codex
+        logins (P0, 2026-07-31). Same defect class the 2026-07-23 incident
+        already proved for ``oauth_token``.
         """
         row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
         if not row:
             return False, "Provider not found"
 
-        if row.get("auth_type") == "oauth":
-            return True, "OAuth provider (managed by Claude Code CLI)"
-
-        if row.get("auth_type") == "oauth_token":
-            # The token is in OUR hands (unlike host-CLI oauth), so the Test
-            # button can be honest: a real one-shot CLI call instead of the
-            # existence-check that lied through the 2026-07-23 incident.
+        if row.get("auth_type") in ("oauth", "oauth_token"):
             from xyz_agent_context.agent_framework.providers.driver.base import (
+                VERIFY_DEAD,
+                VERIFY_OK,
                 ProviderCard,
             )
             from xyz_agent_context.agent_framework.providers.driver.registry import (
@@ -1053,15 +1061,37 @@ class UserProviderService:
             )
 
             card = ProviderCard.from_row(row)
-            driver_cls = get_driver_class(card.driver_type or "claude_oauth")
-            verify = getattr(
-                driver_cls(card) if driver_cls else None, "verify_token_live", None
+            # Legacy rows predate the driver_type column: derive from the
+            # protocol — openai OAuth is the codex CLI, anthropic the claude
+            # CLI. (The old default of claude_oauth mis-verified codex rows.)
+            driver_type = card.driver_type or (
+                "codex_oauth" if (row.get("protocol") or "") == "openai" else "claude_oauth"
             )
+            driver_cls = get_driver_class(driver_type)
+            if driver_cls is None:
+                return False, f"unknown driver {driver_type!r} — cannot verify"
+            driver = driver_cls(card)
+            verify = getattr(driver, "verify_live", None)
             if verify is None:
-                return False, (
-                    f"driver {card.driver_type!r} has no live token verification"
+                # No live capability: report the cheap existence probe, but
+                # say so — never dress an existence check up as connectivity.
+                health = await driver.probe()
+                return health.ok, (
+                    f"{health.detail} (existence check only — driver "
+                    f"{driver_type!r} has no live verification)"
                 )
-            return await verify()
+            # Tri-state → bool mapping for the two consumers of this method
+            # (the Test button and ProviderReadiness): only a VERIFIED-dead
+            # credential maps to False. "unknown" (control-plane node,
+            # timeout, missing model list) maps to True-with-caveat — a
+            # False here would permanently block the readiness edge that
+            # re-arms PAUSED_NO_QUOTA jobs over a situation nobody verified.
+            verdict, detail = await verify()
+            if verdict == VERIFY_OK:
+                return True, detail
+            if verdict == VERIFY_DEAD:
+                return False, detail
+            return True, f"{detail} (not live-verified)"
 
         return await self.test_provider_config(
             card_type=row["protocol"],

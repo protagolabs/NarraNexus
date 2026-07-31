@@ -4,6 +4,25 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 — test_provider:oauth 与 oauth_token 统一走 driver.verify_live
+
+P0「codex 本地 auth 检查无效」的入口层修复:`auth_type=="oauth"` 的
+无条件 `True, "OAuth provider (managed by Claude Code CLI)"` 删除——
+"CLI 持有真凭证所以 connected 属实"这个 2026-07-28 的论断是错的,CLI
+可以持有**过期**凭证;且这个假通过经 [[readiness]] 泄漏,把暂停 job
+重新武装到死凭证上。两种 OAuth 现统一:ProviderCard.from_row →
+`get_driver_class` → `driver.verify_live()`。缺 driver_type 的存量行按
+协议推导(openai→codex_oauth,anthropic→claude_oauth——旧代码缺省
+claude_oauth 会把 codex 行验到错误的 CLI 上)。无 verify_live 能力的
+驱动回落 probe() 但文案明说"仅存在性检查",绝不把存在性包装成连通性。
+
+Review 轮修正(同日):verify_live 改三态后,本方法负责 verdict→bool
+映射(Test 按钮与 readiness 共用):ok→True,dead→False,
+**unknown→True + "(not live-verified)"**——False 会把"本节点无法判定"
+当成"凭证已死",永久拦死 readiness 的边缘恢复。CODEX_CURATED_MODELS
+字面量迁入 [[model_catalog]] 的 _DEFAULT_MODELS,本文件反向读
+get_default_models(单一事实源,修 verify_live 的 curated 死代码)。
+
 ## 2026-07-31 — 绑定规则第 2 条 + 切框架会清掉跑不了的绑定
 
 `validate_slot_binding` 的 agent 槽位加上「订阅凭据」这一条，调
