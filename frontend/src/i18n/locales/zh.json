@@ -240,11 +240,10 @@
         "free_tier_exhausted": "你的平台免费额度已用完 —— 升级 Nexus Pro，或添加你自己的 provider key 并切换这个 Agent slot。"
       },
       "freeTier": {
-        "subscribe": "升级 Nexus Pro",
         "useOwnKey": "用我自己的 provider"
       },
+      "upgradeCta": "升级 Nexus Pro",
       "balance": {
-        "subscribe": "升级 Nexus Pro",
         "plans": "查看套餐与充值"
       }
     },

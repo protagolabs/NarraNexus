@@ -201,11 +201,10 @@
         "free_tier_exhausted": "Бесплатные средства израсходованы — перейдите на Nexus Pro или добавьте свой ключ провайдера и переключите на него слот этого агента."
       },
       "freeTier": {
-        "subscribe": "Перейти на Nexus Pro",
         "useOwnKey": "Использовать свой провайдер"
       },
+      "upgradeCta": "Перейти на Nexus Pro",
       "balance": {
-        "subscribe": "Подключить Nexus Pro",
         "plans": "Тарифы и кредиты"
       }
     },

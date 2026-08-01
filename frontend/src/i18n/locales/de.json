@@ -199,11 +199,10 @@
         "free_tier_exhausted": "Dein kostenloses Plattform-Guthaben ist aufgebraucht – wechsle zu Nexus Pro, oder füge deinen eigenen Provider-Key hinzu und stelle den Slot dieses Agents darauf um."
       },
       "freeTier": {
-        "subscribe": "Nexus Pro holen",
         "useOwnKey": "Eigenen Provider nutzen"
       },
+      "upgradeCta": "Nexus Pro holen",
       "balance": {
-        "subscribe": "Nexus Pro holen",
         "plans": "Tarife & Guthaben"
       }
     },

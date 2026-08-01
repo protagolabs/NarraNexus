@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/failure.py
-last_verified: 2026-07-30
+last_verified: 2026-08-01
 stub: false
 ---
 
@@ -16,6 +16,15 @@ stub: false
 读报文而不是从配置推断，是为了让**上游故障保持诚实** —— 共享上游干了会返回 NetMind 的
 `balance not enough`，仍归 `insufficient_balance`，因此绝不会拿我们自己的故障去催用户付费。
 判定顺序放在 `insufficient_balance` **之前**（最具体优先，与本表既有约定一致）。
+
+**类型表命中后仍要看报文**（2026-08-01 补）：`classify_self_serviceable` 原本一旦命中
+`_SELF_SERVICEABLE_TYPES` 就立即返回、完全不读 message。而 `billing_error` 是 SDK 折叠出的
+枚举，语义只到「没钱了」为止 —— 报文里明写 `Budget has been exceeded` 也会被判成
+`insufficient_balance`，正好把免费额度用户推回那对做不到的建议。现在的规则是：**类型表命中
+给出「类别」，报文决定「是哪一种」** —— 命中值属于 `OUT_OF_CREDIT_REASONS` 时再跑一遍
+free-tier marker 做细化。刻意限定在这个集合内：context-window 错误不会因为正文里出现
+「budget」就变成预算错误。只有 raw-exception 路径能走到（inline 路径 error_type 塌成
+`unknown`），所以此前一直没暴露。
 
 文案里的套餐**具名 Nexus Pro**（2026-08-01，随 #222 改名），与既有「升级 Nexus Pro」用词
 一致 —— 泛称「a plan」在一个已经有确定产品名的界面里只会让人多问一句。

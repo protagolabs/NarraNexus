@@ -240,11 +240,10 @@
         "free_tier_exhausted": "Your free platform credit is used up — upgrade to Nexus Pro, or add your own provider key and switch this Agent's slot to it."
       },
       "freeTier": {
-        "subscribe": "Get Nexus Pro",
         "useOwnKey": "Use my own provider"
       },
+      "upgradeCta": "Get Nexus Pro",
       "balance": {
-        "subscribe": "Get Nexus Pro",
         "plans": "Plans & credits"
       }
     },

@@ -567,7 +567,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               onClick={() => navigate('/pay')}
               className="h-8 px-3 text-xs"
             >
-              {t('chat.error.freeTier.subscribe', 'Get Nexus Pro')}
+              {t('chat.error.upgradeCta', 'Get Nexus Pro')}
             </Button>
             <Button
               variant="outline"
@@ -599,7 +599,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
             {/* The plan leads because it is the only remedy that also removes
                 the next interruption. Shared with the free-tier funnel on
-                purpose: /pay degrades to the account page for someone already
+                purpose — same route, same words, so ONE key
+                (`chat.error.upgradeCta`) rather than two that drift: within a
+                single PR the duplicated pair had already diverged in 4 of 10
+                locales. /pay degrades to the account page for someone already
                 subscribed, so the label being off for them costs a redirect,
                 not a dead end. */}
             <Button
@@ -607,7 +610,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               onClick={() => navigate('/pay')}
               className="h-8 px-3 text-xs"
             >
-              {t('chat.error.balance.subscribe', 'Get Nexus Pro')}
+              {t('chat.error.upgradeCta', 'Get Nexus Pro')}
             </Button>
             <Button
               variant="outline"

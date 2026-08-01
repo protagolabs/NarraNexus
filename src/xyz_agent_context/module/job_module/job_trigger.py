@@ -117,7 +117,9 @@ _NO_QUOTA_ERROR_TYPES: frozenset = frozenset({
 # Fallback substrings for the generic-except path that only carries a message.
 # An empty free-tier WALLET is not here: the gateway refuses that call at
 # runtime with an out-of-credit error, which layer 2 (classify_self_serviceable
-# → insufficient_balance) already catches — one classifier, not two.
+# → OUT_OF_CREDIT_REASONS) already catches — one classifier, not two. Named as
+# the SET, not a member: the 2026-07-30 split of free_tier_exhausted out of
+# insufficient_balance is exactly what would have rotted a single name here.
 _NO_QUOTA_ERROR_MARKERS = (
     "no provider configured",
 )

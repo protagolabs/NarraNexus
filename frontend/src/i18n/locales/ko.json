@@ -199,11 +199,10 @@
         "free_tier_exhausted": "무료 크레딧을 모두 사용했습니다 —— Nexus Pro 로 업그레이드하거나, 직접 발급한 provider 키를 추가해 이 Agent 슬롯을 전환하세요."
       },
       "freeTier": {
-        "subscribe": "Nexus Pro 보기",
         "useOwnKey": "내 provider 사용"
       },
+      "upgradeCta": "Nexus Pro로 업그레이드",
       "balance": {
-        "subscribe": "Nexus Pro로 업그레이드",
         "plans": "요금제 및 크레딧"
       }
     },

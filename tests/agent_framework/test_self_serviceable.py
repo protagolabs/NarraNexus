@@ -17,10 +17,13 @@ import pytest
 
 from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
+    OUT_OF_CREDIT_REASONS,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
     SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+    SELF_SERVICEABLE_USER_MESSAGE,
 )
 
 
@@ -154,10 +157,6 @@ def test_context_window_wins_over_other_markers():
     ],
 )
 def test_gateway_budget_is_free_tier_exhausted(error_message):
-    from xyz_agent_context.agent_framework.llm.failure import (
-        SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
-    )
-
     assert (
         classify_self_serviceable("unknown", error_message)
         == SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED
@@ -185,13 +184,43 @@ def test_byok_out_of_credit_stays_insufficient_balance(error_type, error_message
     )
 
 
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Budget has been exceeded! Current cost: 10.0, Max budget: 10.0",
+        "ExceededBudget: crossed spend within budget",
+    ],
+)
+def test_a_typed_billing_error_still_yields_to_the_free_tier_marker(error_message):
+    """A type-table hit names the CATEGORY; the message still picks WHICH.
+
+    ``billing_error`` is an SDK enum meaning only "no money". Returning on it
+    without reading the body would hand a spent free-tier wallet the BYOK
+    guidance — top up, switch the provider — which is the exact pair this whole
+    change exists to stop showing, since neither is possible for that card.
+    Only reachable on the raw-exception path (the inline path collapses
+    error_type to ``unknown``), which is why it went unnoticed.
+    """
+    assert (
+        classify_self_serviceable("billing_error", error_message)
+        == SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED
+    )
+
+
+def test_a_typed_hit_outside_out_of_credit_is_not_second_guessed():
+    """The refinement is scoped to the no-money reasons. A context-window error
+    whose body happens to mention a budget must stay a context-window error."""
+    assert (
+        classify_self_serviceable(
+            "ContextWindowExceededError", "budget has been exceeded"
+        )
+        == SELF_SERVICEABLE_REASON_CONTEXT_WINDOW
+    )
+
+
 def test_byok_balance_copy_still_offers_top_up_and_switch():
     """BYOK guidance is correct as written — a top-up IS possible on the user's
     own account. Adding the free-tier branch must not bleed into it."""
-    from xyz_agent_context.agent_framework.llm.failure import (
-        SELF_SERVICEABLE_USER_MESSAGE,
-    )
-
     copy = SELF_SERVICEABLE_USER_MESSAGE[SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE]
     assert "Top up" in copy and "switch the provider" in copy
     assert "free" not in copy.lower()  # no free-tier vocabulary leaking in
@@ -201,11 +230,6 @@ def test_free_tier_copy_never_tells_the_user_to_top_up():
     """Topping up this wallet needs `role=staff` (/api/admin/quota/topup), and
     its key was never in the user's hands — so both of the BYOK remedies are
     impossible here. The copy must offer what they CAN do instead."""
-    from xyz_agent_context.agent_framework.llm.failure import (
-        SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
-        SELF_SERVICEABLE_USER_MESSAGE,
-    )
-
     copy = SELF_SERVICEABLE_USER_MESSAGE[SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED]
     assert "top up" not in copy.lower()
     assert "re-paste" not in copy.lower()
@@ -230,11 +254,6 @@ def test_free_tier_copy_never_tells_the_user_to_top_up():
 
 
 def test_out_of_credit_reasons_holds_every_no_money_reason():
-    from xyz_agent_context.agent_framework.llm.failure import (
-        OUT_OF_CREDIT_REASONS,
-        SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
-    )
-
     assert SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE in OUT_OF_CREDIT_REASONS
     assert SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED in OUT_OF_CREDIT_REASONS
     # Reasons that are NOT about money must stay out — they have different
@@ -245,7 +264,6 @@ def test_out_of_credit_reasons_holds_every_no_money_reason():
 
 
 def test_every_out_of_credit_reason_pauses_the_circuit_breaker():
-    from xyz_agent_context.agent_framework.llm.failure import OUT_OF_CREDIT_REASONS
     from xyz_agent_context.agent_framework.loop.circuit_breaker import (
         ErrorCategory,
         classify_agent_error,
@@ -268,7 +286,6 @@ def test_every_out_of_credit_reason_pauses_the_circuit_breaker():
 def test_every_out_of_credit_reason_resumes_only_on_an_edge():
     """A balance top-up leaves config unchanged, so the static readiness check
     cannot observe it. Any out-of-credit reason must therefore be edge-only."""
-    from xyz_agent_context.agent_framework.llm.failure import OUT_OF_CREDIT_REASONS
     from xyz_agent_context.module.job_module.job_trigger import (
         _EDGE_ONLY_RESUME_REASONS,
     )

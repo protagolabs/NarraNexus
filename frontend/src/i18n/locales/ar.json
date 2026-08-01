@@ -203,11 +203,10 @@
         "free_tier_exhausted": "لقد استُنفد رصيدك المجاني — قم بالترقية إلى Nexus Pro، أو أضف مفتاح مزوّد خاص بك وحوّل خانة هذا الـ Agent إليه."
       },
       "freeTier": {
-        "subscribe": "الحصول على Nexus Pro",
         "useOwnKey": "استخدام مزوّدي الخاص"
       },
+      "upgradeCta": "الحصول على Nexus Pro",
       "balance": {
-        "subscribe": "الاشتراك في Nexus Pro",
         "plans": "الخطط والرصيد"
       }
     },

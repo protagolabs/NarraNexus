@@ -260,9 +260,23 @@ def classify_self_serviceable(
     ``unknown``, signal only in the folded-in stderr message).
     """
     et = (error_type or "").strip()
-    if et in _SELF_SERVICEABLE_TYPES:
-        return _SELF_SERVICEABLE_TYPES[et]
     hay = f"{et}\n{error_message or ''}".lower()
+    typed = _SELF_SERVICEABLE_TYPES.get(et)
+    if typed is not None:
+        # A type-table hit names the CATEGORY; for the out-of-credit ones the
+        # message still decides WHICH credit ran out. ``billing_error`` is an SDK
+        # enum meaning no more than "no money", so returning on it blind would
+        # hand a spent free-tier wallet the BYOK guidance (top up / switch the
+        # provider) — the very pair that is impossible for that card and the
+        # reason ``free_tier_exhausted`` exists.
+        #
+        # Scoped to OUT_OF_CREDIT_REASONS on purpose: a context-window error is
+        # not made a budget error by the word "budget" appearing in its body.
+        if typed in OUT_OF_CREDIT_REASONS and any(
+            _marker_hit(m, hay) for m in _FREE_TIER_BUDGET_MARKERS
+        ):
+            return SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED
+        return typed
     if not hay.strip():
         return None
     for reason, markers in _SELF_SERVICEABLE_MARKERS:

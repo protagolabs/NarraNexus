@@ -199,11 +199,10 @@
         "free_tier_exhausted": "Votre crédit gratuit est épuisé — passez à Nexus Pro, ou ajoutez votre propre clé de fournisseur et basculez le slot de cet Agent dessus."
       },
       "freeTier": {
-        "subscribe": "Passer à Nexus Pro",
         "useOwnKey": "Utiliser mon fournisseur"
       },
+      "upgradeCta": "Passer à Nexus Pro",
       "balance": {
-        "subscribe": "Passer à Nexus Pro",
         "plans": "Forfaits et crédits"
       }
     },

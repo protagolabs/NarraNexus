@@ -199,11 +199,10 @@
         "free_tier_exhausted": "O seu crédito gratuito esgotou — faça upgrade para o Nexus Pro, ou adicione a sua própria chave de provedor e mude o slot deste Agent para ela."
       },
       "freeTier": {
-        "subscribe": "Obter o Nexus Pro",
         "useOwnKey": "Usar o meu provedor"
       },
+      "upgradeCta": "Obter o Nexus Pro",
       "balance": {
-        "subscribe": "Obter o Nexus Pro",
         "plans": "Planos e créditos"
       }
     },
