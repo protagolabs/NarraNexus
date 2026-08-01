@@ -203,6 +203,9 @@
       "freeTier": {
         "subscribe": "Перейти на Nexus Pro",
         "useOwnKey": "Использовать свой провайдер"
+      },
+      "balance": {
+        "plans": "Тарифы и кредиты"
       }
     },
     "dateToday": "Сегодня",

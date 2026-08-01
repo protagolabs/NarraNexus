@@ -201,6 +201,9 @@
       "freeTier": {
         "subscribe": "Obter o Nexus Pro",
         "useOwnKey": "Usar o meu provedor"
+      },
+      "balance": {
+        "plans": "Planos e créditos"
       }
     },
     "dateToday": "Hoje",

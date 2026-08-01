@@ -9,7 +9,7 @@
  * actionReason; the popover shows the localized actionable title + per-reason
  * guidance so the user knows to switch models. This guards that wiring.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -22,6 +22,7 @@ vi.mock('react-router-dom', async (orig) => ({
 }));
 
 import { MessageBubble } from '../MessageBubble';
+import { useConfigStore } from '@/stores';
 import type { ChatMessage } from '@/types';
 
 function msg(p: Partial<ChatMessage>): ChatMessage {
@@ -105,13 +106,64 @@ describe('MessageBubble free-tier exhaustion', () => {
   });
 
   it('shows NO buttons for any other actionable reason', () => {
-    // A BYOK wallet running dry keeps the generic guidance: a top-up IS possible
-    // on the user's own account, so hijacking it with an upsell would be wrong.
-    for (const reason of ['insufficient_balance', 'context_window', 'model_not_found']) {
+    // `insufficient_balance` is excluded on purpose — it has its own, DIFFERENT
+    // entry point (see the describe below). What must never leak into it is the
+    // free-tier pair: telling a paying user their FREE credit ran out is wrong.
+    for (const reason of ['context_window', 'model_not_found']) {
       const { unmount } = renderBubble(
         <MessageBubble message={msg({ isError: true, actionReason: reason })} />,
       );
       expect(screen.queryByRole('button', { name: /Get Nexus Pro/i })).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+});
+
+// ── a balance running dry: the second entry point (2026-08-01) ───────────────
+// Owner decision: a user whose BALANCE is spent should also get one click to our
+// plans, not just a sentence telling them to go find Settings.
+//
+// This deliberately reverses the earlier "no upsell here" stance, and the reason
+// is worth recording: `insufficient_balance` is provider-agnostic by design (it
+// fires for DeepSeek 402s, OpenAI insufficient_quota, Anthropic credit balance
+// AND the user's own NetMind account alike), so the button cannot claim to top
+// up "your account" — we do not know whose ran out. It therefore names OUR
+// destination ("Plans & credits") and nothing else, which stays true whichever
+// provider failed.
+//
+// Gated on a NetMind session: billing 404s for a pure-local username user, so a
+// button would land them on a pane that renders nothing.
+describe('MessageBubble balance exhausted', () => {
+  beforeEach(() => {
+    mockNavigate.mockReset();
+    useConfigStore.setState({ netmindToken: 'tok' });
+  });
+  afterEach(() => useConfigStore.setState({ netmindToken: '' }));
+
+  it('offers our plans in one click', () => {
+    renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
+    fireEvent.click(screen.getByRole('button', { name: /Plans & credits/i }));
+    expect(mockNavigate).toHaveBeenCalledWith('/app/settings?tab=account');
+  });
+
+  it('never shows the free-tier pair — this user is not on the free card', () => {
+    renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
+    expect(screen.queryByRole('button', { name: /Get Nexus Pro/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use my own provider/i })).not.toBeInTheDocument();
+  });
+
+  it('stays silent for a local user, who has no billing panel at all', () => {
+    useConfigStore.setState({ netmindToken: '' });
+    renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
+    expect(screen.queryByRole('button', { name: /Plans & credits/i })).not.toBeInTheDocument();
+  });
+
+  it('does not reach other reasons', () => {
+    for (const reason of ['context_window', 'model_not_found', 'invalid_credentials']) {
+      const { unmount } = renderBubble(
+        <MessageBubble message={msg({ isError: true, actionReason: reason })} />,
+      );
+      expect(screen.queryByRole('button', { name: /Plans & credits/i })).not.toBeInTheDocument();
       unmount();
     }
   });

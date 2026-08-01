@@ -201,6 +201,9 @@
       "freeTier": {
         "subscribe": "Nexus Pro holen",
         "useOwnKey": "Eigenen Provider nutzen"
+      },
+      "balance": {
+        "plans": "Tarife & Guthaben"
       }
     },
     "dateToday": "Heute",

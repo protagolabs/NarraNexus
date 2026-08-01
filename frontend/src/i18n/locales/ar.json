@@ -205,6 +205,9 @@
       "freeTier": {
         "subscribe": "الحصول على Nexus Pro",
         "useOwnKey": "استخدام مزوّدي الخاص"
+      },
+      "balance": {
+        "plans": "الخطط والرصيد"
       }
     },
     "dateToday": "اليوم",

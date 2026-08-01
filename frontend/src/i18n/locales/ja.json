@@ -201,6 +201,9 @@
       "freeTier": {
         "subscribe": "Nexus Pro を見る",
         "useOwnKey": "自分の provider を使う"
+      },
+      "balance": {
+        "plans": "プランとクレジット"
       }
     },
     "dateToday": "今日",

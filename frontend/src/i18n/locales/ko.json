@@ -201,6 +201,9 @@
       "freeTier": {
         "subscribe": "Nexus Pro 보기",
         "useOwnKey": "내 provider 사용"
+      },
+      "balance": {
+        "plans": "요금제 및 크레딧"
       }
     },
     "dateToday": "오늘",

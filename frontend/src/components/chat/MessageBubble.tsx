@@ -51,6 +51,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
+  // Billing exists only for a NetMind session — the routes 404 for a pure-local
+  // username user, and SettingsPage hides the Account pane on the same signal.
+  // Gates the balance-exhausted button so it can't deep-link into a blank pane.
+  const hasBilling = !!useConfigStore((s) => s.netmindToken);
   const isUser = message.role === 'user';
 
   // Lazy-loaded event log state
@@ -571,6 +575,32 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               className="h-8 px-3 text-xs"
             >
               {t('chat.error.freeTier.useOwnKey', 'Use my own provider')}
+            </Button>
+          </div>
+        )}
+
+        {/* A spent BALANCE gets its own single entry point. Deliberately NOT the
+            free-tier pair: this user may already be paying, and telling them
+            their free credit ran out would be false.
+
+            The label names our DESTINATION rather than an action on "your
+            account", because `insufficient_balance` is provider-agnostic by
+            design — it fires for a DeepSeek 402, an OpenAI quota, an Anthropic
+            credit balance and the user's own NetMind account alike, and nothing
+            in the reason says which one ran dry (get_provider_source is coarse:
+            providers/resolver.py returns "user" for every non-platform card).
+            "Plans & credits" is true in all of those cases; "Top up your
+            account" would not be. The bubble text still carries the full
+            remedy, including switching providers, so this adds a shortcut
+            without narrowing the advice. */}
+        {message.actionReason === 'insufficient_balance' && hasBilling && (
+          <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
+            <Button
+              variant="accent"
+              onClick={() => navigate('/app/settings?tab=account')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.balance.plans', 'Plans & credits')}
             </Button>
           </div>
         )}

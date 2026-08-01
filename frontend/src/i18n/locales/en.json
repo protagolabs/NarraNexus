@@ -242,6 +242,9 @@
       "freeTier": {
         "subscribe": "Get Nexus Pro",
         "useOwnKey": "Use my own provider"
+      },
+      "balance": {
+        "plans": "Plans & credits"
       }
     },
     "attachments": {

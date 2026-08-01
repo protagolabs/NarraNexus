@@ -4,6 +4,28 @@ last_verified: 2026-08-01
 stub: false
 ---
 
+## 2026-08-01 — 余额用完的第二个入口（Owner 决定）
+
+`actionReason === 'insufficient_balance'` 且**存在 NetMind 会话**（`configStore.netmindToken`，
+与 SettingsPage 隐藏账户 tab 用的是同一个信号）时，多渲染一个按钮
+**查看套餐与充值** → `/app/settings?tab=account`。
+
+这**推翻**了此前「BYOK 余额不足刻意不给按钮，塞升级引导是劫持」的立场 —— Owner 2026-08-01
+决定：花完余额的人也该有一次点击直达，而不是只有一句话让他自己去翻设置。
+
+两个约束因此写进了实现：
+
+1. **不能复用免费额度那对按钮**。这个人可能已经在付费，跟他说「你的免费额度用完了」是假话。
+2. **按钮只能说我们的目的地，不能说「给你的账号充值」**。`insufficient_balance` 是
+   **故意不区分服务商**的（DeepSeek 402 / OpenAI quota / Anthropic 余额 / 用户自己的
+   NetMind 都落在这一个 reason），而 reason 里没有任何信息指明是谁干了 ——
+   `get_provider_source()` 粗粒度，[[resolver]] 对所有非平台卡一律返回 `"user"`。
+   「查看套餐与充值」在以上每种情况下都成立，「去充值你的账号」则不然。
+
+副作用是：NetMind 已登录、但用的是自己 DeepSeek key 的用户，key 干了也会看到这个按钮 ——
+那是一次 upsell。属 Owner 已知并接受的范围。要精确到「只对我们能充值的卡显示」，需要
+per-slot 的卡片来源，与 free-tier 误判那条是同一个前置依赖。
+
 ## 2026-07-30 — 免费额度用完的两个入口（变现漏斗接回来）
 
 `actionReason === 'free_tier_exhausted'` 时多渲染两个按钮：**升级 Nexus Pro** → `/pay`、

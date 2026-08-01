@@ -242,6 +242,9 @@
       "freeTier": {
         "subscribe": "升级 Nexus Pro",
         "useOwnKey": "用我自己的 provider"
+      },
+      "balance": {
+        "plans": "查看套餐与充值"
       }
     },
     "attachments": {
