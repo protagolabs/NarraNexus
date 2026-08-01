@@ -58,6 +58,16 @@
   --color-error:   var(--color-red-500);
   --color-info:    var(--color-silicon);
 
+  /* NB: there is deliberately no "on-error" token set here. Every text and
+     border token in this file assumes a PAPER ground — --text-secondary is 70%
+     ink, --border-default 22% ink — so a control placed on a solid
+     --color-error fill (the isError chat bubble) misreads with all of them, and
+     --accent-primary is worse still: ink in light mode, CREAM in dark. The fix
+     is placement, not a parallel palette. Put actions on the paper BELOW such a
+     bubble, where the ordinary Button variants work — see MessageBubble's
+     free-tier buttons, which lived inside the bubble for three rounds of
+     special-case tokens before moving out. */
+
   /* === Radius scale (Axiom #5) — "editorial" slight rounding ===
      Aligned to the Narra Agent App design ref (Narra radii: --r 3px /
      --r-lg 4px). The whole ladder is compressed from the old soft

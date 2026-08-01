@@ -11,6 +11,20 @@ stub: false
 穿越登录/注册存活——这正是 P0「登录后未跳回付费页」的修复。ProtectedRoute
 / LoginPage 的 next 链路本身没改(验证过三条登录路径都已支持)。
 
+## 2026-07-30 — 删除失效的 402 配额横幅
+
+`quotaExceeded` 横幅（监听 `narranexus:quota-exceeded`）已删。它依赖后端返回
+HTTP 402 + `error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER`，而那个触发器在 2026-07-28 免费
+额度改成普通 provider 卡时就消失了（运行前配额门禁被移除，resolver 只剩
+`NO_PROVIDER_CONFIGURED`，语义是「压根没配」而非「配了但花光」）—— 后端零发出点，横幅
+永远不会出现。
+
+它承诺的引导（加自己的 key / 订阅套餐）**没有丢，迁到了失败消息内的按钮**
+（[[MessageBubble]] 的 `free_tier_exhausted`），因为新架构下「用完」是运行中错误、不再是
+运行前的 HTTP 层事件。
+
+注意另一条死横幅 `freeTierSwitched`（`free_tier_switch` 通知，后端同样零写入点）**本次
+未动** —— 它属于「自动切换到自有 provider」那套语义，等 opt-in 自动接续的产品决定。
 ## 2026-07-23 — Locked Use startup re-assert
 
 `App()` mounts one effect calling `usePowerStore.getState().applyOnStartup()`

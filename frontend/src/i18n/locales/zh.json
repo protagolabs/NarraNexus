@@ -236,7 +236,15 @@
         "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。",
         "executor_oom": "执行环境内存不足，被系统中断。请把任务拆小或减少启用的模块后重试。",
         "executor_unreachable": "你的执行容器暂时不可达，通常几秒内自动恢复，请稍后重发这条消息。",
-        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。"
+        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。",
+        "free_tier_exhausted": "你的平台免费额度已用完 —— 升级 Nexus Pro，或添加你自己的 provider key 并切换这个 Agent slot。"
+      },
+      "freeTier": {
+        "useOwnKey": "用我自己的 provider"
+      },
+      "upgradeCta": "升级 Nexus Pro",
+      "balance": {
+        "plans": "查看套餐与充值"
       }
     },
     "attachments": {
