@@ -26,7 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatDate, formatTime } from '@/lib/utils';
-import { Markdown } from '@/components/ui';
+import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
@@ -508,37 +508,6 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 {t(`chat.error.action.${message.actionReason}`, {
                   defaultValue: t('chat.error.action.generic'),
                 })}
-                {/* Free-tier exhaustion is the one reason whose remedy is not a
-                    setting the user can guess at: the wallet cannot be topped up
-                    from their side and its key was never theirs. So the two paths
-                    that DO exist are offered inline. Before the free tier became
-                    an ordinary provider card (2026-07-28) this funnel lived in a
-                    global HTTP-402 banner; the 402 disappeared with the pre-run
-                    quota gate and took the funnel with it. */}
-                {message.actionReason === 'free_tier_exhausted' && (
-                  <span className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      // /pay, not the account page: it mints the checkout session
-                      // and redirects to Stripe in one hop (#223), and every
-                      // degenerate case it handles — already subscribed, desktop
-                      // webview, non-Power session, 401 — falls back to exactly
-                      // the account page this used to point at. So the settings
-                      // detour buys nothing.
-                      onClick={() => navigate('/pay')}
-                      className="px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--accent-primary)] text-white hover:opacity-90"
-                    >
-                      {t('chat.error.freeTier.subscribe', 'Get Nexus Pro')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/app/settings?tab=providers')}
-                      className="px-2.5 py-1 rounded-md text-xs border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                    >
-                      {t('chat.error.freeTier.useOwnKey', 'Use my own provider')}
-                    </button>
-                  </span>
-                )}
               </span>
             ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
@@ -563,6 +532,48 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           )}
 
         </div>
+
+        {/* Free-tier exhaustion is the one reason whose remedy is not a setting
+            the user can guess at: the wallet cannot be topped up from their side
+            and its key was never theirs. So the two paths that DO exist are
+            offered as buttons. Before the free tier became an ordinary provider
+            card (2026-07-28) this funnel lived in a global HTTP-402 banner; the
+            402 disappeared with the pre-run quota gate and took the funnel with
+            it.
+
+            OUTSIDE the bubble, like the meta row below and for the same kind of
+            reason. Inside, the buttons sit on the solid --color-error fill,
+            where every control token in the app misreads: --accent-primary is
+            an ink block in light mode and CREAM in dark (a white label on it
+            vanishes), --border-default is 22% ink and disappears on red, and a
+            filled control cannot share a label color with an outlined one, so
+            the pair stops looking like a pair. Three rounds of --on-error
+            special-case tokens each fixed one of those and exposed the next.
+            On paper the ordinary Button variants just work — accent + outline
+            IS the app's primary/secondary pair — so the special case is gone. */}
+        {message.actionReason === 'free_tier_exhausted' && (
+          <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
+            <Button
+              variant="accent"
+              // /pay, not the account page: it mints the checkout session and
+              // redirects to Stripe in one hop (#223), and every degenerate case
+              // it handles — already subscribed, desktop webview, non-Power
+              // session, 401 — falls back to exactly the account page this used
+              // to point at. So the settings detour buys nothing.
+              onClick={() => navigate('/pay')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.freeTier.subscribe', 'Get Nexus Pro')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/app/settings?tab=providers')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.freeTier.useOwnKey', 'Use my own provider')}
+            </Button>
+          </div>
+        )}
 
         {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
             (no internal footer padding/whitespace). Time + copy/download sit

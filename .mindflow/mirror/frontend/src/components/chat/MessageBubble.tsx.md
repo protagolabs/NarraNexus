@@ -1,14 +1,14 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-01
 stub: false
 ---
 
 ## 2026-07-30 — 免费额度用完的两个入口（变现漏斗接回来）
 
-`actionReason === 'free_tier_exhausted'` 时在正文里多渲染两个按钮：**升级 Nexus Pro** →
-`/pay`、**用我自己的 provider** → `/app/settings?tab=providers`（`?tab=` 深链来自 #211，
-零新增 API）。
+`actionReason === 'free_tier_exhausted'` 时多渲染两个按钮：**升级 Nexus Pro** → `/pay`、
+**用我自己的 provider** → `/app/settings?tab=providers`（`?tab=` 深链来自 #211，零新增 API）。
+它们在**气泡外**，与 meta row 同层。
 
 第一个按钮**原本指 `/app/settings?tab=account`，2026-08-01 改为 `/pay`**：#223 的
 [[PayPage]] mint 完 checkout session 后同标签页 `location.replace` 直达 Stripe，一跳完成；
@@ -20,6 +20,19 @@ stub: false
 model id、给自己的账号充值）。免费额度用完是唯一一个「文案里那两条出路他都做不到」的情形
 —— 钱包不能自助充值、key 从未在他手里 —— 所以真正可行的两条路必须直接给出来。BYOK 卡余额
 不足**刻意不给**这两个按钮：那是他自己的账号，充值本来就可行，塞一个升级引导是劫持。
+
+**为什么在气泡外**（2026-08-01）：初版放在正文里，也就是压在 isError 气泡的**实心
+`--color-error` 填充**上。本项目所有控件令牌都假定**纸底** —— `--text-secondary` 70% 墨、
+`--border-default` 22% 墨，压红上一个发浑一个消失；`--accent-primary` 更糟，亮色是墨、
+**暗色是奶白**（配 `text-white` 直接白字白底）。为此连修三轮特例令牌（`--on-error` /
+`-hair` / `-fill`），每轮修好一个又露出下一个：填充按钮和描边按钮**在实心色块上无法共用
+同一个文字色**（前者要深字后者要白字），于是主次一对总是不成对；把主按钮降成半透明填充
+求同色，它又糊进气泡里没了边界。
+
+根因是位置不是配色。挪到气泡外的纸底上后，直接用 `<Button variant="accent">` +
+`<Button variant="outline">` —— 这本来就是全站的主/次一对，`--on-error` 那组特例令牌随之
+从 index.css 删除。放置层级与下方 meta row 相同（同为「拉到气泡外」），`gap` 比相邻轮次紧
+以示同属一轮。**规则：不要给实心语义色表面造平行调色板，把可操作控件放到纸底上。**
 
 本组件因此开始使用 `useNavigate`，三个既有测试文件随之补上 `MemoryRouter` —— 它们此前
 不带 Router 直接 render 能过，只是因为组件恰好没用过 router hook；运行时 chat 一直在
