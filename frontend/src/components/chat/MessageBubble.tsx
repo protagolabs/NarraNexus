@@ -579,24 +579,38 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           </div>
         )}
 
-        {/* A spent BALANCE gets its own single entry point. Deliberately NOT the
-            free-tier pair: this user may already be paying, and telling them
-            their free credit ran out would be false.
+        {/* A spent BALANCE gets its own pair: the plan, and a top-up.
 
-            The label names our DESTINATION rather than an action on "your
-            account", because `insufficient_balance` is provider-agnostic by
-            design — it fires for a DeepSeek 402, an OpenAI quota, an Anthropic
-            credit balance and the user's own NetMind account alike, and nothing
-            in the reason says which one ran dry (get_provider_source is coarse:
-            providers/resolver.py returns "user" for every non-platform card).
-            "Plans & credits" is true in all of those cases; "Top up your
-            account" would not be. The bubble text still carries the full
-            remedy, including switching providers, so this adds a shortcut
-            without narrowing the advice. */}
+            It shares the plan button with the free-tier funnel but NOT "use my
+            own provider" — that one's whole premise is a user who has no card
+            of their own, which is the opposite of this user.
+
+            The second label names our DESTINATION rather than an action on
+            "your account", because `insufficient_balance` is provider-agnostic
+            by design — it fires for a DeepSeek 402, an OpenAI quota, an
+            Anthropic credit balance and the user's own NetMind account alike,
+            and nothing in the reason says which one ran dry
+            (get_provider_source is coarse: providers/resolver.py returns "user"
+            for every non-platform card). "Plans & credits" is true in all of
+            those cases; "Top up your account" would not be. The bubble text
+            still carries the full remedy, including switching providers, so
+            this adds shortcuts without narrowing the advice. */}
         {message.actionReason === 'insufficient_balance' && hasBilling && (
           <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
+            {/* The plan leads because it is the only remedy that also removes
+                the next interruption. Shared with the free-tier funnel on
+                purpose: /pay degrades to the account page for someone already
+                subscribed, so the label being off for them costs a redirect,
+                not a dead end. */}
             <Button
               variant="accent"
+              onClick={() => navigate('/pay')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.balance.subscribe', 'Get Nexus Pro')}
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => navigate('/app/settings?tab=account')}
               className="h-8 px-3 text-xs"
             >

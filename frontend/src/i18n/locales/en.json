@@ -244,6 +244,7 @@
         "useOwnKey": "Use my own provider"
       },
       "balance": {
+        "subscribe": "Get Nexus Pro",
         "plans": "Plans & credits"
       }
     },

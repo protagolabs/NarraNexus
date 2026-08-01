@@ -203,6 +203,7 @@
         "useOwnKey": "Eigenen Provider nutzen"
       },
       "balance": {
+        "subscribe": "Nexus Pro holen",
         "plans": "Tarife & Guthaben"
       }
     },

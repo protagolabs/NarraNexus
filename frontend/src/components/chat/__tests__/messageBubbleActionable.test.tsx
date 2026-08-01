@@ -140,15 +140,24 @@ describe('MessageBubble balance exhausted', () => {
   });
   afterEach(() => useConfigStore.setState({ netmindToken: '' }));
 
-  it('offers our plans in one click', () => {
+  it('offers the plan in one hop to Stripe', () => {
+    renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
+    fireEvent.click(screen.getByRole('button', { name: /Get Nexus Pro/i }));
+    expect(mockNavigate).toHaveBeenCalledWith('/pay');
+  });
+
+  it('offers a top-up alongside it — the plan is not the only way to keep going', () => {
     renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
     fireEvent.click(screen.getByRole('button', { name: /Plans & credits/i }));
     expect(mockNavigate).toHaveBeenCalledWith('/app/settings?tab=account');
   });
 
-  it('never shows the free-tier pair — this user is not on the free card', () => {
+  it('never offers "use my own provider" — this user already does', () => {
+    // The one half of the free-tier pair that must not leak here. Its whole
+    // premise is a user who has NO card of their own; saying it to someone whose
+    // own key just ran dry is nonsense. The plan button is shared on purpose
+    // (Owner, 2026-08-01) — /pay degrades to the account page for a subscriber.
     renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
-    expect(screen.queryByRole('button', { name: /Get Nexus Pro/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Use my own provider/i })).not.toBeInTheDocument();
   });
 
@@ -156,10 +165,11 @@ describe('MessageBubble balance exhausted', () => {
     useConfigStore.setState({ netmindToken: '' });
     renderBubble(<MessageBubble message={msg({ isError: true, actionReason: 'insufficient_balance' })} />);
     expect(screen.queryByRole('button', { name: /Plans & credits/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Get Nexus Pro/i })).not.toBeInTheDocument();
   });
 
   it('does not reach other reasons', () => {
-    for (const reason of ['context_window', 'model_not_found', 'invalid_credentials']) {
+    for (const reason of ['context_window', 'model_not_found', 'invalid_credentials'] as const) {
       const { unmount } = renderBubble(
         <MessageBubble message={msg({ isError: true, actionReason: reason })} />,
       );

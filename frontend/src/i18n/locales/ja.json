@@ -203,6 +203,7 @@
         "useOwnKey": "自分の provider を使う"
       },
       "balance": {
+        "subscribe": "Nexus Pro にアップグレード",
         "plans": "プランとクレジット"
       }
     },

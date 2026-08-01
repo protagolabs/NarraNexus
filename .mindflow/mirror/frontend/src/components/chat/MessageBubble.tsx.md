@@ -7,16 +7,19 @@ stub: false
 ## 2026-08-01 — 余额用完的第二个入口（Owner 决定）
 
 `actionReason === 'insufficient_balance'` 且**存在 NetMind 会话**（`configStore.netmindToken`，
-与 SettingsPage 隐藏账户 tab 用的是同一个信号）时，多渲染一个按钮
-**查看套餐与充值** → `/app/settings?tab=account`。
+与 SettingsPage 隐藏账户 tab 用的是同一个信号）时，多渲染两个按钮：
+**升级 Nexus Pro** → `/pay`、**查看套餐与充值** → `/app/settings?tab=account`。
 
 这**推翻**了此前「BYOK 余额不足刻意不给按钮，塞升级引导是劫持」的立场 —— Owner 2026-08-01
 决定：花完余额的人也该有一次点击直达，而不是只有一句话让他自己去翻设置。
 
 两个约束因此写进了实现：
 
-1. **不能复用免费额度那对按钮**。这个人可能已经在付费，跟他说「你的免费额度用完了」是假话。
-2. **按钮只能说我们的目的地，不能说「给你的账号充值」**。`insufficient_balance` 是
+1. **套餐按钮两边共用，「用我自己的 provider」不能跟过来**。后者的前提是这个人**没有**自己的
+   卡，而这里的人恰恰正在用自己的卡。套餐按钮走 `/pay`，已订阅的人会被它回落到账户页 ——
+   标题对他们不贴切的代价是一次跳转，不是死路（所以可以共用）。文案本身也绝不能复用免费额度
+   那句：跟一个在付费的人说「你的免费额度用完了」是假话。
+2. **第二个按钮只能说我们的目的地，不能说「给你的账号充值」**。`insufficient_balance` 是
    **故意不区分服务商**的（DeepSeek 402 / OpenAI quota / Anthropic 余额 / 用户自己的
    NetMind 都落在这一个 reason），而 reason 里没有任何信息指明是谁干了 ——
    `get_provider_source()` 粗粒度，[[resolver]] 对所有非平台卡一律返回 `"user"`。

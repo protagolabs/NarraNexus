@@ -244,6 +244,7 @@
         "useOwnKey": "用我自己的 provider"
       },
       "balance": {
+        "subscribe": "升级 Nexus Pro",
         "plans": "查看套餐与充值"
       }
     },

@@ -207,6 +207,7 @@
         "useOwnKey": "استخدام مزوّدي الخاص"
       },
       "balance": {
+        "subscribe": "الاشتراك في Nexus Pro",
         "plans": "الخطط والرصيد"
       }
     },

@@ -203,6 +203,7 @@
         "useOwnKey": "Usar mi proveedor"
       },
       "balance": {
+        "subscribe": "Obtener Nexus Pro",
         "plans": "Planes y créditos"
       }
     },
