@@ -101,6 +101,25 @@ def free_tier_default_models() -> tuple[str, str]:
     )
 
 
+def free_tier_default_thinking() -> str:
+    """Neutral ``thinking`` value the card's agent slot starts on.
+
+    Defaults to ``off`` — deliberately, and for two independent reasons:
+    the wallet pays for reasoning tokens the user never sees, and the
+    LiteLLM gateway's ``/v1/messages`` bridge drops the entire reply when
+    the upstream answers with reasoning attached (BerriAI/litellm#29518,
+    diagnosed 2026-08-02). Set ``FREE_TIER_AGENT_THINKING=auto`` to restore
+    auto once the gateway is on a version that survives it (an EMPTY env
+    value falls back to the default, so ``auto`` is the explicit escape).
+    """
+    value = _env("FREE_TIER_AGENT_THINKING", "off").lower()
+    if value in ("on", "off"):
+        return value
+    # "auto" or anything unrecognised → neutral auto ("") — never let an env
+    # typo crash provisioning on SlotConfig's Literal validation.
+    return ""
+
+
 def is_free_tier_enabled() -> bool:
     """Whether new users should be given a wallet.
 
