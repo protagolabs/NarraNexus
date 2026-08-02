@@ -679,6 +679,11 @@ class UserProviderService:
         for the API response. Raises ValueError on bad input or any
         step failure (duplicate provider, protocol mismatch, ...).
         """
+        from xyz_agent_context.agent_framework.providers.free_tier import (
+            FREE_TIER_SOURCE,
+            free_tier_default_models,
+            free_tier_default_thinking,
+        )
         from xyz_agent_context.agent_framework.providers.model_catalog import (
             get_default_agent_model,
             get_default_helper_model,
@@ -707,6 +712,16 @@ class UserProviderService:
         framework = "codex_cli" if ptype == "openai" else "claude_code"
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)
+        agent_thinking = ""
+        if ptype == FREE_TIER_SOURCE:
+            # The free-tier card starts on the DEPLOYMENT-configured pair, not
+            # the catalog constant: the platform pays out of the wallet, so
+            # which models the wallet opens on is an ops decision
+            # (FREE_TIER_AGENT_MODEL / FREE_TIER_HELPER_MODEL). Thinking is an
+            # ops decision for the same reason — reasoning tokens drain the
+            # wallet without being visible in the reply.
+            agent_model, helper_model = free_tier_default_models()
+            agent_thinking = free_tier_default_thinking()
 
         # Key rotation: aggregator cards (netmind/yunwu/openrouter) are guarded
         # one-per-source, so a second onboard is a REPLACE, not an add. If the
@@ -771,7 +786,8 @@ class UserProviderService:
             # already decided (cloud non-staff gets activate=False and never
             # reaches these binds).
             config = await self.set_slot(
-                user_id, "agent", agent_pid, agent_model, actor_is_staff=None
+                user_id, "agent", agent_pid, agent_model,
+                thinking=agent_thinking, actor_is_staff=None,
             )
             config = await self.set_slot(
                 user_id, "helper_llm", helper_pid, helper_model, actor_is_staff=None
