@@ -1,9 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — 过滤精确化 + `_is_nm_turn` 去重(review)
+
+托管声明过滤从子串改 `endswith("__narra_reply")`(未来 narra_reply_*
+兄弟工具不再连坐);来源判定抽 `_is_nm_turn`,get_instructions 与
+get_expressive_tools 共用。
 ## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
 
 回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具

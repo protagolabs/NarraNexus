@@ -285,10 +285,7 @@ class NarramessengerModule(ChannelModuleBase):
 
         matrix_user_id = info.get("matrix_user_id", "(unknown)")
         ws = ctx_data.working_source
-        is_nm_channel = (
-            ws == WorkingSource.NARRAMESSENGER
-            or (isinstance(ws, str) and ws == WorkingSource.NARRAMESSENGER.value)
-        )
+        is_nm_channel = self._is_nm_turn(ws)
         mode = "Reply" if is_nm_channel else "Outbound / proactive"
 
         trust_block = self._trust_block(info)
@@ -362,6 +359,15 @@ class NarramessengerModule(ChannelModuleBase):
             "`narra_send(room_id, text)`."
         )
 
+    @staticmethod
+    def _is_nm_turn(working_source: Any) -> bool:
+        """True when the turn originates from the NarraMessenger channel
+        (enum or serialized string form)."""
+        return working_source == WorkingSource.NARRAMESSENGER or (
+            isinstance(working_source, str)
+            and working_source == WorkingSource.NARRAMESSENGER.value
+        )
+
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Managed (platform-forwarded) narramessenger turns declare only
         ``narra_send``: ``narra_reply`` is a trigger-captured marker whose
@@ -371,13 +377,12 @@ class NarramessengerModule(ChannelModuleBase):
         models answer in prose instead of calling anything."""
         tools = await super().get_expressive_tools(ctx_data)
         extra = getattr(ctx_data, "extra_data", None) or {}
-        ws = getattr(ctx_data, "working_source", None)
-        is_nm_channel = (
-            ws == WorkingSource.NARRAMESSENGER
-            or (isinstance(ws, str) and ws == WorkingSource.NARRAMESSENGER.value)
-        )
-        if is_nm_channel and extra.get("managed_ingress"):
-            return [t for t in tools if "narra_reply" not in t]
+        if self._is_nm_turn(getattr(ctx_data, "working_source", None)) and extra.get(
+            "managed_ingress"
+        ):
+            # Exact-name filter: fully-qualified tools end in "__<name>", so
+            # a future narra_reply_* sibling is never collaterally dropped.
+            return [t for t in tools if not t.endswith("__narra_reply")]
         return tools
 
     @staticmethod

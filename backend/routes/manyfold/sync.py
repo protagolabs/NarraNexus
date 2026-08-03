@@ -77,6 +77,19 @@ def _ctx_str(ctx: dict, key: str) -> str:
     return str(value).strip()
 
 
+_FALSY_STRINGS = frozenset({"false", "0", "no", "off", ""})
+
+
+def _ctx_flag(value: Any) -> bool:
+    """Boolean coercion that survives TypeScript stringification: a literal
+    "false"/"0" must not become truthy (bool("false") is True — that exact
+    slip would make a non-mention group message look mentioned and put the
+    agent back into barging on group small talk)."""
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY_STRINGS
+    return bool(value)
+
+
 def build_inbound_run_context(
     *,
     channel_provider: Optional[str],
@@ -138,12 +151,15 @@ def build_inbound_run_context(
         # trigger, which is not running under managed mode).
         "managed_ingress": True,
     }
-    for key in ("chat_type", "thread_id", "reply_token"):
+    chat_type = _ctx_str(ctx, "chat_type").lower()
+    if chat_type:
+        trigger_extra_data["chat_type"] = chat_type
+    for key in ("thread_id", "reply_token"):
         value = _ctx_str(ctx, key)
         if value:
             trigger_extra_data[key] = value
     if "is_mention" in ctx:
-        trigger_extra_data["is_mention"] = bool(ctx.get("is_mention"))
+        trigger_extra_data["is_mention"] = _ctx_flag(ctx.get("is_mention"))
     attachments = ctx.get("attachments")
     if isinstance(attachments, list):
         cleaned = [a for a in attachments if isinstance(a, dict)]
@@ -309,7 +325,10 @@ async def list_channels_for_manyfold(request: Request):
             {
                 "provider": "lark",
                 "agent_id": cred.agent_id,
-                "enabled": bool(cred.is_active and cred.app_secret_encoded),
+                # get_active_credentials already filters is_active=1, so
+                # receive_enabled() (has a decodable secret) is the whole
+                # remaining question — one home with the trigger's own gate.
+                "enabled": cred.receive_enabled(),
                 "external_id": cred.app_id or None,
                 "credentials": {"app_secret": cred.get_app_secret()},
                 "config": {

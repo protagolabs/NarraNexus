@@ -1,9 +1,16 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — 契约值归一化 + lark enabled 收敛(review)
+
+chat_type 统一 .lower()(平台 TS 传 "GROUP" 不再漏过静默判定);
+is_mention 走 `_ctx_flag`(字符串 "false"/"0" 不再因 bool() 变真——
+那会让非 @ 群消息被当成 @,agent 重新闯群闲聊)。lark 行 enabled 改用
+`cred.receive_enabled()`(get_active_credentials 已滤 is_active,语义
+单一居所)。
 ## 2026-08-03(补) — trigger_extra_data 恒带 `managed_ingress: True`
 
 渠道 turn 的 extra_data 加显式 managed 标记——原本与原生 trigger 的

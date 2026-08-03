@@ -1,9 +1,14 @@
 ---
 code_file: backend/routes/manyfold/files.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — write 端点:流式限量 + overwrite 默认 False(review)
+
+64MB 上限改为**边流边检**(request.body() 全量缓冲后再查 = 5GB 恶意/
+bug 上传先打爆内存);唯一写口的 overwrite 默认翻 False——覆盖必须
+显式授权(附件 ingest 写唯一目录,传 true 只为重试幂等)。
 ## 2026-08-03 — 新增唯一写端点 `POST …/files/write`(附件通道我方半)
 
 原设计"write 面刻意不暴露"被 managed-attachment 设计(spec 2026-08-03

@@ -1,9 +1,14 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — 第三个 managed 缝:`managed_silent_ingest`(review)
+
+静默摄取从协调器收回本类:批量调用的形状(credential/sender 表/
+attachments_by_index)是 trigger 的私有编排知识,协调器伸手进私有方法
+= 缝要消灭的耦合;渠道也因此获得覆写点(某渠道可选择不做静默)。
 ## 2026-08-03(补) — `_persist_attachment` 尾段抽到共享函数
 
 store+STT+Attachment 构造迁至

@@ -339,7 +339,9 @@ def upload_workspace_file(agent_id: str, rel_path: str, data: bytes) -> dict:
     with _client() as c:
         r = c.post(
             f"/manyfold/agents/{agent_id}/files/write",
-            params={"path": rel_path},
+            # overwrite=true keeps a re-forwarded event's re-upload (same
+            # event-id path) idempotent instead of 409ing the retry.
+            params={"path": rel_path, "overwrite": "true"},
             content=data,
         )
     if r.status_code != 200:

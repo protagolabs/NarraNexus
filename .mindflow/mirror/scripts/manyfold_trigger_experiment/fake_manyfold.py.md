@@ -1,9 +1,13 @@
 ---
 code_file: scripts/manyfold_trigger_experiment/fake_manyfold.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — 上传显式 overwrite=true(review 连带)
+
+write 端点默认翻 False 后,桥对同 event-id 路径的重转发上传显式授权
+覆盖,保持重试幂等。
 # fake_manyfold.py — 本地扮演 Manyfold 的"钟"与"耳朵"
 
 ## 为什么存在

@@ -1,9 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/managed_channel_ingress.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — silent_ingest 只调缝(review)
+
+不再触碰 trigger 私有方法;契约知识(extra 字典 → Attachment 对象)留
+协调器,编排知识归 trigger 的 `managed_silent_ingest`。
 # managed_channel_ingress.py — 托管模式的 trigger 执行体宿主
 
 ## 为什么存在

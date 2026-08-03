@@ -989,9 +989,10 @@ async def test_files_write_rejects_escape_and_root(files_app):
 async def test_files_write_overwrite_semantics(files_app):
     app, workspace = files_app
     await _post_write(app, "a/f.txt", b"one")
-    resp = await _post_write(app, "a/f.txt", b"two", overwrite="false")
+    # Default denies silent replacement - this is the API's only write door.
+    resp = await _post_write(app, "a/f.txt", b"two")
     assert resp.status_code == 409
-    resp2 = await _post_write(app, "a/f.txt", b"two")
+    resp2 = await _post_write(app, "a/f.txt", b"two", overwrite="true")
     assert resp2.status_code == 200
     assert (workspace / "a/f.txt").read_bytes() == b"two"
 
@@ -1074,27 +1075,13 @@ async def test_convert_attachments_never_raises_on_bad_env(monkeypatch):
 
 class _FakeSilentTrigger:
     def __init__(self):
-        self.bind_db = None
         self.silent_calls = []
-        self.credential = SimpleNamespace(agent_id="agent_x")
 
-    def _managed_bind(self, db):
-        self.bind_db = db
-
-    async def _credential_for_agent(self, agent_id):
-        return self.credential
-
-    async def _build_and_run_agent_silent_batch(
-        self, credential, messages, sender_name_by_id=None, attachments_by_index=None
-    ):
+    async def managed_silent_ingest(self, *, agent_id, message, db, attachments=None):
         self.silent_calls.append(
-            {
-                "credential": credential,
-                "messages": messages,
-                "sender_name_by_id": sender_name_by_id,
-                "attachments_by_index": attachments_by_index,
-            }
+            {"agent_id": agent_id, "message": message, "attachments": attachments}
         )
+        return "(silent group message ingested to memory - no reply)"
 
 
 async def test_silent_ingest_runs_native_silent_batch(monkeypatch):
@@ -1113,13 +1100,13 @@ async def test_silent_ingest_runs_native_silent_batch(monkeypatch):
     )
     assert "ingested" in receipt
     call = trig.silent_calls[0]
-    assert call["messages"][0].content == "group chatter"
-    assert call["sender_name_by_id"] == {"wx9": "u"}
+    assert call["message"].content == "group chatter"
+    assert call["agent_id"] == "agent_x"
 
 
 async def test_silent_ingest_never_raises(monkeypatch):
     class _Boom:
-        def _managed_bind(self, db):
+        async def managed_silent_ingest(self, **kw):
             raise RuntimeError("x")
 
     monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: _Boom())
@@ -1208,3 +1195,65 @@ async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
     assert any("narra_reply" in t for t in native)
     # No-ctx callers (tests, other frameworks) keep the full declaration.
     assert await module.get_expressive_tools() == native
+
+
+def test_is_mention_and_chat_type_survive_typescript_stringification():
+    """bool("false") is True - a stringified platform flag must not flip a
+    non-mention group message into a mentioned one (the agent would barge
+    into group small talk), and an upper-cased chat_type must still route
+    the silent path."""
+    _, _, extra = sync_mod.build_inbound_run_context(
+        channel_provider="narramessenger",
+        channel_context={
+            "room_id": "!r:hs",
+            "sender_id": "@u:hs",
+            "chat_type": "GROUP",
+            "is_mention": "false",
+        },
+        user_input="m",
+        session_id="s1",
+    )
+    assert extra["chat_type"] == "group"
+    assert extra["is_mention"] is False
+
+    _, _, extra2 = sync_mod.build_inbound_run_context(
+        channel_provider="narramessenger",
+        channel_context={"room_id": "!r:hs", "sender_id": "@u:hs", "is_mention": "true"},
+        user_input="m",
+        session_id="s1",
+    )
+    assert extra2["is_mention"] is True
+
+
+async def test_base_managed_silent_ingest_drives_native_batch(monkeypatch):
+    trig = _DummyTrigger()
+    captured = {}
+
+    async def fake_cred(agent_id):
+        return SimpleNamespace(agent_id=agent_id)
+
+    async def fake_batch(credential, messages, sender_name_by_id=None, *, attachments_by_index=None):
+        captured.update(
+            messages=messages,
+            sender_name_by_id=sender_name_by_id,
+            attachments_by_index=attachments_by_index,
+        )
+
+    monkeypatch.setattr(trig, "_credential_for_agent", fake_cred)
+    monkeypatch.setattr(trig, "_build_and_run_agent_silent_batch", fake_batch)
+    msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "quiet chatter")
+    receipt = await trig.managed_silent_ingest(
+        agent_id="a1", message=msg, db=object(), attachments=None
+    )
+    assert "ingested" in receipt
+    assert captured["messages"][0].content == "quiet chatter"
+    assert captured["sender_name_by_id"] == {"wx9": "u"}
+
+    async def no_cred(agent_id):
+        return None
+
+    monkeypatch.setattr(trig, "_credential_for_agent", no_cred)
+    receipt2 = await trig.managed_silent_ingest(
+        agent_id="a1", message=msg, db=object()
+    )
+    assert "dropped" in receipt2

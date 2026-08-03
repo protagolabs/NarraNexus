@@ -357,7 +357,16 @@ async def write_file(
     agent_id: str,
     request: Request,
     path: str = Query(..., description="workspace-relative destination path"),
-    overwrite: bool = Query(True),
+    overwrite: bool = Query(
+        False,
+        description=(
+            "Passing true authorizes replacing an existing file at path. "
+            "Default false: this is the API's only write door, and a caller "
+            "naming a colliding path should mean it (attachment ingest "
+            "writes unique per-message directories, so collisions there "
+            "are retries, not accidents)."
+        ),
+    ),
 ):
     """Write the request body's raw bytes to ``path`` inside the agent
     workspace (parents created). The single write surface of this API —
@@ -365,8 +374,10 @@ async def write_file(
     UI files for the agent to Read (managed-attachment design §Q7).
 
     Same guard rails as the read endpoints: gateway auth, workspace-scoped
-    ``_safe_resolve`` (403 on escape), plus a size cap. Returns the
-    workspace-relative path so the caller can reference it on the wire.
+    ``_safe_resolve`` (403 on escape), plus a size cap enforced WHILE
+    streaming the body (a over-cap upload is rejected at the boundary, not
+    after buffering it into memory). Returns the workspace-relative path
+    so the caller can reference it on the wire.
     """
     _require_manyfold_auth(request)
     workspace, _user_id = await _resolve_workspace_root(agent_id)
@@ -377,12 +388,19 @@ async def write_file(
             status_code=400,
             detail="path must name a file inside the workspace, not the root",
         )
-    body = await request.body()
-    if len(body) > _MAX_WRITE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"body too large: {len(body)} bytes (limit {_MAX_WRITE_BYTES})",
-        )
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WRITE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
+                ),
+            )
+        chunks.append(chunk)
+    body = b"".join(chunks)
     if target.exists() and target.is_dir():
         raise HTTPException(
             status_code=400,

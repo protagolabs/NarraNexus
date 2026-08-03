@@ -1567,6 +1567,38 @@ class ChannelTriggerBase(ABC):
             },
         )
 
+    async def managed_silent_ingest(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        attachments: Optional[List[Attachment]] = None,
+    ) -> str:
+        """Memory-only ingestion for a managed non-mention group message.
+
+        Mirrors the native ``group_silent`` path: narrative routing + memory
+        write run via ``_build_and_run_agent_silent_batch``, the agent LLM
+        step is skipped, and NOTHING is sent to the room. Lives on the
+        trigger (not the ingress coordinator) so the batch-call shape stays
+        this class's private knowledge and a channel can override the
+        behaviour (e.g. opt out of silent ingestion entirely). Returns a
+        transcript receipt for the platform-facing completion."""
+        self._managed_bind(db)
+        credential = await self._credential_for_agent(agent_id)
+        if credential is None:
+            return "(silent group message dropped - no channel credential)"
+        sender_names = (
+            {message.sender_id: message.sender_name} if message.sender_id else None
+        )
+        await self._build_and_run_agent_silent_batch(
+            credential,
+            [message],
+            sender_name_by_id=sender_names,
+            attachments_by_index=[attachments] if attachments else None,
+        )
+        return "(silent group message ingested to memory - no reply)"
+
     # ────────────────────────────────────────────────────────────────────
     # Audit helpers
     # ────────────────────────────────────────────────────────────────────
