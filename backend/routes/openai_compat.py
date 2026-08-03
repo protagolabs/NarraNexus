@@ -47,6 +47,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from backend.routes.manyfold.sync import (
+    build_inbound_run_context,
     execute_job_once,
     parse_run_job_control,
 )
@@ -74,11 +75,26 @@ class ChatCompletionsRequest(BaseModel):
 
     Platform code only relies on ``model``, ``messages``, ``stream`` per
     openclaw.adapter.ts:118+. Unknown fields are ignored (Pydantic default).
+
+    ``channel_provider`` / ``channel_context`` are the managed-IM extension
+    (model B): when the platform forwards an inbound IM message (rather
+    than a native UI turn), it names the origin channel and carries the
+    room/sender identifiers, so the turn behaves like a native channel
+    trigger inbound and the agent replies through its LOCAL channel tool.
+    Absent these fields the endpoint behaves exactly as before
+    (``WorkingSource.MANYFOLD``, platform delivers the reply).
+    Contract: specs/2026-08-03-manyfold-managed-im-ingress-design.md §4.1.
     """
 
     model: str  # = agent_id per Manyfold contract
     messages: list[ChatMessage] = Field(default_factory=list)
     stream: bool = False
+    # Managed-IM origin (optional). provider ∈ {lark, slack, telegram,
+    # wechat, discord, narramessenger}; context carries room_id / sender_id
+    # / sender_name / source_message_id plus the optional v1 additions
+    # (chat_type / thread_id / reply_token / is_mention / attachments).
+    channel_provider: Optional[str] = None
+    channel_context: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -472,15 +488,25 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created_ts = int(time.time())
 
+    # Managed-IM dispatch (model B): a known channel_provider flips this
+    # turn from a plain MANYFOLD chat into the matching channel's native
+    # inbound semantics. Without the fields this is a byte-for-byte no-op.
+    working_source, run_input, trigger_extra_data = build_inbound_run_context(
+        channel_provider=body.channel_provider,
+        channel_context=body.channel_context,
+        user_input=user_input,
+        session_id=session_id,
+    )
+
     # Kick off the background agent run.
     bg.task = asyncio.create_task(
         bg.drive(
             agent_id=agent_id,
             user_id=creator,
-            input_content=user_input,
-            working_source=WorkingSource.MANYFOLD,
+            input_content=run_input,
+            working_source=working_source,
             pass_mcp_servers={},
-            trigger_extra_data={"trigger_id": session_id, "retrieval_anchor": user_input},
+            trigger_extra_data=trigger_extra_data,
         )
     )
 

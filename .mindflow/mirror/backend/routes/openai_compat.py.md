@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — managed-IM 分流(channel_provider/channel_context)
+
+`ChatCompletionsRequest` 接收平台的 managed-IM 扩展字段;handler 在
+run-job 短路之后、BackgroundRun 启动之前调
+`build_inbound_run_context()`(见 manyfold/sync.py.md 同日条目),把
+`working_source / input_content / trigger_extra_data` 三元组换成映射
+结果。不带字段的请求与旧行为逐字节一致(有回归测试钉住)。
+含义:known provider 的 turn 从"MANYFOLD 裸 chat"变为对应渠道的原生
+inbound 语义(渠道模块按 working_source 渲染回复指令,agent 用本地
+渠道工具直发,平台 agentManagedReply=true 时抑制自身出站不中继)。
+后续阶段将接管回复分类(声明链)与渠道副作用,见
+specs/2026-08-03-manyfold-managed-im-ingress-design.md。
 
 ## 2026-07-31 — _resolve_agent_creator 委托 AgentRepository.resolve_owner
 
