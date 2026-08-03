@@ -264,12 +264,14 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
-    async def get_expressive_tools(self) -> list[str]:
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The owner-chat delivery tool. ChatModule is priority 1, so the
         (priority, module_class)-sorted collection puts this first and it
         becomes the turn's DEFAULT reply tool (the one the framework's
         constitution names as its example). Derived from get_mcp_config's
-        server_name — a rename must not silently mute the agent."""
+        server_name — a rename must not silently mute the agent.
+        ``ctx_data`` is accepted for the origin-aware base signature; the
+        owner-chat declaration does not vary by turn origin."""
         config = await self.get_mcp_config()
         return [f"mcp__{config.server_name}__send_message_to_user_directly"]
 

@@ -107,3 +107,25 @@ async def test_equal_priority_breaks_ties_by_module_class(monkeypatch):
         _inst(_FakeModule("AChannel", 6, ["mcp__a__send"])),
     ]
     assert await _collect(instances, monkeypatch) == ["mcp__a__send", "mcp__z__send"]
+
+
+def test_every_module_expressive_signature_accepts_ctx_data():
+    """Guard against exactly the failure that muted ChatModule once: the
+    base signature grew a positional ctx_data and an override that keeps
+    the old (self)-only shape raises TypeError at the collection site,
+    where fail-open silently drops that module's whole declaration."""
+    import inspect
+
+    from xyz_agent_context.module import MODULE_MAP
+
+    for name, cls in MODULE_MAP.items():
+        fn = cls.get_expressive_tools
+        params = list(inspect.signature(fn).parameters.values())
+        assert any(
+            p.name == "ctx_data" or p.kind is inspect.Parameter.VAR_POSITIONAL
+            for p in params
+        ), (
+            f"{name}.get_expressive_tools must accept ctx_data - a stale "
+            f"(self)-only override is silently dropped by the fail-open "
+            f"collection site"
+        )

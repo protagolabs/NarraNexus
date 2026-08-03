@@ -1113,6 +1113,16 @@ class ContextRuntime:
                         expressive_declarations.append(
                             (inst.module.config.priority, inst.module_class, list(declared))
                         )
+                except TypeError as e:
+                    # A stale override signature is a wiring bug, not a
+                    # per-module hiccup — surface it loudly. This exact
+                    # failure once silently muted ChatModule's declaration
+                    # (fail-open turned a signature drift into an empty
+                    # reply surface for the whole turn).
+                    logger.error(
+                        f"          get_expressive_tools signature mismatch "
+                        f"for {inst.module_class} (declaration DROPPED): {e}"
+                    )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_expressive_tools failed for "
