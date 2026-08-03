@@ -19,6 +19,7 @@ from loguru import logger
 from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
 
+from xyz_agent_context.agent_framework.llm._prompt_probe import emit as _probe_emit
 from xyz_agent_context.agent_framework.api_config import openai_config
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
@@ -336,10 +337,6 @@ class OpenAIAgentsSDK:
         models will reject this parameter — caller is responsible for
         only passing it when the model supports it.
         """
-        from xyz_agent_context.agent_framework.llm._prompt_probe import (
-            emit as _probe_emit,
-        )
-
         model_name = self._resolve_model(model)
         _probe_emit("openai", model_name, instructions, user_input)
 
