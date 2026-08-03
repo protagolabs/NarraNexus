@@ -91,14 +91,11 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
-from xyz_agent_context.schema.attachment_schema import (
-    Attachment,
-    derive_category_from_mime,
-)
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
-from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
+from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
 
 
 # Used by sanitize_display_name to strip C0/C1 controls (newlines, tabs,
@@ -401,50 +398,15 @@ class ChannelTriggerBase(ABC):
         """
         user_id = await self._resolve_agent_owner(agent_id) or agent_id
         mime_type = self._sniff_mime(raw_bytes, mime_hint, original_name)
-        file_id, on_disk = store_uploaded_attachment(
+        # Shared "bytes → Attachment" tail (store + index + STT) — one home
+        # with the managed-ingress converter.
+        return await persist_attachment_bytes(
             agent_id,
             user_id,
             raw_bytes=raw_bytes,
             original_name=original_name,
             mime_type=mime_type,
-        )
-
-        transcript: Optional[str] = None
-        if mime_type.startswith("audio/"):
-            try:
-                # Lazy import to keep the channel layer free of agent_framework
-                # dependencies at import time.
-                from xyz_agent_context.agent_framework.llm.transcription import (
-                    TranscriptionService,
-                )
-
-                svc = TranscriptionService.instance()
-                if await svc.is_available(user_id):
-                    transcript = await svc.transcribe(
-                        file_path=str(on_disk),
-                        file_id=file_id,
-                        agent_id=agent_id,
-                        user_id=user_id,
-                    )
-                    if transcript:
-                        logger.info(
-                            f"[{self.channel_name}:{agent_id}] transcribed "
-                            f"file_id={file_id} chars={len(transcript)}"
-                        )
-            except Exception as e:  # noqa: BLE001
-                # Never-raise: STT failure must not block attachment flow.
-                logger.warning(
-                    f"[{self.channel_name}:{agent_id}] STT failed for "
-                    f"file_id={file_id}: {type(e).__name__}: {e}"
-                )
-
-        return Attachment(
-            file_id=file_id,
-            mime_type=mime_type,
-            original_name=original_name,
-            size_bytes=len(raw_bytes),
-            category=derive_category_from_mime(mime_type),
-            transcript=transcript,
+            log_prefix=self.channel_name,
         )
 
     @staticmethod
@@ -1492,6 +1454,150 @@ class ChannelTriggerBase(ABC):
         if result.output_text and result.output_text.strip():
             return result.output_text
         return ""
+
+    # ────────────────────────────────────────────────────────────────────
+    # Managed-ingress seams (platform-held connection; start() never runs)
+    # ────────────────────────────────────────────────────────────────────
+    #
+    # Under Manyfold managed mode the platform owns the connection and the
+    # cleaning pipeline (dedup / echo / mention gate) and forwards inbound
+    # IM as chat turns (backend/routes/openai_compat.py). These seams let
+    # that ingress path reuse the trigger's per-message BUSINESS hooks —
+    # owner claim, authorization, inbox write, error fallback — without
+    # running the subscribe loops: the ingress constructs the trigger,
+    # never calls start(), and invokes before/after around the agent run.
+    # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.2.
+
+    def _managed_bind(self, db) -> None:
+        """Adopt a db handle + audit repo outside start() (managed mode).
+        Mirrors start()'s first steps for the state the business hooks
+        read; idempotent."""
+        self._db = db
+        if self._audit_repo is None:
+            self._audit_repo = ChannelTriggerAuditRepository(self.channel_name, db)
+
+    async def _credential_for_agent(self, agent_id: str) -> Optional[Any]:
+        """First active credential bound to ``agent_id``, or None."""
+        try:
+            creds = await self.load_active_credentials()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: load_active_credentials failed for "
+                f"managed ingress ({type(e).__name__}: {e})"
+            )
+            return None
+        for cred in creds or []:
+            if getattr(cred, "agent_id", None) == agent_id:
+                return cred
+        return None
+
+    async def managed_before_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        is_mention: bool = True,
+    ) -> tuple[bool, str]:
+        """Business gate before a managed (platform-forwarded) run.
+
+        Default: allow. Channel subclasses override for the inbound side
+        effects that natively live in their ``_process_message`` (WeChat
+        owner claim, NarraMessenger authorization). Returning
+        ``(False, receipt)`` blocks the agent run; the receipt is streamed
+        back to the platform transcript."""
+        self._managed_bind(db)
+        return True, ""
+
+    async def managed_after_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        reply_text: str,
+        error_text: str = "",
+    ) -> None:
+        """Post-run bookkeeping for a managed inbound: error fallback when
+        the run failed before any reply, then the native inbox write and a
+        minimal audit row. Best-effort throughout — this runs after the
+        reply stream closed and must never raise."""
+        self._managed_bind(db)
+        replied = bool((reply_text or "").strip())
+        if error_text and not replied:
+            credential = await self._credential_for_agent(agent_id)
+            if credential is not None:
+                from xyz_agent_context.agent_runtime.run_collector import RunError
+
+                await self._send_error_fallback(
+                    credential,
+                    message,
+                    self.format_error_reply(
+                        RunError(
+                            error_type="managed_run_failed",
+                            error_message=error_text,
+                        )
+                    ),
+                    already_replied=False,
+                )
+        try:
+            await self._inbox_writer.write(
+                db=db,
+                agent_id=agent_id,
+                sender_id=message.sender_id,
+                sender_name=message.sender_name,
+                original_message=message.content,
+                agent_response=(reply_text or "").strip() or CHANNEL_SILENT_SENTINEL,
+                chat_id=message.chat_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: managed inbox write failed "
+                f"({type(e).__name__}: {e})"
+            )
+        await self._audit(
+            "managed_ingress_processed",
+            agent_id=agent_id,
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            sender_id=message.sender_id,
+            details={
+                "replied": replied,
+                "error": (error_text or "")[:200],
+            },
+        )
+
+    async def managed_silent_ingest(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        attachments: Optional[List[Attachment]] = None,
+    ) -> str:
+        """Memory-only ingestion for a managed non-mention group message.
+
+        Mirrors the native ``group_silent`` path: narrative routing + memory
+        write run via ``_build_and_run_agent_silent_batch``, the agent LLM
+        step is skipped, and NOTHING is sent to the room. Lives on the
+        trigger (not the ingress coordinator) so the batch-call shape stays
+        this class's private knowledge and a channel can override the
+        behaviour (e.g. opt out of silent ingestion entirely). Returns a
+        transcript receipt for the platform-facing completion."""
+        self._managed_bind(db)
+        credential = await self._credential_for_agent(agent_id)
+        if credential is None:
+            return "(silent group message dropped - no channel credential)"
+        sender_names = (
+            {message.sender_id: message.sender_name} if message.sender_id else None
+        )
+        await self._build_and_run_agent_silent_batch(
+            credential,
+            [message],
+            sender_name_by_id=sender_names,
+            attachments_by_index=[attachments] if attachments else None,
+        )
+        return "(silent group message ingested to memory - no reply)"
 
     # ────────────────────────────────────────────────────────────────────
     # Audit helpers

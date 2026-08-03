@@ -318,9 +318,11 @@ class ChannelModuleBase(XYZBaseModule):
             if name not in self.setup_tool_names
         ]
 
-    async def get_expressive_tools(self) -> list[str]:
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Bound → this channel's reply tools, fully qualified. Unbound
-        contributes nothing (those schemas are suppressed above anyway)."""
+        contributes nothing (those schemas are suppressed above anyway).
+        Subclasses may consult ``ctx_data`` to drop tools that cannot
+        deliver on this turn's origin."""
         if not await self.is_bound():
             return []
         return [
