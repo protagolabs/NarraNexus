@@ -153,6 +153,9 @@ async def run_turn_events(
         PromptInputs,
         PromptMode,
     )
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
+        NexusPowerPrompts,
+    )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
         DefaultErrorClassifier,
     )
@@ -213,6 +216,11 @@ async def run_turn_events(
         {name: McpServerSpec(url=str(spec.get("url", "")), headers=dict(spec.get("headers") or {}))
          for name, spec in opts.mcp_servers.items()}
     )
+    # The expression contract is built BEFORE the expander: expansion may
+    # grant delivery tools mid-turn (add_tools), and only the per-step
+    # tail reminder reads the growing list — the stable prefix freezes
+    # the turn-start view.
+    expression = ExpressionContract(opts.expressive_tools)
     catalog = tuple(
         Expandable(
             key=e.key,
@@ -224,11 +232,15 @@ async def run_turn_events(
             },
             skill_dirs=e.skill_dirs,
             extra_env=dict(e.extra_env),
+            expressive_tools=e.expressive_tools,
         )
         for e in opts.expandables
     )
     expander = CapabilityExpander(
-        catalog, add_mcp_servers=mcp.add_servers, add_env=ctx.extra_env.update
+        catalog,
+        add_mcp_servers=mcp.add_servers,
+        add_env=ctx.extra_env.update,
+        add_expressive=expression.add_tools,
     )
 
     dispatcher: ToolDispatcher | None = None
@@ -259,22 +271,6 @@ async def run_turn_events(
         ),
         with_expansion=bool(catalog),
     )
-    # Plan: written by the tool, read by the prompt tail every step, and
-    # mirrored onto the ui track for live progress rendering.
-    # The reply rule rides the DYNAMIC TAIL, not just the constitution at
-    # the top: acceptance runs showed a model answering a one-word
-    # question in plain text because the rule sat far from the generation
-    # point. Naming the ACTUAL reply tool, immediately before the model
-    # writes, is what makes the monologue contract stick.
-    reply_reminder = ""
-    if opts.expressive_tools:
-        names = ", ".join(sorted(opts.expressive_tools)[:3])
-        reply_reminder = (
-            f"Reminder: the user receives ONLY what you pass to a reply tool "
-            f"({names}). Plain text is never delivered — however short the "
-            f"answer, send it through the tool."
-        )
-
     plan = PlanState()
     side_events: list[LoopEvent] = []
     scheduling = SchedulingChannel(
@@ -306,21 +302,32 @@ async def run_turn_events(
                 builtin_groups=opts.builtin_groups,
                 capability_cards=expander.card_index() if catalog else "",
                 capability_instructions=initial_instructions,
+                # Frozen at assembly: the constitution's example never
+                # moves mid-turn (stable prefix). Initial expansions ran
+                # above, so a reply tool granted by them counts too.
+                default_reply_tool=next(iter(expression.names()), ""),
             ),
             PromptMode.FULL,
         )
         base_messages = _insert_harness(request.messages, prompt.messages())
 
+        # The reply rule rides the DYNAMIC TAIL, not just the constitution
+        # at the top: acceptance runs showed a model answering a one-word
+        # question in plain text because the rule sat far from the
+        # generation point. Rendered per step from the contract's CURRENT
+        # list, so delivery tools granted by mid-turn expansion are named
+        # too — and a message-borne reply instruction outranks the list.
+        def _tail() -> str:
+            reminder = NexusPowerPrompts.reply_reminder(expression.names())
+            return "\n\n".join(p for p in (plan.render(), reminder) if p)
+
         assembly = LoopAssembly(
             model=LiteLLMModelClient(profile, LitellmClient()),
             tools=dispatcher,
-            projector=PassthroughProjector(
-                base_messages,
-                lambda: "\n\n".join(p for p in (plan.render(), reply_reminder) if p),
-            ),
+            projector=PassthroughProjector(base_messages, _tail),
             log=log or NullEventLogWriter(),
             cancel=cancel,
-            expression=ExpressionContract(frozenset(opts.expressive_tools)),
+            expression=expression,
             errors=DefaultErrorClassifier(),
             compaction=ToolResultPruner(),
             params=params,

@@ -57,6 +57,10 @@ MCP = {
     "common_tools_module": {"url": "http://localhost:7807/sse"},
 }
 
+# The delivery surface, declared explicitly (the platform passes this per
+# turn in production; the adapter no longer guesses from server names).
+REPLY_TOOLS = ["mcp__chat_module__send_message_to_user_directly"]
+
 IDENTITY = (
     f"Identity: your agent_id is `{AGENT_ID}`; you serve the user whose "
     f"user_id is `{USER_ID}`. Pass these ids to platform tools that "
@@ -224,6 +228,7 @@ async def _run_one(framework: str, scenario: str, claude_cfg: ClaudeConfig) -> d
         await _consume(
             driver, messages, mcp_servers, stats,
             expandables=spec["expandables"],
+            expressive_tools=REPLY_TOOLS,
         )
     else:
         spec = SCENARIOS[scenario]
@@ -232,7 +237,7 @@ async def _run_one(framework: str, scenario: str, claude_cfg: ClaudeConfig) -> d
             {"role": "user", "content": spec["prompt"]},
         ]
         mcp_servers = {n: MCP[n] for n in spec["mcp"]}
-        await _consume(driver, messages, mcp_servers, stats)
+        await _consume(driver, messages, mcp_servers, stats, expressive_tools=REPLY_TOOLS)
     return stats
 
 

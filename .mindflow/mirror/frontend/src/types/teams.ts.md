@@ -4,6 +4,12 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-31 — TeamChatMessage.event_id
+
+`TeamChatMessage` gained `event_id?: string | null` — the turn that produced
+an agent reply (null for user messages / legacy rows). Consumed by
+[[TeamMessageProcess]] for the per-message reasoning disclosure.
+
 ## 2026-07-30 — TeamMemberActivity.event_id
 
 The activity payload now carries the `events` row id of the member's

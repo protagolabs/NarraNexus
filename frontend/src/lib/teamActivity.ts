@@ -16,7 +16,6 @@
  */
 
 import type {
-  TeamActivityStep,
   TeamMemberActivity,
   TeamMemberStatus,
 } from '@/types/teams';
@@ -73,16 +72,20 @@ export function toMs(iso?: string | null): number | null {
 /**
  * Duration + recency of an idle member's last finished turn — the roster's
  * "ran 3m12s · 5m ago" line. Null when it has never run (no finished_at).
+ *
+ * `durationMs` is null when started_at is absent (legacy rows): the turn DID
+ * run for an unknown time, and rendering that as "0s" is a wrong number, not
+ * a safe default. Clock-skewed end<start still clamps to 0.
  */
 export function lastRunSummary(
   a: TeamMemberActivity,
   now: number,
-): { durationMs: number; agoMs: number } | null {
+): { durationMs: number | null; agoMs: number } | null {
   const end = toMs(a.finished_at);
   if (end === null) return null;
   const start = toMs(a.started_at);
   return {
-    durationMs: start !== null && end >= start ? end - start : 0,
+    durationMs: start === null ? null : Math.max(0, end - start),
     agoMs: Math.max(0, now - end),
   };
 }
@@ -124,41 +127,6 @@ export function phaseLabelKey(phase?: string | null): { key: string; values?: Re
   if (phase === 'thinking') return { key: 'chat.team.activity.thinking' };
   if (phase === 'replying') return { key: 'chat.team.activity.replying' };
   return { key: 'chat.team.activity.running' };
-}
-
-export interface TimelineEntry extends TeamActivityStep {
-  /** ms spent in this phase; for the last entry of a live turn, so far. */
-  durationMs: number;
-  /** True for the final entry while the turn is still running. */
-  ongoing: boolean;
-}
-
-/**
- * Turn the stored step list into renderable entries with per-step durations.
- *
- * A step's duration is the gap to the NEXT step; the final step of a live turn
- * runs up to `now` (and is flagged `ongoing` so the UI can say "in progress"
- * rather than implying it finished). For a turn that has ended, `endedAt`
- * closes the final step instead.
- */
-export function buildTimeline(
-  steps: TeamActivityStep[] | undefined | null,
-  now: number,
-  opts: { live: boolean; endedAt?: string | null } = { live: true },
-): TimelineEntry[] {
-  if (!steps || steps.length === 0) return [];
-  const closing = opts.live ? now : (toMs(opts.endedAt) ?? now);
-  return steps.map((step, i) => {
-    const start = toMs(step.at);
-    const nextRaw = i + 1 < steps.length ? toMs(steps[i + 1].at) : closing;
-    const next = nextRaw ?? closing;
-    const last = i === steps.length - 1;
-    return {
-      ...step,
-      durationMs: start === null ? 0 : Math.max(0, next - start),
-      ongoing: last && opts.live,
-    };
-  });
 }
 
 /** Roster ordering: attention-worthy first, then by name for stability. */

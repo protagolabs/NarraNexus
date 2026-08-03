@@ -129,7 +129,7 @@ async def _build(runtime: ContextRuntime, narrative: Narrative, ctx: ContextData
         ],
         ctx_data=ctx,
     )
-    final_messages, _mcp, _dis = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
         messages=[],
         system_prompt=system_prompt,
         active_instances=[],

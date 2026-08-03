@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} 待機",
         "finishedAgo": "{{duration}} 前に完了",
         "startedAt": "{{time}} に開始",
-        "stepOngoing": "{{duration}}、進行中",
         "stepsDropped": "それ以前の {{n}} ステップは非表示",
         "noSteps": "まだステップの記録がありません。"
       },
@@ -132,12 +131,16 @@
         "broadcast": "@all は全員に届きます。各メンバーが 1 ターンずつ実行するため、控えめに使ってください。",
         "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎは 4 回で停止します。"
       },
+      "noProcess": "このターンの処理記録はありません",
+      "detailLoadFailed": "プロセスの読み込みに失敗しました。もう一度お試しください。",
       "roster": {
         "title": "メンバー",
         "lastRun": "{{duration}} 実行 · {{ago}} 前",
+        "lastRunAgoOnly": "{{ago}}前に完了",
         "neverRan": "まだ実行していません",
-        "noProcess": "このターンの処理記録はありません",
-        "loading": "処理を読み込み中…"
+        "loading": "処理を読み込み中…",
+        "workingCount": "{{count}} 件実行中",
+        "process": "プロセス"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応"
@@ -192,7 +195,15 @@
         "generic": "設定で修正できる構成の問題により、今回の実行はできませんでした。修正後に再送信してください。",
         "executor_oom": "実行環境がメモリ不足でシステムに停止されました。タスクを小さく分割するか、有効なモジュールを減らして再送信してください。",
         "executor_unreachable": "実行コンテナに一時的に接続できません。通常は数秒で回復します。しばらくしてからこのメッセージを再送信してください。",
-        "infra_transient": "プラットフォーム側の一時的な実行問題により、このターンは実行できませんでした。しばらくしてからメッセージを再送信してください。"
+        "infra_transient": "プラットフォーム側の一時的な実行問題により、このターンは実行できませんでした。しばらくしてからメッセージを再送信してください。",
+        "free_tier_exhausted": "無料クレジットを使い切りました —— Nexus Pro にアップグレードするか、ご自身の provider キーを追加してこの Agent のスロットを切り替えてください。"
+      },
+      "freeTier": {
+        "useOwnKey": "自分の provider を使う"
+      },
+      "upgradeCta": "Nexus Pro にアップグレード",
+      "balance": {
+        "plans": "プランとクレジット"
       }
     },
     "dateToday": "今日",
@@ -1236,6 +1247,7 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
       }

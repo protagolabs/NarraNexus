@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/process/processShared.tsx
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 终端语言三件套沉淀（LiveDot / PhaseRow / LiveCursorRow）
+
+ProcessPanel 的 ping 呼吸灯、`✓`/spinner 阶段行、`❯▌` 活光标抽成共享
+组件：单聊面板与 team 的 [[TeamMemberPanel]] 同一套字形语言，改一处
+两边跟（铁律 #8）。ProcessPanel 已切换为消费这三件。
 
 # processShared.tsx — ProcessPanel 与团队成员详情共用的渲染件
 

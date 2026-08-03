@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+body 新增 `agent_id` / `expressive_tools`:投递面是 per-run 状态(同
+disallowed_tools),必须显式过 `/agent-loop` 边界——否则云端 NexusPower
+收不到声明,退回 mute。internal-trust 性质不变:两字段只描述本次请求。
 
 ## 2026-07-29 — 删除 resume 鉴权(T6)
 

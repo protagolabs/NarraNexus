@@ -11,7 +11,11 @@ framework, reactive compaction (``CONTEXT_OVERFLOW`` is a signal, not a
 failure: the loop compacts and retries the step instead of dying).
 
 The first six values mirror ``loop.events.CLI_ERROR_TYPES`` so the
-platform's existing consumers keep working unchanged.
+platform's existing consumers keep working unchanged. The two beyond
+them are SIGNALS rather than failures — the loop repairs the request and
+retries the step (compaction for ``CONTEXT_OVERFLOW``, a continuation
+turn for ``PREFILL_REJECTED``) — and ``legacy_error_type`` keeps that
+vocabulary from reaching consumers that never learned it.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ class ErrorType(Enum):
     INVALID_REQUEST = "invalid_request"
     SERVER_ERROR = "server_error"
     CONTEXT_OVERFLOW = "context_overflow"  # reactive-compaction trigger
+    PREFILL_REJECTED = "prefill_rejected"  # continuation-turn retry trigger
     UNKNOWN = "unknown"
 
 

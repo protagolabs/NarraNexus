@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-30
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — 两条改动的合并点
+
+dev 的抽取（下一条）与本分支的 usage 形状（再下一条）都保留：codex 分支现在调用
+共享的 `run_codex_cli_oneshot`，拿到 `CliOneshotResult` 后在边界处组装成
+`HelperUsage`。`CliOneshotResult` **不带** cache 字段，理由与 codex 分支的 cache 两位
+留 0 完全相同（OpenAI 形状的 input 总数已含缓存输入），所以共享模块无需改动。
+
+原分支自带的 `_HELPER_CWD` 裸 `makedirs` 一并让位给 dev 的 `oneshot_cwd()` ——
+后者多了共享主机上的属主校验，是更强的那一版。
+
+## 2026-07-31 — codex 一发内核抽到 [[cli_oneshot]]
+
+`_run_codex_oneshot_inner` 的驱动构造 + 事件解析(text.delta /
+response.done / 错误事件 type+message 合并)整体迁入共享模块
+`llm/cli_oneshot.py`(PR #224 review 第 5 条:verify_live 是第三份
+拷贝)。本文件保留:_codex_ctx 装/卸(helper 自己的槽位配置)、
+_HELPER_CWD、"空文本+错误 → RuntimeError(供 #68 is_credential_error
+分类)"的收尾语义。
+
+Review 第 3 轮跟进:事件常量的 4 个残留 import 删除;`_HELPER_CWD`
+裸 makedirs 换 `oneshot_cwd("cli-helper")`(补上共享主机属主校验,
+namespace 与 verify 的分开)。
 
 ## 2026-07-30 — `_run_oneshot` 返回 HelperUsage，不再是 (text, in, out)
 
@@ -25,7 +48,6 @@ stub: false
 
 Tests：`tests/agent_framework/test_helper_cache_accounting.py`；存量
 `test_cli_helper.py` / `test_helper_json_repair.py` 的 stub 已随契约更新。
-
 
 ## 2026-07-28 — Claude CLI cache usage normalization
 

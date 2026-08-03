@@ -40,6 +40,24 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import Le
 _CHARS_PER_TOKEN = 4
 
 
+def estimate_message_tokens(messages: Sequence[dict]) -> int:
+    """Rough size of a projected conversation, same ratio as above.
+
+    Sizing only, and deliberately shared with the compaction estimate:
+    the output clamp needs a number on the FIRST step of a turn, where
+    the ledger has no measured input yet but the projection already
+    carries every earlier turn.
+
+    The WHOLE message is measured, not just ``content``. A tool-only
+    assistant step puts its payload in the sibling ``tool_calls`` key and
+    sets ``content`` to None, so sizing off content alone valued a 16KB
+    write_file at one token. Serializing the dict over-counts slightly
+    (keys, quoting) — the safe direction for a clamp, since
+    under-counting is what lets a request sail past the wall.
+    """
+    return sum(len(str(m)) for m in messages) // _CHARS_PER_TOKEN
+
+
 class ToolResultPruner:
     """Deterministic tool-result pruning (v1 default).
 

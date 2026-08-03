@@ -226,10 +226,11 @@ class NexusAgent:
                 "nexus_power has no model configured for this turn — bind an "
                 "anthropic- or openai-protocol provider to the agent slot"
             )
-        expressive = tuple(kwargs.get("expressive_tools") or ()) or tuple(
-            name
-            for name in _reply_tool_names(mcp_servers)
-        )
+        # The delivery surface is DECLARED by the platform (modules'
+        # get_expressive_tools → TurnInput → here). No guessing from
+        # server names: a rename must never silently mute the agent, and
+        # channel reply tools (lark_cli & co.) are part of the surface too.
+        expressive = tuple(kwargs.get("expressive_tools") or ())
         llm_extra: dict[str, Any] = {}
         if protocol == "anthropic" and auth_type == "bearer_token" and api_key:
             # Anthropic-protocol gateways expecting Authorization: Bearer
@@ -392,17 +393,6 @@ def _resolve_provider() -> tuple[str, str, str, str, str]:
             codex_config.auth_type or "api_key",
         )
     return ("anthropic", "", "", "", "api_key")
-
-
-def _reply_tool_names(mcp_servers: dict[str, dict[str, Any]]) -> list[str]:
-    """The platform's reply tools, derived from server names (the legacy
-    substring contract): any chat-ish server exposes the direct-reply
-    tool under the mcp__ namespace."""
-    return [
-        f"mcp__{name}__send_message_to_user_directly"
-        for name in mcp_servers
-        if "chat" in name
-    ]
 
 
 def _terminate_group(pid: int) -> None:

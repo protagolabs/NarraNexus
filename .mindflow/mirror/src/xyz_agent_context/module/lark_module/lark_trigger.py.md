@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 遗留直调 collect_run 并入 AgentRuntimeClient seam
+
+`_build_and_run_agent` 里最后一处 `AgentRuntime()` + `collect_run(...)`
+直调改走 `get_agent_runtime_client().run_and_collect(...)` —— 与所有
+channel 一致，顺带获得 admission 闸门（此路径原先漏了）与 run 记录
+（可观察性）。模块顶的 AgentRuntime / collect_run import 删除；测试
+stub 改 patch 源模块（agent_runtime.AgentRuntime /
+run_collector.collect_run），lark_trigger 命名空间不再有这两个别名。
 
 ## 2026-07-30 — the brand_mismatch breaker never actually tripped
 

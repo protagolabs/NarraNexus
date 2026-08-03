@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`build_agent_loop_request` 调用新增 `agent_id` / `expressive_tools` 转发
+(kwargs 透传)——投递面是 per-run 状态,必须显式过网络边界,否则云端
+NexusPower 退回 mute。
 
 ## 2026-07-29 — 不再转发 resume_session_id(T6)
 

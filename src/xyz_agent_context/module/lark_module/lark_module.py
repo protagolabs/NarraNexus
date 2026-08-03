@@ -541,6 +541,7 @@ class LarkModule(ChannelModuleBase):
         "lark_skill",
     )
     setup_tool_names = frozenset({"lark_setup", "lark_bind"})
+    reply_tool_names = ("lark_cli",)
 
     # =========================================================================
     # Configuration

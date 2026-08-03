@@ -53,6 +53,23 @@ _OVERFLOW_MESSAGE_MARKERS: tuple[str, ...] = (
     "input is too long",
     "too many tokens",
     "exceeds the maximum number of tokens",
+    # Anthropic's input+output wall, whose wording shares no marker with
+    # the rows above: "input length and `max_tokens` exceed context
+    # limit: 154321 + 128000 > 200000". The output clamp is what should
+    # keep us off it; these are here so a miss compacts and retries
+    # instead of dying as an unretryable INVALID_REQUEST.
+    "context limit",
+    "exceed context",
+)
+
+# Assistant-prefill rejection. Real Anthropic accepts a conversation
+# that ends with an assistant turn; some backends behind a load-balancing
+# gateway do not, and answer 400. Matched BEFORE the class-name table
+# because the wrapper is a plain BadRequestError, which would otherwise
+# claim it as a dead-end INVALID_REQUEST.
+_PREFILL_MESSAGE_MARKERS: tuple[str, ...] = (
+    "does not support assistant message prefill",
+    "must end with a user message",
 )
 
 _MESSAGE_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
@@ -82,6 +99,21 @@ class DefaultErrorClassifier:
         for marker in _OVERFLOW_MESSAGE_MARKERS:
             if marker in lowered:
                 return _wrap(exc, ErrorType.CONTEXT_OVERFLOW, message, retryable=True)
+        for marker in _PREFILL_MESSAGE_MARKERS:
+            if marker in lowered:
+                # Retryable, because the shape is usually innocent. Probed
+                # on the dev gateway 2026-07-31: the exact conversation
+                # that drew this 400 in a live turn — ending in a tool
+                # result, not an assistant message — replayed clean three
+                # times out of three. The upstream load-balances and only
+                # SOME backends refuse, so the rejection says far more
+                # about which backend answered than about what we sent.
+                # It belongs with the flaky-transport errors; the loop's
+                # continuation repair still handles the genuine case
+                # where the conversation really does end mid-assistant.
+                return _wrap(
+                    exc, ErrorType.PREFILL_REJECTED, message, retryable=True
+                )
         for marker, error_type, retryable in _CLASS_NAME_RULES:
             if marker in names:
                 return _wrap(exc, error_type, message, retryable=retryable)

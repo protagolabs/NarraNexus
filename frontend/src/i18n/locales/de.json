@@ -117,7 +117,6 @@
         "waitingFor": "{{duration}} wartend",
         "finishedAgo": "vor {{duration}} fertig",
         "startedAt": "gestartet um {{time}}",
-        "stepOngoing": "{{duration}}, läuft",
         "stepsDropped": "{{n}} frühere Schritte nicht angezeigt",
         "noSteps": "Noch keine Schritte aufgezeichnet."
       },
@@ -132,12 +131,16 @@
         "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
         "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
       },
+      "noProcess": "Kein Prozessprotokoll für diese Runde",
+      "detailLoadFailed": "Der Prozess konnte nicht geladen werden. Bitte erneut versuchen.",
       "roster": {
         "title": "Mitglieder",
         "lastRun": "lief {{duration}} · vor {{ago}}",
+        "lastRunAgoOnly": "vor {{ago}} beendet",
         "neverRan": "noch nie gelaufen",
-        "noProcess": "Kein Prozessprotokoll für diese Runde",
-        "loading": "Prozess wird geladen…"
+        "loading": "Prozess wird geladen…",
+        "workingCount": "{{count}} aktiv",
+        "process": "Prozess"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird"
@@ -192,7 +195,15 @@
         "generic": "Dieser Durchlauf konnte wegen eines in den Einstellungen behebbaren Konfigurationsproblems nicht ausgeführt werden. Beheben und erneut senden.",
         "executor_oom": "Der Ausführungsumgebung ging der Speicher aus und sie wurde vom System gestoppt. Teilen Sie die Aufgabe in kleinere Schritte auf oder reduzieren Sie aktive Module und senden Sie erneut.",
         "executor_unreachable": "Ihr Ausführungscontainer ist vorübergehend nicht erreichbar. Er erholt sich normalerweise innerhalb weniger Sekunden — bitte senden Sie diese Nachricht in Kürze erneut.",
-        "infra_transient": "Diese Runde konnte aufgrund eines vorübergehenden plattformseitigen Ausführungsproblems nicht ausgeführt werden. Bitte senden Sie die Nachricht gleich erneut."
+        "infra_transient": "Diese Runde konnte aufgrund eines vorübergehenden plattformseitigen Ausführungsproblems nicht ausgeführt werden. Bitte senden Sie die Nachricht gleich erneut.",
+        "free_tier_exhausted": "Dein kostenloses Plattform-Guthaben ist aufgebraucht – wechsle zu Nexus Pro, oder füge deinen eigenen Provider-Key hinzu und stelle den Slot dieses Agents darauf um."
+      },
+      "freeTier": {
+        "useOwnKey": "Eigenen Provider nutzen"
+      },
+      "upgradeCta": "Nexus Pro holen",
+      "balance": {
+        "plans": "Tarife & Guthaben"
       }
     },
     "dateToday": "Heute",
@@ -1237,6 +1248,7 @@
         "failed": "Update-{{stage}} fehlgeschlagen."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
       }

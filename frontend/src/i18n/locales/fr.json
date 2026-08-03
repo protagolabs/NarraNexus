@@ -117,7 +117,6 @@
         "waitingFor": "en attente depuis {{duration}}",
         "finishedAgo": "terminé il y a {{duration}}",
         "startedAt": "démarré à {{time}}",
-        "stepOngoing": "{{duration}}, en cours",
         "stepsDropped": "{{n}} étapes antérieures non affichées",
         "noSteps": "Aucune étape enregistrée pour l'instant."
       },
@@ -132,12 +131,16 @@
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
         "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
       },
+      "noProcess": "Aucun enregistrement de processus pour ce tour",
+      "detailLoadFailed": "Impossible de charger le processus. Réessayez.",
       "roster": {
         "title": "Membres",
         "lastRun": "a duré {{duration}} · il y a {{ago}}",
+        "lastRunAgoOnly": "terminé il y a {{ago}}",
         "neverRan": "jamais exécuté",
-        "noProcess": "Aucun enregistrement de processus pour ce tour",
-        "loading": "Chargement du processus…"
+        "loading": "Chargement du processus…",
+        "workingCount": "{{count}} en cours",
+        "process": "processus"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné"
@@ -192,7 +195,15 @@
         "generic": "Ce tour n'a pas pu s'exécuter en raison d'un problème de configuration réparable dans les paramètres. Corrigez, puis renvoyez.",
         "executor_oom": "L'environnement d'exécution a manqué de mémoire et a été arrêté par le système. Divisez la tâche en étapes plus petites ou réduisez les modules actifs, puis renvoyez.",
         "executor_unreachable": "Votre conteneur d'exécution est temporairement injoignable. Il récupère généralement en quelques secondes — veuillez renvoyer ce message sous peu.",
-        "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant."
+        "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant.",
+        "free_tier_exhausted": "Votre crédit gratuit est épuisé — passez à Nexus Pro, ou ajoutez votre propre clé de fournisseur et basculez le slot de cet Agent dessus."
+      },
+      "freeTier": {
+        "useOwnKey": "Utiliser mon fournisseur"
+      },
+      "upgradeCta": "Passer à Nexus Pro",
+      "balance": {
+        "plans": "Forfaits et crédits"
       }
     },
     "dateToday": "Aujourd'hui",
@@ -1237,6 +1248,7 @@
         "failed": "Échec de la mise à jour ({{stage}})."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
       }

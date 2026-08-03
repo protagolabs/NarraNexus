@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/prompts/library.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+constitution 例子去静态化:`constitution.md` 里的 `send_message_to_user_directly`
+硬编码删除,换 `{{DEFAULT_REPLY_TOOL_EXAMPLE}}` 槽位,由 inputs.default_reply_tool
+填充(框架 copy 永不写平台工具名;mute 回合无例子可给)。新增
+`reply_reminder(reply_tools)`(资源 `reply_reminder.md`):assembly 每步从
+ExpressionContract 现值渲染进动态尾部,措辞含「消息自带回复指令优先于默认名单」
+——channel 模板(平台侧)与 harness 不再对打。旧 reminder 是 assembly 里的
+硬编码英文串,已迁来资源(copy-in-resources 归位)。
 
 ## 2026-07-29 — 两份中文占位稿删除，意图收进本文
 

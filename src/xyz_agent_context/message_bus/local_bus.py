@@ -90,6 +90,7 @@ class LocalMessageBus(MessageBusService):
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
             attachments=attachments,
+            event_id=row.get("event_id"),
             created_at=row.get("created_at"),
         )
 
@@ -103,6 +104,7 @@ class LocalMessageBus(MessageBusService):
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id."""
         msg_id = _generate_id("msg")
@@ -118,6 +120,7 @@ class LocalMessageBus(MessageBusService):
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
+            "event_id": event_id,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the

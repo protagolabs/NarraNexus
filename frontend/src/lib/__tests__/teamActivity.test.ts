@@ -1,15 +1,14 @@
 /**
  * @file_name: teamActivity.test.ts
  * @description: The team-room activity vocabulary. Pins the four-state
- * ordering, the duration maths and the timeline construction, because three
- * surfaces (console summary, console row, transcript bubble) read from these
- * helpers and must never disagree about what a state looks like.
+ * ordering and the duration maths, because multiple surfaces (roster row,
+ * member panel, transcript bubble) read from these helpers and must never
+ * disagree about what a state looks like.
  */
 import { describe, expect, test } from 'vitest';
 import {
   lastRunSummary,
   STATUS_TONES,
-  buildTimeline,
   compareActivity,
   elapsedSince,
   formatDuration,
@@ -81,44 +80,6 @@ describe('phaseLabelKey', () => {
   });
 });
 
-describe('buildTimeline', () => {
-  const steps = [
-    { phase: 'starting', at: '2026-07-28T08:59:00Z' },
-    { phase: 'thinking', at: '2026-07-28T08:59:20Z' },
-    { phase: 'tool:Read', at: '2026-07-28T08:59:50Z' },
-  ];
-
-  test('each step lasts until the next one', () => {
-    const entries = buildTimeline(steps, T0, { live: true });
-    expect(entries.map((e) => e.durationMs)).toEqual([20_000, 30_000, 10_000]);
-  });
-
-  test('only the last step of a live turn is ongoing', () => {
-    const entries = buildTimeline(steps, T0, { live: true });
-    expect(entries.map((e) => e.ongoing)).toEqual([false, false, true]);
-  });
-
-  test('a finished turn closes its last step at finished_at, not now', () => {
-    const entries = buildTimeline(steps, T0, {
-      live: false,
-      endedAt: '2026-07-28T08:59:55Z',
-    });
-    expect(entries[2].durationMs).toBe(5_000);
-    expect(entries[2].ongoing).toBe(false);
-  });
-
-  test('no steps means no timeline, not a crash', () => {
-    expect(buildTimeline([], T0)).toEqual([]);
-    expect(buildTimeline(undefined, T0)).toEqual([]);
-    expect(buildTimeline(null, T0)).toEqual([]);
-  });
-
-  test('an unparseable stamp yields zero duration rather than NaN', () => {
-    const entries = buildTimeline([{ phase: 'x', at: 'garbage' }], T0, { live: true });
-    expect(entries[0].durationMs).toBe(0);
-  });
-});
-
 describe('compareActivity', () => {
   const nameOf = (id: string) => id;
 
@@ -167,5 +128,15 @@ describe('lastRunSummary', () => {
   test('returns null when the member has never run', () => {
     const a = { agent_id: 'x', status: 'idle' } as TeamMemberActivity;
     expect(lastRunSummary(a, Date.now())).toBeNull();
+  });
+
+  test('an unknown start yields a null duration, never a confident "0s"', () => {
+    // Legacy rows / payloads without started_at: the turn DID run, we just
+    // don't know for how long. 0 would render as "ran 0s" — a wrong number.
+    const a = {
+      agent_id: 'x', status: 'idle', finished_at: '2026-07-30T10:03:12Z',
+    } as TeamMemberActivity;
+    const now = Date.parse('2026-07-30T10:08:12Z');
+    expect(lastRunSummary(a, now)).toEqual({ durationMs: null, agoMs: 300_000 });
   });
 });

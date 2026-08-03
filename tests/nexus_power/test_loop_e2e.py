@@ -24,6 +24,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     ITEM_TYPE_TOOL_CALL_OUTPUT,
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+    TYPE_ERROR,
     TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_USE_START,
     TYPE_TOOL_RESULT,
@@ -51,6 +52,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.exp
     ExpressionContract,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
+    CONTINUE_PREFILL,
     NexusPowerLoop,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
@@ -61,6 +63,7 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.pr
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
+    StepRetry,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
@@ -542,10 +545,11 @@ def test_adapter_maps_tool_use_start_to_a_pending_tool_call():
     assert item["arguments"] == {}
 
 
-def _broken_use(cid, name, parse_error, index=0):
+def _broken_use(cid, name, parse_error, index=0, truncated=False):
     return ModelEvent(kind="tool_use", content_index=index,
                       payload={"call_id": cid, "tool_name": name, "args": {},
-                               "parse_error": parse_error})
+                               "parse_error": parse_error,
+                               "args_truncated": truncated})
 
 
 @pytest.mark.asyncio
@@ -555,7 +559,8 @@ async def test_truncated_tool_call_is_answered_not_executed():
     misleading errors like ``Is a directory``); the model gets an error
     result naming the truncation and how to recover."""
     model = FakeModel([
-        [_broken_use("c1", "write_file", "unterminated string at char 812"),
+        [_broken_use("c1", "write_file", "unterminated string at char 812",
+                     truncated=True),
          _done(stop="length")],
         [_text("understood"), _done(stop="end_turn")],
     ])
@@ -573,9 +578,31 @@ async def test_truncated_tool_call_is_answered_not_executed():
 
 
 @pytest.mark.asyncio
+async def test_truncation_wording_survives_a_stop_reason_that_lies():
+    """The gateway reported ``tool_use`` for a call its own output cap
+    severed. Trusting it produced the "malformed JSON — re-emit the
+    complete call" wording, which reads as an escaping bug: the model
+    re-sent the same oversized call and looped (agent_560a2bf191ba,
+    dev 2026-07-30, three rounds). The JSON's own shape decides."""
+    model = FakeModel([
+        [_broken_use("c1", "write_file", "Expecting ',' delimiter at char 35 of 35",
+                     truncated=True),
+         _done(stop="tool_use")],
+        [_text("smaller then"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(name="write_file", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    error = next(e for e in events if e.type == TYPE_TOOL_RESULT).payload["error"]
+    assert "truncated" in error
+    assert "smaller pieces" in error       # the recovery that actually works
+    assert "re-emit" not in error.lower()  # never the escaping red herring
+
+
+@pytest.mark.asyncio
 async def test_malformed_tool_call_without_truncation_names_the_json_error():
     model = FakeModel([
-        [_broken_use("c1", "bash", "expected ',' at char 40"),
+        [_broken_use("c1", "bash", "Invalid \\escape at char 11 of 40"),
          _done(stop="tool_use")],
         [_text("ok"), _done(stop="end_turn")],
     ])
@@ -585,4 +612,134 @@ async def test_malformed_tool_call_without_truncation_names_the_json_error():
     assert tools.executed == []
     result = next(e for e in events if e.type == TYPE_TOOL_RESULT)
     error = result.payload["error"]
-    assert "malformed JSON" in error and "expected ','" in error
+    assert "malformed JSON" in error and "Invalid \\escape" in error
+    assert "truncated" not in error
+
+
+class BadRequestError(Exception):
+    """Named like litellm's, which is what reaches the classifier."""
+
+
+_PREFILL_400 = (
+    "litellm.BadRequestError: AnthropicException - This model does not support "
+    "assistant message prefill. The conversation must end with a user message."
+)
+
+
+def _prefilled(model, **overrides):
+    """An assembly whose projected conversation ends mid-assistant-turn."""
+    return _assembly(
+        model,
+        FakeTools(),
+        projector=PassthroughProjector([
+            {"role": "user", "content": "write the game"},
+            {"role": "assistant", "content": "I'll build the"},
+        ]),
+        **overrides,
+    )
+
+
+@pytest.mark.asyncio
+async def test_prefill_rejection_retries_once_with_a_continuation_turn():
+    """Some upstream backends behind the gateway reject a conversation
+    that ends with an assistant message. Real Anthropic accepts it, so we
+    send it as-is and only repair after an actual rejection — speculative
+    rewriting would surrender prefill on every request to a backend that
+    would have taken it. The user sees one uninterrupted turn."""
+    model = FakeModel([
+        BadRequestError(_PREFILL_400),
+        [_text(" tower defense now"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(_prefilled(model))
+
+    first, retry = model.requests
+    assert first.messages[-1]["role"] == "assistant"   # prefill kept on attempt 1
+    assert retry.messages[-1]["role"] == "user"        # repaired only on retry
+    assert retry.messages[:-1] == first.messages       # nothing else rewritten
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_continuation_turn_does_not_leak_into_later_steps():
+    """The repair is armed once per turn but must only APPLY to the
+    shape it repairs. Once the turn moves on, the projection ends in a
+    tool result — appending "continue where you stopped, do not repeat
+    anything" there is a lie that suppresses the model's normal
+    post-tool narration, and in the Anthropic dialect (tool results ride
+    inside user messages) it also stacks two user turns in a row."""
+    model = FakeModel([
+        BadRequestError(_PREFILL_400),
+        # Repair lands; the model now calls a tool, which moves the
+        # conversation past the assistant-final shape.
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    assembly = _assembly(
+        model,
+        FakeTools([ToolSpec(name="bash", description="", input_schema={})]),
+        projector=PassthroughProjector([
+            {"role": "user", "content": "write the game"},
+            {"role": "assistant", "content": "I'll build the"},
+        ]),
+    )
+    events, _ = await _run(assembly)
+
+    repair = model.requests[1]
+    assert repair.messages[-1]["content"] == CONTINUE_PREFILL  # applied here…
+    after_tool = model.requests[2]
+    assert after_tool.messages[-1]["role"] == "tool"           # …and not here
+    assert all(
+        m.get("content") != CONTINUE_PREFILL for m in after_tool.messages[1:]
+    )
+    assert not [e for e in events if e.type == TYPE_ERROR]
+
+
+@pytest.mark.asyncio
+async def test_the_continuation_turn_is_added_at_most_once():
+    """The REPAIR is one-shot — re-appending it every round would be a
+    spin loop, and each copy compounds the instruction. Retrying the
+    request is a separate question, settled by the retry policy: the
+    rejection is usually about which backend answered, not about what we
+    sent (see the classifier). When those retries run out the turn fails
+    honestly rather than looping."""
+    model = FakeModel([BadRequestError(_PREFILL_400)] * 6)
+    events, _ = await _run(
+        _prefilled(model, retry=StepRetry(base_delay_s=0.0)),
+    )
+
+    repaired = [
+        r for r in model.requests
+        if any(m.get("content") == CONTINUE_PREFILL for m in r.messages)
+    ]
+    assert len(repaired) >= 1
+    # Every repaired request carries exactly one copy of it.
+    for r in repaired:
+        assert sum(m.get("content") == CONTINUE_PREFILL for m in r.messages) == 1
+    assert [e.type for e in events].count(TYPE_ERROR) == 1
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    assert len(model.requests) < 6  # gave up rather than draining the script
+
+
+@pytest.mark.asyncio
+async def test_prefill_rejection_keeps_retrying_after_the_repair():
+    """The repair is one-shot, but the ERROR is not fatal after it.
+
+    Probed 2026-07-31: the conversation that drew this 400 in a live turn
+    replayed clean three times out of three, because the upstream
+    load-balances and only some backends refuse. Giving up after the
+    single repair let one unlucky draw kill a turn that had already
+    written its file (agent_560a2bf191ba, dev 2026-07-31)."""
+    model = FakeModel([
+        BadRequestError(_PREFILL_400),   # repair arms here
+        BadRequestError(_PREFILL_400),   # unlucky backend again
+        [_text("landed"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(
+        _assembly(model, FakeTools(), retry=StepRetry(base_delay_s=0.0)),
+    )
+
+    assert len(model.requests) == 3          # repair + one real retry
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1

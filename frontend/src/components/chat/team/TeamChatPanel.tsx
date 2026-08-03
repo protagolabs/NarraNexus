@@ -26,6 +26,7 @@ import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
+import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -550,6 +551,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                             )}
                           </div>
                           <BusAttachmentList attachments={m.attachments} />
+                          {/* This turn's full process — single-chat parity.
+                              Only agent replies whose turn was recorded carry
+                              an event_id (legacy rows degrade to no button). */}
+                          {!mine && m.event_id && (
+                            <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                          )}
                         </div>
                         {/* Meta row outside the bubble, aligned to its side. */}
                         <div
@@ -804,11 +811,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           now={now}
           expandedId={rosterExpandedId}
           onToggle={toggleRoster}
+          accent={accent}
           onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
           className="hidden md:flex"
         />
 
-        {/* Narrow screens: the same rows, over the transcript. */}
+        {/* Narrow screens: the same rows, over the transcript. The drawer
+            keeps the roster's own breathing width (256px ↔ 430px capped
+            at 92vw) — a fixed width here would undo the expansion. */}
         {mobileRosterOpen && (
           <TeamRosterPanel
             members={members}
@@ -817,8 +827,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             now={now}
             expandedId={rosterExpandedId}
             onToggle={toggleRoster}
+            accent={accent}
             onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-            className="absolute inset-y-0 right-0 z-20 flex w-64 border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
+            className="absolute inset-y-0 right-0 z-20 flex border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
           />
         )}
       </div>

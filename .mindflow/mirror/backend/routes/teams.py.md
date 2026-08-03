@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — idle carries started_at; messages carry event_id
+
+Two serialization fixes for the roster/transcript:
+
+- **idle branch now includes `started_at`.** The roster's "ran Ns" derives
+  from started_at→finished_at; only running/stalled carried the start, so
+  every finished turn rendered as a confident "ran 0s" while the DB held the
+  real value (2026-07-31 issue, Step 3).
+- **each chat message includes `event_id`** (from `BusMessage.event_id`,
+  stamped by the trigger on agent replies) — drives the per-message
+  "view reasoning & tools" disclosure in the transcript. Null for user
+  messages and legacy rows.
 
 ## 2026-07-30 — activity payload carries `event_id`
 
