@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
@@ -58,7 +59,47 @@ from xyz_agent_context.utils.cost_tracker import (
     record_cost,
     warn_missing_usage,
 )
+from xyz_agent_context.agent_framework.llm._prompt_probe import emit as _probe_emit
 from xyz_agent_context.utils.logging import timed
+
+
+@dataclass(frozen=True)
+class HelperUsage:
+    """Token usage from one CLI one-shot, buckets kept apart.
+
+    Replaces the ``(text, in_tok, out_tok)`` tuple this module used to return.
+    That shape had no room for the prompt-cache counters, so a CLI one-shot —
+    running the very transport whose agent_loop sibling reports six-figure
+    cache_read counts — booked every call as if none of it was cached.
+
+    ``input_tokens`` is the FULL-RATE bucket only. Anthropic's three counters
+    are mutually exclusive and priced 1x / 1.25x / 0.1x; the codex branch fills
+    only the first because the OpenAI shape folds cached input into its input
+    total (see its return site).
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
+
+    @property
+    def any_recorded(self) -> bool:
+        """True when the provider reported ANY usage at all.
+
+        Cache buckets count: a fully cache-hit call can legitimately report
+        input_tokens == 0 while still costing money, and treating that as
+        "no usage reported" would drop a real row and fire a bogus warning.
+        """
+        return bool(
+            self.input_tokens
+            or self.output_tokens
+            or self.cache_creation_tokens
+            or self.cache_read_tokens
+        )
+
+
+_EMPTY_USAGE = HelperUsage()
 
 # Cheap sensible defaults per framework when the slot model is empty/"default".
 # Codex NOTE: a subscription runs Codex against a ChatGPT ACCOUNT, which rejects
@@ -113,7 +154,7 @@ class CliHelperSDK:
 
     async def _run_claude_oneshot(
         self, system_prompt: str, user_input: str, model_name: str
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, HelperUsage]:
         """One-shot, tool-free ``claude_agent_sdk.query()``.
 
         Reuses ClaudeConfig.to_cli_env so an OAuth subscription's blank
@@ -178,10 +219,14 @@ class CliHelperSDK:
             cwd=helper_cwd,
         )
 
-        async def _consume() -> tuple[str, int, int]:
+        async def _consume() -> tuple[str, HelperUsage]:
             text_parts: list[str] = []
             result_text = ""
-            in_tok = out_tok = 0
+            # The CLI reports Anthropic-shaped usage, so the three buckets stay
+            # apart all the way to the ledger — they are priced 1x / 1.25x /
+            # 0.1x and this transport DOES get cache hits (agent_loop runs the
+            # same CLI and reports large cache_read counts).
+            tally = _EMPTY_USAGE
             async for msg in query(prompt=user_input, options=options):
                 if isinstance(msg, AssistantMessage):
                     for block in msg.content:
@@ -192,9 +237,13 @@ class CliHelperSDK:
                     raw_usage = getattr(msg, "usage", None)
                     if isinstance(raw_usage, dict):
                         usage = normalize_anthropic_usage(raw_usage)
-                        in_tok = usage["input_tokens"]
-                        out_tok = usage["output_tokens"]
-            return ("".join(text_parts) or result_text), in_tok, out_tok
+                        tally = HelperUsage(
+                            input_tokens=usage["uncached_input_tokens"],
+                            output_tokens=usage["output_tokens"],
+                            cache_creation_tokens=usage["cache_creation_input_tokens"],
+                            cache_read_tokens=usage["cache_read_input_tokens"],
+                        )
+            return ("".join(text_parts) or result_text), tally
 
         # Wall-clock bound for the whole one-shot (all internal CLI retries). On
         # timeout wait_for cancels the coroutine; claude_agent_sdk's
@@ -215,7 +264,7 @@ class CliHelperSDK:
 
     async def _run_codex_oneshot(
         self, system_prompt: str, user_input: str, model_name: str
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, HelperUsage]:
         """One-shot via the registered codex agent-loop driver.
 
         The codex driver reads model / credentials from the ambient
@@ -256,7 +305,7 @@ class CliHelperSDK:
 
     async def _run_codex_oneshot_inner(
         self, system_prompt: str, user_input: str
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, HelperUsage]:
         from xyz_agent_context.agent_framework.llm.cli_oneshot import (
             run_codex_cli_oneshot,
         )
@@ -280,11 +329,18 @@ class CliHelperSDK:
             # and defeating the #68 credential-failure alerting, which keys
             # off is_credential_error reading the error text.
             raise RuntimeError(f"codex CLI helper failed: {result.error}")
-        return result.text, result.input_tokens, result.output_tokens
+        # Codex speaks the OpenAI usage shape, where the input total already
+        # INCLUDES cached input and the cached count is only a breakdown. There
+        # is no separate bucket to split out, so the cache fields stay 0 —
+        # deliberately, not by omission. CliOneshotResult carries no cache
+        # fields for the same reason.
+        return result.text, HelperUsage(
+            input_tokens=result.input_tokens, output_tokens=result.output_tokens
+        )
 
     async def _run_oneshot(
         self, system_prompt: str, user_input: str, model_name: str
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, HelperUsage]:
         if cli_helper_config.framework == "codex_cli":
             return await self._run_codex_oneshot(system_prompt, user_input, model_name)
         return await self._run_claude_oneshot(system_prompt, user_input, model_name)
@@ -307,6 +363,7 @@ class CliHelperSDK:
         user's parameter choice — iron rule #15).
         """
         model_name = self._resolve_model(model)
+        _probe_emit("cli", model_name, instructions, user_input)
         framework = cli_helper_config.framework
         system_prompt = self._build_system_prompt(instructions, output_type)
         logger.debug(
@@ -324,16 +381,19 @@ class CliHelperSDK:
             absent. Each repair attempt is a distinct call, so cost is recorded
             per attempt.
             """
-            raw, in_tok, out_tok = await self._run_oneshot(
+            raw, usage = await self._run_oneshot(
                 system_prompt, prompt_text, model_name
             )
             if _agent_id and _db:
-                if in_tok > 0 or out_tok > 0:
+                if usage.any_recorded:
                     try:
                         await record_cost(
                             db=_db, agent_id=_agent_id, event_id=None,
                             call_type="llm_function", model=model_name,
-                            input_tokens=in_tok, output_tokens=out_tok,
+                            input_tokens=usage.input_tokens,
+                            output_tokens=usage.output_tokens,
+                            cache_creation_tokens=usage.cache_creation_tokens,
+                            cache_read_tokens=usage.cache_read_tokens,
                         )
                     except Exception as e:
                         logger.warning(f"[CliHelper] failed to record cost: {e}")
@@ -409,16 +469,19 @@ class CliHelperSDK:
         """
         model_name = self._resolve_model(model)
         _last_llm_call_info.set({"model": model_name, "structured": "cli_stream"})
-        raw_content, input_tokens, output_tokens = await self._run_oneshot(
+        raw_content, usage = await self._run_oneshot(
             instructions, user_input, model_name
         )
         _agent_id, _db = self._resolve_cost_context(None, None)
-        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
+        if _agent_id and _db and usage.any_recorded:
             try:
                 await record_cost(
                     db=_db, agent_id=_agent_id, event_id=None,
                     call_type="llm_stream", model=model_name,
-                    input_tokens=input_tokens, output_tokens=output_tokens,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_tokens=usage.cache_creation_tokens,
+                    cache_read_tokens=usage.cache_read_tokens,
                 )
             except Exception as e:
                 logger.warning(f"[CliHelper-Stream] failed to record cost: {e}")

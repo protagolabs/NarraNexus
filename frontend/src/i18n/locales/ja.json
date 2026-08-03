@@ -1079,6 +1079,9 @@
     "popover": {
       "triggerTitle": "トークン使用量—クリックで詳細",
       "inOut": "入力 {{in}} / 出力 {{out}}",
+      "cacheHit": "キャッシュヒット {{rate}}%",
+      "totalCost": "合計 {{cost}}",
+      "cacheDetail": "キャッシュ読み {{read}} · 書き {{write}}",
       "byModel": "モデル別",
       "daily": "日別",
       "viewAgent": "Agent",

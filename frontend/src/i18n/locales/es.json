@@ -1080,6 +1080,9 @@
     "popover": {
       "triggerTitle": "Uso de tokens — haz clic para ver los detalles",
       "inOut": "{{in}} entrada / {{out}} salida",
+      "cacheHit": "{{rate}}% de aciertos de caché",
+      "totalCost": "{{cost}} en total",
+      "cacheDetail": "caché leída {{read}} · escrita {{write}}",
       "byModel": "Por modelo",
       "daily": "Diario",
       "viewAgent": "Agent",

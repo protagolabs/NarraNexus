@@ -131,6 +131,18 @@ for var in NARRATIVE_JUDGE_MODEL NARRATIVE_JUDGE_EFFORT \
   fi
 done
 
+# Forward helper-LLM diagnostics the same way, for the same reason: they are
+# per-experiment switches set in the parent shell, and a pane that does not
+# inherit them silently produces a run with no measurements — which reads as
+# "the helper made no calls" rather than "the probe was never on".
+HELPER_ENV=""
+for var in HELPER_PROMPT_PROBE_ENABLED HELPER_PROMPT_DUMP_DIR; do
+  value="${!var-}"
+  if [ -n "$value" ]; then
+    HELPER_ENV+="export $var='$value'; "
+  fi
+done
+
 # Propagate the LAUNCHER's PATH into every tmux window. tmux windows inherit the
 # tmux *server's* environment, captured once when the server first started — not
 # our current env. A long-lived server (started days ago, before the user
@@ -157,7 +169,7 @@ for var in POSTHOG_API_KEY POSTHOG_HOST NARRA_ANALYTICS_ENABLED; do
   fi
 done
 
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}cd '$PROJECT_ROOT'"
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"

@@ -1084,6 +1084,9 @@
     "popover": {
       "triggerTitle": "Использование токенов — щёлкните для подробностей",
       "inOut": "{{in}} вход / {{out}} выход",
+      "cacheHit": "попадания в кэш {{rate}}%",
+      "totalCost": "итого {{cost}}",
+      "cacheDetail": "кэш чтение {{read}} · запись {{write}}",
       "byModel": "По модели",
       "daily": "По дням",
       "viewAgent": "Агент",
