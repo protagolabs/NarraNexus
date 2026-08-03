@@ -1,0 +1,92 @@
+---
+code_file: src/xyz_agent_context/module/_mcp_identity.py
+last_verified: 2026-08-01
+stub: false
+---
+
+# _mcp_identity.py — module MCP 工具的调用者身份
+
+## 为什么存在
+
+P1「Agent 消极回复"我做不了"」(2026-08-02 线下 段 06 / evt_0dcee899)。
+模块 MCP Server 是**每模块一个进程、所有 agent 共享**,于是 93 个工具的
+`agent_id` 参数一直由**模型自己填**。现场模型填了字面量
+`agent_id="agent_current"` → `get_by_agent()` 查不到 → 硬错误串 →
+agent 告诉用户"技术问题,做不了"(还是英文)。
+
+注意:模块 prompt **本来就告诉过**模型正确 id
+([prompts.py](social_network_module/prompts.py) 连说两句
+"IMPORTANT: Your agent_id is `agent_x`"、"Always pass agent_id=..."),
+替换也真生效。所以这不是"没告诉它",而是**平台把一个机器可知的事实
+押在了模型听话上**——按铁律 #15 平台不管用户选什么模型,那就不能因模型
+弱而硬失败。
+
+## 工单方案里的一处走不通
+
+工单写「服务端注入 caller 身份(**或**解析 agent_current/self 别名)」。
+括号里的不是独立备选:Server 共享,不知道谁在调,`agent_current`
+**无法解析**。别名解析必须依赖注入。本模块两件一起做。
+
+## 通道选择:header(2026-08-01 实测,不是推断)
+
+对两个适配器各自的传输实测过(探针见 PR 描述):
+
+| 通道 | SSE(claude) | streamable(codex) |
+|---|---|---|
+| 自定义 header | ✅ | ✅ |
+| `Authorization: Bearer` | ✅ | ✅ |
+| URL query `?agent_id=` | ❌ **丢失** | ✅ |
+
+query 在 SSE 上丢失的原因:工具调用 POST 到 `/messages/?session_id=…`,
+`/sse` 上的 query string 早没了。**只有 header 两边都通**。
+
+注入两个拼写,读取时任一命中即可——因为两个适配器能表达的东西不同:
+- `X-NarraNexus-Agent-Id`:正经写法,claude 适配器原样转发任意 header
+- `Authorization: Bearer nx-agent:<id>`:codex 适配器**不能**带任意
+  header(见 `adapters/codex/official_sdk.py`:"Codex config cannot carry
+  arbitrary HTTP headers"),bearer 是它唯一会发的 header 形状。模块
+  MCP 不做鉴权,借用无副作用——但**确实是借用**,所以加 `nx-agent:`
+  前缀,永不可能与真 token 混淆(真 bearer 有专门测试挡)。
+
+## 接入点只有一个(不是 14 个)
+
+`XYZBaseModule.build_instrumented_mcp_server()`(base.py 新增)包住子类的
+`create_mcp_server()`,ModuleRunner 的两个部署点改调它。于是:
+
+- **零个**模块文件需要改动,**93/93** 个带 `agent_id` 的工具全部覆盖
+  (16 个模块,有回归测试逐个断言)
+- 新模块声明 `agent_id` 就自动获得,没有"谁忘了加一行"的可能
+
+`install_caller_identity(mcp)` 包的是 `tool.fn`,并显式保留
+`__signature__`——FastMCP **已经**用签名建好了 JSON schema,签名和
+可调用体必须继续一致(有测试断言 schema 仍声明 `agent_id`)。
+
+## 三层行为
+
+1. 有注入 + 模型填占位符 → 用注入身份(info 日志)
+2. 有注入 + 模型填了**别人的 id** → 用注入身份(warning 日志)。
+   **顺带的安全收紧**:此前 Server 不校验 `agent_id` 是否属于调用者
+   (references/module_system.md §5 原文"运行时是可信的"),现在跨 agent
+   读不到别人数据了。所有工具的 `agent_id` 文档都写的是"你自己的 id",
+   没有合法用法会传别人的。
+3. **无注入**(未来某个不带 header 的适配器 / 直连 MCP 客户端)+ 占位符
+   → 返回**可自愈**文案(告诉它去 instructions 里抄真 id),而不是原来
+   那种被模型读成"不可能"的死胡同。真 id 则原样通过,行为完全不变。
+
+## 坑
+
+- **返回形状必须跟工具一致**:FastMCP 会按返回注解建 output schema 校验
+  结果,给 dict 工具塞 str 只是把一种困惑换成另一种。而注解**可能是
+  字符串**——`message_bus_module`(本 bug 最相关的 A2A 模块)就用了
+  `from __future__ import annotations`。所以 `_annotation_is_dict` 同时
+  认类型和字符串两种形态;**第一版只认类型,恰好会在最要紧的模块上静默
+  返回错形状**,是新写的测试当场抓到的。
+- **永不成为故障源**:读不到请求(单测直调)、无 header、异常——一律
+  回落到"用参数",即原行为。
+
+## 上下游
+
+- 注入方:[[context_runtime]] 的 `mcp_servers` 组装(单点,两个适配器
+  共用同一个 spec dict)
+- 安装方:[[base]] `build_instrumented_mcp_server` ← [[module_runner]]
+- 测试:`tests/module/test_mcp_caller_identity.py`(含全 MODULE_MAP 覆盖断言)

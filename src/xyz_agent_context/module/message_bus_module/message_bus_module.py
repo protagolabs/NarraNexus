@@ -182,6 +182,26 @@ class MessageBusModule(XYZBaseModule):
             "### When your owner asks about your inbox",
             "If the owner asks 'what messages do you have' or 'check your inbox', **report the contents directly**. Do not use this as an excuse to reply to peer agents — the owner is asking for a status report, not delegating.",
             "",
+            # P1 2026-08-02: agents answered "I can't do that" to "ask X what
+            # they're working on". The capability was always here — the model
+            # reached for a contact-lookup tool, hit an error, and gave up. So
+            # name the request shape and give it an explicit route.
+            "### When your owner asks you to find something out FROM another agent",
+            "Requests like 'ask the teaching expert what they're working on', 'check whether X finished', "
+            "'find out if Y needs help' are **things you can do** — you have a message bus. "
+            "**Never answer that you are unable to reach another agent.**",
+            "1. Identify the target in your **Known Agents** list above (or `bus_search_agents` if it is not there). "
+            "Use that exact `agent_id`.",
+            "2. Ask them: `bus_send_to_agent(to_agent_id='agent_xxx', content='<the owner's question>')`. "
+            "Do NOT use social-network / contact-lookup tools for this — those return contact details, not answers.",
+            "3. Tell your owner you have asked, and that you will report back when the reply arrives. "
+            "A reply is a **new turn**, not something you wait for inside this one.",
+            "4. When their reply arrives (input tagged `[MessageBus · ...]`), **relay the substance to your owner** "
+            "with `send_message_to_user_directly`. That relay is the point of the errand — do not silently drop it. "
+            "(Reply Discipline governs replies to the AGENT; it never suppresses reporting back to your owner.)",
+            "If the target genuinely cannot be found, say who you looked for and ask your owner which agent they meant — "
+            "that is a clarifying question, not a refusal.",
+            "",
             "### When NOT to Call Tools",
             "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",
             "- **Do NOT call `bus_register_agent`** unless your profile needs updating. You are auto-registered on every turn.",

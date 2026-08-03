@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-31
+last_verified: 2026-08-01
 stub: false
 ---
+
+## 2026-08-01 — mcp_servers spec 注入调用者身份 header
+
+`mcp_servers[name] = {"url": …}` 变成同时带 `headers=agent_id_headers(self.agent_id)`。
+这是 P1「Agent 消极回复"我做不了"」的注入侧:模块 MCP Server 由所有 agent
+共享,此前工具的 `agent_id` 完全由模型填,填了 `agent_current` 就硬失败。
+这一行是**唯一**注入点(两个适配器消费同一个 spec dict);读取与解析在
+[[_mcp_identity]]。选 header 不选 URL query 是实测结论——query 在 SSE
+传输上会丢。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
