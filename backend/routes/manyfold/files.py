@@ -27,6 +27,7 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -392,8 +393,6 @@ async def write_file(
             status_code=409,
             detail=f"file exists and overwrite=false: {path!r}",
         )
-
-    import asyncio
 
     def _write() -> None:
         target.parent.mkdir(parents=True, exist_ok=True)

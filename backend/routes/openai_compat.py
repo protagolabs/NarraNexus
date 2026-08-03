@@ -19,18 +19,24 @@ Wiring rules (Owner decisions, 2026-05-25):
   * Endpoint is registered only when ``ENABLE_MANYFOLD_API=1`` — see
     backend/main.py conditional include.
 
-Event-to-chunk translation (minimal viable — see spec Part 4.4):
-  * agent_response (text_delta) → choices[0].delta.content
-  * progress events with ``send_message_to_user_directly`` tool name →
-    treated as the user-visible reply, content piped into delta.content
-  * terminal (run_ended / done / completed / failed / cancelled) →
-    final chunk with finish_reason="stop" + [DONE]
-  * error → OpenAI error envelope shape
+Event-to-chunk translation (see _classify_event):
+  * agent_thinking / agent_response token deltas → delta.reasoning_content
+    (the agent's inner stream; never the user-visible reply)
+  * reply-tool calls → delta.content — which tools count as the reply, and
+    how the text is extracted, comes from the per-WorkingSource declaration
+    (MessageSourceRegistry), not a hardcoded name list
+  * other tool calls → delta.tool_calls; tool output → delta.tool_results
+    (non-standard extension, paired FIFO by tool_call_id)
+  * terminal (complete / run_ended / done / completed / failed / cancelled)
+    → finish_reason chunk + [DONE]; error → OpenAI error envelope shape
 
-Deferred (tracked in spec Appendix B): a dedicated ``reply_to_manyfold``
-MCP tool + manyfold_module would let the agent be explicit about which
-events are user-visible. For v1 we lean on the existing
-``send_message_to_user_directly`` tool the chat module already provides.
+Managed-IM dispatch (model B, 2026-08-03): a known ``channel_provider``
+maps the turn onto the origin channel's native WorkingSource
+(build_inbound_run_context) and runs the channel's business hooks around
+it (managed_channel_ingress: owner claim / authorize gate / attachment
+conversion / inbox + audit / error fallback). Non-mention group traffic
+short-circuits to memory-only silent ingestion. Design:
+reference/self_notebook/specs/2026-08-03-manyfold-managed-im-ingress-design.md.
 """
 
 from __future__ import annotations

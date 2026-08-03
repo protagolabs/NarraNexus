@@ -6,12 +6,13 @@
 @description: Local stand-in for the Manyfold host, to validate that
 NarraNexus's trigger surface can be moved out to an external platform.
 
-This is the experiment harness for "trigger 走 Manyfold" (model B). It plays
+This is the experiment harness for platform-managed triggers (model B). It plays
 the two roles Manyfold takes over from a suspended sandbox — the "ears" (IM
 inbound) and the "clock" (job scheduling) — by speaking the exact HTTP
 contracts NarraNexus exposes (PR #118 + the model-B inbound extension). It
 does NOT reproduce Firecracker/sprites/suspend-wake; the abstract event flow is
-what we validate, per "本地无法 1:1 模拟,抽象逻辑一致即可".
+what we validate — a 1:1 local reproduction is impossible and not the goal;
+matching the abstract event flow is.
 
 Contracts exercised (all gateway-token authed):
   - GET  /manyfold/jobs      — pull the authoritative job inventory
