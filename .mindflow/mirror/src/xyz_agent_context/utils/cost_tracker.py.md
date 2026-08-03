@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/cost_tracker.py
+last_verified: 2026-08-03
+stub: false
+---
+
 # cost_tracker.py
 
 ## 2026-07-30 — 手写价目表移出；成本按 cache 三档计价
@@ -89,7 +95,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 **Called by:** `agent_framework/llm/api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
 
-**Reads from:** `MODEL_PRICING` dict for per-million-token USD rates (GPT, Gemini, embeddings). Claude costs use the SDK's reported `cost_usd` directly.
+**Reads from:** [[model_pricing]] — `price_for(model)` resolves per-TOKEN USD rates (and the prompt-cache tiers) from litellm's maintained table. `agent_loop` rows still use the SDK's own `sdk_cost_usd` directly and skip pricing entirely.
 
 **Writes to:** the `cost_records` table via the ambient `db_client`.
 
@@ -99,7 +105,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 **`AgentRuntime.run()` owns the lifecycle.** The cost context is set exactly once per agent turn and cleared in `finally`. This means any function called during the turn can call `get_cost_context()` and get valid data, but functions called outside a turn (e.g., admin scripts) will see `None` and should handle that gracefully.
 
-**`MODEL_PRICING` covers only models controlled by our code.** Only OpenAI GPT (hardcoded in the OpenAI SDK wrapper), Gemini (hardcoded in the Gemini SDK wrapper), and embedding models (from `settings.openai_embedding_model`) are listed. Claude costs come from the SDK's own cost reporting rather than a price table, so no Claude entry is needed.
+**Pricing coverage is upstream's, not ours.** [[model_pricing]] resolves against litellm's ~2983-entry table, so "is this model priced" is no longer a question about our own dict. An id the table does not know stays **unpriced** — `price_for` returns None, the tokens are still recorded, and one warning per model names the id to add to `_LOCAL_OVERRIDES`. Claude `agent_loop` rows bypass this and use the SDK's own figure.
 
 **`calculate_cost` is a pure function.** It takes model name and token counts and returns a USD amount. It is separate from `record_cost` so that callers can estimate cost before committing to a database write, and so that tests can verify cost calculations without a database.
 
@@ -109,7 +115,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 **`ContextVar` does not propagate to `asyncio.create_task()` by default in Python < 3.7.1.** In modern Python (3.7.1+), `create_task` copies the current context, so child tasks see the parent's cost context. This is the expected behavior, but be aware that manually creating a new `Context` object and running a coroutine in it will lose the cost context.
 
-**New-contributor trap.** The `MODEL_PRICING` dict uses the exact model name strings that our SDK wrappers pass. If a model name changes (e.g., a new GPT version), the pricing entry must be updated by the same name string. A model name mismatch causes `calculate_cost` to return 0.0 silently, which means the cost is not recorded but no error is raised.
+**New-contributor trap (was: maintain the dict).** There is no dict to maintain any more — that instruction pointed at `MODEL_PRICING`, deleted 2026-07-30. What remains true is the failure MODE it warned about: an id the table cannot resolve books $0. It is no longer silent, though — `price_for` warns once per model, by name. If you see that warning, the fix is a rate card entry in `_LOCAL_OVERRIDES`, not a code change.
 
 ## 2026-04-16 addition — system-default quota deduct hook
 

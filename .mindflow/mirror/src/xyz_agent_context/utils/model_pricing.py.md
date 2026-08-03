@@ -1,10 +1,44 @@
 ---
 code_file: src/xyz_agent_context/utils/model_pricing.py
-last_verified: 2026-07-30
+last_verified: 2026-08-03
 stub: false
 ---
 
 # model_pricing.py — 每 token 美元定价的唯一解析点
+
+## 2026-08-03 — 收成仓库唯一的价格解析器（review #227）
+
+四件事一起改，因为前三件是同一个问题的三面：
+
+**一、裸 `import litellm` 违反铁律 #9。** 初版直接 `import litellm; litellm.model_cost`。
+但 [[litellm_client]] 已声明自己是本仓库**唯一**的 litellm 导入点，其 `model_cost_map()`
+的 docstring 点名的就是这个失误 —— nexus_power 当年正是这么绕过去的，2026-07-29 的 review
+刚填过一次。第二个导入点让「换掉 litellm 只改一个文件」重新变成两个，还跳过了座位里的
+`drop_params` / `suppress_debug_info` 静默设置。已改为走座位，并加了一条**静态测试**钉住
+（这个失误在运行时完全隐形，只有换客户端那天才暴露）。
+
+**二、与 nexus_power 的 `_price_row` 是两份实现，且 id 解析相反。** 规则逐条一致
+（input/output 单价、cache 读写无公布价则回退 input 价、未知返回 None），但那份剥 route
+前缀 + 大小写不敏感，本模块两者都不做。后果是**同一个 model id 在两个账本里一个有价一个 $0**。
+已抽成一个 `price_for`；`price_usage` 只剩「桶 × 单价」的加法，留在 nexus_power。
+
+**三、统一到宽松那套，不是严格那套** —— 与 review 建议的方向相反，理由是量出来的：账本里
+体量最大的 `minimax/minimax-m2.5`（1416 次）在表里的键是 `minimax/MiniMax-M2.5`，**纯大小写
+差异**。严格解析把它记成 $0，而单价一直是公布的 —— 那不是保守，是漏，而且不自洽：
+`gpt-5` / `text-embedding-3-small` 早就在按厂商价记账。
+
+review 举的 `deepseek-ai/DeepSeek-V4-Flash` 被 `_price_row` 按厂商价记账**不复现**（那个
+大小写全表扫用的是完整字符串，匹配不上 `deepseek-v4-flash`）。但现在的 route 剥离**确实会**
+让它落到 `deepseek-v4-flash`。这点没有掩盖，而是升级成**模块级已知限制**：解析出的是
+「该 model id 的公布价」，聚合器转售价 ≠ 厂商直连价，而 id 形状**无法**区分二者
+（`deepseek-ai/…` 与 `anthropic/…` 结构完全相同，裸 `gpt-5` 同样可能走转售）。拒绝剥前缀
+保护不了账本，只会让覆盖面变得任意，同时把同样的误差留在其余每一行。`_LOCAL_OVERRIDES`
+是已知真实费率时的出口。
+
+**四、`warm_cache()`。** 懒加载本身正确（多数进程从不记账），但首次触发点在
+`await record_cost(...)` 内部 —— 那 1.5s 的同步 import 落在 event loop 上，会顿住当时所有
+并发 WS 帧。backend lifespan 用 `asyncio.to_thread` 预热一次。**不能用 `create_task`**：
+代价是同步 import，放进任务里照样阻塞。
 
 ## 为什么存在
 

@@ -26,9 +26,19 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-/** Format USD cost; sub-cent amounts keep enough digits to be non-zero. */
+/**
+ * Format USD cost so a real amount never renders as a zero.
+ *
+ * toFixed(4) still prints "$0.0000" below a hundredth of a cent — and an
+ * embedding-heavy day lands there. That is the same failure this panel avoids
+ * everywhere else by hiding cost when it is 0: a displayed zero reads as
+ * "free", not as "too small to show". Callers already gate on > 0, so anything
+ * reaching here is genuinely non-zero and says so.
+ */
 function formatCost(n: number): string {
-  return n >= 0.01 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
+  if (n >= 0.01) return `$${n.toFixed(2)}`;
+  if (n >= 0.0001) return `$${n.toFixed(4)}`;
+  return '<$0.0001';
 }
 
 /** Short model name for display (drop date suffixes) */

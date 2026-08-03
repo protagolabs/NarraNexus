@@ -175,4 +175,27 @@ describe('CostPopover', () => {
     expect(screen.getByText('1.1k')).not.toHaveAttribute('title');
     expect(screen.getByText('60')).not.toHaveAttribute('title');
   });
+  it('never renders a real cost as $0.0000', () => {
+    // toFixed(4) bottoms out below a hundredth of a cent, and an
+    // embedding-heavy day lands there. A displayed zero reads as "free" — the
+    // exact confusion the > 0 gate above exists to avoid — so a genuinely
+    // non-zero amount must still say so (2026-08-03 review).
+    mockState.costSummary = {
+      ...cacheHeavySummary,
+      total_cost_usd: 0.00003,
+      by_model: {
+        ...cacheHeavySummary.by_model,
+        '__helper_model__': {
+          ...cacheHeavySummary.by_model['__helper_model__'],
+          cost: 0.00003,
+        },
+      },
+    };
+    render(<CostPopover />);
+
+    fireEvent.click(screen.getByTitle('Token usage — click for details'));
+
+    expect(screen.getByText('1.1k')).toHaveAttribute('title', '<$0.0001 total');
+    expect(screen.getByText('60')).toHaveAttribute('title', '<$0.0001');
+  });
 });

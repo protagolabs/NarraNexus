@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -66,6 +67,13 @@ _INTERNAL_MODULE_MARKERS = (
 )
 
 _dump_seq = 0
+# `_dump_seq += 1` is read-modify-write, and helper calls run concurrently — two
+# callers could take the same number and one file would overwrite the other,
+# losing exactly the payload someone turned this on to read. A lock rather than
+# itertools.count purely for symmetry with the ordering guarantee below: the
+# number is claimed and the name built under the same lock, so the filenames are
+# a real call order and not just unique.
+_dump_lock = threading.Lock()
 
 
 def _sha(text: str) -> str:
@@ -143,13 +151,14 @@ def emit(sdk: str, model: str, instructions: str, user_input: str) -> None:
 
         dump = _dump_dir()
         if dump is not None:
-            global _dump_seq
-            _dump_seq += 1
             # Sequence-prefixed so call order is recoverable from the filenames
             # alone; the site is in the name so per-site grouping needs no
             # parsing of the contents.
             safe_site = site.replace("/", "_").replace(":", "-")
-            path = dump / f"{_dump_seq:05d}_{sdk}_{safe_site}.txt"
+            global _dump_seq
+            with _dump_lock:
+                _dump_seq += 1
+                path = dump / f"{_dump_seq:05d}_{sdk}_{safe_site}.txt"
             path.write_text(
                 f"=== SDK ===\n{sdk}\n"
                 f"=== SITE ===\n{site}\n"

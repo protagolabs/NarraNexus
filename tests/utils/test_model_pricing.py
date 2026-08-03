@@ -178,3 +178,94 @@ def test_litellm_failure_degrades_to_unknown_instead_of_raising(monkeypatch):
 
     assert price_for("claude-haiku-4-5") is None
     assert calculate_cost("claude-haiku-4-5", 10, 10)["total_cost"] == 0.0
+
+
+# ── one resolver, and it tolerates how litellm actually spells things ────────
+# Both halves come from the 2026-08-03 review. nexus_power carried a second
+# implementation whose RULES matched this module line for line but whose id
+# handling did not, so one model id could be priced on one ledger and booked at
+# $0 on the other. These pin the merged behaviour so the split cannot come back
+# quietly.
+
+
+def test_case_differing_key_still_resolves():
+    """litellm spells the ledger's highest-volume model with different case.
+
+    ``minimax/minimax-m2.5`` is what arrives; ``minimax/MiniMax-M2.5`` is the
+    table's key. Case-sensitive-only lookup booked 1416 calls at $0 while the
+    rate was published all along — that is a lost price, not caution.
+    """
+    price = price_for("minimax/minimax-m2.5")
+    assert price is not None
+    assert price.resolved_id == "minimax/MiniMax-M2.5"
+    assert price.input_per_token > 0
+
+
+def test_route_prefix_is_stripped_one_segment_at_a_time():
+    """A route qualifier in front of a known id must not hide it."""
+    bare = price_for("claude-haiku-4-5")
+    routed = price_for("anthropic/claude-haiku-4-5")
+    assert bare is not None and routed is not None
+    assert routed.resolved_id == bare.resolved_id
+    assert routed.input_per_token == bare.input_per_token
+
+
+def test_exact_hit_wins_over_a_stripped_one():
+    """The id as given is always the better answer.
+
+    gpt-5 exists in the table on its own, so a resolver that stripped first
+    could quietly answer with a different row.
+    """
+    price = price_for("gpt-5")
+    assert price is not None and price.resolved_id == "gpt-5"
+    assert price.source == "litellm"
+
+
+def test_nexus_power_prices_through_this_module():
+    """price_usage is arithmetic; resolution belongs to exactly one place.
+
+    Asserted behaviourally rather than by inspecting imports: the two used to
+    disagree on ids, and agreeing on THIS id is what the merge bought.
+    """
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+        Usage,
+        price_usage,
+    )
+
+    price = price_for("minimax/minimax-m2.5")
+    assert price is not None
+    usage = Usage(input_tokens=1000, output_tokens=100)
+    assert price_usage(usage, "minimax/minimax-m2.5") == pytest.approx(
+        1000 * price.input_per_token + 100 * price.output_per_token
+    )
+
+
+def test_an_unknown_model_is_unknown_on_both_ledgers():
+    """The other direction of the same agreement."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+        Usage,
+        price_usage,
+    )
+
+    assert price_for("BAAI/bge-m3") is None
+    assert price_usage(Usage(input_tokens=10, output_tokens=10), "BAAI/bge-m3") is None
+
+
+def test_pricing_does_not_import_litellm_directly():
+    """Iron rule #9: LitellmClient is the repo's single litellm import point.
+
+    A static check, because the failure is invisible at runtime — a bare
+    ``import litellm`` works fine and only shows up the day someone swaps the
+    client out and finds a second file to edit. The 2026-07-29 review already
+    closed this hole once (nexus_power); this module re-opened it.
+    """
+    import re
+    from pathlib import Path
+
+    # The STATEMENT, not the words: this module's docstring and the comment at
+    # the seam both discuss `import litellm` on purpose, and a substring match
+    # flags the prose that exists to prevent the bug.
+    stmt = re.compile(r"^\s*(import\s+litellm|from\s+litellm[\s.])")
+    src = Path(model_pricing.__file__).read_text(encoding="utf-8")
+    hits = [ln.strip() for ln in src.splitlines() if stmt.match(ln)]
+    assert hits == [], f"bare litellm import outside the seam: {hits}"

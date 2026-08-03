@@ -32,6 +32,18 @@ maintained upstream, already a dependency of this repo (see
 tiers (``cache_creation_input_token_cost`` /
 ``cache_read_input_token_cost``) that an Anthropic-shaped bill actually needs.
 
+Known limitation: LIST price, not invoice price
+-----------------------------------------------
+What resolves is the published rate for the model id, and a model reached
+through an aggregator (NetMind resells DeepSeek, MiniMax, …) is not billed at
+the vendor's direct rate. Nothing in an id distinguishes the two —
+``deepseek-ai/DeepSeek-V4-Flash`` looks exactly like ``anthropic/claude-...``,
+and a bare ``gpt-5`` may itself be arriving through a reseller — so this is
+recorded once, here, instead of being guessed at per id. Refusing to price the
+ids that happen to LOOK like an aggregator's would not make the ledger safer,
+only make its coverage arbitrary while leaving the same error on every other
+row. ``_LOCAL_OVERRIDES`` takes a rate card when the real number is known.
+
 Scope: OBSERVABILITY ONLY
 -------------------------
 Per the 2026-07-28 change, real money for the free tier is metered by the
@@ -49,6 +61,8 @@ Design rules
 2. **Never invent a price.** Models the upstream table does not know stay
    unknown and get warned about, by name, once. ``_LOCAL_OVERRIDES`` exists
    for the operator to fill in from an invoice — not for us to estimate.
+   The line this draws is "is there a published rate for this model id", NOT
+   "is that rate what we are actually charged" — see the limitation below.
 3. **Warn once per model, not once per call.** 2254 helper calls would mean
    2254 identical warnings; that trains people to filter the log.
 4. **Lazy + memoised import.** ``import litellm`` costs ~1.54s. Paying that on
@@ -96,6 +110,7 @@ _LOCAL_OVERRIDES: Dict[str, ModelPrice] = {}
 _lock = threading.Lock()
 _litellm_table: Optional[Dict[str, Any]] = None
 _litellm_loaded = False
+_lower_index: Optional[Dict[str, str]] = None
 _warned_unknown: set[str] = set()
 
 
@@ -108,9 +123,18 @@ def _load_litellm_table() -> Optional[Dict[str, Any]]:
         if _litellm_loaded:
             return _litellm_table
         try:
-            import litellm
+            # Through the seam, never `import litellm` here. LitellmClient
+            # declares itself this repo's single litellm import point (iron rule
+            # #9: swapping litellm out must stay a one-file change), and its
+            # model_cost_map() exists precisely because pricing callers used to
+            # reach for the bare import — nexus_power did, and the 2026-07-29
+            # review filled that hole. A second import point re-opens it and
+            # also skips the seat's drop_params / suppress_debug_info quieting.
+            from xyz_agent_context.agent_framework.llm.litellm_client import (
+                LitellmClient,
+            )
 
-            table = litellm.model_cost
+            table = LitellmClient.model_cost_map()
             _litellm_table = table if isinstance(table, dict) else None
             if _litellm_table is None:
                 logger.warning(
@@ -188,13 +212,88 @@ def _normalised_alias(model_id: str) -> Optional[str]:
         return None
 
 
+def _lower_key_index() -> Dict[str, str]:
+    """lowercased id → the table's own key, built once.
+
+    litellm's keys are inconsistently cased for the SAME id — the ledger's
+    highest-volume model arrives as ``minimax/minimax-m2.5`` while the table
+    spells it ``minimax/MiniMax-M2.5``. A case-sensitive miss there is not
+    caution, it is a lost price: 1416 calls booked at $0 while the rate was
+    published all along. An index rather than a scan because the miss path is
+    the common one for aggregator ids, and the table holds ~2983 entries.
+    """
+    global _lower_index
+    if _lower_index is not None:
+        return _lower_index
+    table = _load_litellm_table() or {}
+    with _lock:
+        if _lower_index is None:
+            # First key wins on a collision: table order is upstream's, and a
+            # differing-case duplicate would price the same model twice anyway.
+            index: Dict[str, str] = {}
+            for key in table:
+                index.setdefault(key.lower(), key)
+            _lower_index = index
+    return _lower_index
+
+
+def _table_lookup(model_id: str, source: str) -> Optional[ModelPrice]:
+    """One id against the upstream table: exact, then case-insensitive.
+
+    Case folding is a match on the SAME key, not a guess at a different model,
+    which is why it is allowed here while the prefix-stripping below is not.
+    """
+    table = _load_litellm_table()
+    if table is None:
+        return None
+    price = _entry_to_price(model_id, table.get(model_id), source)
+    if price is not None:
+        return price
+    actual = _lower_key_index().get(model_id.lower())
+    if actual and actual != model_id:
+        return _entry_to_price(actual, table.get(actual), source)
+    return None
+
+
+def _route_candidates(model_id: str) -> list[str]:
+    """Route-qualified forms of the same model, most specific first.
+
+    ``anthropic/claude-sonnet-4-6`` and ``openrouter/x/y`` carry a ROUTE in
+    front of the model id; the table keys some models with it and some without,
+    so stripping one segment at a time recovers the match.
+
+    Yes, this means ``deepseek-ai/DeepSeek-V4-Flash`` resolves to
+    ``deepseek-v4-flash`` — the VENDOR's published rate for a model we may be
+    buying through an aggregator. That is a real approximation, and it is
+    stated as a module-level limitation rather than fought here, because there
+    is no id shape that separates the two: nothing distinguishes
+    ``deepseek-ai/DeepSeek-V4-Flash`` from ``anthropic/claude-haiku-4-6``, and
+    a bare ``gpt-5`` may equally be arriving through a reseller. Refusing to
+    strip prefixes would not protect the ledger, only make its coverage
+    arbitrary. _LOCAL_OVERRIDES is the escape hatch for a route whose real rate
+    is known to differ.
+    """
+    out: list[str] = []
+    rest = model_id
+    while "/" in rest:
+        rest = rest.split("/", 1)[1]
+        out.append(rest)
+    return out
+
+
 def price_for(model_id: str) -> Optional[ModelPrice]:
     """Price for ``model_id``, or None when nothing authoritative is known.
 
-    Resolution order: local override → upstream table → upstream table under
-    the alias's concrete id. Returning None is a real answer ("we do not know
-    what this costs"), not an error, and the caller is expected to record the
-    tokens regardless — an unpriced call must still be visible as usage.
+    Resolution order: local override → upstream table (exact, then
+    case-insensitive) → the alias's concrete id → route-stripped forms.
+    Returning None is a real answer ("we do not know what this costs"), not an
+    error, and the caller is expected to record the tokens regardless — an
+    unpriced call must still be visible as usage.
+
+    This is the ONE price resolver in the repo. nexus_power carried a second
+    one (``_price_row``) whose rules matched line for line but whose id
+    handling did not, so the same model id could be priced on one ledger and
+    unpriced on the other — see the 2026-08-03 mirror entry.
     """
     if not model_id:
         return None
@@ -203,19 +302,22 @@ def price_for(model_id: str) -> Optional[ModelPrice]:
     if override is not None:
         return override
 
-    table = _load_litellm_table()
-    if table is not None:
-        price = _entry_to_price(model_id, table.get(model_id), "litellm")
+    price = _table_lookup(model_id, "litellm")
+    if price is not None:
+        return price
+
+    alias_target = _normalised_alias(model_id)
+    if alias_target:
+        price = _table_lookup(alias_target, "litellm(alias)")
         if price is not None:
             return price
 
-        alias_target = _normalised_alias(model_id)
-        if alias_target:
-            price = _entry_to_price(
-                alias_target, table.get(alias_target), "litellm(alias)"
-            )
-            if price is not None:
-                return price
+    # Route prefixes last: the id as given is always the better answer, so a
+    # stripped form may only fill a gap, never override an exact hit.
+    for candidate in _route_candidates(model_id):
+        price = _table_lookup(candidate, "litellm(route)")
+        if price is not None:
+            return price
 
     _warn_unknown_once(model_id)
     return None
@@ -247,13 +349,28 @@ def _warn_unknown_once(model_id: str) -> None:
         pass
 
 
+def warm_cache() -> None:
+    """Load the table now, synchronously. Call from a THREAD, not the loop.
+
+    The lazy load is correct — most processes never price anything — but its
+    first trigger sits inside ``await record_cost(...)``, so on an async server
+    it lands on the event loop and stalls ~1.5s of concurrent traffic. backend's
+    lifespan calls this via ``asyncio.to_thread`` so the import is paid once,
+    off the loop, before any request needs it. Idempotent and never raises: a
+    failure just leaves the lazy path in place.
+    """
+    _load_litellm_table()
+    _lower_key_index()
+
+
 def reset_cache_for_tests() -> None:
     """Drop memoised table + warn-once state. Tests only."""
-    global _litellm_table, _litellm_loaded
+    global _litellm_table, _litellm_loaded, _lower_index
     with _lock:
         _litellm_table = None
         _litellm_loaded = False
+        _lower_index = None
         _warned_unknown.clear()
 
 
-__all__ = ["ModelPrice", "price_for", "reset_cache_for_tests"]
+__all__ = ["ModelPrice", "price_for", "warm_cache", "reset_cache_for_tests"]
