@@ -128,32 +128,32 @@ def test_default_stays_owner_relay_for_existing_callers():
 
 
 @pytest.mark.asyncio
-async def test_no_prior_message_from_us_means_we_are_being_asked():
+async def test_the_thread_opener_is_the_errand_owner():
+    t = _trigger(rows=[{"from_agent": "agent_xiaoque"}])
+    assert await t._agent_started_this_thread("agent_xiaoque", "ch_dm_1") is True
+    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
+
+
+@pytest.mark.asyncio
+async def test_no_history_means_we_are_being_asked():
+    """Triggered by the very first message in the channel — someone else
+    sent it, so we are the asked party."""
     t = _trigger(rows=[])
-    started = await t._agent_spoke_in_channel_before(
-        "agent_yushu", "ch_dm_1", [_msg("m1", "agent_xiaoque")]
-    )
-    assert started is False
+    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
 
 
 @pytest.mark.asyncio
-async def test_a_prior_message_from_us_means_we_started_it():
-    t = _trigger(rows=[{"message_id": "older_one"}])
-    started = await t._agent_spoke_in_channel_before(
-        "agent_xiaoque", "ch_dm_1", [_msg("m9", "agent_yushu")]
-    )
-    assert started is True
+async def test_recipient_stays_the_recipient_after_it_has_replied():
+    """The reason this keys on the OPENER rather than "have I spoken":
 
-
-@pytest.mark.asyncio
-async def test_the_incoming_batch_itself_does_not_count_as_prior():
-    """Our own message could be in the batch (a channel we just posted to);
-    counting it would flip every turn to Owner Relay and re-break the fix."""
-    t = _trigger(rows=[{"message_id": "m_self"}])
-    started = await t._agent_spoke_in_channel_before(
-        "agent_yushu", "ch_dm_1", [_msg("m_self", "agent_yushu")]
-    )
-    assert started is False
+    once the recipient answers once it HAS spoken, so a follow-up question
+    would flip it back to Owner Relay and re-introduce the whole bug — the
+    recipient answering its own owner while the asker waits. 羽书 must read
+    as "being asked" for every message in the thread 小雀 opened.
+    """
+    t = _trigger(rows=[{"from_agent": "agent_xiaoque"}])
+    # 羽书 has replied by now, and 小雀 is asking a follow-up.
+    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
 
 
 @pytest.mark.asyncio
@@ -172,4 +172,4 @@ async def test_db_failure_falls_back_to_owner_relay():
         _db = _Boom()
 
     t = MessageBusTrigger(bus=_Bus())
-    assert await t._agent_spoke_in_channel_before("a", "ch", [_msg("m", "b")]) is True
+    assert await t._agent_started_this_thread("a", "ch") is True

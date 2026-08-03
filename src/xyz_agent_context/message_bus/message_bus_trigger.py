@@ -615,8 +615,8 @@ class MessageBusTrigger:
                 # from a peer must be answered on the bus. Getting this wrong
                 # is what made recipients answer their owner and leave the
                 # asking agent hanging (P1 2026-08-03).
-                i_started = await self._agent_spoke_in_channel_before(
-                    agent_id, channel_id, messages
+                i_started = await self._agent_started_this_thread(
+                    agent_id, channel_id
                 )
 
                 # Build prompt from messages
@@ -1015,40 +1015,51 @@ class MessageBusTrigger:
             depth += 1
         return depth
 
-    async def _agent_spoke_in_channel_before(
+    async def _agent_started_this_thread(
         self,
         agent_id: str,
         channel_id: str,
-        incoming: List[BusMessage],
     ) -> bool:
-        """Did ``agent_id`` send into this channel BEFORE the incoming batch?
+        """Did ``agent_id`` send the FIRST message in this channel?
 
-        The proxy for "I started this exchange, so a reply is owed to my
-        owner". A fresh inbound question comes on a channel this agent has
-        never spoken in (``bus_send_to_agent`` auto-creates the DM channel on
-        the sender's side), so absence of our own prior message is the signal
-        that we are the one being asked.
+        The proxy for "this errand is mine, so its answer is owed to my
+        owner". ``bus_send_to_agent`` auto-creates the DM on the sender's
+        side, so whoever spoke first is the one running an errand; the other
+        side is the one being asked, for every message in that thread.
+
+        Why the first message and not "have I spoken before" (the first
+        attempt at this): after the recipient answers once it HAS spoken, so
+        a follow-up question would flip it back to Owner Relay and
+        re-introduce the exact bug — the recipient answering its own owner
+        while the asker waits. Keying on the opener is stable across an
+        arbitrarily long thread.
+
+        Known limitation: if the two agents genuinely swap roles inside one
+        DM thread (the original recipient starts asking ITS own questions
+        there), the opener is no longer the one running the errand and that
+        turn gets the wrong directive. The degradation is the pre-2026-08-01
+        behaviour, and a role swap is rare next to a normal Q&A thread.
 
         Fails toward the OLD behaviour (True → Owner Relay) on any error: a
         wrongly-relayed answer is a UX annoyance, whereas wrongly telling an
         agent "answer the peer" when its owner IS waiting would resurrect the
-        silent-failure this directive was written to prevent.
+        silent failure this directive was written to prevent.
         """
         try:
-            incoming_ids = {m.message_id for m in incoming if getattr(m, "message_id", None)}
             ph = self._bus._db.placeholder
             rows = await self._bus._db.execute(
-                f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
-                f"AND from_agent = {ph}",
-                (channel_id, agent_id),
+                f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+                f"ORDER BY created_at ASC LIMIT 1",
+                (channel_id,),
             )
-            for r in rows or []:
-                if str(r["message_id"]) not in incoming_ids:
-                    return True
-            return False
+            if not rows:
+                # No history at all: we are being triggered by the very first
+                # message, which someone else sent — we are the asked party.
+                return False
+            return str(rows[0]["from_agent"]) == agent_id
         except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
             logger.debug(
-                f"MessageBusTrigger: could not tell who started channel "
+                f"MessageBusTrigger: could not tell who opened channel "
                 f"{channel_id} ({e}); assuming owner-relay"
             )
             return True

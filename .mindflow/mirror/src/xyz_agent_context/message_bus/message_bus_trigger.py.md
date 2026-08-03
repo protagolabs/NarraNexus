@@ -17,10 +17,16 @@ P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_pro
 永远等不到回复。**模型是在照做,是 prompt 在骗它。**
 
 修法:按「谁发起的」选指令。
-- `_agent_spoke_in_channel_before()`:本 agent 在该 channel 里有没有
-  **早于本批**的消息。`bus_send_to_agent` 建 DM channel 时是发送方先说话,
-  所以"我没说过话"就等于"我是被问的"。刻意排除本批消息 id,否则每轮都会
-  翻回 Owner Relay。
+- `_agent_started_this_thread()`:本 agent 是不是该 channel 的**第一条
+  消息的发送者**。`bus_send_to_agent` 建 DM channel 时是发送方先说话,
+  所以"开场的人"就是跑差事的人,另一边在整个线程里都是被问的一方。
+- **为什么用"开场者"而不是"我说过话吗"**(第一版就是后者,自查时发现会
+  复发):被问方回复过一次之后它"说过话"了,于是**追问**会把它翻回
+  Owner Relay,bug 原样回来。keying on 开场者对任意长的线程都稳定。
+  (追问场景已真机验证:羽书 第二个问题照样在 bus 上作答。)
+- 已知局限:如果两个 agent 在同一个 DM 线程里**真的互换角色**(原收件方
+  开始问自己的问题),开场者就不再是跑差事的人,那一轮指令会错;退化成
+  2026-08-01 之前的行为,而角色互换比正常一问一答罕见得多。
 - True → Owner Relay(2026-06 的静默失败修复,原样保留)
 - False → 新的 `## Answer the peer — REQUIRED`:点名 `bus_send_to_agent`
   是唯一能到达提问者的通道、"你 owner 并没有在等"、"回自己 owner 不能
