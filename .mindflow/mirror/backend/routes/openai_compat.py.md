@@ -4,6 +4,13 @@ last_verified: 2026-08-03
 stub: false
 ---
 
+## 2026-08-03(补2) — 非 @ 群消息短路到 `silent_ingest`
+
+`is_mention=false && chat_type=group` 的 turn 在附件转换后短路:记忆
+摄取 + 回执 completion(`_receipt_completion`,由 deny 回执助手改名而
+来,deny 与 silent 共用),不构造 BackgroundRun。DM 的 is_mention=false
+照常跑(平台不应发,发了也按普通 turn 容错)。
+
 ## 2026-08-03(补) — gate 放行后调 `convert_attachments`
 
 managed turn 在 gate 通过后、run 启动前把平台附件 ref 并轨原生协议

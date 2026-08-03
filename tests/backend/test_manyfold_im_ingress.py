@@ -965,7 +965,7 @@ async def _post_write(app, path, content: bytes, **params):
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
         return await client.post(
-            f"/manyfold/agents/agent_x/files/write",
+            "/manyfold/agents/agent_x/files/write",
             params={"path": path, **params},
             content=content,
         )
@@ -1065,3 +1065,123 @@ async def test_convert_attachments_never_raises_on_bad_env(monkeypatch):
     )
     assert "manyfold_attachments" not in extra
     assert "attachments" not in extra
+
+
+# ---------------------------------------------------------------------------
+# Stage F — non-mention group traffic → silent ingestion (memory-only)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSilentTrigger:
+    def __init__(self):
+        self.bind_db = None
+        self.silent_calls = []
+        self.credential = SimpleNamespace(agent_id="agent_x")
+
+    def _managed_bind(self, db):
+        self.bind_db = db
+
+    async def _credential_for_agent(self, agent_id):
+        return self.credential
+
+    async def _build_and_run_agent_silent_batch(
+        self, credential, messages, sender_name_by_id=None, attachments_by_index=None
+    ):
+        self.silent_calls.append(
+            {
+                "credential": credential,
+                "messages": messages,
+                "sender_name_by_id": sender_name_by_id,
+                "attachments_by_index": attachments_by_index,
+            }
+        )
+
+
+async def test_silent_ingest_runs_native_silent_batch(monkeypatch):
+    trig = _FakeSilentTrigger()
+    monkeypatch.setitem(
+        ingress_mod.CHANNEL_TRIGGER_MAP, "narramessenger", lambda: trig
+    )
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra(chat_type="group", is_mention=False)
+    receipt = await ingress.silent_ingest(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="agent_x",
+        user_input="group chatter",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    assert "ingested" in receipt
+    call = trig.silent_calls[0]
+    assert call["messages"][0].content == "group chatter"
+    assert call["sender_name_by_id"] == {"wx9": "u"}
+
+
+async def test_silent_ingest_never_raises(monkeypatch):
+    class _Boom:
+        def _managed_bind(self, db):
+            raise RuntimeError("x")
+
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: _Boom())
+    ingress = ingress_mod.ManagedChannelIngress()
+    receipt = await ingress.silent_ingest(
+        working_source=WorkingSource.LARK,
+        agent_id="agent_x",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert "dropped" in receipt
+
+
+async def test_endpoint_silent_group_turn_answers_receipt(compat_app, monkeypatch):
+    fake = _FakeIngress()
+
+    async def fake_silent(**kw):
+        fake.silent_kw = kw
+        return "(silent group message ingested to memory - no reply)"
+
+    fake.silent_ingest = fake_silent
+    monkeypatch.setattr(ingress_mod, "get_managed_channel_ingress", lambda: fake)
+    n_before = len(_FakeBackgroundRun.instances)
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "chatter"}],
+            "stream": False,
+            "channel_provider": "narramessenger",
+            "channel_context": {
+                "room_id": "!r:hs",
+                "sender_id": "@u:hs",
+                "chat_type": "group",
+                "is_mention": False,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert "ingested" in resp.json()["choices"][0]["message"]["content"]
+    assert len(_FakeBackgroundRun.instances) == n_before  # no reply run
+    assert fake.silent_kw["working_source"] is WorkingSource.NARRAMESSENGER
+
+
+async def test_endpoint_non_mention_dm_still_runs_normally(compat_app, monkeypatch):
+    fake = _FakeIngress()
+    monkeypatch.setattr(ingress_mod, "get_managed_channel_ingress", lambda: fake)
+    n_before = len(_FakeBackgroundRun.instances)
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "channel_provider": "telegram",
+            "channel_context": {
+                "room_id": "c1",
+                "sender_id": "u1",
+                "is_mention": False,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert len(_FakeBackgroundRun.instances) == n_before + 1  # normal run

@@ -25,6 +25,16 @@ callback)。下游:`channel_trigger_base` 的 managed 缝(默认实现 +
 wechat/matrix 覆写)。它是 `run_channel_triggers` 的对等物(trigger
 注册表上的协调器),不是 Module——铁律 #3 不受影响。
 
+## 2026-08-03(补2) — `silent_ingest`:非 @ 群消息的记忆摄取
+
+`is_mention=false` + `chat_type=group` 的托管 turn 不跑回复 run(会闯进
+群闲聊),改调 trigger 的原生
+`_build_and_run_agent_silent_batch`(单条成批):narrative 路由 + 记忆
+写入照跑、LLM step 跳过、绝不向房间发任何东西;openai_compat 以回执
+completion 应答。never-raise,失败降级为 dropped 回执。合批(平台侧
+collect / 我方批量语义)按 spec Q8 留待实现期与平台共定——单条成批
+先保证语义正确。
+
 ## 2026-08-03(补) — `convert_attachments`:平台落盘附件并轨原生协议
 
 平台 ingest 已把附件写进 workspace(`chat-attachments/...`)并在契约里

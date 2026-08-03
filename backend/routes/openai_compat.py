@@ -457,7 +457,7 @@ def _log_orphaned_run_job(task: asyncio.Task) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _denied_completion(
+def _receipt_completion(
     receipt: str,
     *,
     agent_id: str,
@@ -615,7 +615,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             db=db,
         )
         if not allowed:
-            return _denied_completion(
+            return _receipt_completion(
                 receipt,
                 agent_id=agent_id,
                 completion_id=completion_id,
@@ -631,6 +631,28 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             trigger_extra_data=trigger_extra_data,
             db=db,
         )
+
+        # Non-mention group traffic is memory-only (native group_silent
+        # semantics): ingest and answer a receipt - never run a reply
+        # turn that would barge into the conversation.
+        if (
+            trigger_extra_data.get("is_mention") is False
+            and trigger_extra_data.get("chat_type") == "group"
+        ):
+            receipt = await managed_ingress.silent_ingest(
+                working_source=working_source,
+                agent_id=agent_id,
+                user_input=user_input,
+                trigger_extra_data=trigger_extra_data,
+                db=db,
+            )
+            return _receipt_completion(
+                receipt,
+                agent_id=agent_id,
+                completion_id=completion_id,
+                created_ts=created_ts,
+                stream=body.stream,
+            )
 
     active_runs = request.app.state.active_runs
     cancellation = CancellationToken()

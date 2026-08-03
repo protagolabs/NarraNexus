@@ -233,6 +233,62 @@ class ManagedChannelIngress:
         if converted:
             trigger_extra_data["attachments"] = converted
 
+    async def silent_ingest(
+        self,
+        *,
+        working_source: WorkingSource,
+        agent_id: str,
+        user_input: str,
+        trigger_extra_data: dict,
+        db: Any,
+    ) -> str:
+        """Memory-only ingestion for a non-mention group message.
+
+        Mirrors the native silent path (matrix ``group_silent`` →
+        ``_build_and_run_agent_silent_batch``): narrative routing + memory
+        write run, the agent LLM step is skipped, and NOTHING is sent to
+        the room. The platform forwards these with ``is_mention=false``
+        (design Q8); running them as a normal turn would make the agent
+        barge into group small talk. Returns a transcript receipt; never
+        raises.
+        """
+        channel = working_source.value
+        try:
+            trigger = self._trigger(channel)
+            if trigger is None:
+                return "(silent group message dropped - channel unavailable)"
+            trigger._managed_bind(db)
+            message = synthesize_managed_message(trigger_extra_data, user_input)
+            credential = await trigger._credential_for_agent(agent_id)
+            if credential is None:
+                return "(silent group message dropped - no channel credential)"
+            attachments = None
+            converted = trigger_extra_data.get("attachments")
+            if isinstance(converted, list) and converted:
+                from xyz_agent_context.schema.attachment_schema import Attachment
+
+                attachments = [
+                    [Attachment(**d) for d in converted if isinstance(d, dict)]
+                ]
+            sender_names = (
+                {message.sender_id: message.sender_name}
+                if message.sender_id
+                else None
+            )
+            await trigger._build_and_run_agent_silent_batch(
+                credential,
+                [message],
+                sender_name_by_id=sender_names,
+                attachments_by_index=attachments,
+            )
+            return "(silent group message ingested to memory - no reply)"
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"managed ingress silent_ingest failed for {channel} "
+                f"({type(e).__name__}: {e})"
+            )
+            return "(silent group message dropped - ingestion failed)"
+
     async def after_run(
         self,
         *,
