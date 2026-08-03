@@ -228,3 +228,52 @@ def test_codex_adapter_transmits_identity_via_the_borrowed_bearer():
     assert "mcp_servers.social_network_module.bearer_token_env_var=" in joined
     # The identity value must not leak into argv.
     assert agent not in joined
+
+
+def _captured_warnings(fn):
+    """Run ``fn`` and return the loguru WARNING text it emitted.
+
+    loguru does not propagate to stdlib logging, so pytest's ``caplog`` sees
+    nothing — an assertion like ``"x" not in caplog.text`` would pass on an
+    always-empty string. Add a real sink instead.
+    """
+    from loguru import logger
+
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        fn()
+    finally:
+        logger.remove(sink_id)
+    return "\n".join(lines)
+
+
+def test_identity_header_does_not_warn_on_codex():
+    """The identity header is dual-sent because codex cannot carry it, so its
+    drop is expected and must not warn — otherwise every codex turn logs one
+    line per module server (~16/turn) and buries the warnings that matter
+    (a USER's custom header silently vanishing)."""
+    from xyz_agent_context.module._mcp_identity import agent_id_headers
+
+    specs = {"social_network_module": {
+        "url": "http://localhost:7802/sse",
+        "headers": agent_id_headers("agent_d8795abf5021"),
+    }}
+    captured = {}
+    text = _captured_warnings(lambda: captured.update(env=codex_mcp_bearer_env(specs)))
+
+    assert captured["env"], "the bearer must still be extracted"
+    assert "not supported by codex" not in text
+
+
+def test_a_users_own_custom_header_still_warns():
+    """The exemption must be narrow: a real custom header vanishing is
+    exactly what that warning exists for."""
+    specs = {"shop": {
+        "url": "http://x/sse",
+        "headers": {"X-Api-Key": "k", "Authorization": "Bearer tok"},
+    }}
+    text = _captured_warnings(lambda: codex_mcp_bearer_env(specs))
+
+    assert "X-Api-Key" in text
+    assert "not supported by codex" in text

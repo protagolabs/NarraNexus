@@ -90,3 +90,20 @@ query 在 SSE 上丢失的原因:工具调用 POST 到 `/messages/?session_id=�
   共用同一个 spec dict)
 - 安装方:[[base]] `build_instrumented_mcp_server` ← [[module_runner]]
 - 测试:`tests/module/test_mcp_caller_identity.py`(含全 MODULE_MAP 覆盖断言)
+
+## 2026-08-03 真机验证(两个框架都过了)
+
+- **claude_code 路径**:真实 turn 跑通;并用可区分数据证明了跨 agent 隔离
+  (小雀/羽书 都有 `user_tc` 这个实体但名字不同 —— 传对方 id 时拿回的仍是
+  自己那条,证明注入身份覆盖了参数)。
+- **codex_cli 路径**:真实 turn 跑通(社交网络工具读+写都成功);并单独证明
+  身份确实抵达 codex —— 它收到的环境变量
+  `NARRANEXUS_MCP_BEARER_…=nx-agent:agent_d8795abf5021`,config 里有对应的
+  `bearer_token_env_var`,且 argv 里不含身份值。
+- 顺带修掉一个**自己引入的日志噪音**:codex 适配器对"不支持的 header"会
+  逐 server 告警,而我给每个模块 server 都注入了
+  `X-NarraNexus-Agent-Id` → 每轮 ~16 条。该 header 属于**故意双发**(codex
+  带不了才配 bearer),已在 `codex_mcp_bearer_env` 里豁免;豁免刻意做窄,
+  用户自己的自定义 header 消失仍然告警(两条测试分别钉住)。
+  测试用 loguru sink 而不是 pytest caplog —— loguru 不走 stdlib logging,
+  `not in caplog.text` 会因为永远是空串而假通过(第一版就踩了)。

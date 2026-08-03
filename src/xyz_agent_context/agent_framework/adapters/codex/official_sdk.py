@@ -208,8 +208,19 @@ def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
 
     Returns ``{env_var_name: token}`` for every server whose headers carry
     ``Authorization: Bearer <token>``. Logs a warning (header keys only)
-    for headers codex cannot express.
+    for headers codex cannot express — a USER's custom header silently
+    vanishing is worth shouting about.
+
+    The platform's own caller-identity header is exempt from that warning:
+    it is dual-sent WITH an equivalent bearer precisely because codex cannot
+    carry it (see module/_mcp_identity.py), so dropping it here loses
+    nothing. Without the exemption every codex turn logged one warning per
+    module server — ~16 lines a turn, which is how real warnings get buried.
     """
+    from xyz_agent_context.module._mcp_identity import AGENT_ID_HEADER
+
+    expected_dropped = {AGENT_ID_HEADER.lower()}
+
     env: dict[str, str] = {}
     for name, spec in mcp_servers.items():
         headers = spec.get("headers") or {}
@@ -219,6 +230,7 @@ def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
         unsupported = [
             k for k in headers
             if not (k.lower() == "authorization" and bearer_env)
+            and k.lower() not in expected_dropped
         ]
         if bearer_env:
             auth = headers.get("Authorization") or headers.get("authorization")
