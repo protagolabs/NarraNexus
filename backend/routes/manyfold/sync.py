@@ -132,6 +132,11 @@ def build_inbound_run_context(
             f"{ws.value}_{source_message_id}" if source_message_id else session_id
         ),
         "source_message_id": source_message_id,
+        # Lets modules distinguish a platform-forwarded turn from a native
+        # trigger turn — narramessenger switches its reply instruction to
+        # narra_send (narra_reply's delivery relies on the in-process
+        # trigger, which is not running under managed mode).
+        "managed_ingress": True,
     }
     for key in ("chat_type", "thread_id", "reply_token"):
         value = _ctx_str(ctx, key)

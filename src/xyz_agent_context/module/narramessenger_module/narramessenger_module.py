@@ -292,9 +292,12 @@ class NarramessengerModule(ChannelModuleBase):
         mode = "Reply" if is_nm_channel else "Outbound / proactive"
 
         trust_block = self._trust_block(info)
-        action_block = (
-            self._reply_action_block(info) if is_nm_channel else _PROACTIVE_ACTION
-        )
+        if is_nm_channel and info.get("managed_ingress"):
+            action_block = self._managed_reply_action_block(info)
+        elif is_nm_channel:
+            action_block = self._reply_action_block(info)
+        else:
+            action_block = _PROACTIVE_ACTION
 
         return (
             f"## NarraMessenger Integration  ({mode})\n\n"
@@ -359,6 +362,32 @@ class NarramessengerModule(ChannelModuleBase):
             "`narra_send(room_id, text)`."
         )
 
+    @staticmethod
+    def _managed_reply_action_block(info: dict) -> str:
+        """Identity block for a managed (platform-forwarded) inbound turn.
+
+        The platform holds the receive path, so the MatrixTrigger that
+        normally captures ``narra_reply`` and delivers it after the turn is
+        NOT running — a ``narra_reply`` call would be a silent no-op here.
+        The agent must deliver directly with ``narra_send`` addressed to the
+        originating room.
+        """
+        room_id = info.get("current_room_id", "")
+        sender_id = info.get("current_sender_id", "")
+        return (
+            "### This turn — reply to the incoming message\n\n"
+            f"- sender: `{sender_id}`\n"
+            f"- room_id: `{room_id}`\n\n"
+            'To reply, call `narra_send(room_id="' + room_id + '", '
+            'text="<your reply>")` — it posts straight to this room. Do NOT '
+            "use `narra_reply` on this turn: its delivery relies on the "
+            "in-process trigger, which is not running here, so the call "
+            "would silently go nowhere. Send ONE real, plain-text (or "
+            "markdown) answer. To attach an image/file, put it in your "
+            'workspace and call `narra_send_media(room_id="' + room_id
+            + '", file_path="...")`.'
+        )
+
     async def build_extra_data(
         self, cred: NarramessengerCredential, ctx_data: ContextData
     ) -> dict[str, Any]:
@@ -385,6 +414,9 @@ class NarramessengerModule(ChannelModuleBase):
             "is_owner_interacting": is_owner_interacting,
             "connection_mode": cred.connection_mode,
             "enabled": cred.enabled,
+            # Platform-forwarded turn (managed mode): flips the reply
+            # instruction from narra_reply (trigger-delivered) to narra_send.
+            "managed_ingress": bool(ctx_data.extra_data.get("managed_ingress")),
         }
 
     async def _on_event_executed(self, params: HookAfterExecutionParams) -> None:

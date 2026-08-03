@@ -4,6 +4,12 @@ last_verified: 2026-08-03
 stub: false
 ---
 
+## 2026-08-03(补) — trigger_extra_data 恒带 `managed_ingress: True`
+
+渠道 turn 的 extra_data 加显式 managed 标记——原本与原生 trigger 的
+extra_data 形状难以区分,而 narramessenger 等模块需要按来源切换回复
+指令(narra_reply→narra_send)。原生路径不带此键,语义即 False。
+
 ## 2026-08-03 — managed-IM 入站分流(model B 消费端回归 + 契约扩展)
 
 新增 `_PROVIDER_WORKING_SOURCE` + `build_inbound_run_context()`:把

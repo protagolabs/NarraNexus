@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 ---
+
+## 2026-08-03 — 托管来源回合的回复指令切 `narra_send`
+
+`build_extra_data` 透传 `managed_ingress`(来自 openai_compat 分流的
+trigger_extra_data);`get_instructions` 对 NARRAMESSENGER 来源 + managed
+的回合渲染 `_managed_reply_action_block`——指令 agent 用
+`narra_send(room_id=…, text=…)` 直发并明确禁用 `narra_reply`(它是
+trigger 捕获式标记,托管模式 MatrixTrigger 不跑,调了等于静默丢失,
+7-30 P8 的一半根因)。原生来源回合与 proactive 分支不变。回复分类侧
+无需改动:MessageSource 注册的提取器本就覆盖 narra_send。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

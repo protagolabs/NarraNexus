@@ -863,3 +863,67 @@ async def test_endpoint_plain_turn_skips_managed_gate(compat_app, monkeypatch):
     )
     assert fake.before_calls == []
     assert fake.after_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Stage D — narramessenger managed turn instructs narra_send
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock  # noqa: E402
+
+
+def _nm_module():
+    from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+        NarramessengerModule,
+    )
+
+    return NarramessengerModule(
+        agent_id="agent_a", user_id=None, database_client=MagicMock()
+    )
+
+
+def _nm_info(**overrides):
+    info = {
+        "matrix_user_id": "@bot:hs",
+        "owner_matrix_user_id": "@o:hs",
+        "owner_name": "O",
+        "current_sender_id": "@u:hs",
+        "current_room_id": "!r:hs",
+        "is_owner_interacting": False,
+        "connection_mode": "matrix",
+        "enabled": True,
+        "managed_ingress": False,
+    }
+    info.update(overrides)
+    return info
+
+
+async def test_nm_managed_turn_instructs_narra_send():
+    module = _nm_module()
+    ctx = SimpleNamespace(
+        extra_data={module.ctx_data_key: _nm_info(managed_ingress=True)},
+        working_source=WorkingSource.NARRAMESSENGER,
+    )
+    text = await module.get_instructions(ctx)
+    assert 'narra_send(room_id="!r:hs"' in text
+    assert "Do NOT" in text and "narra_reply" in text
+
+
+async def test_nm_native_turn_keeps_narra_reply():
+    module = _nm_module()
+    ctx = SimpleNamespace(
+        extra_data={module.ctx_data_key: _nm_info()},
+        working_source=WorkingSource.NARRAMESSENGER,
+    )
+    text = await module.get_instructions(ctx)
+    assert 'narra_reply(text="<your reply>")' in text
+
+
+def test_channel_turn_extra_data_carries_managed_flag():
+    _, _, extra = sync_mod.build_inbound_run_context(
+        channel_provider="lark",
+        channel_context=_lark_context(),
+        user_input="m",
+        session_id="s1",
+    )
+    assert extra["managed_ingress"] is True
