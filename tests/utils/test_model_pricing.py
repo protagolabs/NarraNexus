@@ -186,42 +186,88 @@ def test_litellm_failure_degrades_to_unknown_instead_of_raising(monkeypatch):
 # handling did not, so one model id could be priced on one ledger and booked at
 # $0 on the other. These pin the merged behaviour so the split cannot come back
 # quietly.
+#
+# The RULE tests run against a fake table on purpose. Asserting against the real
+# litellm map made them report "upstream changed" as "the resolver is broken":
+# a renamed key, or upstream simply ADDING bge-m3, would turn a test red with
+# nothing wrong in this file. The rules are ours and are pinned here; that the
+# real table is wired up at all is one separate smoke test below.
+
+_FAKE_TABLE = {
+    # Same id, different case — the shape that cost 1416 calls their price.
+    "vendor/Model-X": {"input_cost_per_token": 3e-07, "output_cost_per_token": 6e-07},
+    # Exists bare AND behind a route, so "exact wins" is observable.
+    "model-y": {"input_cost_per_token": 1e-06, "output_cost_per_token": 2e-06},
+    "route/model-y": {"input_cost_per_token": 9e-09, "output_cost_per_token": 9e-09},
+    # Only bare, so a route-qualified id must strip to find it.
+    "model-z": {"input_cost_per_token": 5e-07, "output_cost_per_token": 5e-07},
+}
 
 
-def test_case_differing_key_still_resolves():
-    """litellm spells the ledger's highest-volume model with different case.
+@pytest.fixture
+def fake_table(monkeypatch):
+    """Install _FAKE_TABLE as the resolved upstream map."""
+    model_pricing.reset_cache_for_tests()
+    monkeypatch.setattr(
+        model_pricing, "_load_litellm_table", lambda: dict(_FAKE_TABLE)
+    )
+    yield
+    model_pricing.reset_cache_for_tests()
 
-    ``minimax/minimax-m2.5`` is what arrives; ``minimax/MiniMax-M2.5`` is the
-    table's key. Case-sensitive-only lookup booked 1416 calls at $0 while the
-    rate was published all along — that is a lost price, not caution.
+
+def test_case_differing_key_still_resolves(fake_table):
+    """litellm spells ids inconsistently; a case miss is a lost price.
+
+    Live shape: ``minimax/minimax-m2.5`` arrives, the table keys it
+    ``minimax/MiniMax-M2.5``. Case-sensitive-only lookup booked 1416 calls at $0
+    with the rate published all along — that is a miss, not caution.
     """
-    price = price_for("minimax/minimax-m2.5")
+    price = price_for("vendor/model-x")
     assert price is not None
-    assert price.resolved_id == "minimax/MiniMax-M2.5"
-    assert price.input_per_token > 0
+    assert price.resolved_id == "vendor/Model-X"
+    assert price.input_per_token == 3e-07
 
 
-def test_route_prefix_is_stripped_one_segment_at_a_time():
-    """A route qualifier in front of a known id must not hide it."""
-    bare = price_for("claude-haiku-4-5")
-    routed = price_for("anthropic/claude-haiku-4-5")
-    assert bare is not None and routed is not None
-    assert routed.resolved_id == bare.resolved_id
-    assert routed.input_per_token == bare.input_per_token
-
-
-def test_exact_hit_wins_over_a_stripped_one():
+def test_exact_hit_wins_over_a_stripped_one(fake_table):
     """The id as given is always the better answer.
 
-    gpt-5 exists in the table on its own, so a resolver that stripped first
-    could quietly answer with a different row.
+    Both ``route/model-y`` and ``model-y`` exist at different rates, so a
+    resolver that stripped first would quietly answer with the wrong row.
     """
+    price = price_for("route/model-y")
+    assert price is not None
+    assert price.resolved_id == "route/model-y"
+    assert price.input_per_token == 9e-09
+
+
+def test_route_prefix_is_stripped_when_only_the_bare_id_is_known(fake_table):
+    """A route qualifier must not hide an id the table does know."""
+    price = price_for("some-route/model-z")
+    assert price is not None
+    assert price.resolved_id == "model-z"
+    assert price.source == "litellm(route)"
+
+
+def test_a_model_outside_the_table_stays_unknown(fake_table):
+    """Unknown is a real answer; the caller still records the tokens."""
+    assert price_for("nobody/knows-this") is None
+
+
+def test_the_real_upstream_table_is_actually_wired_up():
+    """Smoke test — the only one that touches the live litellm map.
+
+    Deliberately asserts a capability, not a specific rate: "the seam returns a
+    usable table and a well-known id resolves through it". Anything stricter
+    turns an upstream release into a red build here.
+    """
+    model_pricing.reset_cache_for_tests()
     price = price_for("gpt-5")
-    assert price is not None and price.resolved_id == "gpt-5"
-    assert price.source == "litellm"
+    assert price is not None
+    assert price.input_per_token > 0
+    assert price.output_per_token > 0
 
 
-def test_nexus_power_prices_through_this_module():
+def test_nexus_power_prices_through_this_module(fake_table):
     """price_usage is arithmetic; resolution belongs to exactly one place.
 
     Asserted behaviourally rather than by inspecting imports: the two used to
@@ -232,23 +278,24 @@ def test_nexus_power_prices_through_this_module():
         price_usage,
     )
 
-    price = price_for("minimax/minimax-m2.5")
-    assert price is not None
     usage = Usage(input_tokens=1000, output_tokens=100)
-    assert price_usage(usage, "minimax/minimax-m2.5") == pytest.approx(
-        1000 * price.input_per_token + 100 * price.output_per_token
+    assert price_usage(usage, "vendor/model-x") == pytest.approx(
+        1000 * 3e-07 + 100 * 6e-07
     )
 
 
-def test_an_unknown_model_is_unknown_on_both_ledgers():
+def test_an_unknown_model_is_unknown_on_both_ledgers(fake_table):
     """The other direction of the same agreement."""
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
         Usage,
         price_usage,
     )
 
-    assert price_for("BAAI/bge-m3") is None
-    assert price_usage(Usage(input_tokens=10, output_tokens=10), "BAAI/bge-m3") is None
+    assert price_for("nobody/knows-this") is None
+    assert (
+        price_usage(Usage(input_tokens=10, output_tokens=10), "nobody/knows-this")
+        is None
+    )
 
 
 def test_pricing_does_not_import_litellm_directly():

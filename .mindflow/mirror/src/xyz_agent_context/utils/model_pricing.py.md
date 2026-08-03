@@ -35,6 +35,12 @@ review 举的 `deepseek-ai/DeepSeek-V4-Flash` 被 `_price_row` 按厂商价记�
 保护不了账本，只会让覆盖面变得任意，同时把同样的误差留在其余每一行。`_LOCAL_OVERRIDES`
 是已知真实费率时的出口。
 
+**测试策略（review Minor-2）**：解析**规则**的测试跑在一张假表上。原先直接断言真实
+litellm 表的内容，会把「上游变了」报成「解析器坏了」—— 上游改一次拼写，或干脆**补上**
+`bge-m3`，测试就红而这个文件毫无问题。规则是我们自己的，钉在假表上；真表只留**一条
+smoke**，且刻意只断言能力（「座位返回了可用的表，且一个众所周知的 id 能解析出来」）而不是
+具体费率。
+
 **四、`warm_cache()`。** 懒加载本身正确（多数进程从不记账），但首次触发点在
 `await record_cost(...)` 内部 —— 那 1.5s 的同步 import 落在 event loop 上，会顿住当时所有
 并发 WS 帧。backend lifespan 用 `asyncio.to_thread` 预热一次。**不能用 `create_task`**：

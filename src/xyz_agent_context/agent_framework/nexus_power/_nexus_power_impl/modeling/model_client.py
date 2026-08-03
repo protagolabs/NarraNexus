@@ -408,16 +408,3 @@ def price_usage(usage: Usage, model: str) -> float | None:
         + usage.cache_read_tokens * cache_read_rate
         + usage.cache_creation_tokens * cache_write_rate
     )
-    candidates = [model]
-    if "/" in model:
-        candidates.append(model.split("/", 1)[1])
-        candidates.append(model.rsplit("/", 1)[-1])
-    for candidate in candidates:
-        row = table.get(candidate)
-        if row:
-            return row
-    lowered = model.lower()
-    for key, row in table.items():
-        if key.lower() == lowered:
-            return row
-    return None
