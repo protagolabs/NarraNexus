@@ -347,3 +347,103 @@ async def test_endpoint_unknown_channel_provider_is_ignored(compat_app):
     run = _FakeBackgroundRun.instances[-1]
     assert run.drive_kwargs["working_source"] is WorkingSource.MANYFOLD
     assert run.drive_kwargs["input_content"] == "hi"
+
+
+# ---------------------------------------------------------------------------
+# Stage B — reply classification via MessageSourceRegistry declaration chain
+# ---------------------------------------------------------------------------
+
+from xyz_agent_context.channel.message_source_handler import (  # noqa: E402
+    MessageSourceHandler,
+    MessageSourceRegistry,
+)
+
+_DEFAULT = MessageSourceRegistry.get("nonexistent-source")
+
+
+def _tool_event(tool_name, arguments):
+    return {
+        "type": "progress",
+        "details": {"tool_name": tool_name, "arguments": arguments},
+    }
+
+
+def test_classify_owner_chat_reply_tool_is_content():
+    kind, payload = compat_mod._classify_event(
+        _tool_event("mcp__chat_module__send_message_to_user_directly", {"content": "hi"}),
+        _DEFAULT,
+    )
+    assert (kind, payload) == ("content", "hi")
+
+
+def test_classify_other_tool_is_tool_call_under_default_handler():
+    kind, payload = compat_mod._classify_event(
+        _tool_event("lark_cli", {"command": "im +messages-send --chat-id c --markdown yo"}),
+        _DEFAULT,
+    )
+    assert kind == "tool_call"
+
+
+def test_classify_uses_channel_extractor_for_send_and_tool_call_for_rest():
+    def _extract(tool_name, args):
+        if "cli" in tool_name and "--markdown" in args.get("command", ""):
+            return args["command"].split("--markdown ", 1)[1]
+        return None
+
+    handler = MessageSourceHandler(
+        name="larkish",
+        user_reply_tool_names=("lark_cli",),
+        extract_reply_fn=_extract,
+    )
+    kind, payload = compat_mod._classify_event(
+        _tool_event("mcp__lark_module__lark_cli", {"command": "im +messages-send --markdown hello!"}),
+        handler,
+    )
+    assert (kind, payload) == ("content", "hello!")
+
+    kind2, _ = compat_mod._classify_event(
+        _tool_event("mcp__lark_module__lark_cli", {"command": "im +chat-messages-list"}),
+        handler,
+    )
+    assert kind2 == "tool_call"
+
+
+def test_classify_non_tool_channels_unchanged_by_handler():
+    assert compat_mod._classify_event(
+        {"type": "agent_thinking", "thinking_content": "mm"}, _DEFAULT
+    ) == ("reasoning", "mm")
+    assert compat_mod._classify_event(
+        {"type": "agent_response", "delta": "tok"}, _DEFAULT
+    ) == ("reasoning", "tok")
+    assert compat_mod._classify_event(
+        {"type": "agent_tool_output", "details": {"output": "res"}}, _DEFAULT
+    ) == ("tool_result", "res")
+
+
+async def test_stream_fallback_is_neutral_for_channel_turn(compat_app):
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+            "channel_provider": "lark",
+            "channel_context": _lark_context(),
+        },
+    )
+    body = resp.text
+    assert "channel turn completed" in body
+    assert "produced no user-visible reply" not in body
+    assert "data: [DONE]" in body
+
+
+async def test_stream_fallback_keeps_legacy_text_for_plain_turn(compat_app):
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        },
+    )
+    assert "produced no user-visible reply" in resp.text

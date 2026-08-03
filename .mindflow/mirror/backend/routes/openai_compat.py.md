@@ -4,6 +4,20 @@ last_verified: 2026-08-03
 stub: false
 ---
 
+## 2026-08-03 — 回复分类接声明链,`_REPLY_TOOL_NAMES` 硬编码退役
+
+`_classify_event` 增加 `source_handler` 参数:回复识别与文本提取改为
+`MessageSourceRegistry.get(working_source.value).extract_reply_text()`
+——与 chat_module 拆分用户可见回复用的是**同一条 per-source 声明链**
+(owner chat 落 default handler,行为等价于被删掉的硬编码三名单;渠道
+turn 用各渠道注册的 extract_reply_fn,lark 的 `--markdown` 解析等免费
+获得)。语义变化:reply 工具名命中但提取不到文本的调用,从"静默丢弃"
+改为按 tool_call 展示(对 lark_cli 的非发送命令这是必须的)。
+`_ensure_source_handlers_registered()` 在分类前 import MODULE_MAP 强制
+注册,防"进程首个请求撞上空 registry"。无回复兜底文案按来源分叉
+(`_no_reply_fallback`):MANYFOLD 保留诊断文案;渠道 turn 是中性回执
+——agent 经本地渠道工具带外投递,无 owner 可见文本是正常结果(Q5 决策)。
+
 ## 2026-08-03 — managed-IM 分流(channel_provider/channel_context)
 
 `ChatCompletionsRequest` 接收平台的 managed-IM 扩展字段;handler 在
