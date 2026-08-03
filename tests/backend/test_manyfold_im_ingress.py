@@ -238,11 +238,11 @@ def test_non_dict_context_is_treated_as_empty():
 
 class _FakeBroadcaster:
     def subscribe(self, session_id):
-        async def _empty():
-            return
-            yield  # pragma: no cover
+        async def _events():
+            for event in list(_FakeBackgroundRun.events):
+                yield event
 
-        return _empty()
+        return _events()
 
     def unsubscribe(self, session_id):
         pass
@@ -250,6 +250,7 @@ class _FakeBroadcaster:
 
 class _FakeBackgroundRun:
     instances: list = []
+    events: list = []
 
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
@@ -267,6 +268,7 @@ class _FakeBackgroundRun:
 @pytest.fixture
 def compat_app(monkeypatch):
     _FakeBackgroundRun.instances = []
+    _FakeBackgroundRun.events = []
 
     async def fake_creator(agent_id):
         return "user_1"
@@ -447,3 +449,417 @@ async def test_stream_fallback_keeps_legacy_text_for_plain_turn(compat_app):
         },
     )
     assert "produced no user-visible reply" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Stage C — managed ingress executor (trigger business hooks)
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from xyz_agent_context.channel.channel_trigger_base import (  # noqa: E402
+    CHANNEL_SILENT_SENTINEL,
+    ChannelTriggerBase,
+)
+from xyz_agent_context.module import managed_channel_ingress as ingress_mod  # noqa: E402
+from xyz_agent_context.schema.parsed_message import ChatType  # noqa: E402
+
+
+def _tagged_extra(**overrides):
+    extra = {
+        "channel_tag": {
+            "channel": "wechat",
+            "sender_name": "u",
+            "sender_id": "wx9",
+            "room_id": "wx9",
+        },
+        "trigger_id": "wechat_m1",
+        "source_message_id": "m1",
+    }
+    extra.update(overrides)
+    return extra
+
+
+def test_synthesize_managed_message_maps_contract_fields():
+    msg = ingress_mod.synthesize_managed_message(
+        _tagged_extra(chat_type="group", thread_id="t9", reply_token="ctx_tok"),
+        "hello",
+    )
+    assert msg.message_id == "m1"
+    assert msg.chat_id == "wx9"
+    assert msg.sender_id == "wx9"
+    assert msg.content == "hello"
+    assert msg.chat_type is ChatType.GROUP
+    assert msg.thread_id == "t9"
+    assert msg.raw["context_token"] == "ctx_tok"
+    assert msg.raw["managed_ingress"] is True
+
+
+class _FakeTrigger:
+    def __init__(self):
+        self.before_calls = []
+        self.after_calls = []
+        self.allow = (True, "")
+
+    async def managed_before_run(self, **kw):
+        self.before_calls.append(kw)
+        return self.allow
+
+    async def managed_after_run(self, **kw):
+        self.after_calls.append(kw)
+
+
+async def test_coordinator_routes_before_and_after(monkeypatch):
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    allow, receipt = await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert (allow, receipt) == (True, "")
+    call = trig.before_calls[0]
+    assert call["agent_id"] == "a1"
+    assert call["is_mention"] is True
+    assert call["message"].chat_id == "wx9"
+
+    await ingress.after_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+        reply_text="ok",
+        error_text="",
+    )
+    assert trig.after_calls[0]["reply_text"] == "ok"
+
+
+async def test_coordinator_deny_propagates(monkeypatch):
+    trig = _FakeTrigger()
+    trig.allow = (False, "nope")
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    allow, receipt = await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert (allow, receipt) == (False, "nope")
+
+
+async def test_coordinator_failure_semantics(monkeypatch):
+    class _Boom:
+        async def managed_before_run(self, **kw):
+            raise RuntimeError("x")
+
+        async def managed_after_run(self, **kw):
+            raise RuntimeError("x")
+
+    boom = _Boom()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "telegram", lambda: boom)
+    monkeypatch.setitem(
+        ingress_mod.CHANNEL_TRIGGER_MAP, "narramessenger", lambda: boom
+    )
+    ingress = ingress_mod.ManagedChannelIngress()
+    # Side-effect channel: fail-open.
+    allow, _ = await ingress.before_run(
+        working_source=WorkingSource.TELEGRAM,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow is True
+    # Authorization channel: fail-closed.
+    allow2, _ = await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow2 is False
+    # after_run swallow.
+    await ingress.after_run(
+        working_source=WorkingSource.TELEGRAM,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+        reply_text="",
+        error_text="e",
+    )
+
+
+async def test_coordinator_missing_trigger_class(monkeypatch):
+    monkeypatch.delitem(
+        ingress_mod.CHANNEL_TRIGGER_MAP, "narramessenger", raising=False
+    )
+    monkeypatch.delitem(ingress_mod.CHANNEL_TRIGGER_MAP, "telegram", raising=False)
+    ingress = ingress_mod.ManagedChannelIngress()
+    allow, _ = await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow is False
+    allow2, _ = await ingress.before_run(
+        working_source=WorkingSource.TELEGRAM,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow2 is True
+
+
+class _DummyTrigger(ChannelTriggerBase):
+    channel_name = "dummychan"
+    brand_display = "Dummy"
+    working_source = WorkingSource.MANYFOLD
+
+    async def connect(self, *a, **k):  # pragma: no cover - unused
+        raise NotImplementedError
+
+    def parse_event(self, *a, **k):  # pragma: no cover - unused
+        return None
+
+    def is_echo(self, *a, **k):  # pragma: no cover - unused
+        return False
+
+    async def resolve_sender_name(self, *a, **k):  # pragma: no cover - unused
+        return ""
+
+    def create_context_builder(self, *a, **k):  # pragma: no cover - unused
+        raise NotImplementedError
+
+    async def load_active_credentials(self):
+        return []
+
+
+async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
+    trig = _DummyTrigger()
+    calls = {}
+
+    async def fake_inbox_write(**kw):
+        calls["inbox"] = kw
+
+    async def fake_audit(event_type, **kw):
+        calls["audit"] = (event_type, kw)
+
+    sent = {}
+
+    async def fake_fallback(credential, message, text, *, already_replied):
+        sent["text"] = text
+
+    async def fake_cred(agent_id):
+        return object()
+
+    monkeypatch.setattr(trig._inbox_writer, "write", fake_inbox_write)
+    monkeypatch.setattr(trig, "_audit", fake_audit)
+    monkeypatch.setattr(trig, "_send_error_fallback", fake_fallback)
+    monkeypatch.setattr(trig, "_credential_for_agent", fake_cred)
+
+    msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
+    await trig.managed_after_run(
+        agent_id="a1", message=msg, db=object(), reply_text="", error_text="boom"
+    )
+    assert "text" in sent
+    assert calls["inbox"]["agent_response"] == CHANNEL_SILENT_SENTINEL
+    assert calls["inbox"]["original_message"] == "hi"
+    assert calls["audit"][0] == "managed_ingress_processed"
+
+    sent.clear()
+    await trig.managed_after_run(
+        agent_id="a1", message=msg, db=object(), reply_text="done", error_text="boom"
+    )
+    assert not sent  # agent replied - no fallback
+    assert calls["inbox"]["agent_response"] == "done"
+
+
+async def test_wechat_managed_before_run_claims_owner(monkeypatch):
+    from xyz_agent_context.module.wechat_module import wechat_trigger as wt
+
+    trig = wt.WeChatTrigger()
+    cred = SimpleNamespace(agent_id="a1", owner_wx_id="")
+
+    async def fake_cred(agent_id):
+        return cred
+
+    claimed = {}
+
+    class _FakeMgr:
+        def __init__(self, db):
+            pass
+
+        async def claim_owner(self, agent_id, sender_id):
+            claimed["args"] = (agent_id, sender_id)
+            return True
+
+    monkeypatch.setattr(trig, "_credential_for_agent", fake_cred)
+    monkeypatch.setattr(wt, "WeChatCredentialManager", _FakeMgr)
+    msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
+    allow, _ = await trig.managed_before_run(agent_id="a1", message=msg, db=object())
+    assert allow is True
+    assert claimed["args"] == ("a1", "wx9")
+    assert cred.owner_wx_id == "wx9"
+
+
+async def test_matrix_managed_before_run_paths(monkeypatch):
+    from xyz_agent_context.module.narramessenger_module import matrix_trigger as mt
+
+    trig = mt.MatrixTrigger()
+    msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
+
+    async def none_cred(agent_id):
+        return None
+
+    monkeypatch.setattr(trig, "_credential_for_agent", none_cred)
+    allow, receipt = await trig.managed_before_run(
+        agent_id="a1", message=msg, db=object()
+    )
+    assert allow is False and "unavailable" in receipt
+
+    cred = SimpleNamespace(
+        agent_id="a1", matrix_homeserver_url="https://hs", matrix_access_token="tok"
+    )
+
+    async def some_cred(agent_id):
+        return cred
+
+    monkeypatch.setattr(trig, "_credential_for_agent", some_cred)
+
+    async def verdict_allow(credential, message, *, mentioned):
+        return mt._AuthorizeVerdict(allow=True)
+
+    monkeypatch.setattr(trig, "_authorize_event", verdict_allow)
+    allow, _ = await trig.managed_before_run(agent_id="a1", message=msg, db=object())
+    assert allow is True
+
+    sent = {}
+
+    async def fake_send(**kw):
+        sent.update(kw)
+        return "evt1"
+
+    async def verdict_deny(credential, message, *, mentioned):
+        return mt._AuthorizeVerdict(allow=False, notice_send=True, notice_text="no")
+
+    monkeypatch.setattr(mt, "matrix_room_send", fake_send)
+    monkeypatch.setattr(trig, "_authorize_event", verdict_deny)
+    allow, receipt = await trig.managed_before_run(
+        agent_id="a1", message=msg, db=object()
+    )
+    assert allow is False and "denied" in receipt
+    assert sent["content"] == {"msgtype": "m.notice", "body": "no"}
+
+    async def boom(*a, **k):
+        raise AssertionError("authorize must not run for silent group traffic")
+
+    monkeypatch.setattr(trig, "_authorize_event", boom)
+    group_msg = ingress_mod.synthesize_managed_message(
+        _tagged_extra(chat_type="group"), "hi"
+    )
+    allow, _ = await trig.managed_before_run(
+        agent_id="a1", message=group_msg, db=object(), is_mention=False
+    )
+    assert allow is True
+
+
+# ---------------------------------------------------------------------------
+# Stage C — endpoint wiring (gate deny + after_run scheduling)
+# ---------------------------------------------------------------------------
+
+
+class _FakeIngress:
+    def __init__(self, allow=(True, "")):
+        self.allow = allow
+        self.before_calls = []
+        self.after_calls = []
+
+    async def before_run(self, **kw):
+        self.before_calls.append(kw)
+        return self.allow
+
+    async def after_run(self, **kw):
+        self.after_calls.append(kw)
+
+
+async def test_endpoint_gate_deny_answers_receipt(compat_app, monkeypatch):
+    fake = _FakeIngress(allow=(False, "denied-by-test"))
+    monkeypatch.setattr(ingress_mod, "get_managed_channel_ingress", lambda: fake)
+    n_before = len(_FakeBackgroundRun.instances)
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "channel_provider": "narramessenger",
+            "channel_context": {"room_id": "!r:hs", "sender_id": "@u:hs"},
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["choices"][0]["message"]["content"] == "denied-by-test"
+    assert len(_FakeBackgroundRun.instances) == n_before  # run never started
+
+
+async def test_endpoint_schedules_after_run_with_reply(compat_app, monkeypatch):
+    fake = _FakeIngress()
+    monkeypatch.setattr(ingress_mod, "get_managed_channel_ingress", lambda: fake)
+    _FakeBackgroundRun.events = [
+        {
+            "type": "progress",
+            "details": {
+                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "arguments": {"content": "hey"},
+            },
+        },
+        {"type": "complete"},
+    ]
+    try:
+        resp = await _post_completions(
+            compat_app,
+            {
+                "model": "agent_x",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "channel_provider": "lark",
+                "channel_context": _lark_context(),
+            },
+        )
+    finally:
+        _FakeBackgroundRun.events = []
+    assert resp.status_code == 200
+    for _ in range(20):
+        if fake.after_calls:
+            break
+        await asyncio.sleep(0.01)
+    assert fake.after_calls, "after_run was never scheduled"
+    call = fake.after_calls[0]
+    assert call["reply_text"] == "hey"
+    assert call["error_text"] == ""
+    assert fake.before_calls[0]["working_source"] is WorkingSource.LARK
+
+
+async def test_endpoint_plain_turn_skips_managed_gate(compat_app, monkeypatch):
+    fake = _FakeIngress()
+    monkeypatch.setattr(ingress_mod, "get_managed_channel_ingress", lambda: fake)
+    await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        },
+    )
+    assert fake.before_calls == []
+    assert fake.after_calls == []

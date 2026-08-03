@@ -453,6 +453,81 @@ def _log_orphaned_run_job(task: asyncio.Task) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Managed-channel run wrappers (gate receipt + post-run bookkeeping)
+# ---------------------------------------------------------------------------
+
+
+def _denied_completion(
+    receipt: str,
+    *,
+    agent_id: str,
+    completion_id: str,
+    created_ts: int,
+    stream: bool,
+):
+    """Answer a gate-denied managed turn with a receipt in both OpenAI
+    shapes. No agent run happened; the receipt is transcript-facing."""
+    if not stream:
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": agent_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": receipt},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+
+    async def gen():
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"role": "assistant", "content": ""},
+        )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"content": receipt},
+        )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={},
+            finish_reason="stop",
+        )
+        yield _done_sentinel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
+    """Fire-and-forget the post-run bookkeeping with a done-callback
+    (engineering lesson #2: no unobserved task exceptions)."""
+    task = asyncio.create_task(managed_ingress.after_run(**kwargs))
+    task.add_done_callback(_log_managed_after_run)
+
+
+def _log_managed_after_run(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.exception(f"managed ingress after_run task failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Main endpoint
 # ---------------------------------------------------------------------------
 
@@ -501,19 +576,8 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
     db = await get_db_client()
-    active_runs = request.app.state.active_runs
-    cancellation = CancellationToken()
-    bg = BackgroundRun(
-        agent_id=agent_id,
-        user_id=creator,
-        input_preview=user_input or "",
-        db=db,
-        active_runs=active_runs,
-        cancellation=cancellation,
-    )
 
     session_id = f"manyfold_{uuid.uuid4().hex[:8]}"
-
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created_ts = int(time.time())
 
@@ -531,6 +595,44 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
     # handler once and classify every streamed event against it.
     _ensure_source_handlers_registered()
     source_handler = MessageSourceRegistry.get(working_source.value)
+
+    # Managed-channel business gate: the pre-run side effects that natively
+    # live on the trigger's receive path (WeChat owner claim, NarraMessenger
+    # authorize-event). Runs BEFORE any run resource is created; a deny
+    # answers with a receipt completion and never starts the agent.
+    managed_ingress = None
+    if working_source is not WorkingSource.MANYFOLD:
+        from xyz_agent_context.module.managed_channel_ingress import (
+            get_managed_channel_ingress,
+        )
+
+        managed_ingress = get_managed_channel_ingress()
+        allowed, receipt = await managed_ingress.before_run(
+            working_source=working_source,
+            agent_id=agent_id,
+            user_input=user_input,
+            trigger_extra_data=trigger_extra_data,
+            db=db,
+        )
+        if not allowed:
+            return _denied_completion(
+                receipt,
+                agent_id=agent_id,
+                completion_id=completion_id,
+                created_ts=created_ts,
+                stream=body.stream,
+            )
+
+    active_runs = request.app.state.active_runs
+    cancellation = CancellationToken()
+    bg = BackgroundRun(
+        agent_id=agent_id,
+        user_id=creator,
+        input_preview=user_input or "",
+        db=db,
+        active_runs=active_runs,
+        cancellation=cancellation,
+    )
 
     # Kick off the background agent run.
     bg.task = asyncio.create_task(
@@ -567,6 +669,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             )
             content_emitted = False
             saw_tool_call = False
+            reply_parts: list[str] = []
             last_error_msg: Optional[str] = None
             tool_index = 0  # OpenAI tool_calls each carry a distinct index
             # Pending tool_call_ids that haven't been paired with an
@@ -655,6 +758,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         )
                     elif kind == "content":
                         content_emitted = True
+                        reply_parts.append(payload)
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
@@ -749,6 +853,17 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 yield _done_sentinel()
             finally:
                 bg.broadcaster.unsubscribe(session_id)
+                if managed_ingress is not None:
+                    _schedule_managed_after_run(
+                        managed_ingress,
+                        working_source=working_source,
+                        agent_id=agent_id,
+                        user_input=user_input,
+                        trigger_extra_data=trigger_extra_data,
+                        db=db,
+                        reply_text="\n".join(reply_parts),
+                        error_text=last_error_msg or "",
+                    )
 
         return StreamingResponse(
             gen(),
@@ -812,6 +927,17 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 })
     finally:
         bg.broadcaster.unsubscribe(session_id)
+        if managed_ingress is not None:
+            _schedule_managed_after_run(
+                managed_ingress,
+                working_source=working_source,
+                agent_id=agent_id,
+                user_input=user_input,
+                trigger_extra_data=trigger_extra_data,
+                db=db,
+                reply_text="\n".join(parts),
+                error_text=error_msg or "",
+            )
 
     if error_msg:
         return JSONResponse(

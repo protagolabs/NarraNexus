@@ -4,6 +4,16 @@ last_verified: 2026-08-03
 stub: false
 ---
 
+## 2026-08-03 — managed 业务门与收尾接线(trigger 执行体)
+
+渠道 turn 在 BackgroundRun 构造**之前**过
+`managed_channel_ingress.before_run`(wechat 认主、narramessenger
+authorize;deny → `_denied_completion` 回执,两种 OpenAI 形状,agent
+run 不启动)。流收尾的 finally(流式与非流式各一处)fire-and-forget
+`after_run`(inbox 写、审计、错误兜底直发),配 done-callback(教训
+#2);reply_text 取分类为 content 的片段拼接,error_text 取
+last_error_msg。客户端断线时 finally 仍执行——inbox/审计不因掉线丢失。
+
 ## 2026-08-03 — 回复分类接声明链,`_REPLY_TOOL_NAMES` 硬编码退役
 
 `_classify_event` 增加 `source_handler` 参数:回复识别与文本提取改为

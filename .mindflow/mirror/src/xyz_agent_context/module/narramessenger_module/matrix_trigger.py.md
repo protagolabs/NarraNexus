@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-08-03
 ---
+
+## 2026-08-03 — `managed_before_run`:托管来源同样过 authorize 门
+
+托管(Manyfold 转发)turn 复用原生 `_authorize_event`(fail-closed
+语义原样:无凭据/传输错/非 2xx 全 deny);非 @ 群消息镜像
+SILENT_BYPASS_AUTHORIZE 跳过门。deny 且带 server 建议 notice 时,
+原生经 live client 发 m.notice——托管模式无 client,改用同凭据走
+`matrix_room_send` 纯 HTTP。房间成员表在托管下为空缓存,
+`_authorize_event` 已有的"至少含 sender + 自身"兜底覆盖此情形。
 
 ## 2026-07-20 — compound wire format changed: single `ai.netmind.compound` event
 

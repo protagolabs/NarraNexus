@@ -1494,6 +1494,118 @@ class ChannelTriggerBase(ABC):
         return ""
 
     # ────────────────────────────────────────────────────────────────────
+    # Managed-ingress seams (platform-held connection; start() never runs)
+    # ────────────────────────────────────────────────────────────────────
+    #
+    # Under Manyfold managed mode the platform owns the connection and the
+    # cleaning pipeline (dedup / echo / mention gate) and forwards inbound
+    # IM as chat turns (backend/routes/openai_compat.py). These seams let
+    # that ingress path reuse the trigger's per-message BUSINESS hooks —
+    # owner claim, authorization, inbox write, error fallback — without
+    # running the subscribe loops: the ingress constructs the trigger,
+    # never calls start(), and invokes before/after around the agent run.
+    # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.2.
+
+    def _managed_bind(self, db) -> None:
+        """Adopt a db handle + audit repo outside start() (managed mode).
+        Mirrors start()'s first steps for the state the business hooks
+        read; idempotent."""
+        self._db = db
+        if self._audit_repo is None:
+            self._audit_repo = ChannelTriggerAuditRepository(self.channel_name, db)
+
+    async def _credential_for_agent(self, agent_id: str) -> Optional[Any]:
+        """First active credential bound to ``agent_id``, or None."""
+        try:
+            creds = await self.load_active_credentials()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: load_active_credentials failed for "
+                f"managed ingress ({type(e).__name__}: {e})"
+            )
+            return None
+        for cred in creds or []:
+            if getattr(cred, "agent_id", None) == agent_id:
+                return cred
+        return None
+
+    async def managed_before_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        is_mention: bool = True,
+    ) -> tuple[bool, str]:
+        """Business gate before a managed (platform-forwarded) run.
+
+        Default: allow. Channel subclasses override for the inbound side
+        effects that natively live in their ``_process_message`` (WeChat
+        owner claim, NarraMessenger authorization). Returning
+        ``(False, receipt)`` blocks the agent run; the receipt is streamed
+        back to the platform transcript."""
+        self._managed_bind(db)
+        return True, ""
+
+    async def managed_after_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        reply_text: str,
+        error_text: str = "",
+    ) -> None:
+        """Post-run bookkeeping for a managed inbound: error fallback when
+        the run failed before any reply, then the native inbox write and a
+        minimal audit row. Best-effort throughout — this runs after the
+        reply stream closed and must never raise."""
+        self._managed_bind(db)
+        replied = bool((reply_text or "").strip())
+        if error_text and not replied:
+            credential = await self._credential_for_agent(agent_id)
+            if credential is not None:
+                from xyz_agent_context.agent_runtime.run_collector import RunError
+
+                await self._send_error_fallback(
+                    credential,
+                    message,
+                    self.format_error_reply(
+                        RunError(
+                            error_type="managed_run_failed",
+                            error_message=error_text,
+                        )
+                    ),
+                    already_replied=False,
+                )
+        try:
+            await self._inbox_writer.write(
+                db=db,
+                agent_id=agent_id,
+                sender_id=message.sender_id,
+                sender_name=message.sender_name,
+                original_message=message.content,
+                agent_response=(reply_text or "").strip() or CHANNEL_SILENT_SENTINEL,
+                chat_id=message.chat_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: managed inbox write failed "
+                f"({type(e).__name__}: {e})"
+            )
+        await self._audit(
+            "managed_ingress_processed",
+            agent_id=agent_id,
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            sender_id=message.sender_id,
+            details={
+                "replied": replied,
+                "error": (error_text or "")[:200],
+            },
+        )
+
+    # ────────────────────────────────────────────────────────────────────
     # Audit helpers
     # ────────────────────────────────────────────────────────────────────
 

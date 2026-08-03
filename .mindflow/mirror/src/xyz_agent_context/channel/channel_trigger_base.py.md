@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 ---
+
+## 2026-08-03 — managed-ingress 缝(start() 之外复用业务钩子)
+
+新增 `_managed_bind` / `_credential_for_agent` / `managed_before_run`
+/ `managed_after_run`:Manyfold 托管模式下平台持有连接与清洗,
+openai_compat 经 managed_channel_ingress 构造 trigger(不 start)并在
+run 前后调这两个缝。默认 before=放行;after=错误兜底(run 失败且无回复
+→ `_send_error_fallback` + `format_error_reply(RunError)`)+ 原生
+inbox write(无回复写 CHANNEL_SILENT_SENTINEL,与原生 extract_output
+语义一致)+ `managed_ingress_processed` 审计行(教训 #5)。
+`_managed_bind` 等价于 start() 里业务钩子所需的最小状态(_db +
+audit repo),幂等。覆写:wechat(认主)、matrix(authorize)。
 
 ## 2026-07-31 — _resolve_agent_owner 委托 AgentRepository.resolve_owner
 
