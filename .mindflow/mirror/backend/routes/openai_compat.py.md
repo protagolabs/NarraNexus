@@ -4,6 +4,12 @@ last_verified: 2026-08-03
 stub: false
 ---
 
+## 2026-08-03(补) — gate 放行后调 `convert_attachments`
+
+managed turn 在 gate 通过后、run 启动前把平台附件 ref 并轨原生协议
+(见 managed_channel_ingress.py.md 同日补条);never-raise,坏 ref
+降级 text-only。
+
 ## 2026-08-03 — managed 业务门与收尾接线(trigger 执行体)
 
 渠道 turn 在 BackgroundRun 构造**之前**过

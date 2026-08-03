@@ -25,6 +25,17 @@ callback)。下游:`channel_trigger_base` 的 managed 缝(默认实现 +
 wechat/matrix 覆写)。它是 `run_channel_triggers` 的对等物(trigger
 注册表上的协调器),不是 Module——铁律 #3 不受影响。
 
+## 2026-08-03(补) — `convert_attachments`:平台落盘附件并轨原生协议
+
+平台 ingest 已把附件写进 workspace(`chat-attachments/...`)并在契约里
+传 `{name,mime,size,path}`;但原生 marker 经 upload store 的 per-day
+索引解析路径,平台落点不在索引里 → 必须把每个文件**重新经
+`persist_attachment_bytes` 入库**(= 原生 fetch_attachments,"下载"换
+成本地读),拿到 file_id/marker/STT。转换后写
+`extra_data["attachments"]`,原始键必被消费(未转换的平台字典绝不能
+流进 marker 管线)。全程 never-raise:坏 ref 单文件降级 text-only。
+路径逃逸守卫与 files.py 的 `_safe_resolve` 同语义。
+
 ## 关键决策 / Gotcha
 
 - **失败语义按钩子性质分叉**:副作用渠道 fail-open(构造失败/钩子异常

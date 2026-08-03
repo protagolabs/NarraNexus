@@ -784,10 +784,14 @@ class _FakeIngress:
         self.allow = allow
         self.before_calls = []
         self.after_calls = []
+        self.convert_calls = []
 
     async def before_run(self, **kw):
         self.before_calls.append(kw)
         return self.allow
+
+    async def convert_attachments(self, **kw):
+        self.convert_calls.append(kw)
 
     async def after_run(self, **kw):
         self.after_calls.append(kw)
@@ -927,3 +931,137 @@ def test_channel_turn_extra_data_carries_managed_flag():
         session_id="s1",
     )
     assert extra["managed_ingress"] is True
+
+
+# ---------------------------------------------------------------------------
+# Stage E — files write endpoint + managed attachment conversion
+# ---------------------------------------------------------------------------
+
+import backend.routes.manyfold.files as files_mod  # noqa: E402
+
+
+@pytest.fixture
+def files_app(monkeypatch, tmp_path):
+    workspace = tmp_path / "agent_x_u1"
+    workspace.mkdir()
+
+    async def fake_root(agent_id):
+        return workspace, "u1"
+
+    monkeypatch.setattr(files_mod, "_resolve_workspace_root", fake_root)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _authed(request: Request, call_next):
+        request.state.manyfold_authed = True
+        return await call_next(request)
+
+    app.include_router(files_mod.router)
+    return app, workspace
+
+
+async def _post_write(app, path, content: bytes, **params):
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        return await client.post(
+            f"/manyfold/agents/agent_x/files/write",
+            params={"path": path, **params},
+            content=content,
+        )
+
+
+async def test_files_write_roundtrip(files_app):
+    app, workspace = files_app
+    resp = await _post_write(app, "chat-attachments/s1/u/cat.png", b"pngbytes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True and data["size"] == 8
+    assert (workspace / "chat-attachments/s1/u/cat.png").read_bytes() == b"pngbytes"
+
+
+async def test_files_write_rejects_escape_and_root(files_app):
+    app, _ = files_app
+    assert (await _post_write(app, "../evil.txt", b"x")).status_code == 403
+    assert (await _post_write(app, "", b"x")).status_code in (400, 422)
+
+
+async def test_files_write_overwrite_semantics(files_app):
+    app, workspace = files_app
+    await _post_write(app, "a/f.txt", b"one")
+    resp = await _post_write(app, "a/f.txt", b"two", overwrite="false")
+    assert resp.status_code == 409
+    resp2 = await _post_write(app, "a/f.txt", b"two")
+    assert resp2.status_code == 200
+    assert (workspace / "a/f.txt").read_bytes() == b"two"
+
+
+async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_path):
+    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import xyz_agent_context.utils.attachment_storage as storage_mod
+    import xyz_agent_context.utils.workspace_paths as wsp_mod
+
+    workspace = tmp_path / "agent_x_u1"
+    (workspace / "chat-attachments/s1/u").mkdir(parents=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+    (workspace / "chat-attachments/s1/u/cat.png").write_bytes(png)
+
+    class _FakeRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            return "u1"
+
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _FakeRepo)
+    monkeypatch.setattr(
+        wsp_mod, "resolve_existing_workspace", lambda a, u, base=None: workspace
+    )
+    monkeypatch.setattr(
+        storage_mod, "get_workspace_path", lambda a, u: workspace
+    )
+
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [
+        {"name": "cat.png", "mime": "image/png", "size": len(png),
+         "path": "chat-attachments/s1/u/cat.png"},
+        {"name": "evil", "mime": "text/plain", "size": 1, "path": "../../pwd"},
+    ]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK,
+        agent_id="agent_x",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    assert "manyfold_attachments" not in extra
+    atts = extra["attachments"]
+    assert len(atts) == 1  # escape ref degraded, valid one converted
+    att = atts[0]
+    assert att["file_id"].startswith("att_")
+    assert att["original_name"] == "cat.png"
+    assert att["mime_type"] == "image/png"
+    # Native marker resolution works: file is in the upload store + index.
+    resolved = storage_mod.resolve_attachment_path("agent_x", "u1", att["file_id"])
+    assert resolved is not None and resolved.exists()
+
+
+async def test_convert_attachments_never_raises_on_bad_env(monkeypatch):
+    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+
+    class _BoomRepo:
+        def __init__(self, db):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _BoomRepo)
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [{"name": "a", "mime": "x", "size": 1, "path": "p"}]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK,
+        agent_id="agent_x",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    assert "manyfold_attachments" not in extra
+    assert "attachments" not in extra

@@ -622,6 +622,15 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 created_ts=created_ts,
                 stream=body.stream,
             )
+        # Platform-ingested attachments → native Attachment protocol
+        # (store + index + STT) so the marker pipeline works unchanged.
+        # Never raises; a broken ref degrades that file to text-only.
+        await managed_ingress.convert_attachments(
+            working_source=working_source,
+            agent_id=agent_id,
+            trigger_extra_data=trigger_extra_data,
+            db=db,
+        )
 
     active_runs = request.app.state.active_runs
     cancellation = CancellationToken()

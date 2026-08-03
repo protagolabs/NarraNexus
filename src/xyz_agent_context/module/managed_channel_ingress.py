@@ -25,6 +25,8 @@ Design: reference/self_notebook/specs/2026-08-03-manyfold-managed-im-ingress-des
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
@@ -145,6 +147,91 @@ class ManagedChannelIngress:
                 # The hook that failed IS the authorization gate: fail-closed.
                 return False, "narramessenger authorization failed"
             return True, ""
+
+    async def convert_attachments(
+        self,
+        *,
+        working_source: WorkingSource,
+        agent_id: str,
+        trigger_extra_data: dict,
+        db: Any,
+    ) -> None:
+        """Convert platform-ingested attachment refs into native Attachments.
+
+        The platform already wrote the bytes into the agent workspace
+        (``chat-attachments/<session>/<uuid>/<name>``) and passes
+        ``{name, mime, size, path}`` refs on the wire. Native markers
+        resolve paths through the upload store's per-day index, so each
+        file is re-persisted through ``persist_attachment_bytes`` (store +
+        index + Whisper STT) — the managed equivalent of a native
+        trigger's ``fetch_attachments``, with "download" replaced by a
+        local read. Converted dicts land under
+        ``trigger_extra_data["attachments"]`` for the existing marker
+        pipeline; the raw key is always consumed. Never raises; a broken
+        ref degrades that file to text-only, matching the platform's own
+        degrade stance.
+        """
+        refs = trigger_extra_data.pop("manyfold_attachments", None)
+        if not refs:
+            return
+        try:
+            from xyz_agent_context.repository.agent_repository import AgentRepository
+            from xyz_agent_context.settings import settings as core_settings
+            from xyz_agent_context.utils.attachment_storage import (
+                persist_attachment_bytes,
+            )
+            from xyz_agent_context.utils.mime_sniff import sniff_mime_type
+            from xyz_agent_context.utils.workspace_paths import (
+                resolve_existing_workspace,
+            )
+
+            user_id = await AgentRepository(db).resolve_owner(agent_id) or agent_id
+            workspace = resolve_existing_workspace(
+                agent_id, user_id, str(core_settings.base_working_path)
+            ).resolve(strict=False)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"managed ingress: attachment workspace resolution failed for "
+                f"{agent_id} ({type(e).__name__}: {e}); continuing text-only"
+            )
+            return
+
+        converted: list[dict] = []
+        for ref in refs:
+            try:
+                rel = str(ref.get("path", "") or "")
+                if not rel:
+                    continue
+                candidate = Path(rel)
+                target = (
+                    candidate.resolve(strict=False)
+                    if candidate.is_absolute()
+                    else (workspace / rel).resolve(strict=False)
+                )
+                target.relative_to(workspace)  # escape guard
+                raw = await asyncio.to_thread(target.read_bytes)
+                name = str(ref.get("name", "") or target.name)
+                mime = sniff_mime_type(
+                    raw,
+                    filename=name,
+                    client_type=str(ref.get("mime", "") or "") or None,
+                )
+                att = await persist_attachment_bytes(
+                    agent_id,
+                    user_id,
+                    raw_bytes=raw,
+                    original_name=name,
+                    mime_type=mime,
+                    log_prefix=f"managed:{working_source.value}",
+                )
+                converted.append(att.model_dump(mode="json"))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"managed ingress: attachment convert failed for "
+                    f"{ref!r} ({type(e).__name__}: {e})"
+                )
+        if converted:
+            trigger_extra_data["attachments"] = converted
 
     async def after_run(
         self,

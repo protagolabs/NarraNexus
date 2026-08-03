@@ -91,14 +91,11 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
-from xyz_agent_context.schema.attachment_schema import (
-    Attachment,
-    derive_category_from_mime,
-)
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
-from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
+from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
 
 
 # Used by sanitize_display_name to strip C0/C1 controls (newlines, tabs,
@@ -401,50 +398,15 @@ class ChannelTriggerBase(ABC):
         """
         user_id = await self._resolve_agent_owner(agent_id) or agent_id
         mime_type = self._sniff_mime(raw_bytes, mime_hint, original_name)
-        file_id, on_disk = store_uploaded_attachment(
+        # Shared "bytes → Attachment" tail (store + index + STT) — one home
+        # with the managed-ingress converter.
+        return await persist_attachment_bytes(
             agent_id,
             user_id,
             raw_bytes=raw_bytes,
             original_name=original_name,
             mime_type=mime_type,
-        )
-
-        transcript: Optional[str] = None
-        if mime_type.startswith("audio/"):
-            try:
-                # Lazy import to keep the channel layer free of agent_framework
-                # dependencies at import time.
-                from xyz_agent_context.agent_framework.llm.transcription import (
-                    TranscriptionService,
-                )
-
-                svc = TranscriptionService.instance()
-                if await svc.is_available(user_id):
-                    transcript = await svc.transcribe(
-                        file_path=str(on_disk),
-                        file_id=file_id,
-                        agent_id=agent_id,
-                        user_id=user_id,
-                    )
-                    if transcript:
-                        logger.info(
-                            f"[{self.channel_name}:{agent_id}] transcribed "
-                            f"file_id={file_id} chars={len(transcript)}"
-                        )
-            except Exception as e:  # noqa: BLE001
-                # Never-raise: STT failure must not block attachment flow.
-                logger.warning(
-                    f"[{self.channel_name}:{agent_id}] STT failed for "
-                    f"file_id={file_id}: {type(e).__name__}: {e}"
-                )
-
-        return Attachment(
-            file_id=file_id,
-            mime_type=mime_type,
-            original_name=original_name,
-            size_bytes=len(raw_bytes),
-            category=derive_category_from_mime(mime_type),
-            transcript=transcript,
+            log_prefix=self.channel_name,
         )
 
     @staticmethod

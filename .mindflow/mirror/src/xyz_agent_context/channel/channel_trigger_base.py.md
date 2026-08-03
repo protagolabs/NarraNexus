@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-08-03
 ---
 
+## 2026-08-03(补) — `_persist_attachment` 尾段抽到共享函数
+
+store+STT+Attachment 构造迁至
+`attachment_storage.persist_attachment_bytes`(managed ingress 转换器
+共用);trigger 保留 owner 解析 + MIME sniff。行为不变。
+
 ## 2026-08-03 — managed-ingress 缝(start() 之外复用业务钩子)
 
 新增 `_managed_bind` / `_credential_for_agent` / `managed_before_run`
