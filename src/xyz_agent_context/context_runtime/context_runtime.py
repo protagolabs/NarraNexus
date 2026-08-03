@@ -1108,7 +1108,7 @@ class ContextRuntime:
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
                 try:
-                    declared = await inst.module.get_expressive_tools()
+                    declared = await inst.module.get_expressive_tools(ctx_data)
                     if declared:
                         expressive_declarations.append(
                             (inst.module.config.priority, inst.module_class, list(declared))

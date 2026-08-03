@@ -362,6 +362,24 @@ class NarramessengerModule(ChannelModuleBase):
             "`narra_send(room_id, text)`."
         )
 
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+        """Managed (platform-forwarded) narramessenger turns declare only
+        ``narra_send``: ``narra_reply`` is a trigger-captured marker whose
+        delivery step is not running under managed mode, so listing it as
+        part of the reply surface would tell the model a dead tool can
+        deliver — exactly the conflicting-signal setup that makes weaker
+        models answer in prose instead of calling anything."""
+        tools = await super().get_expressive_tools(ctx_data)
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        ws = getattr(ctx_data, "working_source", None)
+        is_nm_channel = (
+            ws == WorkingSource.NARRAMESSENGER
+            or (isinstance(ws, str) and ws == WorkingSource.NARRAMESSENGER.value)
+        )
+        if is_nm_channel and extra.get("managed_ingress"):
+            return [t for t in tools if "narra_reply" not in t]
+        return tools
+
     @staticmethod
     def _managed_reply_action_block(info: dict) -> str:
         """Identity block for a managed (platform-forwarded) inbound turn.

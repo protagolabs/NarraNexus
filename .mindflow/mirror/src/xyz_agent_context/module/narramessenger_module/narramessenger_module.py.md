@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-08-03
 ---
 
+## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+
+回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
+(那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
+首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
+只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
+
 ## 2026-08-03 — 托管来源回合的回复指令切 `narra_send`
 
 `build_extra_data` 透传 `managed_ingress`(来自 openai_compat 分流的

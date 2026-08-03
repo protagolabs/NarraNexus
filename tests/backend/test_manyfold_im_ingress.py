@@ -1185,3 +1185,26 @@ async def test_endpoint_non_mention_dm_still_runs_normally(compat_app, monkeypat
     )
     assert resp.status_code == 200
     assert len(_FakeBackgroundRun.instances) == n_before + 1  # normal run
+
+
+async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    module = _nm_module()
+    monkeypatch.setattr(module, "is_bound", AsyncMock(return_value=True))
+    managed_ctx = SimpleNamespace(
+        extra_data={"managed_ingress": True},
+        working_source=WorkingSource.NARRAMESSENGER,
+    )
+    tools = await module.get_expressive_tools(managed_ctx)
+    assert any("narra_send" in t for t in tools)
+    assert not any("narra_reply" in t for t in tools)
+
+    native_ctx = SimpleNamespace(
+        extra_data={},
+        working_source=WorkingSource.NARRAMESSENGER,
+    )
+    native = await module.get_expressive_tools(native_ctx)
+    assert any("narra_reply" in t for t in native)
+    # No-ctx callers (tests, other frameworks) keep the full declaration.
+    assert await module.get_expressive_tools() == native

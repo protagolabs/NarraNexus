@@ -44,7 +44,7 @@ class _FakeModule:
     async def get_disallowed_tools(self):
         return []
 
-    async def get_expressive_tools(self):
+    async def get_expressive_tools(self, ctx_data=None):
         if self._crash:
             raise RuntimeError("boom")
         return list(self._expressive or [])

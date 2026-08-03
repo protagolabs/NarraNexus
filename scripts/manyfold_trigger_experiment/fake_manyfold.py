@@ -455,10 +455,26 @@ def listen_matrix(agent_id: str, max_messages: int = 0, forward_silent: bool = T
                 continue
         return None
 
+    def join_invites(payload: dict) -> None:
+        """Platform autoJoin equivalent — without it the agent account never
+        enters a freshly-created group and @-mentions go nowhere."""
+        for room_id in ((payload.get("rooms") or {}).get("invite") or {}):
+            try:
+                jr = mx.post(f"/_matrix/client/v3/join/{room_id}")
+                if jr.status_code == 200:
+                    print(f"{_GREEN}auto-joined invited room {room_id}{_RESET}")
+                    member_count.pop(room_id, None)
+                else:
+                    print(f"{_RED}join {room_id} → HTTP {jr.status_code}{_RESET}")
+            except httpx.HTTPError as e:
+                print(f"{_RED}join {room_id} failed: {e}{_RESET}")
+
     since = ""
     r = mx.get("/_matrix/client/v3/sync", params={"timeout": 0})
     r.raise_for_status()
-    since = r.json().get("next_batch", "")  # baseline: skip backlog
+    baseline = r.json()
+    since = baseline.get("next_batch", "")  # baseline: skip backlog...
+    join_invites(baseline)  # ...but do accept invites already pending
 
     seen = 0
     while True:
@@ -475,6 +491,7 @@ def listen_matrix(agent_id: str, max_messages: int = 0, forward_silent: bool = T
             continue
         payload = r.json()
         since = payload.get("next_batch", since)
+        join_invites(payload)
         rooms = (payload.get("rooms") or {}).get("join") or {}
         for room_id, room in rooms.items():
             for ev in ((room.get("timeline") or {}).get("events") or []):
@@ -496,20 +513,41 @@ def listen_matrix(agent_id: str, max_messages: int = 0, forward_silent: bool = T
                     or (localpart and f"@{localpart}" in body_text)
                 )
 
+                # Media specs: NarraMessenger documents/images arrive as a
+                # custom ai.netmind.compound msgtype (self-describing block
+                # with the REAL user text + media_url); plain Matrix media
+                # uses the standard msgtypes with content.url.
+                media_specs: list[tuple[str, str, str]] = []
+                compound = content.get("ai.netmind.compound")
+                if msgtype == "ai.netmind.compound" and isinstance(compound, dict):
+                    body_text = str(compound.get("text") or "")
+                    if compound.get("media_url"):
+                        media_specs.append((
+                            str(compound["media_url"]),
+                            str(compound.get("file_name") or "attachment.bin"),
+                            str(compound.get("mime_type") or ""),
+                        ))
+                elif msgtype in ("m.image", "m.file", "m.audio", "m.video"):
+                    media_specs.append((
+                        str(content.get("url") or ""),
+                        str(content.get("filename") or body_text or "media.bin"),
+                        str((content.get("info") or {}).get("mimetype") or ""),
+                    ))
+                    if str(content.get("filename") or "") == body_text:
+                        body_text = ""  # filename-as-body carries no caption
+
                 attachments: list[dict] = []
-                if msgtype in ("m.image", "m.file", "m.audio", "m.video"):
-                    raw = download_mxc(str(content.get("url") or ""))
-                    if raw is not None:
-                        name = str(content.get("filename") or body_text or "media.bin")
-                        mime = str((content.get("info") or {}).get("mimetype") or "")
-                        rel = f"chat-attachments/local-e2e/{ev.get('event_id','evt').lstrip('$')[:12]}/{name}"
-                        up = upload_workspace_file(agent_id, rel, raw)
-                        attachments.append(
-                            {"name": name, "mime": mime, "size": up.get("size", len(raw)),
-                             "path": up.get("path", rel)}
-                        )
-                        if body_text == name:
-                            body_text = ""  # filename-as-body carries no caption
+                for mxc, name, mime in media_specs:
+                    raw = download_mxc(mxc)
+                    if raw is None:
+                        print(f"{_RED}media download failed: {mxc}{_RESET}")
+                        continue
+                    rel = f"chat-attachments/local-e2e/{ev.get('event_id','evt').lstrip('$')[:12]}/{name}"
+                    up = upload_workspace_file(agent_id, rel, raw)
+                    attachments.append(
+                        {"name": name, "mime": mime, "size": up.get("size", len(raw)),
+                         "path": up.get("path", rel)}
+                    )
 
                 if not mentioned and not forward_silent:
                     print(f"{_DIM}(skipped non-mention group msg in {room_id}){_RESET}")
