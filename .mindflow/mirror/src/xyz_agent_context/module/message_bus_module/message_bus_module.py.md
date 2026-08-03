@@ -20,6 +20,12 @@ Reply Discipline 只管对**同伴**的回复,绝不压制对 owner 的回报
 文案进 `_static_instruction_parts`(静态、逐字稳定,可缓存),有测试断言
 稳定性与各条要点。
 
+Reply Discipline 同批加了一条「问题从来不是 ping-pong,必须回答」——含
+「替 owner 转达的问题」和「回报自己 owner 不算交差」。**但要知道:光加这
+条文案对被测模型无效**(真机 3/3 仍拒答),真正起作用的是
+[[message_bus_trigger]] 那侧把假的 Owner Relay 指令换掉。这条文案保留是
+因为它本身正确、且对强模型有用,**不要**把它当成该问题的修复。
+
 ## 2026-07-28 — R4b：三个数据列表搬进 get_turn_context
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

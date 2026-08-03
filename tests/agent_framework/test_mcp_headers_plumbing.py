@@ -56,7 +56,11 @@ def test_claude_mcp_config_passes_headers_verbatim():
     }
 
 
-def test_claude_mcp_config_omits_headers_key_for_internal_servers():
+def test_claude_mcp_config_omits_headers_key_when_spec_has_none():
+    """Adapter contract only. NOTE: since 2026-08-01 module ("internal")
+    servers DO arrive with headers — context_runtime injects the caller
+    identity — so this fixture's bare ``chat_module`` represents "a spec
+    without headers", not "an internal server"."""
     config = _build_claude_mcp_config(SPECS)
     assert config["chat_module"] == {
         "type": "sse",
@@ -168,3 +172,59 @@ def test_mask_header_value_fully_masks_short_values():
 def test_masked_headers_none_passthrough():
     assert _masked_headers(None) is None
     assert _masked_headers({}) is None
+
+
+# ---------------------------------------------------------------------------
+# Caller-identity headers (P1 evt_0dcee899) must survive both adapters
+# ---------------------------------------------------------------------------
+
+
+def test_claude_adapter_forwards_the_caller_identity_headers():
+    """The middle link of the identity chain: context_runtime injects the
+    headers, and the claude adapter must hand them to the CLI verbatim —
+    otherwise the module MCP server never learns who is calling and the fix
+    silently degrades to the old "trust the model's agent_id" behaviour."""
+    from xyz_agent_context.module._mcp_identity import (
+        AGENT_ID_HEADER,
+        agent_id_headers,
+    )
+
+    agent = "agent_d8795abf5021"
+    specs = {"social_network_module": {
+        "url": "http://localhost:7802/sse",
+        "headers": agent_id_headers(agent),
+    }}
+
+    entry = _build_claude_mcp_config(specs)["social_network_module"]
+    assert entry["headers"][AGENT_ID_HEADER] == agent
+
+
+def test_codex_adapter_transmits_identity_via_the_borrowed_bearer():
+    """Codex cannot carry arbitrary headers, which is exactly why identity
+    also rides an Authorization bearer. Assert that channel survives, or the
+    fix would work on claude and silently do nothing on codex."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        agent_id_headers,
+    )
+
+    agent = "agent_d8795abf5021"
+    specs = {"social_network_module": {
+        "url": "http://localhost:7802/sse",
+        "headers": agent_id_headers(agent),
+    }}
+
+    env = codex_mcp_bearer_env(specs)
+    assert env, "codex must expose the identity bearer as an env var"
+    token = next(iter(env.values()))
+    assert token == f"{BEARER_AGENT_PREFIX}{agent}"
+
+    # ...and the config override that makes codex actually send it.
+    joined = "\n".join(_build_codex_config_overrides(
+        instructions_path=Path("/tmp/i.md"),
+        mcp_servers=specs,
+        permissions=None,
+    ))
+    assert "mcp_servers.social_network_module.bearer_token_env_var=" in joined
+    # The identity value must not leak into argv.
+    assert agent not in joined

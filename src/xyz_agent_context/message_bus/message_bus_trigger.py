@@ -610,9 +610,21 @@ class MessageBusTrigger:
                     from xyz_agent_context.repository import UserRepository
                     owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
+                # Which directive applies depends on who started this thread:
+                # a reply to OUR errand goes to the owner; a fresh question
+                # from a peer must be answered on the bus. Getting this wrong
+                # is what made recipients answer their owner and leave the
+                # asking agent hanging (P1 2026-08-03).
+                i_started = await self._agent_spoke_in_channel_before(
+                    agent_id, channel_id, messages
+                )
+
                 # Build prompt from messages
                 prompt = self._build_prompt(
-                    messages, owner_user_id=owner_user_id, owner_name=owner_name
+                    messages,
+                    owner_user_id=owner_user_id,
+                    owner_name=owner_name,
+                    i_started_this_exchange=i_started,
                 )
 
             logger.info(
@@ -1003,8 +1015,50 @@ class MessageBusTrigger:
             depth += 1
         return depth
 
+    async def _agent_spoke_in_channel_before(
+        self,
+        agent_id: str,
+        channel_id: str,
+        incoming: List[BusMessage],
+    ) -> bool:
+        """Did ``agent_id`` send into this channel BEFORE the incoming batch?
+
+        The proxy for "I started this exchange, so a reply is owed to my
+        owner". A fresh inbound question comes on a channel this agent has
+        never spoken in (``bus_send_to_agent`` auto-creates the DM channel on
+        the sender's side), so absence of our own prior message is the signal
+        that we are the one being asked.
+
+        Fails toward the OLD behaviour (True → Owner Relay) on any error: a
+        wrongly-relayed answer is a UX annoyance, whereas wrongly telling an
+        agent "answer the peer" when its owner IS waiting would resurrect the
+        silent-failure this directive was written to prevent.
+        """
+        try:
+            incoming_ids = {m.message_id for m in incoming if getattr(m, "message_id", None)}
+            ph = self._bus._db.placeholder
+            rows = await self._bus._db.execute(
+                f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
+                f"AND from_agent = {ph}",
+                (channel_id, agent_id),
+            )
+            for r in rows or []:
+                if str(r["message_id"]) not in incoming_ids:
+                    return True
+            return False
+        except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
+            logger.debug(
+                f"MessageBusTrigger: could not tell who started channel "
+                f"{channel_id} ({e}); assuming owner-relay"
+            )
+            return True
+
     def _build_prompt(
-        self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""
+        self,
+        messages: List[BusMessage],
+        owner_user_id: str = "",
+        owner_name: str = "",
+        i_started_this_exchange: bool = True,
     ) -> str:
         # NOTE: this builds the full EXECUTION prompt (peer messages + the
         # repeated Owner-Relay boilerplate). For narrative retrieval, embed
@@ -1021,6 +1075,20 @@ class MessageBusTrigger:
         reply to the peer or stay silent), and the original owner who asked
         "go talk to agent B for me" never hears back — the reply only lands
         in the Inbox. observed as a silent-failure UX issue in production.
+
+        ``i_started_this_exchange`` decides WHICH directive applies, and it
+        matters (P1 2026-08-03, verified live 3/3): Owner Relay was appended
+        on every DM turn, so an agent receiving a FRESH question from a peer
+        was told "your owner originally asked you to contact this peer agent,
+        they are waiting in chat" — false, and it made the recipient answer
+        the OWNER and treat the errand as discharged. The asking agent
+        (which had promised its user a report) was left waiting forever.
+        The models were obeying us; the prompt was lying to them.
+
+        - True  → this agent sent into this channel before, so the incoming
+                  message is a reply to ITS errand: relay to the owner.
+        - False → this agent is being asked something: answer the PEER on
+                  the bus. Its owner asked for nothing and is not waiting.
         """
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
 
@@ -1036,7 +1104,49 @@ class MessageBusTrigger:
                 block += f"{marker}\n"
             lines.append(block)
 
-        if owner_user_id:
+        if owner_user_id and not i_started_this_exchange:
+            # Inbound question: the peer is waiting, not our owner.
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            lines.append("## Answer the peer — REQUIRED")
+            lines.append("")
+            lines.append(
+                "A peer agent is asking YOU something. You did not start this "
+                "exchange and your owner has not asked you for anything, so "
+                "your owner is NOT waiting in chat for this."
+            )
+            lines.append("")
+            lines.append(
+                "**The peer cannot see anything you tell your owner.** The only "
+                "channel that reaches the agent who asked is a bus reply. If the "
+                "peer is relaying a question on ITS owner's behalf, that human is "
+                "waiting at the other end of the peer — answering your own owner "
+                "instead leaves them waiting forever."
+            )
+            lines.append("")
+            lines.append("**What to do this turn:**")
+            lines.append(
+                "1. If you can answer → reply to the asker with "
+                "`bus_send_to_agent(to_agent_id=<the sender above>, "
+                "content=<your answer>)`. This is the point of the turn."
+            )
+            lines.append(
+                "2. If you need something clarified before you can answer → ask "
+                "the peer back via `bus_send_to_agent`."
+            )
+            lines.append(
+                "3. Only ALSO call `send_message_to_user_directly` when your "
+                "owner genuinely needs to know (a decision only they can make, "
+                "or something affecting their work). It is never a substitute "
+                "for replying to the peer."
+            )
+            lines.append(
+                "4. Silence is only correct for a closing acknowledgment "
+                "(\"thanks\", \"got it\"). A question is never a ping-pong — "
+                "answer it."
+            )
+        elif owner_user_id:
             lines.append("")
             lines.append("---")
             lines.append("")

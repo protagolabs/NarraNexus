@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-31
+last_verified: 2026-08-01
 stub: false
 ---
+
+## 2026-08-01 — Owner Relay 只发给「发起方」,被问的一方改成「回复同伴」
+
+P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_prompt` 只要
+`owner_user_id` 存在就追加 `## Owner Relay — REQUIRED`——而它总是存在。
+于是**被问的那一方**也被告知"你的 owner 当初让你联系这个 peer,他正在
+聊天里等答案"。对收件方这是**假话**:它的 owner 什么都没问。
+
+现场后果(连跑 3 次复现):小雀替 TC 转达问题 → 羽书 收到假的 Owner Relay
+→ 调 `send_message_to_user_directly` 回给自己 owner,并认定差事已了
+(「未回复小雀 — 她是转发…按 Reply Discipline」)→ 小雀(已向用户承诺回报)
+永远等不到回复。**模型是在照做,是 prompt 在骗它。**
+
+修法:按「谁发起的」选指令。
+- `_agent_spoke_in_channel_before()`:本 agent 在该 channel 里有没有
+  **早于本批**的消息。`bus_send_to_agent` 建 DM channel 时是发送方先说话,
+  所以"我没说过话"就等于"我是被问的"。刻意排除本批消息 id,否则每轮都会
+  翻回 Owner Relay。
+- True → Owner Relay(2026-06 的静默失败修复,原样保留)
+- False → 新的 `## Answer the peer — REQUIRED`:点名 `bus_send_to_agent`
+  是唯一能到达提问者的通道、"你 owner 并没有在等"、"回自己 owner 不能
+  替代回复 peer"、"问题从来不是 ping-pong"。
+- **异常一律回落 True**:错relay 只是体验噪音,而错误压掉 Owner Relay 会
+  让 2026-06 那个静默失败复活。
+
+真机验证(第 4 次):羽书 改为在 bus 上回复并附状态,还自己诊断了前三次
+「我之前三次都直接回复了 TC…但 TC 似乎没看到」;小雀 随后被触发并
+「已将羽书的回复完整转达给 TC」,同时正确地没有再 ping-pong 回去。
+整条链路(发问 → 对方答 → 回报用户)闭合。
 
 ## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
 

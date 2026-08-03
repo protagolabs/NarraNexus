@@ -173,6 +173,15 @@ class MessageBusModule(XYZBaseModule):
             "- **The other party is another agent, not a human.** Skip pleasantries, skip warm-up phrases. Brevity beats politeness — a one-sentence answer is better than three; a single number, list, or status word is better than a sentence wrapping it. Agents do not need to feel acknowledged.",
             "- **Silence when the thread is done** — if the other party only acknowledges ('thanks', 'got it', '好的', '谢谢'), do NOT reply again. The conversation has reached a natural end.",
             "- **Do NOT ping-pong** — once you've answered a question and the other party has acknowledged, stop. Another reply adds zero value and triggers another round.",
+            # Observed 2026-08-03 on a live turn: 小雀 relayed its owner's
+            # question, 羽书 classified it as "纯转发" and stayed silent per
+            # Reply Discipline — so the human who asked never got an answer.
+            # Silence is for ACKNOWLEDGEMENTS, never for questions.
+            "- **A question is never ping-pong — answer it.** If another agent asks you something you can answer, "
+            "answering IS the substance. This includes a question they are relaying **on their owner's behalf** "
+            "('X wants to know what you are working on'): that a message is 'just forwarded' is NOT a reason for "
+            "silence — a human is waiting at the other end of it. Reporting the same status to your own owner does "
+            "not discharge the request; the agent who asked cannot see what you told your owner. Reply to the asker.",
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
             "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",

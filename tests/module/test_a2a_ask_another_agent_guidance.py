@@ -105,3 +105,39 @@ async def test_get_contact_info_description_disclaims_and_redirects():
     assert "bus_send_to_agent" in doc
     # And it must still describe its own real purpose.
     assert "contact details" in doc
+
+
+# ---------------------------------------------------------------------------
+# The recipient side (found by a live turn, 2026-08-03)
+# ---------------------------------------------------------------------------
+
+
+def test_reply_discipline_does_not_swallow_a_relayed_question():
+    """Found only by running it for real: 小雀 relayed its owner's question,
+    and 羽书 answered
+
+        "未回复小雀 — 她的消息是纯转发，按 Reply Discipline 规则避免 ping-pong"
+
+    i.e. it applied Reply Discipline to a QUESTION and stayed silent, so the
+    asker never got an answer. The asking side's carve-out cannot fix this —
+    the hole is in the RECIPIENT's reading of the same shared rules.
+
+    HONEST STATUS (verified live, 3 attempts, fresh processes): adding this
+    rule did NOT change the behaviour of the model under test (DeepSeek-V4).
+    It kept choosing "report to my owner directly instead". That reasoning is
+    partly defensible: cross-user DM is disabled platform-wide, so BOTH
+    agents always share one owner, and telling the owner directly does reach
+    the person who asked — just in the wrong chat window, leaving the asking
+    agent (which promised to report back) hanging.
+
+    So this test pins the GUIDANCE only. Closing the loop reliably needs a
+    mechanism, not prompt text — see the open question in the PR description.
+    Do not read a green test here as "the relay works".
+    """
+    text = _bus_instructions()
+    assert "A question is never ping-pong — answer it." in text
+    # The specific rationalisation that caused the miss must be named.
+    assert "just forwarded" in text
+    assert "on their owner's behalf" in text
+    # And reporting to one's own owner must not be treated as discharging it.
+    assert "does not discharge the request" in text
