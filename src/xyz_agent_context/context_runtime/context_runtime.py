@@ -13,6 +13,7 @@ from loguru import logger
 
 # Schema
 from xyz_agent_context.schema import (
+    BUS_TEAM_ROOM_EXTRA_KEY,
     ContextData,
     ModuleInstructions,
     ContextRuntimeOutput,
@@ -1101,7 +1102,7 @@ class ContextRuntime:
         # (chat's unconditional owner-notify included) would put a
         # "plain text is never delivered" reminder right next to the
         # team prompt saying the opposite.
-        team_room_turn = bool(turn_extra.get("bus_team_room"))
+        team_room_turn = bool(turn_extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
         expressive_declarations: list[tuple[int, int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0

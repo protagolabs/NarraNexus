@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — BUS_TEAM_ROOM_EXTRA_KEY 常量
+
+team 房标记键从三处魔法字符串（trigger 盖章/context_runtime 中央门控/
+MessageBusModule 二次防御）提为 schema 层命名常量——两侧平台代码都读它，
+schema 是共享基座。语义见常量注释：同为 MESSAGE_BUS 来源、交付契约相反。
 
 ## 2026-08-03 — `BUS_ERRAND_TURN_SOURCE`（模块级常量，非枚举成员）
 

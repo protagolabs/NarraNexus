@@ -26,6 +26,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
 
 # Schema
@@ -34,6 +35,7 @@ from xyz_agent_context.schema import (
     HookAfterExecutionParams,
     ModuleConfig,
     MCPServerConfig,
+    WorkingSource,
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 
@@ -268,9 +270,6 @@ class ChatModule(XYZBaseModule):
         """Owner web chat originates CHAT turns (and is the origin-first
         default on turns that fall through with no declared origin owner,
         since priority 1 already sorts it first within its rank)."""
-        from xyz_agent_context.module.base import working_source_matches
-        from xyz_agent_context.schema import WorkingSource
-
         return working_source_matches(working_source, WorkingSource.CHAT.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
@@ -405,27 +404,61 @@ class ChatModule(XYZBaseModule):
                 f"direct_parts={len(direct_parts)} total_len={len(combined)}"
             )
         else:
-            effective = (
-                handler.owner_visible_reply_tool_names
-                if handler.owner_visible_reply_tool_names is not None
-                else handler.user_reply_tool_names
-            )
             logger.info(
                 f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
                 f"handler={handler.name} no owner-visible reply tool matched "
-                f"(checked patterns={effective})"
+                f"(checked patterns={handler.effective_owner_visible_names})"
             )
         return im_reply, direct_notify, combined
 
     @staticmethod
-    def _build_activity_summary(working_source: str, meta: dict) -> str:
+    def _delivered_to_origin(working_source: str, agent_loop_response: list) -> bool:
+        """Did ANY reply tool deliver to whoever contacted the agent?
+
+        The origin-delivery question, distinct from owner visibility: a bus
+        turn that answered its peer via ``bus_send_message`` delivered fine
+        even though the owner saw nothing. This is the live consumer of the
+        handler's full ``user_reply_tool_names`` (owner-visible consumers
+        use the owner subset) — it drives the [DELIVERED-BG]/[NO-REPLY-BG]
+        split below, which is the no-reply metric the delivery-fallback
+        decision reads. Fail-open to False: a registry hiccup only makes
+        the row read as silent, never crashes persistence.
         """
-        Build a human-readable activity summary for background tasks
-        where the agent chose not to send a message to the user.
+        from xyz_agent_context.schema import ProgressMessage
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
+        )
+
+        try:
+            handler = MessageSourceRegistry.get(working_source)
+            for response in agent_loop_response or []:
+                if not (isinstance(response, ProgressMessage) and response.details):
+                    continue
+                if handler.extract_reply_text(
+                    response.details.get("tool_name", ""),
+                    response.details.get("arguments", {}) or {},
+                ):
+                    return True
+        except Exception as e:  # noqa: BLE001 — metric, never turn-fatal
+            logger.warning(f"_delivered_to_origin detection failed: {e}")
+            return False
+        return False
+
+    @staticmethod
+    def _build_activity_summary(
+        working_source: str, meta: dict, delivered_to_origin: bool = False
+    ) -> str:
+        """
+        Build a human-readable activity summary for background turns that
+        produced nothing owner-visible.
 
         Args:
             working_source: Execution source ("job", "message_bus", etc.)
             meta: Shared meta_data dict (may contain channel_tag)
+            delivered_to_origin: whether a reply tool delivered to the
+                turn's origin (peer agent / channel) — the summary must
+                say so honestly. The old unconditional "Replied to X" for
+                bus turns claimed a reply that often never happened.
 
         Returns:
             Short activity description string
@@ -440,7 +473,13 @@ class ChatModule(XYZBaseModule):
         if working_source == "job":
             return "Ran a scheduled job"
         if working_source in ("message_bus", "a2a"):
-            return f"Replied to {who}" if who else "Handled a peer-agent message"
+            if delivered_to_origin:
+                return f"Replied to {who}" if who else "Replied to a peer agent"
+            return (
+                f"Read messages from {who} (no reply sent)"
+                if who
+                else "Handled a peer-agent message (no reply sent)"
+            )
         if who:
             return f"Handled a message from {who}"
         return "Handled a background activity"
@@ -1293,17 +1332,37 @@ class ChatModule(XYZBaseModule):
                     f"Likely cancellation or LLM produced zero output."
                 )
         else:
-            # Background task (job/lark/message_bus) where agent chose not to message user:
-            # Store a lightweight activity record instead of a fake conversation pair
-            activity_summary = self._build_activity_summary(working_source, shared_meta)
-            logger.info(
-                f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
-                f"writing activity row (background trigger, no user-facing reply)"
+            # Background task (job/lark/message_bus) with nothing owner-visible:
+            # store a lightweight activity record instead of a fake conversation
+            # pair. Two honest sub-cases — "delivered to the origin but not
+            # owner-visible" (a bus reply to a peer agent) vs "genuinely
+            # silent". The distinction IS the no-reply metric: counting
+            # delivered bus turns as NO-REPLY is what poisoned the 8/1
+            # numbers and would poison the fallback decision built on them.
+            delivered_to_origin = self._delivered_to_origin(
+                working_source, params.agent_loop_response
             )
+            activity_summary = self._build_activity_summary(
+                working_source, shared_meta, delivered_to_origin=delivered_to_origin
+            )
+            if delivered_to_origin:
+                logger.info(
+                    f"[DELIVERED-BG] event_id={params.event_id} working_source={working_source} "
+                    f"delivered to origin via channel tools (not owner-visible); writing activity row"
+                )
+            else:
+                logger.info(
+                    f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
+                    f"writing activity row (background trigger, no user-facing reply)"
+                )
             messages.append({
                 "role": "assistant",
                 "content": activity_summary,
-                "meta_data": {**assistant_meta, "message_type": "activity"},
+                "meta_data": {
+                    **assistant_meta,
+                    "message_type": "activity",
+                    "delivered_to_origin": delivered_to_origin,
+                },
             })
 
         # Save updated history (using instance_id)

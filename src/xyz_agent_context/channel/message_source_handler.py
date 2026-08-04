@@ -197,15 +197,22 @@ class MessageSourceHandler:
             return False
         return any(pat in tool_name for pat in self.user_reply_tool_names)
 
+    @property
+    def effective_owner_visible_names(self) -> Tuple[str, ...]:
+        """The owner-visible list after the None-fallback — the single
+        place the fallback rule lives, so log lines and matching can
+        never drift apart."""
+        if self.owner_visible_reply_tool_names is None:
+            return self.user_reply_tool_names
+        return self.owner_visible_reply_tool_names
+
     def is_owner_visible_reply_tool(self, tool_name: str) -> bool:
         """True when `tool_name`'s output surfaces in the owner's web
-        chat. Falls back to `is_user_reply_tool` when no owner-visible
+        chat. Falls back to the full reply list when no owner-visible
         subset is declared (chat / IM channels)."""
-        if self.owner_visible_reply_tool_names is None:
-            return self.is_user_reply_tool(tool_name)
         if not tool_name:
             return False
-        return any(pat in tool_name for pat in self.owner_visible_reply_tool_names)
+        return any(pat in tool_name for pat in self.effective_owner_visible_names)
 
     def extract_owner_visible_text(
         self,

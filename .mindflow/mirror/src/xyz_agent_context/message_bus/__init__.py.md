@@ -4,6 +4,13 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 (review 三) — 名单的活消费方补齐
+
+round 2 抓到扩容名单一度没有任何活消费方（度量仍失真）。现在
+`user_reply_tool_names` 的消费方 = ChatModule._delivered_to_origin
+（[DELIVERED-BG]/[NO-REPLY-BG] 持久化二分，即兜底决策的度量口径）；
+owner-visible 子集继续服务锚点与历史可见性。注释同步改口。
+
 ## 2026-08-04 (review 修正) — handler 增加 owner_visible 子集
 
 `owner_visible_reply_tool_names=("send_message_to_user_directly",)`：

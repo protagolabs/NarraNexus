@@ -3,6 +3,20 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (review 三) — 背景轮持久化二分：[DELIVERED-BG] vs [NO-REPLY-BG]
+
+review round 2 抓到：owner-visible 拆分后，bus 名单扩容失去活消费方，
+真交付的 bus 轮仍被打 [NO-REPLY-BG]，「要不要兜底」的度量继续失真。
+新增 `_delivered_to_origin(working_source, responses)`（吃 handler 的
+**全量** user_reply_tool_names，与 owner-visible 消费方分工明确），
+else 分支据此二分：交付过 → [DELIVERED-BG] 日志 + activity meta
+`delivered_to_origin=True`；真沉默才是 [NO-REPLY-BG]。
+`_build_activity_summary` 增 delivered_to_origin 参数，bus/a2a 文案
+诚实化——旧版无条件 "Replied to X" 在 8/1 场景说的是没发生过的回复，
+现在只有真交付才说 Replied，沉默说 "(no reply sent)"。
+同批：working_source_matches/WorkingSource import 上提；no-match 日志
+改用 handler.effective_owner_visible_names（回落规则单点化）。
+
 ## 2026-08-04 (review 修正) — user-visible split 改用 owner-visible 谓词
 
 `_split_user_visible_response` 的提取由 `extract_reply_text` 改为

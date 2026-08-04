@@ -4,6 +4,12 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 (review 三) — effective_owner_visible_names 属性
+
+None 回落规则收敛到单点：属性返回「生效的 owner-visible 名单」，
+is_owner_visible_reply_tool 与 chat_module 的日志共用，日志不再手抄
+回落逻辑（review round 2 Minor #4：手抄的规则将来必先漂）。
+
 ## 2026-08-04 (review 修正) — owner_visible_reply_tool_names：「交付给来源」≠「owner 可见」
 
 PR #230 review 抓到：一份 `user_reply_tool_names` 名单被三个消费方共用，

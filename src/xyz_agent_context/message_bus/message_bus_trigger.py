@@ -42,7 +42,7 @@ from xyz_agent_context.message_bus.local_bus import (
     LocalMessageBus,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema import WorkingSource
+from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
@@ -1414,10 +1414,13 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                # Delivery-contract marker: team rooms auto-post plain text,
-                # so MessageBusModule.get_expressive_tools declares nothing
-                # there (an advertised bus tool would invite double-posting).
-                "bus_team_room": team_room,
+                # Delivery-contract marker: team rooms auto-post plain text
+                # and their prompt forbids delivery tools, so the collection
+                # (context_runtime) empties the turn's WHOLE expressive
+                # surface on this marker — every declarer, both frameworks'
+                # reminders. MessageBusModule's own gate is a second line
+                # of defense on its declaration.
+                BUS_TEAM_ROOM_EXTRA_KEY: team_room,
                 # Errand scope — empty unless this turn continues our own
                 # errand. sender_agent_id is the peer whose reply triggered us,
                 # i.e. exactly who a follow-up would go to.

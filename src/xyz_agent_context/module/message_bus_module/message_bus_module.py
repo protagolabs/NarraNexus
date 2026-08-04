@@ -30,6 +30,7 @@ from xyz_agent_context.module.base import (
     working_source_matches,
 )
 from xyz_agent_context.schema import (
+    BUS_TEAM_ROOM_EXTRA_KEY,
     ModuleConfig,
     MCPServerConfig,
     ContextData,
@@ -125,18 +126,21 @@ class MessageBusModule(XYZBaseModule):
         only the owner-chat tool declared, finished work ended as
         undelivered plain text or was misdelivered to the owner's chat).
 
-        Gated three ways:
+        Gated:
         - not a bus turn → nothing (advertising bus tools on a chat turn
           would invite replying to the owner over the bus);
-        - team room (``bus_team_room`` marker) → nothing (the room
-          auto-posts plain text; its prompt forbids delivery tools);
         - no ctx → nothing (never advertise a surface for an unknown
-          origin).
+          origin);
+        - team room → nothing. NOTE: the PRIMARY team-room gate lives in
+          the collection site ([[context_runtime]]), which empties the
+          whole turn's surface before ever calling this method — the
+          check here is a second line of defense keeping THIS
+          declaration correct if the module is queried directly.
         """
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
             return []
         extra = getattr(ctx_data, "extra_data", None) or {}
-        if extra.get("bus_team_room"):
+        if extra.get(BUS_TEAM_ROOM_EXTRA_KEY):
             return []
         config = await self.get_mcp_config()
         return [
