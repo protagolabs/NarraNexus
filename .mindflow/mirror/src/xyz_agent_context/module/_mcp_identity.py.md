@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — user_id 上线同一 seam（W1），纪律刻意弱于 agent_id
+
+`X-NarraNexus-User-Id` + bearer 第 5 位（`BEARER_FIELDS` 尾部追加，老
+4 字段 bearer 解析出 user_id=None，兼容由既有 `_parse_bearer` 无界
+split+截断保证）。动机是 job_create 的最恶性失败形状：模型猜错
+user_id 时 job **建成功**（success=True）但落在幻影用户名下——属主的
+Jobs 列表永远空着，agent 却报成功（假成功）。
+
+**与 agent_id 的三点刻意不同**（`resolve_caller_user_id` docstring 是
+契约原文）：
+1. **占位符才注入**（`user_current` 等 `PLACEHOLDER_USER_IDS`）；
+2. **None 永远不碰**——检索工具用 `user_id=None` 表达「不过滤」，注入
+   会静默改变查询语义；`is_placeholder_user_id(None)` 为 False（与
+   `is_placeholder_agent_id` 极性相反，两个函数不能互换）；也因此
+   wrapper 里 user_id **没有** agent_id 那个「缺省参数则注入」分支。
+3. **mismatch 保留原值只 warning**——平台对「它启动了谁」只有一个真相，
+   但多用户流程里传别人 user_id 可能合法（销售/团队场景），先用
+   warning 计量再决定是否收紧（PR #230 的先测量纪律）。
+
+`install_caller_identity` 的 wrap 判据从「声明 agent_id」放宽为
+「声明 agent_id 或 user_id」。注入端 `agent_id_headers` 增加
+`user_id=None` 参数（None 时 header 省略、bearer 尾字段掉落），
+[[context_runtime]] 盖章处传 `self.user_id`。测试：
+`tests/module/test_mcp_caller_user_identity.py` +
+`test_mcp_identity_injection.py::test_mcp_spec_carries_the_turn_owner`。
 
 ## 2026-08-03 — bearer 变成「位置记录 + 钉死字段数」,解析器合成一个
 

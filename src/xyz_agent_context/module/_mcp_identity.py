@@ -86,6 +86,15 @@ BEARER_AGENT_PREFIX = "nx-agent:"
 # message (see message_bus_trigger's directive selection).
 TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
 
+# WHO owns this turn — the user whose request the agent is serving. Same
+# problem, worse failure shape: a model-guessed user_id on job_create still
+# CREATES the job (success=True) — under the wrong user, so the owner's Jobs
+# list stays empty forever while the agent reports success. Unlike agent_id
+# this is resolved placeholder-only (see resolve_caller_user_id): None is a
+# legitimate "no filter" value on retrieval tools, and a mismatching real
+# value can be legitimate in multi-user flows — measure before overriding.
+USER_ID_HEADER = "X-NarraNexus-User-Id"
+
 # WHO/WHERE this turn's own errand is aimed at, when it has one: the peer that
 # answered our errand, and the channel that exchange lives in. A bus turn is
 # not homogeneous — the same turn can continue our errand AND answer an
@@ -120,7 +129,7 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 #   * every field stays token68-safe (RFC 7235): "~" qualifies, and it appears
 #     in none of our ids (``agent_`` / ``ch_`` + hex), turn sources or stamps.
 BEARER_FIELD_SEP = "~"
-BEARER_FIELDS = ("agent_id", "turn_source", "errand_peer", "errand_channel")
+BEARER_FIELDS = ("agent_id", "turn_source", "errand_peer", "errand_channel", "user_id")
 
 # Values a model supplies when it is guessing instead of reading its prompt.
 # These are NOT agent ids and must never reach a DB lookup: treat them as
@@ -155,6 +164,41 @@ def is_placeholder_agent_id(value: Any) -> bool:
     return v.lower() in PLACEHOLDER_AGENT_IDS
 
 
+# The user_id spellings a model reaches for when guessing. NOTE the asymmetry
+# with agent ids: ``None`` is NOT in scope here and never will be — retrieval
+# tools use ``user_id=None`` as a legitimate "no filter" value, so only a
+# guessed STRING marks "the model did not tell us".
+PLACEHOLDER_USER_IDS = frozenset({
+    "user_current",
+    "current_user",
+    "current",
+    "self",
+    "me",
+    "user",
+    "user_id",
+    "{user_id}",
+    "<user_id>",
+    "my_user_id",
+    "your_user_id",
+    "requesting_user",
+    "owner",
+    "none",
+    "null",
+    "todo",
+})
+
+
+def is_placeholder_user_id(value: Any) -> bool:
+    """True when ``value`` is a guessed string. ``None`` is NOT a placeholder
+    (legitimate "unset"/"no filter" — see PLACEHOLDER_USER_IDS)."""
+    if not isinstance(value, str):
+        return False
+    v = value.strip()
+    if not v:
+        return True
+    return v.lower() in PLACEHOLDER_USER_IDS
+
+
 class BearerIdentity(NamedTuple):
     """The decoded borrowed bearer. Every field is None when not transmitted."""
 
@@ -162,6 +206,7 @@ class BearerIdentity(NamedTuple):
     turn_source: Optional[str] = None
     errand_peer: Optional[str] = None
     errand_channel: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -237,6 +282,66 @@ def caller_agent_id_from_request() -> Optional[str]:
     return None
 
 
+def caller_user_id_from_request() -> Optional[str]:
+    """The turn owner's user_id as injected by the platform, or None."""
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, USER_ID_HEADER)
+        if injected and not is_placeholder_user_id(injected):
+            return injected
+
+        # Codex path: everything rides the borrowed bearer.
+        candidate = _bearer(headers).user_id
+        if candidate and not is_placeholder_user_id(candidate):
+            return candidate
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller user: {e}")
+    return None
+
+
+def resolve_caller_user_id(supplied: Any) -> Any:
+    """The user_id a tool should actually use.
+
+    DELIBERATELY weaker than :func:`resolve_caller_agent_id` — the two
+    identities do not share a trust model:
+
+    - placeholder string → injected turn owner (the wrong-user job_create
+      would otherwise succeed under a phantom user and the owner's Jobs
+      list stays empty while the agent reports success);
+    - ``None`` → returned untouched, injection must never scope a
+      legitimately unfiltered query;
+    - a mismatching REAL value → KEPT, warning-logged. The platform knows
+      which agent it launched (one truth), but a different user_id can be
+      legitimate in multi-user flows; the warning is the measurement that
+      decides whether overriding is ever justified (PR #230 discipline:
+      measure before you police).
+    """
+    if supplied is None or not is_placeholder_user_id(supplied):
+        injected = caller_user_id_from_request()
+        if (
+            supplied is not None
+            and injected is not None
+            and supplied != injected
+        ):
+            logger.warning(
+                f"[mcp-identity] user_id={supplied!r} does not match the turn "
+                f"owner ({injected!r}) — keeping the supplied value (measured, "
+                f"not policed)"
+            )
+        return supplied
+
+    injected = caller_user_id_from_request()
+    if injected is None:
+        return supplied
+    logger.info(
+        f"[mcp-identity] user_id={supplied!r} is a placeholder — "
+        f"using the injected turn owner instead"
+    )
+    return injected
+
+
 def resolve_caller_agent_id(supplied: Any) -> Any:
     """The agent_id a tool should actually use.
 
@@ -296,7 +401,7 @@ def install_caller_identity(mcp) -> None:
             params = inspect.signature(fn).parameters
         except (TypeError, ValueError):
             continue
-        if "agent_id" not in params:
+        if "agent_id" not in params and "user_id" not in params:
             continue
 
         tool.fn = _wrap_fn(fn)
@@ -355,10 +460,24 @@ def _wrap_fn(fn: Callable) -> Callable:
     def _resolved_kwargs(args: tuple, kwargs: dict) -> tuple[tuple, dict]:
         # FastMCP invokes tools with keyword arguments; handle positional
         # defensively so a direct call cannot crash here.
+        names = list(sig.parameters)
+
+        # user_id first: placeholder-only resolution, and NO omitted-param
+        # injection — an absent/None user_id is a legitimate "no filter"
+        # value on retrieval tools, and injecting there silently scopes a
+        # query that was meant to be unscoped.
+        if "user_id" in kwargs:
+            kwargs = {**kwargs, "user_id": resolve_caller_user_id(kwargs["user_id"])}
+        elif "user_id" in names:
+            u_idx = names.index("user_id")
+            if u_idx < len(args):
+                new_args = list(args)
+                new_args[u_idx] = resolve_caller_user_id(new_args[u_idx])
+                args = tuple(new_args)
+
         if "agent_id" in kwargs:
             kwargs = {**kwargs, "agent_id": resolve_caller_agent_id(kwargs["agent_id"])}
             return args, kwargs
-        names = list(sig.parameters)
         if "agent_id" in names:
             idx = names.index("agent_id")
             if idx < len(args):
@@ -442,6 +561,7 @@ def agent_id_headers(
     turn_source: str | None = None,
     errand_peer: str | None = None,
     errand_channel: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -456,7 +576,7 @@ def agent_id_headers(
     """
     # Positional bearer record; trailing unknowns are dropped, an unknown in
     # the middle stays as an empty field so later positions keep their meaning.
-    fields = [agent_id, turn_source or "", errand_peer or "", errand_channel or ""]
+    fields = [agent_id, turn_source or "", errand_peer or "", errand_channel or "", user_id or ""]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
     bearer_value = BEARER_AGENT_PREFIX + BEARER_FIELD_SEP.join(fields)
@@ -469,6 +589,7 @@ def agent_id_headers(
         (TURN_SOURCE_HEADER, turn_source),
         (ERRAND_PEER_HEADER, errand_peer),
         (ERRAND_CHANNEL_HEADER, errand_channel),
+        (USER_ID_HEADER, user_id),
     ):
         if value:
             headers[header] = str(value)
@@ -525,14 +646,19 @@ __all__ = [
     "TURN_SOURCE_HEADER",
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
+    "USER_ID_HEADER",
     "caller_turn_source",
     "caller_errand_scope",
     "BEARER_AGENT_PREFIX",
     "PLACEHOLDER_AGENT_IDS",
+    "PLACEHOLDER_USER_IDS",
     "agent_id_headers",
     "caller_agent_id_from_request",
+    "caller_user_id_from_request",
     "install_caller_identity",
     "is_placeholder_agent_id",
+    "is_placeholder_user_id",
     "placeholder_agent_id_error",
     "resolve_caller_agent_id",
+    "resolve_caller_user_id",
 ]

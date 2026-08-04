@@ -419,7 +419,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
     count — and each present field must land in its own slot."""
@@ -427,16 +427,18 @@ def test_every_field_count_parses(count):
         BEARER_FIELDS,
         caller_errand_scope,
         caller_turn_source,
+        caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 4, "arity changed — update _parse_bearer + this test"
-    values = [REAL, "message_bus", "agent_peer1", "ch_errand1"][:count]
+    assert len(BEARER_FIELDS) == 5, "arity changed — update _parse_bearer + this test"
+    values = [REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1"][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
         assert caller_turn_source() == (values[1] if count >= 2 else None)
         peer, channel = caller_errand_scope()
         assert peer == (values[2] if count >= 3 else None)
         assert channel == (values[3] if count >= 4 else None)
+        assert caller_user_id_from_request() == (values[4] if count >= 5 else None)
 
 
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
