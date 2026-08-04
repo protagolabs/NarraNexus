@@ -150,8 +150,23 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 - 安装点：`XYZBaseModule.build_instrumented_mcp_server()` ← ModuleRunner 部署时调用。
   **模块无需任何改动**，声明了 `agent_id` 的工具自动获得（当前 93/93 覆盖）
 - 通道是 header 而非 URL query：实测 query 在 SSE 传输上会丢失（工具调用 POST 到
-  `/messages/?session_id=…`）。codex 适配器不能带任意 header，所以身份也借
-  `Authorization: Bearer nx-agent:<id>` 发一份
+  `/messages/?session_id=…`）。codex 适配器不能带任意 header，所以每个平台事实
+  都借 `Authorization` 再发一份 —— bearer 是一条**位置记录**：
+
+  ```
+  Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>
+  ```
+
+  字段数与顺序由 `_mcp_identity.BEARER_FIELDS` 钉死：位置固定、尾部空字段不
+  上线（读者要容忍 1~N 段）、中间空字段合法表示未知、新事实只能**追加在末尾**、
+  解析只走 `_parse_bearer`（手写 `split(sep, 1)` 会把后一段并进前一段）。
+  每个字段同时有一个 `X-NarraNexus-*` 显式 header 拼写。
+- 每轮注入的事实不止身份：`turn_source`（哪种轮次在调用）+ **差事作用域**
+  （本轮的差事跟哪个 peer、在哪个 channel）。作用域存在的原因是「一轮」并不
+  同质 —— bus 未读跨 channel 注入、提示词要求回答，所以同一轮既可能追问差事
+  对手、也可能回答别的同伴；「这一条算不算差事提问」只能由知道目标的 send
+  现场判断（`_message_bus_mcp_tools._send_turn_source`）。整轮盖章的复发详见
+  `mirror/…/message_bus_trigger.py.md`。
 - 仍然没有 thread-local；`ContextVar` 只用于读取当次 MCP 请求
 
 > 历史：在此之前 `agent_id` **完全**由模型自填，且无任何注入。一个模型填了

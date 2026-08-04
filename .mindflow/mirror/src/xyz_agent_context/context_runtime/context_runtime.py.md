@@ -4,16 +4,23 @@ last_verified: 2026-08-04
 stub: false
 ---
 
-## 2026-08-03 — bus 差事延续轮次的 turn-source 章升级
+## 2026-08-03 — 注入本轮的**差事作用域**(而不是升级 turn_source)
 
-header 里的 turn_source 从「照抄 working_source」升级:MESSAGE_BUS 轮次且
-`ctx_data.extra_data["bus_turn_is_errand_continuation"]` 为真(来源:
-[[message_bus_trigger]] 分类器判定,经 trigger_extra_data 流入)时,盖
-[[hook_schema]] 的 `BUS_ERRAND_TURN_SOURCE` 而非 "message_bus"。原因:章若
-只记轮次种类,差事主从 bus 轮次发出的**澄清追问**和同伴的**回答**盖同章,
-收件方分类器把追问路由到 Owner Relay,P1 复发(2026-08-03 review)。升级在
-循环外算一次,同轮所有模块 server 得到同一个章(bearer 尾巴 + 显式 header
-都带,codex 只转发 bearer)。
+header 除 turn_source 外再带 `bus_errand_peer` / `bus_errand_channel`
+(来源:[[message_bus_trigger]] 分类器判定,经 trigger_extra_data →
+`ctx_data.extra_data`);turn_source **保持** working_source 原值。
+
+曾经的错做法(同一 PR 内自我推翻):MESSAGE_BUS + 差事延续时把 turn_source
+整轮升级成 `BUS_ERRAND_TURN_SOURCE`。整轮盖章会波及**同一轮里发给其他同伴的
+回答**——bus 未读是跨 channel 注入、且模块提示词要求回答的,于是那个同伴把
+回答读成提问、不再向自己 owner 回报,P1 换个座位复发(2026-08-03 review
+round 4)。所以这里只注入**事实**(我这轮的差事跟谁、在哪个 channel),把
+「这一条算不算差事提问」交给知道目标的 send 现场判断(见
+[[_message_bus_mcp_tools]] 的 `_send_turn_source`)。
+
+作用域在模块循环外算一次,同轮所有 server 拿同一份;显式
+`X-NarraNexus-Errand-*` header 与 bearer 位置字段双通道(codex 只转发
+bearer——字段数约定见 [[_mcp_identity]])。
 
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 

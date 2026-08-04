@@ -17,7 +17,6 @@ from xyz_agent_context.schema import (
     ModuleInstructions,
     ContextRuntimeOutput,
     WorkingSource,
-    BUS_ERRAND_TURN_SOURCE,
 )
 
 # Module
@@ -1064,21 +1063,22 @@ class ContextRuntime:
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
         mcp_servers = {}
         disallowed_tools: list[str] = []
-        # Turn source rides the MCP identity headers so bus sends record WHAT
-        # KIND of turn produced them. A MESSAGE_BUS turn that is continuing
-        # the agent's OWN errand (the trigger classified the incoming batch
-        # as a reply to an errand this agent started) is upgraded to the
-        # errand stamp: a follow-up question sent from such a turn must NOT
-        # look like an answer to the recipient's classifier, or Owner Relay
-        # fires on the wrong side and P1 recurs (2026-08-03 review).
+        # Facts about this turn that module MCP tools cannot otherwise know,
+        # injected once and shared by every server below: WHAT KIND of turn is
+        # calling, and — when MessageBusTrigger classified this turn as
+        # continuing the agent's own errand — WHICH peer/channel that errand
+        # is with. The tools decide what to do with them; notably a bus send
+        # stamps itself as an errand question only when it is aimed AT that
+        # scope, because the same turn also answers unrelated peers whose
+        # unread arrived with it (2026-08-03 review; see
+        # message_bus_module/_message_bus_mcp_tools._send_turn_source).
         turn_source = str(
             getattr(ctx_data.working_source, "value", None)
             or ctx_data.working_source or ""
         )
-        if turn_source == WorkingSource.MESSAGE_BUS.value and (
-            ctx_data.extra_data or {}
-        ).get("bus_turn_is_errand_continuation"):
-            turn_source = BUS_ERRAND_TURN_SOURCE
+        turn_extra = ctx_data.extra_data or {}
+        errand_peer = str(turn_extra.get("bus_errand_peer") or "")
+        errand_channel = str(turn_extra.get("bus_errand_channel") or "")
         # Delivery declaration (NexusPower reply contract): each module
         # states which of its tools DELIVER content to a human. Collected
         # per module, then sorted by the TOTAL (priority, module_class)
@@ -1109,7 +1109,10 @@ class ContextRuntime:
                     mcp_servers[mcp_config.server_name] = {
                         "url": mcp_config.server_url,
                         "headers": agent_id_headers(
-                            self.agent_id, turn_source=turn_source
+                            self.agent_id,
+                            turn_source=turn_source,
+                            errand_peer=errand_peer,
+                            errand_channel=errand_channel,
                         ),
                     }
                     collected_count += 1

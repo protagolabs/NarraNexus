@@ -36,6 +36,8 @@ from .base import XYZBaseModule, mcp_host
 from ._mcp_identity import (
     AGENT_ID_HEADER,
     TURN_SOURCE_HEADER,
+    ERRAND_PEER_HEADER,
+    ERRAND_CHANNEL_HEADER,
     agent_id_headers,
 )
 
@@ -128,6 +130,8 @@ from ._module_impl import (
 __all__ = [
     "AGENT_ID_HEADER",
     "TURN_SOURCE_HEADER",
+    "ERRAND_PEER_HEADER",
+    "ERRAND_CHANNEL_HEADER",
     "agent_id_headers",
     # ===== Base class =====
     "XYZBaseModule",

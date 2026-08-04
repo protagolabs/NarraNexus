@@ -67,7 +67,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 from loguru import logger
 
@@ -86,16 +86,41 @@ BEARER_AGENT_PREFIX = "nx-agent:"
 # message (see message_bus_trigger's directive selection).
 TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
 
-# The turn source ALSO rides the borrowed bearer, appended after the agent id:
-#     nx-agent:<agent_id>~<turn_source>
-# Shipping it only on the explicit header was a real hole (PR #229 review):
-# codex forwards nothing but the bearer, so a codex-side asker always wrote
-# NULL, and the recipient fell back to the "have I spoken here" heuristic —
-# the one that flips a FOLLOW-UP question back to Owner Relay and reproduces
-# the P1. Iron rule #15 forbids treating a first-class adapter as a corner.
-# "~" because it is token68-safe (RFC 7235) and appears in neither our agent
-# ids (``agent_`` + hex) nor any turn-source name.
+# WHO/WHERE this turn's own errand is aimed at, when it has one: the peer that
+# answered our errand, and the channel that exchange lives in. A bus turn is
+# not homogeneous — the same turn can continue our errand AND answer an
+# unrelated peer whose question the platform injected (bus unread is collected
+# across ALL channels), so "what kind of turn is this" cannot decide the stamp
+# alone. The scope lets each SEND compare its own target and stamp itself; see
+# message_bus_module/_message_bus_mcp_tools.py::_send_turn_source.
+ERRAND_PEER_HEADER = "X-NarraNexus-Errand-Peer"
+ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
+
+# Everything above ALSO rides the borrowed bearer, because codex forwards
+# nothing else. Shipping a fact only on an explicit header was a real hole
+# (PR #229 review): a codex-side asker always wrote NULL turn source, and the
+# recipient fell back to the "have I spoken here" heuristic — the one that
+# flips a FOLLOW-UP question back to Owner Relay and reproduces the P1. Iron
+# rule #15 forbids treating a first-class adapter as a corner.
+#
+#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>
+#
+# Contract — pin it, do not improvise:
+#   * fields are POSITIONAL and their order is frozen; ``BEARER_FIELDS`` names
+#     them in order and is the single source of truth for the count;
+#   * trailing empty fields are omitted on the wire, so a reader must tolerate
+#     ANY count from 1 to len(BEARER_FIELDS), and an empty middle field is a
+#     legal "unknown";
+#   * a new fact is APPENDED (never inserted mid-record) and added to
+#     ``BEARER_FIELDS``;
+#   * parse only via ``_parse_bearer``. A hand-rolled ``split(SEP, 1)`` reads
+#     "<turn_source>~<next_field>" as the turn source — that is exactly how
+#     adding a third field would have silently poisoned the second, and it is
+#     why the two readers here no longer each roll their own;
+#   * every field stays token68-safe (RFC 7235): "~" qualifies, and it appears
+#     in none of our ids (``agent_`` / ``ch_`` + hex), turn sources or stamps.
 BEARER_FIELD_SEP = "~"
+BEARER_FIELDS = ("agent_id", "turn_source", "errand_peer", "errand_channel")
 
 # Values a model supplies when it is guessing instead of reading its prompt.
 # These are NOT agent ids and must never reach a DB lookup: treat them as
@@ -130,40 +155,83 @@ def is_placeholder_agent_id(value: Any) -> bool:
     return v.lower() in PLACEHOLDER_AGENT_IDS
 
 
-def caller_agent_id_from_request() -> Optional[str]:
-    """The caller's agent_id as injected by the platform, or None.
+class BearerIdentity(NamedTuple):
+    """The decoded borrowed bearer. Every field is None when not transmitted."""
 
-    Reads the ambient MCP request (the low-level server stores it in a
-    ContextVar, which is what FastMCP's own ``get_context()`` uses). Returns
-    None for every failure mode — no request in scope (a direct unit-test
-    call), a transport with no HTTP request, no header — because identity
-    injection must never be the reason a tool stops working.
+    agent_id: Optional[str] = None
+    turn_source: Optional[str] = None
+    errand_peer: Optional[str] = None
+    errand_channel: Optional[str] = None
+
+
+def _parse_bearer(auth: str) -> BearerIdentity:
+    """Decode ``Authorization: Bearer nx-agent:…`` into its named fields.
+
+    THE only bearer parser (see the ``BEARER_FIELDS`` contract above). Anchored
+    on the full marker rather than searching for a substring: a real token that
+    merely CONTAINS "nx-agent:" must never be sliced up and read as identity.
+    A field count above ``len(BEARER_FIELDS)`` cannot bleed into the last named
+    field — extra segments are dropped, because guessing which future fact they
+    were is worse than reporting the ones we understand.
+    """
+    marker = f"Bearer {BEARER_AGENT_PREFIX}"
+    if not auth.startswith(marker):
+        return BearerIdentity()
+    # Unbounded split, then truncate: a bounded split would leave any extra
+    # segment glued to the LAST named field ("ch_1~future_fact" read as a
+    # channel id) — a newer sender must degrade to "unknown", never corrupt.
+    raw = auth[len(marker):].split(BEARER_FIELD_SEP)
+    values = [(v or "").strip() or None for v in raw[: len(BEARER_FIELDS)]]
+    values += [None] * (len(BEARER_FIELDS) - len(values))
+    return BearerIdentity(*values)
+
+
+def _ambient_headers():
+    """The current MCP request's headers, or None.
+
+    The low-level server stores the request in a ContextVar (the same one
+    FastMCP's ``get_context()`` uses). None covers every failure mode — no
+    request in scope (a direct unit-test call), a transport with no HTTP
+    request, no headers — because identity injection must never be the reason
+    a tool stops working.
     """
     try:
         from mcp.server.lowlevel.server import request_ctx
 
         request = getattr(request_ctx.get(), "request", None)
-        headers = getattr(request, "headers", None)
-        if not headers:
-            return None
+        return getattr(request, "headers", None) or None
+    except LookupError:
+        return None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read request headers: {e}")
+        return None
 
-        injected = headers.get(AGENT_ID_HEADER.lower()) or headers.get(AGENT_ID_HEADER)
+
+def _explicit_header(headers, name: str) -> Optional[str]:
+    """One platform header, tolerating either casing. Empty → None."""
+    value = (headers.get(name.lower()) or headers.get(name) or "").strip()
+    return value or None
+
+
+def _bearer(headers) -> BearerIdentity:
+    auth = headers.get("authorization") or headers.get("Authorization") or ""
+    return _parse_bearer(auth)
+
+
+def caller_agent_id_from_request() -> Optional[str]:
+    """The caller's agent_id as injected by the platform, or None."""
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, AGENT_ID_HEADER)
         if injected and not is_placeholder_agent_id(injected):
-            return injected.strip()
+            return injected
 
         # Codex path: identity rides a borrowed bearer.
-        auth = headers.get("authorization") or headers.get("Authorization") or ""
-        # Anchored, not a substring search: a real token that merely CONTAINS
-        # "nx-agent:" must never be sliced up and read as an identity.
-        marker = f"Bearer {BEARER_AGENT_PREFIX}"
-        if auth.startswith(marker):
-            # Value is "<agent_id>" or "<agent_id>~<turn_source>".
-            candidate = auth[len(marker):].split(BEARER_FIELD_SEP, 1)[0].strip()
-            if candidate and not is_placeholder_agent_id(candidate):
-                return candidate
-    except LookupError:
-        # No request in scope — a tool called directly (tests, in-process).
-        return None
+        candidate = _bearer(headers).agent_id
+        if candidate and not is_placeholder_agent_id(candidate):
+            return candidate
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller identity: {e}")
     return None
@@ -370,73 +438,95 @@ def placeholder_agent_id_error(supplied: Any, tool_hint: str = "") -> str:
 
 
 def agent_id_headers(
-    agent_id: str, turn_source: str | None = None
+    agent_id: str,
+    turn_source: str | None = None,
+    errand_peer: str | None = None,
+    errand_channel: str | None = None,
 ) -> dict[str, str]:
-    """Headers that tell a module MCP server who is calling, and from what.
+    """Headers that tell a module MCP server who is calling, and about what.
 
     Both identity spellings are emitted on purpose — see the module
     docstring: the claude adapter forwards the explicit header, the codex
     adapter can only forward a bearer.
 
-    ``turn_source`` is emitted on BOTH channels — the explicit header and,
-    appended to the bearer, so codex (which forwards only the bearer) still
-    receives it. Readers must still handle absence: a caller may simply not
-    know its own source.
+    Every fact is emitted on BOTH channels — an explicit ``X-NarraNexus-*``
+    header AND a positional bearer field — so codex (bearer only) is never a
+    degraded consumer. Readers must still handle absence: a caller may simply
+    not know its own turn source, and most turns have no errand scope at all.
     """
-    bearer_value = f"{BEARER_AGENT_PREFIX}{agent_id}"
-    if turn_source:
-        bearer_value += f"{BEARER_FIELD_SEP}{turn_source}"
+    # Positional bearer record; trailing unknowns are dropped, an unknown in
+    # the middle stays as an empty field so later positions keep their meaning.
+    fields = [agent_id, turn_source or "", errand_peer or "", errand_channel or ""]
+    while len(fields) > 1 and not fields[-1]:
+        fields.pop()
+    bearer_value = BEARER_AGENT_PREFIX + BEARER_FIELD_SEP.join(fields)
+
     headers = {
         AGENT_ID_HEADER: agent_id,
         "Authorization": f"Bearer {bearer_value}",
     }
-    if turn_source:
-        headers[TURN_SOURCE_HEADER] = str(turn_source)
+    for header, value in (
+        (TURN_SOURCE_HEADER, turn_source),
+        (ERRAND_PEER_HEADER, errand_peer),
+        (ERRAND_CHANNEL_HEADER, errand_channel),
+    ):
+        if value:
+            headers[header] = str(value)
     return headers
 
 
 def caller_turn_source() -> Optional[str]:
     """The KIND of turn calling this tool ("chat" / "message_bus" / …), or None.
 
-    None means "we could not tell" — no request in scope, or an adapter that
-    drops custom headers (codex). Callers must degrade, never guess.
+    None means "we could not tell" — no request in scope, or a caller that did
+    not know its own source. Callers must degrade, never guess.
     """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
     try:
-        from mcp.server.lowlevel.server import request_ctx
-
-        request = getattr(request_ctx.get(), "request", None)
-        headers = getattr(request, "headers", None)
-        if not headers:
-            return None
-        value = (
-            headers.get(TURN_SOURCE_HEADER.lower())
-            or headers.get(TURN_SOURCE_HEADER)
-            or ""
-        ).strip()
-        if value:
-            return value
-
-        # Codex path: the bearer is the only header it forwards, so the turn
-        # source rides along behind the agent id.
-        auth = headers.get("authorization") or headers.get("Authorization") or ""
-        marker = f"Bearer {BEARER_AGENT_PREFIX}"
-        if auth.startswith(marker):
-            parts = auth[len(marker):].split(BEARER_FIELD_SEP, 1)
-            if len(parts) == 2 and parts[1].strip():
-                return parts[1].strip()
-        return None
-    except LookupError:
-        return None
+        return (
+            _explicit_header(headers, TURN_SOURCE_HEADER)
+            or _bearer(headers).turn_source
+        )
     except Exception as e:  # noqa: BLE001 — never flow control
         logger.debug(f"[mcp-identity] could not read turn source: {e}")
         return None
 
 
+def caller_errand_scope() -> tuple[Optional[str], Optional[str]]:
+    """``(errand_peer, errand_channel)`` for this turn — (None, None) if none.
+
+    A turn has an errand scope only when the platform knows this turn is
+    CONTINUING the agent's own errand (MessageBusTrigger's classifier verdict).
+    It exists so a single send can ask "am I aimed at that errand, or at some
+    other peer whose question merely arrived in the same turn?" — the whole-turn
+    answer is not good enough (see ERRAND_PEER_HEADER).
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return (None, None)
+    try:
+        bearer = _bearer(headers)
+        return (
+            _explicit_header(headers, ERRAND_PEER_HEADER) or bearer.errand_peer,
+            _explicit_header(headers, ERRAND_CHANNEL_HEADER) or bearer.errand_channel,
+        )
+    except Exception as e:  # noqa: BLE001 — never flow control
+        logger.debug(f"[mcp-identity] could not read errand scope: {e}")
+        return (None, None)
+
+
 __all__ = [
     "AGENT_ID_HEADER",
     "BEARER_FIELD_SEP",
+    "BEARER_FIELDS",
+    "BearerIdentity",
     "TURN_SOURCE_HEADER",
+    "ERRAND_PEER_HEADER",
+    "ERRAND_CHANNEL_HEADER",
     "caller_turn_source",
+    "caller_errand_scope",
     "BEARER_AGENT_PREFIX",
     "PLACEHOLDER_AGENT_IDS",
     "agent_id_headers",

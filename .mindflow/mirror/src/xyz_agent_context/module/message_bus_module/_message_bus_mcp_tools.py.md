@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-04
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — `_send_turn_source`:章按「这一条发给谁」定,不按整轮定
+
+两个发送工具不再直接写 `caller_turn_source()`,而是走
+`_send_turn_source(to_agent=… / channel_id=…)`:先取轮次种类,只有当**本条
+send 的目标**等于本轮差事作用域(`caller_errand_scope()`,见
+[[_mcp_identity]])时才升级成 [[hook_schema]] 的 `BUS_ERRAND_TURN_SOURCE`。
+
+**为什么不能整轮盖章**(同 PR 内自我推翻的做法):
+`MessageBusModule.hook_data_gathering` 每轮把**跨所有 channel** 的未读
+(`bus.get_unread`)注进 context,模块提示词又**要求**回答它们(「A question
+is never ping-pong」)。所以差事延续轮次里顺手回答别的同伴 C 是平台自己引导
+的常规路径;整轮盖章会把那条**回答**标成提问,C 于是不再向自己 owner 回报
+—— P1 换个座位复发(2026-08-03 review round 4)。
+
+已记录的残余:发进「恰好是差事 channel 的群 channel」会把每个成员那份都盖成
+提问(bus 差事跑在自动建的 DM 上,要手工建群当差事 channel 才踩到)。
 
 ## 2026-08-04 — 两个发送工具都记录本轮种类
 

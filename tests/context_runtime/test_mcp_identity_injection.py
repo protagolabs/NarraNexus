@@ -109,50 +109,73 @@ async def test_injected_identity_is_this_agent_not_a_constant():
     assert seen == {AGENT: AGENT, "agent_25dec880a426": "agent_25dec880a426"}
 
 
-@pytest.mark.asyncio
-async def test_errand_continuation_bus_turn_upgrades_the_turn_source_stamp():
-    """A MESSAGE_BUS turn that continues the agent's OWN errand must stamp
-    its bus sends BUS_ERRAND_TURN_SOURCE, not the plain "message_bus" — the
-    plain stamp makes a clarifying follow-up look like an ANSWER to the
-    recipient's classifier and Owner Relay fires on the wrong side (P1
-    recurrence, 2026-08-03 review). The flag arrives from MessageBusTrigger
-    via trigger_extra_data → ctx_data.extra_data; a plain bus turn (answering
-    a peer) must keep "message_bus".
-    """
+async def _bus_turn_headers(extra_data: dict) -> dict:
     from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.module._mcp_identity import BEARER_FIELD_SEP
-    from xyz_agent_context.schema import (
-        BUS_ERRAND_TURN_SOURCE,
-        ContextData,
-        WorkingSource,
+    from xyz_agent_context.schema import ContextData, WorkingSource
+
+    runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
+                             database_client=object())
+    ctx = ContextData(agent_id=AGENT, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS
+    ctx.extra_data = extra_data
+    _m, servers, *_r = await runtime.build_input_for_framework(
+        messages=[],
+        system_prompt="sys",
+        active_instances=[
+            _instance("MessageBusModule",
+                      _FakeModule("message_bus_module", "http://x/sse"))
+        ],
+        ctx_data=ctx,
+    )
+    return servers["message_bus_module"]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_errand_continuation_bus_turn_injects_its_errand_scope():
+    """A MESSAGE_BUS turn that continues the agent's OWN errand must tell the
+    tools WHICH peer/channel that errand is with, so a send aimed at it can
+    stamp itself as a question (P1 path A). The turn source itself stays
+    "message_bus": stamping the whole turn also mislabels the answers this
+    same turn gives to unrelated peers, which reproduced the P1 one seat over
+    (2026-08-03 review).
+    """
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_FIELD_SEP,
+        ERRAND_CHANNEL_HEADER,
+        ERRAND_PEER_HEADER,
+        TURN_SOURCE_HEADER,
     )
 
-    async def _headers(extra_data):
-        runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
-                                 database_client=object())
-        ctx = ContextData(agent_id=AGENT, input_content="hi")
-        ctx.working_source = WorkingSource.MESSAGE_BUS
-        ctx.extra_data = extra_data
-        _m, servers, *_r = await runtime.build_input_for_framework(
-            messages=[],
-            system_prompt="sys",
-            active_instances=[
-                _instance("MessageBusModule",
-                          _FakeModule("message_bus_module", "http://x/sse"))
-            ],
-            ctx_data=ctx,
-        )
-        return servers["message_bus_module"]["headers"]
+    headers = await _bus_turn_headers({
+        "bus_errand_peer": "agent_yushu",
+        "bus_errand_channel": "ch_dm_errand",
+    })
 
-    asking = await _headers({"bus_turn_is_errand_continuation": True})
-    answering = await _headers({"bus_turn_is_errand_continuation": False})
+    assert headers[TURN_SOURCE_HEADER] == "message_bus"
+    assert headers[ERRAND_PEER_HEADER] == "agent_yushu"
+    assert headers[ERRAND_CHANNEL_HEADER] == "ch_dm_errand"
+    # Codex forwards nothing but the bearer, so the scope must ride it too.
+    assert headers["Authorization"] == (
+        f"Bearer {BEARER_AGENT_PREFIX}{AGENT}"
+        f"{BEARER_FIELD_SEP}message_bus"
+        f"{BEARER_FIELD_SEP}agent_yushu"
+        f"{BEARER_FIELD_SEP}ch_dm_errand"
+    )
 
-    # Both channels must carry the upgraded stamp — codex only forwards the
-    # bearer, so a header-only upgrade would leave codex askers unfixed.
-    expect_ask = f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}{BUS_ERRAND_TURN_SOURCE}"
-    assert asking["Authorization"] == expect_ask
-    assert asking["X-NarraNexus-Turn-Source"] == BUS_ERRAND_TURN_SOURCE
 
-    expect_answer = f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}message_bus"
-    assert answering["Authorization"] == expect_answer
-    assert answering["X-NarraNexus-Turn-Source"] == "message_bus"
+@pytest.mark.asyncio
+async def test_a_plain_bus_turn_carries_no_errand_scope():
+    """Answering a peer is not an errand of ours — nothing to inherit."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_FIELD_SEP,
+        ERRAND_CHANNEL_HEADER,
+        ERRAND_PEER_HEADER,
+    )
+
+    headers = await _bus_turn_headers({"bus_channel_id": "ch_dm_1"})
+
+    assert ERRAND_PEER_HEADER not in headers
+    assert ERRAND_CHANNEL_HEADER not in headers
+    assert headers["Authorization"] == (
+        f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}message_bus"
+    )

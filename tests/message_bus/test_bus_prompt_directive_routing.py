@@ -44,26 +44,37 @@ def _msg(message_id: str, from_agent: str, content: str = "你在干嘛？") -> 
 
 
 class _FakeDB:
-    """Returns whatever prior-message rows the test wants."""
+    """Answers the two channel queries the classifier can make.
+
+    They are different questions and must not share a canned answer: the
+    legacy fallback asks "which messages of mine are in this channel"
+    (message_id rows), while the errand check is an existence probe pushed
+    into SQL ("SELECT 1 … LIMIT 1").
+    """
 
     placeholder = "?"
 
-    def __init__(self, rows):
+    def __init__(self, rows, errand_rows):
         self._rows = rows
+        self._errand_rows = errand_rows
         self.queries: list = []
 
     async def execute(self, sql, params=None):
         self.queries.append((sql, params))
-        return self._rows
+        return self._errand_rows if "SELECT 1" in sql else self._rows
 
 
 class _FakeBus:
-    def __init__(self, rows):
-        self._db = _FakeDB(rows)
+    def __init__(self, rows, errand_rows):
+        self._db = _FakeDB(rows, errand_rows)
 
 
-def _trigger(rows):
-    return MessageBusTrigger(bus=_FakeBus(rows))
+FOUND = [{"1": 1}]  # what the pushed-down existence probe returns
+NOT_FOUND: list = []
+
+
+def _trigger(rows=(), *, errand=NOT_FOUND):
+    return MessageBusTrigger(bus=_FakeBus(list(rows), errand))
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +158,7 @@ async def test_owner_facing_send_means_we_are_being_asked():
 async def test_bus_send_means_it_is_the_reply_to_our_errand():
     """We asked from a chat turn earlier (our errand row is in the channel),
     the peer answers from a bus turn → Owner Relay."""
-    t = _trigger(rows=[{"message_id": "my_q", "sender_turn_source": "chat"}])
+    t = _trigger(errand=FOUND)
     assert await t._incoming_is_reply_to_my_errand(
         "agent_xiaoque", "ch_dm_1", [_msg_src("m2", "agent_yushu", "message_bus")]
     ) is True
@@ -157,7 +168,7 @@ async def test_bus_send_means_it_is_the_reply_to_our_errand():
 async def test_follow_up_question_still_reads_as_being_asked():
     """The regression the first heuristic had: after the recipient answers
     once, a follow-up must NOT flip it to Owner Relay."""
-    t = _trigger(rows=[{"message_id": "our_earlier_reply"}])
+    t = _trigger(rows=[{"message_id": "our_earlier_reply"}], errand=FOUND)
     assert await t._incoming_is_reply_to_my_errand(
         "agent_yushu", "ch_dm_1", [_msg_src("m3", "agent_xiaoque", "chat")]
     ) is False
@@ -170,9 +181,7 @@ async def test_reverse_direction_in_a_reused_dm_channel():
     B later runs toward A must still classify correctly for BOTH sides —
     otherwise that direction is permanently broken.
     """
-    t = _trigger(
-        rows=[{"message_id": "bs_errand_q", "sender_turn_source": "chat"}]
-    )
+    t = _trigger(errand=FOUND)
     # B asks A on B's own errand → A is being asked, even though A opened the channel.
     assert await t._incoming_is_reply_to_my_errand(
         "agent_a", "ch_dm_1", [_msg_src("q", "agent_b", "chat")]
@@ -209,7 +218,7 @@ async def test_errand_continuation_follow_up_reads_as_being_asked():
     Relay (rows chosen exactly so the stamp, not the fallback, decides)."""
     from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
 
-    t = _trigger(rows=[{"message_id": "old", "sender_turn_source": "chat"}])
+    t = _trigger(errand=FOUND)
     assert await t._incoming_is_reply_to_my_errand(
         "agent_yushu",
         "ch_dm_1",
@@ -223,7 +232,7 @@ async def test_bus_stamped_question_to_agent_that_never_asked_is_a_question():
     third agent C. That send is stamped plain "message_bus", but C never
     asked anything in this channel — it cannot be owed an answer, so it must
     answer the peer, not relay to its owner."""
-    t = _trigger(rows=[])  # C never spoke here
+    t = _trigger(errand=NOT_FOUND)  # C never asked anything here
     assert await t._incoming_is_reply_to_my_errand(
         "agent_c", "ch_dm_2", [_msg_src("q1", "agent_yushu", "message_bus")]
     ) is False
@@ -233,12 +242,26 @@ async def test_bus_stamped_question_to_agent_that_never_asked_is_a_question():
 async def test_bus_stamped_question_to_agent_that_only_ever_answered():
     """Same as above, but the recipient HAS spoken here — only ever from
     peer-answering turns. Answering is not asking; still a question to us."""
-    t = _trigger(
-        rows=[{"message_id": "my_a", "sender_turn_source": "message_bus"}]
-    )
+    # Only bus-stamped sends of ours here, which the pushed-down predicate
+    # excludes → the probe finds nothing.
+    t = _trigger(errand=NOT_FOUND)
     assert await t._incoming_is_reply_to_my_errand(
         "agent_b", "ch_dm_1", [_msg_src("q2", "agent_a", "message_bus")]
     ) is False
+
+
+@pytest.mark.asyncio
+async def test_the_errand_check_is_an_indexed_existence_probe():
+    """It runs on the most common bus path and DM channels are reused forever,
+    so the predicate must live in SQL, not in a growing client-side scan."""
+    t = _trigger(errand=FOUND)
+    await t._incoming_is_reply_to_my_errand(
+        "agent_xiaoque", "ch_dm_1", [_msg_src("m", "agent_yushu", "message_bus")]
+    )
+    sql, params = t._bus._db.queries[-1]
+    assert "SELECT 1" in sql and "LIMIT 1" in sql
+    assert "sender_turn_source IS NULL OR sender_turn_source <>" in sql
+    assert params == ("ch_dm_1", "agent_xiaoque", "message_bus")
 
 
 @pytest.mark.asyncio
@@ -246,7 +269,8 @@ async def test_legacy_null_stamped_own_row_keeps_owner_relay():
     """Our own send predates the stamp (NULL): the pre-stamp benefit of the
     doubt survives — an incoming bus-stamped batch still reads as the reply
     to our (unprovable but plausible) errand."""
-    t = _trigger(rows=[{"message_id": "old_q", "sender_turn_source": None}])
+    # Legacy NULL matches the probe's "IS NULL" arm → an errand row.
+    t = _trigger(errand=FOUND)
     assert await t._incoming_is_reply_to_my_errand(
         "agent_xiaoque", "ch_dm_1", [_msg_src("a1", "agent_yushu", "message_bus")]
     ) is True
@@ -293,16 +317,20 @@ async def test_db_failure_falls_back_to_owner_relay():
 
 
 # ---------------------------------------------------------------------------
-# The classifier's verdict must reach ContextRuntime (stamp upgrade seam)
+# The classifier's verdict must reach the tools as this turn's ERRAND SCOPE
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_invoke_runtime_forwards_the_errand_flag(monkeypatch):
-    """The classifier's verdict is useless if it dies inside the trigger:
-    ContextRuntime decides the turn's bus-send stamp from
-    ctx_data.extra_data["bus_turn_is_errand_continuation"], and
-    trigger_extra_data is the only pipe that reaches it."""
+async def test_invoke_runtime_forwards_the_errand_scope(monkeypatch):
+    """The verdict is useless if it dies inside the trigger: a bus send decides
+    its own stamp by comparing its target against
+    extra_data["bus_errand_peer"/"bus_errand_channel"], and
+    trigger_extra_data is the only pipe that reaches ContextRuntime.
+
+    A whole-turn boolean is deliberately NOT what travels: the same turn also
+    answers unrelated peers, and marking their answers as questions is how the
+    P1 reappeared one seat over (2026-08-03 review)."""
     from types import SimpleNamespace
 
     from xyz_agent_context.agent_runtime import client as rt_client
@@ -318,19 +346,24 @@ async def test_invoke_runtime_forwards_the_errand_flag(monkeypatch):
 
     monkeypatch.setattr(rt_client, "get_agent_runtime_client", lambda: _FakeClient())
 
-    t = _trigger([])
-    for flag in (True, False):
-        captured.clear()
-        await t._invoke_runtime(
-            agent_id="agent_b",
-            sender_agent_id="agent_a",
-            prompt="p",
-            channel_id="ch_dm_1",
-            errand_continuation=flag,
-        )
-        assert captured["trigger_extra_data"][
-            "bus_turn_is_errand_continuation"
-        ] is flag
+    t = _trigger()
+    await t._invoke_runtime(
+        agent_id="agent_b", sender_agent_id="agent_a", prompt="p",
+        channel_id="ch_dm_1", errand_continuation=True,
+    )
+    extra = captured["trigger_extra_data"]
+    assert extra["bus_errand_peer"] == "agent_a"
+    assert extra["bus_errand_channel"] == "ch_dm_1"
+
+    captured.clear()
+    await t._invoke_runtime(
+        agent_id="agent_b", sender_agent_id="agent_a", prompt="p",
+        channel_id="ch_dm_1", errand_continuation=False,
+    )
+    extra = captured["trigger_extra_data"]
+    # Empty, not absent: a turn with no errand must not inherit one.
+    assert extra["bus_errand_peer"] == ""
+    assert extra["bus_errand_channel"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -403,5 +436,112 @@ async def test_sender_turn_source_round_trips_through_the_db():
         assert await trigger._incoming_is_reply_to_my_errand(
             "agent_b", channel_id, follow_up
         ) is False
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_one_errand_turn_serving_two_peers_routes_both_correctly():
+    """The 2026-08-03 review's three-step table, walked end to end.
+
+    Every seam is the real one — the headers ContextRuntime would inject, the
+    stamp the MCP tool computes from them, the column LocalMessageBus writes,
+    and the classifier the trigger runs — because the regression lived in the
+    JOIN between them: a whole-turn stamp made step 3 (A answering an
+    unrelated peer C from inside its errand-continuation turn) look like a
+    question, and C then stopped relaying to its own owner.
+
+        1. C asks A on its owner's behalf (chat turn)   → A answers the peer
+        2. B answers A's errand (bus turn)              → A relays to owner
+        3a. A follows up with B, same turn               → B answers the peer
+        3b. A answers C, same turn                       → C relays to owner
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.module._mcp_identity import agent_id_headers
+    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+        _send_turn_source,
+    )
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+
+    from tests.message_bus.test_bus_send_stamp import injected
+
+    backend = SQLiteBackend(":memory:")
+    await backend.initialize()
+    await auto_migrate(backend)
+    db = await AsyncDatabaseClient.create_with_backend(backend)
+    try:
+        for aid in ("agent_a", "agent_b", "agent_c"):
+            await db.insert("agents", {
+                "agent_id": aid, "agent_name": aid, "created_by": "user_tc",
+            })
+        bus = LocalMessageBus(backend=db._backend)
+        trigger = MessageBusTrigger(bus=bus)
+
+        async def _classify(agent, channel, batch):
+            return await trigger._incoming_is_reply_to_my_errand(agent, channel, batch)
+
+        # 1. C asks A, on C's owner's behalf.
+        await bus.send_to_agent(
+            from_agent="agent_c", to_agent="agent_a",
+            content="what is A working on?", sender_turn_source="chat",
+        )
+        asked = await bus.get_pending_messages("agent_a")
+        ch_ac = asked[0].channel_id
+        assert await _classify("agent_a", ch_ac, asked) is False
+
+        # 2. A runs its own errand toward B; B answers.
+        await bus.send_to_agent(
+            from_agent="agent_a", to_agent="agent_b",
+            content="are you free?", sender_turn_source="chat",
+        )
+        # B has its turn and acks, exactly as the trigger would — otherwise
+        # its next batch still carries this message and the step-3 assertion
+        # would not be about the follow-up at all.
+        b_first = await bus.get_pending_messages("agent_b")
+        await bus.ack_processed(
+            "agent_b", b_first[0].channel_id, b_first[-1].created_at
+        )
+        await bus.send_to_agent(
+            from_agent="agent_b", to_agent="agent_a",
+            content="yes, on X", sender_turn_source="message_bus",
+        )
+        answer = [
+            m for m in await bus.get_pending_messages("agent_a")
+            if m.from_agent == "agent_b"
+        ]
+        ch_ab = answer[0].channel_id
+        assert ch_ab != ch_ac
+        assert await _classify("agent_a", ch_ab, answer) is True  # Owner Relay
+
+        # 3. A's errand-continuation turn: the scope ContextRuntime injects.
+        turn_headers = agent_id_headers(
+            "agent_a", turn_source="message_bus",
+            errand_peer="agent_b", errand_channel=ch_ab,
+        )
+        with injected(turn_headers):
+            follow_up_stamp = _send_turn_source(to_agent="agent_b")
+            answer_to_c_stamp = _send_turn_source(to_agent="agent_c")
+
+        await bus.send_to_agent(
+            from_agent="agent_a", to_agent="agent_b",
+            content="which X?", sender_turn_source=follow_up_stamp,
+        )
+        await bus.send_to_agent(
+            from_agent="agent_a", to_agent="agent_c",
+            content="I am on X", sender_turn_source=answer_to_c_stamp,
+        )
+
+        # 3a. B is being ASKED again — answer the peer, do not relay.
+        b_batch = await bus.get_pending_messages("agent_b")
+        assert [m.content for m in b_batch] == ["which X?"]
+        assert await _classify("agent_b", ch_ab, b_batch) is False
+
+        # 3b. C is being ANSWERED — relay to C's own owner. This is the
+        # assertion the whole-turn stamp failed.
+        c_batch = await bus.get_pending_messages("agent_c")
+        assert [m.content for m in c_batch] == ["I am on X"]
+        assert await _classify("agent_c", ch_ac, c_batch) is True
     finally:
         await db.close()

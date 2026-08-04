@@ -392,3 +392,127 @@ def test_no_turn_source_anywhere_is_none_not_a_guess():
 
     with injected({AGENT_ID_HEADER: REAL}):
         assert caller_turn_source() is None
+
+
+# ---------------------------------------------------------------------------
+# The bearer is a positional record — arity contract (PR #229 review item 3)
+# ---------------------------------------------------------------------------
+
+
+def _bearer(*fields: str) -> str:
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        BEARER_FIELD_SEP,
+    )
+
+    return f"Bearer {BEARER_AGENT_PREFIX}{BEARER_FIELD_SEP.join(fields)}"
+
+
+def test_a_later_field_never_bleeds_into_the_turn_source():
+    """The bug the shared parser exists to prevent: a hand-rolled
+    ``split(SEP, 1)`` returned "<turn_source>~<next_field>" as the turn
+    source, so adding a third field would silently poison the second."""
+    from xyz_agent_context.module._mcp_identity import caller_turn_source
+
+    with injected({"Authorization": _bearer(REAL, "message_bus", "agent_peer1")}):
+        assert caller_turn_source() == "message_bus"
+        assert caller_agent_id_from_request() == REAL
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4])
+def test_every_field_count_parses(count):
+    """Trailing fields are omitted on the wire, so readers must tolerate any
+    count — and each present field must land in its own slot."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_FIELDS,
+        caller_errand_scope,
+        caller_turn_source,
+    )
+
+    assert len(BEARER_FIELDS) == 4, "arity changed — update _parse_bearer + this test"
+    values = [REAL, "message_bus", "agent_peer1", "ch_errand1"][:count]
+    with injected({"Authorization": _bearer(*values)}):
+        assert caller_agent_id_from_request() == REAL
+        assert caller_turn_source() == (values[1] if count >= 2 else None)
+        peer, channel = caller_errand_scope()
+        assert peer == (values[2] if count >= 3 else None)
+        assert channel == (values[3] if count >= 4 else None)
+
+
+def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
+    """A caller that knows its errand scope but not its turn source must not
+    shift the scope one slot to the left."""
+    from xyz_agent_context.module._mcp_identity import (
+        caller_errand_scope,
+        caller_turn_source,
+    )
+
+    with injected({"Authorization": _bearer(REAL, "", "agent_peer1", "ch_errand1")}):
+        assert caller_turn_source() is None
+        assert caller_errand_scope() == ("agent_peer1", "ch_errand1")
+
+
+def test_extra_fields_are_dropped_not_appended_to_the_last_one():
+    from xyz_agent_context.module._mcp_identity import caller_errand_scope
+
+    with injected({
+        "Authorization": _bearer(
+            REAL, "message_bus", "agent_peer1", "ch_errand1", "future_fact"
+        )
+    }):
+        assert caller_errand_scope() == ("agent_peer1", "ch_errand1")
+
+
+def test_a_real_token_containing_the_marker_is_not_parsed():
+    """Anchored, not substring: the parser must not slice up a real bearer."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        caller_errand_scope,
+        caller_turn_source,
+    )
+
+    with injected({"Authorization": f"Bearer real{BEARER_AGENT_PREFIX}{REAL}~chat"}):
+        assert caller_agent_id_from_request() is None
+        assert caller_turn_source() is None
+        assert caller_errand_scope() == (None, None)
+
+
+def test_errand_scope_round_trips_on_both_channels():
+    """agent_id_headers must emit the scope explicitly AND on the bearer —
+    codex forwards nothing but the bearer, so a header-only fact is a hole
+    (the same hole the turn source had)."""
+    from xyz_agent_context.module._mcp_identity import (
+        ERRAND_CHANNEL_HEADER,
+        ERRAND_PEER_HEADER,
+        agent_id_headers,
+        caller_errand_scope,
+    )
+
+    headers = agent_id_headers(
+        REAL, turn_source="message_bus",
+        errand_peer="agent_peer1", errand_channel="ch_errand1",
+    )
+    assert headers[ERRAND_PEER_HEADER] == "agent_peer1"
+    assert headers[ERRAND_CHANNEL_HEADER] == "ch_errand1"
+
+    with injected(headers):
+        assert caller_errand_scope() == ("agent_peer1", "ch_errand1")
+    # Bearer alone (codex): same answer.
+    with injected({"Authorization": headers["Authorization"]}):
+        assert caller_errand_scope() == ("agent_peer1", "ch_errand1")
+
+
+def test_no_errand_scope_emits_no_scope_headers_and_no_trailing_separators():
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        ERRAND_CHANNEL_HEADER,
+        ERRAND_PEER_HEADER,
+        caller_errand_scope,
+    )
+
+    headers = agent_id_headers(REAL, turn_source="chat")
+    assert ERRAND_PEER_HEADER not in headers
+    assert ERRAND_CHANNEL_HEADER not in headers
+    assert headers["Authorization"] == f"Bearer {BEARER_AGENT_PREFIX}{REAL}~chat"
+    with injected(headers):
+        assert caller_errand_scope() == (None, None)

@@ -13,24 +13,56 @@ Review round 3 抓到的复发:`sender_turn_source == "message_bus"` 被当成
 Owner Relay,P1 原样复发。
 
 修成两半:
-1. **发送侧**:trigger 把分类器判定(`i_started`,即"本轮在延续自己的差事")
-   经 `_invoke_runtime(errand_continuation=…)` →
-   `trigger_extra_data["bus_turn_is_errand_continuation"]` 传给
-   ContextRuntime;差事延续的 bus 轮次盖 [[hook_schema]] 的
-   `BUS_ERRAND_TURN_SOURCE`("message_bus_errand")而非 plain
-   "message_bus"。追问从此在机制上区别于回答——路径 A、以及差事轮次里
-   fan-out 给 C 的路径 B 都被章本身修掉。
+1. **发送侧,按「这一条发给谁」盖章(不是按整轮)**:trigger 把分类器判定
+   (`i_started`)转成本轮的**差事作用域**——`_invoke_runtime` 用
+   `sender_agent_id`/`channel_id` 填
+   `trigger_extra_data["bus_errand_peer" / "bus_errand_channel"]`,经
+   [[context_runtime]] 落到 MCP identity header/bearer;工具侧
+   `_send_turn_source`(见 [[_message_bus_mcp_tools]])把**本条 send 的目标**
+   与作用域比对,只有打向差事对手的那条才盖 [[hook_schema]] 的
+   `BUS_ERRAND_TURN_SOURCE`。
 2. **收件侧兜底** `_i_have_errand_in_channel`:全批都是 plain
    "message_bus" 章时,只有当**我自己**在此 channel 有过非
    "message_bus" 章(或 legacy NULL)的发言——即我真的问过——才算
-   「对我差事的回复」;从没问过的 agent 不可能被欠答案(残余路径 B:
-   回答轮次 fan-out 时 C 收到 plain 章)。DB 失败 → Owner Relay,
-   与外层同向降级。
+   「对我差事的回复」;从没问过的 agent 不可能被欠答案(路径 B:
+   回答轮次 fan-out 给 C)。判据已下推进 SQL(`SELECT 1 … IS NULL OR <>
+   … LIMIT 1`):这条查询跑在最常见的触发路径上,而 DM channel 被对称复用、
+   永不新建,客户端全量扫描会随 agent 对的寿命单调增长。DB 失败 →
+   Owner Relay,与外层同向降级。
 
-**已接受并写进 docstring 的残余洞**:我曾在此 channel 跑过差事(有带章旧行),
-之后同伴从回答轮次问我一个全新问题 → 旧差事行仍投 Owner Relay 票。轮次章
-表达不了 per-message 的问/答意图,除非发送方逐条声明;这条退化 = 修复前
-行为,只发生在「回答轮次→新问题→收件方有旧差事」一条窄路径上。
+### 为什么第 1 步必须 per-send —— 整轮盖章曾让 P1 换个位置复发
+
+第一版把整轮盖成 `message_bus_errand`。但**一轮不只包含差事**:
+`MessageBusModule.hook_data_gathering` 每轮调 `bus.get_unread`,而
+[[local_bus]] 的实现是跨**所有** channel JOIN 成员表,把别的 channel 的未读
+注进 `extra_data`;模块提示词紧接着**要求**回答它们(「A question is never
+ping-pong — answer it」)。于是「A 在差事延续轮次里顺手回答了 C 在另一个
+channel 的提问」是**平台自己注入 + 自己要求**的路径,不是角落:C 收到的回答
+被盖成提问 → C 不再向自己 owner 回报 → 正是本 PR 要修的那个失败,换了个座位
+(2026-08-03 review round 4)。只有 send 现场知道自己打给谁,所以只有 send
+现场能定章。
+
+### 已接受并写进 docstring 的残余洞(**不是**"风险已穷举")
+
+1. **旧差事**:我曾在此 channel 跑过差事,之后同伴**从回答轮次**问我一个全新
+   问题(无任何提示词引导这条路)→ 旧差事行仍投 Owner Relay 票。轮次章表达
+   不了 per-message 的问/答意图。退化 = 修复前行为。
+2. **同一 DM channel 里双向差事同时在飞**:DM channel 对称复用,若差事对手
+   **也**问了我们什么、而我们在差事延续轮次里回答了他,这条回答打的正是差事
+   作用域 → 盖成提问 → 对方去"回复同伴"而不向自己 owner 回报。要踩到得两边
+   owner 同时各派了一个指向对方的差事。**这是我们主动选的方向**:另一条路
+   (整轮盖章)破的是平台**自己引导**的场景(跨 channel 未读每轮注入 + 提示词
+   要求回答),触发频率高得多。
+3. **群 channel 当差事 channel**:作用域也按 channel 匹配,所以发进「恰好是
+   差事 channel 的群」会把每个成员的那份都盖成提问。bus 差事跑在自动建的 DM
+   channel 上,要踩到得手工建群并拿它当差事 channel。
+4. **大小写/手写章**:差事行检查用 SQL `<>` 精确比对,非我方写入器写的、大小写
+   不同的行会被算作差事行 → Owner Relay,与其它降级同向。
+
+彻底关掉 1、2 需要**逐条声明意图**(发送方每条说明"这是问还是答")——review
+提过、我们**没有采纳**:那会把一个正确性关键位重新压在模型听话上(铁律 #15:
+机器可知的事实不能取决于用户选了哪个模型)。将来要做,默认值必须是**推导**
+出来的,不能靠假设。
 
 ## 2026-08-01 — Owner Relay 只发给「发起方」,被问的一方改成「回复同伴」
 

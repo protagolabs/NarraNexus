@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-04
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — bearer 变成「位置记录 + 钉死字段数」,解析器合成一个
+
+`BEARER_FIELDS = (agent_id, turn_source, errand_peer, errand_channel)` 是字段
+数与顺序的唯一真相,约定写在 `BEARER_FIELD_SEP` 旁边:位置固定、尾部空字段不
+上线(读者必须容忍 1~N 个字段)、中间空字段合法表示"未知"、新事实只能**追加**
+在末尾。
+
+**为什么必须收成一个 `_parse_bearer`**:原先两个读者各自
+`split(SEP, 1)`——真加第三段时,`caller_turn_source()` 会把
+`<source>~<第三段>` 整段当 turn source 返回,而这正是本轮要加第三、四段的
+前置雷(review round 3/4 点名)。现在:
+- `_parse_bearer` 用**无界 split 再截断**。有界 split 会把多出来的段粘在
+  最后一个命名字段上(`ch_1~future_fact` 被当成 channel id)——更新的发送方
+  应该让老读者"读不到",而不是"读错"。
+- `_ambient_headers` / `_explicit_header` / `_bearer` 抽出来共用,三个读者
+  (identity / turn source / errand scope)锚定判据只有一份。
+
+新增 `caller_errand_scope()` 与 `X-NarraNexus-Errand-Peer/Channel`:承载
+「本轮的差事跟谁、在哪个 channel」。这个事实的消费者是
+[[_message_bus_mcp_tools]] 的 `_send_turn_source`——**整轮**只有一个 turn
+source,但一轮里既可能追问差事对手、也可能回答另一个 channel 的同伴,
+所以判断必须下沉到知道目标的 send 现场(整轮盖章的复发见
+[[message_bus_trigger]] 2026-08-03 条)。
 
 ## 2026-08-04 — 同一 seam 增加 turn source;注入面公开化(review)
 

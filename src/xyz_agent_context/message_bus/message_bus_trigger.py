@@ -42,6 +42,7 @@ from xyz_agent_context.message_bus.local_bus import (
     LocalMessageBus,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
+from xyz_agent_context.schema import WorkingSource
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
@@ -1044,13 +1045,50 @@ class MessageBusTrigger:
         legacy NULL, which gets the old benefit of the doubt). An agent that
         never asked anything here cannot be owed an answer.
 
-        Residual hole, accepted and documented: if we once ran an errand in
-        this channel and a peer LATER asks us a fresh question from a
-        peer-answering turn, the stale errand rows still vote Owner Relay.
-        Per-message intent would need the sender to declare ask-vs-answer per
-        send; the turn-kind stamp cannot express that. This degradation
-        equals the pre-fix behaviour and only occurs on the (peer-answer turn
-        → new question → recipient with old errand) path.
+        The errand stamp is per-SEND, not per-turn, and that is load-bearing
+        here: a bus turn also answers unrelated peers whose unread the platform
+        injected from other channels, so only sends aimed at the sender's own
+        errand scope carry it (``_send_turn_source`` in the bus module's MCP
+        tools). Stamping the whole turn broke exactly this method's contract
+        from the other side — an ANSWER to an unrelated peer arrived stamped as
+        a question, so that peer stopped relaying to its own owner
+        (2026-08-03 review).
+
+        Residual holes, accepted and documented — do not read this list as
+        "risk exhausted", read it as what is known:
+
+        1. Stale errand: if we once ran an errand in this channel and a peer
+           LATER asks us a fresh question from a peer-ANSWERING turn (a case
+           no prompt of ours guides), the old errand rows still vote Owner
+           Relay. Per-message intent would need the sender to declare
+           ask-vs-answer per send; a turn-kind stamp cannot express it. Equals
+           the pre-fix behaviour.
+        2. Mutual live errands in one DM channel: DM channels are reused
+           symmetrically, so if the errand peer ALSO asked us something and we
+           answer them inside our errand-continuation turn, that answer is
+           aimed at the errand scope and carries the errand stamp — they then
+           answer the peer instead of relaying to their own owner. Needs both
+           owners to have errands in flight at the same time toward each
+           other. This is the direction we chose: the alternative (stamping
+           the whole turn) broke the case the platform ITSELF guides — unread
+           from other channels is injected every turn and the prompt requires
+           answering it — so it fired far more often.
+        3. Group errand channel: the errand scope matches by channel as well
+           as by peer, so a send into a GROUP channel that is the errand
+           channel stamps every member's copy as a question. Bus errands run
+           over auto-created DM channels, so this needs a hand-built group
+           channel used as an errand channel.
+        4. Uppercase / hand-written stamps: the errand-row check compares the
+           stored value exactly (SQL ``<>``), so a row written outside our
+           writers with a different casing counts as an errand row → Owner
+           Relay. Same direction as every other degradation here.
+
+        Closing 1 and 2 for good needs per-message intent — the sender saying
+        "this one is a question" on each send — which the review floated and
+        which we did not take, because it puts a correctness-critical bit back
+        on model obedience (iron rule #15: a machine-knowable fact must not
+        depend on which model the user picked). Revisit only with a default
+        that is derived, never assumed.
 
         Why not infer it from channel ordering (the first attempt, twice):
         "have I spoken here" flips as soon as we answer once, so a follow-up
@@ -1129,16 +1167,19 @@ class MessageBusTrigger:
         """
         try:
             ph = self._bus._db.placeholder
+            # Existence check, pushed down: this runs on the most common bus
+            # trigger path ("a peer answered me"), and DM channels are found
+            # symmetrically and REUSED forever — so a client-side scan would
+            # grow without bound over the life of an agent pair. IS NULL / <>
+            # / LIMIT 1 mean the same thing on SQLite and MySQL.
             rows = await self._bus._db.execute(
-                f"SELECT sender_turn_source FROM bus_messages "
-                f"WHERE channel_id = {ph} AND from_agent = {ph}",
-                (channel_id, agent_id),
+                f"SELECT 1 FROM bus_messages "
+                f"WHERE channel_id = {ph} AND from_agent = {ph} "
+                f"AND (sender_turn_source IS NULL OR sender_turn_source <> {ph}) "
+                f"LIMIT 1",
+                (channel_id, agent_id, WorkingSource.MESSAGE_BUS.value),
             )
-            for r in rows or []:
-                src = (r["sender_turn_source"] or "").strip().lower()
-                if src != "message_bus":
-                    return True
-            return False
+            return bool(rows)
         except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
             logger.debug(
                 f"MessageBusTrigger: errand check failed for channel "
@@ -1187,7 +1228,13 @@ class MessageBusTrigger:
         Decided by ``_incoming_is_reply_to_my_errand`` from a fact recorded
         on the message itself (``sender_turn_source``) — NOT from "have I
         spoken in this channel", which is only the degradation path and is
-        wrong for follow-ups (see that method for why).
+        wrong for follow-ups (see that method for why, and for the residual
+        holes this pair of directives still has).
+
+        Note the directive an OWNER-RELAY turn receives (item 3: "send a
+        clarifying question with bus_send_to_agent") produces a bus send from
+        a bus turn, which is why the same verdict also travels to the tools as
+        this turn's errand scope — see ``_invoke_runtime``.
         """
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
 
@@ -1311,12 +1358,22 @@ class MessageBusTrigger:
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
-        answers an errand I started"). It rides ``trigger_extra_data`` into
-        ``ctx_data.extra_data`` so ContextRuntime can stamp this turn's bus
-        sends with ``BUS_ERRAND_TURN_SOURCE`` instead of the plain
-        "message_bus" — otherwise a clarifying follow-up sent from this turn
-        is indistinguishable from an answer, and the RECIPIENT's classifier
-        routes it to Owner Relay (P1 recurrence, 2026-08-03 review).
+        answers an errand I started"). When true, this turn's ERRAND SCOPE
+        (the peer that answered us + the channel it happened in) rides
+        ``trigger_extra_data`` into ``ctx_data.extra_data``, so a bus send
+        aimed at that peer can stamp itself ``BUS_ERRAND_TURN_SOURCE`` instead
+        of the plain "message_bus" — otherwise a clarifying follow-up sent
+        from this turn is indistinguishable from an answer and the RECIPIENT's
+        classifier routes it to Owner Relay (P1 recurrence, path A of the
+        2026-08-03 review).
+
+        The scope, not a whole-turn flag: bus unread is injected from ALL
+        channels every turn and the module prompt requires answering it, so
+        this same turn routinely also answers an unrelated peer. Stamping the
+        turn marked that answer as a question too, and that peer then stopped
+        relaying to ITS owner — the same P1, one seat over (same review). Only
+        the send site knows its target, so only the send site can decide; see
+        ``_message_bus_mcp_tools._send_turn_source``.
 
         Returns ``(response_text, event_id)`` — the collected agent response
         text plus the turn's events-row id (None if the run died before
@@ -1334,7 +1391,6 @@ class MessageBusTrigger:
             from xyz_agent_context.agent_runtime.client import (
                 get_agent_runtime_client,
             )
-            from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
             raise RuntimeError(
                 f"Cannot import AgentRuntime dependencies: {e}"
@@ -1351,7 +1407,11 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                "bus_turn_is_errand_continuation": errand_continuation,
+                # Errand scope — empty unless this turn continues our own
+                # errand. sender_agent_id is the peer whose reply triggered us,
+                # i.e. exactly who a follow-up would go to.
+                "bus_errand_peer": sender_agent_id if errand_continuation else "",
+                "bus_errand_channel": channel_id if errand_continuation else "",
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id
