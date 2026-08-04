@@ -60,7 +60,11 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import (
+    XYZBaseModule,
+    mcp_host,
+    working_source_matches,
+)
 from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
 from xyz_agent_context.schema import (
     ContextData,
@@ -324,10 +328,7 @@ class ChannelModuleBase(XYZBaseModule):
         names: "wechat", "lark", ...). Origin-first collection then makes
         this channel's reply tool the turn's default — a WeChat contact
         defaults to ``wechat_send``, not the owner-chat tool."""
-        return working_source == self.channel_name or (
-            not isinstance(working_source, str)
-            and getattr(working_source, "value", None) == self.channel_name
-        )
+        return working_source_matches(working_source, self.channel_name)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Bound → this channel's reply tools, fully qualified. Unbound

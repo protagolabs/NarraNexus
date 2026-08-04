@@ -48,6 +48,19 @@ def mcp_host() -> str:
     return os.getenv("MCP_HOST", "127.0.0.1")
 
 
+def working_source_matches(working_source: Any, source_name: str) -> bool:
+    """True when ``working_source`` names ``source_name``.
+
+    ``WorkingSource`` is a ``(str, Enum)``, so one equality covers both
+    the enum member and its serialized string form — a member equals its
+    value. The single shared predicate exists so every
+    ``owns_working_source`` override compares the same way (four
+    hand-rolled variants with opposite ``isinstance`` polarities is how
+    real divergence starts).
+    """
+    return working_source == source_name
+
+
 class XYZBaseModule(ABC):
     """
     Base class for all Modules
@@ -360,7 +373,8 @@ MCPs: {mcp_tools}
         first, so "whoever contacted you" decides the turn's default
         reply tool — priority order alone would hand every turn to the
         owner-chat tool regardless of where the contact came from.
-        Modules that never originate turns keep the False default.
+        Modules that never originate turns keep the False default;
+        overriders compare via ``working_source_matches``.
         """
         return False
 

@@ -5,6 +5,8 @@
 @description: Prompt definitions for Agent Framework (Claude Agent SDK)
 """
 
+from collections.abc import Sequence
+
 # ============================================================================
 # Chat History Header
 # Separator added when building the system prompt in agent_loop() for history records
@@ -50,11 +52,15 @@ REPLY_REMINDER_TEMPLATE = (
 )
 
 
-def append_reply_reminder(user_message: str, expressive_tools) -> str:
+def append_reply_reminder(
+    user_message: str, expressive_tools: "Sequence[str] | None"
+) -> str:
     """Append the reply-surface reminder to the turn's user message.
 
-    No declaration → message untouched (a turn with an unknown reply
-    surface must not invent one).
+    No declaration → message untouched. That covers both "unknown reply
+    surface" (never invent one) and team rooms, whose surface is
+    deliberately empty (plain text auto-posts there; any reminder would
+    contradict the team prompt).
     """
     tools = tuple(expressive_tools or ())
     if not tools:

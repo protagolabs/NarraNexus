@@ -35,6 +35,11 @@ try:
             "bus_send_message",
             "bus_send_to_agent",
         ),
+        # Bus sends deliver to peer AGENTS — nothing appears in the
+        # owner's web chat. Only the owner-notify tool is owner-visible,
+        # so session anchoring and chat-history persistence ignore
+        # agent-to-agent traffic (see MessageSourceHandler docstring).
+        owner_visible_reply_tool_names=("send_message_to_user_directly",),
         row_prefix_template="[Bus · from agent={from_agent}]",
     ))
 except ValueError:

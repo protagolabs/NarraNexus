@@ -3,6 +3,13 @@ code_file: src/xyz_agent_context/module/base.py
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (review 修正) — working_source_matches 公共谓词
+
+四处 owns_working_source 覆写各写一套 enum/字符串比较（两种 isinstance
+极性相反、第二子句全是死代码——WorkingSource 是 (str, Enum)，一个 ==
+两形态通吃）。抽 `working_source_matches(ws, name)` 模块级函数，
+chat/bus/channel 基类共用。
+
 ## 2026-08-04 — 新增 owns_working_source 钩子（origin-first 排序的数据源）
 
 `owns_working_source(working_source) -> bool` 默认 False。声明「本模块是

@@ -268,12 +268,10 @@ class ChatModule(XYZBaseModule):
         """Owner web chat originates CHAT turns (and is the origin-first
         default on turns that fall through with no declared origin owner,
         since priority 1 already sorts it first within its rank)."""
+        from xyz_agent_context.module.base import working_source_matches
         from xyz_agent_context.schema import WorkingSource
 
-        return working_source == WorkingSource.CHAT or (
-            isinstance(working_source, str)
-            and working_source == WorkingSource.CHAT.value
-        )
+        return working_source_matches(working_source, WorkingSource.CHAT.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The owner-chat delivery tool. On CHAT turns the origin-first
@@ -381,7 +379,12 @@ class ChatModule(XYZBaseModule):
                 continue
             tool_name = response.details.get("tool_name", "")
             arguments = response.details.get("arguments", {})
-            reply = handler.extract_reply_text(tool_name, arguments)
+            # Owner-visible only: this split decides what lands in the
+            # owner's chat history. A bus reply to a peer agent delivered
+            # fine, but persisting it here would surface an agent-to-agent
+            # exchange in the owner's view — those turns fall through to
+            # the background activity row instead.
+            reply = handler.extract_owner_visible_text(tool_name, arguments)
             if not reply:
                 continue
             # send_message_to_user_directly is the owner-notify path
@@ -402,10 +405,15 @@ class ChatModule(XYZBaseModule):
                 f"direct_parts={len(direct_parts)} total_len={len(combined)}"
             )
         else:
+            effective = (
+                handler.owner_visible_reply_tool_names
+                if handler.owner_visible_reply_tool_names is not None
+                else handler.user_reply_tool_names
+            )
             logger.info(
                 f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
-                f"handler={handler.name} no reply tool matched "
-                f"(checked patterns={handler.user_reply_tool_names})"
+                f"handler={handler.name} no owner-visible reply tool matched "
+                f"(checked patterns={effective})"
             )
         return im_reply, direct_notify, combined
 

@@ -64,13 +64,15 @@ def _inst(module) -> SimpleNamespace:
     return SimpleNamespace(module_class=module.config.name, module=module, instance_id="i")
 
 
-async def _collect(instances, monkeypatch, working_source=None) -> list[str]:
+async def _collect(instances, monkeypatch, working_source=None, extra=None) -> list[str]:
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = AGENT_ID
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     if working_source is not None:
         ctx.working_source = working_source
+    if extra:
+        ctx.extra_data.update(extra)
     _messages, _mcp, _dis, expressive = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
@@ -189,6 +191,27 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     assert collected[0] == "mcp__message_bus_module__bus_send_message"
     assert collected[1] == "mcp__message_bus_module__bus_send_to_agent"
     assert "mcp__chat_module__send_message_to_user_directly" in collected
+
+
+@pytest.mark.asyncio
+async def test_team_room_turn_has_empty_reply_surface(monkeypatch):
+    """Team rooms deliver via plain-text auto-post and their prompt FORBIDS
+    delivery tools — the turn's reply surface must be EMPTY, from every
+    declarer. Gating only the bus module left ChatModule's unconditional
+    declaration in the list, which made both frameworks' reminders assert
+    "plain text is never delivered" right next to the team prompt saying
+    the opposite (PR #230 review, Critical #1). Central gate: the
+    collection returns [] whenever the bus_team_room marker is set."""
+    instances = [
+        _inst(_FakeModule("ChatModule", 1, [CHAT_TOOL])),
+        _inst(_FakeModule("LarkModule", 6, [LARK_TOOL])),
+        _inst(_FakeModule("MessageBusModule", 5, [BUS_TOOL], owns_source="message_bus")),
+    ]
+    collected = await _collect(
+        instances, monkeypatch,
+        working_source="message_bus", extra={"bus_team_room": True},
+    )
+    assert collected == []
 
 
 def test_every_module_expressive_signature_accepts_ctx_data():

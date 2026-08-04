@@ -4,6 +4,12 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 (review 修正) — handler 增加 owner_visible 子集
+
+`owner_visible_reply_tool_names=("send_message_to_user_directly",)`：
+bus 交付名单（含 bus 工具）只服务「是否回复了来源」；owner 会话锚点与
+chat 历史持久化只认 owner-notify 工具。见 [[message_source_handler]]。
+
 # message_bus/__init__.py — 包出口 + message_bus 来源 handler 注册
 
 ## 为什么存在

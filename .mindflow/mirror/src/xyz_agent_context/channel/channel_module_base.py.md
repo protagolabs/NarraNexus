@@ -7,7 +7,8 @@ last_verified: 2026-08-04
 ## 2026-08-04 — owns_working_source：channel_name 即来源名
 
 WorkingSource 的 IM 值复用 channel_name（"wechat"/"lark"/...），故基类
-统一实现：ws == channel_name（兼容 enum/字符串两形态）。配合
+统一实现，比较走 [[base]] 的 working_source_matches（(str, Enum) 一个
+== 两形态通吃，review 修正后四处覆写共用同一谓词）。配合
 [[context_runtime]] origin-first 排序，WeChat 触发轮的默认回复工具是
 wechat_send 而非 owner-chat 工具。
 

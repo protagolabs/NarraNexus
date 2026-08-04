@@ -4,6 +4,16 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 (review 修正) — team 房中央门控：整轮空 expressive
+
+review Critical #1：只在 bus module 挡 team 房不够——ChatModule 无条件
+声明（IM 渠道也会声明），team 轮 expressive 非空 → 两框架的 reminder 在
+最贴生成点的位置说「纯文本不送达」，与 team prompt 的「纯文本自动上墙」
+对撞。收口移到收集处：`bus_team_room` 标记为真时整轮声明为空（天然命中
+claude 适配器 append_reply_reminder 的 no-op 分支与 NexusPower 空契约）。
+同批修正：收集点上方的契约注释（原文还写着被推翻的 "must be
+priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
+
 ## 2026-08-04 — expressive 收集改 origin-first 排序
 
 排序键从 (priority, module_class) 变为 (origin_rank, priority, module_class)：

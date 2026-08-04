@@ -24,7 +24,11 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import (
+    XYZBaseModule,
+    mcp_host,
+    working_source_matches,
+)
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -112,10 +116,7 @@ class MessageBusModule(XYZBaseModule):
         """This module is the origin of MESSAGE_BUS turns — the collection
         sorts the origin module's declaration first, so the bus delivery
         tool becomes the turn's default reply tool."""
-        return working_source == WorkingSource.MESSAGE_BUS or (
-            isinstance(working_source, str)
-            and working_source == WorkingSource.MESSAGE_BUS.value
-        )
+        return working_source_matches(working_source, WorkingSource.MESSAGE_BUS.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Bus-triggered turns deliver through the bus tools — declare them

@@ -151,6 +151,18 @@ class MessageSourceHandler:
     prefixes like `mcp__chat_module__send_message_to_user_directly`
     match the short name registered here."""
 
+    owner_visible_reply_tool_names: Optional[Tuple[str, ...]] = None
+    """The subset of reply tools whose output SURFACES IN THE OWNER'S
+    WEB CHAT. None (the default) means "same as user_reply_tool_names"
+    — correct for chat and the IM channels, where the conversation IS
+    with the owner. Sources whose reply target is somebody else (the
+    bus: replies go to peer AGENTS) override this to just the
+    owner-notify tool, so "delivered to whoever contacted you" (metrics,
+    NO-REPLY judgment) and "visible to the owner" (session anchor,
+    chat-history persistence) stay two separate questions — conflating
+    them let every agent-to-agent bus reply re-anchor the owner's
+    session (PR #230 review)."""
+
     row_prefix_template: str = "[{name}]"
     """str.format-style template applied to a flattened
     `{**meta_data, **channel_tag}` dict at render time. Missing keys
@@ -184,6 +196,30 @@ class MessageSourceHandler:
         if not tool_name:
             return False
         return any(pat in tool_name for pat in self.user_reply_tool_names)
+
+    def is_owner_visible_reply_tool(self, tool_name: str) -> bool:
+        """True when `tool_name`'s output surfaces in the owner's web
+        chat. Falls back to `is_user_reply_tool` when no owner-visible
+        subset is declared (chat / IM channels)."""
+        if self.owner_visible_reply_tool_names is None:
+            return self.is_user_reply_tool(tool_name)
+        if not tool_name:
+            return False
+        return any(pat in tool_name for pat in self.owner_visible_reply_tool_names)
+
+    def extract_owner_visible_text(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> Optional[str]:
+        """`extract_reply_text`, gated on owner visibility. Consumers that
+        decide what the OWNER saw (session anchor in step_4, the
+        user-visible split in ChatModule) call this; consumers that ask
+        "did the turn deliver to its origin at all" keep
+        `extract_reply_text`."""
+        if not self.is_owner_visible_reply_tool(tool_name):
+            return None
+        return self.extract_reply_text(tool_name, arguments)
 
     def extract_reply_text(
         self,

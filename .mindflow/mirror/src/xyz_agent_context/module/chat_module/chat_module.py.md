@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (review 修正) — user-visible split 改用 owner-visible 谓词
+
+`_split_user_visible_response` 的提取由 `extract_reply_text` 改为
+`extract_owner_visible_text`：bus-only 交付轮次回到 activity 行持久化
+（不再把 agent↔agent 交换写成 owner 可见的对话对）；IM 渠道经 None 回落
+行为逐字节不变。no-match 日志改说 "no owner-visible reply tool matched"
+并打印生效的 owner 名单（原名单语义已拆分，照旧打印会误导排查）。
+
 ## 2026-08-04 — owns_working_source(CHAT) + 声明语义更新
 
 origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第一；
