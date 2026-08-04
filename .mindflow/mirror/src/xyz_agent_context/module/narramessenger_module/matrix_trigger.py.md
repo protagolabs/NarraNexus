@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — `matrix_since_token` 排除出熔断指纹
+
+`BREAKER_VOLATILE_CREDENTIAL_FIELDS` 覆写加 `matrix_since_token`。该列每
+收到一次 sync 响应就重写（凭据 dataclass 里明写 WRITE-HEAVY），留在基类
+新增的快速死亡熔断指纹里，等于「本 channel 自己的正常流量」持续伪装成
+owner 换绑——熔断刚跳闸就被判定为凭据已变更并清除，本 channel 相当于没有
+熔断器。见 [[channel_trigger_base.py]] 8/4 条目。
 
 ## 2026-08-03 — `managed_before_run`:托管来源同样过 authorize 门
 
