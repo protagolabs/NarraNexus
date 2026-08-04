@@ -126,12 +126,27 @@ _FILE_ROUTE: dict[str, "str | None"] = {
     "--body": "--body-file",
     "--content": "--content",
     "--data": "--data",
+    # --json is a PAYLOAD only on base/record-style commands; under docs it
+    # is a boolean shorthand for --format json — see _payload_flags_for.
     "--json": "--json",
+    # docs: '--help' advertises "- reads stdin" but lark_cli never wires
+    # stdin, so the payload would arrive empty (same class as --content -).
+    "--reference-map": "--reference-map",
 }
 
-# Payload flags for the stdin ("-") check — any flag we know carries an
-# authored payload.
-_PAYLOAD_FLAGS = frozenset(_FILE_ROUTE)
+
+def _payload_flags_for(tokens: list[str]) -> frozenset:
+    """The payload flags that apply to THIS command.
+
+    ``--json`` is domain-dependent (round-4 review, same shape as im's
+    --content): a file-reading payload on ``base`` commands, a boolean
+    format shorthand everywhere else — treating it as payload under docs
+    produced a fake `--json @file` route for a stray ``-``.
+    """
+    flags = frozenset(_FILE_ROUTE)
+    if tokens and tokens[0].lower() != "base":
+        return flags - {"--json"}
+    return flags
 
 _IM_INLINE_HINT = (
     "This command reads no files and no stdin — put the FULL value "
@@ -179,7 +194,7 @@ def _recovery_hint(flag: str) -> str:
     ``--help`` marker, never a concrete flag that may not exist there.
     """
     route = _FILE_ROUTE.get(flag, "")
-    if route == flag:
+    if flag and route == flag:
         return (
             f"Pass the payload with `{flag} @relative/path` instead — "
             f"lark-cli reads the file itself (path RELATIVE to your "
@@ -244,6 +259,7 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
     # im message commands override the flag table for hints: no im flag
     # reads files, --content included (see _is_im_message_command).
     im_message = _is_im_message_command(tokens)
+    payload_flags = _payload_flags_for(tokens)
 
     def _hint(flag: str) -> str:
         return _IM_INLINE_HINT if im_message else _recovery_hint(flag)
@@ -270,8 +286,8 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
                 f"verbatim — and the call would still report success. "
                 f"{_hint(offending_flag)}"
             )
-        if (tok == "-" and prev_flag in _PAYLOAD_FLAGS) or (
-            compound_value == "-" and compound_flag in _PAYLOAD_FLAGS
+        if (tok == "-" and prev_flag in payload_flags) or (
+            compound_value == "-" and compound_flag in payload_flags
         ):
             return False, (
                 f"'{offending_flag} -' means read from stdin, but "
@@ -409,7 +425,8 @@ def _expand_escapes(value: str) -> str:
 # guard — an acceptable, self-explaining rejection for an adversarial
 # corner no real message hits.
 _FILE_REFERENCE_RE = re.compile(
-    r"^@\S+\.(md|markdown|txt|json|html?|csv|xml|ya?ml|rst)$",
+    r"^@\S+\.(md|markdown|txt|json|html?|csv|xml|ya?ml|rst"
+    r"|log|pdf|docx?|xlsx?|pptx?|py|sh|png|jpe?g)$",
     re.IGNORECASE,
 )
 

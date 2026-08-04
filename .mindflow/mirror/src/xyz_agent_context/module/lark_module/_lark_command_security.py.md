@@ -4,6 +4,19 @@ stub: false
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (五) — 空 flag 回归修复 + 路线表三处收口
+
+round-4 review：① `_recovery_hint("")` 空 flag 撞上 `"" == ""` 落进自路由
+分支，吐出 flag 名为空的假路线（本 PR 三轮消灭的失败类被自己新引入，
+`if flag and route == flag` 一行修，空 flag 自然落到「查 --help 的
+(supports @file) 标注」泛化兜底）；② 扩展名白名单补
+log|pdf|docx?|xlsx?|pptx?|py|sh|png|jpe?g（旧 {1,5} 能拦、白名单第一版
+漏掉的形态）；③ `--json` 域相关：docs 域是 --format json 的布尔缩写、
+只有 base 域是读文件 payload——`_payload_flags_for(tokens)` 按域裁剪
+stdin 守卫（与 im --content 例外同构）；④ 表补 `--reference-map`
+（--help 自述 "- reads stdin" 而 lark_cli 从不接 stdin，dev 既有缺口
+顺手收口，铁律 #8）。
+
 ## 2026-08-04 (四) — flag→文件路线表（_FILE_ROUTE）统一守卫与提示
 
 round-3 review：`mail +send --body @file.html` 是同类假成功（探针：文件

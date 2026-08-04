@@ -19,6 +19,7 @@ import pytest
 
 from xyz_agent_context.module.lark_module._lark_command_security import (
     sanitize_command,
+    validate_command,
 )
 
 CHAT = "oc_0822639c9c2d42a5e2589a18d1ab4d2c"
@@ -139,6 +140,58 @@ def test_bare_dotted_mention_is_not_a_file_reference():
         f"im +messages-send --chat-id {CHAT} --text @bob.smith --as bot"
     )
     assert "@bob.smith" in args
+
+
+def test_positional_substitution_gets_no_empty_flag_route():
+    """A $() with no preceding --flag (positional value) must fall to the
+    generic --help-marker advice — round-4 review caught `_recovery_hint("")`
+    fabricating a route with an EMPTY flag name (\"Pass the payload with
+    ` @relative/path`\"), the exact指-a-nonexistent-road failure class."""
+    with pytest.raises(ValueError) as e:
+        sanitize_command(
+            'docs +update --doc D --command overwrite "$(cat notes.md)"'
+        )
+    reason = str(e.value)
+    assert "` @" not in reason
+    assert "supports @file" in reason
+
+
+@pytest.mark.parametrize("ref", ["@report.pdf", "@notes.log", "@reply.docx"])
+def test_binary_and_log_extensions_are_also_rejected(ref):
+    """Round-4: the whitelist traded the @bob.smith false positive for a
+    coverage gap — these were caught by the old {1,5} rule and are all
+    plausible write-then-reference names, none a Lark handle suffix."""
+    with pytest.raises(ValueError, match="not read files"):
+        sanitize_command(
+            f"im +messages-send --chat-id {CHAT} --text {ref} --as bot"
+        )
+
+
+def test_docs_json_is_a_boolean_not_a_payload():
+    """docs' --json is shorthand for --format json (boolean) — only
+    base/record commands carry a payload --json. The stdin guard must not
+    fire a fake `--json @file` route in docs (round-4 minor)."""
+    allowed, _reason = validate_command("docs +create --title T --json -")
+    assert allowed  # lark-cli itself rejects the stray '-' loudly
+
+
+def test_base_json_stdin_still_rejected_with_real_route():
+    with pytest.raises(ValueError) as e:
+        sanitize_command(
+            "base +record-batch-create --base-token T --table-id t --json - --as user"
+        )
+    assert "--json @" in str(e.value)
+
+
+def test_reference_map_stdin_is_rejected():
+    """--reference-map advertises '- reads stdin' in --help, but lark_cli
+    never wires stdin — the empty-payload class the stdin guard exists
+    for. Newly covered by the route table (round-4 minor)."""
+    with pytest.raises(ValueError) as e:
+        sanitize_command(
+            "docs +update --doc D --content x --reference-map - --as user"
+        )
+    assert "--reference-map @" in str(e.value)
 
 
 def test_docs_content_at_file_stays_permitted():
