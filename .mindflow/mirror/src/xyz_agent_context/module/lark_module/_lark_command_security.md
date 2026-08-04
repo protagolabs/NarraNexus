@@ -4,10 +4,28 @@ stub: false
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (三) — 等号形态归一化 + 提示纯按域 + 撤销错误的 docs 收窄
+
+round-2 review 三连（全部带 --dry-run 复现）：
+1. **`--markdown=@file` 等号形态绕过**（round-1 已提、漏改）：shlex 把
+   `--flag=value` 切成一个 token，配对扫描摸不到。新增
+   `_split_compound_flag` 归一化，两个守卫（@file 字面量 + 7/29 的
+   `$()`/stdin）都同时检查 compound 值——`--content=$(cat x)` 同类缺口
+   一并收口。
+2. **提示纯按域**：`_recovery_hint(is_im_message)` 单参——im 域**没有任何**
+   flag 读文件（`--content @payload.json` 被 CLI 以 invalid JSON 硬拒），
+   一律给内联建议；其余域保留 `--content @file`（lark-cli 真机制）。
+3. **撤销 docs 收窄**：docs v2 根本没有 `--text/--markdown`（CLI v2 迁移
+   校验直接拦）。`_reject_file_reference_bodies` 改为全域无条件（全 CLI
+   只有 im +messages-* 带这两个 flag，收窄零收益且对未来新增消息型 flag
+   默认失守）；删掉把 CLI 必拒命令固化为「必须放行」的错误测试，改为断言
+   真实存在的 `docs +create --content @./report.md` 不受影响。
+教训：推新 commit 前必须读完管线上一轮 review。
+
 ## 2026-08-04 (二) — @file 守卫收窄到 im +messages-*，7/29 提示语按域分流
 
-两个修正：① `--markdown/--text` 在 docs 域是文档内容（@file 或许合法），
-守卫与提示都按 `_is_im_message_command`（im +messages-send/-reply）收窄；
+两个修正（其一后被 round-2 review 推翻，见下条）：① 曾按「docs 域同名 flag
+是文档内容」把守卫收窄到 `_is_im_message_command`——该前提不成立；
 ② 7/29 的 `_AT_FILE_HINT` 原本对所有 payload flag 统一推荐
 `--content @relative/path.md`——对 IM 消息这是把模型往字面量坑里带
 （探针实证 2026-08-04：文件存在 + 合法相对路径，`im +messages-send

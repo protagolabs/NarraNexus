@@ -118,11 +118,15 @@ _AT_FILE_HINT = (
 
 
 def _is_im_message_command(tokens: list[str]) -> bool:
-    """True for ``im +messages-send`` / ``im +messages-reply`` — the
-    commands whose --text/--markdown value is a HUMAN-DELIVERED message
-    body. The same flag names mean document content under ``docs``,
-    where the @file convention may legitimately apply, so every
-    message-body rule in this file gates on this predicate."""
+    """True for ``im +messages-send`` / ``im +messages-reply``.
+
+    These are the only commands in the whole CLI that carry
+    --text/--markdown, and NO ``im`` flag reads files or stdin
+    (probe-verified 2026-08-04: ``--markdown @./file`` with the file
+    present ships the literal string and reports success; ``--content
+    @payload.json`` is rejected as invalid JSON). The predicate serves
+    the recovery hint: within ``im`` there is no @file route to point
+    at."""
     return (
         len(tokens) >= 2
         and tokens[0] == "im"
@@ -130,20 +134,31 @@ def _is_im_message_command(tokens: list[str]) -> bool:
     )
 
 
-def _recovery_hint(flag: str, is_im_message: bool) -> str:
-    """Context-appropriate recovery advice for a rejected payload.
+def _split_compound_flag(token: str) -> Tuple[str, str]:
+    """Normalize ``--flag=value`` to ``(--flag, value)``.
 
-    IM message bodies have NO @file expansion — probe-verified
-    2026-08-04: ``im +messages-send --markdown @./file`` with the file
-    present still ships the literal string and reports success. Steering
-    a message flag toward @file would walk the model straight into the
-    misdelivery that ``_reject_file_reference_bodies`` exists to block.
-    Everything else keeps the --content @file route.
+    Returns ``("", "")`` for anything that isn't a compound flag token.
+    shlex keeps ``--markdown=@reply.md`` as ONE token, so any pairwise
+    (flag, next-token) scan is blind to it — the round-1 review
+    reproduced the fake success through exactly this spelling.
     """
-    if is_im_message and flag in _LITERAL_BODY_FLAGS:
+    if token.startswith("--") and "=" in token:
+        flag, _, value = token.partition("=")
+        return flag, value
+    return "", ""
+
+
+def _recovery_hint(is_im_message: bool) -> str:
+    """Domain-appropriate recovery advice for a rejected payload.
+
+    Within ``im`` there is nothing to point at but inlining (see
+    ``_is_im_message_command``); everywhere else the --content @file
+    route is lark-cli's real mechanism.
+    """
+    if is_im_message:
         return (
-            "Message flags do not read files or stdin — put the FULL "
-            "message content inline as ONE quoted argument, e.g. "
+            "This command reads no files and no stdin — put the FULL "
+            "value inline as ONE quoted argument, e.g. "
             '--markdown "line one\\n\\nline two".'
         )
     return _AT_FILE_HINT
@@ -187,27 +202,35 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
         return True, ""
 
     is_im_message = _is_im_message_command(tokens)
+    hint = _recovery_hint(is_im_message)
     for i, tok in enumerate(tokens):
-        flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
+        # --flag=value is one shlex token: check the VALUE half too, or
+        # the equals spelling sails past every pairwise check below.
+        compound_flag, compound_value = _split_compound_flag(tok)
         if tok.startswith("<<"):
             return False, (
                 f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
                 f"directly (execve), not through a shell, so it is never "
-                f"interpreted. {_recovery_hint(flag, is_im_message)}"
+                f"interpreted. {hint}"
             )
-        if _is_whole_command_substitution(tok):
+        if _is_whole_command_substitution(tok) or (
+            compound_value and _is_whole_command_substitution(compound_value)
+        ):
             return False, (
                 f"Command substitution ('{tok[:40]}...') is NOT expanded: "
                 f"lark_cli executes the CLI directly (execve), not through a "
                 f"shell, so this arrives as literal text and would be written "
                 f"verbatim — and the call would still report success. "
-                f"{_recovery_hint(flag, is_im_message)}"
+                f"{hint}"
             )
-        if tok == "-" and flag in _PAYLOAD_FLAGS:
+        prev_flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
+        if (tok == "-" and prev_flag in _PAYLOAD_FLAGS) or (
+            compound_value == "-" and compound_flag in _PAYLOAD_FLAGS
+        ):
             return False, (
-                f"'{flag} -' means read from stdin, but lark_cli "
-                f"never wires stdin to the CLI, so the payload would arrive "
-                f"empty. {_recovery_hint(flag, is_im_message)}"
+                f"'{compound_flag or prev_flag} -' means read from stdin, but "
+                f"lark_cli never wires stdin to the CLI, so the payload would "
+                f"arrive empty. {hint}"
             )
 
     return True, ""
@@ -335,13 +358,23 @@ _FILE_REFERENCE_RE = re.compile(r"^@\S+\.[A-Za-z0-9]{1,5}$")
 
 
 def _reject_file_reference_bodies(args: list[str]) -> None:
-    """Raise when an IM message body value looks like a file reference.
+    """Raise when a --text/--markdown value looks like a file reference.
 
-    Scoped to ``im +messages-*`` — under ``docs`` the same flag names
-    carry document content, where @file may legitimately apply."""
-    if not _is_im_message_command(args):
-        return
-    for flag, value in zip(args, args[1:]):
+    Unconditional across domains: ``im +messages-*`` are the only
+    commands in the CLI carrying these flags, and neither reads files
+    anywhere (docs v2 rejects the flags outright), so there is no
+    legitimate @file spelling to protect — and future message-type
+    flags stay guarded by default. Covers both the ``--flag value`` and
+    the single-token ``--flag=value`` spellings."""
+    def _pairs():
+        for flag, value in zip(args, args[1:]):
+            yield flag, value
+        for token in args:
+            compound_flag, compound_value = _split_compound_flag(token)
+            if compound_flag:
+                yield compound_flag, compound_value
+
+    for flag, value in _pairs():
         if flag in _LITERAL_BODY_FLAGS and _FILE_REFERENCE_RE.match(value):
             raise ValueError(
                 f"{flag} {value}: this looks like a file reference, but "

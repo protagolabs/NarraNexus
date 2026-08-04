@@ -75,10 +75,46 @@ def test_shell_substitution_hint_is_flag_appropriate():
     assert "--content @" in str(e2.value)
 
 
-def test_docs_markdown_at_file_stays_permitted():
-    """Under docs the same flag carries document content — the @file
-    convention there is outside this guard's scope and must keep flowing."""
-    args = sanitize_command("docs +create --title T --markdown @./report.md --as user")
+@pytest.mark.parametrize("compound", ["--markdown=@lark_reply.md", "--text=@notes.txt"])
+def test_equals_form_file_reference_is_also_rejected(compound):
+    """`--flag=value` is ONE shlex token — the pairwise scan alone never
+    sees it. Round-1 review reproduced the fake success through exactly
+    this spelling; a model whose first spelling is rejected reaches for
+    an equivalent one as a matter of course."""
+    with pytest.raises(ValueError, match="do not read files"):
+        sanitize_command(
+            f"im +messages-send --chat-id {CHAT} {compound} --as bot"
+        )
+
+
+def test_equals_form_command_substitution_is_rejected():
+    """Same single-token blind spot for the 7/29 guard: the substitution
+    hides after the '=' and used to sail through."""
+    with pytest.raises(ValueError, match="shell"):
+        sanitize_command(
+            f'im +messages-send --chat-id {CHAT} --content="$(cat payload.json)" --as bot'
+        )
+
+
+def test_im_domain_hint_never_recommends_at_file():
+    """NO im flag reads files (--content included — probe: lark-cli rejects
+    `--content @payload.json` as invalid JSON). Every im rejection must
+    give the inline advice, never the @file route."""
+    for cmd in (
+        f'im +messages-send --chat-id {CHAT} --content "$(cat payload.json)" --as bot',
+        'im +messages-send --chat-id "$(cat id.txt)" --text hi --as bot',
+    ):
+        with pytest.raises(ValueError) as e:
+            sanitize_command(cmd)
+        assert "--content @" not in str(e.value), cmd
+        assert "inline" in str(e.value).lower(), cmd
+
+
+def test_docs_content_at_file_stays_permitted():
+    """docs' --content @relative/path IS lark-cli's real file mechanism
+    (the 7/29 hint's target) — the guard must not touch it. (docs v2 has
+    no --text/--markdown at all; the CLI rejects them itself.)"""
+    args = sanitize_command("docs +create --title T --content @./report.md --as user")
     assert "@./report.md" in args
 
 
