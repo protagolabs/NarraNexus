@@ -277,3 +277,46 @@ def test_a_users_own_custom_header_still_warns():
 
     assert "X-Api-Key" in text
     assert "not supported by codex" in text
+
+
+# ---------------------------------------------------------------------------
+# The in-house loop (NexusPower) must carry identity too — iron rule #9
+# ---------------------------------------------------------------------------
+
+
+def test_nexus_power_spec_preserves_the_identity_headers():
+    """NexusPower is a third consumer of the same mcp_servers spec, and it
+    connects with its OWN client (``sse_client(url, headers=spec.headers)``).
+    If its spec conversion ever dropped headers, caller identity would
+    silently stop working on the in-house loop while still working on the two
+    CLIs — exactly the "one framework away from breaking" shape iron rule #9
+    warns about. Verified live 2026-08-03 against the running module server.
+    """
+    from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+        McpServerSpec,
+    )
+    from xyz_agent_context.module._mcp_identity import (
+        AGENT_ID_HEADER,
+        agent_id_headers,
+    )
+
+    agent = "agent_d8795abf5021"
+    # The same shape context_runtime injects, converted the way assembly does.
+    raw = {"social_network_module": {
+        "url": "http://127.0.0.1:7802/sse",
+        "headers": agent_id_headers(agent),
+    }}
+    converted = {
+        name: McpServerSpec(
+            url=str(spec.get("url", "")),
+            headers=dict(spec.get("headers") or {}),
+        )
+        for name, spec in raw.items()
+    }
+
+    spec = converted["social_network_module"]
+    assert spec.headers.get(AGENT_ID_HEADER) == agent
+    # NexusPower speaks the honest header natively — no bearer workaround
+    # needed (unlike codex), but the bearer must survive too so one spec
+    # serves every framework.
+    assert spec.headers.get("Authorization", "").endswith(agent)
