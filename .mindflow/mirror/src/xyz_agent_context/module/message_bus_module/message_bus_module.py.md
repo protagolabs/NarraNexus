@@ -4,6 +4,21 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — 名录写入交给统一 seam；Known Agents 不再打印占位符
+
+两处（P1 段02）：
+
+1. `hook_data_gathering` 里那段内联注册（硬编码 `capabilities=[]`、把
+   `agent_description` 原样当描述发布）换成调 [[agent_discovery_sync]] 的
+   `sync_agent_discovery`。那段代码是"`bus_search_agents` 对任何查询都返回空"
+   和"配置好的 agent 被报成待配置"的直接原因（prod 全表 488 行）。现在这里只是
+   **每轮的幂等兜底**——真正的注册发生在创建/配置那一刻（[[auth]]、
+   [[awareness_module]]、[[install_pipeline]]）。
+2. `_volatile_context_parts` 的 Known Agents 渲染：描述判定为 unset
+   （[[entity_schema]] 的 `is_agent_description_unset`）时**整段不渲染**，而不是
+   把占位符打出来。每一行都写着同一句"待配置的新 agent"，等于告诉发问的模型
+   「这些同伴都不可用」——owner 说"问问教学专家"时它无从下手。
+
 ## 2026-08-04 — bus 轮次的回复面声明（origin-aware）+「干完活必须交付」纪律
 
 P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）

@@ -24,7 +24,9 @@ from xyz_agent_context.schema import (
     MCPServerConfig,
     ContextData,
     ModuleInstructions,
+    is_agent_description_unset,
 )
+
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient
@@ -47,6 +49,16 @@ from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 # Settings (leaf module, safe to import at module level)
 from xyz_agent_context.settings import settings
 
+
+# What the agent reads about itself when no description has been written yet.
+# Deliberately an INSTRUCTION, not a label: the field is injected into the
+# system prompt, and "No description" invited the agent to conclude it was
+# unconfigured (the placeholder that used to sit here did so explicitly, and a
+# peer asking "are you set up?" got "还没配置完成" back — P1 段02).
+UNSET_AGENT_DESCRIPTION_NOTICE = (
+    "(not recorded yet — ask your creator what you are for, then save it with "
+    "update_agent_profile so other agents can find you)"
+)
 
 _WEEKDAY_NAMES = [
     "Monday", "Tuesday", "Wednesday", "Thursday",
@@ -219,7 +231,17 @@ class BasicInfoModule(XYZBaseModule):
                 user_repo = UserRepository(self.db)
 
                 ctx_data.agent_name = agent.agent_name or "Unknown Agent"
-                ctx_data.agent_description = agent.agent_description or "No description"
+                # An unset description must read as "nobody has written this
+                # yet, go write it" — never as prose. The creation placeholder
+                # used to land here verbatim, so an agent read
+                # "I am a new agent ready for configuration" about ITSELF and
+                # said so when a peer asked whether it was configured
+                # (P1 段02). See AwarenessModule §5 for the tool it needs.
+                ctx_data.agent_description = (
+                    UNSET_AGENT_DESCRIPTION_NOTICE
+                    if is_agent_description_unset(agent.agent_description)
+                    else agent.agent_description
+                )
                 ctx_data.creator_id = agent.created_by  # opaque key, not for display
                 # Creator's HUMAN name (NetMind nickname / local display name).
                 # user_id stays an opaque key; this is what the LLM reads.
@@ -248,7 +270,7 @@ class BasicInfoModule(XYZBaseModule):
                 ctx_data.is_creator = False
                 ctx_data.user_role = "User/Customer"
                 ctx_data.agent_name = "Unknown Agent"
-                ctx_data.agent_description = "No description"
+                ctx_data.agent_description = UNSET_AGENT_DESCRIPTION_NOTICE
                 ctx_data.creator_id = "Unknown"
                 ctx_data.creator_name = "Unknown"
                 ctx_data.current_speaker_name = "Unknown"
@@ -258,7 +280,7 @@ class BasicInfoModule(XYZBaseModule):
             ctx_data.is_creator = False
             ctx_data.user_role = "User/Customer"
             ctx_data.agent_name = "Unknown Agent"
-            ctx_data.agent_description = "No description"
+            ctx_data.agent_description = UNSET_AGENT_DESCRIPTION_NOTICE
             ctx_data.creator_id = "Unknown"
             ctx_data.creator_name = "Unknown"
             ctx_data.current_speaker_name = "Unknown"

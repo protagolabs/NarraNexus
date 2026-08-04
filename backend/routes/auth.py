@@ -66,6 +66,7 @@ from backend.auth import (
     resolve_current_user_id,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
+from xyz_agent_context.services.agent_discovery_sync import sync_agent_discovery
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -648,7 +649,13 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
 
         # Set default name if not provided
         agent_name = request.agent_name or "New Agent"
-        agent_description = request.agent_description or "A new agent ready for configuration"
+        # No placeholder: an agent with nothing said about it yet has an EMPTY
+        # description. The old filler ("A new agent ready for configuration")
+        # was snapshotted into the bus registry and reported to peers as fact,
+        # so a configured agent looked unconfigured and askers refused to send
+        # (P1 段02). Peers now see the name + machine-derived capabilities, and
+        # the agent records a real description during bootstrap.
+        agent_description = request.agent_description or ""
 
         # Add agent to database
         repo = AgentRepository(db_client)
@@ -672,6 +679,15 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             await InstanceFactory(db_client).create_agent_level_instances(agent_id)
         except Exception as inst_err:
             logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
+
+        # Enter the peer-discovery directory NOW. Registration used to be a
+        # side effect of taking a turn (MessageBusModule's data-gathering
+        # hook), so a freshly created agent was invisible to its owner's other
+        # agents until it happened to run — one half of why "ask agent X" came
+        # back empty (P1 段02, target 2). Runs after the instances exist so the
+        # capability snapshot is not empty. Best-effort: the agent is created
+        # either way, and the per-turn hook re-syncs.
+        await sync_agent_discovery(db_client, agent_id)
 
         # First-run flow via a bootstrap PROFILE (default = today's behavior).
         # The profile renders Bootstrap.md + the greeting + the deletion rule and
@@ -848,6 +864,12 @@ async def update_agent(
         affected_rows = await repo.update_agent(agent_id, update_data)
 
         if affected_rows > 0:
+            # Peers must learn the new name / description / visibility now.
+            # Before this the discovery row was only rewritten when the agent
+            # next took a turn, so an agent edited and left idle stayed
+            # undiscoverable — and its row still carried the creation
+            # placeholder (P1 段02). Best-effort: the edit itself has landed.
+            await sync_agent_discovery(db_client, agent_id)
             # Get the updated agent info
             updated_agent = await repo.get_agent(agent_id)
             # Check bootstrap_active (Bootstrap.md exists in workspace)

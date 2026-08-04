@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/services/skill_sync_service.py
-last_verified: 2026-07-22
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 对账有变更时刷新同伴发现行
+
+`reconcile_workspace` 末尾，`any(stats.values())` 为真（磁盘上多了/少了技能）时调
+[[agent_discovery_sync]]。对账改变的正是"这个 agent 能做什么"，而 capabilities 是
+同伴搜索的匹配面，不重算名录就是陈的（P1 段02）。
 
 # services/skill_sync_service.py — skill 对账器
 

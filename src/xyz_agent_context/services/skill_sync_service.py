@@ -107,6 +107,15 @@ class SkillSyncService:
                 )
                 stats["external_removed"] += 1
 
+        # Reconcile changed what this agent can do (skills added on disk,
+        # others removed behind our back), and capabilities are what peers
+        # search on — so the discovery row is stale until it is recomputed.
+        if any(stats.values()):
+            from xyz_agent_context.services.agent_discovery_sync import (
+                sync_agent_discovery,
+            )
+            await sync_agent_discovery(self.repo._db, agent_id)
+
         return stats
 
     @staticmethod

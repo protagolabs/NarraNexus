@@ -1,7 +1,37 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
-last_verified: 2026-04-10
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — `update_agent_name` → `update_agent_profile`：改名是一次事务
+
+P1 段02 ① 的修复（prod evt_1f9c6680）。用户把第一个 agent 命名为「凑企鹅」，
+08:42/43 用改名工具把**同一个名字转给第二个 agent**。旧工具只写
+`agents.agent_name`，而 agent 的身份感知住在**自由文本的长期记忆里**，于是第一个
+agent 仍自述「凑企鹅 is actually my own agent name」——DB 说的是另一回事，而那个
+名字此时已经合法地属于别人。一列改不动几千字叙事。
+
+新工具做四件事（缺一件就还是原来的 bug）：
+
+1. **两个字段都能写**：`new_name` / `new_description`，都可单独给。描述的
+   docstring 明确写清读者是**别的 agent**（见 [[prompts]] §5）。
+2. **改名同时归档一条身份更正**：`build_identity_change_note` +
+   `merge_identity_change_note` 往 Awareness profile 里**追加**
+   `## Identity Changes (platform record)` 一行（带日期、点名两个名字、明确
+   **retire 旧名**并说明它可能已属于别的 agent）。profile 每轮原文注入，所以下一轮
+   即生效。**是追加不是改写**——agent 对 owner 的观察不是我们该编辑的东西，为改名
+   丢掉它会是比原 bug 更糟的 bug。section 上限
+   `MAX_IDENTITY_CHANGE_ENTRIES=5`，新的留下，避免无界增长吃掉它所在的上下文窗口。
+3. **同 owner 重名如实告知、不拦**（Owner 2026-08-04 定）：倒手是用户故意的，
+   **静默**才是事故温床。返回值里点出当前持有者的 agent_id，让 agent 去问 creator。
+   跨用户同名不算冲突，绝不跨账号报。
+4. **写完立刻刷同伴名录**（[[agent_discovery_sync]]），不等下一轮。
+
+`_record_identity_change` 是 best-effort：名字已经写进去了，之后再抛异常会告诉
+模型"改名没成功"——那是假话；退化成旧行为严格优于报假失败。
+
+无兼容壳（铁律 #2）：`update_agent_name` **删除**，有测试钉住它不许回来——只写名字
+的工具本身就是绕过身份更正的那个 bug。
 
 # awareness_module.py — AwarenessModule 实现
 

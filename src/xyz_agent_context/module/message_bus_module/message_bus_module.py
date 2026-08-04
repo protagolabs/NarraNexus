@@ -36,6 +36,7 @@ from xyz_agent_context.schema import (
     ContextData,
     HookAfterExecutionParams,
     WorkingSource,
+    is_agent_description_unset,
 )
 from xyz_agent_context.settings import settings
 
@@ -288,7 +289,12 @@ class MessageBusModule(XYZBaseModule):
                 desc = a.get("agent_description") or a.get("description", "")
                 aid = a.get("agent_id", "")
                 line = f"- `{aid}` — {name}"
-                if desc:
+                # An unset description is rendered as NOTHING, never as the
+                # creation placeholder: printing "a new agent ready for
+                # configuration" next to every peer is what left "ask the
+                # teaching expert" with nothing to aim at, and made this list
+                # read as "none of these agents are usable" (P1 段02).
+                if not is_agent_description_unset(desc):
                     line += f": {desc[:80]}"
                 parts.append(line)
 
@@ -359,25 +365,25 @@ class MessageBusModule(XYZBaseModule):
             if bus is None:
                 return ctx_data
 
-            # --- 1. Auto-register this agent in bus_agent_registry ---
+            # --- 1. Keep this agent's peer-discovery row true ---
+            #
+            # Was an inline write with `capabilities=[]` hardcoded and the raw
+            # `agent_description` (i.e. the creation placeholder) republished —
+            # which is what made `bus_search_agents` answer nothing for every
+            # query and told askers that a configured peer was "a new agent
+            # ready for configuration" (P1 段02, all 488 prod rows). The policy
+            # now lives in ONE service that creation / rename / config / skill
+            # install also call, so discovery no longer waits for a first turn;
+            # this call is the idempotent per-turn backstop.
             try:
                 db = await _get_shared_db()
                 if db:
-                    agent_row = await db.get_one("agents", {"agent_id": self.agent_id})
-                    if agent_row:
-                        owner = agent_row.get("created_by", "")
-                        name = agent_row.get("agent_name", "")
-                        desc = agent_row.get("agent_description", "")
-                        is_public = agent_row.get("is_public", 0)
-                        await bus.register_agent(
-                            agent_id=self.agent_id,
-                            owner_user_id=owner,
-                            capabilities=[],
-                            description=f"{name}: {desc}" if desc else name,
-                            visibility="public" if is_public else "private",
-                        )
+                    from xyz_agent_context.services.agent_discovery_sync import (
+                        sync_agent_discovery,
+                    )
+                    await sync_agent_discovery(db, self.agent_id)
             except Exception as e:
-                logger.debug(f"Failed to auto-register agent in bus: {e}")
+                logger.debug(f"Failed to sync agent discovery row: {e}")
 
             # --- 2. Fetch known agents ---
             #

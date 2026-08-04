@@ -181,6 +181,37 @@ class Agent(BaseModel):
     agent_update_time: Optional[datetime] = Field(default=None, description="Update time")
 
 
+# The string agent creation used to stamp into ``agent_description`` when the
+# caller supplied none. Creation no longer writes it (an unset description is
+# now empty), but ~488 production rows carry it, so every reader must still
+# recognise it as "not set" rather than prose.
+#
+# It was never harmless filler: the bus registry snapshotted it, so
+# ``bus_get_agent_profile`` reported a fully configured agent as "a new agent
+# ready for configuration", and the ASKING agent concluded the peer was not
+# ready and refused to send anything (P1 段02, prod evt_feb1f6ae). BasicInfo
+# injects the same field as the agent's own self-description, so the asked
+# agent read it about itself too.
+LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"
+
+
+def is_agent_description_unset(description: Optional[str]) -> bool:
+    """True when an agent has no real self-description yet.
+
+    Covers empty/None (agents created after the fix) and the legacy
+    placeholder above, case- and padding-insensitively — a row written by a
+    tool that trimmed or lower-cased it must not read as real prose.
+
+    Callers must degrade by SAYING NOTHING about the description rather than
+    printing it: repeating "a new agent ready for configuration" to a peer is
+    worse than silence, because it asserts the peer is unconfigured.
+    """
+    text = (description or "").strip()
+    if not text:
+        return True
+    return text.lower() == LEGACY_AGENT_DESCRIPTION_PLACEHOLDER.lower()
+
+
 # ===== MCP URL Entity =====
 
 class MCPUrl(BaseModel):
