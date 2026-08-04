@@ -57,8 +57,14 @@ export default function ArtifactRenderer({ artifact }: Props) {
     return <div className="p-4 opacity-60">{t('artifacts.unsupportedKind', { kind: artifact.kind })}</div>;
   }
   return (
-    <Suspense fallback={<div className="p-4 opacity-60">{t('artifacts.loadingRenderer')}</div>}>
-      <Renderer artifact={artifact} />
-    </Suspense>
+    // Bounded box so every renderer resolves a real height and owns its own
+    // scrolling (the column's content box clips — see ArtifactColumn). Must
+    // be h-full/w-full, NOT absolute: this component also renders inside the
+    // zoom modal's scale-sizer layers, where absolute would escape them.
+    <div className="h-full w-full">
+      <Suspense fallback={<div className="p-4 opacity-60">{t('artifacts.loadingRenderer')}</div>}>
+        <Renderer artifact={artifact} />
+      </Suspense>
+    </div>
   );
 }

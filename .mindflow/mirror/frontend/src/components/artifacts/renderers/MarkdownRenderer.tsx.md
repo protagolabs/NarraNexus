@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/MarkdownRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 滚动归属：内容盒 h-full，渲染器自己滚
+
+云端 artifact 滑不动的 P2 修复（Base recvpm05jsLg3o）。列容器的内容盒是
+overflow-hidden（拖拽冻结机制依赖裁剪，不能改），所以滚动必须由渲染器
+自己承担：内容 div 补 `h-full`（高度钉死为面板高度）让溢出发生在自身的
+`overflow-auto` 里，加 `overscroll-contain` 防移动端滚动链穿透。没有
+h-full 时 div 高度=内容高度、永不溢出，真溢出发生在父容器并被静默裁掉
+——用户只能看到第一屏，还会误判成 agent 只写了这么点。回归测试见
+[[__tests__/scrollContainment.test.tsx]]。
 
 ## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
 

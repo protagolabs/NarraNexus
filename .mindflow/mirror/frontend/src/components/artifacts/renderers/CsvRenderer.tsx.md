@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/CsvRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 滚动归属：wrapper 补 h-full，纵横都在这一层滚
+
+同 MarkdownRenderer 的滑不动修复（Base recvpm05jsLg3o）：wrapper div 补
+`h-full` + `overscroll-contain`。列容器内容盒 overflow-hidden 不能动
+（拖拽冻结依赖裁剪），高度钉死后纵向滚动和宽表横向滚动都发生在这个
+wrapper 的 `overflow-auto` 里——正好延续下面「overflow-auto 在 wrapper
+不在 table 上」的既有决策。回归测试见 [[__tests__/scrollContainment.test.tsx]]。
 
 ## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
 

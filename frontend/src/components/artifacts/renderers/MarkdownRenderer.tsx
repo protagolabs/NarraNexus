@@ -71,7 +71,12 @@ export default function MarkdownRenderer({ artifact }: Props) {
   ) : !text ? (
     <div className="p-4 opacity-60">(empty markdown)</div>
   ) : (
-    <div className="markdown-content max-w-none p-4 overflow-auto">
+    // h-full bounds the container to the column's content box (which is
+    // overflow-hidden by design — the drag-freeze mechanism relies on
+    // clipping), so overflow happens HERE and this div owns the scrolling.
+    // Without the bound the div grows to content height, never overflows,
+    // and the parent silently clips everything past the first screen.
+    <div className="markdown-content max-w-none p-4 h-full overflow-auto overscroll-contain">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-07-22
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 统一有界包装盒（h-full w-full，绝不能用 absolute）
+
+分发出口包了一层 `h-full w-full` div，让每种渲染器都拿到确定高度，从而
+自己承担滚动（列内容盒 overflow-hidden 只裁剪不滚动——拖拽冻结机制依赖
+它）。这同时消掉了 ArtifactColumn 里 chart 分支（absolute inset-0 包装）
+与非 chart 分支不对称导致的 markdown/csv 高度失约束。**包装必须是
+h-full/w-full 而不是 absolute inset-0**：本组件同时渲染在
+ArtifactZoomModal 的 sizer/inner 缩放层里，absolute 会逃逸到弹窗滚动
+容器上，直接破坏 zoom 平移。回归断言见
+[[renderers/__tests__/scrollContainment.test.tsx]]。
 
 ## 2026-07-22 — application/x-url → UrlRenderer
 

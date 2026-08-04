@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 根容器 h-screen → h-dvh
+
+移动端 100vh 把浏览器可伸缩 UI 背后的空间也算进去，布局底边（输入框
+附近）被压在工具栏下面露不全。dvh 跟随实际可见视口。artifact 滑不动
+修复批次的次要项（Base recvpm05jsLg3o）。
 
 > 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
 > chat panel — the local-only, once-per-user "import your other agents" guided

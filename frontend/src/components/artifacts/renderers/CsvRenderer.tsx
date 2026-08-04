@@ -79,7 +79,11 @@ export default function CsvRenderer({ artifact }: Props) {
     (() => {
       const [header, ...body] = rows;
       return (
-        <div className="overflow-auto p-4">
+        // h-full bounds the wrapper to the column's overflow-hidden content
+        // box so vertical AND horizontal scrolling both happen here (wide
+        // tables pan sideways); without it the wrapper grows to table
+        // height and the parent clips everything past the first screen.
+        <div className="h-full overflow-auto overscroll-contain p-4">
           <table className="border-collapse text-sm">
             <thead>
               <tr>
