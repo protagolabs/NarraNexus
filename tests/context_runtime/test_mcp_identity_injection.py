@@ -38,7 +38,10 @@ class _FakeModule:
     async def get_turn_context(self, ctx_data):
         return ""
 
-    async def get_expressive_tools(self):
+    async def get_expressive_tools(self, ctx_data=None):
+        # Accepts ctx_data since #228 — context_runtime calls it WITH the
+        # arg and logs "declaration DROPPED" (error) on signature drift, so a
+        # stale fake here would silently exercise that error path.
         return []
 
 

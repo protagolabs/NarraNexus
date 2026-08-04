@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — get_expressive_tools 补上 ctx_data(review 抓漏)
+
+签名扫尾漏了本类:基类/调用点已改带参,本覆写仍是 (self)-only →
+每次调用 TypeError → 收集点 fail-open 吞掉 → owner chat 默认回复工具
+声明静默清零(NexusPower 路径致哑)。已补参;并新增 MODULE_MAP 全量
+签名守卫测试 + 收集点对 TypeError 单独 logger.error(签名漂移是接线
+bug,不许长得像"某模块声明崩了,无所谓")。
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 覆写 `get_expressive_tools()`:从 `get_mcp_config().server_name` 派生全名

@@ -336,7 +336,7 @@ MCPs: {mcp_tools}
         """
         pass
 
-    async def get_expressive_tools(self) -> list[str]:
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Fully-qualified reply/delivery tools this module contributes.
 
         The platform forwards the collected list to the agent framework
@@ -344,6 +344,12 @@ MCPs: {mcp_tools}
         contract: only these tools' content reaches a human). Most
         modules deliver nothing themselves — default is empty; chat and
         IM channel modules override.
+
+        ``ctx_data`` (optional, the turn's ContextData) lets a module vary
+        its declaration by turn origin — the surface must never name a
+        tool that cannot deliver on THIS turn (e.g. narramessenger's
+        trigger-captured ``narra_reply`` on a platform-forwarded managed
+        turn). Declaring a dead tool is misinformation to the model.
         """
         return []
 

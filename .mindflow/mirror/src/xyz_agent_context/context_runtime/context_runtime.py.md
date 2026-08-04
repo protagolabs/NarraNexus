@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-01
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 声明收集点 TypeError 单列(review)
+
+fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,
+改为 logger.error 且注明 declaration DROPPED(教训 #3:别把报警吞成
+背景噪音——ChatModule 曾因此静默哑掉)。
+## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+
+回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
+(那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
+首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
+只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
 
 ## 2026-08-01 — mcp_servers spec 注入调用者身份 header
 

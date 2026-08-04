@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 第三个 managed 缝:`managed_silent_ingest`(review)
+
+静默摄取从协调器收回本类:批量调用的形状(credential/sender 表/
+attachments_by_index)是 trigger 的私有编排知识,协调器伸手进私有方法
+= 缝要消灭的耦合;渠道也因此获得覆写点(某渠道可选择不做静默)。
+## 2026-08-03(补) — `_persist_attachment` 尾段抽到共享函数
+
+store+STT+Attachment 构造迁至
+`attachment_storage.persist_attachment_bytes`(managed ingress 转换器
+共用);trigger 保留 owner 解析 + MIME sniff。行为不变。
+
+## 2026-08-03 — managed-ingress 缝(start() 之外复用业务钩子)
+
+新增 `_managed_bind` / `_credential_for_agent` / `managed_before_run`
+/ `managed_after_run`:Manyfold 托管模式下平台持有连接与清洗,
+openai_compat 经 managed_channel_ingress 构造 trigger(不 start)并在
+run 前后调这两个缝。默认 before=放行;after=错误兜底(run 失败且无回复
+→ `_send_error_fallback` + `format_error_reply(RunError)`)+ 原生
+inbox write(无回复写 CHANNEL_SILENT_SENTINEL,与原生 extract_output
+语义一致)+ `managed_ingress_processed` 审计行(教训 #5)。
+`_managed_bind` 等价于 start() 里业务钩子所需的最小状态(_db +
+audit repo),幂等。覆写:wechat(认主)、matrix(authorize)。
 
 ## 2026-07-31 — _resolve_agent_owner 委托 AgentRepository.resolve_owner
 
