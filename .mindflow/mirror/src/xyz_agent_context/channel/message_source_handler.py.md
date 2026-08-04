@@ -4,15 +4,20 @@ last_verified: 2026-08-04
 stub: false
 ---
 
-## 2026-08-04 — extract_reply_text 空白复判（空气泡根因）
+## 2026-08-04 — extract_reply_text 空白复判 + 三态返回契约（空气泡根因）
 
-citation strip 之后补一道 `if not text.strip(): return None`：gpt-5.x +
-WebSearch 场景「几乎全是 citation token 的回复」被剥成 `"\n"`，truthy
-穿过原有的 `if not text` falsy 判定，一路落库成空气泡（2026-07-13 报
-告的真凶）。纯空白原文（无 citation）也被同一道判定拦下。语义影响：
-_delivered_to_origin 现在把纯空白回复算「未交付」——剥完只剩空白说明
-本来就没有实质回复，比算交付更诚实。owner-visible 路径经
-extract_owner_visible_text 委托，同点覆盖。
+citation strip 之后复判空白：gpt-5.x + WebSearch 场景「几乎全是
+citation token 的回复」被剥成 `"\n"`，truthy 穿过原有的 `if not text`
+falsy 判定，一路落库成空气泡（2026-07-13 报告的真凶）。返回值改为三态
+契约：非空 str=回复文本；`""`=**是**回复调用但文本剥空（含 content
+缺失）；None=根本不是回复调用（工具名不匹配，或自定义 extractor 拒绝
+如 lark_cli 非发送命令）。所有 falsy 消费方（chat_module split、
+_delivered_to_origin、step_4 锚点）行为一致；唯一需要区分的消费方是
+openai_compat._classify_event——`""` 丢弃事件、None 落 tool_call，按
+is_user_reply_tool 名字判会误吞 lark_cli 非发送命令（review 建议的原
+方案即此缺陷）。语义影响：纯空白回复算「未交付」——剥完只剩空白说明
+本来就没有实质回复。owner-visible 路径经 extract_owner_visible_text
+委托，同点覆盖。
 
 ## 2026-08-04 (review 三) — effective_owner_visible_names 属性
 

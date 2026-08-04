@@ -42,6 +42,7 @@
 
 import type { SimpleChatMessage } from '@/types/api';
 import type { ChatMessage, AgentToolCall, Attachment, TurnEvent } from '@/types';
+import { isBlankText } from './isBlankText';
 
 /** Unified message item for the single timeline. */
 export interface TimelineItem {
@@ -120,7 +121,12 @@ export function buildUnifiedTimeline(
     // Blank-bubble guard: rows already persisted with whitespace-only
     // content (pre-strip-guard history) render as empty bubbles. Skip
     // them — unless they carry attachments, which render on their own.
-    if (!msg.content?.trim() && !msg.attachments?.length) continue;
+    // NOTE: a skipped row also stays OUT of the dedup indexes below
+    // (historyEventRoleKeys / historyByContentKey), so a session copy
+    // sharing its event_id would render. Harmless today — the backend
+    // guards stop producing blank rows, and stale blank rows have no
+    // live session — but keep it in mind if a blank producer returns.
+    if (isBlankText(msg.content) && !msg.attachments?.length) continue;
 
     // Hide message-bus background-activity markers from the agent's 1:1 chat.
     // A team group-chat turn (the agent was @mentioned) lives in the team room,

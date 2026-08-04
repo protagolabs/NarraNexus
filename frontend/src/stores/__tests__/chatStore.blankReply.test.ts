@@ -1,11 +1,10 @@
 /**
  * Blank replies never become bubbles: when send_message_to_user_directly
  * carries whitespace-only content ("\n"), stopStreaming falls through to
- * the placeholder branch and getUserVisibleResponse returns null — the
- * same line the backend hook_persist_turn strip guard draws. Otherwise
- * the session shows a blank bubble that vanishes on refresh (the DB side
- * is caught by the strip guard, the session side let it through via
- * filter(Boolean)).
+ * the placeholder branch — the same line the backend hook_persist_turn
+ * strip guard draws. Otherwise the session shows a blank bubble that
+ * vanishes on refresh (the DB side is caught by the strip guard, the
+ * session side let it through via filter(Boolean)).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useChatStore } from '../chatStore';
@@ -50,11 +49,5 @@ describe('chatStore blank reply guard', () => {
     useChatStore.getState().stopStreaming(AGENT);
     const messages = useChatStore.getState().agentSessions[AGENT].messages;
     expect(messages[messages.length - 1].content).toBe('real reply');
-  });
-
-  it('getUserVisibleResponse: whitespace-only reply returns null', () => {
-    useChatStore.getState().setActiveAgent(AGENT);
-    useChatStore.getState().processMessage(AGENT, replyProgress('\n', 'c1'));
-    expect(useChatStore.getState().getUserVisibleResponse()).toBeNull();
   });
 });

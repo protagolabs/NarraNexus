@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — _classify_event：剥空的回复工具事件整条丢弃
+
+extract_reply_text 的空白守卫上线后，全 citation 回复抽出 `""`（falsy）
+——若照旧落进 tool_call 分支，会把内部 MCP 回复工具名当真工具调用暴露
+给外部 OpenAI-compat 客户端，且 content_emitted=False 触发误导性的
+"upstream LLM error" no-reply fallback。现按三态返回值判定：非空 str
+→ content；`""`（是回复调用但剥空）→ 丢弃整条事件；None（不是回复调
+用，如 lark_cli 非发送命令）→ 照常 tool_call。不能按 is_user_reply_tool
+名字判——lark_cli 同名工具既做回复也做非回复命令，按名判会吞掉后者
+（tests/backend/test_manyfold_im_ingress.py 钉住该场景）。
 
 ## 2026-08-03(补2) — 非 @ 群消息短路到 `silent_ingest`
 
