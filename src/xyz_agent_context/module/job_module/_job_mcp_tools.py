@@ -17,7 +17,7 @@ Tools:
 - job_cancel: Cancel a job
 """
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, NotRequired, TypedDict
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
@@ -25,6 +25,29 @@ from mcp.server.fastmcp import FastMCP
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
+
+
+class TriggerConfigArg(TypedDict):
+    """Tool-boundary shape of ``trigger_config``.
+
+    A TypedDict on purpose, twice over: a bare ``dict`` annotation gives the
+    model an object schema with no properties (everything rode on docstring
+    prose, and a stringified payload crashed deep in the service as
+    "argument of type 'str' is not a mapping"); and unlike ``Optional[...]``
+    pydantic fields, ``NotRequired`` keys serialize as plain-typed properties
+    — no ``anyOf[X, null]``, the exact shape schema-strict providers reject
+    (W1 2026-08-04: Google 400s the whole request over one such parameter).
+    Deep validation (which keys each job_type needs, run_at naiveness) stays
+    in ``schema.job_schema.TriggerConfig`` — this shape only documents the
+    fields and rejects non-object payloads at the boundary.
+    """
+
+    timezone: str
+    run_at: NotRequired[str]
+    cron: NotRequired[str]
+    interval_seconds: NotRequired[int]
+    end_condition: NotRequired[str]
+    max_iterations: NotRequired[int]
 
 
 def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
@@ -51,7 +74,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         title: str,
         description: str,
         job_type: str,
-        trigger_config: dict,
+        trigger_config: TriggerConfigArg,
         payload: str,
         notification_method: str = "direct",
         task_key: Optional[str] = None,
@@ -101,27 +124,45 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         """
         from xyz_agent_context.module.job_module.job_service import JobInstanceService
 
-        await setup_mcp_llm_context(agent_id)
-        db = await get_db_client_fn()
-        service = JobInstanceService(db)
-        result = await service.create_job_with_instance(
-            agent_id=agent_id,
-            user_id=user_id,
-            title=title,
-            description=description,
-            job_type=job_type,
-            trigger_config=trigger_config,
-            payload=payload,
-            notification_method=notification_method,
-            dependencies=depends_on_job_ids,
-            related_entity_id=related_entity_id,
-            narrative_id=narrative_id
-        )
+        try:
+            await setup_mcp_llm_context(agent_id)
+            db = await get_db_client_fn()
+            service = JobInstanceService(db)
+            result = await service.create_job_with_instance(
+                agent_id=agent_id,
+                user_id=user_id,
+                title=title,
+                description=description,
+                job_type=job_type,
+                trigger_config=dict(trigger_config),
+                payload=payload,
+                notification_method=notification_method,
+                dependencies=depends_on_job_ids,
+                related_entity_id=related_entity_id,
+                narrative_id=narrative_id
+            )
 
-        if result.get("success") and task_key:
-            result["task_key"] = task_key
+            if result.get("success") and task_key:
+                result["task_key"] = task_key
 
-        return result
+            return result
+
+        except LLMConfigNotConfigured as e:
+            # The one failure a model can fix by itself: it almost always
+            # means agent_id was a guess. Raw exception text here read as
+            # "impossible" and produced "I can't do that" replies (W1).
+            logger.warning(f"job_create LLM context failed for agent_id={agent_id!r}: {e}")
+            return {
+                "success": False,
+                "error": (
+                    f"Could not resolve the agent context for agent_id={agent_id!r}. "
+                    "Retry with the exact Agent ID stated in your instructions — "
+                    "never a placeholder like 'agent_current'."
+                ),
+            }
+        except Exception as e:
+            logger.exception(f"Error in job_create: {e}")
+            return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_semantic
@@ -351,7 +392,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         description: Optional[str] = None,
         payload: Optional[str] = None,
         guidance_text: Optional[str] = None,
-        trigger_config: Optional[dict] = None,
+        trigger_config: Optional[TriggerConfigArg] = None,
         job_type: Optional[str] = None,
         next_run_time: Optional[str] = None,
         status: Optional[str] = None,

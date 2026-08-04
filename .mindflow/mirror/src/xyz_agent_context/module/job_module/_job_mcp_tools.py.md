@@ -1,7 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-07-24
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — job_create 补齐兄弟工具的边界纪律（W1）
+
+- **job_create 原是全文件唯一裸奔的工具**：其余 6 个都整体 try/except，
+  它的 `setup_mcp_llm_context(agent_id)` 直接把 `LLMConfigNotConfigured`
+  的原始异常文本甩给模型——模型读成「做不了」并如此告诉用户（prod 报障
+  的一条真根因）。现在同样整体包裹；`LLMConfigNotConfigured` 单独接住，
+  文案指回「用 instructions 里的真实 Agent ID，别用占位符」——这是模型
+  唯一能自愈的失败，值得专门的话术；其余异常与兄弟工具同形
+  `{success: False, error: str(e)}`。
+- **`trigger_config` 从裸 `dict` 改为 `TriggerConfigArg`（TypedDict）**。
+  刻意选 TypedDict 而非 pydantic 模型：`NotRequired` 键生成**平铺
+  properties、无 anyOf[X,null]**——后者正是 schema 严格的 provider
+  （Google functionDeclaration）整请求 400 的形状（W1 实测 6 发 5 拒）。
+  同时字符串化的 JSON 会在边界被拒并给出可读错误，替代原先深入 service
+  才炸的 `argument of type 'str' is not a mapping`。深层校验（各
+  job_type 需要哪些键、run_at naive）仍归 `schema.TriggerConfig`，边界
+  shape 只管「字段自文档 + 拒绝非对象」。job_update 同步换型
+  （`Optional[TriggerConfigArg]`）。
+- 测试：`tests/job_module/test_job_mcp_tool_hardening.py`（schema 有
+  properties、可选字段平铺类型无 anyOf、两类异常都回结构化 error）。
 
 # _job_mcp_tools.py — JobModule MCP 工具定义
 
