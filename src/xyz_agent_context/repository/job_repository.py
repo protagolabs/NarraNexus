@@ -403,7 +403,7 @@ class JobRepository(BaseRepository[JobModel]):
         """
         logger.debug(f"    → JobRepository.get_active_jobs_by_agent({agent_id}, user_id={user_id})")
 
-        user_clause = "AND user_id = %s" if user_id else ""
+        user_clause = "AND user_id = %s" if user_id is not None else ""
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE agent_id = %s
@@ -412,7 +412,7 @@ class JobRepository(BaseRepository[JobModel]):
             ORDER BY created_at DESC
             LIMIT %s
         """
-        params = (agent_id, user_id, limit) if user_id else (agent_id, limit)
+        params = (agent_id, user_id, limit) if user_id is not None else (agent_id, limit)
 
         rows = await self._db.execute(query, params=params, fetch=True)
         return [self._row_to_entity(row) for row in rows]

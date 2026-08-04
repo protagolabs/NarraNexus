@@ -318,13 +318,12 @@ def resolve_caller_user_id(supplied: Any) -> Any:
       decides whether overriding is ever justified (PR #230 discipline:
       measure before you police).
     """
-    if supplied is None or not is_placeholder_user_id(supplied):
+    if supplied is None:
+        return None
+
+    if not is_placeholder_user_id(supplied):
         injected = caller_user_id_from_request()
-        if (
-            supplied is not None
-            and injected is not None
-            and supplied != injected
-        ):
+        if injected is not None and supplied != injected:
             logger.warning(
                 f"[mcp-identity] user_id={supplied!r} does not match the turn "
                 f"owner ({injected!r}) — keeping the supplied value (measured, "
@@ -383,8 +382,8 @@ def install_caller_identity(mcp) -> None:
     the behaviour for free simply by declaring ``agent_id`` (there is no
     per-tool step for anyone to forget).
 
-    Only tools that actually declare an ``agent_id`` parameter are wrapped;
-    everything else is left strictly alone.
+    Only tools that declare an ``agent_id`` or ``user_id`` parameter are
+    wrapped; everything else is left strictly alone.
     """
     try:
         tools = mcp._tool_manager.list_tools()
@@ -430,7 +429,10 @@ def _annotation_is_dict(annotation: Any) -> bool:
 
 
 def _wrap_fn(fn: Callable) -> Callable:
-    """Wrap one tool fn so ``agent_id`` is resolved before the body runs.
+    """Wrap one tool fn so caller identity is resolved before the body runs.
+
+    Declared ``agent_id`` and ``user_id`` parameters follow their respective
+    resolution disciplines; tools declaring only one are supported too.
 
     Preserves the signature (``functools.wraps`` plus an explicit
     ``__signature__``) because FastMCP has already built this tool's JSON

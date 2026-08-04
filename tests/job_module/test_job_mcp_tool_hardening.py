@@ -42,18 +42,20 @@ def _tool(mcp, name):
 # ---------------------------------------------------------------------------
 
 def _trigger_schema(tool):
-    props = tool.parameters["properties"]
-    schema = props["trigger_config"]
-    # Optional[...] wrapping on job_update may produce anyOf — find the
-    # object arm; job_create must be the object directly.
-    if "anyOf" in schema:
-        arms = [a for a in schema["anyOf"] if a.get("type") == "object" or "properties" in a or "$ref" in a]
-        assert arms, f"no object arm in {schema}"
-        schema = arms[0]
-    if "$ref" in schema:
-        ref = schema["$ref"].rsplit("/", 1)[-1]
-        schema = tool.parameters["$defs"][ref]
-    return schema
+    return tool.parameters["properties"]["trigger_config"]
+
+
+@pytest.mark.parametrize("tool_name", ["job_create", "job_update"])
+def test_trigger_config_is_an_inline_object_schema(tool_name):
+    """Strict providers must not have to resolve JSON Schema composition."""
+    tool = _tool(_server(), tool_name)
+    schema = _trigger_schema(tool)
+
+    assert schema.get("type") == "object", schema
+    assert "properties" in schema, schema
+    assert "$ref" not in schema, schema
+    assert "anyOf" not in schema, schema
+    assert "$defs" not in tool.parameters, tool.parameters
 
 
 def test_job_create_trigger_config_declares_properties():

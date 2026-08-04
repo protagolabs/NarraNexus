@@ -23,6 +23,11 @@ Jobs 列表永远空着，agent 却报成功（假成功）。
    但多用户流程里传别人 user_id 可能合法（销售/团队场景），先用
    warning 计量再决定是否收紧（PR #230 的先测量纪律）。
 
+`resolve_caller_user_id(None)` 在函数入口直接返回，不读取请求 header；None
+分支本来就禁止注入，读取结果必定被丢弃。`install_caller_identity` 与
+`_wrap_fn` 的 docstring 同步写明 wrapper 覆盖 agent_id **或** user_id，避免
+维护者按过期的 agent_id-only 描述误判影响范围。
+
 `install_caller_identity` 的 wrap 判据从「声明 agent_id」放宽为
 「声明 agent_id 或 user_id」。注入端 `agent_id_headers` 增加
 `user_id=None` 参数（None 时 header 省略、bearer 尾字段掉落），

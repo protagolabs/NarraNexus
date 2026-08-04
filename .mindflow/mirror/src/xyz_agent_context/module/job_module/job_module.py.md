@@ -14,6 +14,10 @@ W1 实测每次必现）。真相是 `SCHEDULED` 本身就是 cron/interval 周�
 钉死在 enum 值集合上——双向断言（不教幻影类型、enum 值全部教到），
 两个模板变体（legacy / STABLE）都覆盖。
 
+同一张类型表的 ONE_OFF 行原写「run_at（或立即）」，但 service 对
+ONE_OFF 强制要求 run_at，没有立即执行的缺省路径。现改成
+`run_at (required)`，测试同时钉住必填描述，避免模型省略字段后白跑一轮纠错。
+
 ## 2026-07-28 — R4b："Current Job Status" 表搬进 get_turn_context
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

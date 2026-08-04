@@ -117,7 +117,7 @@ A Job is an abstraction for background tasks, used to execute work that requires
 
 | Type | Description | Trigger Condition | Use Case |
 |------|-------------|-------------------|----------|
-| **ONE_OFF** | One-time task | Executes once at run_at (or immediately) | Single reminder, one-time report |
+| **ONE_OFF** | One-time task | Executes once at run_at (required) | Single reminder, one-time report |
 | **SCHEDULED** | Periodic task | Repeats by cron or interval_seconds | Daily reports, periodic checks |
 | **ONGOING** | Continuous task | Checks by interval_seconds until end_condition is met | Sales follow-up, goal achievement monitoring |
 

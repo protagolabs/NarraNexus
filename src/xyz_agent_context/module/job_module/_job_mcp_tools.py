@@ -17,10 +17,11 @@ Tools:
 - job_cancel: Cancel a job
 """
 
-from typing import Optional, List, Any, NotRequired, TypedDict
+from typing import Annotated, Optional, List, Any, NotRequired, TypedDict
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+from pydantic import TypeAdapter, WithJsonSchema
 
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
@@ -50,6 +51,22 @@ class TriggerConfigArg(TypedDict):
     max_iterations: NotRequired[int]
 
 
+# FastMCP asks pydantic for the containing function's schema. A named
+# TypedDict is normally emitted through $defs/$ref, and Optional adds an
+# anyOf-null wrapper. Some tool-schema providers reject both constructs.
+# Override only the published JSON Schema while retaining TypedDict runtime
+# validation; TypeAdapter keeps the inline shape derived from the type itself.
+_TRIGGER_CONFIG_JSON_SCHEMA = TypeAdapter(TriggerConfigArg).json_schema()
+TriggerConfigInput = Annotated[
+    TriggerConfigArg,
+    WithJsonSchema(_TRIGGER_CONFIG_JSON_SCHEMA),
+]
+OptionalTriggerConfigInput = Annotated[
+    Optional[TriggerConfigArg],
+    WithJsonSchema(_TRIGGER_CONFIG_JSON_SCHEMA),
+]
+
+
 def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
     """
     Create a JobModule MCP Server instance
@@ -74,7 +91,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         title: str,
         description: str,
         job_type: str,
-        trigger_config: TriggerConfigArg,
+        trigger_config: TriggerConfigInput,
         payload: str,
         notification_method: str = "direct",
         task_key: Optional[str] = None,
@@ -399,7 +416,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         description: Optional[str] = None,
         payload: Optional[str] = None,
         guidance_text: Optional[str] = None,
-        trigger_config: Optional[TriggerConfigArg] = None,
+        trigger_config: OptionalTriggerConfigInput = None,
         job_type: Optional[str] = None,
         next_run_time: Optional[str] = None,
         status: Optional[str] = None,

@@ -47,3 +47,12 @@ def test_every_enum_value_is_taught():
     for template in (JOB_MODULE_INSTRUCTIONS, JOB_MODULE_INSTRUCTIONS_STABLE):
         taught = _taught_type_tokens(template)
         assert taught == VALID_VALUES, f"missing from instructions: {VALID_VALUES - taught}"
+
+
+def test_one_off_instructions_require_run_at():
+    for template in (JOB_MODULE_INSTRUCTIONS, JOB_MODULE_INSTRUCTIONS_STABLE):
+        one_off_row = next(
+            line for line in template.splitlines() if line.startswith("| **ONE_OFF**")
+        )
+        assert "run_at (required)" in one_off_row
+        assert "immediately" not in one_off_row.lower()

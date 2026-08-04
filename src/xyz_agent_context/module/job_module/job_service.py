@@ -388,6 +388,7 @@ class JobInstanceService:
                 payload=config.get("payload", ""),
                 dependencies=dependencies,
                 instance_id=instance_id,
+                confirm_new=True,
             )
 
             if result["success"]:

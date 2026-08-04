@@ -13,16 +13,18 @@ last_verified: 2026-08-04
   唯一能自愈的失败，值得专门的话术；其余异常与兄弟工具同形
   `{success: False, error: str(e)}`。
 - **`trigger_config` 从裸 `dict` 改为 `TriggerConfigArg`（TypedDict）**。
-  刻意选 TypedDict 而非 pydantic 模型：`NotRequired` 键生成**平铺
-  properties、无 anyOf[X,null]**——后者正是 schema 严格的 provider
-  （Google functionDeclaration）整请求 400 的形状（W1 实测 6 发 5 拒）。
-  同时字符串化的 JSON 会在边界被拒并给出可读错误，替代原先深入 service
-  才炸的 `argument of type 'str' is not a mapping`。深层校验（各
-  job_type 需要哪些键、run_at naive）仍归 `schema.TriggerConfig`，边界
-  shape 只管「字段自文档 + 拒绝非对象」。job_update 同步换型
-  （`Optional[TriggerConfigArg]`）。
-- 测试：`tests/job_module/test_job_mcp_tool_hardening.py`（schema 有
-  properties、可选字段平铺类型无 anyOf、两类异常都回结构化 error）。
+  TypedDict 保留字段级运行时校验，`NotRequired` 让嵌套字段保持普通类型；
+  但 FastMCP 默认把命名 TypedDict 发布为 `$defs/$ref`，而 job_update 的
+  Optional 还会包一层 `anyOf[$ref,null]`，仍会被 schema 严格的 provider
+  拒绝。现在用 `Annotated + WithJsonSchema` 只覆盖**对外 JSON Schema**：
+  两个工具直接发布 `type: object + properties`，无 `$defs`、`$ref`、
+  `anyOf`，运行时仍由原 TypedDict 校验。内联 shape 用 TypeAdapter 从
+  TypedDict 本身生成，避免手写两份字段清单漂移。字符串化 JSON 仍在边界
+  被拒；深层校验（各 job_type 必填键、run_at naive）仍归
+  `schema.TriggerConfig`。
+- 测试：`tests/job_module/test_job_mcp_tool_hardening.py`（直接检查参数原始
+  schema 是内联 object 且无 `$defs/$ref/anyOf`；可选字段平铺类型；两类
+  异常都回结构化 error）。
 
 # _job_mcp_tools.py — JobModule MCP 工具定义
 

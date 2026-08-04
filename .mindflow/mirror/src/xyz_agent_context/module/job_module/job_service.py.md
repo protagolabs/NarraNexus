@@ -16,9 +16,11 @@ agent 不按 user，别人的标题也能挡你）。现契约三层：
   确认后带 `confirm_new=true` 重调。绝不再假装成功。
 - **跨用户不再耦合**：候选查询 `get_active_jobs_by_agent` 新增 user_id
   过滤，dedup 调用方必须传。
-- `confirm_new=True` 只越过相似门，不越过精确同名门。两个确定性调用方
-  （backend /complex 批量、arena provisioning）固定传 True——它们的标题
-  是调用方设计的（同组子任务标题天然相近），不该被防 LLM 重复的门挡住。
+- `confirm_new=True` 只越过相似门，不越过精确同名门。三个确定性调用方
+  （backend /complex 批量、arena provisioning、service 内部
+  `create_jobs_batch`）固定传 True——它们的标题是调用方设计的（同组子任务
+  标题天然相近），不该被防 LLM 重复的门挡住。batch 测试用两个相似兄弟
+  标题验证它们都能落库，依赖映射不会指向未创建的 instance。
 
 docstring 顺带纠偏：阈值写 0.6 实为 0.5 的漂移；并写明相似度只看标题
 分词的陷阱（内容不同也会撞）与 CJK 单 token 几乎不触发的不对称性。

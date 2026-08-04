@@ -65,6 +65,20 @@ async def test_similar_title_different_user_is_not_blocked(db_client):
 
 
 @pytest.mark.asyncio
+async def test_empty_user_id_still_has_its_own_candidate_pool(db_client):
+    """An empty user ID is a value, not a request for agent-wide candidates."""
+    service = JobInstanceService(db_client)
+    first = await _create(service, agent_id="agent_1", user_id="user_1",
+                          title="Daily Weather Report DS")
+    assert first["success"], first
+
+    second = await _create(service, agent_id="agent_1", user_id="",
+                           title="Daily News Report DS")
+    assert second["success"] is True, second
+    assert not second.get("is_existing")
+
+
+@pytest.mark.asyncio
 async def test_confirm_new_creates_despite_similarity(db_client):
     service = JobInstanceService(db_client)
     first = await _create(service, agent_id="agent_1", user_id="user_1",

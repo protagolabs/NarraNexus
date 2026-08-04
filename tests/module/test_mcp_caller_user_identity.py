@@ -26,6 +26,7 @@ The user_id discipline is DELIBERATELY weaker than agent_id's:
 from __future__ import annotations
 
 import contextlib
+from unittest.mock import patch
 
 import pytest
 
@@ -139,6 +140,14 @@ def test_placeholder_user_is_replaced_by_injected():
 def test_none_user_is_left_alone_even_with_injection():
     with injected({USER_ID_HEADER: USER}):
         assert resolve_caller_user_id(None) is None
+
+
+def test_none_user_does_not_read_request_headers():
+    with patch(
+        "xyz_agent_context.module._mcp_identity.caller_user_id_from_request"
+    ) as read_injected:
+        assert resolve_caller_user_id(None) is None
+    read_injected.assert_not_called()
 
 
 def test_mismatching_user_is_kept_not_overridden():
