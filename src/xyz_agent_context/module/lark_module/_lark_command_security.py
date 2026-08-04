@@ -288,13 +288,42 @@ def _expand_escapes(value: str) -> str:
     return value
 
 
+# Message-body flags whose VALUE is the literal text delivered to the human.
+# lark-cli has no @file expansion for these (the @./file convention exists
+# only on --json-style flags), so a value that LOOKS like a file reference —
+# one token, @-prefixed, with a filename extension — is almost certainly a
+# model trying to send a composed file ("--markdown @lark_reply.md", live
+# incident 2026-08-04): lark-cli would deliver the literal string and report
+# success. Real @-mentions ("@张三 明天…", "@all") either contain spaces or
+# lack an extension, so they never match.
+_LITERAL_BODY_FLAGS = {"--text", "--markdown"}
+_FILE_REFERENCE_RE = re.compile(r"^@\S+\.[A-Za-z0-9]{1,5}$")
+
+
+def _reject_file_reference_bodies(args: list[str]) -> None:
+    """Raise when a --text/--markdown value looks like a file reference."""
+    for flag, value in zip(args, args[1:]):
+        if flag in _LITERAL_BODY_FLAGS and _FILE_REFERENCE_RE.match(value):
+            raise ValueError(
+                f"{flag} {value}: this looks like a file reference, but "
+                f"--text/--markdown do not read files — the value is sent "
+                f"verbatim as the message body, so the recipient would "
+                f"literally see \"{value}\". Put the FULL message content "
+                f"inline as one quoted argument instead, e.g. "
+                f'{flag} "line one\\n\\nline two". Do not write the message '
+                f"to a file first."
+            )
+
+
 def sanitize_command(command: str) -> list[str]:
     """Parse command string into safe argument list.
 
     Uses shlex.split for proper handling of quoted strings, then expands
     common escape sequences (\\n, \\t, \\r) in arg values so rich-text
     flags like --markdown render correctly.
-    Raises ValueError if command is blocked.
+    Raises ValueError if command is blocked, or if a message-body flag
+    carries a file-reference-looking value (see
+    ``_reject_file_reference_bodies``).
     """
     allowed, reason = validate_command(command)
     if not allowed:
@@ -308,5 +337,7 @@ def sanitize_command(command: str) -> list[str]:
         args = shlex.split(command.strip())
     except ValueError as e:
         raise ValueError(f"Failed to parse command: {e}")
+
+    _reject_file_reference_bodies(args)
 
     return [_expand_escapes(a) for a in args]

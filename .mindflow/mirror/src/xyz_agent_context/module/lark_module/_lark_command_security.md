@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_command_security.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 拒绝 --text/--markdown 的 @file 字面量（假成功歼灭）
+
+真机事故（claude_code × lark，evt_2b0010e15c2b4548）：模型第一次
+--markdown 多词未加引号被拒，改 Write lark_reply.md 后用
+`--markdown @lark_reply.md` 重试——这两个 flag 的值就是字面正文，
+lark-cli 不做 @file 展开（@./file 约定只在 --json 类 flag 上），
+于是把 "@lark_reply.md" 原样发给了人类并返回 success，agent 自认
+交付成功。sanitize_command 新增 `_reject_file_reference_bodies`：
+--text/--markdown 后跟「单 token、@ 前缀、带文件扩展名」的值即拒绝，
+错误文案教模型内联整段引号正文。@提及不受影响（"@张三 …" 带空格、
+"@all" 无扩展名，均不命中）；--json @./file 不在守卫范围。
+测试 tests/lark_module/test_message_content_guard.py。
 
 ## 2026-07-29 — 挡三种「不会报错的 shell 构造」（不是 denylist 回归）
 
