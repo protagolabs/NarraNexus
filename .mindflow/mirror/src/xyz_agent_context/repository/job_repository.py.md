@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — get_active_jobs_by_agent 增加 user_id 过滤（W1）
+
+dedup 用途的候选查询原来只按 agent 取——一个用户的 job 标题会挡住另一个
+用户的创建（相似判重跨用户误伤）。新增可选 `user_id` 参数在 SQL 层过滤
+（不是取回后内存过滤：limit 50 会让老 job 把当前用户的候选挤出窗口）。
+dedup 调用方（job_service 相似门）必须传；不传 = 旧行为，留给真需要
+agent 全量视角的读者。
 
 ## 2026-07-30 — update_job_fields trigger_config 序列化对齐 mode='json'
 

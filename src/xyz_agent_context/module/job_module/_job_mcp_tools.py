@@ -80,7 +80,8 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         task_key: Optional[str] = None,
         depends_on_job_ids: Optional[List[str]] = None,
         related_entity_id: Optional[str] = None,
-        narrative_id: Optional[str] = None
+        narrative_id: Optional[str] = None,
+        confirm_new: bool = False
     ) -> dict:
         """
         Create a background Job. IDEMPOTENCY: first check "Jobs I Just Created"
@@ -111,8 +112,13 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 job → requester's user_id; job acting ON another user → that
                 user's ID. Decides whose context loads at execution.
             narrative_id: Narrative to load as conversation context at execution
+            confirm_new: Pass true ONLY after the result asked
+                needs_confirmation AND the user confirmed they want a new job
+                despite the similar existing one. Never pre-set it.
 
-        Returns: dict(success, job_id, instance_id, message)
+        Returns: dict(success, job_id, instance_id, message). On a
+            similar-title hit: dict(success=False, needs_confirmation=True,
+            similar_job) — tell the user, ask which they meant.
 
         Example:
             job_create(agent_id="agent_1", user_id="user_m", title="Report",
@@ -139,7 +145,8 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 notification_method=notification_method,
                 dependencies=depends_on_job_ids,
                 related_entity_id=related_entity_id,
-                narrative_id=narrative_id
+                narrative_id=narrative_id,
+                confirm_new=confirm_new
             )
 
             if result.get("success") and task_key:
