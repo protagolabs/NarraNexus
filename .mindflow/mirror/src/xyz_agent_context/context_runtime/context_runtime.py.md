@@ -4,6 +4,27 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 (review 修正) — team 房中央门控：整轮空 expressive
+
+review Critical #1：只在 bus module 挡 team 房不够——ChatModule 无条件
+声明（IM 渠道也会声明），team 轮 expressive 非空 → 两框架的 reminder 在
+最贴生成点的位置说「纯文本不送达」，与 team prompt 的「纯文本自动上墙」
+对撞。收口移到收集处：`bus_team_room` 标记为真时整轮声明为空（天然命中
+claude 适配器 append_reply_reminder 的 no-op 分支与 NexusPower 空契约）。
+同批修正：收集点上方的契约注释（原文还写着被推翻的 "must be
+priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
+
+## 2026-08-04 — expressive 收集改 origin-first 排序
+
+排序键从 (priority, module_class) 变为 (origin_rank, priority, module_class)：
+拥有本轮 working_source 的模块（`owns_working_source(ws)`，见 [[base]]）
+origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
+（NexusPower constitution 的 example + claude 适配器 reminder 首位），
+从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
+bus 轮默认 bus_send_message、wechat 轮默认 wechat_send。钩子调用
+fail-open（无此方法/抛错 → rank 1，纯 priority 序不变），假模块与
+旧路径零影响。
+
 ## 2026-08-03 — 注入本轮的**差事作用域**(而不是升级 turn_source)
 
 header 除 turn_source 外再带 `bus_errand_peer` / `bus_errand_channel`

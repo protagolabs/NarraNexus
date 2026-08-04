@@ -43,6 +43,16 @@ if TYPE_CHECKING:
     from xyz_agent_context.narrative.models import Event, Narrative
 
 
+# ctx_data.extra_data marker: stamped by MessageBusTrigger on team-room
+# turns (same MESSAGE_BUS working_source as ordinary bus turns, OPPOSITE
+# delivery contract — plain text auto-posts to the room, delivery tools are
+# forbidden by the room prompt). Consumers: context_runtime empties the
+# turn's whole expressive surface; MessageBusModule's declaration gate is a
+# second line of defense. Lives here (not in message_bus) because both
+# sides of the platform read it and schema is the shared base layer.
+BUS_TEAM_ROOM_EXTRA_KEY = "bus_team_room"
+
+
 class WorkingSource(str, Enum):
     """
     Agent execution source - Identifies the origin that triggered Agent execution

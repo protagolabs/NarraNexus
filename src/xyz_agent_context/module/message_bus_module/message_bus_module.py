@@ -24,8 +24,13 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import (
+    XYZBaseModule,
+    mcp_host,
+    working_source_matches,
+)
 from xyz_agent_context.schema import (
+    BUS_TEAM_ROOM_EXTRA_KEY,
     ModuleConfig,
     MCPServerConfig,
     ContextData,
@@ -105,6 +110,45 @@ class MessageBusModule(XYZBaseModule):
             return None
 
     # =========================================================================
+    # Reply surface (origin-aware declaration)
+    # =========================================================================
+
+    def owns_working_source(self, working_source: Any) -> bool:
+        """This module is the origin of MESSAGE_BUS turns — the collection
+        sorts the origin module's declaration first, so the bus delivery
+        tool becomes the turn's default reply tool."""
+        return working_source_matches(working_source, WorkingSource.MESSAGE_BUS.value)
+
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+        """Bus-triggered turns deliver through the bus tools — declare them
+        as the reply surface so the framework's reply reminder names tools
+        that actually reach whoever contacted the agent (2026-08-01: with
+        only the owner-chat tool declared, finished work ended as
+        undelivered plain text or was misdelivered to the owner's chat).
+
+        Gated:
+        - not a bus turn → nothing (advertising bus tools on a chat turn
+          would invite replying to the owner over the bus);
+        - no ctx → nothing (never advertise a surface for an unknown
+          origin);
+        - team room → nothing. NOTE: the PRIMARY team-room gate lives in
+          the collection site ([[context_runtime]]), which empties the
+          whole turn's surface before ever calling this method — the
+          check here is a second line of defense keeping THIS
+          declaration correct if the module is queried directly.
+        """
+        if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
+            return []
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        if extra.get(BUS_TEAM_ROOM_EXTRA_KEY):
+            return []
+        config = await self.get_mcp_config()
+        return [
+            f"mcp__{config.server_name}__bus_send_message",
+            f"mcp__{config.server_name}__bus_send_to_agent",
+        ]
+
+    # =========================================================================
     # Instructions — natural language guidance for the agent
     # =========================================================================
 
@@ -182,6 +226,14 @@ class MessageBusModule(XYZBaseModule):
             "('X wants to know what you are working on'): that a message is 'just forwarded' is NOT a reason for "
             "silence — a human is waiting at the other end of it. Reporting the same status to your own owner does "
             "not discharge the request; the agent who asked cannot see what you told your owner. Reply to the asker.",
+            # 2026-08-01 briefing squad: five analysts did real research and
+            # ended their turns with the results as plain text — nothing was
+            # delivered. Silence rules are for empty substance; a produced
+            # result is the opposite of empty.
+            "- **Finished work is never ping-pong — deliver it.** When you complete something another "
+            "agent asked for (research, an answer, a document), send the result to the asker via "
+            "`bus_send_message` / `bus_send_to_agent`. Ending the turn with the result only as plain text "
+            "delivers NOTHING — the asker never sees it.",
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
             "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",

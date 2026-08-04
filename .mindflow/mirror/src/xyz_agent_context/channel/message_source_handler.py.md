@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-07-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 (review 三) — effective_owner_visible_names 属性
+
+None 回落规则收敛到单点：属性返回「生效的 owner-visible 名单」，
+is_owner_visible_reply_tool 与 chat_module 的日志共用，日志不再手抄
+回落逻辑（review round 2 Minor #4：手抄的规则将来必先漂）。
+
+## 2026-08-04 (review 修正) — owner_visible_reply_tool_names：「交付给来源」≠「owner 可见」
+
+PR #230 review 抓到：一份 `user_reply_tool_names` 名单被三个消费方共用，
+bus 名单扩容后「bus 交付」被 step_4 误当「给 owner 发过消息」→ owner 会话
+锚点被 A2A 回复劫持。拆成两个谓词：
+- `user_reply_tool_names` = 交付给「联系你的人」（度量/NO-REPLY 判定语义）。
+- `owner_visible_reply_tool_names`（新，默认 None=回落前者）= 输出出现在
+  owner web chat。chat/IM 渠道天然两者相同（会话对象就是 owner）；bus
+  override 为仅 send_message_to_user_directly（对端是 agent）。
+新方法 `is_owner_visible_reply_tool` / `extract_owner_visible_text`（复用
+extract_reply_text 的自定义 extractor 路径）。消费方：step_4 锚点判定与
+chat_module 的 user-visible split 用 owner-visible；extract_reply_text
+保持「交付」语义留给度量与未来兜底。
 
 ## 2026-07-03 — `dedicated_trigger` flag + `handlers()` accessor
 

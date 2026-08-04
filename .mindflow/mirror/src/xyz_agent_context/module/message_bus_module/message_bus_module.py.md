@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-01
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — bus 轮次的回复面声明（origin-aware）+「干完活必须交付」纪律
+
+P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）
+的声明侧修复。新增 `get_expressive_tools(ctx_data)` 覆写：**只在**
+working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_agent`
+（fully-qualified，派生自 get_mcp_config().server_name）。三重门：
+① 非 bus 轮不声明（chat 轮广告 bus 工具会诱导经 bus 回 owner）；
+② team 房（extra_data `bus_team_room`，由 [[message_bus_trigger]] 盖章）不声明——
+纯文本自动上墙、prompt 禁投递工具，声明会诱导双发；③ 无 ctx 不声明。
+配套 `owns_working_source`：收集点（[[context_runtime]]）把来源模块的声明排
+到最前，默认回复工具从此跟着「谁联系的你」走。
+
+Reply Discipline 同批加一条「**Finished work is never ping-pong — deliver it**」：
+沉默许可只给"没实质内容"，做完别人求的活必须用 bus 工具送达，纯文本收尾
+= 零交付。注意：与 2026-08-01 那条同理，文案对弱模型效力有限，真正的机制
+修复是声明面（本条）+ 判定面（message_bus/__init__）对齐。
 
 ## 2026-08-01 — 指令新增「替 owner 去问另一个 agent」剧本
 

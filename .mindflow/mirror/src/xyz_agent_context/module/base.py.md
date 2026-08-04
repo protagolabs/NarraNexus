@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 (review 修正) — working_source_matches 公共谓词
+
+四处 owns_working_source 覆写各写一套 enum/字符串比较（两种 isinstance
+极性相反、第二子句全是死代码——WorkingSource 是 (str, Enum)，一个 ==
+两形态通吃）。抽 `working_source_matches(ws, name)` 模块级函数，
+chat/bus/channel 基类共用。
+
+## 2026-08-04 — 新增 owns_working_source 钩子（origin-first 排序的数据源）
+
+`owns_working_source(working_source) -> bool` 默认 False。声明「本模块是
+该来源轮次的主人」；[[context_runtime]] 的 expressive 收集用它把来源模块
+的声明排最前，使默认回复工具跟随本轮联系渠道（原则：独白=思考、交付走
+工具、工具跟来源走，不写死 owner-chat 默认）。覆写者：chat（CHAT）、
+message_bus（MESSAGE_BUS）、channel 基类（channel_name 匹配）。
 
 ## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
 

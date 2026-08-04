@@ -71,6 +71,16 @@ def test_reply_discipline_is_not_read_as_suppressing_the_owner_report():
     assert "never suppresses reporting back to your owner" in text
 
 
+def test_finished_work_must_be_delivered_not_left_as_plain_text():
+    """2026-08-01 briefing squad: five analysts researched for real, ended
+    their turns with the results as plain text, and delivered nothing. The
+    discipline section must state that completing asked-for work ends with
+    a bus send — plain text delivers nothing."""
+    text = _bus_instructions()
+    assert "Finished work is never ping-pong" in text
+    assert "plain text" in text
+
+
 def test_a_missing_target_is_a_question_not_a_refusal():
     text = _bus_instructions()
     assert "that is a clarifying question, not a refusal" in text

@@ -13,6 +13,7 @@ from loguru import logger
 
 # Schema
 from xyz_agent_context.schema import (
+    BUS_TEAM_ROOM_EXTRA_KEY,
     ContextData,
     ModuleInstructions,
     ContextRuntimeOutput,
@@ -1079,17 +1080,30 @@ class ContextRuntime:
         turn_extra = ctx_data.extra_data or {}
         errand_peer = str(turn_extra.get("bus_errand_peer") or "")
         errand_channel = str(turn_extra.get("bus_errand_channel") or "")
-        # Delivery declaration (NexusPower reply contract): each module
-        # states which of its tools DELIVER content to a human. Collected
-        # per module, then sorted by the TOTAL (priority, module_class)
-        # order — the same R4d order every module surface uses. NOT the
-        # active_instances order: that is created_at-driven (see
+        # Delivery declaration (reply contract, both frameworks): each
+        # module states which of its tools DELIVER content to a human.
+        # Collected per module, then sorted by (origin_rank, priority,
+        # module_class): the module that OWNS this turn's working_source
+        # (owns_working_source) ranks first, plain (priority,
+        # module_class) — the R4d order — breaks ties within a rank. NOT
+        # the active_instances order: that is created_at-driven (see
         # get_public_instances), so a later-created channel instance
         # would steal the first slot. The first entry becomes the turn's
         # DEFAULT reply tool and is frozen into the framework's stable
-        # prompt prefix — it must be priority-driven (chat=1 outranks
-        # every channel) and deterministic across turns.
-        expressive_declarations: list[tuple[int, str, list[str]]] = []
+        # prompt prefix — it follows whoever contacted the agent (a bus
+        # turn defaults to the bus send, a wechat turn to wechat_send),
+        # falling back to priority order (chat=1 first) when no module
+        # owns the source. Deterministic across turns either way.
+        #
+        # Team rooms are the one surface with NO delivery surface at all:
+        # the agent's plain text auto-posts to the room and the prompt
+        # forbids delivery tools. An empty declaration keeps both
+        # frameworks' reply reminders silent there — listing ANY tool
+        # (chat's unconditional owner-notify included) would put a
+        # "plain text is never delivered" reminder right next to the
+        # team prompt saying the opposite.
+        team_room_turn = bool(turn_extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
+        expressive_declarations: list[tuple[int, int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0
 
@@ -1139,11 +1153,40 @@ class ContextRuntime:
                     )
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
+                # Team rooms skip collection entirely (empty surface — see
+                # the declaration comment above).
                 try:
-                    declared = await inst.module.get_expressive_tools(ctx_data)
+                    declared = (
+                        []
+                        if team_room_turn
+                        else await inst.module.get_expressive_tools(ctx_data)
+                    )
                     if declared:
+                        # Origin-first: the module that OWNS this turn's
+                        # working_source sorts ahead of everyone, so the
+                        # first collected tool — the framework's default
+                        # reply tool — follows "whoever contacted you"
+                        # instead of hard-wiring the owner-chat tool.
+                        # Fail-open to the non-origin rank: a module
+                        # without the hook (or a crashing one) just keeps
+                        # plain priority order.
+                        try:
+                            origin_rank = (
+                                0
+                                if inst.module.owns_working_source(
+                                    getattr(ctx_data, "working_source", None)
+                                )
+                                else 1
+                            )
+                        except Exception:  # noqa: BLE001 — fail-open
+                            origin_rank = 1
                         expressive_declarations.append(
-                            (inst.module.config.priority, inst.module_class, list(declared))
+                            (
+                                origin_rank,
+                                inst.module.config.priority,
+                                inst.module_class,
+                                list(declared),
+                            )
                         )
                 except TypeError as e:
                     # A stale override signature is a wiring bug, not a
@@ -1173,9 +1216,9 @@ class ContextRuntime:
         # one link we cannot control, see the claude adapter.)
         mcp_servers = dict(sorted(mcp_servers.items()))
 
-        expressive_declarations.sort(key=lambda kv: (kv[0], kv[1]))
+        expressive_declarations.sort(key=lambda kv: (kv[0], kv[1], kv[2]))
         expressive_tools: list[str] = []
-        for _, _, declared in expressive_declarations:
+        for _, _, _, declared in expressive_declarations:
             for tool_name in declared:
                 if tool_name not in expressive_tools:
                     expressive_tools.append(tool_name)

@@ -4,6 +4,16 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
+
+team 房与普通 bus 轮同为 working_source=MESSAGE_BUS，但交付契约相反
+（前者纯文本自动上墙、prompt 禁投递工具；后者只有工具调用才送达）。
+`_handle_channel_batch` 的 team 分支把 `team_room=is_team` 传入
+`_invoke_runtime`，后者盖进 `trigger_extra_data["bus_team_room"]` →
+`ctx_data.extra_data`，供 [[message_bus_module]] 的 expressive 声明门控
+（team 房不广告 bus 工具，避免自动上墙 + 工具调用双发）。与
+include_monologue 同形的两端钉死（tests/message_bus/test_team_room_marker.py）。
+
 ## 2026-08-03 — turn-source 章记录的是「轮次种类」,不是「这条消息在问还是在答」
 
 Review round 3 抓到的复发:`sender_turn_source == "message_bus"` 被当成
