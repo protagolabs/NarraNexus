@@ -320,3 +320,45 @@ def test_nexus_power_spec_preserves_the_identity_headers():
     # needed (unlike codex), but the bearer must survive too so one spec
     # serves every framework.
     assert spec.headers.get("Authorization", "").endswith(agent)
+
+
+def test_turn_source_survives_the_codex_bearer_channel():
+    """PR #229 review: the turn source shipped on the explicit header only,
+    which codex drops — so a codex-side asker always wrote NULL and the
+    recipient fell back to the "have I spoken here" heuristic, which flips a
+    FOLLOW-UP question to Owner Relay and reproduces the P1. It now rides the
+    bearer too, which is the one header codex forwards."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        BEARER_FIELD_SEP,
+        agent_id_headers,
+    )
+
+    agent = "agent_d8795abf5021"
+    specs = {"social_network_module": {
+        "url": "http://localhost:7802/sse",
+        "headers": agent_id_headers(agent, turn_source="chat"),
+    }}
+
+    token = next(iter(codex_mcp_bearer_env(specs).values()))
+    assert token == f"{BEARER_AGENT_PREFIX}{agent}{BEARER_FIELD_SEP}chat"
+    # Both facts must be recoverable from that single value.
+    ident, _, source = token[len(BEARER_AGENT_PREFIX):].partition(BEARER_FIELD_SEP)
+    assert ident == agent
+    assert source == "chat"
+
+
+def test_bearer_without_a_turn_source_is_still_valid():
+    """A caller that does not know its own source must not produce a
+    malformed bearer."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        BEARER_FIELD_SEP,
+        agent_id_headers,
+    )
+
+    token = next(iter(codex_mcp_bearer_env(
+        {"s": {"url": "http://x/sse", "headers": agent_id_headers("agent_a")}}
+    ).values()))
+    assert token == f"{BEARER_AGENT_PREFIX}agent_a"
+    assert BEARER_FIELD_SEP not in token

@@ -344,3 +344,51 @@ def test_every_registered_module_resolves_caller_identity():
     assert gaps == [], f"tools still trusting the model's agent_id: {gaps}"
     # Guard against the assertion silently passing on an empty sweep.
     assert total > 80, f"expected the full tool surface, only saw {total}"
+
+
+# ---------------------------------------------------------------------------
+# Turn source (the codex-only channel — PR #229 review item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_turn_source_read_from_the_explicit_header():
+    from xyz_agent_context.module._mcp_identity import (
+        TURN_SOURCE_HEADER,
+        caller_turn_source,
+    )
+
+    with injected({TURN_SOURCE_HEADER: "chat"}):
+        assert caller_turn_source() == "chat"
+
+
+def test_turn_source_read_from_the_bearer_when_the_header_is_gone():
+    """The codex reality: only the bearer arrives."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        BEARER_FIELD_SEP,
+        caller_turn_source,
+    )
+
+    bearer = f"Bearer {BEARER_AGENT_PREFIX}{REAL}{BEARER_FIELD_SEP}message_bus"
+    with injected({"Authorization": bearer}):
+        assert caller_turn_source() == "message_bus"
+        # …and the identity must still parse out of the same value.
+        assert caller_agent_id_from_request() == REAL
+
+
+def test_identity_unaffected_by_a_bearer_without_turn_source():
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_AGENT_PREFIX,
+        caller_turn_source,
+    )
+
+    with injected({"Authorization": f"Bearer {BEARER_AGENT_PREFIX}{REAL}"}):
+        assert caller_agent_id_from_request() == REAL
+        assert caller_turn_source() is None
+
+
+def test_no_turn_source_anywhere_is_none_not_a_guess():
+    from xyz_agent_context.module._mcp_identity import caller_turn_source
+
+    with injected({AGENT_ID_HEADER: REAL}):
+        assert caller_turn_source() is None

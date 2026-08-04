@@ -11,9 +11,13 @@ last_verified: 2026-08-04
 告警变成**每轮 codex turn 每个模块 server 一行 ≈16 行** —— 真正该被看见的
 告警(用户自己的 header 被丢掉)会被埋掉(教训 #3 的反面:别自己制造噪音)。
 
-**为什么豁免是安全的**:平台注入的 header 都是**与 bearer 双发**的
-(codex 只能带 bearer,所以身份同时走 `Authorization: Bearer nx-agent:<id>`),
-codex 侧丢掉它零信息损失。
+**为什么豁免是安全的**——注意这是一条**契约**,不是既成事实:凡放进
+`X-NarraNexus-*` 的 header,都必须**同时**搭 bearer(codex 唯一会转发的
+通道),且消费方必须按缺失降级。当时这句话被同一个 commit 证伪过:
+`X-NarraNexus-Turn-Source` 一开始只走显式 header,于是 codex 侧读不到、
+依赖它的修复静默失效(见 [[_mcp_identity]] 2026-08-04 条)。现在身份与
+turn source 都搭在 bearer 上(`nx-agent:<id>~<source>`),这句才重新成立。
+**往这个命名空间加 header 的人:请一并搭上 bearer。**
 
 判据是**命名空间前缀**(`x-narranexus-`)而不是 import 一个常量:适配层
 不该反向依赖 module 包(否则每个新适配器都要抄一遍那条 import),而且以后

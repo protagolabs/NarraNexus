@@ -83,11 +83,19 @@ BEARER_AGENT_PREFIX = "nx-agent:"
 # injection seam as the identity, because the same problem applies: a tool
 # cannot otherwise know whether the turn it serves is an owner-facing errand
 # or an agent answering a peer, and bus_send_to_agent must record that on the
-# message (see message_bus_trigger's directive selection). Only the claude
-# adapter forwards it — codex can carry a single bearer only, which identity
-# already owns — so consumers MUST treat absence as "unknown", never as a
-# particular source.
+# message (see message_bus_trigger's directive selection).
 TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
+
+# The turn source ALSO rides the borrowed bearer, appended after the agent id:
+#     nx-agent:<agent_id>~<turn_source>
+# Shipping it only on the explicit header was a real hole (PR #229 review):
+# codex forwards nothing but the bearer, so a codex-side asker always wrote
+# NULL, and the recipient fell back to the "have I spoken here" heuristic —
+# the one that flips a FOLLOW-UP question back to Owner Relay and reproduces
+# the P1. Iron rule #15 forbids treating a first-class adapter as a corner.
+# "~" because it is token68-safe (RFC 7235) and appears in neither our agent
+# ids (``agent_`` + hex) nor any turn-source name.
+BEARER_FIELD_SEP = "~"
 
 # Values a model supplies when it is guessing instead of reading its prompt.
 # These are NOT agent ids and must never reach a DB lookup: treat them as
@@ -149,7 +157,8 @@ def caller_agent_id_from_request() -> Optional[str]:
         # "nx-agent:" must never be sliced up and read as an identity.
         marker = f"Bearer {BEARER_AGENT_PREFIX}"
         if auth.startswith(marker):
-            candidate = auth[len(marker):].strip()
+            # Value is "<agent_id>" or "<agent_id>~<turn_source>".
+            candidate = auth[len(marker):].split(BEARER_FIELD_SEP, 1)[0].strip()
             if candidate and not is_placeholder_agent_id(candidate):
                 return candidate
     except LookupError:
@@ -369,13 +378,17 @@ def agent_id_headers(
     docstring: the claude adapter forwards the explicit header, the codex
     adapter can only forward a bearer.
 
-    ``turn_source`` rides the explicit header only (the bearer slot is
-    taken), so it is best-effort by construction: readers must handle
-    absence.
+    ``turn_source`` is emitted on BOTH channels — the explicit header and,
+    appended to the bearer, so codex (which forwards only the bearer) still
+    receives it. Readers must still handle absence: a caller may simply not
+    know its own source.
     """
+    bearer_value = f"{BEARER_AGENT_PREFIX}{agent_id}"
+    if turn_source:
+        bearer_value += f"{BEARER_FIELD_SEP}{turn_source}"
     headers = {
         AGENT_ID_HEADER: agent_id,
-        "Authorization": f"Bearer {BEARER_AGENT_PREFIX}{agent_id}",
+        "Authorization": f"Bearer {bearer_value}",
     }
     if turn_source:
         headers[TURN_SOURCE_HEADER] = str(turn_source)
@@ -400,7 +413,18 @@ def caller_turn_source() -> Optional[str]:
             or headers.get(TURN_SOURCE_HEADER)
             or ""
         ).strip()
-        return value or None
+        if value:
+            return value
+
+        # Codex path: the bearer is the only header it forwards, so the turn
+        # source rides along behind the agent id.
+        auth = headers.get("authorization") or headers.get("Authorization") or ""
+        marker = f"Bearer {BEARER_AGENT_PREFIX}"
+        if auth.startswith(marker):
+            parts = auth[len(marker):].split(BEARER_FIELD_SEP, 1)
+            if len(parts) == 2 and parts[1].strip():
+                return parts[1].strip()
+        return None
     except LookupError:
         return None
     except Exception as e:  # noqa: BLE001 — never flow control
@@ -410,6 +434,7 @@ def caller_turn_source() -> Optional[str]:
 
 __all__ = [
     "AGENT_ID_HEADER",
+    "BEARER_FIELD_SEP",
     "TURN_SOURCE_HEADER",
     "caller_turn_source",
     "BEARER_AGENT_PREFIX",

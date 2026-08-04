@@ -4,11 +4,13 @@ last_verified: 2026-08-04
 stub: false
 ---
 
-## 2026-08-04 — bus_send_to_agent 记录本轮种类
+## 2026-08-04 — 两个发送工具都记录本轮种类
 
-调 `caller_turn_source()`(注入的 `X-NarraNexus-Turn-Source`)并传给
-`bus.send_to_agent`,让消息自己带上"这是提问还是回复"。best-effort:codex
-适配器带不了自定义 header,读不到就传 None,触发侧按未知降级。
+`bus_send_to_agent` 与 `bus_send_message` 都调 `caller_turn_source()` 并传给
+bus,让消息自己带上"这是提问还是回复"。**两个都要**:它们写同一张表、
+同一个消费方(`_incoming_is_reply_to_my_errand`),漏一个就让那条路径落降级。
+turn source 同时走显式 header 与 bearer,所以 codex 上也读得到
+(见 [[_mcp_identity]]);读不到时传 None,触发侧按未知降级。
 
 ## 2026-07-20 — file attachments + team share
 

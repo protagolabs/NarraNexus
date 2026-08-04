@@ -7,10 +7,17 @@ stub: false
 ## 2026-08-04 — 同一 seam 增加 turn source;注入面公开化(review)
 
 - 新增 `X-NarraNexus-Turn-Source` header + `caller_turn_source()`:工具需要
-  知道"这一轮是 owner 面还是同伴面",`bus_send_to_agent` 据此把事实写到
-  消息上(见 [[message_bus_trigger]] 的指令选择)。**只走显式 header**
-  (bearer 槽被身份占了),所以 codex 上读不到 —— 消费方必须把"读不到"当
-  未知处理,不能猜。
+  知道"这一轮是 owner 面还是同伴面",两个 bus 发送工具据此把事实写到消息上
+  (见 [[message_bus_trigger]] 的指令选择)。
+- **turn source 同时搭 bearer**:`nx-agent:<agent_id>~<source>`。第一版
+  只走显式 header,而 codex 只转发 bearer —— 于是 codex 侧提问方写进去的
+  永远是 NULL,接收方每次落到"我说过话吗"那个降级分支,**追问会翻回
+  Owner Relay,P1 在该路径未修**(PR #229 review 抓出)。铁律 #15 不许把
+  一等适配器当边角情况。分隔符选 `~`:token68 安全(RFC 7235),且不出现在
+  我们的 agent id(`agent_` + hex)或任何 source 名里。解析全收在本模块的
+  两个函数里,适配器一行未改。真机验证:只发 bearer(模拟 codex 丢掉所有
+  自定义 header)时,服务端仍同时取到身份与 source。
+- 消费方仍必须把"读不到"当未知(调用方可能自己就不知道 source)。
 - **注入面从私有模块提到公开面**:`AGENT_ID_HEADER` /
   `TURN_SOURCE_HEADER` / `agent_id_headers` 经 `module/__init__.py` 导出,
   [[context_runtime]] 改从公开面 import;服务端解析仍留在本私有模块。

@@ -1062,12 +1062,13 @@ class MessageBusTrigger:
             }
             ph = self._bus._db.placeholder
             rows = await self._bus._db.execute(
+                # No human-sender filter here on purpose: from_agent is bound
+                # to agent_id, so a usr_-prefixed sender cannot match anyway.
+                # (_team_cascade_depth needs one because it reads EVERY message
+                # in the channel.) A dead predicate would be worse than none —
+                # 'usr_%' is not even precise, since _ is a LIKE wildcard.
                 f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
-                f"AND from_agent = {ph} "
-                # Humans post as USER_SENDER_PREFIX + user_id and are never
-                # "us"; excluded to stay consistent with
-                # _team_cascade_depth, which filters the same table.
-                f"AND from_agent NOT LIKE '{USER_SENDER_PREFIX}%'",
+                f"AND from_agent = {ph}",
                 (channel_id, agent_id),
             )
             for r in rows or []:
@@ -1114,10 +1115,15 @@ class MessageBusTrigger:
         (which had promised its user a report) was left waiting forever.
         The models were obeying us; the prompt was lying to them.
 
-        - True  → this agent sent into this channel before, so the incoming
-                  message is a reply to ITS errand: relay to the owner.
-        - False → this agent is being asked something: answer the PEER on
-                  the bus. Its owner asked for nothing and is not waiting.
+        - True  → this batch is the REPLY to an errand of ours: relay it to
+                  our owner.
+        - False → we are the one being ASKED: answer the PEER on the bus.
+                  Our owner asked for nothing and is not waiting.
+
+        Decided by ``_incoming_is_reply_to_my_errand`` from a fact recorded
+        on the message itself (``sender_turn_source``) — NOT from "have I
+        spoken in this channel", which is only the degradation path and is
+        wrong for follow-ups (see that method for why).
         """
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
 

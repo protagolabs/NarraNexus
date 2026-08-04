@@ -176,9 +176,15 @@ _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 # =========================================================================
 
 
-# Our own injected-header namespace. Codex cannot forward arbitrary headers,
-# and everything we put here is dual-sent through a channel it CAN forward,
-# so these dropping is expected rather than noteworthy.
+# Our own injected-header namespace. Codex forwards no header but the bearer,
+# so anything we put here MUST also be carried on the bearer (identity and
+# turn source both are — see module/_mcp_identity.py) and every consumer MUST
+# degrade on absence. Under that contract dropping these is expected rather
+# than noteworthy, which is why they are exempt from the warning below.
+#
+# If you add a header here, carry it on the bearer too. Shipping one that was
+# header-only silently disabled the fix that depended on it (PR #229 review):
+# the value was simply never present on codex.
 PLATFORM_HEADER_PREFIX = "x-narranexus-"
 
 
@@ -218,11 +224,11 @@ def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
     vanishing is worth shouting about.
 
     Headers in the platform's own ``X-NarraNexus-*`` namespace are exempt
-    from that warning: they are injected by us and dual-sent WITH an
-    equivalent bearer precisely because codex cannot carry them (see
-    module/_mcp_identity.py), so dropping them here loses nothing. Without
-    the exemption every codex turn logged one warning per module server —
-    ~16 lines a turn, which is how real warnings get buried.
+    from that warning: by contract (see the prefix constant above) they are
+    injected by us, also carried on the bearer, and their consumers degrade
+    on absence — so dropping them here is expected. Without the exemption
+    every codex turn logged one warning per module server — ~16 lines a
+    turn, which is how real warnings get buried.
 
     Matching on the namespace rather than importing a constant keeps this
     adapter free of any dependency on the module package (the layering would

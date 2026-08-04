@@ -34,8 +34,11 @@ P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_pro
    是我这次改动**引入的回归**(改之前它会拿到 Owner Relay 并正确回报)。
    review 抓出来的。
 
-降级顺序:字段为空(存量行 / 丢 header 的适配器)且**我从没在此 channel
-发过言** → 显然是被问方;否则 → Owner Relay(2026-08-01 前的行为)。
+降级顺序:字段为空(存量行)且**我从没在此 channel 发过言** → 显然是
+被问方;否则 → Owner Relay(2026-08-01 前的行为)。**注意这个降级分支本身
+就是上面第 1 种错法**,所以它只能是兜底、不能是常态:第一版 turn source
+只走显式 header 而 codex 不转发,codex 提问方于是恒走降级,追问从第 2 个
+问题起就错 —— 已通过让 turn source 搭 bearer 修掉(见 [[_mcp_identity]])。
 DB 异常同样回落 Owner Relay:错 relay 只是体验噪音,错误压掉 Owner Relay
 会让 2026-06 那个静默失败复活。
 
