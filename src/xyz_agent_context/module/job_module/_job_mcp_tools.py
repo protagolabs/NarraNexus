@@ -21,7 +21,7 @@ from typing import Annotated, Optional, List, Any, NotRequired, TypedDict
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
-from pydantic import TypeAdapter, WithJsonSchema
+from pydantic import Field, TypeAdapter, WithJsonSchema
 
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
@@ -29,19 +29,7 @@ from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, 
 
 
 class TriggerConfigArg(TypedDict):
-    """Tool-boundary shape of ``trigger_config``.
-
-    A TypedDict on purpose, twice over: a bare ``dict`` annotation gives the
-    model an object schema with no properties (everything rode on docstring
-    prose, and a stringified payload crashed deep in the service as
-    "argument of type 'str' is not a mapping"); and unlike ``Optional[...]``
-    pydantic fields, ``NotRequired`` keys serialize as plain-typed properties
-    — no ``anyOf[X, null]``, the exact shape schema-strict providers reject
-    (W1 2026-08-04: Google 400s the whole request over one such parameter).
-    Deep validation (which keys each job_type needs, run_at naiveness) stays
-    in ``schema.job_schema.TriggerConfig`` — this shape only documents the
-    fields and rejects non-object payloads at the boundary.
-    """
+    """Trigger configuration with an IANA timezone; fields vary by job type."""
 
     timezone: str
     run_at: NotRequired[str]
@@ -54,16 +42,26 @@ class TriggerConfigArg(TypedDict):
 # FastMCP asks pydantic for the containing function's schema. A named
 # TypedDict is normally emitted through $defs/$ref, and Optional adds an
 # anyOf-null wrapper. Some tool-schema providers reject both constructs.
-# Override only the published JSON Schema while retaining TypedDict runtime
-# validation; TypeAdapter keeps the inline shape derived from the type itself.
+# TypeAdapter keeps the inline public shape derived from the TypedDict itself.
 _TRIGGER_CONFIG_JSON_SCHEMA = TypeAdapter(TriggerConfigArg).json_schema()
+
+
+def _remove_schema_default(schema: dict[str, Any]) -> None:
+    """Keep the published object schema consistent with its non-null type."""
+    schema.pop("default", None)
+
+
+# Runtime input is intentionally a plain dict so canonical TriggerConfig
+# validation runs inside each tool and returns the same structured error shape
+# as other tool errors. The published schema remains the strict TypedDict shape.
 TriggerConfigInput = Annotated[
-    TriggerConfigArg,
+    dict[str, Any],
     WithJsonSchema(_TRIGGER_CONFIG_JSON_SCHEMA),
 ]
 OptionalTriggerConfigInput = Annotated[
-    Optional[TriggerConfigArg],
+    Optional[dict[str, Any]],
     WithJsonSchema(_TRIGGER_CONFIG_JSON_SCHEMA),
+    Field(json_schema_extra=_remove_schema_default),
 ]
 
 

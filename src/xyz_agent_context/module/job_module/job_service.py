@@ -392,8 +392,11 @@ class JobInstanceService:
             )
 
             if result["success"]:
+                resolved_instance_id = result["instance_id"]
+                if task_key and resolved_instance_id != instance_id:
+                    key_to_id[task_key] = resolved_instance_id
                 created_jobs.append(result["job_id"])
-                created_instances.append(result["instance_id"])
+                created_instances.append(resolved_instance_id)
             else:
                 errors.append({
                     "task_key": task_key,

@@ -83,6 +83,21 @@ def test_trigger_config_optional_fields_have_plain_types():
         assert prop.get("type"), f"{name} has no explicit type: {prop}"
 
 
+@pytest.mark.parametrize("tool_name", ["job_create", "job_update"])
+def test_trigger_config_description_is_model_facing(tool_name):
+    description = _trigger_schema(_tool(_server(), tool_name))["description"]
+
+    assert "IANA timezone" in description
+    assert len(description) < 200
+    assert "TypedDict" not in description
+    assert "Google" not in description
+
+
+def test_job_update_trigger_config_has_no_invalid_null_default():
+    schema = _trigger_schema(_tool(_server(), "job_update"))
+    assert "default" not in schema, schema
+
+
 # ---------------------------------------------------------------------------
 # job_create structured failure instead of raw exceptions
 # ---------------------------------------------------------------------------
@@ -126,3 +141,22 @@ async def test_unexpected_exception_returns_structured_error():
             payload="p",
         )
     assert result == {"success": False, "error": "boom"}
+
+
+@pytest.mark.asyncio
+async def test_missing_timezone_reaches_job_create_structured_error(db_client):
+    tool = _tool(_server(db_client), "job_create")
+    with patch(f"{TOOLS_MOD}.setup_mcp_llm_context", AsyncMock()):
+        result = await tool.run({
+            "agent_id": "agent_1",
+            "user_id": "user_1",
+            "title": "Missing timezone",
+            "description": "d",
+            "job_type": "scheduled",
+            "trigger_config": {"cron": "0 9 * * *"},
+            "payload": "p",
+        })
+
+    assert result["success"] is False
+    assert "Invalid trigger_config" in result["error"]
+    assert "timezone" in result["error"]

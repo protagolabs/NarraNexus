@@ -12,19 +12,22 @@ last_verified: 2026-08-04
   文案指回「用 instructions 里的真实 Agent ID，别用占位符」——这是模型
   唯一能自愈的失败，值得专门的话术；其余异常与兄弟工具同形
   `{success: False, error: str(e)}`。
-- **`trigger_config` 从裸 `dict` 改为 `TriggerConfigArg`（TypedDict）**。
-  TypedDict 保留字段级运行时校验，`NotRequired` 让嵌套字段保持普通类型；
-  但 FastMCP 默认把命名 TypedDict 发布为 `$defs/$ref`，而 job_update 的
-  Optional 还会包一层 `anyOf[$ref,null]`，仍会被 schema 严格的 provider
-  拒绝。现在用 `Annotated + WithJsonSchema` 只覆盖**对外 JSON Schema**：
-  两个工具直接发布 `type: object + properties`，无 `$defs`、`$ref`、
-  `anyOf`，运行时仍由原 TypedDict 校验。内联 shape 用 TypeAdapter 从
-  TypedDict 本身生成，避免手写两份字段清单漂移。字符串化 JSON 仍在边界
-  被拒；深层校验（各 job_type 必填键、run_at naive）仍归
-  `schema.TriggerConfig`。
+- **`trigger_config` 的公开 schema 由 `TriggerConfigArg`（TypedDict）生成**。
+  `NotRequired` 让嵌套字段保持普通类型；FastMCP 默认把命名 TypedDict 发布为
+  `$defs/$ref`，而 job_update 的 Optional 还会包一层 `anyOf[$ref,null]`，
+  会被 schema 严格的 provider 拒绝。现在用 `Annotated + WithJsonSchema`
+  发布内联 `type: object + properties`，无 `$defs`、`$ref`、`anyOf`；
+  job_update 还移除与非 null object 类型矛盾的 `default: null`。TypedDict 的
+  docstring 是模型每轮都能看到的 description，因此只保留简短字段提示，工程
+  原因留在代码注释和本文。
+- **运行时刻意接收普通 object，而非让 TypedDict 抢先校验**：字符串化 JSON
+  仍由 FastMCP 的 object 边界拒绝；object 内部的必填字段和深层规则统一交给
+  `schema.TriggerConfig`。这样缺 timezone 等错误会进入工具 try/except，返回
+  `{success: False, error: "Invalid trigger_config: ..."}`，不会在函数体外泄漏
+  FastMCP `ToolError`。公开 schema 仍要求 timezone，运行时和模型契约没有放宽。
 - 测试：`tests/job_module/test_job_mcp_tool_hardening.py`（直接检查参数原始
-  schema 是内联 object 且无 `$defs/$ref/anyOf`；可选字段平铺类型；两类
-  异常都回结构化 error）。
+  schema 是内联 object 且无 `$defs/$ref/anyOf/default:null`；description 保持
+  模型友好且短小；可选字段平铺类型；缺 timezone 等异常回结构化 error）。
 
 # _job_mcp_tools.py — JobModule MCP 工具定义
 

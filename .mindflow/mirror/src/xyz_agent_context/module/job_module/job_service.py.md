@@ -20,7 +20,9 @@ agent 不按 user，别人的标题也能挡你）。现契约三层：
   （backend /complex 批量、arena provisioning、service 内部
   `create_jobs_batch`）固定传 True——它们的标题是调用方设计的（同组子任务
   标题天然相近），不该被防 LLM 重复的门挡住。batch 测试用两个相似兄弟
-  标题验证它们都能落库，依赖映射不会指向未创建的 instance。
+  标题验证它们都能落库，依赖映射不会指向未创建的 instance。batch 若精确
+  同名命中已有 Job，service 返回的 instance_id 会替换预生成的 `key_to_id`；
+  后续依赖因此指向真实已有实例，而非永远不存在的占位 ID。
 
 docstring 顺带纠偏：阈值写 0.6 实为 0.5 的漂移；并写明相似度只看标题
 分词的陷阱（内容不同也会撞）与 CJK 单 token 几乎不触发的不对称性。
