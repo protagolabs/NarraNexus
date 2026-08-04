@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
+
+`FREE_TIER_AGENT_THINKING` 加入 `_DOTENV_PASSTHROUGH`，与同族的
+agent/helper 模型变量对齐。云上 compose 直接注入容器 env，所以不依赖这张表；
+这一项专门保证 `bash run.sh` / `make dev-backend` 从项目 `.env` 启动时，
+`free_tier_default_thinking()` 承诺的显式 `auto` 逃生口真正能被读到。
 
 ## 2026-08-03 — `helper_prompt_probe_enabled`
 

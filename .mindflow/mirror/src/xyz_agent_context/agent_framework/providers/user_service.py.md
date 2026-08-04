@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-02 — free-tier 开卡用部署配置的模型对 + thinking off（main e1f2acec 的 port）
+
+`onboard_one_key` 里 `ptype == FREE_TIER_SOURCE` 时，agent/helper 的开卡模型
+改从 [[free_tier]] 的 `free_tier_default_models()` 取（即 `FREE_TIER_AGENT_MODEL` /
+`FREE_TIER_HELPER_MODEL` env），不再用 catalog 常量——此前这两个 env 只进了
+provisioner 的日志行，新注册用户仍落在 ops 已弃用的模型上。同时 agent 槽的
+`set_slot` 带上 `thinking=free_tier_default_thinking()`（默认 "off"）：钱包
+替用户付 reasoning token，且 LiteLLM `/v1/messages` 桥在上游带 reasoning 时
+会吞掉整条回复（BerriAI/litellm#29518，2026-08-02 prod 事故）。哪对模型、
+开不开 thinking，对钱包卡而言都是**平台掏钱的 ops 决策**，所以从部署配置读。
+BYOK 路径不动（thinking 仍传中性 ""）。helper 槽也刻意保持中性：它绑定的是
+free-tier 的 OpenAI 协议行，不经 Anthropic `/v1/messages` reasoning 桥，所以
+8/2 事故的止血默认只属于 agent 槽。
+
+落库前的 `_verify_onboard_key` 会用同一个部署级 agent 模型发起探测：env 模型
+写错会得到 `unverified` 并继续开卡（只有 401/403 会阻断），这是「网络/上游
+故障不误杀好 key」的既有策略；ops 应从日志看见并修正错误模型值。修复 8/2
+直接落在 main（当天止血），2026-08-04 原样 cherry-pick 进 dev，防止下次快照
+切版把它冲掉。
 
 ## 2026-07-31 — test_provider:oauth 与 oauth_token 统一走 driver.verify_live
 
