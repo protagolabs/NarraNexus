@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-02 — free-tier 开卡用部署配置的模型对 + thinking off（main e1f2acec 的 port）
+
+`onboard_one_key` 里 `ptype == FREE_TIER_SOURCE` 时，agent/helper 的开卡模型
+改从 [[free_tier]] 的 `free_tier_default_models()` 取（即 `FREE_TIER_AGENT_MODEL` /
+`FREE_TIER_HELPER_MODEL` env），不再用 catalog 常量——此前这两个 env 只进了
+provisioner 的日志行，新注册用户仍落在 ops 已弃用的模型上。同时 agent 槽的
+`set_slot` 带上 `thinking=free_tier_default_thinking()`（默认 "off"）：钱包
+替用户付 reasoning token，且 LiteLLM `/v1/messages` 桥在上游带 reasoning 时
+会吞掉整条回复（BerriAI/litellm#29518，2026-08-02 prod 事故）。哪对模型、
+开不开 thinking，对钱包卡而言都是**平台掏钱的 ops 决策**，所以从部署配置读。
+BYOK 路径不动（thinking 仍传中性 ""）。修复 8/2 直接落在 main（当天止血），
+2026-08-04 原样 cherry-pick 进 dev，防止下次快照切版把它冲掉。
 
 ## 2026-07-31 — test_provider:oauth 与 oauth_token 统一走 driver.verify_live
 
