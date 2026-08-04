@@ -43,6 +43,14 @@ round 4)。所以这里只注入**事实**(我这轮的差事跟谁、在哪个 
 `X-NarraNexus-Errand-*` header 与 bearer 位置字段双通道(codex 只转发
 bearer——字段数约定见 [[_mcp_identity]])。
 
+## 2026-08-04 — 盖章处补 user_id（W1，回合属主上同一 seam）
+
+`agent_id_headers(...)` 增传 `user_id=self.user_id`——回合属主与 agent
+身份走同一注入点、同一双通道（header + bearer 第 5 位）。`self.user_id`
+可能为 None（无属主的触发回合），builder 对 None 省略 header、bearer 尾
+字段掉落，服务端回退用模型参数。服务端的弱纪律（占位符才注入、None 不
+碰、mismatch 只计量）见 [[_mcp_identity]] 2026-08-04 条。
+
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 
 fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,

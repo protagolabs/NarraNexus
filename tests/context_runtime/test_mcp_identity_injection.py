@@ -79,7 +79,9 @@ async def test_mcp_spec_carries_the_callers_identity():
         # The explicit header (claude adapter forwards arbitrary headers)...
         assert headers.get(AGENT_ID_HEADER) == AGENT, f"{name} lost the identity header"
         # ...and the borrowed bearer (the only shape codex can transmit).
-        assert headers.get("Authorization") == f"Bearer {BEARER_AGENT_PREFIX}{AGENT}"
+        # Fields 2-4 (turn source / errand scope) are unknown on this turn and
+        # stay empty; the turn owner rides field 5.
+        assert headers.get("Authorization") == f"Bearer {BEARER_AGENT_PREFIX}{AGENT}~~~~user_tc"
         # The URL must be untouched — identity rides headers, not the query
         # string (a query param is LOST on the SSE transport).
         assert "?" not in spec["url"]
@@ -160,6 +162,7 @@ async def test_errand_continuation_bus_turn_injects_its_errand_scope():
         f"{BEARER_FIELD_SEP}message_bus"
         f"{BEARER_FIELD_SEP}agent_yushu"
         f"{BEARER_FIELD_SEP}ch_dm_errand"
+        f"{BEARER_FIELD_SEP}user_tc"
     )
 
 
@@ -176,6 +179,34 @@ async def test_a_plain_bus_turn_carries_no_errand_scope():
 
     assert ERRAND_PEER_HEADER not in headers
     assert ERRAND_CHANNEL_HEADER not in headers
+    # Empty errand fields stay as positional blanks so the owner keeps slot 5.
     assert headers["Authorization"] == (
         f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}message_bus"
+        f"{BEARER_FIELD_SEP}{BEARER_FIELD_SEP}{BEARER_FIELD_SEP}user_tc"
     )
+
+
+@pytest.mark.asyncio
+async def test_mcp_spec_carries_the_turn_owner():
+    """user_id rides the same seam — and an ownerless turn omits it."""
+    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from xyz_agent_context.module._mcp_identity import BEARER_FIELD_SEP, USER_ID_HEADER
+    from xyz_agent_context.schema import ContextData
+
+    for user_id, expect in (("user_tc", "user_tc"), (None, None)):
+        runtime = ContextRuntime(agent_id=AGENT, user_id=user_id,
+                                 database_client=object())
+        _m, servers, *_r = await runtime.build_input_for_framework(
+            messages=[],
+            system_prompt="sys",
+            active_instances=[
+                _instance("SocialNetworkModule",
+                          _FakeModule("social_network_module", "http://x/sse"))
+            ],
+            ctx_data=ContextData(agent_id=AGENT, input_content="hi"),
+        )
+        headers = servers["social_network_module"]["headers"]
+        assert headers.get(USER_ID_HEADER) == expect
+        if expect is None:
+            # No trailing blank either: the bearer drops empty tail fields.
+            assert not headers["Authorization"].endswith(BEARER_FIELD_SEP)

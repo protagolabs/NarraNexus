@@ -68,6 +68,7 @@ async def _collect(instances, monkeypatch, working_source=None, extra=None) -> l
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = AGENT_ID
+    runtime.user_id = None  # __init__ skipped; identity seam reads it
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     if working_source is not None:
         ctx.working_source = working_source

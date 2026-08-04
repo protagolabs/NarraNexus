@@ -1127,6 +1127,10 @@ class ContextRuntime:
                             turn_source=turn_source,
                             errand_peer=errand_peer,
                             errand_channel=errand_channel,
+                            # The turn owner. None on ownerless turns (some
+                            # triggers) — the builder then omits the header
+                            # and tools fall back to the model's parameter.
+                            user_id=self.user_id,
                         ),
                     }
                     collected_count += 1
