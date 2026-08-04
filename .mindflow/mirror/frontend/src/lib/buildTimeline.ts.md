@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-07-14
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 空白历史行兜底过滤
+
+history 循环跳过 `!content?.trim() && !attachments?.length` 的行：后端
+strip 守卫上线前已写坏的存量空白行只能靠这层挡住不出空气泡。带附件的
+空 content 行（纯附件消息）保留——附件自己会渲染。这是兜底不是主修，
+主修在 chat_module 落库守卫；不在 MessageBubble 里 early-return 藏行
+（那是把 bug 藏起来）。
 
 ## 2026-07-14 — carry `actionReason` through the same hop
 

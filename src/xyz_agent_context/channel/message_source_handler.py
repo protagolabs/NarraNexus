@@ -254,7 +254,12 @@ class MessageSourceHandler:
             return None
         if not text:
             return None
-        return _strip_responses_api_citation_tokens(text)
+        text = _strip_responses_api_citation_tokens(text)
+        # An all-citation reply strips down to bare whitespace ("\n") —
+        # truthy, but no reply at all. Re-check after the strip.
+        if not text.strip():
+            return None
+        return text
 
     def format_row_prefix(self, msg: Dict[str, Any]) -> str:
         """Render the per-row prefix for `msg`.

@@ -225,7 +225,9 @@ export const useChatStore = create<ChatState>((_set, get) => {
       const parts = session.currentToolCalls
         .filter((tool) => tool.tool_name.endsWith('send_message_to_user_directly'))
         .map((tool) => tool.tool_input?.content as string)
-        .filter(Boolean);
+        // Whitespace-only content is no reply — same line the backend
+        // persist guard draws, or the bubble reappears after refresh.
+        .filter((s) => !!s?.trim());
       return parts.length > 0 ? parts.join('\n\n') : null;
     },
 
@@ -335,7 +337,10 @@ export const useChatStore = create<ChatState>((_set, get) => {
         const responseParts = session.currentToolCalls
           .filter((tool) => tool.tool_name.endsWith('send_message_to_user_directly'))
           .map((tool) => tool.tool_input?.content as string)
-          .filter(Boolean);
+          // Same whitespace line as getUserVisibleResponse above: a
+          // "\n" part must fall through to the placeholder branch, not
+          // render as a blank session bubble.
+          .filter((s) => !!s?.trim());
 
         let displayContent: string;
         let isError = false;

@@ -4,6 +4,16 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — extract_reply_text 空白复判（空气泡根因）
+
+citation strip 之后补一道 `if not text.strip(): return None`：gpt-5.x +
+WebSearch 场景「几乎全是 citation token 的回复」被剥成 `"\n"`，truthy
+穿过原有的 `if not text` falsy 判定，一路落库成空气泡（2026-07-13 报
+告的真凶）。纯空白原文（无 citation）也被同一道判定拦下。语义影响：
+_delivered_to_origin 现在把纯空白回复算「未交付」——剥完只剩空白说明
+本来就没有实质回复，比算交付更诚实。owner-visible 路径经
+extract_owner_visible_text 委托，同点覆盖。
+
 ## 2026-08-04 (review 三) — effective_owner_visible_names 属性
 
 None 回落规则收敛到单点：属性返回「生效的 owner-visible 名单」，

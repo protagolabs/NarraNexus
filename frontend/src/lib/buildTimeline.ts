@@ -117,6 +117,11 @@ export function buildUnifiedTimeline(
     const isNonChat = msg.working_source && msg.working_source !== 'chat';
     if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
 
+    // Blank-bubble guard: rows already persisted with whitespace-only
+    // content (pre-strip-guard history) render as empty bubbles. Skip
+    // them — unless they carry attachments, which render on their own.
+    if (!msg.content?.trim() && !msg.attachments?.length) continue;
+
     // Hide message-bus background-activity markers from the agent's 1:1 chat.
     // A team group-chat turn (the agent was @mentioned) lives in the team room,
     // not here — surfacing it as "Background activity (message_bus)" just

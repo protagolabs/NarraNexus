@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 回复提取过滤空白部分
+
+getUserVisibleResponse 与 stopStreaming 两处 `.filter(Boolean)` 收紧为
+`.filter((s) => !!s?.trim())`：空白 content 的 send_message 调用不算回
+复，落到既有占位文案分支——与后端 hook_persist_turn 的 strip 守卫同口
+径，否则出现「当场有空气泡、刷新后消失」的 session/落库漂移。
 
 ## 2026-07-30 — stopStreaming 存 segments
 
