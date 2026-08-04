@@ -176,6 +176,10 @@ class _HealthTrigger:
         self._workers = [object(), object()]
         self._task_queue = _FakeQueue(5)
         self._subscriber_creds = {"k1": object()}
+        # Breaker/pre-flight isolation state — always present on the real
+        # base, so the double carries it too (empty = nothing parked).
+        self._breaker_blocked_until: dict = {}
+        self._unstartable_fingerprint: dict = {}
 
 
 async def test_health_payload_ok_when_all_channels_ok():

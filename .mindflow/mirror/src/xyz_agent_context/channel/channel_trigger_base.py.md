@@ -4,30 +4,47 @@ stub: false
 last_verified: 2026-08-04
 ---
 
-## 2026-08-04 — 快速死亡熔断器（watcher 层）
+## 2026-08-04 — 起不来的凭据：预检门 + 快速死亡熔断器
 
 prod 实锤（8/1-8/3）：某 agent 的 Lark App Secret 被清空后，订阅器每次启动
 即静默 `return`（不抛异常，`is_permanent_auth_failure` 永远看不见），
 watcher 无条件重启同 key → ~28s 死亡重生死循环，4h 刷 1498 次 WARNING。
 
-修复：`_credential_watcher` 对每个 key 数**连续快速死亡**（存活 <
-`BREAKER_FAST_DEATH_SECONDS`，默认 60s）；连续
-`BREAKER_FAST_DEATH_THRESHOLD`（3）次触发熔断——按
-`BREAKER_BACKOFF_SCHEDULE_SECONDS`（5min→30min→2h，末档循环）隔离重探。
-设计要点：
+**两道闸，先便宜后通用**：
 
-- **与 `is_permanent_auth_failure` 互补而非替代**：那条路需要可识别的
-  异常类；熔断器捕获任何「反复秒死」形状（含静默 return、未知错误码）。
-- **绝不动凭据行**（disable 是 permanent-auth 路的职权）——自愈路径有二：
-  熔断时记录凭据指纹（`_credential_fingerprint`＝字段级 repr），任何字段
-  变化（重新绑定/换 secret）即视为修复、立即解除；或退避到期自动重探。
-- 健康存活（≥60s）后的死亡把 streak 清零——网络抖动不误熔断。触发时
-  streak 也清零，重探需要 3 次全新快死才会二次熔断（进下一档退避）。
-- 意外死亡记 `_subscriber_started_at`（intentional `_stop_subscriber`
-  会先 pop 掉，不计死）；凭据整行消失时 `_breaker_purge_stale` 清态。
-- 单次结构化日志：trip=ERROR 一条、clear=INFO 一条（替代无限刷屏）；
-  审计行 `subscriber_breaker_tripped` / `subscriber_breaker_cleared`
-  （教训 #5）。Pin: tests/channel/test_credential_breaker.py。
+1. `should_start_subscriber(cred)` 覆写钩子（默认 True，不做 I/O）——能只
+   看凭据就断定「连都连不上」的，一次都不启动。Lark 覆写为
+   `receive_enabled()`（secret 空即 False），本次事故因此是 0 重启 0 ERROR。
+   拒绝走 `_note_unstartable`：**按指纹去重**，一个凭据状态只报一次
+   （WARNING + `subscriber_unstartable` 审计行），换绑后重报。
+2. 熔断器——一切**事前不可知**的兜底。每 key 数连续快速死亡（存活 <
+   `BREAKER_FAST_DEATH_SECONDS`=60s），连续 `BREAKER_FAST_DEATH_THRESHOLD`
+   （3）次触发，按 `BREAKER_BACKOFF_SCHEDULE_SECONDS`（5min→30min→2h，
+   末档循环）隔离重探。与 `is_permanent_auth_failure` 互补而非替代：那条
+   路需要可识别的异常类，熔断器认的是「反复秒死」这个形状。
+
+**指纹是本设计最锋利的一处，两次都能把熔断器废掉**（review 抓出，8/4 修）：
+
+- **取样时机**：指纹必须取自「这次启动实际用的凭据」
+  （`_subscriber_start_fingerprint`，启动时落），不能取 `_subscriber_creds`
+  ——后者比本轮 poll 慢一拍，两次 poll 之间任何一次写库都会被读成换绑，
+  熔断刚跳闸就在同一轮被清除。
+- **字段范围**：必须排掉订阅器自己回写的簿记字段
+  （`BREAKER_VOLATILE_CREDENTIAL_FIELDS`，子类扩展）。Matrix 的
+  `matrix_since_token` 每次 sync 都写、Lark 连上后写 `bot_open_id`/
+  `bot_name`——不排掉就是「自己的流量把自己的熔断器清了」。
+- 兜底：指纹触发的解除走 `_breaker_release`（**保留** `_breaker_trips`
+  升档记忆），所以哪天漏排一个高频字段，代价是每档 3 次重启并继续升档，
+  而不是无限风暴。只有真正健康存活才 `_breaker_forget` 全清。
+
+其余不变量：健康存活（≥60s）清零 streak（网络抖动不误熔断）；主动
+`_stop_subscriber` 先 pop 掉启动标记（不计死）；凭据整行消失
+`_breaker_purge_stale` 清全部五个 dict；`stop()` 一并清空（生命周期对称）。
+日志/审计：trip=ERROR 一条 + `subscriber_breaker_tripped`；每次解除（含
+退避到期重探）=INFO 一条 + `subscriber_breaker_cleared` 带 `reason`，
+DB 轨迹不留空白（教训 #5）。心跳与 `/healthz` 另外常驻上报隔离态
+（教训 #4，见 [[channel_health_server.py]]）。
+Pin: tests/channel/test_credential_breaker.py。
 
 ## 2026-08-04 — 第三个 managed 缝:`managed_silent_ingest`(review)
 

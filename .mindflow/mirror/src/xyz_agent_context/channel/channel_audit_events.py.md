@@ -4,14 +4,18 @@ stub: false
 last_verified: 2026-08-04
 ---
 
-## 2026-08-04 — breaker lifecycle events
+## 2026-08-04 — subscriber isolation events
 
+Three constants for the two gates in [[channel_trigger_base.py]]:
 `EVENT_SUBSCRIBER_BREAKER_TRIPPED` / `EVENT_SUBSCRIBER_BREAKER_CLEARED`
-for the fast-death circuit breaker in [[channel_trigger_base.py]]. One
-row per state change (trip carries consecutive_fast_deaths /
-isolated_seconds / trip_number; clear carries the reason) — the DB-side
-answer to "why is this agent's subscriber not running?" that the
-unbounded death/rebirth WARNING spam never gave (lesson #5).
+(fast-death breaker) and `EVENT_SUBSCRIBER_UNSTARTABLE` (the
+`should_start_subscriber` pre-flight). One row per state change — trip
+carries consecutive_fast_deaths / isolated_seconds / trip_number, clear
+carries a `reason` (`credential_changed` / `backoff_expired`) so even a
+re-probe is visible rather than showing up as an unexplained gap between
+two trips. Together they are the DB-side answer to "why is this agent's
+subscriber not running?", which the unbounded death/rebirth WARNING spam
+never gave (lesson #5).
 
 ## 2026-07-29 — EVENT_INGRESS_DROPPED_NOT_MENTIONED
 

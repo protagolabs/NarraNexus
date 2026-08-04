@@ -66,6 +66,13 @@ async def _snapshot_one(name: str, trigger: "ChannelTriggerBase") -> dict:
         "worker_count": len(trigger._workers),
         "queue_depth": trigger._task_queue.qsize(),
         "subscriber_keys": sorted(trigger._subscriber_creds.keys()),
+        # Why subscriber_count can be lower than len(subscriber_keys): a
+        # bound credential is either isolated by the fast-death breaker or
+        # rejected by the pre-flight. Without these two lists the gap is
+        # unexplainable from the health endpoint and "credential deleted" is
+        # indistinguishable from "parked on purpose".
+        "breaker_isolated_keys": sorted(trigger._breaker_blocked_until.keys()),
+        "unstartable_keys": sorted(trigger._unstartable_fingerprint.keys()),
         "recent_event_counts": recent_counts,
     }
 

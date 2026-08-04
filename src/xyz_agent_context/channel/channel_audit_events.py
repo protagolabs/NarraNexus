@@ -48,6 +48,11 @@ EVENT_SUBSCRIBER_STOPPED = "subscriber_stopped"
 # unbounded death/rebirth WARNING spam this shipped to fix.
 EVENT_SUBSCRIBER_BREAKER_TRIPPED = "subscriber_breaker_tripped"
 EVENT_SUBSCRIBER_BREAKER_CLEARED = "subscriber_breaker_cleared"
+# Pre-flight rejection: the credential is bound but provably cannot connect
+# (Lark: App Secret cleared), so no subscriber is started at all. Written
+# once per credential state — the breaker never has to absorb a restart
+# storm for a condition knowable before the first start.
+EVENT_SUBSCRIBER_UNSTARTABLE = "subscriber_unstartable"
 
 # ─── Transport-layer events (renamed from Lark's ws_*) ────────────────────
 EVENT_TRANSPORT_CONNECTED = "transport_connected"

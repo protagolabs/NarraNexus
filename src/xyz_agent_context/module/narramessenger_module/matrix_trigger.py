@@ -214,6 +214,16 @@ class MatrixTrigger(ChannelTriggerBase):
     brand_display = "NarraMessenger"
     working_source = WorkingSource.NARRAMESSENGER
 
+    # ``matrix_since_token`` is rewritten on EVERY sync response (see the
+    # field comment in _narramessenger_credential_manager). Left in the
+    # breaker fingerprint it would make our own sync traffic look like the
+    # owner re-binding, clearing the breaker on the poll right after it
+    # tripped — i.e. no breaker at all for this channel.
+    BREAKER_VOLATILE_CREDENTIAL_FIELDS = (
+        ChannelTriggerBase.BREAKER_VOLATILE_CREDENTIAL_FIELDS
+        | frozenset({"matrix_since_token"})
+    )
+
     # ── Worker pool ──────────────────────────────────────────────────────
     # Concurrency tuning inherited from the pre-Matrix era; migration
     # kept identical characteristics so throughput per agent is unchanged.
