@@ -4,6 +4,22 @@ stub: false
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (四) — flag→文件路线表（_FILE_ROUTE）统一守卫与提示
+
+round-3 review：`mail +send --body @file.html` 是同类假成功（探针：文件
+不存在照样 ok:true，收件人收到字面量；对照组 `--body-file` 缺文件硬报错），
+而 round-2 的「非 im 一律 --content @file」提示恰好把模型往那推（mail 根本
+没有 --content）。收敛为一张表 `_FILE_ROUTE`：flag → 真正读文件的 flag
+（None=只能内联 / 自身=@relative 展开 / 兄弟 flag 如 --body→--body-file）。
+守卫对「route≠自身」的 flag 开火（--body 自动纳入），提示按命中 flag 取
+真实路线；未知 flag 给「查 --help 的 (supports @file) 标注」的泛化建议，
+绝不点名可能不存在的 flag。唯一的表外补丁：im +messages-* 域内 --content
+是 JSON payload 不展开 @（探针 invalid JSON 硬拒），域谓词保留仅为提示
+覆盖（tokens[0].lower() 顺带修大小写）。正则改扩展名白名单
+(md|markdown|txt|json|html?|csv|xml|ya?ml|rst)：收 .markdown（旧 {1,5}
+漏掉）、放 @bob.smith（旧规则误拒纯提及）。旧测试的 docs v2 无效 fixture
+（--markdown）换成真实形态，断言按 flag 精确化。
+
 ## 2026-08-04 (三) — 等号形态归一化 + 提示纯按域 + 撤销错误的 docs 收窄
 
 round-2 review 三连（全部带 --dry-run 复现）：

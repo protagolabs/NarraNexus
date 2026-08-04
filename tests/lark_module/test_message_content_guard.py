@@ -27,7 +27,7 @@ CHAT = "oc_0822639c9c2d42a5e2589a18d1ab4d2c"
 @pytest.mark.parametrize("flag", ["--text", "--markdown"])
 @pytest.mark.parametrize("ref", ["@lark_reply.md", "@notes.txt", "@./out/reply.md"])
 def test_file_reference_content_is_rejected(flag, ref):
-    with pytest.raises(ValueError, match="do not read files"):
+    with pytest.raises(ValueError, match="not read files"):
         sanitize_command(
             f"im +messages-send --chat-id {CHAT} {flag} {ref} --as bot"
         )
@@ -81,7 +81,7 @@ def test_equals_form_file_reference_is_also_rejected(compound):
     sees it. Round-1 review reproduced the fake success through exactly
     this spelling; a model whose first spelling is rejected reaches for
     an equivalent one as a matter of course."""
-    with pytest.raises(ValueError, match="do not read files"):
+    with pytest.raises(ValueError, match="not read files"):
         sanitize_command(
             f"im +messages-send --chat-id {CHAT} {compound} --as bot"
         )
@@ -108,6 +108,37 @@ def test_im_domain_hint_never_recommends_at_file():
             sanitize_command(cmd)
         assert "--content @" not in str(e.value), cmd
         assert "inline" in str(e.value).lower(), cmd
+
+
+def test_mail_body_file_reference_is_rejected_with_the_real_route():
+    """mail's --body is the same fake-success class (probe: nonexistent
+    @file still ok:true, recipient gets the literal string). The guard
+    covers it via the flag→file-route table, and the hint names the flag
+    that ACTUALLY reads files (--body-file), not a nonexistent one."""
+    with pytest.raises(ValueError) as e:
+        sanitize_command(
+            "mail +send --to a@b.c --subject S --body @body.html --as user"
+        )
+    assert "--body-file" in str(e.value)
+
+
+def test_long_extension_file_reference_is_rejected():
+    """'.markdown' is 8 chars — the old {1,5} regex let it straight
+    through (round-3 review, probed)."""
+    with pytest.raises(ValueError, match="not read files"):
+        sanitize_command(
+            f"im +messages-send --chat-id {CHAT} --markdown @reply.markdown --as bot"
+        )
+
+
+def test_bare_dotted_mention_is_not_a_file_reference():
+    """'@bob.smith' (a pure mention, no prose) must flow — 'smith' is not
+    a file extension. The extension whitelist fixes the old any-1-to-5-
+    alphanumerics false positive."""
+    args = sanitize_command(
+        f"im +messages-send --chat-id {CHAT} --text @bob.smith --as bot"
+    )
+    assert "@bob.smith" in args
 
 
 def test_docs_content_at_file_stays_permitted():
