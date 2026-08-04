@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — PageFallback 根 h-screen → h-dvh-safe
+
+整屏 loading 占位的高度改用 index.css 的 `.h-dvh-safe`（100vh 兜底 +
+100dvh 覆盖），与 MainLayout/SetupPage 同批收口移动端「100vh 含浏览器
+可伸缩 UI」问题。纯样式，无逻辑变化。
 ## 2026-07-31 — /pay 路由(官网→Stripe 跳板)
 
 新增顶层受保护路由 `/pay` → [[PayPage]](lazy)。放在 ProtectedRoute 里
