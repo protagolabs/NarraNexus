@@ -14,8 +14,15 @@ provisioner 的日志行，新注册用户仍落在 ops 已弃用的模型上。
 替用户付 reasoning token，且 LiteLLM `/v1/messages` 桥在上游带 reasoning 时
 会吞掉整条回复（BerriAI/litellm#29518，2026-08-02 prod 事故）。哪对模型、
 开不开 thinking，对钱包卡而言都是**平台掏钱的 ops 决策**，所以从部署配置读。
-BYOK 路径不动（thinking 仍传中性 ""）。修复 8/2 直接落在 main（当天止血），
-2026-08-04 原样 cherry-pick 进 dev，防止下次快照切版把它冲掉。
+BYOK 路径不动（thinking 仍传中性 ""）。helper 槽也刻意保持中性：它绑定的是
+free-tier 的 OpenAI 协议行，不经 Anthropic `/v1/messages` reasoning 桥，所以
+8/2 事故的止血默认只属于 agent 槽。
+
+落库前的 `_verify_onboard_key` 会用同一个部署级 agent 模型发起探测：env 模型
+写错会得到 `unverified` 并继续开卡（只有 401/403 会阻断），这是「网络/上游
+故障不误杀好 key」的既有策略；ops 应从日志看见并修正错误模型值。修复 8/2
+直接落在 main（当天止血），2026-08-04 原样 cherry-pick 进 dev，防止下次快照
+切版把它冲掉。
 
 ## 2026-07-31 — test_provider:oauth 与 oauth_token 统一走 driver.verify_live
 

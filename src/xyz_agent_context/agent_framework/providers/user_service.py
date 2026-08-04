@@ -789,6 +789,9 @@ class UserProviderService:
                 user_id, "agent", agent_pid, agent_model,
                 thinking=agent_thinking, actor_is_staff=None,
             )
+            # Do not forward agent_thinking to the helper. The only non-neutral
+            # case is free-tier, whose linked helper row is OpenAI-protocol and
+            # never crosses the Anthropic /v1/messages reasoning bridge.
             config = await self.set_slot(
                 user_id, "helper_llm", helper_pid, helper_model, actor_is_staff=None
             )

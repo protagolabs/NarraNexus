@@ -862,3 +862,42 @@ async def test_onboard_non_free_tier_keeps_thinking_neutral():
         if s["user_id"] == "u1" and s["slot_name"] == "agent"
     )
     assert json.loads(agent_slot["params_json"])["thinking"] == ""
+
+
+def test_free_tier_thinking_invalid_value_fails_closed(monkeypatch):
+    """A typo in the safety switch must not silently restore auto thinking."""
+    from loguru import logger
+
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        free_tier_default_thinking,
+    )
+
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
+    try:
+        monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "disabled")
+        assert free_tier_default_thinking() == "off"
+    finally:
+        logger.remove(sink_id)
+
+    assert any(
+        "FREE_TIER_AGENT_THINKING" in warning and "disabled" in warning
+        for warning in warnings
+    )
+
+
+def test_free_tier_thinking_dotenv_passthrough_contract():
+    """Local .env loading must forward the free-tier thinking switch."""
+    from xyz_agent_context.settings import _DOTENV_PASSTHROUGH
+
+    assert "FREE_TIER_AGENT_THINKING" in _DOTENV_PASSTHROUGH
+
+
+def test_free_tier_thinking_explicit_auto_is_allowed(monkeypatch):
+    """Only the explicit escape hatch may restore neutral auto thinking."""
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        free_tier_default_thinking,
+    )
+
+    monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "auto")
+    assert free_tier_default_thinking() == ""

@@ -28,8 +28,9 @@ stub: false
    替用户掏钱，开哪对模型、买不买 reasoning token 是 ops 说了算；且 LiteLLM
    `/v1/messages` 桥在上游带 reasoning 时会吞掉整条回复
    （BerriAI/litellm#29518，2026-08-02 prod 事故）——off 同时是止血位。
-   `default_thinking` 只认 `on/off`，其他值（含 `auto`）一律回落中性 ""，
-   env 打错字不能让开卡在 SlotConfig 的 Literal 校验上炸掉。
+   `default_thinking` 只把显式 `auto` 解析为中性 ""；`on/off` 原样传递，
+   其他值一律 warning 并 fail-closed 回落 `off`。env 打错字既不能炸掉
+   开卡，也不能静默滑回 2026-08-02 的事故态。
 
 ## 两个协议为什么是两个不同的 base
 

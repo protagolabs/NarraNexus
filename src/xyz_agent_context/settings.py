@@ -83,6 +83,7 @@ _DOTENV_PASSTHROUGH = {
     "FREE_TIER_GATEWAY_OPENAI_BASE_URL",
     "FREE_TIER_AGENT_MODEL",
     "FREE_TIER_HELPER_MODEL",
+    "FREE_TIER_AGENT_THINKING",
     # Where transcription goes for a free-tier user. The proxy holds the
     # operator's STT credential; we only ever send the user's wallet key.
     "FREE_TIER_STT_PROXY_URL",
