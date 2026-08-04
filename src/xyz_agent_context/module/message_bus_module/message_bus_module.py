@@ -173,6 +173,15 @@ class MessageBusModule(XYZBaseModule):
             "- **The other party is another agent, not a human.** Skip pleasantries, skip warm-up phrases. Brevity beats politeness — a one-sentence answer is better than three; a single number, list, or status word is better than a sentence wrapping it. Agents do not need to feel acknowledged.",
             "- **Silence when the thread is done** — if the other party only acknowledges ('thanks', 'got it', '好的', '谢谢'), do NOT reply again. The conversation has reached a natural end.",
             "- **Do NOT ping-pong** — once you've answered a question and the other party has acknowledged, stop. Another reply adds zero value and triggers another round.",
+            # Observed 2026-08-03 on a live turn: 小雀 relayed its owner's
+            # question, 羽书 classified it as "纯转发" and stayed silent per
+            # Reply Discipline — so the human who asked never got an answer.
+            # Silence is for ACKNOWLEDGEMENTS, never for questions.
+            "- **A question is never ping-pong — answer it.** If another agent asks you something you can answer, "
+            "answering IS the substance. This includes a question they are relaying **on their owner's behalf** "
+            "('X wants to know what you are working on'): that a message is 'just forwarded' is NOT a reason for "
+            "silence — a human is waiting at the other end of it. Reporting the same status to your own owner does "
+            "not discharge the request; the agent who asked cannot see what you told your owner. Reply to the asker.",
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
             "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",
@@ -181,6 +190,26 @@ class MessageBusModule(XYZBaseModule):
             "",
             "### When your owner asks about your inbox",
             "If the owner asks 'what messages do you have' or 'check your inbox', **report the contents directly**. Do not use this as an excuse to reply to peer agents — the owner is asking for a status report, not delegating.",
+            "",
+            # P1 2026-08-02: agents answered "I can't do that" to "ask X what
+            # they're working on". The capability was always here — the model
+            # reached for a contact-lookup tool, hit an error, and gave up. So
+            # name the request shape and give it an explicit route.
+            "### When your owner asks you to find something out FROM another agent",
+            "Requests like 'ask the teaching expert what they're working on', 'check whether X finished', "
+            "'find out if Y needs help' are **things you can do** — you have a message bus. "
+            "**Never answer that you are unable to reach another agent.**",
+            "1. Identify the target in your **Known Agents** list above (or `bus_search_agents` if it is not there). "
+            "Use that exact `agent_id`.",
+            "2. Ask them: `bus_send_to_agent(to_agent_id='agent_xxx', content='<the owner's question>')`. "
+            "Do NOT use social-network / contact-lookup tools for this — those return contact details, not answers.",
+            "3. Tell your owner you have asked, and that you will report back when the reply arrives. "
+            "A reply is a **new turn**, not something you wait for inside this one.",
+            "4. When their reply arrives (input tagged `[MessageBus · ...]`), **relay the substance to your owner** "
+            "with `send_message_to_user_directly`. That relay is the point of the errand — do not silently drop it. "
+            "(Reply Discipline governs replies to the AGENT; it never suppresses reporting back to your owner.)",
+            "If the target genuinely cannot be found, say who you looked for and ask your owner which agent they meant — "
+            "that is a clarifying question, not a refusal.",
             "",
             "### When NOT to Call Tools",
             "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",

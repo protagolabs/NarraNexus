@@ -20,7 +20,7 @@ from xyz_agent_context.schema import (
 )
 
 # Module
-from xyz_agent_context.module import XYZBaseModule, HookManager
+from xyz_agent_context.module import XYZBaseModule, HookManager, agent_id_headers
 
 # Narrative
 from xyz_agent_context.narrative import Narrative, Event, EventService, NarrativeService, config
@@ -1063,6 +1063,22 @@ class ContextRuntime:
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
         mcp_servers = {}
         disallowed_tools: list[str] = []
+        # Facts about this turn that module MCP tools cannot otherwise know,
+        # injected once and shared by every server below: WHAT KIND of turn is
+        # calling, and — when MessageBusTrigger classified this turn as
+        # continuing the agent's own errand — WHICH peer/channel that errand
+        # is with. The tools decide what to do with them; notably a bus send
+        # stamps itself as an errand question only when it is aimed AT that
+        # scope, because the same turn also answers unrelated peers whose
+        # unread arrived with it (2026-08-03 review; see
+        # message_bus_module/_message_bus_mcp_tools._send_turn_source).
+        turn_source = str(
+            getattr(ctx_data.working_source, "value", None)
+            or ctx_data.working_source or ""
+        )
+        turn_extra = ctx_data.extra_data or {}
+        errand_peer = str(turn_extra.get("bus_errand_peer") or "")
+        errand_channel = str(turn_extra.get("bus_errand_channel") or "")
         # Delivery declaration (NexusPower reply contract): each module
         # states which of its tools DELIVER content to a human. Collected
         # per module, then sorted by the TOTAL (priority, module_class)
@@ -1082,7 +1098,23 @@ class ContextRuntime:
                 logger.debug(f"          Getting MCP config from {inst.module_class} ({inst.instance_id})")
                 mcp_config = await inst.module.get_mcp_config()
                 if mcp_config and mcp_config.server_url:
-                    mcp_servers[mcp_config.server_name] = {"url": mcp_config.server_url}
+                    # Tell the module MCP server WHICH agent is calling. Module
+                    # servers are one shared process for all agents, so before
+                    # this the caller's own id arrived only as a tool parameter
+                    # the MODEL filled in — and a model that guessed
+                    # `agent_id="agent_current"` got a hard dead end and told
+                    # the user it couldn't do the task (P1, evt_0dcee899).
+                    # Headers are the only channel that survives on BOTH
+                    # adapters' transports; see module/_mcp_identity.py.
+                    mcp_servers[mcp_config.server_name] = {
+                        "url": mcp_config.server_url,
+                        "headers": agent_id_headers(
+                            self.agent_id,
+                            turn_source=turn_source,
+                            errand_peer=errand_peer,
+                            errand_channel=errand_channel,
+                        ),
+                    }
                     collected_count += 1
                     logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")
                 elif mcp_config:

@@ -10,6 +10,18 @@ last_verified: 2026-08-03
 首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
 只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
 
+## 2026-08-01 — build_instrumented_mcp_server:部署面的单一接入点
+
+新增非重写的包装方法:子类继续实现 `create_mcp_server()`(文档化的扩展点),
+**服务方改调 `build_instrumented_mcp_server()`**。它在返回前装上平台级接线——
+当前是调用者身份解析([[_mcp_identity]])。这样做的收益是 P1 修复
+零散落:16 个模块、93 个带 `agent_id` 的工具**一个文件都不用改**,新模块
+声明 `agent_id` 就自动获得。永不抛异常:装不上也照样把 server 交出去
+(身份解析是增强,不是服务前提)。
+
+命名刻意避开 `ModuleRunner._build_mcp_server`(那个是包 uvicorn app 的,
+两回事)。
+
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 模块契约新增 `get_expressive_tools() -> list[str]`(默认空):模块声明自己

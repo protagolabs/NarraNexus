@@ -4,6 +4,24 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-03 — 注入本轮的**差事作用域**(而不是升级 turn_source)
+
+header 除 turn_source 外再带 `bus_errand_peer` / `bus_errand_channel`
+(来源:[[message_bus_trigger]] 分类器判定,经 trigger_extra_data →
+`ctx_data.extra_data`);turn_source **保持** working_source 原值。
+
+曾经的错做法(同一 PR 内自我推翻):MESSAGE_BUS + 差事延续时把 turn_source
+整轮升级成 `BUS_ERRAND_TURN_SOURCE`。整轮盖章会波及**同一轮里发给其他同伴的
+回答**——bus 未读是跨 channel 注入、且模块提示词要求回答的,于是那个同伴把
+回答读成提问、不再向自己 owner 回报,P1 换个座位复发(2026-08-03 review
+round 4)。所以这里只注入**事实**(我这轮的差事跟谁、在哪个 channel),把
+「这一条算不算差事提问」交给知道目标的 send 现场判断(见
+[[_message_bus_mcp_tools]] 的 `_send_turn_source`)。
+
+作用域在模块循环外算一次,同轮所有 server 拿同一份;显式
+`X-NarraNexus-Errand-*` header 与 bearer 位置字段双通道(codex 只转发
+bearer——字段数约定见 [[_mcp_identity]])。
+
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 
 fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,
@@ -15,6 +33,15 @@ fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 
 (那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
 首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
 只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
+
+## 2026-08-01 — mcp_servers spec 注入调用者身份 header
+
+`mcp_servers[name] = {"url": …}` 变成同时带 `headers=agent_id_headers(self.agent_id)`。
+这是 P1「Agent 消极回复"我做不了"」的注入侧:模块 MCP Server 由所有 agent
+共享,此前工具的 `agent_id` 完全由模型填,填了 `agent_current` 就硬失败。
+这一行是**唯一**注入点(两个适配器消费同一个 spec dict);读取与解析在
+[[_mcp_identity]]。选 header 不选 URL query 是实测结论——query 在 SSE
+传输上会丢。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

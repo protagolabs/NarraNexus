@@ -385,6 +385,39 @@ MCPs: {mcp_tools}
         """
         return None
 
+    def build_instrumented_mcp_server(self) -> Optional[Any]:
+        """Deployment-facing wrapper around :meth:`create_mcp_server`.
+
+        Subclasses keep overriding ``create_mcp_server`` (the documented
+        extension point); serving code calls THIS so every module — present
+        and future — gets the platform-level wiring with no per-module step
+        to forget. Currently that wiring is caller-identity resolution: the
+        module MCP servers are one shared process per module, so a tool's
+        ``agent_id`` parameter used to be whatever the MODEL typed, and a
+        model that guessed ``"agent_current"`` hit a hard dead end and told
+        the user the task was impossible (P1, evt_0dcee899). See
+        ``module/_mcp_identity.py``.
+
+        Never raises: a module whose server cannot be instrumented is still
+        served uninstrumented (identity resolution is an improvement, not a
+        precondition).
+        """
+        mcp_server = self.create_mcp_server()
+        if mcp_server is None:
+            return None
+        try:
+            from xyz_agent_context.module._mcp_identity import (
+                install_caller_identity,
+            )
+
+            install_caller_identity(mcp_server)
+        except Exception as e:  # noqa: BLE001 — never block serving
+            logger.warning(
+                f"[{self.__class__.__name__}] caller-identity resolution "
+                f"not installed: {e}"
+            )
+        return mcp_server
+
     # =========================================================================
     # Database
     # =========================================================================
