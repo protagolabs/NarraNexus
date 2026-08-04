@@ -615,8 +615,8 @@ class MessageBusTrigger:
                 # from a peer must be answered on the bus. Getting this wrong
                 # is what made recipients answer their owner and leave the
                 # asking agent hanging (P1 2026-08-03).
-                i_started = await self._agent_started_this_thread(
-                    agent_id, channel_id
+                i_started = await self._incoming_is_reply_to_my_errand(
+                    agent_id, channel_id, messages
                 )
 
                 # Build prompt from messages
@@ -1015,52 +1015,69 @@ class MessageBusTrigger:
             depth += 1
         return depth
 
-    async def _agent_started_this_thread(
+    async def _incoming_is_reply_to_my_errand(
         self,
         agent_id: str,
         channel_id: str,
+        incoming: List[BusMessage],
     ) -> bool:
-        """Did ``agent_id`` send the FIRST message in this channel?
+        """Is this batch an ANSWER to an errand of ours, or a QUESTION to us?
 
-        The proxy for "this errand is mine, so its answer is owed to my
-        owner". ``bus_send_to_agent`` auto-creates the DM on the sender's
-        side, so whoever spoke first is the one running an errand; the other
-        side is the one being asked, for every message in that thread.
+        Decided from a fact recorded on the message itself
+        (``bus_messages.sender_turn_source``): the sender writes WHICH KIND of
+        turn produced it — an owner-facing turn ("chat"/"job"/…) means it is
+        running an errand and asking us, "message_bus" means it was already
+        answering a peer, i.e. this is the reply to our own errand.
 
-        Why the first message and not "have I spoken before" (the first
-        attempt at this): after the recipient answers once it HAS spoken, so
-        a follow-up question would flip it back to Owner Relay and
-        re-introduce the exact bug — the recipient answering its own owner
-        while the asker waits. Keying on the opener is stable across an
-        arbitrarily long thread.
+        Why not infer it from channel ordering (the first attempt, twice):
+        "have I spoken here" flips as soon as we answer once, so a follow-up
+        question re-broke the bug; "who opened the channel" is fixed forever,
+        because ``send_to_agent`` finds a DM channel SYMMETRICALLY and REUSES
+        it — so once A has DM'd B, every errand B later runs toward A is
+        misclassified for BOTH sides, permanently (P1 2026-08-03 review). The
+        fact is per-message, so it has to be stored per-message.
 
-        Known limitation: if the two agents genuinely swap roles inside one
-        DM thread (the original recipient starts asking ITS own questions
-        there), the opener is no longer the one running the errand and that
-        turn gets the wrong directive. The degradation is the pre-2026-08-01
-        behaviour, and a role swap is rare next to a normal Q&A thread.
-
-        Fails toward the OLD behaviour (True → Owner Relay) on any error: a
-        wrongly-relayed answer is a UX annoyance, whereas wrongly telling an
-        agent "answer the peer" when its owner IS waiting would resurrect the
-        silent failure this directive was written to prevent.
+        Degradation, in order: unknown source but WE have never spoken here →
+        we are plainly the asked party; otherwise → Owner Relay, the
+        pre-2026-08-01 behaviour (a wrongly-relayed answer is cosmetic, while
+        wrongly suppressing Owner Relay resurrects the silent failure that
+        directive exists to prevent).
         """
+        sources = {
+            (getattr(m, "sender_turn_source", None) or "").strip().lower()
+            for m in incoming
+        }
+        sources.discard("")
+        if sources:
+            # Any owner-facing send in the batch means we are being asked.
+            return sources == {"message_bus"}
+
+        # No recorded source (legacy rows, or an adapter that dropped the
+        # header). Fall back to "have we ever spoken here": absence is still
+        # unambiguous — a channel we have never sent into cannot hold a reply
+        # to an errand of ours.
         try:
+            incoming_ids = {
+                m.message_id for m in incoming if getattr(m, "message_id", None)
+            }
             ph = self._bus._db.placeholder
             rows = await self._bus._db.execute(
-                f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-                f"ORDER BY created_at ASC LIMIT 1",
-                (channel_id,),
+                f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
+                f"AND from_agent = {ph} "
+                # Humans post as USER_SENDER_PREFIX + user_id and are never
+                # "us"; excluded to stay consistent with
+                # _team_cascade_depth, which filters the same table.
+                f"AND from_agent NOT LIKE '{USER_SENDER_PREFIX}%'",
+                (channel_id, agent_id),
             )
-            if not rows:
-                # No history at all: we are being triggered by the very first
-                # message, which someone else sent — we are the asked party.
-                return False
-            return str(rows[0]["from_agent"]) == agent_id
+            for r in rows or []:
+                if str(r["message_id"]) not in incoming_ids:
+                    return True
+            return False
         except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
             logger.debug(
-                f"MessageBusTrigger: could not tell who opened channel "
-                f"{channel_id} ({e}); assuming owner-relay"
+                f"MessageBusTrigger: could not classify channel {channel_id} "
+                f"({e}); assuming owner-relay"
             )
             return True
 
@@ -1069,7 +1086,8 @@ class MessageBusTrigger:
         messages: List[BusMessage],
         owner_user_id: str = "",
         owner_name: str = "",
-        i_started_this_exchange: bool = True,
+        *,
+        i_started_this_exchange: bool,
     ) -> str:
         # NOTE: this builds the full EXECUTION prompt (peer messages + the
         # repeated Owner-Relay boilerplate). For narrative retrieval, embed

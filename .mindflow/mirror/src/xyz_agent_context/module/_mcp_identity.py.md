@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-01
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 同一 seam 增加 turn source;注入面公开化(review)
+
+- 新增 `X-NarraNexus-Turn-Source` header + `caller_turn_source()`:工具需要
+  知道"这一轮是 owner 面还是同伴面",`bus_send_to_agent` 据此把事实写到
+  消息上(见 [[message_bus_trigger]] 的指令选择)。**只走显式 header**
+  (bearer 槽被身份占了),所以 codex 上读不到 —— 消费方必须把"读不到"当
+  未知处理,不能猜。
+- **注入面从私有模块提到公开面**:`AGENT_ID_HEADER` /
+  `TURN_SOURCE_HEADER` / `agent_id_headers` 经 `module/__init__.py` 导出,
+  [[context_runtime]] 改从公开面 import;服务端解析仍留在本私有模块。
+  (原来 `_` 私有模块被两个包跨包 import,等于把私有当公共 seam 用。)
+- bearer 判据从 `in` 改成**锚定** `startswith(f"Bearer {prefix}")`:真 token
+  恰好包含 `nx-agent:` 子串时不会被切一刀。
+- 适配层不再 import 本模块常量:codex 适配器改用**命名空间前缀**
+  (`x-narranexus-`)判断豁免,避免 agent_framework 反向依赖 module 包。
 
 # _mcp_identity.py — module MCP 工具的调用者身份
 

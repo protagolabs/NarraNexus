@@ -114,46 +114,100 @@ def test_no_owner_means_no_directive_either_way():
         assert "REQUIRED" not in prompt
 
 
-def test_default_stays_owner_relay_for_existing_callers():
-    """Signature back-compat: the team branch and any other caller that does
-    not pass the flag must keep the pre-existing behaviour."""
+def test_the_directive_flag_is_required():
+    """No default: the flag decides which of two contradictory directives the
+    agent gets, so a caller that forgets it must fail loudly rather than
+    silently inherit Owner Relay (the pre-fix, wrong-for-recipients branch)."""
     t = _trigger([])
-    prompt = t._build_prompt([_msg("m4", "agent_x")], owner_user_id="user_tc")
-    assert "## Owner Relay — REQUIRED" in prompt
+    with pytest.raises(TypeError):
+        t._build_prompt([_msg("m4", "agent_x")], owner_user_id="user_tc")
 
 
 # ---------------------------------------------------------------------------
-# Detecting who started the thread
+# Classifying the incoming batch (question to us vs reply to our errand)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_the_thread_opener_is_the_errand_owner():
-    t = _trigger(rows=[{"from_agent": "agent_xiaoque"}])
-    assert await t._agent_started_this_thread("agent_xiaoque", "ch_dm_1") is True
-    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
+def _msg_src(message_id, from_agent, source):
+    m = _msg(message_id, from_agent)
+    return m.model_copy(update={"sender_turn_source": source})
 
 
 @pytest.mark.asyncio
-async def test_no_history_means_we_are_being_asked():
-    """Triggered by the very first message in the channel — someone else
-    sent it, so we are the asked party."""
-    t = _trigger(rows=[])
-    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
+async def test_owner_facing_send_means_we_are_being_asked():
+    """The peer sent this from a chat turn → it is running an errand for its
+    owner and asking US."""
+    t = _trigger([])
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_yushu", "ch_dm_1", [_msg_src("m1", "agent_xiaoque", "chat")]
+    ) is False
 
 
 @pytest.mark.asyncio
-async def test_recipient_stays_the_recipient_after_it_has_replied():
-    """The reason this keys on the OPENER rather than "have I spoken":
+async def test_bus_send_means_it_is_the_reply_to_our_errand():
+    t = _trigger([])
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_xiaoque", "ch_dm_1", [_msg_src("m2", "agent_yushu", "message_bus")]
+    ) is True
 
-    once the recipient answers once it HAS spoken, so a follow-up question
-    would flip it back to Owner Relay and re-introduce the whole bug — the
-    recipient answering its own owner while the asker waits. 羽书 must read
-    as "being asked" for every message in the thread 小雀 opened.
+
+@pytest.mark.asyncio
+async def test_follow_up_question_still_reads_as_being_asked():
+    """The regression the first heuristic had: after the recipient answers
+    once, a follow-up must NOT flip it to Owner Relay."""
+    t = _trigger(rows=[{"message_id": "our_earlier_reply"}])
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_yushu", "ch_dm_1", [_msg_src("m3", "agent_xiaoque", "chat")]
+    ) is False
+
+
+@pytest.mark.asyncio
+async def test_reverse_direction_in_a_reused_dm_channel():
+    """The review's finding: DM channels are found symmetrically and REUSED,
+    so "who opened the channel" is fixed forever. Once A has DM'd B, an errand
+    B later runs toward A must still classify correctly for BOTH sides —
+    otherwise that direction is permanently broken.
     """
-    t = _trigger(rows=[{"from_agent": "agent_xiaoque"}])
-    # 羽书 has replied by now, and 小雀 is asking a follow-up.
-    assert await t._agent_started_this_thread("agent_yushu", "ch_dm_1") is False
+    t = _trigger(rows=[{"message_id": "as_old_message"}])
+    # B asks A on B's own errand → A is being asked, even though A opened the channel.
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_a", "ch_dm_1", [_msg_src("q", "agent_b", "chat")]
+    ) is False
+    # A answers → B must relay to ITS owner (this is the step my first fix regressed).
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_b", "ch_dm_1", [_msg_src("a", "agent_a", "message_bus")]
+    ) is True
+
+
+@pytest.mark.asyncio
+async def test_mixed_batch_with_any_owner_facing_send_is_a_question():
+    t = _trigger([])
+    batch = [
+        _msg_src("m1", "agent_xiaoque", "message_bus"),
+        _msg_src("m2", "agent_xiaoque", "chat"),
+    ]
+    assert await t._incoming_is_reply_to_my_errand("a", "ch", batch) is False
+
+
+# --- degradation when the source was not recorded -------------------------
+
+
+@pytest.mark.asyncio
+async def test_unknown_source_and_we_never_spoke_here_means_asked():
+    """Legacy rows / adapters that drop the header. Absence of our own prior
+    message is still unambiguous."""
+    t = _trigger(rows=[])
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_yushu", "ch_dm_1", [_msg("m1", "agent_xiaoque")]
+    ) is False
+
+
+@pytest.mark.asyncio
+async def test_unknown_source_but_we_have_spoken_falls_back_to_owner_relay():
+    t = _trigger(rows=[{"message_id": "older"}])
+    assert await t._incoming_is_reply_to_my_errand(
+        "agent_xiaoque", "ch_dm_1", [_msg("m9", "agent_yushu")]
+    ) is True
 
 
 @pytest.mark.asyncio
@@ -172,4 +226,47 @@ async def test_db_failure_falls_back_to_owner_relay():
         _db = _Boom()
 
     t = MessageBusTrigger(bus=_Bus())
-    assert await t._agent_started_this_thread("a", "ch") is True
+    assert await t._incoming_is_reply_to_my_errand("a", "ch", [_msg("m", "b")]) is True
+
+
+# ---------------------------------------------------------------------------
+# The fact must actually persist and round-trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sender_turn_source_round_trips_through_the_db():
+    """Mocks cannot prove the column exists, is written, and comes back on the
+    BusMessage the trigger reads. Without all three the classifier silently
+    degrades to the fallback everywhere."""
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+
+    backend = SQLiteBackend(":memory:")
+    await backend.initialize()
+    await auto_migrate(backend)
+    db = await AsyncDatabaseClient.create_with_backend(backend)
+    try:
+        for aid in ("agent_a", "agent_b"):
+            await db.insert("agents", {
+                "agent_id": aid, "agent_name": aid, "created_by": "user_tc",
+            })
+        bus = LocalMessageBus(backend=db._backend)
+
+        await bus.send_to_agent(
+            from_agent="agent_a", to_agent="agent_b",
+            content="what are you working on?", sender_turn_source="chat",
+        )
+        pending = await bus.get_pending_messages("agent_b")
+        assert pending, "recipient must see the message"
+        assert pending[0].sender_turn_source == "chat"
+
+        trigger = MessageBusTrigger(bus=bus)
+        # An errand question → the recipient must be told to answer the peer.
+        assert await trigger._incoming_is_reply_to_my_errand(
+            "agent_b", pending[0].channel_id, pending
+        ) is False
+    finally:
+        await db.close()

@@ -20,8 +20,7 @@ from xyz_agent_context.schema import (
 )
 
 # Module
-from xyz_agent_context.module import XYZBaseModule, HookManager
-from xyz_agent_context.module._mcp_identity import agent_id_headers
+from xyz_agent_context.module import XYZBaseModule, HookManager, agent_id_headers
 
 # Narrative
 from xyz_agent_context.narrative import Narrative, Event, EventService, NarrativeService, config
@@ -1093,7 +1092,13 @@ class ContextRuntime:
                     # adapters' transports; see module/_mcp_identity.py.
                     mcp_servers[mcp_config.server_name] = {
                         "url": mcp_config.server_url,
-                        "headers": agent_id_headers(self.agent_id),
+                        "headers": agent_id_headers(
+                            self.agent_id,
+                            turn_source=str(
+                                getattr(ctx_data.working_source, "value", None)
+                                or ctx_data.working_source or ""
+                            ),
+                        ),
                     }
                     collected_count += 1
                     logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")

@@ -285,11 +285,20 @@ def register_message_bus_mcp_tools(
 
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
+            # Record WHICH KIND of turn is sending: an owner-facing turn means
+            # this is an errand question (the recipient must answer US), a
+            # message_bus turn means we are already answering a peer (so their
+            # next message is a reply). The recipient's directive is chosen
+            # from this — see message_bus_trigger. Best-effort: absent on
+            # adapters that drop custom headers, and the trigger degrades.
+            from xyz_agent_context.module._mcp_identity import caller_turn_source
+
             msg_id = await bus.send_to_agent(
                 from_agent=agent_id,
                 to_agent=to_agent_id,
                 content=content,
                 attachments=attachments or None,
+                sender_turn_source=caller_turn_source(),
             )
             return {
                 "success": True,

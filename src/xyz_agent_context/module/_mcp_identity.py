@@ -79,6 +79,16 @@ AGENT_ID_HEADER = "X-NarraNexus-Agent-Id"
 # real credential (the codex adapter can only transmit a bearer).
 BEARER_AGENT_PREFIX = "nx-agent:"
 
+# WHICH KIND of turn is calling ("chat" / "job" / "message_bus" / …). Same
+# injection seam as the identity, because the same problem applies: a tool
+# cannot otherwise know whether the turn it serves is an owner-facing errand
+# or an agent answering a peer, and bus_send_to_agent must record that on the
+# message (see message_bus_trigger's directive selection). Only the claude
+# adapter forwards it — codex can carry a single bearer only, which identity
+# already owns — so consumers MUST treat absence as "unknown", never as a
+# particular source.
+TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
+
 # Values a model supplies when it is guessing instead of reading its prompt.
 # These are NOT agent ids and must never reach a DB lookup: treat them as
 # "the model did not tell us", then fall back to the injected identity.
@@ -135,8 +145,11 @@ def caller_agent_id_from_request() -> Optional[str]:
 
         # Codex path: identity rides a borrowed bearer.
         auth = headers.get("authorization") or headers.get("Authorization") or ""
-        if auth.startswith("Bearer ") and BEARER_AGENT_PREFIX in auth:
-            candidate = auth.split(BEARER_AGENT_PREFIX, 1)[1].strip()
+        # Anchored, not a substring search: a real token that merely CONTAINS
+        # "nx-agent:" must never be sliced up and read as an identity.
+        marker = f"Bearer {BEARER_AGENT_PREFIX}"
+        if auth.startswith(marker):
+            candidate = auth[len(marker):].strip()
             if candidate and not is_placeholder_agent_id(candidate):
                 return candidate
     except LookupError:
@@ -347,21 +360,58 @@ def placeholder_agent_id_error(supplied: Any, tool_hint: str = "") -> str:
     )
 
 
-def agent_id_headers(agent_id: str) -> dict[str, str]:
-    """Headers that tell a module MCP server which agent is calling.
+def agent_id_headers(
+    agent_id: str, turn_source: str | None = None
+) -> dict[str, str]:
+    """Headers that tell a module MCP server who is calling, and from what.
 
-    Both spellings are emitted on purpose — see the module docstring: the
-    claude adapter forwards the explicit header, the codex adapter can only
-    forward a bearer.
+    Both identity spellings are emitted on purpose — see the module
+    docstring: the claude adapter forwards the explicit header, the codex
+    adapter can only forward a bearer.
+
+    ``turn_source`` rides the explicit header only (the bearer slot is
+    taken), so it is best-effort by construction: readers must handle
+    absence.
     """
-    return {
+    headers = {
         AGENT_ID_HEADER: agent_id,
         "Authorization": f"Bearer {BEARER_AGENT_PREFIX}{agent_id}",
     }
+    if turn_source:
+        headers[TURN_SOURCE_HEADER] = str(turn_source)
+    return headers
+
+
+def caller_turn_source() -> Optional[str]:
+    """The KIND of turn calling this tool ("chat" / "message_bus" / …), or None.
+
+    None means "we could not tell" — no request in scope, or an adapter that
+    drops custom headers (codex). Callers must degrade, never guess.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+
+        request = getattr(request_ctx.get(), "request", None)
+        headers = getattr(request, "headers", None)
+        if not headers:
+            return None
+        value = (
+            headers.get(TURN_SOURCE_HEADER.lower())
+            or headers.get(TURN_SOURCE_HEADER)
+            or ""
+        ).strip()
+        return value or None
+    except LookupError:
+        return None
+    except Exception as e:  # noqa: BLE001 — never flow control
+        logger.debug(f"[mcp-identity] could not read turn source: {e}")
+        return None
 
 
 __all__ = [
     "AGENT_ID_HEADER",
+    "TURN_SOURCE_HEADER",
+    "caller_turn_source",
     "BEARER_AGENT_PREFIX",
     "PLACEHOLDER_AGENT_IDS",
     "agent_id_headers",

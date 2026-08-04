@@ -273,6 +273,38 @@ def test_base_module_wrapper_instruments_and_never_raises():
     assert m.build_instrumented_mcp_server() is None
 
 
+def test_broken_instrumentation_still_serves_the_module(monkeypatch):
+    """The never-raises half, which the test above did not actually cover:
+    identity resolution is an improvement, not a precondition for serving. If
+    installing it ever throws, the module must still be served (uninstrumented
+    and loudly logged) rather than disappearing from the agent's toolset."""
+    from xyz_agent_context.module import base as base_mod
+    from xyz_agent_context.schema import ModuleConfig
+
+    sentinel = object()
+
+    class WithServer(base_mod.XYZBaseModule):
+        def get_config(self):
+            return ModuleConfig(name="WithServer", priority=9, enabled=True,
+                                description="t", module_type="capability")
+
+        async def get_mcp_config(self):
+            return None
+
+        def create_mcp_server(self):
+            return sentinel
+
+    def boom(_mcp):
+        raise RuntimeError("instrumentation exploded")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module._mcp_identity.install_caller_identity", boom
+    )
+    m = WithServer(agent_id=REAL, user_id="u", database_client=None)
+
+    assert m.build_instrumented_mcp_server() is sentinel
+
+
 # ---------------------------------------------------------------------------
 # Coverage across the real module registry
 # ---------------------------------------------------------------------------

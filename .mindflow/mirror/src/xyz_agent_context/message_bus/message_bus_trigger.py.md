@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-01
+last_verified: 2026-08-04
 stub: false
 ---
 
@@ -16,23 +16,31 @@ P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_pro
 (「未回复小雀 — 她是转发…按 Reply Discipline」)→ 小雀(已向用户承诺回报)
 永远等不到回复。**模型是在照做,是 prompt 在骗它。**
 
-修法:按「谁发起的」选指令。
-- `_agent_started_this_thread()`:本 agent 是不是该 channel 的**第一条
-  消息的发送者**。`bus_send_to_agent` 建 DM channel 时是发送方先说话,
-  所以"开场的人"就是跑差事的人,另一边在整个线程里都是被问的一方。
-- **为什么用"开场者"而不是"我说过话吗"**(第一版就是后者,自查时发现会
-  复发):被问方回复过一次之后它"说过话"了,于是**追问**会把它翻回
-  Owner Relay,bug 原样回来。keying on 开场者对任意长的线程都稳定。
-  (追问场景已真机验证:羽书 第二个问题照样在 bus 上作答。)
-- 已知局限:如果两个 agent 在同一个 DM 线程里**真的互换角色**(原收件方
-  开始问自己的问题),开场者就不再是跑差事的人,那一轮指令会错;退化成
-  2026-08-01 之前的行为,而角色互换比正常一问一答罕见得多。
-- True → Owner Relay(2026-06 的静默失败修复,原样保留)
-- False → 新的 `## Answer the peer — REQUIRED`:点名 `bus_send_to_agent`
-  是唯一能到达提问者的通道、"你 owner 并没有在等"、"回自己 owner 不能
-  替代回复 peer"、"问题从来不是 ping-pong"。
-- **异常一律回落 True**:错relay 只是体验噪音,而错误压掉 Owner Relay 会
-  让 2026-06 那个静默失败复活。
+修法(2026-08-04 定稿):按**消息上记录的事实**选指令,不再靠 channel 排序推断。
+
+发送方在 `bus_send_to_agent` 时把**自己这一轮的种类**写到消息上
+(`bus_messages.sender_turn_source`):owner 面的 turn(chat/job/…)=我在跑
+差事、这条是**提问**;`message_bus` turn = 我本来就在答同伴、这条是**回复**。
+触发侧读进来那批消息的这个字段即可,零历史查询。
+
+**两次靠 channel 排序推断都错了**,记下来别再试:
+1. 「我在这个 channel 说过话吗」—— 被问方回复一次之后就"说过话"了,**追问**
+   会翻回 Owner Relay,bug 原样复发。
+2. 「谁开的场」—— `send_to_agent` 找 DM channel 是**对称查找 + 复用**
+   (local_bus:245),所以 A 一旦 DM 过 B,opener 永远是 A;此后 B 反向跑差事
+   问 A 时**两边都判错**:A 拿到 Owner Relay(把 B 的问题转给自己 owner,
+   P1 原样复现),B 收到回复时被告知"你 owner 没在等"(不回报)。**这不是
+   罕见退化,是那一对 agent 的反向永久失效** —— 而且第 2 点里 B 那一步
+   是我这次改动**引入的回归**(改之前它会拿到 Owner Relay 并正确回报)。
+   review 抓出来的。
+
+降级顺序:字段为空(存量行 / 丢 header 的适配器)且**我从没在此 channel
+发过言** → 显然是被问方;否则 → Owner Relay(2026-08-01 前的行为)。
+DB 异常同样回落 Owner Relay:错 relay 只是体验噪音,错误压掉 Owner Relay
+会让 2026-06 那个静默失败复活。
+
+`_build_prompt` 的 `i_started_this_exchange` 改成**关键字必填**:它决定给
+agent 两条互相矛盾的指令里的哪一条,漏传不该静默继承 Owner Relay。
 
 真机验证(第 4 次):羽书 改为在 bus 上回复并附状态,还自己诊断了前三次
 「我之前三次都直接回复了 TC…但 TC 似乎没看到」;小雀 随后被触发并
