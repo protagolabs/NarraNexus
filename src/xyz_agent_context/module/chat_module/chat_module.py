@@ -1226,7 +1226,14 @@ class ChatModule(XYZBaseModule):
         # user", never "chose not to answer" — the next turn's model reads
         # this row and the two mean opposite things.
         turn_interrupted = bool(getattr(params.io_data, "interrupted", False))
-        if not assistant_content:
+        # Strip-for-emptiness: a whitespace-only reply ("\n" left over
+        # from citation-token stripping, or literal spaces) is truthy but
+        # renders as a blank bubble — same placeholder as no reply at all.
+        # Mirrors the silent-batch branch above. NOTE: this is the SECOND
+        # net — the first is extract_reply_text's blank guard, which
+        # already keeps whitespace parts out of the split's join. Kept as
+        # cross-layer defense in case a future extractor path regresses.
+        if not assistant_content.strip():
             assistant_content = (
                 "(Interrupted by user)"
                 if turn_interrupted
@@ -1328,8 +1335,10 @@ class ChatModule(XYZBaseModule):
                 logger.warning(
                     f"[NO-REPLY] event_id={params.event_id} working_source={working_source} "
                     f"agent_loop_response_size={len(params.agent_loop_response)} "
-                    f"final_output_empty=True — persisting placeholder. "
-                    f"Likely cancellation or LLM produced zero output."
+                    f"placeholder_reply=True — no non-blank owner-visible "
+                    f"reply, persisting placeholder. Either no reply tool "
+                    f"fired (cancellation / zero LLM output) or the reply "
+                    f"text stripped down to blank."
                 )
         else:
             # Background task (job/lark/message_bus) with nothing owner-visible:

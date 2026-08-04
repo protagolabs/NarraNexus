@@ -233,8 +233,18 @@ class MessageSourceHandler:
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Optional[str]:
-        """Return the user-visible reply text from this tool call, or
-        None if the call wasn't a user reply.
+        """Return the user-visible reply text from this tool call.
+
+        Three-way contract (all falsy consumers behave identically, but
+        ``_classify_event`` needs the distinction):
+
+        - non-empty ``str`` — the reply text.
+        - ``""`` — the call WAS a reply attempt, but its text stripped
+          down to blank (all-citation reply, literal whitespace, or a
+          missing ``content`` arg). Blank after strip = no reply.
+        - ``None`` — the call wasn't a user reply at all (unmatched tool
+          name, or a custom extractor rejecting e.g. a lark_cli non-send
+          command). Downstream may still surface it as a real tool call.
 
         Custom `extract_reply_fn` short-circuits this; otherwise falls
         back to substring match on `tool_name` + `arguments['content']`.
@@ -248,13 +258,16 @@ class MessageSourceHandler:
         """
         if self.extract_reply_fn is not None:
             text = self.extract_reply_fn(tool_name, arguments or {})
+            if text is None:
+                return None
         elif self.is_user_reply_tool(tool_name):
             text = (arguments or {}).get("content", "")
         else:
             return None
-        if not text:
-            return None
-        return _strip_responses_api_citation_tokens(text)
+        text = _strip_responses_api_citation_tokens(text or "")
+        if not text.strip():
+            return ""
+        return text
 
     def format_row_prefix(self, msg: Dict[str, Any]) -> str:
         """Render the per-row prefix for `msg`.

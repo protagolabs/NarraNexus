@@ -3,6 +3,17 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — assistant_content 守卫 strip 化 + NO-REPLY 日志字段更名
+
+主路径占位守卫从 `if not assistant_content` 改为 `.strip()` 判空，与
+silent-batch 分支（早已 `.strip()`）口径对齐。注意：这是**第二道网**
+——第一道在 extract_reply_text 的空白守卫（剥空的 part 进不了 split
+的 join），当前代码里本分支对纯空白实际够不到，保留作跨层纵深防御，
+防未来 extractor 路径回归。interrupted 分支语义不变——空白+打断落
+"(Interrupted by user)"。[NO-REPLY] 日志里误导的 `final_output_empty`
+字段更名 `placeholder_reply`（它判的是占位文案，与 io_data.final_output
+无关），文案同时覆盖「没调回复工具」与「调了但剥空」两种情形。
+
 ## 2026-08-04 (review 三) — 背景轮持久化二分：[DELIVERED-BG] vs [NO-REPLY-BG]
 
 review round 2 抓到：owner-visible 拆分后，bus 名单扩容失去活消费方，

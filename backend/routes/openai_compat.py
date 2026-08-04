@@ -348,6 +348,15 @@ def _classify_event(
         reply_text = source_handler.extract_reply_text(tool_name, args)
         if reply_text:
             return ("content", reply_text)
+        if reply_text is not None:
+            # "" = a reply attempt whose text stripped to blank (same
+            # line as the other four guards). Not a real tool call
+            # either — falling through would leak the internal reply
+            # tool's MCP name to external clients as a fake tool_call.
+            # Drop the event. (None means "not a reply tool at all" —
+            # e.g. a lark_cli non-send command — which IS a real tool
+            # call and falls through below.)
+            return None
 
         # 3. all other tools → delta.tool_calls (proper OpenAI schema)
         return ("tool_call", {"name": tool_name, "arguments": args})
