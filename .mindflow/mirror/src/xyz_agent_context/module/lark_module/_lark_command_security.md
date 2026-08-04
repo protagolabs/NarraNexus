@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 (二) — @file 守卫收窄到 im +messages-*，7/29 提示语按域分流
+
+两个修正：① `--markdown/--text` 在 docs 域是文档内容（@file 或许合法），
+守卫与提示都按 `_is_im_message_command`（im +messages-send/-reply）收窄；
+② 7/29 的 `_AT_FILE_HINT` 原本对所有 payload flag 统一推荐
+`--content @relative/path.md`——对 IM 消息这是把模型往字面量坑里带
+（探针实证 2026-08-04：文件存在 + 合法相对路径，`im +messages-send
+--markdown @./f.md` 仍原样发出 "@./f.md" 且报 success），改为
+`_recovery_hint(flag, is_im_message)`：IM 消息体给内联建议，其余保留
+@file 路线。旧测试中 im 用例的「必须含 @」断言随之放宽为「必须给出
+可行替代」。
+
 ## 2026-08-04 — 拒绝 --text/--markdown 的 @file 字面量（假成功歼灭）
 
 真机事故（claude_code × lark，evt_2b0010e15c2b4548）：模型第一次

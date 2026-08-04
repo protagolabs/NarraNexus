@@ -117,6 +117,38 @@ _AT_FILE_HINT = (
 )
 
 
+def _is_im_message_command(tokens: list[str]) -> bool:
+    """True for ``im +messages-send`` / ``im +messages-reply`` — the
+    commands whose --text/--markdown value is a HUMAN-DELIVERED message
+    body. The same flag names mean document content under ``docs``,
+    where the @file convention may legitimately apply, so every
+    message-body rule in this file gates on this predicate."""
+    return (
+        len(tokens) >= 2
+        and tokens[0] == "im"
+        and tokens[1].startswith("+messages-")
+    )
+
+
+def _recovery_hint(flag: str, is_im_message: bool) -> str:
+    """Context-appropriate recovery advice for a rejected payload.
+
+    IM message bodies have NO @file expansion — probe-verified
+    2026-08-04: ``im +messages-send --markdown @./file`` with the file
+    present still ships the literal string and reports success. Steering
+    a message flag toward @file would walk the model straight into the
+    misdelivery that ``_reject_file_reference_bodies`` exists to block.
+    Everything else keeps the --content @file route.
+    """
+    if is_im_message and flag in _LITERAL_BODY_FLAGS:
+        return (
+            "Message flags do not read files or stdin — put the FULL "
+            "message content inline as ONE quoted argument, e.g. "
+            '--markdown "line one\\n\\nline two".'
+        )
+    return _AT_FILE_HINT
+
+
 def _is_whole_command_substitution(value: str) -> bool:
     """True when the value is exactly one `$(...)`, nothing else around it.
 
@@ -154,12 +186,14 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
         # parse error, which is a clearer message than anything here.
         return True, ""
 
+    is_im_message = _is_im_message_command(tokens)
     for i, tok in enumerate(tokens):
+        flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
         if tok.startswith("<<"):
             return False, (
                 f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
                 f"directly (execve), not through a shell, so it is never "
-                f"interpreted. {_AT_FILE_HINT}"
+                f"interpreted. {_recovery_hint(flag, is_im_message)}"
             )
         if _is_whole_command_substitution(tok):
             return False, (
@@ -167,13 +201,13 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
                 f"lark_cli executes the CLI directly (execve), not through a "
                 f"shell, so this arrives as literal text and would be written "
                 f"verbatim — and the call would still report success. "
-                f"{_AT_FILE_HINT}"
+                f"{_recovery_hint(flag, is_im_message)}"
             )
-        if tok == "-" and i > 0 and tokens[i - 1] in _PAYLOAD_FLAGS:
+        if tok == "-" and flag in _PAYLOAD_FLAGS:
             return False, (
-                f"'{tokens[i - 1]} -' means read from stdin, but lark_cli "
+                f"'{flag} -' means read from stdin, but lark_cli "
                 f"never wires stdin to the CLI, so the payload would arrive "
-                f"empty. {_AT_FILE_HINT}"
+                f"empty. {_recovery_hint(flag, is_im_message)}"
             )
 
     return True, ""
@@ -301,7 +335,12 @@ _FILE_REFERENCE_RE = re.compile(r"^@\S+\.[A-Za-z0-9]{1,5}$")
 
 
 def _reject_file_reference_bodies(args: list[str]) -> None:
-    """Raise when a --text/--markdown value looks like a file reference."""
+    """Raise when an IM message body value looks like a file reference.
+
+    Scoped to ``im +messages-*`` — under ``docs`` the same flag names
+    carry document content, where @file may legitimately apply."""
+    if not _is_im_message_command(args):
+        return
     for flag, value in zip(args, args[1:]):
         if flag in _LITERAL_BODY_FLAGS and _FILE_REFERENCE_RE.match(value):
             raise ValueError(

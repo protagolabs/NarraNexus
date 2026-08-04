@@ -712,7 +712,9 @@ def register_lark_mcp_tools(mcp: Any) -> None:
           - These flags do NOT read files. `--markdown @reply.md` would
             deliver the literal string "@reply.md" to the human. Never
             Write the message to a file first — always inline the full
-            content in the command string, however long.
+            content in the command string, however long. (This rule is
+            about `im +messages-*`; `docs` content flags keep their own
+            `--content @relative/path` file convention.)
 
         On failure:
           - "missing_scope: X": recovery depends on whether X is a

@@ -49,7 +49,13 @@ from xyz_agent_context.module.lark_module._lark_command_security import (
 def test_whole_value_command_substitution_is_rejected(cmd):
     allowed, reason = validate_command(cmd)
     assert not allowed, f"should have been rejected: {cmd}"
-    assert "@" in reason, "the rejection must point at the @file alternative"
+    # The rejection must name a WORKING alternative. Which one depends on
+    # the surface: im message bodies have no @file expansion (probe-verified
+    # 2026-08-04 — a valid @./file still ships the literal string), so those
+    # get the inline-content hint; content-style flags keep @file.
+    assert "@" in reason or "inline" in reason.lower(), (
+        "the rejection must point at a working alternative"
+    )
 
 
 def test_rejection_names_the_working_alternative():
