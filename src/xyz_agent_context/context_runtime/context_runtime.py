@@ -1142,8 +1142,31 @@ class ContextRuntime:
                 try:
                     declared = await inst.module.get_expressive_tools(ctx_data)
                     if declared:
+                        # Origin-first: the module that OWNS this turn's
+                        # working_source sorts ahead of everyone, so the
+                        # first collected tool — the framework's default
+                        # reply tool — follows "whoever contacted you"
+                        # instead of hard-wiring the owner-chat tool.
+                        # Fail-open to the non-origin rank: a module
+                        # without the hook (or a crashing one) just keeps
+                        # plain priority order.
+                        try:
+                            origin_rank = (
+                                0
+                                if inst.module.owns_working_source(
+                                    getattr(ctx_data, "working_source", None)
+                                )
+                                else 1
+                            )
+                        except Exception:  # noqa: BLE001 — fail-open
+                            origin_rank = 1
                         expressive_declarations.append(
-                            (inst.module.config.priority, inst.module_class, list(declared))
+                            (
+                                origin_rank,
+                                inst.module.config.priority,
+                                inst.module_class,
+                                list(declared),
+                            )
                         )
                 except TypeError as e:
                     # A stale override signature is a wiring bug, not a
@@ -1173,9 +1196,9 @@ class ContextRuntime:
         # one link we cannot control, see the claude adapter.)
         mcp_servers = dict(sorted(mcp_servers.items()))
 
-        expressive_declarations.sort(key=lambda kv: (kv[0], kv[1]))
+        expressive_declarations.sort(key=lambda kv: (kv[0], kv[1], kv[2]))
         expressive_tools: list[str] = []
-        for _, _, declared in expressive_declarations:
+        for _, _, _, declared in expressive_declarations:
             for tool_name in declared:
                 if tool_name not in expressive_tools:
                     expressive_tools.append(tool_name)

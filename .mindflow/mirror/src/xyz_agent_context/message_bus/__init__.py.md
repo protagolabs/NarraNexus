@@ -1,0 +1,26 @@
+---
+code_file: src/xyz_agent_context/message_bus/__init__.py
+last_verified: 2026-08-04
+stub: false
+---
+
+# message_bus/__init__.py — 包出口 + message_bus 来源 handler 注册
+
+## 为什么存在
+
+除 re-export 外，import 时注册 message_bus 的 MessageSourceHandler：
+判定「这轮算不算回复了用户」的 reply 工具名单 + bus 行前缀模板。
+
+## 2026-08-04 — 判定名单补 bus 投递工具
+
+`user_reply_tool_names` 从仅 send_message_to_user_directly 扩为
++ `bus_send_message` + `bus_send_to_agent`。旧名单把真调了 bus 送达的
+run 也记 NO-REPLY（8/1 实锤，如 Maestro run_1994fd41）——既错标运行，
+也污染「bus agent 到底多常不交付」的度量（该指标决定要不要加平台侧
+兜底，Owner 2026-08-04 拍板：先测量再定兜底）。与 [[message_bus_module]]
+的 expressive 声明保持同一份工具集（声明面/判定面镜像对齐）。
+
+## Gotcha
+
+- 判定是子串匹配（`pattern in tool_name`），mcp__ 前缀形态自然命中；
+  bus_get_messages 等非投递工具不含 send 名单子串，不会误判。

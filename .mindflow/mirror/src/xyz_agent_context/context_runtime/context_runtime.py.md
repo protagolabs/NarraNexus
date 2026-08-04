@@ -4,6 +4,17 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — expressive 收集改 origin-first 排序
+
+排序键从 (priority, module_class) 变为 (origin_rank, priority, module_class)：
+拥有本轮 working_source 的模块（`owns_working_source(ws)`，见 [[base]]）
+origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
+（NexusPower constitution 的 example + claude 适配器 reminder 首位），
+从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
+bus 轮默认 bus_send_message、wechat 轮默认 wechat_send。钩子调用
+fail-open（无此方法/抛错 → rank 1，纯 priority 序不变），假模块与
+旧路径零影响。
+
 ## 2026-08-03 — 注入本轮的**差事作用域**(而不是升级 turn_source)
 
 header 除 turn_source 外再带 `bus_errand_peer` / `bus_errand_channel`

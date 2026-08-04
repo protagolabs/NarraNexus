@@ -708,6 +708,20 @@ class ClaudeAgentSDK:
             split_for_argv(messages)
         )
 
+        # Reply-surface reminder — the platform's declared delivery tools for
+        # THIS turn's origin (TurnInput.expressive_tools), rendered at the end
+        # of the user message. NexusPower repeats this rule per step next to
+        # the generation point; the CLI's closest equivalent seam is here.
+        # Rides only the live prompt input — never the transcript/history, so
+        # it cannot accumulate across turns.
+        from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+            append_reply_reminder,
+        )
+
+        this_turn_user_message = append_reply_reminder(
+            this_turn_user_message, kwargs.get("expressive_tools")
+        )
+
         # Author the transcript ourselves rather than depending on the CLI still
         # remembering a session. This is what removes the LAST prefix cost that
         # handle-based resume left behind: a cold turn used to carry history in

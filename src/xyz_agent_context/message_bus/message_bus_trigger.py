@@ -673,6 +673,12 @@ class MessageBusTrigger:
                     # text. The peer-DM/inbox branch keeps the monologue
                     # private — its prompt makes no such promise.
                     include_monologue=is_team,
+                    # Same fact, module-side consumer: the team room must NOT
+                    # advertise bus tools as its reply surface (plain text
+                    # auto-posts; the prompt forbids delivery tools), so the
+                    # marker rides trigger_extra_data for the expressive
+                    # declaration to gate on.
+                    team_room=is_team,
                 )
 
             # On success: advance cursor
@@ -1353,6 +1359,7 @@ class MessageBusTrigger:
         on_progress=None,
         on_event_id=None,
         include_monologue: bool = False,
+        team_room: bool = False,
     ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -1407,6 +1414,10 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
+                # Delivery-contract marker: team rooms auto-post plain text,
+                # so MessageBusModule.get_expressive_tools declares nothing
+                # there (an advertised bus tool would invite double-posting).
+                "bus_team_room": team_room,
                 # Errand scope — empty unless this turn continues our own
                 # errand. sender_agent_id is the peer whose reply triggered us,
                 # i.e. exactly who a follow-up would go to.

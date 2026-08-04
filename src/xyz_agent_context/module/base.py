@@ -353,6 +353,17 @@ MCPs: {mcp_tools}
         """
         return []
 
+    def owns_working_source(self, working_source: Any) -> bool:
+        """True when THIS module is the origin of the given working_source.
+
+        The expressive collection sorts the origin module's declaration
+        first, so "whoever contacted you" decides the turn's default
+        reply tool — priority order alone would hand every turn to the
+        owner-chat tool regardless of where the contact came from.
+        Modules that never originate turns keep the False default.
+        """
+        return False
+
     async def get_disallowed_tools(self) -> list[str]:
         """
         Fully-qualified MCP tool names to suppress for THIS agent THIS turn.

@@ -264,11 +264,23 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
+    def owns_working_source(self, working_source: Any) -> bool:
+        """Owner web chat originates CHAT turns (and is the origin-first
+        default on turns that fall through with no declared origin owner,
+        since priority 1 already sorts it first within its rank)."""
+        from xyz_agent_context.schema import WorkingSource
+
+        return working_source == WorkingSource.CHAT or (
+            isinstance(working_source, str)
+            and working_source == WorkingSource.CHAT.value
+        )
+
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """The owner-chat delivery tool. ChatModule is priority 1, so the
-        (priority, module_class)-sorted collection puts this first and it
-        becomes the turn's DEFAULT reply tool (the one the framework's
-        constitution names as its example). Derived from get_mcp_config's
+        """The owner-chat delivery tool. On CHAT turns the origin-first
+        collection puts this first; on other turns priority 1 keeps it
+        directly after the origin module's declaration — it stays on the
+        surface everywhere because Owner Relay legitimately delivers
+        through it from non-chat turns. Derived from get_mcp_config's
         server_name — a rename must not silently mute the agent.
         ``ctx_data`` is accepted for the origin-aware base signature; the
         owner-chat declaration does not vary by turn origin."""

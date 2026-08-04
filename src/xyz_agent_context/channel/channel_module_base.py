@@ -318,6 +318,17 @@ class ChannelModuleBase(XYZBaseModule):
             if name not in self.setup_tool_names
         ]
 
+    def owns_working_source(self, working_source: Any) -> bool:
+        """Channel modules originate the turns whose working_source equals
+        their ``channel_name`` (the WorkingSource enum reuses the channel
+        names: "wechat", "lark", ...). Origin-first collection then makes
+        this channel's reply tool the turn's default — a WeChat contact
+        defaults to ``wechat_send``, not the owner-chat tool."""
+        return working_source == self.channel_name or (
+            not isinstance(working_source, str)
+            and getattr(working_source, "value", None) == self.channel_name
+        )
+
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Bound → this channel's reply tools, fully qualified. Unbound
         contributes nothing (those schemas are suppressed above anyway).

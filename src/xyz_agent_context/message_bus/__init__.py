@@ -16,9 +16,12 @@ from .schemas import BusAgentInfo, BusChannel, BusChannelMember, BusMessage
 
 # Register the MessageBus channel handler so chat_module can recognise
 # bus-triggered reply tools and render bus rows with a distinct prefix.
-# MessageBus reuses send_message_to_user_directly (the trigger prompt
-# explicitly tells agents to use it for Owner Relay), so the default
-# extractor is sufficient — we only need to override the prefix.
+# The reply list carries every tool that DELIVERS on a bus turn: the bus
+# sends (answer-the-peer / group replies) and send_message_to_user_directly
+# (Owner Relay). Listing only the owner-chat tool recorded genuine bus
+# deliveries as NO-REPLY (2026-08-01), which both mislabeled the runs and
+# poisoned the no-reply metric that decides whether a delivery fallback
+# is needed.
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -27,7 +30,11 @@ from xyz_agent_context.channel.message_source_handler import (
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="message_bus",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=(
+            "send_message_to_user_directly",
+            "bus_send_message",
+            "bus_send_to_agent",
+        ),
         row_prefix_template="[Bus · from agent={from_agent}]",
     ))
 except ValueError:

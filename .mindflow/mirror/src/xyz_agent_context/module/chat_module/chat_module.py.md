@@ -3,6 +3,12 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — owns_working_source(CHAT) + 声明语义更新
+
+origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第一；
+非 chat 轮凭 priority 1 紧随来源模块之后——仍全场在列（Owner Relay
+合法经它交付），但不再是所有轮次的默认。docstring 同步改口。
+
 ## 2026-08-04 — get_expressive_tools 补上 ctx_data(review 抓漏)
 
 签名扫尾漏了本类:基类/调用点已改带参,本覆写仍是 (self)-only →

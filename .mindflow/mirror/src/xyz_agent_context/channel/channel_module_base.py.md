@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — owns_working_source：channel_name 即来源名
+
+WorkingSource 的 IM 值复用 channel_name（"wechat"/"lark"/...），故基类
+统一实现：ws == channel_name（兼容 enum/字符串两形态）。配合
+[[context_runtime]] origin-first 排序，WeChat 触发轮的默认回复工具是
+wechat_send 而非 owner-chat 工具。
 
 ## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
 
