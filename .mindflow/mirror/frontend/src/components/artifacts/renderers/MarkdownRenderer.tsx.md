@@ -4,15 +4,16 @@ last_verified: 2026-08-04
 stub: false
 ---
 
-## 2026-08-04 — 滚动归属：内容盒 h-full，渲染器自己滚
+## 2026-08-04 — 根节点必须保持 auto 高度、零滚动容器
 
-云端 artifact 滑不动的 P2 修复（Base recvpm05jsLg3o）。列容器的内容盒是
-overflow-hidden（拖拽冻结机制依赖裁剪，不能改），所以滚动必须由渲染器
-自己承担：内容 div 补 `h-full`（高度钉死为面板高度）让溢出发生在自身的
-`overflow-auto` 里，加 `overscroll-contain` 防移动端滚动链穿透。没有
-h-full 时 div 高度=内容高度、永不溢出，真溢出发生在父容器并被静默裁掉
-——用户只能看到第一屏，还会误判成 agent 只写了这么点。回归测试见
-[[__tests__/scrollContainment.test.tsx]]。
+云端 artifact 滑不动修复（Base recvpm05jsLg3o）定稿版：滚动归属在
+**ArtifactRenderer 的 bounded 包装盒**（列内），或 ZoomModal 的外层
+overflow-auto（弹窗内）——本渲染器根 div 保持 auto 高度且**不再带
+overflow-auto**（原有的那个纵向从未生效过，是死代码）。第一版曾给根
+div 加 `h-full` 自滚，review 打回：h-full 在弹窗里会对着 scale 层的
+确定高度解析，把内容钳成一屏+嵌套滚动条。契约测试
+[[../../__tests__/scrollContainment.test.tsx]] 钉死"根节点无 h-full、
+无滚动容器"。
 
 ## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
 

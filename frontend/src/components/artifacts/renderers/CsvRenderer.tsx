@@ -79,11 +79,11 @@ export default function CsvRenderer({ artifact }: Props) {
     (() => {
       const [header, ...body] = rows;
       return (
-        // h-full bounds the wrapper to the column's overflow-hidden content
-        // box so vertical AND horizontal scrolling both happen here (wide
-        // tables pan sideways); without it the wrapper grows to table
-        // height and the parent clips everything past the first screen.
-        <div className="h-full overflow-auto overscroll-contain p-4">
+        // Auto size, no overflow — vertical and wide-table horizontal
+        // scrolling are owned by ArtifactRenderer's bounded wrapper (column)
+        // or the zoom modal's outer container. Still a div around the table,
+        // never overflow on the table itself (border-collapse clipping quirk).
+        <div className="p-4">
           <table className="border-collapse text-sm">
             <thead>
               <tr>

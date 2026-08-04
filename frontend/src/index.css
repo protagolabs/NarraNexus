@@ -571,6 +571,19 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 }
 
 /* ============================================================================
+   Viewport-height root with dvh fallback
+   ============================================================================ */
+/* Full-viewport shells: dvh tracks the mobile browser's retractable UI so the
+   layout's bottom edge is never buried under the toolbar. The plain 100vh
+   line is the fallback for engines without dvh (Tauri declares macOS 12.0
+   minimum; WebKit only ships dvh from 12.3) — they drop the dvh declaration
+   and keep vh. Use this instead of Tailwind's h-screen/h-dvh on app shells. */
+.h-dvh-safe {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* ============================================================================
    Markdown content (typography, no color accents)
    ============================================================================ */
 .markdown-content {

@@ -38,7 +38,7 @@ const PayPage = lazy(() => import('@/pages/PayPage'));
 /** Full-screen loading placeholder */
 function PageFallback() {
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-[var(--bg-deep)]">
+    <div className="h-dvh-safe w-screen flex items-center justify-center bg-[var(--bg-deep)]">
       <div className="w-8 h-8 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
     </div>
   );
