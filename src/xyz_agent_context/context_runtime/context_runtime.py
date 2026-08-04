@@ -17,6 +17,7 @@ from xyz_agent_context.schema import (
     ModuleInstructions,
     ContextRuntimeOutput,
     WorkingSource,
+    BUS_ERRAND_TURN_SOURCE,
 )
 
 # Module
@@ -1063,6 +1064,21 @@ class ContextRuntime:
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
         mcp_servers = {}
         disallowed_tools: list[str] = []
+        # Turn source rides the MCP identity headers so bus sends record WHAT
+        # KIND of turn produced them. A MESSAGE_BUS turn that is continuing
+        # the agent's OWN errand (the trigger classified the incoming batch
+        # as a reply to an errand this agent started) is upgraded to the
+        # errand stamp: a follow-up question sent from such a turn must NOT
+        # look like an answer to the recipient's classifier, or Owner Relay
+        # fires on the wrong side and P1 recurs (2026-08-03 review).
+        turn_source = str(
+            getattr(ctx_data.working_source, "value", None)
+            or ctx_data.working_source or ""
+        )
+        if turn_source == WorkingSource.MESSAGE_BUS.value and (
+            ctx_data.extra_data or {}
+        ).get("bus_turn_is_errand_continuation"):
+            turn_source = BUS_ERRAND_TURN_SOURCE
         # Delivery declaration (NexusPower reply contract): each module
         # states which of its tools DELIVER content to a human. Collected
         # per module, then sorted by the TOTAL (priority, module_class)
@@ -1093,11 +1109,7 @@ class ContextRuntime:
                     mcp_servers[mcp_config.server_name] = {
                         "url": mcp_config.server_url,
                         "headers": agent_id_headers(
-                            self.agent_id,
-                            turn_source=str(
-                                getattr(ctx_data.working_source, "value", None)
-                                or ctx_data.working_source or ""
-                            ),
+                            self.agent_id, turn_source=turn_source
                         ),
                     }
                     collected_count += 1

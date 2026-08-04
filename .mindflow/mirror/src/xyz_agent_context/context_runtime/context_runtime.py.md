@@ -4,6 +4,17 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-03 — bus 差事延续轮次的 turn-source 章升级
+
+header 里的 turn_source 从「照抄 working_source」升级:MESSAGE_BUS 轮次且
+`ctx_data.extra_data["bus_turn_is_errand_continuation"]` 为真(来源:
+[[message_bus_trigger]] 分类器判定,经 trigger_extra_data 流入)时,盖
+[[hook_schema]] 的 `BUS_ERRAND_TURN_SOURCE` 而非 "message_bus"。原因:章若
+只记轮次种类,差事主从 bus 轮次发出的**澄清追问**和同伴的**回答**盖同章,
+收件方分类器把追问路由到 Owner Relay,P1 复发(2026-08-03 review)。升级在
+循环外算一次,同轮所有模块 server 得到同一个章(bearer 尾巴 + 显式 header
+都带,codex 只转发 bearer)。
+
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 
 fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,

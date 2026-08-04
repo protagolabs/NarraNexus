@@ -107,3 +107,52 @@ async def test_injected_identity_is_this_agent_not_a_constant():
         seen[agent] = servers["social_network_module"]["headers"][AGENT_ID_HEADER]
 
     assert seen == {AGENT: AGENT, "agent_25dec880a426": "agent_25dec880a426"}
+
+
+@pytest.mark.asyncio
+async def test_errand_continuation_bus_turn_upgrades_the_turn_source_stamp():
+    """A MESSAGE_BUS turn that continues the agent's OWN errand must stamp
+    its bus sends BUS_ERRAND_TURN_SOURCE, not the plain "message_bus" — the
+    plain stamp makes a clarifying follow-up look like an ANSWER to the
+    recipient's classifier and Owner Relay fires on the wrong side (P1
+    recurrence, 2026-08-03 review). The flag arrives from MessageBusTrigger
+    via trigger_extra_data → ctx_data.extra_data; a plain bus turn (answering
+    a peer) must keep "message_bus".
+    """
+    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from xyz_agent_context.module._mcp_identity import BEARER_FIELD_SEP
+    from xyz_agent_context.schema import (
+        BUS_ERRAND_TURN_SOURCE,
+        ContextData,
+        WorkingSource,
+    )
+
+    async def _headers(extra_data):
+        runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
+                                 database_client=object())
+        ctx = ContextData(agent_id=AGENT, input_content="hi")
+        ctx.working_source = WorkingSource.MESSAGE_BUS
+        ctx.extra_data = extra_data
+        _m, servers, *_r = await runtime.build_input_for_framework(
+            messages=[],
+            system_prompt="sys",
+            active_instances=[
+                _instance("MessageBusModule",
+                          _FakeModule("message_bus_module", "http://x/sse"))
+            ],
+            ctx_data=ctx,
+        )
+        return servers["message_bus_module"]["headers"]
+
+    asking = await _headers({"bus_turn_is_errand_continuation": True})
+    answering = await _headers({"bus_turn_is_errand_continuation": False})
+
+    # Both channels must carry the upgraded stamp — codex only forwards the
+    # bearer, so a header-only upgrade would leave codex askers unfixed.
+    expect_ask = f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}{BUS_ERRAND_TURN_SOURCE}"
+    assert asking["Authorization"] == expect_ask
+    assert asking["X-NarraNexus-Turn-Source"] == BUS_ERRAND_TURN_SOURCE
+
+    expect_answer = f"Bearer {BEARER_AGENT_PREFIX}{AGENT}{BEARER_FIELD_SEP}message_bus"
+    assert answering["Authorization"] == expect_answer
+    assert answering["X-NarraNexus-Turn-Source"] == "message_bus"

@@ -4,6 +4,34 @@ last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-03 — turn-source 章记录的是「轮次种类」,不是「这条消息在问还是在答」
+
+Review round 3 抓到的复发:`sender_turn_source == "message_bus"` 被当成
+「这是回复」的充分条件,但 bus 轮次里也能**提问**——Owner Relay 指令自己就
+教发起方"有澄清问题用 bus_send_to_agent 追问"(路径 A),回答方也可能为了
+组织答案再问第三个 agent C(路径 B)。两条路径上收件方都会误判成
+Owner Relay,P1 原样复发。
+
+修成两半:
+1. **发送侧**:trigger 把分类器判定(`i_started`,即"本轮在延续自己的差事")
+   经 `_invoke_runtime(errand_continuation=…)` →
+   `trigger_extra_data["bus_turn_is_errand_continuation"]` 传给
+   ContextRuntime;差事延续的 bus 轮次盖 [[hook_schema]] 的
+   `BUS_ERRAND_TURN_SOURCE`("message_bus_errand")而非 plain
+   "message_bus"。追问从此在机制上区别于回答——路径 A、以及差事轮次里
+   fan-out 给 C 的路径 B 都被章本身修掉。
+2. **收件侧兜底** `_i_have_errand_in_channel`:全批都是 plain
+   "message_bus" 章时,只有当**我自己**在此 channel 有过非
+   "message_bus" 章(或 legacy NULL)的发言——即我真的问过——才算
+   「对我差事的回复」;从没问过的 agent 不可能被欠答案(残余路径 B:
+   回答轮次 fan-out 时 C 收到 plain 章)。DB 失败 → Owner Relay,
+   与外层同向降级。
+
+**已接受并写进 docstring 的残余洞**:我曾在此 channel 跑过差事(有带章旧行),
+之后同伴从回答轮次问我一个全新问题 → 旧差事行仍投 Owner Relay 票。轮次章
+表达不了 per-message 的问/答意图,除非发送方逐条声明;这条退化 = 修复前
+行为,只发生在「回答轮次→新问题→收件方有旧差事」一条窄路径上。
+
 ## 2026-08-01 — Owner Relay 只发给「发起方」,被问的一方改成「回复同伴」
 
 P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_prompt` 只要

@@ -172,6 +172,22 @@ class WorkingSource(str, Enum):
         )
 
 
+# Turn-source stamp for bus sends made from a MESSAGE_BUS turn that is
+# CONTINUING the sender's own errand (the batch that triggered the turn was
+# classified as a reply to an errand the sender started). Deliberately NOT a
+# WorkingSource member: it never triggers a turn — it only rides the MCP
+# identity bearer and lands in ``bus_messages.sender_turn_source`` so the
+# RECIPIENT can tell "the errand owner is asking me (again)" from "a peer is
+# answering me". Plain ``WorkingSource.MESSAGE_BUS`` on a message means the
+# sender was in a peer-ANSWERING turn; this stamp means the sender was in a
+# bus turn but still ASKING (clarifying follow-up, or fanning out to a third
+# agent). Without the distinction, a follow-up question sent from a bus turn
+# was stamped identically to an answer and the recipient relayed it to its
+# owner instead of answering the peer — P1 evt_0dcee899 recurred on exactly
+# the path the Owner-Relay directive itself recommends (2026-08-03 review).
+BUS_ERRAND_TURN_SOURCE = "message_bus_errand"
+
+
 @dataclass
 class HookExecutionContext:
     """

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-07-30
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — `BUS_ERRAND_TURN_SOURCE`（模块级常量，非枚举成员）
+
+`"message_bus_errand"`：bus 轮次里**延续自己差事**（trigger 判定"这批消息是
+对我发起的差事的回复"）时，发出去的 bus 消息盖的 turn-source 章。刻意**不做
+WorkingSource 成员**——它从不触发轮次，只经 MCP identity bearer 落到
+`bus_messages.sender_turn_source`，让收件方分辨「差事主在追问」和「同伴在回
+答」。plain `"message_bus"` 章 = 发送方处于回答同伴的轮次。没有这个区分，
+从 bus 轮次发出的澄清追问和回答盖同一个章，收件方把追问当回复转给自己
+Owner——P1 evt_0dcee899 在 Owner Relay 指令自己推荐的路径上复发
+（2026-08-03 review round 3）。放在 schema 层是为了 trigger、context_runtime、
+分类器三方都能引用而不产生跨层依赖。
 
 ## 2026-07-30 — `HookIOData.interrupted`
 

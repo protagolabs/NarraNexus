@@ -583,6 +583,9 @@ class MessageBusTrigger:
         """
         is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
         member_map: Dict[str, str] = {}
+        # DM branch overwrites this with the classifier's verdict; team rooms
+        # keep False (they never carry the Owner-Relay/Answer-the-peer split).
+        errand_continuation = False
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
@@ -618,6 +621,7 @@ class MessageBusTrigger:
                 i_started = await self._incoming_is_reply_to_my_errand(
                     agent_id, channel_id, messages
                 )
+                errand_continuation = i_started
 
                 # Build prompt from messages
                 prompt = self._build_prompt(
@@ -659,6 +663,7 @@ class MessageBusTrigger:
                     channel_id=channel_id,
                     trigger_message_id=trigger_message.message_id,
                     retrieval_anchor=build_bus_anchor(messages),
+                    errand_continuation=errand_continuation,
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     # Team rooms are the one surface whose prompt tells the
@@ -1025,9 +1030,27 @@ class MessageBusTrigger:
 
         Decided from a fact recorded on the message itself
         (``bus_messages.sender_turn_source``): the sender writes WHICH KIND of
-        turn produced it — an owner-facing turn ("chat"/"job"/…) means it is
-        running an errand and asking us, "message_bus" means it was already
-        answering a peer, i.e. this is the reply to our own errand.
+        turn produced it — an owner-facing turn ("chat"/"job"/…) or an
+        errand-continuation bus turn (``BUS_ERRAND_TURN_SOURCE``) means it is
+        running an errand and asking us; plain "message_bus" means it was in
+        a peer-ANSWERING turn.
+
+        Plain "message_bus" alone is NOT sufficient for Owner Relay, because
+        the stamp records the sender's turn kind, not this message's intent:
+        an agent in a peer-answering turn can still ASK (fan out to a third
+        agent to compose its answer). So the batch only reads as a reply if
+        WE actually hold an errand in this channel — at least one prior send
+        of ours stamped with a non-"message_bus" source (or a pre-stamp
+        legacy NULL, which gets the old benefit of the doubt). An agent that
+        never asked anything here cannot be owed an answer.
+
+        Residual hole, accepted and documented: if we once ran an errand in
+        this channel and a peer LATER asks us a fresh question from a
+        peer-answering turn, the stale errand rows still vote Owner Relay.
+        Per-message intent would need the sender to declare ask-vs-answer per
+        send; the turn-kind stamp cannot express that. This degradation
+        equals the pre-fix behaviour and only occurs on the (peer-answer turn
+        → new question → recipient with old errand) path.
 
         Why not infer it from channel ordering (the first attempt, twice):
         "have I spoken here" flips as soon as we answer once, so a follow-up
@@ -1049,8 +1072,13 @@ class MessageBusTrigger:
         }
         sources.discard("")
         if sources:
-            # Any owner-facing send in the batch means we are being asked.
-            return sources == {"message_bus"}
+            if sources != {"message_bus"}:
+                # Any owner-facing or errand-continuation send in the batch
+                # means we are being asked.
+                return False
+            # Every incoming message came from a peer-answering turn. Reply
+            # to OUR errand only if we actually have one here.
+            return await self._i_have_errand_in_channel(agent_id, channel_id)
 
         # No recorded source (legacy rows, or an adapter that dropped the
         # header). Fall back to "have we ever spoken here": absence is still
@@ -1079,6 +1107,42 @@ class MessageBusTrigger:
             logger.debug(
                 f"MessageBusTrigger: could not classify channel {channel_id} "
                 f"({e}); assuming owner-relay"
+            )
+            return True
+
+    async def _i_have_errand_in_channel(
+        self, agent_id: str, channel_id: str
+    ) -> bool:
+        """Did WE ever ask something in this channel on an errand?
+
+        True when at least one of our own sends here was stamped with a
+        non-"message_bus" turn source (owner-facing turn, or the
+        errand-continuation stamp) — or carries a legacy NULL stamp, which
+        predates ``sender_turn_source`` and keeps the pre-fix benefit of the
+        doubt. False when we never spoke here, or every send of ours was a
+        peer-answering turn: then an incoming "message_bus"-stamped batch
+        cannot be a reply owed to us, it is a fresh question.
+
+        DB error → True (Owner Relay), same degradation direction as the
+        caller: the silent-failure mode this directive exists to prevent is
+        worse than a cosmetic extra relay.
+        """
+        try:
+            ph = self._bus._db.placeholder
+            rows = await self._bus._db.execute(
+                f"SELECT sender_turn_source FROM bus_messages "
+                f"WHERE channel_id = {ph} AND from_agent = {ph}",
+                (channel_id, agent_id),
+            )
+            for r in rows or []:
+                src = (r["sender_turn_source"] or "").strip().lower()
+                if src != "message_bus":
+                    return True
+            return False
+        except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
+            logger.debug(
+                f"MessageBusTrigger: errand check failed for channel "
+                f"{channel_id} ({e}); assuming owner-relay"
             )
             return True
 
@@ -1238,12 +1302,21 @@ class MessageBusTrigger:
         channel_id: str,
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
+        errand_continuation: bool = False,
         on_progress=None,
         on_event_id=None,
         include_monologue: bool = False,
     ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
+
+        ``errand_continuation`` is the DM classifier's verdict ("this batch
+        answers an errand I started"). It rides ``trigger_extra_data`` into
+        ``ctx_data.extra_data`` so ContextRuntime can stamp this turn's bus
+        sends with ``BUS_ERRAND_TURN_SOURCE`` instead of the plain
+        "message_bus" — otherwise a clarifying follow-up sent from this turn
+        is indistinguishable from an answer, and the RECIPIENT's classifier
+        routes it to Owner Relay (P1 recurrence, 2026-08-03 review).
 
         Returns ``(response_text, event_id)`` — the collected agent response
         text plus the turn's events-row id (None if the run died before
@@ -1278,6 +1351,7 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
+                "bus_turn_is_errand_continuation": errand_continuation,
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id
