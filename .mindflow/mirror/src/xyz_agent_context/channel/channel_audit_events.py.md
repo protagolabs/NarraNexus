@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — breaker lifecycle events
+
+`EVENT_SUBSCRIBER_BREAKER_TRIPPED` / `EVENT_SUBSCRIBER_BREAKER_CLEARED`
+for the fast-death circuit breaker in [[channel_trigger_base.py]]. One
+row per state change (trip carries consecutive_fast_deaths /
+isolated_seconds / trip_number; clear carries the reason) — the DB-side
+answer to "why is this agent's subscriber not running?" that the
+unbounded death/rebirth WARNING spam never gave (lesson #5).
 
 ## 2026-07-29 — EVENT_INGRESS_DROPPED_NOT_MENTIONED
 

@@ -68,6 +68,8 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
     EVENT_SUBSCRIBER_STOPPED,
+    EVENT_SUBSCRIBER_BREAKER_TRIPPED,
+    EVENT_SUBSCRIBER_BREAKER_CLEARED,
     EVENT_TRANSPORT_CONNECTED,
     EVENT_TRANSPORT_DISCONNECTED,
     EVENT_TRANSPORT_BACKOFF,
@@ -177,6 +179,21 @@ class ChannelTriggerBase(ABC):
     CREDENTIAL_POLL_INTERVAL_SECONDS: int = 10
     IDLE_POLL_INTERVAL_SECONDS: int = 30  # when no credentials are active
 
+    # Fast-death circuit breaker for subscriber restarts. A subscriber that
+    # exits within BREAKER_FAST_DEATH_SECONDS of starting counts as a fast
+    # death; BREAKER_FAST_DEATH_THRESHOLD consecutive fast deaths trip the
+    # breaker and the key is isolated, re-probed on the escalating
+    # BREAKER_BACKOFF_SCHEDULE_SECONDS delays (last entry repeats forever).
+    # Complements ``is_permanent_auth_failure``: that hook needs a
+    # *recognised exception*, but a cleared secret makes the subscriber exit
+    # silently (return, no raise) so the watcher would otherwise restart the
+    # same dead key every poll forever. The breaker never mutates the
+    # credential row — an updated credential (owner re-binds) clears it
+    # immediately, and a healthy lifetime resets the counters.
+    BREAKER_FAST_DEATH_SECONDS: float = 60.0
+    BREAKER_FAST_DEATH_THRESHOLD: int = 3
+    BREAKER_BACKOFF_SCHEDULE_SECONDS: tuple[float, ...] = (300.0, 1800.0, 7200.0)
+
     # If non-zero, submit messages through ChannelDebounceMerger with this
     # window before processing. 0 disables debounce (Lark today, Phase 2).
     DEBOUNCE_WINDOW_MS: int = 0
@@ -206,6 +223,13 @@ class ChannelTriggerBase(ABC):
         # ``credential.app_id`` — overridable via _subscriber_key).
         self._subscriber_tasks: dict[str, asyncio.Task] = {}
         self._subscriber_creds: dict[str, Any] = {}
+        self._subscriber_started_at: dict[str, float] = {}
+
+        # Circuit-breaker state, keyed like _subscriber_tasks.
+        self._breaker_fast_deaths: dict[str, int] = {}
+        self._breaker_trips: dict[str, int] = {}
+        self._breaker_blocked_until: dict[str, float] = {}
+        self._breaker_cred_fingerprint: dict[str, str] = {}
 
         # Worker pool
         self._task_queue: asyncio.Queue = asyncio.Queue()
@@ -517,6 +541,7 @@ class ChannelTriggerBase(ABC):
             task.cancel()
 
         self._subscriber_tasks.clear()
+        self._subscriber_started_at.clear()
         self._workers.clear()
         self._monitor_tasks.clear()
         logger.info(f"{type(self).__name__} stopped")
@@ -576,6 +601,7 @@ class ChannelTriggerBase(ABC):
 
                 # Idle path — fewer log lines, longer poll.
                 if not creds and not self._subscriber_tasks:
+                    self._breaker_purge_stale(set())
                     if not idle_logged:
                         logger.info(
                             f"{type(self).__name__}: no {self.channel_name} "
@@ -597,6 +623,9 @@ class ChannelTriggerBase(ABC):
                 current_keys = set(seen_keys.keys())
                 running_keys = set(self._subscriber_tasks.keys())
 
+                # A removed credential also retires its breaker state.
+                self._breaker_purge_stale(current_keys)
+
                 # Stop subscribers whose credential is gone.
                 for key in running_keys - current_keys:
                     await self._stop_subscriber(key)
@@ -609,8 +638,10 @@ class ChannelTriggerBase(ABC):
                     logger.warning(
                         f"{type(self).__name__}: subscriber for {key} died, removing"
                     )
+                    dead_cred = self._subscriber_creds.get(key)
                     self._subscriber_tasks.pop(key, None)
                     self._subscriber_creds.pop(key, None)
+                    await self._breaker_record_death(key, dead_cred)
 
                 # Start subscribers for new keys; refresh the cached
                 # credential for ALL keys every poll. The credential is a
@@ -625,9 +656,12 @@ class ChannelTriggerBase(ABC):
                 # cache is cheap (we already loaded creds this poll) and does
                 # not disturb the live transport connection.
                 for key, cred in seen_keys.items():
-                    if key not in self._subscriber_tasks:
+                    if key not in self._subscriber_tasks and (
+                        await self._breaker_allows_start(key, cred)
+                    ):
                         task = asyncio.create_task(self._subscribe_loop(cred))
                         self._subscriber_tasks[key] = task
+                        self._subscriber_started_at[key] = time.monotonic()
                         agent_id = getattr(cred, "agent_id", "")
                         app_id = getattr(cred, "app_id", "")
                         logger.info(
@@ -662,6 +696,9 @@ class ChannelTriggerBase(ABC):
     async def _stop_subscriber(self, key: str) -> None:
         cred = self._subscriber_creds.pop(key, None)
         task = self._subscriber_tasks.pop(key, None)
+        # An intentional stop is not a death — drop the start timestamp so
+        # the breaker never counts it.
+        self._subscriber_started_at.pop(key, None)
         if task and not task.done():
             task.cancel()
         agent_id = getattr(cred, "agent_id", "") if cred else ""
@@ -673,6 +710,119 @@ class ChannelTriggerBase(ABC):
             app_id=app_id,
             details={"key": key},
         )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Fast-death circuit breaker
+    # ────────────────────────────────────────────────────────────────────
+
+    def _credential_fingerprint(self, cred: Any) -> str:
+        """Stable identity of a credential's *contents* (not its object).
+
+        Used only to answer "was this credential changed since the breaker
+        tripped?" — any field change (owner re-binds, secret rotated,
+        permission_state updated) reads as a re-bind and clears the breaker.
+        Worst case for a false clear is one more threshold's worth of fast
+        deaths (~3 polls) before re-tripping.
+        """
+        try:
+            return repr(sorted(vars(cred).items()))
+        except TypeError:
+            return repr(cred)
+
+    def _breaker_forget(self, key: str) -> None:
+        self._breaker_fast_deaths.pop(key, None)
+        self._breaker_trips.pop(key, None)
+        self._breaker_blocked_until.pop(key, None)
+        self._breaker_cred_fingerprint.pop(key, None)
+
+    def _breaker_purge_stale(self, current_keys: set) -> None:
+        """Retire breaker state for keys whose credential no longer exists."""
+        tracked = (
+            set(self._breaker_fast_deaths)
+            | set(self._breaker_trips)
+            | set(self._breaker_blocked_until)
+        )
+        for key in tracked - current_keys:
+            self._breaker_forget(key)
+
+    async def _breaker_record_death(self, key: str, cred: Any) -> None:
+        """Count a reaped subscriber death; trip the breaker on a streak.
+
+        Only *fast* deaths (lifetime < BREAKER_FAST_DEATH_SECONDS) count —
+        a subscriber that lived a healthy stretch before dying resets the
+        streak, so ordinary network flaps never trip. Tripping records the
+        credential fingerprint so a re-bind can clear the breaker without
+        waiting out the backoff.
+        """
+        started = self._subscriber_started_at.pop(key, None)
+        if started is None:
+            return
+        lifetime = time.monotonic() - started
+        if lifetime >= self.BREAKER_FAST_DEATH_SECONDS:
+            self._breaker_forget(key)
+            return
+        deaths = self._breaker_fast_deaths.get(key, 0) + 1
+        self._breaker_fast_deaths[key] = deaths
+        if deaths < self.BREAKER_FAST_DEATH_THRESHOLD:
+            return
+
+        trips = self._breaker_trips.get(key, 0)
+        schedule = self.BREAKER_BACKOFF_SCHEDULE_SECONDS
+        delay = schedule[min(trips, len(schedule) - 1)]
+        self._breaker_trips[key] = trips + 1
+        self._breaker_blocked_until[key] = time.monotonic() + delay
+        # The re-probe after backoff gets a fresh streak of its own.
+        self._breaker_fast_deaths[key] = 0
+        if cred is not None:
+            self._breaker_cred_fingerprint[key] = self._credential_fingerprint(cred)
+        agent_id = getattr(cred, "agent_id", "") if cred else ""
+        app_id = getattr(cred, "app_id", "") if cred else key
+        logger.error(
+            f"{type(self).__name__}: circuit breaker TRIPPED for {key} "
+            f"(agent={agent_id}): {deaths} consecutive deaths within "
+            f"{self.BREAKER_FAST_DEATH_SECONDS:.0f}s of starting; isolating "
+            f"for {delay:.0f}s (trip #{trips + 1}). Re-binding the "
+            f"credential clears the breaker immediately."
+        )
+        await self._audit(
+            EVENT_SUBSCRIBER_BREAKER_TRIPPED,
+            agent_id=agent_id,
+            app_id=app_id,
+            details={
+                "key": key,
+                "consecutive_fast_deaths": deaths,
+                "isolated_seconds": delay,
+                "trip_number": trips + 1,
+            },
+        )
+
+    async def _breaker_allows_start(self, key: str, cred: Any) -> bool:
+        """Gate for (re)starting a subscriber under breaker isolation."""
+        blocked_until = self._breaker_blocked_until.get(key)
+        if blocked_until is None:
+            return True
+        if self._credential_fingerprint(cred) != self._breaker_cred_fingerprint.get(key):
+            agent_id = getattr(cred, "agent_id", "")
+            logger.info(
+                f"{type(self).__name__}: circuit breaker CLEARED for {key} "
+                f"(agent={agent_id}): credential changed"
+            )
+            await self._audit(
+                EVENT_SUBSCRIBER_BREAKER_CLEARED,
+                agent_id=agent_id,
+                app_id=getattr(cred, "app_id", "") or key,
+                details={"key": key, "reason": "credential_changed"},
+            )
+            self._breaker_forget(key)
+            return True
+        if time.monotonic() >= blocked_until:
+            self._breaker_blocked_until.pop(key, None)
+            logger.info(
+                f"{type(self).__name__}: circuit breaker re-probe for {key} "
+                f"after backoff"
+            )
+            return True
+        return False
 
     # ────────────────────────────────────────────────────────────────────
     # Subscribe loop (PULL)

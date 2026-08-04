@@ -4,6 +4,31 @@ stub: false
 last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — 快速死亡熔断器（watcher 层）
+
+prod 实锤（8/1-8/3）：某 agent 的 Lark App Secret 被清空后，订阅器每次启动
+即静默 `return`（不抛异常，`is_permanent_auth_failure` 永远看不见），
+watcher 无条件重启同 key → ~28s 死亡重生死循环，4h 刷 1498 次 WARNING。
+
+修复：`_credential_watcher` 对每个 key 数**连续快速死亡**（存活 <
+`BREAKER_FAST_DEATH_SECONDS`，默认 60s）；连续
+`BREAKER_FAST_DEATH_THRESHOLD`（3）次触发熔断——按
+`BREAKER_BACKOFF_SCHEDULE_SECONDS`（5min→30min→2h，末档循环）隔离重探。
+设计要点：
+
+- **与 `is_permanent_auth_failure` 互补而非替代**：那条路需要可识别的
+  异常类；熔断器捕获任何「反复秒死」形状（含静默 return、未知错误码）。
+- **绝不动凭据行**（disable 是 permanent-auth 路的职权）——自愈路径有二：
+  熔断时记录凭据指纹（`_credential_fingerprint`＝字段级 repr），任何字段
+  变化（重新绑定/换 secret）即视为修复、立即解除；或退避到期自动重探。
+- 健康存活（≥60s）后的死亡把 streak 清零——网络抖动不误熔断。触发时
+  streak 也清零，重探需要 3 次全新快死才会二次熔断（进下一档退避）。
+- 意外死亡记 `_subscriber_started_at`（intentional `_stop_subscriber`
+  会先 pop 掉，不计死）；凭据整行消失时 `_breaker_purge_stale` 清态。
+- 单次结构化日志：trip=ERROR 一条、clear=INFO 一条（替代无限刷屏）；
+  审计行 `subscriber_breaker_tripped` / `subscriber_breaker_cleared`
+  （教训 #5）。Pin: tests/channel/test_credential_breaker.py。
+
 ## 2026-08-04 — 第三个 managed 缝:`managed_silent_ingest`(review)
 
 静默摄取从协调器收回本类:批量调用的形状(credential/sender 表/
