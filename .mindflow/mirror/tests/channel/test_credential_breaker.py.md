@@ -13,9 +13,13 @@ Structure is deliberate. Most cases drive the breaker's state machine
 **directly** (`_armed` fakes the marks a just-died subscriber leaves, so a
 "healthy" lifetime is a subtraction rather than a sleep) — exact tier
 assertions, no wall-clock flake, no fake clock patched into asyncio's own
-time source. Only three cases run the real watcher, and only to prove
-wiring: restarts stop after a trip, an unstartable credential never starts,
-and a re-fixed credential drops its pre-flight mark while still isolated.
+time source. Four cases run the real watcher, and only to prove wiring:
+restarts stop after a trip, an unstartable credential never starts, a re-fixed
+credential drops its pre-flight mark while still isolated, and a successful
+re-probe clears escalation memory while it is still alive past the fast-death
+window (it must not die to prove health). A fifth watcher case pins the reap
+race: a task finishing during another dead task's audit await must not be
+mistaken for a healthy task merely because it remains in the task map.
 
 The fingerprint cases carry the sharpest edge and each pins a way the
 breaker was (or could be) silently defeated: sampling the watcher's cache

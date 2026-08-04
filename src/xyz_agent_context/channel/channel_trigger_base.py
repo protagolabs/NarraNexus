@@ -601,6 +601,45 @@ class ChannelTriggerBase(ABC):
         self._monitor_tasks.clear()
         logger.info(f"{type(self).__name__} stopped")
 
+    async def health_snapshot(self) -> dict:
+        """Return this trigger's JSON-serialisable operational state.
+
+        The health server consumes this public seam instead of reaching into
+        subscriber, worker, and breaker internals. Subclasses may extend the
+        payload without coupling the server or its test doubles to new private
+        bookkeeping fields.
+        """
+        now_ms = int(time.time() * 1000)
+        startup_ms = self._startup_time_ms or 0
+        recent_counts: dict[str, int] = {}
+        if self._audit_repo is not None:
+            try:
+                recent_counts = await self._audit_repo.count_by_type(since_hours=1)
+            except Exception as e:  # noqa: BLE001 — health must degrade, not crash
+                logger.warning(
+                    f"[health:{self.channel_name}] count_by_type failed: {e}"
+                )
+
+        status = "ok" if self._audit_repo is not None and self.running else "starting"
+        return {
+            "status": status,
+            "running": self.running,
+            "uptime_seconds": (
+                (now_ms - startup_ms) / 1000.0 if startup_ms else 0.0
+            ),
+            "startup_time_ms": startup_ms,
+            "last_ws_connected_ms": getattr(
+                self, "_last_ws_connected_wallclock_ms", 0
+            ),
+            "subscriber_count": len(self._subscriber_tasks),
+            "worker_count": len(self._workers),
+            "queue_depth": self._task_queue.qsize(),
+            "subscriber_keys": sorted(self._subscriber_creds),
+            "breaker_isolated_keys": sorted(self._breaker_blocked_until),
+            "unstartable_keys": sorted(self._unstartable_fingerprint),
+            "recent_event_counts": recent_counts,
+        }
+
     # ────────────────────────────────────────────────────────────────────
     # Worker pool sizing
     # ────────────────────────────────────────────────────────────────────
@@ -698,6 +737,21 @@ class ChannelTriggerBase(ABC):
                     self._subscriber_creds.pop(key, None)
                     await self._breaker_record_death(key, dead_cred)
 
+                # A subscriber that is still running after the fast-death
+                # window has already proved healthy. Settle that success now;
+                # requiring it to die before clearing escalation memory would
+                # make every successful backoff recovery permanently raise the
+                # next incident's isolation tier.
+                now = time.monotonic()
+                for key, started in self._subscriber_started_at.items():
+                    task = self._subscriber_tasks.get(key)
+                    if (
+                        task is not None
+                        and not task.done()
+                        and now - started >= self.BREAKER_FAST_DEATH_SECONDS
+                    ):
+                        self._breaker_forget(key)
+
                 # Start subscribers for new keys; refresh the cached
                 # credential for ALL keys every poll. The credential is a
                 # DB snapshot — fields like permission_state / auth_status
@@ -794,7 +848,11 @@ class ChannelTriggerBase(ABC):
         (cursors, cached platform identity, timestamps) are excluded via
         ``BREAKER_VOLATILE_CREDENTIAL_FIELDS`` — counting them would make the
         channel's own traffic read as a re-bind and clear the breaker on the
-        poll right after it tripped.
+        poll right after it tripped. Credential field values must also have a
+        stable ``repr`` across DB loads. If a channel introduces a field whose
+        value uses the default address-bearing object repr, that field must be
+        excluded as volatile or the channel must override this method with a
+        stable auth-relevant encoding.
         """
         try:
             fields = vars(cred)

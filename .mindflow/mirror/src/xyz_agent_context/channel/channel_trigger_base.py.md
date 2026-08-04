@@ -35,9 +35,15 @@ watcher 无条件重启同 key → ~28s 死亡重生死循环，4h 刷 1498 次 
   `bot_name`——不排掉就是「自己的流量把自己的熔断器清了」。
 - 兜底：指纹触发的解除走 `_breaker_release`（**保留** `_breaker_trips`
   升档记忆），所以哪天漏排一个高频字段，代价是每档 3 次重启并继续升档，
-  而不是无限风暴。只有真正健康存活才 `_breaker_forget` 全清。
+  而不是无限风暴。watcher 会在订阅器**仍存活**且越过 60s 快死窗口时立即
+  `_breaker_forget` 全清；判定时还必须检查 task 尚未结束，防止同轮 reap 的
+  `await` 期间产生竞态。不能要求健康订阅器先死亡才结算，否则一次成功的退避
+  恢复会永久抬高下次故障的隔离档位。
+- 默认实现仍以字段 `repr` 组成指纹，因此 auth-relevant 字段值必须跨 DB load
+  有稳定 repr；地址型对象字段必须列入 volatile，或由子类覆写成稳定编码。
+  顶层凭据对象不可 introspect 时使用常量指纹，fail-safe 保持隔离。
 
-其余不变量：健康存活（≥60s）清零 streak（网络抖动不误熔断）；主动
+其余不变量：健康存活（≥60s）清零 streak + trips（网络抖动不误熔断）；主动
 `_stop_subscriber` 先 pop 掉启动标记（不计死）；凭据整行消失
 `_breaker_purge_stale` 清全部五个 dict；`stop()` 一并清空（生命周期对称）。
 日志/审计：trip=ERROR 一条 + `subscriber_breaker_tripped`；每次解除（含

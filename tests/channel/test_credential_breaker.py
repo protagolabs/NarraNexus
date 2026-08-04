@@ -87,6 +87,7 @@ class _BreakerTrigger(ChannelTriggerBase):
         self.loop_starts = 0
         self.creds: list[_Credential] = [_Credential()]
         self.startable = True
+        self.keep_subscriber_alive = False
 
     async def load_active_credentials(self):
         return list(self.creds)
@@ -96,6 +97,8 @@ class _BreakerTrigger(ChannelTriggerBase):
 
     async def _subscribe_loop(self, credential):
         self.loop_starts += 1
+        if self.keep_subscriber_alive:
+            await asyncio.Event().wait()
 
     async def connect(self, credential):  # pragma: no cover - loop overridden
         if False:
@@ -211,6 +214,88 @@ async def test_backoff_tiers_escalate_and_audit_each_reprobe():
     await _kill_until_tripped(trigger, cred)
     second = trigger._breaker_blocked_until[key] - time.monotonic()
     assert second > 100
+
+
+@pytest.mark.asyncio
+async def test_watcher_resets_backoff_tier_once_reprobe_proves_healthy(db_client):
+    """A re-probe that stays alive past the fast-death window earns a reset
+    while it is still running; it must not have to die to prove health."""
+    trigger = _BreakerTrigger()
+    trigger.BREAKER_BACKOFF_SCHEDULE_SECONDS = (0.01, 900.0)
+    trigger.keep_subscriber_alive = True
+    cred = _Credential()
+    key = await _kill_until_tripped(trigger, cred)
+    assert trigger._breaker_trips[key] == 1
+
+    trigger._breaker_blocked_until[key] = time.monotonic() - 0.001
+    await trigger.start(db_client)
+    try:
+        assert await _wait_until(lambda: key in trigger._subscriber_tasks)
+        # Advance only the subscriber's age marker; do not sleep through the
+        # production 60-second proof window or patch asyncio's clock.
+        trigger._subscriber_started_at[key] = (
+            time.monotonic() - trigger.BREAKER_FAST_DEATH_SECONDS - 1
+        )
+        assert await _wait_until(lambda: key not in trigger._breaker_trips)
+
+        # The next incident starts from tier 1, not the preserved tier 2.
+        trigger.running = False
+        for task in trigger._monitor_tasks:
+            task.cancel()
+        await trigger._stop_subscriber(key)
+        await _kill_until_tripped(trigger, cred)
+        assert trigger._breaker_blocked_until[key] - time.monotonic() < 1.0
+    finally:
+        await trigger.stop()
+
+
+@pytest.mark.asyncio
+async def test_watcher_does_not_settle_task_that_finishes_during_reap():
+    """A task can finish while another dead task's audit write is awaited.
+    Remaining in the task map until the next reap must not count as healthy."""
+    trigger = _BreakerTrigger()
+    first = _Credential(app_id="bot1")
+    second = _Credential(app_id="bot2")
+    first_key = trigger._subscriber_key(first)
+    second_key = trigger._subscriber_key(second)
+    finish_second = asyncio.Event()
+
+    first_task = asyncio.create_task(asyncio.sleep(0))
+    await first_task
+
+    async def finish_on_signal():
+        await finish_second.wait()
+
+    second_task = asyncio.create_task(finish_on_signal())
+    await asyncio.sleep(0)
+    trigger.creds = [first, second]
+    trigger._subscriber_tasks = {
+        first_key: first_task,
+        second_key: second_task,
+    }
+    trigger._subscriber_creds = {first_key: first, second_key: second}
+    trigger._subscriber_started_at[second_key] = (
+        time.monotonic() - trigger.BREAKER_FAST_DEATH_SECONDS - 1
+    )
+    trigger._subscriber_start_fingerprint[second_key] = (
+        trigger._credential_fingerprint(second)
+    )
+    trigger._breaker_trips[second_key] = 1
+
+    async def record_first_death(_key, _credential):
+        finish_second.set()
+        await second_task
+        trigger.running = False
+
+    trigger._breaker_record_death = record_first_death
+    trigger.running = True
+
+    try:
+        await trigger._credential_watcher()
+        assert second_task.done()
+        assert second_key in trigger._breaker_trips
+    finally:
+        await trigger.stop()
 
 
 # ── Fingerprint: the edge that decides whether the breaker holds ──────────
@@ -388,7 +473,7 @@ async def test_unfingerprintable_credential_keeps_isolation():
 
 
 @pytest.mark.asyncio
-async def test_startable_again_clears_the_unstartable_mark_while_isolated():
+async def test_startable_again_clears_the_unstartable_mark_while_isolated(db_client):
     """The two gates are independent: a credential can be fixed (startable)
     while the breaker still holds it. The stale "unstartable" mark must not
     linger on the health surface."""
@@ -401,7 +486,7 @@ async def test_startable_again_clears_the_unstartable_mark_while_isolated():
 
     trigger.startable = True
     trigger.creds = [cred]
-    await trigger.start(None)
+    await trigger.start(db_client)
     try:
         assert await _wait_until(lambda: key not in trigger._unstartable_fingerprint)
         assert key in trigger._breaker_blocked_until  # still isolated
