@@ -191,3 +191,13 @@ persist_s=(Step4+4.6) total_s= interrupted=`。Steps 5-6 本来就在后台,不�
 team 房的 post 确实等 run() 返回,但中间只有 DB/文件写（narrative 的 LLM
 更新是 create_task）。是否值得进一步压 persist 段,由这条计时线的真实数据
 决定——测量先行。
+
+### 2026-08-05 R2（review 修正）：total 覆盖 run() 全程 + pre_s 段
+
+R1 的 total_s 从 Step 0 才起算,漏掉 run() 前段（懒加载 DB client、agent
+查询、service 构造）——连接池排队恰好发生在那里,却被排除在测量外（review
+指出,chat 路径无外层计时可反推）。修正：起算点提前到 run() 入口,新增
+`pre_s=` 字段（入口→Step 0）。格式提取为模块级纯函数 `_turn_timing_line`
+并有格式测试钉住（tests/agent_runtime/test_turn_timing_line.py）——纯观测
+代码的 format 坏掉时会在持久化后、后台 hook 前炸主链路,所以必须可测。
+同函数两个 time 别名合并为一个 `_time`。

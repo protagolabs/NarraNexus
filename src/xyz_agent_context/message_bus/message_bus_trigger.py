@@ -40,6 +40,7 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 from xyz_agent_context.message_bus.local_bus import (
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
+    _as_utc,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
@@ -590,19 +591,32 @@ class MessageBusTrigger:
 
         # Hop timing ([bus-timing], 2026-08-05): the 2026-08-01 event clocked
         # a bus hop at 45-95s with no way to split "sat in the queue" from
-        # "the turn itself". queue_wait = message insert -> this dispatch
-        # (bounded by the adaptive poll, 3-12s); turn = the runtime call;
+        # "the turn itself". queue_wait = TRIGGER message insert -> this
+        # dispatch (bounded by the adaptive poll, 3-12s; the trigger is the
+        # NEWEST batched message, so this is a lower bound on user-perceived
+        # wait — oldest_wait is the upper bound); turn = the runtime call;
         # hop closes when the reply is DELIVERED (team room: our post below;
         # DM: the agent's own bus_send fires mid-turn, so turn covers it).
         # Companion of the runtime's [turn-timing] line, which splits the
         # turn body further. Measurement first — Base recvrdLPavdQgU.
-        from xyz_agent_context.agent_runtime.run_recorder import parse_db_utc
+        # Timestamp parsing goes through the bus package's own _as_utc —
+        # the one parser every bus timestamp comparison already uses.
         _t_dispatch = time.monotonic()
-        _created = parse_db_utc(trigger_message.created_at)
-        _queue_wait_s = (
-            max(0.0, (datetime.now(timezone.utc) - _created).total_seconds())
-            if _created else -1.0
+        _now_utc = datetime.now(timezone.utc)
+
+        def _wait_s(raw) -> float:
+            parsed = _as_utc(raw)
+            return (
+                max(0.0, (_now_utc - parsed).total_seconds())
+                if parsed else -1.0
+            )
+
+        _queue_wait_s = _wait_s(trigger_message.created_at)
+        _oldest_wait_s = max(
+            (_wait_s(m.created_at) for m in messages), default=_queue_wait_s
         )
+        _turn_s = -1.0
+        _hop_done = False
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
@@ -743,21 +757,7 @@ class MessageBusTrigger:
                         agent_id, channel_id, trigger_message, response_text
                     )
 
-            # One line per hop, grep-stable. deliver = the post/inbox write
-            # above (zero when the turn produced no text to deliver).
-            logger.info(
-                "[bus-timing] agent={} channel={} team={} batch={} "
-                "queue_wait_s={:.2f} turn_s={:.2f} hop_s={:.2f}".format(
-                    agent_id,
-                    channel_id,
-                    is_team,
-                    len(messages),
-                    _queue_wait_s,
-                    _turn_s,
-                    (time.monotonic() - _t_dispatch)
-                    + (_queue_wait_s if _queue_wait_s > 0 else 0.0),
-                )
-            )
+            _hop_done = True
 
         except Exception as e:
             logger.exception(
@@ -783,6 +783,25 @@ class MessageBusTrigger:
                     trigger_message=trigger_message,
                     error=str(e),
                 )
+
+        # One line per successful hop, grep-stable — emitted OUTSIDE the try
+        # so observation code can never turn an already-delivered-and-acked
+        # message into a recorded failure. hop mirrors queue_wait's -1.0
+        # convention when created_at was unparseable, so aggregations can
+        # drop incomplete rows on a single filter.
+        if _hop_done:
+            _hop_s = (
+                (time.monotonic() - _t_dispatch) + _queue_wait_s
+                if _queue_wait_s >= 0.0 else -1.0
+            )
+            logger.info(
+                "[bus-timing] agent={} channel={} team={} batch={} "
+                "queue_wait_s={:.2f} oldest_wait_s={:.2f} turn_s={:.2f} "
+                "hop_s={:.2f}".format(
+                    agent_id, channel_id, is_team, len(messages),
+                    _queue_wait_s, _oldest_wait_s, _turn_s, _hop_s,
+                )
+            )
 
     @staticmethod
     def _classify_error(error: str) -> str:

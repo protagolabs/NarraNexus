@@ -507,3 +507,15 @@ queue_wait=消息入库→本次 dispatch（受自适应轮询 3-12s 约束）,t
 turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime/ISO
 字符串都吃,缺失回落 -1.0 不炸）。失败路径不发计时线。
 测试:tests/message_bus/test_bus_hop_timing.py。
+
+### 2026-08-05 R2（review 修正）：解析器归一 + hop 语义一致 + 观测不进 try
+
+- 时间戳解析改用**包内已有**的 `local_bus._as_utc`（同一张表同一字段两个
+  解析器是下次改语义只改一边的入口）,删掉对 agent_runtime.run_recorder 的
+  跨包依赖。
+- created_at 缺失时 `hop_s` 同发 -1.0（R1 会静默换定义成 dispatch→delivered,
+  混进 p50/p99 把分布拉低）;一个过滤条件摘掉全部不完整行。
+- 新增 `oldest_wait_s`：queue_wait 量的是**触发消息**（批次里最新一条）,是
+  用户等待的下界;oldest 是上界。batch>1 时两者并读。
+- `[bus-timing]` 行移出 try——观测代码不该有能力把已送达已 ack 的消息记成
+  投递失败并推进毒药计数。成功（_hop_done）才发。

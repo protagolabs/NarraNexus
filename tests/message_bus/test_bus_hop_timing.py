@@ -36,8 +36,8 @@ ROOM = "ch_timing_room"
 _TIMING_RE = re.compile(
     r"\[bus-timing\] agent=(?P<agent>\S+) channel=(?P<channel>\S+) "
     r"team=(?P<team>\S+) batch=(?P<batch>\d+) "
-    r"queue_wait_s=(?P<queue>-?\d+\.\d+) turn_s=(?P<turn>\d+\.\d+) "
-    r"hop_s=(?P<hop>-?\d+\.\d+)"
+    r"queue_wait_s=(?P<queue>-?\d+\.\d+) oldest_wait_s=(?P<oldest>-?\d+\.\d+) "
+    r"turn_s=(?P<turn>\d+\.\d+) hop_s=(?P<hop>-?\d+\.\d+)"
 )
 
 
@@ -100,6 +100,8 @@ async def test_team_hop_emits_timing_line(db_client, monkeypatch, log_lines):
     assert m["agent"] == "agent_a" and m["team"] == "True" and m["batch"] == "1"
     # created_at was "now" → queue wait is real and tiny, never the -1 fallback.
     assert 0.0 <= float(m["queue"]) < 30.0
+    # Single-message batch: the oldest wait IS the trigger's wait.
+    assert float(m["oldest"]) >= float(m["queue"]) >= 0.0
     # hop covers queue + turn + delivery.
     assert float(m["hop"]) >= float(m["turn"])
 
@@ -133,6 +135,12 @@ async def test_missing_created_at_falls_back_not_crashes(db_client, monkeypatch,
     hits = _timing_hits(log_lines)
     assert len(hits) == 1
     assert float(hits[0]["queue"]) == -1.0
+    # hop follows the same convention — a p50/p99 aggregation can drop the
+    # incomplete rows on one filter instead of silently mixing in numbers
+    # that quietly changed definition (insert->delivered vs dispatch->delivered).
+    assert float(hits[0]["hop"]) == -1.0
+    # turn is still real (it never depends on created_at).
+    assert float(hits[0]["turn"]) >= 0.0
 
 
 @pytest.mark.asyncio
