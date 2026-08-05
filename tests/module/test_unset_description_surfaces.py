@@ -17,7 +17,7 @@ rendered here, and both were actively harmful rather than merely useless:
     so when a peer asked whether it was set up (evt_feb1f6ae).
 
 (The third surface, ``bus_agent_registry``, is covered by
-tests/services/test_agent_discovery_sync.py.)
+tests/message_bus/test_agent_discovery_sync.py.)
 """
 from __future__ import annotations
 

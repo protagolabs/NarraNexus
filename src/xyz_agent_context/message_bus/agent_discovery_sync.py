@@ -37,13 +37,22 @@ Two design rules follow from that, and they are the point of this module:
    created — not on its first turn, which is what made a configured-but-idle
    agent invisible to its peers.
 
-   "One" is literal, and it took removing a tool to make it true: the
-   ``bus_register_agent`` MCP tool let an agent rewrite the same row with
-   ``owner_user_id=""`` — and ``search_agents`` filters on that column, so a
-   single call dropped the agent out of its own owner's search results until
-   the next turn healed the row (review 2026-08-05). It is deleted; the agent
-   sets its name/description through ``update_agent_profile`` and capabilities
-   are never self-declared.
+   "One" is literal, and it took two removals over two review rounds to earn
+   that word — the claim was written here before it was true, which is its own
+   lesson:
+
+   * the ``bus_register_agent`` MCP tool let an agent rewrite the row with
+     ``owner_user_id=""``, and ``search_agents`` filters on that column, so a
+     single call dropped the agent out of its own owner's search results until
+     the next turn healed it. Deleted; the agent sets its name/description
+     through ``update_agent_profile`` and capabilities are never self-declared.
+   * ``InstanceFactory._register_agent_in_bus`` hand-rolled the same upsert
+     with ``capabilities=json.dumps([])`` and its own copy of the description
+     rule — the original defect, in a third file. It now calls this function,
+     which also gave bundle/migration import and arena provisioning the sync
+     they never had (both left an empty-capability row behind).
+
+   If you are adding a writer: don't. Call this function.
 
 It lives in ``message_bus/`` rather than ``services/`` because
 ``bus_agent_registry`` is this package's table and this is synchronous policy

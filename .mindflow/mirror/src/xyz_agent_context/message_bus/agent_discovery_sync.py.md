@@ -72,4 +72,4 @@ bus 钩子（[[message_bus_module]]，现在只是**幂等兜底**）。注册�
 - 表访问：[[agent_registry_repository]]（repo 层，不在模块里——铁律 #3）
 - "描述算不算没设置"的判断：[[entity_schema]] 的 `is_agent_description_unset`
 - 读这张表的：`LocalMessageBus.search_agents` / `get_agent_profile`
-- 测试：`tests/services/test_agent_discovery_sync.py`
+- 测试：`tests/message_bus/test_agent_discovery_sync.py`

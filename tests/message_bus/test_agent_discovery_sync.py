@@ -211,3 +211,55 @@ async def test_unknown_agent_is_a_no_op_not_a_crash(db):
     not take a request down with it."""
     assert await sync_agent_discovery(db, "agent_missing") is False
     assert await AgentRegistryRepository(db).get_profile("agent_missing") is None
+
+
+# ---------------------------------------------------------------------------
+# Every creation path goes through this seam (review 2026-08-05, issue 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_instance_provisioning_registers_through_the_seam(db):
+    """``InstanceFactory`` provisions the agent-level instances on all four
+    creation paths (HTTP create, bundle/migration import, arena provisioning,
+    ensure-exists). It used to write ``bus_agent_registry`` itself — a
+    hand-rolled upsert with ``capabilities=json.dumps([])`` and its own copy of
+    the description rule, i.e. the exact defect this work removes, in a third
+    file.
+
+    Only the HTTP route followed it with a sync, so an imported or
+    arena-provisioned agent sat in the directory with empty capabilities until
+    something else happened to re-sync it — "discovery waits for the first
+    turn", which is the failure this work exists to end.
+    """
+    from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+
+    await _agent(db, "agent_imported", name="Imported Agent",
+                 description="Imported via Agent Migration")
+    await _skill(db, "agent_imported", "officecli")
+
+    await InstanceFactory(db).create_agent_level_instances("agent_imported")
+
+    profile = await AgentRegistryRepository(db).get_profile("agent_imported")
+    assert profile is not None, "provisioning must leave a discovery row"
+    assert profile.owner_user_id == OWNER, "owner must never be blanked"
+    # Derived, not hardcoded empty: the whole point of the seam.
+    assert "officecli" in profile.capabilities
+    assert profile.capabilities, "capabilities must not be an empty list"
+
+
+def test_the_factory_does_not_write_the_registry_table_itself():
+    """Pins the invariant the module docstring claims: ONE writer. A second
+    hand-rolled upsert is how the description rule and the capability
+    derivation drift apart again."""
+    import inspect
+
+    from xyz_agent_context.module._module_impl import instance_factory
+
+    source = inspect.getsource(instance_factory)
+    # The quoted form is what a DB call uses; prose may still name the table
+    # (the docstring explains why the write moved out).
+    assert '"bus_agent_registry"' not in source, (
+        "instance_factory must go through sync_agent_discovery, not write the table"
+    )
+    assert "sync_agent_discovery" in source
