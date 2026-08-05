@@ -43,6 +43,7 @@ DEFAULT_INTERVAL_SECONDS = 1800
 
 class SkillSyncService:
     def __init__(self, db_client):
+        self._db = db_client
         self.repo = SkillInstallationRepository(db_client)
 
     # -- single workspace ----------------------------------------------------
@@ -114,7 +115,7 @@ class SkillSyncService:
             from xyz_agent_context.services.agent_discovery_sync import (
                 sync_agent_discovery,
             )
-            await sync_agent_discovery(self.repo._db, agent_id)
+            await sync_agent_discovery(self._db, agent_id)
 
         return stats
 

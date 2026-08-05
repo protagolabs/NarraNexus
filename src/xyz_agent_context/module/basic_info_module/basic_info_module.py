@@ -27,7 +27,6 @@ from xyz_agent_context.schema import (
     is_agent_description_unset,
 )
 
-
 # Utils
 from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.utils.timezone import (
