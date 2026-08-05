@@ -1,6 +1,6 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-30
+last_verified: 2026-08-05
 stub: false
 ---
 

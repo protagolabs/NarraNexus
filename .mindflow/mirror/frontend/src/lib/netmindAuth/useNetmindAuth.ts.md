@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-07-13
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -163,3 +163,9 @@ NetMind、②exchange（打我们后端,服务端已落 [login-funnel]）、③o
 直连 NetMind 的那段失败才 reportAuthFunnel;exchange 失败只 setError
 （服务端已有记录）。handleAuthCallback 同款拆分。测试钉住：exchange
 失败必须 0 上报。
+
+### 2026-08-05 R3：handleAuthCallback 的拆分补上对称测试
+
+R2 的 mirror 声称「测试钉住」但只有 emailLogin 有用例（review 指出）。补齐：
+OAuth 直连失败→上报 netmind_oauth_failed;OAuth 成功但 exchange 失败→只
+setError 零上报（recvre9LlfwXAP 要区分的那个桶,不能错标）。

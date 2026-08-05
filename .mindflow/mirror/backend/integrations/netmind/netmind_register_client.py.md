@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_register_client.py
-last_verified: 2026-07-28
+last_verified: 2026-08-05
 stub: false
 ---
 

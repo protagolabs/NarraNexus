@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-31
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -418,3 +418,17 @@ R1 的 per-email 限流 key 选错了资源维度（review 指出）：/funnel-r
 - `signup_ui_error` stage 删除（无调用方,铁律 #2）。
 - 未做（有意）：/funnel-report 与 1600+ 行处的 /funnel 物理相邻——纯搬家
   diff 噪音大于收益,mirror 里两者区别已写死。
+
+### 2026-08-05 R3（review 修正）：桶顺序即不变量 + XFF 从右数
+
+R2 两个残留（review 指出）：
+- **求值顺序反了**：global 桶排第一意味着每个请求先扣 global 再判窄桶——
+  单客户端（一个前端重试 bug 就够）能把 global 120/min 打空,全员真实上报
+  整分钟被丢。改为窄桶在前、global 殿后：被窄桶拒掉的请求碰不到 global。
+  测试钉住：per-IP 拒绝的请求不得消耗 global 配额。
+- **XFF 首跳是调用方填的**：本部署链路 client→caddy→nginx 两跳都是**追加**
+  （nginx $proxy_add_x_forwarded_for、caddy 无 trusted_proxies）,首跳伪造
+  即换桶。改为从右数第 `_TRUSTED_PROXY_HOPS`(=2) 个（edge 亲手追加的那个）;
+  链条短于预期（本地/单条伪造）回落 socket peer,绝不信调用方文本。
+- 丢弃汇总窗口语义修正：last_log 进程启动即打戳（首个丢弃不再伪装成整窗
+  汇总）,日志带实际跨度;`monotonic` 提到模块顶。

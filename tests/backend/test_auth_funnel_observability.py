@@ -52,7 +52,9 @@ def client(monkeypatch):
                         SlidingWindowRateLimiter(limit=30, window_sec=60.0))
     monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter",
                         SlidingWindowRateLimiter(limit=120, window_sec=60.0))
-    monkeypatch.setattr(auth_mod, "_funnel_dropped", {"count": 0, "last_log": 0.0})
+    from time import monotonic as _mono
+    monkeypatch.setattr(auth_mod, "_funnel_dropped",
+                        {"count": 0, "last_log": _mono()})
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
     return TestClient(app)
@@ -177,9 +179,13 @@ def test_funnel_report_is_404_in_local_mode(client, monkeypatch):
 
 
 def test_funnel_report_rate_limit_accepts_silently_but_counts(client, monkeypatch, log_lines):
+    from time import monotonic
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
                         SlidingWindowRateLimiter(limit=1, window_sec=60.0))
+    # Pretend the last summary happened >60s ago so this drop flushes now.
+    monkeypatch.setattr(auth_mod, "_funnel_dropped",
+                        {"count": 0, "last_log": monotonic() - 61.0})
     body = {"stage": "netmind_email_login_failed", "email": "a@b.com", "detail": "x"}
     assert client.post("/api/auth/funnel-report", json=body).status_code == 200
     # Over the limit: still 200 (diagnostics must never add an error on top
@@ -191,6 +197,57 @@ def test_funnel_report_rate_limit_accepts_silently_but_counts(client, monkeypatc
     n_after = sum("[login-funnel] client" in ln for ln in log_lines)
     assert n_after == n_before
     assert any("[login-funnel] dropped 1 client report" in ln for ln in log_lines)
+
+
+def test_funnel_report_drop_within_window_stays_quiet(client, monkeypatch, log_lines):
+    """A fresh boot (last_log = now) must not flush a single drop as if it
+    summarised a whole window."""
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+    monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
+                        SlidingWindowRateLimiter(limit=1, window_sec=60.0))
+    body = {"stage": "netmind_email_login_failed", "email": "a@b.com", "detail": "x"}
+    client.post("/api/auth/funnel-report", json=body)
+    client.post("/api/auth/funnel-report", json=body)  # dropped, counted
+    assert not any("[login-funnel] dropped" in ln for ln in log_lines)
+    assert auth_mod._funnel_dropped["count"] == 1
+
+
+def test_ip_bucket_rejection_never_spends_the_global_budget(client, monkeypatch, log_lines):
+    """The order IS the invariant: narrow buckets first, global last — a
+    request the per-IP bucket rejects must not have touched the global
+    budget, or one noisy client burns the whole minute for everyone."""
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
+                        SlidingWindowRateLimiter(limit=1, window_sec=60.0))
+    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter",
+                        SlidingWindowRateLimiter(limit=2, window_sec=60.0))
+    body = {"stage": "netmind_email_login_failed", "detail": "x"}
+    # Same socket peer -> same IP bucket. First passes, next two are
+    # rejected by per-IP — global must still hold 1 unspent slot.
+    for _ in range(3):
+        assert client.post("/api/auth/funnel-report", json=body).status_code == 200
+    assert sum("[login-funnel] client" in ln for ln in log_lines) == 1
+    assert auth_mod._funnel_report_global_limiter.allow("global") is True
+
+
+def test_client_ip_is_counted_from_the_right_of_xff():
+    """Both proxies APPEND to X-Forwarded-For, so the first hop is
+    caller-controlled; the trustworthy entry is Nth from the right."""
+    class _Req:
+        def __init__(self, xff):
+            self.headers = {"x-forwarded-for": xff} if xff else {}
+            self.client = type("C", (), {"host": "10.0.0.9"})()
+
+    # forged, real (appended by caddy), caddy container (appended by nginx)
+    assert auth_mod._funnel_client_ip(_Req("6.6.6.6, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    # No forgery: real + caddy hop.
+    assert auth_mod._funnel_client_ip(_Req("51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    # Rotating the forged FIRST entry does not move the answer.
+    assert auth_mod._funnel_client_ip(_Req("7.7.7.7, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    # Shorter-than-expected chain (a directly forged single entry): fall
+    # back to the socket peer, never trust caller text.
+    assert auth_mod._funnel_client_ip(_Req("6.6.6.6")) == "10.0.0.9"
+    assert auth_mod._funnel_client_ip(_Req(None)) == "10.0.0.9"
 
 
 def test_funnel_report_email_rotation_cannot_dodge_the_ip_bucket(client, monkeypatch, log_lines):

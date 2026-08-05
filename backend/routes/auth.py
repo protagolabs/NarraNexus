@@ -15,6 +15,7 @@ Provides endpoints for:
 
 import os
 import json
+from time import monotonic
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
@@ -297,7 +298,9 @@ _funnel_report_global_limiter = SlidingWindowRateLimiter(limit=120, window_sec=6
 # error on the failure they are already looking at) — but not toward OPS:
 # a NetMind-wide OAuth outage over the limit must not read as "only 10
 # people affected". One aggregate line per minute says how much was cut.
-_funnel_dropped: dict = {"count": 0, "last_log": 0.0}
+# last_log starts at import time so the very first drop after boot doesn't
+# masquerade as a full window's summary.
+_funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
@@ -305,25 +308,37 @@ _FUNNEL_STAGES = frozenset({
 })
 
 
+# Cloud request chain: client -> ops-caddy -> frontend nginx -> backend.
+# BOTH proxies APPEND to X-Forwarded-For (nginx uses
+# $proxy_add_x_forwarded_for; Caddy has no trusted_proxies configured), so
+# the FIRST hop is whatever the caller wrote — the trustworthy entry is the
+# one the edge proxy itself appended, counted from the RIGHT.
+_TRUSTED_PROXY_HOPS = 2
+
+
 def _funnel_client_ip(request: Request) -> str:
-    """Best-effort client IP: first X-Forwarded-For hop (Caddy fronts every
-    deployment), else the socket peer. Spoofable when NOT behind the proxy —
-    which is why the global bucket above exists."""
-    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if fwd:
-        return fwd
+    """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
+    from the right (see _TRUSTED_PROXY_HOPS). A shorter-than-expected chain
+    (local runs, tests, or a directly-forged single-entry header) falls back
+    to the socket peer rather than trusting caller-supplied text."""
+    parts = [
+        p.strip()
+        for p in (request.headers.get("x-forwarded-for") or "").split(",")
+        if p.strip()
+    ]
+    if len(parts) >= _TRUSTED_PROXY_HOPS:
+        return parts[-_TRUSTED_PROXY_HOPS]
     return request.client.host if request.client else "-"
 
 
 def _note_dropped_report() -> None:
-    import time as _time
-
     _funnel_dropped["count"] += 1
-    now = _time.monotonic()
-    if now - _funnel_dropped["last_log"] >= 60.0:
+    now = monotonic()
+    span = now - _funnel_dropped["last_log"]
+    if span >= 60.0:
         logger.warning(
             f"[login-funnel] dropped {_funnel_dropped['count']} client "
-            "report(s) over the rate limit in the last window"
+            f"report(s) over the rate limit in the last {span:.0f}s"
         )
         _funnel_dropped["count"] = 0
         _funnel_dropped["last_log"] = now
@@ -344,10 +359,15 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
     ip = _funnel_client_ip(request)
+    # Narrow buckets FIRST, global LAST: allow() spends a slot when it
+    # passes, and `and` short-circuits — so a request the per-IP bucket
+    # rejects must never have touched the global budget, or one noisy
+    # client (a frontend retry-loop bug suffices) burns the whole minute
+    # for everyone else. The order IS the invariant.
     allowed = (
-        _funnel_report_global_limiter.allow("global")
+        _funnel_report_limiter.allow(email or ip)
         and _funnel_report_ip_limiter.allow(ip)
-        and _funnel_report_limiter.allow(email or ip)
+        and _funnel_report_global_limiter.allow("global")
     )
     if not allowed:
         # Silently accept toward the user; visibly count toward ops.

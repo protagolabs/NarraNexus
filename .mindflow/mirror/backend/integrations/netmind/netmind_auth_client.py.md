@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_auth_client.py
-last_verified: 2026-06-11
+last_verified: 2026-08-05
 stub: false
 ---
 

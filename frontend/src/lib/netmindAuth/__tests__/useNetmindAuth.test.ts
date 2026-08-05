@@ -68,6 +68,31 @@ describe('useNetmindAuth.emailLogin', () => {
   });
 });
 
+describe('useNetmindAuth.handleAuthCallback reporting split', () => {
+  test('a NetMind-direct callback failure reports netmind_oauth_failed', async () => {
+    netmindPost.mockRejectedValue(new Error('oauth upstream down'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
+    expect(result.current.error).toBe('oauth upstream down');
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_oauth_failed', undefined, 'oauth upstream down',
+    );
+  });
+
+  test('a backend exchange failure after OAuth surfaces the error but does NOT report', async () => {
+    // Same split as emailLogin: the NetMind step succeeded; the exchange
+    // failure is already server-logged (Base recvre9LlfwXAP's "came back
+    // from OAuth but token exchange died" bucket must not be mislabeled).
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockRejectedValue(new Error('exchange down'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
+    expect(result.current.error).toBe('exchange down');
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(false);
+  });
+});
+
 describe('useNetmindAuth password reset', () => {
   test('sendResetCode posts to /register/sendCode with type=2 (forgot-password)', async () => {
     netmindPost.mockResolvedValue({});
