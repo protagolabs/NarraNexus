@@ -53,7 +53,7 @@ from xyz_agent_context.settings import settings
 # Deliberately an INSTRUCTION, not a label: the field is injected into the
 # system prompt, and "No description" invited the agent to conclude it was
 # unconfigured (the placeholder that used to sit here did so explicitly, and a
-# peer asking "are you set up?" got "还没配置完成" back — P1 段02).
+# peer asking "are you set up?" got "not configured yet" (还没配置完成) back — P1 section 02).
 UNSET_AGENT_DESCRIPTION_NOTICE = (
     "(not recorded yet — ask your creator what you are for, then save it with "
     "update_agent_profile so other agents can find you)"
@@ -235,7 +235,7 @@ class BasicInfoModule(XYZBaseModule):
                 # used to land here verbatim, so an agent read
                 # "I am a new agent ready for configuration" about ITSELF and
                 # said so when a peer asked whether it was configured
-                # (P1 段02). See AwarenessModule §5 for the tool it needs.
+                # (P1 section 02). See AwarenessModule §5 for the tool it needs.
                 ctx_data.agent_description = (
                     UNSET_AGENT_DESCRIPTION_NOTICE
                     if is_agent_description_unset(agent.agent_description)

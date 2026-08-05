@@ -189,7 +189,7 @@ class Agent(BaseModel):
 # It was never harmless filler: the bus registry snapshotted it, so
 # ``bus_get_agent_profile`` reported a fully configured agent as "a new agent
 # ready for configuration", and the ASKING agent concluded the peer was not
-# ready and refused to send anything (P1 段02, prod evt_feb1f6ae). BasicInfo
+# ready and refused to send anything (P1 section 02, prod evt_feb1f6ae). BasicInfo
 # injects the same field as the agent's own self-description, so the asked
 # agent read it about itself too.
 LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"

@@ -1,10 +1,18 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_registry_repository.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
 
 # agent_registry_repository.py — `bus_agent_registry` 的数据访问
+
+## 2026-08-05 — review 收口：改名 `get_profile`、进包导出、policy 位置更正
+
+- 读取方法从 `get()` 改名 `get_profile()`：`get` 与基类 `get_by_id` 的命名习惯
+  打架（基类没有 `get`，所以不是覆盖冲突，但读起来像）。
+- 加进 `repository/__init__.py` 的导出面，与目录里多数 repo 一致。
+- 文件 docstring 里 policy 的位置从 `services/` 更正为
+  [[agent_discovery_sync]]（已搬进 message_bus 包）。
 
 ## 为什么存在（为什么不在 message_bus 模块里）
 

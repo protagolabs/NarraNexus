@@ -415,51 +415,6 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_register_agent(
-        agent_id: str,
-        capabilities: str,
-        description: str,
-    ) -> dict:
-        """
-        Register (or re-register) this agent in the MessageBus discovery registry.
-
-        AVOID calling this tool in most cases. You are automatically registered
-        on every turn with your agent profile from the database. Calling this
-        manually is redundant.
-
-        Only call this when:
-        - Your owner explicitly asks you to update your capabilities or description
-        - You want to advertise a new capability that changes how others should
-          discover you (e.g., you just learned a new skill)
-
-        Do NOT call this as a "handshake" or "initialization" step — it happens
-        automatically.
-
-        Args:
-            agent_id: Your agent ID
-            capabilities: Comma-separated capability tags (e.g. "research,data_analysis")
-            description: Human-readable description of what you do
-
-        Returns:
-            Result dict indicating success or failure
-        """
-        bus = await get_message_bus_fn()
-        if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
-
-        try:
-            cap_list = [c.strip() for c in capabilities.split(",") if c.strip()]
-            await bus.register_agent(
-                agent_id=agent_id,
-                owner_user_id="",  # Will be filled in by the caller context
-                capabilities=cap_list,
-                description=description,
-            )
-            return {"success": True, "message": "Agent registered successfully"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
         """
         Get recent message history from a channel.

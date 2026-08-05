@@ -5,7 +5,7 @@
 @description: An agent with no description says NOTHING about it — to peers and
 to itself.
 
-P1 段02: the creation placeholder ("A new agent ready for configuration") was
+P1 section 02: the creation placeholder ("A new agent ready for configuration") was
 never replaced and reached the model on three surfaces. Two of them are
 rendered here, and both were actively harmful rather than merely useless:
 
@@ -20,6 +20,8 @@ rendered here, and both were actively harmful rather than merely useless:
 tests/services/test_agent_discovery_sync.py.)
 """
 from __future__ import annotations
+
+import inspect
 
 import pytest
 
@@ -142,3 +144,43 @@ async def _gather_basic_info(mod, monkeypatch, stored_description):
                                  database_client=object())
     ctx = ContextData(agent_id="agent_me", input_content="hi")
     return await module.hook_data_gathering(ctx)
+
+
+# ---------------------------------------------------------------------------
+# One writer for the discovery row (review 2026-08-05, issue 1)
+# ---------------------------------------------------------------------------
+
+
+def test_no_second_registry_writer_is_exposed_as_a_tool():
+    """``bus_register_agent`` used to let an agent rewrite its own discovery
+    row. It wrote ``owner_user_id=""`` while ``search_agents`` filters on that
+    column, so one call made the agent vanish from its owner's search until the
+    next turn re-synced it — the very failure this work removes, re-armed. It
+    also reset ``registered_at`` and let the agent declare capabilities that
+    the per-turn derivation would silently overwrite.
+
+    Deleted rather than shimmed (iron rule #2): description belongs to
+    ``update_agent_profile``, capabilities are derived from installed skills
+    and active modules.
+    """
+    from xyz_agent_context.module.message_bus_module import _message_bus_mcp_tools
+
+    source = inspect.getsource(_message_bus_mcp_tools)
+    assert "bus_register_agent" not in source
+
+
+def test_the_instruction_no_longer_points_at_the_deleted_tool():
+    """A prompt naming a tool that does not exist teaches the model to fail;
+    this one used to send it there precisely when it wanted to fix its
+    profile."""
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        MessageBusModule,
+    )
+
+    text = "\n".join(
+        MessageBusModule(
+            agent_id="agent_x", user_id="user_tc", database_client=None
+        )._static_instruction_parts()
+    )
+    assert "bus_register_agent" not in text
+    assert "update_agent_profile" in text

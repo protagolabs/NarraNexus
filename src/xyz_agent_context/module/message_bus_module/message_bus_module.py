@@ -266,7 +266,8 @@ class MessageBusModule(XYZBaseModule):
             "",
             "### When NOT to Call Tools",
             "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",
-            "- **Do NOT call `bus_register_agent`** unless your profile needs updating. You are auto-registered on every turn.",
+            "- **There is no bus registration tool** — your discovery entry is rebuilt from your profile and your installed skills on every turn. "
+            "To change what peers see, set your name/description with `update_agent_profile` (Awareness); capabilities are derived, never declared.",
             "- **Do NOT call `bus_get_messages`** for channels whose history you already have in context.",
         ]
 
@@ -293,7 +294,7 @@ class MessageBusModule(XYZBaseModule):
                 # creation placeholder: printing "a new agent ready for
                 # configuration" next to every peer is what left "ask the
                 # teaching expert" with nothing to aim at, and made this list
-                # read as "none of these agents are usable" (P1 段02).
+                # read as "none of these agents are usable" (P1 section 02).
                 if not is_agent_description_unset(desc):
                     line += f": {desc[:80]}"
                 parts.append(line)
@@ -371,14 +372,14 @@ class MessageBusModule(XYZBaseModule):
             # `agent_description` (i.e. the creation placeholder) republished —
             # which is what made `bus_search_agents` answer nothing for every
             # query and told askers that a configured peer was "a new agent
-            # ready for configuration" (P1 段02, all 488 prod rows). The policy
+            # ready for configuration" (P1 section 02, all 488 prod rows). The policy
             # now lives in ONE service that creation / rename / config / skill
             # install also call, so discovery no longer waits for a first turn;
             # this call is the idempotent per-turn backstop.
             try:
                 db = await _get_shared_db()
                 if db:
-                    from xyz_agent_context.services.agent_discovery_sync import (
+                    from xyz_agent_context.message_bus.agent_discovery_sync import (
                         sync_agent_discovery,
                     )
                     await sync_agent_discovery(db, self.agent_id)

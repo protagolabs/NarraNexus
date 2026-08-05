@@ -112,7 +112,7 @@ class SkillSyncService:
         # others removed behind our back), and capabilities are what peers
         # search on — so the discovery row is stale until it is recomputed.
         if any(stats.values()):
-            from xyz_agent_context.services.agent_discovery_sync import (
+            from xyz_agent_context.message_bus.agent_discovery_sync import (
                 sync_agent_discovery,
             )
             await sync_agent_discovery(self._db, agent_id)

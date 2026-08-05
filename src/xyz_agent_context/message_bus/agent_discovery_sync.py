@@ -37,6 +37,19 @@ Two design rules follow from that, and they are the point of this module:
    created — not on its first turn, which is what made a configured-but-idle
    agent invisible to its peers.
 
+   "One" is literal, and it took removing a tool to make it true: the
+   ``bus_register_agent`` MCP tool let an agent rewrite the same row with
+   ``owner_user_id=""`` — and ``search_agents`` filters on that column, so a
+   single call dropped the agent out of its own owner's search results until
+   the next turn healed the row (review 2026-08-05). It is deleted; the agent
+   sets its name/description through ``update_agent_profile`` and capabilities
+   are never self-declared.
+
+It lives in ``message_bus/`` rather than ``services/`` because
+``bus_agent_registry`` is this package's table and this is synchronous policy
+called from routes, MCP tools and hooks — ``services/`` is for background
+workers (pollers, sync loops, watchers).
+
 Deliberately NOT here: generating a description with an LLM from the agent's
 Awareness. That would put a paid, nondeterministic call on the create path and
 on every skill install. The description is a stable self-positioning line

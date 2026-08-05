@@ -10,14 +10,17 @@ Why it lives here and not in the message_bus module
 The table used to be written from exactly one place: an inline block inside
 ``MessageBusModule.hook_data_gathering``. That made discovery a side effect of
 taking a turn — an agent created and configured but not yet run was absent from
-the directory, and the only writer hardcoded ``capabilities=[]`` (P1 段02).
+the directory, and the only writer hardcoded ``capabilities=[]`` (P1 section 02).
 
 Fixing that means the write has to happen from creation and configuration paths
 too: an HTTP route, an Awareness MCP tool, the skill installer. Those must not
 reach into a module's internals (iron rule #3 — modules are independent and
 hot-pluggable), and per the project layout repositories never live inside a
-module. So table access moves here, and ``services/agent_discovery_sync.py``
-owns the "what should the row say" policy above it.
+module. So table access moves here, and
+``message_bus/agent_discovery_sync.py`` owns the "what should the row say"
+policy above it — in the bus package, because that is the domain this table
+belongs to; ``services/`` hosts background workers, not synchronous policy
+called from routes and tools.
 
 ``LocalMessageBus`` keeps its own reader/writer for the bus-facing API surface
 (``register_agent`` / ``get_agent_profile`` / ``search_agents``); this
@@ -84,7 +87,7 @@ class AgentRegistryRepository(BaseRepository["BusAgentInfo"]):
             "last_seen_at": entity.last_seen_at or _now(),
         }
 
-    async def get(self, agent_id: str) -> Optional["BusAgentInfo"]:
+    async def get_profile(self, agent_id: str) -> Optional["BusAgentInfo"]:
         """The agent's directory row, or None if it has never been registered."""
         row = await self._db.get_one(self.table_name, {"agent_id": agent_id})
         return self._row_to_entity(row) if row else None

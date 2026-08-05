@@ -1,10 +1,25 @@
 ---
-code_file: src/xyz_agent_context/services/agent_discovery_sync.py
-last_verified: 2026-08-04
+code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
+last_verified: 2026-08-05
 stub: false
 ---
 
 # agent_discovery_sync.py — agent 对同伴那一面的唯一真相点
+
+## 2026-08-05 — 从 services/ 搬到 message_bus/，并成为真正的唯一写入者（review）
+
+两处收口：
+
+1. **位置**：`services/` 按 CLAUDE.md 架构表是**后台服务层**（ModulePoller /
+   InstanceSyncService 这类独立进程）。这个文件不是 worker——它是被 HTTP 路由、
+   MCP 工具、安装管线、每轮 hook **同步调用**的策略函数，而且管的是
+   `bus_agent_registry`（message_bus 自己的表）。搬进 [[message_bus]] 包后，
+   backend 路由可以直接 import（message_bus 是包不是 module，不触发铁律 #3），
+   policy 与 [[local_bus]] 的读写面落在同一个域里。
+2. **「唯一」变成事实**：`bus_register_agent` MCP 工具原来是同一行的第二个
+   写入者，且写 `owner_user_id=""`，而 `search_agents` 按该列过滤——调一次就
+   从同 owner 搜索结果里消失。该工具已删，见
+   [[_message_bus_mcp_tools]] 同日条目。
 
 ## 为什么存在
 

@@ -5,13 +5,13 @@
 @description: Setting an agent's name/description must be one transaction:
 the DB row, the agent's own memory, and the peer-discovery row.
 
-Two prod failures (P1 段02, 2026-08-03) meet in this tool:
+Two prod failures (P1 section 02, 2026-08-03) meet in this tool:
 
 ① Identity memory residue. The user named their first agent 「凑企鹅」, then at
    08:42/43 handed that same name to a SECOND agent with the rename tool. The
    tool wrote ``agents.agent_name`` and nothing else, so the first agent's
    long-term memory still asserted the old identity and it introduced itself as
-   「凑企鹅 is actually my own agent name」 (evt_1f9c6680) — while the DB said
+   "凑企鹅 is actually my own agent name" (evt_1f9c6680) — while the DB said
    otherwise, and a second agent now legitimately held that name.
 
 ② A2A discovery death. ``agents.agent_description`` was only ever written at
@@ -84,6 +84,55 @@ def test_an_empty_profile_still_gets_a_valid_section():
     assert IDENTITY_CHANGE_SECTION in merged and "- " in merged
 
 
+def test_content_after_the_section_survives_a_second_rename():
+    """The docstring's promise, tested where it can actually break.
+
+    ``update_awareness`` has the model rewrite the WHOLE profile and the prompt
+    tells it to keep the full structured format, so the identity section
+    routinely ends up in the MIDDLE. A merge that treats "everything after the
+    marker" as the section silently ate the sections below it — the exact
+    long-term-memory loss this function claims never to cause (found in review,
+    2026-08-05: the first three cases all happened to put the section last).
+    """
+    profile = "\n".join([
+        "# Agent Awareness Profile",
+        "",
+        "## 1. Preferences",
+        "- likes short answers",
+        "",
+        IDENTITY_CHANGE_SECTION,
+        "- 2026-08-04: renamed by your creator from A to B.",
+        "",
+        "## 2. Working Style",
+        "- prefers async updates",
+        "free-form observation that is not a bullet",
+        "",
+        "## 3. Role and Identity",
+        "- owns the weekly report",
+    ])
+
+    merged = merge_identity_change_note(profile, build_identity_change_note("B", "C"))
+
+    # Everything outside the identity section is preserved verbatim.
+    for kept in (
+        "## 1. Preferences", "- likes short answers",
+        "## 2. Working Style", "- prefers async updates",
+        "free-form observation that is not a bullet",
+        "## 3. Role and Identity", "- owns the weekly report",
+    ):
+        assert kept in merged, f"lost: {kept!r}"
+
+    # And the rename log is still one section holding both entries, in order.
+    assert merged.count(IDENTITY_CHANGE_SECTION) == 1
+    section = merged.split(IDENTITY_CHANGE_SECTION, 1)[1].split("\n## ", 1)[0]
+    entries = [ln for ln in section.splitlines() if ln.strip().startswith("- ")]
+    assert len(entries) == 2
+    assert "from A to B" in entries[0], "the pre-existing entry keeps its wording"
+    assert "B" in entries[1] and "C" in entries[1], "newest rename appended last"
+    # A later section's bullets must not be absorbed as rename entries.
+    assert all("async updates" not in e for e in entries)
+
+
 # ---------------------------------------------------------------------------
 # The tool, against a real database
 # ---------------------------------------------------------------------------
@@ -144,13 +193,13 @@ async def test_profile_update_writes_both_fields(db):
 
     result = await _tool("update_agent_profile")(
         agent_id="agent_a", new_name="咕咕嘎嘎",
-        new_description="Reviews lesson plans and答疑.",
+        new_description="Reviews lesson plans and Q&A.",
     )
 
     assert "success" in result.lower()
     row = await db.get_one("agents", {"agent_id": "agent_a"})
     assert row["agent_name"] == "咕咕嘎嘎"
-    assert row["agent_description"] == "Reviews lesson plans and答疑."
+    assert row["agent_description"] == "Reviews lesson plans and Q&A."
 
 
 @pytest.mark.asyncio
@@ -253,10 +302,46 @@ async def test_the_profile_update_refreshes_peer_discovery_immediately(db):
         new_description="Reviews lesson plans.",
     )
 
-    profile = await AgentRegistryRepository(db).get("agent_a")
+    profile = await AgentRegistryRepository(db).get_profile("agent_a")
     assert profile is not None
     assert "咕咕嘎嘎" in profile.description
     assert "Reviews lesson plans." in profile.description
+
+
+@pytest.mark.asyncio
+async def test_rewriting_the_same_description_is_not_an_error(db):
+    """Dialect trap: ``update_agent`` returns ``cursor.rowcount``, and MySQL
+    (dev/prod — the pool sets no CLIENT_FOUND_ROWS) counts CHANGED rows while
+    SQLite counts MATCHED ones. Without an equality short-circuit, re-saving an
+    identical description returns 0 there and the agent is told
+    "Error: the update did not apply" — for a write that was simply a no-op.
+
+    The §5 prompt actively invites repeat calls ("whenever the answer
+    changes"), and a model that reads an error usually retries or rewrites,
+    so this would be a routine false failure on cloud only (review 2026-08-05).
+    """
+    await _seed_agent(db, "agent_a", "咕咕嘎嘎", description="Reviews lesson plans.")
+
+    result = await _tool("update_agent_profile")(
+        agent_id="agent_a", new_description="Reviews lesson plans."
+    )
+
+    assert "error" not in result.lower(), result
+    row = await db.get_one("agents", {"agent_id": "agent_a"})
+    assert row["agent_description"] == "Reviews lesson plans."
+
+
+@pytest.mark.asyncio
+async def test_same_name_and_same_description_together_are_a_no_op(db):
+    await _seed_agent(db, "agent_a", "咕咕嘎嘎", description="Reviews lesson plans.")
+
+    result = await _tool("update_agent_profile")(
+        agent_id="agent_a", new_name="咕咕嘎嘎",
+        new_description="  Reviews lesson plans.  ",   # padding is not a change
+    )
+
+    assert "error" not in result.lower(), result
+    assert "no changes" in result.lower()
 
 
 @pytest.mark.asyncio

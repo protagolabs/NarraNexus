@@ -41,11 +41,11 @@ from xyz_agent_context.module.awareness_module.prompts import AWARENESS_MODULE_I
 # injected verbatim into the system prompt every turn, so this is the one place
 # a correction is guaranteed to be read.
 #
-# Why a rename needs a memory write at all (P1 段02 ①, prod evt_1f9c6680): the
+# Why a rename needs a memory write at all (P1 section 02 ①, prod evt_1f9c6680): the
 # user named their first agent 「凑企鹅」, then handed that name to a SECOND
 # agent. The rename tool wrote `agents.agent_name` and nothing else — but an
 # agent's sense of who it is lives in free-text long-term memory, which still
-# said 「凑企鹅 is actually my own agent name」. One column cannot correct
+# said "凑企鹅 is actually my own agent name". One column cannot correct
 # thousands of words of narrative, so the rename leaves an explicit, dated
 # retraction that retrieval and the injected profile both surface.
 IDENTITY_CHANGE_SECTION = "## Identity Changes (platform record)"
@@ -82,23 +82,39 @@ def merge_identity_change_note(profile: str, note: str) -> str:
     Appends — never rewrites the rest of the profile (the agent's observations
     about its owner are not ours to edit, and losing them to a rename would be
     a worse bug than the one this fixes). Keeps a single section and the last
-    ``MAX_IDENTITY_CHANGE_ENTRIES`` lines.
+    ``MAX_IDENTITY_CHANGE_ENTRIES`` entries.
+
+    The section is delimited by the NEXT ``##`` heading, not by end-of-text.
+    ``update_awareness`` has the model rewrite the whole profile in the
+    prescribed structure, so this section routinely sits in the MIDDLE; the
+    first implementation treated everything after the marker as belonging to
+    it and silently dropped the sections below on the next rename (review,
+    2026-08-05). Whatever follows is carried through untouched.
     """
     body = (profile or "").rstrip()
-    if IDENTITY_CHANGE_SECTION in body:
-        head, _, section = body.partition(IDENTITY_CHANGE_SECTION)
-        entries = [
-            ln.strip() for ln in section.splitlines() if ln.strip().startswith("- ")
-        ]
-        head = head.rstrip()
+    if IDENTITY_CHANGE_SECTION not in body:
+        entries: List[str] = [note]
+        head, tail = body, ""
     else:
-        head, entries = body, []
+        head, _, rest = body.partition(IDENTITY_CHANGE_SECTION)
+        head = head.rstrip()
+        # Cut at the next heading; everything from there on is someone else's.
+        lines = rest.splitlines()
+        cut = next(
+            (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
+            len(lines),
+        )
+        entries = [
+            ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")
+        ]
+        entries.append(note)
+        tail = "\n".join(lines[cut:]).strip("\n")
 
-    entries.append(note)
     entries = entries[-MAX_IDENTITY_CHANGE_ENTRIES:]
+    section = f"{IDENTITY_CHANGE_SECTION}\n" + "\n".join(entries) + "\n"
 
-    rebuilt = f"{IDENTITY_CHANGE_SECTION}\n" + "\n".join(entries) + "\n"
-    return f"{head}\n\n{rebuilt}" if head else rebuilt
+    parts = [p for p in (head, section.rstrip(), tail) if p]
+    return "\n\n".join(parts) + "\n"
 
 
 class AwarenessModule(XYZBaseModule):
@@ -406,7 +422,16 @@ class AwarenessModule(XYZBaseModule):
                         )
 
             if new_description is not None:
-                updates["agent_description"] = new_description.strip()
+                wanted_desc = new_description.strip()
+                # Same equality short-circuit the name branch does, and for a
+                # sharper reason: update_agent returns cursor.rowcount, which
+                # counts CHANGED rows on MySQL (dev/prod) but MATCHED rows on
+                # SQLite. Re-saving an identical description would therefore
+                # report "Error: the update did not apply" on cloud only — for
+                # a write that was simply a no-op — and the §5 prompt invites
+                # exactly those repeat calls (review 2026-08-05).
+                if wanted_desc != (agent.agent_description or "").strip():
+                    updates["agent_description"] = wanted_desc
 
             if not updates:
                 return (
@@ -419,15 +444,15 @@ class AwarenessModule(XYZBaseModule):
                 return "Error: the update did not apply; nothing was changed"
 
             # A rename is not complete until the memory that asserts the old
-            # identity has been corrected (P1 段02 ①).
+            # identity has been corrected (P1 section 02 ①).
             if renamed_from:
                 await AwarenessModule._record_identity_change(
                     db, agent_id, renamed_from, updates["agent_name"]
                 )
 
-            # Peers must see this now, not after the next turn (P1 段02 target 2).
+            # Peers must see this now, not after the next turn (P1 section 02 target 2).
             try:
-                from xyz_agent_context.services.agent_discovery_sync import (
+                from xyz_agent_context.message_bus.agent_discovery_sync import (
                     sync_agent_discovery,
                 )
                 await sync_agent_discovery(db, agent_id)

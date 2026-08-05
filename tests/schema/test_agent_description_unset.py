@@ -4,7 +4,7 @@
 @date: 2026-08-04
 @description: "This agent has no description yet" must be one shared judgement.
 
-P1 段02 (prod, 2026-08-03): every agent ever created carried
+P1 section 02 (prod, 2026-08-03): every agent ever created carried
 ``agent_description = "A new agent ready for configuration"`` — creation wrote
 it, nothing ever replaced it, and three surfaces then repeated it as if it were
 a fact:

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
+
+## 2026-08-05 — 指令不再把模型送去调一个会破坏名录的工具（review）
+
+「When NOT to Call Tools」里那句 `Do NOT call bus_register_agent unless your
+profile needs updating` 有两重问题：工具本身已删（见
+[[_message_bus_mcp_tools]] 同日条），而且原文恰恰在**「想更新 profile 时」**
+把模型指向它——那正是它会把 `owner_user_id` 写空、让自己从同 owner 搜索里消失
+的路径。改写成「平台没有注册工具；要改同伴看到的内容用
+`update_agent_profile`（Awareness），capabilities 是推导的、不能自报」。
+有测试断言指令里不再出现旧工具名、且出现新工具名。
 
 ## 2026-08-04 — 名录写入交给统一 seam；Known Agents 不再打印占位符
 

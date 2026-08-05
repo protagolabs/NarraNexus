@@ -1,7 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 ---
+
+## 2026-08-05 — review 修两处：记忆截断丢内容、description 在 MySQL 上假报错
+
+1. **`merge_identity_change_note` 会吃掉 section 之后的内容**（这正是它
+   docstring 里承诺绝不发生的事）。原实现 `partition` 之后把 marker 之后的
+   **全部文本**当 section，只留 `- ` 开头的行 → 一旦 identity section 落在
+   profile 中间（`update_awareness` 让模型整篇重写、提示词还要求保持完整结构，
+   所以这是常态），下一次改名会静默删掉它下面的所有小节。改成**按下一个 `##`
+   标题切断**，尾部原样接回。原有三个用例的 section 都恰好在末尾，所以覆盖不到
+   —— 补了「section 后面还有两个小节 + 一行自由文本」的用例。
+2. **description 没做等值短路**。`update_agent` 返回 `cursor.rowcount`：MySQL
+   （dev/prod，建池未设 `CLIENT_FOUND_ROWS`）算 **changed** rows，SQLite 算
+   **matched** rows。于是「把描述写成和现值相同」在云上返回 0 → 给模型
+   `Error: the update did not apply`，本地却是成功。而 §5 提示词明确鼓励
+   「whenever the answer changes」反复调用。照 name 分支加等值判断即可。
+   注意：断言「没报错」在 SQLite 上恒绿，所以真正钉住修复的是断言**走了
+   "No changes needed" 分支**那一条。
 
 ## 2026-08-04 — `update_agent_name` → `update_agent_profile`：改名是一次事务
 

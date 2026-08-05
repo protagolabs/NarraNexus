@@ -31,7 +31,7 @@ import pytest
 from xyz_agent_context.repository.agent_registry_repository import (
     AgentRegistryRepository,
 )
-from xyz_agent_context.services.agent_discovery_sync import sync_agent_discovery
+from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.schema_registry import auto_migrate
@@ -87,7 +87,7 @@ async def test_sync_registers_an_agent_that_never_took_a_turn(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    profile = await AgentRegistryRepository(db).get("agent_a")
+    profile = await AgentRegistryRepository(db).get_profile("agent_a")
     assert profile is not None
     assert profile.owner_user_id == OWNER
     assert profile.description == "咕咕嘎嘎: Reviews lesson plans."
@@ -103,7 +103,7 @@ async def test_capabilities_come_from_installed_skills_and_modules(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    caps = (await AgentRegistryRepository(db).get("agent_a")).capabilities
+    caps = (await AgentRegistryRepository(db).get_profile("agent_a")).capabilities
     # Skills are the discovery-relevant part; module classes describe reach.
     assert "officecli" in caps
     assert "home-assistant-setup" in caps
@@ -119,7 +119,7 @@ async def test_uninstalled_skills_do_not_advertise_capability(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    caps = (await AgentRegistryRepository(db).get("agent_a")).capabilities
+    caps = (await AgentRegistryRepository(db).get_profile("agent_a")).capabilities
     assert "officecli" not in caps
 
 
@@ -131,7 +131,7 @@ async def test_another_agents_skills_never_leak_into_my_capabilities(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    caps = (await AgentRegistryRepository(db).get("agent_a")).capabilities
+    caps = (await AgentRegistryRepository(db).get_profile("agent_a")).capabilities
     assert "officecli" not in caps
 
 
@@ -152,7 +152,7 @@ async def test_legacy_placeholder_description_is_not_republished(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    profile = await AgentRegistryRepository(db).get("agent_a")
+    profile = await AgentRegistryRepository(db).get_profile("agent_a")
     assert "ready for configuration" not in profile.description.lower()
     # The name still identifies it, and capabilities still make it findable.
     assert "凑企鹅" in profile.description
@@ -165,7 +165,7 @@ async def test_a_real_description_is_published_with_the_name(db):
 
     await sync_agent_discovery(db, "agent_a")
 
-    desc = (await AgentRegistryRepository(db).get("agent_a")).description
+    desc = (await AgentRegistryRepository(db).get_profile("agent_a")).description
     assert "咕咕嘎嘎" in desc and "Reviews lesson plans." in desc
 
 
@@ -178,8 +178,8 @@ async def test_public_agents_are_registered_public(db):
     await sync_agent_discovery(db, "agent_priv")
 
     repo = AgentRegistryRepository(db)
-    assert (await repo.get("agent_pub")).visibility == "public"
-    assert (await repo.get("agent_priv")).visibility == "private"
+    assert (await repo.get_profile("agent_pub")).visibility == "public"
+    assert (await repo.get_profile("agent_priv")).visibility == "private"
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ async def test_sync_is_idempotent_and_reflects_later_changes(db):
                     {"agent_description": "now configured"})
     await sync_agent_discovery(db, "agent_a")
 
-    assert "now configured" in (await AgentRegistryRepository(db).get("agent_a")).description
+    assert "now configured" in (await AgentRegistryRepository(db).get_profile("agent_a")).description
 
 
 @pytest.mark.asyncio
@@ -210,4 +210,4 @@ async def test_unknown_agent_is_a_no_op_not_a_crash(db):
     """Called from routes and hooks on best-effort paths; a deleted agent must
     not take a request down with it."""
     assert await sync_agent_discovery(db, "agent_missing") is False
-    assert await AgentRegistryRepository(db).get("agent_missing") is None
+    assert await AgentRegistryRepository(db).get_profile("agent_missing") is None
