@@ -39,16 +39,33 @@ class SlidingWindowRateLimiter:
         self._cleanup_interval = cleanup_interval
 
     def allow(self, key: str) -> bool:
-        """Return True if the request is allowed; False if rate-limited."""
+        """Return True if the request is allowed; False if rate-limited.
+
+        A REJECTED call never allocates state for the key. This matters
+        whenever the key is caller-chosen and the caller is unauthenticated
+        (e.g. /api/auth/funnel-report's per-email bucket): with the old
+        unconditional ``setdefault``, a rejected flood still grew
+        ``_deques`` by one key per request, and ``_cleanup``'s O(n) sweep
+        runs on the shared event loop. An absent key trivially has a
+        window count of 0 < limit, so "don't create on reject" can never
+        change an allow/deny verdict.
+        """
         self._request_count += 1
         if self._request_count % self._cleanup_interval == 0:
             self._cleanup()
-        now = monotonic()
-        dq = self._deques.setdefault(key, deque())
-        while dq and dq[0] < now - self._window:
-            dq.popleft()
-        if len(dq) >= self._limit:
+        if self._limit <= 0:
+            # Degenerate config always rejected before this restructure too;
+            # now it also allocates nothing.
             return False
+        now = monotonic()
+        dq = self._deques.get(key)
+        if dq is not None:
+            while dq and dq[0] < now - self._window:
+                dq.popleft()
+            if len(dq) >= self._limit:
+                return False
+        else:
+            dq = self._deques[key] = deque()
         dq.append(now)
         return True
 

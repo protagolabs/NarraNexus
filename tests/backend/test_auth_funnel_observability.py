@@ -231,10 +231,9 @@ def test_ip_bucket_rejection_never_spends_the_global_budget(client, monkeypatch,
 
 
 def test_ip_bucket_rejection_allocates_no_caller_chosen_keys(client, monkeypatch):
-    """allow() allocates the key's deque even when it rejects, so the
-    caller-keyed email bucket must sit BEHIND per-IP — otherwise an
-    unauthenticated flood grows _deques by one key per request (and its
-    O(n) cleanup runs on the shared event loop)."""
+    """An unauthenticated flood of rotating emails must not grow the
+    caller-keyed bucket's dict. Held by the limiter itself now (a rejected
+    allow() allocates nothing), so this passes under ANY bucket order."""
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
                         SlidingWindowRateLimiter(limit=2, window_sec=60.0))
@@ -250,6 +249,36 @@ def test_ip_bucket_rejection_allocates_no_caller_chosen_keys(client, monkeypatch
             "email": f"flood{i}@b.com", "detail": "x",
         })
     assert len(auth_mod._funnel_report_limiter._deques) == keys_before
+
+
+def test_rejected_allow_allocates_no_key_at_the_limiter_itself():
+    """The root-cause guarantee, order-independent: reject != allocate."""
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+    lim = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
+    assert lim.allow("a") is True
+    assert lim.allow("a") is False          # rejected, key existed already
+    for i in range(50):                     # rejected floods on FRESH keys
+        lim2_key = f"fresh{i}"
+        zero = SlidingWindowRateLimiter(limit=0, window_sec=60.0)
+        assert zero.allow(lim2_key) is False
+        assert lim2_key not in zero._deques
+    assert len(lim._deques) == 1
+    # And a verdict is never changed by the no-allocate restructure: a
+    # brand-new key under a sane limit still passes.
+    assert lim.allow("b") is True
+
+
+def test_trusted_proxy_hops_parsing_is_clamped_and_forgiving():
+    """hops=0 would make parts[-0] == parts[0] (the caller-written entry)
+    and disable the short-chain fallback; empty/garbage env values must
+    not crash the module import."""
+    parse = auth_mod._parse_trusted_proxy_hops
+    assert parse(None) == 2      # unset
+    assert parse("") == 2        # FUNNEL_TRUSTED_PROXY_HOPS= (empty)
+    assert parse("0") == 1       # clamped: never index from the left
+    assert parse("-3") == 1
+    assert parse("abc") == 2     # garbage -> default, not ValueError
+    assert parse("3") == 3
 
 
 def test_client_ip_is_counted_from_the_right_of_xff():

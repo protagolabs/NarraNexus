@@ -285,9 +285,8 @@ async def register_account(payload: SignupRequest) -> dict:
 # nature), and the resource it spends is the GLOBAL log — so the key cannot
 # be caller-chosen alone. Three buckets, all must pass, listed in
 # EVALUATION ORDER (the order is load-bearing, see the route):
-#   * per-IP first: the one bucket whose key is trusted (edge-appended)
-#     AND bounded (one attacker = one key) — it caps everything behind
-#     it, including how many caller-chosen keys can ever be allocated,
+#   * per-IP first: the narrowest bucket whose key is TRUSTED
+#     (edge-appended, one attacker = one key),
 #   * per-email/IP second: the polite per-user cadence,
 #   * global last: hard ceiling on total report lines per minute — the
 #     backstop for what per-IP can't stop (an attacker rotating source
@@ -316,12 +315,29 @@ _FUNNEL_STAGES = frozenset({
 # number of proxy hops in front of this backend. (Not on any proxy's XFF
 # semantics — whether the edge appends to or overwrites a forged header,
 # the entry it contributes is the same distance from the right.) Today the
-# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops;
+# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops
+# (docker/nginx.conf carries the reverse pointer for topology editors);
 # the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
 # repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
 # proxy) MUST bump this — misconfigure it and per-IP silently collapses
 # into one shared bucket. Overridable per deployment, no config required.
-_TRUSTED_PROXY_HOPS = int(os.getenv("FUNNEL_TRUSTED_PROXY_HOPS", "2"))
+
+
+def _parse_trusted_proxy_hops(raw) -> int:
+    """Clamp to >= 1: hops=0 would make ``parts[-0] == parts[0]`` — the
+    CALLER-written entry — and `len(parts) >= 0` is always true, so the
+    short-chain fallback would never fire (empty header would even
+    IndexError). Empty/garbage values fall back to the default rather
+    than blowing up at import time (the executor_reaper precedent)."""
+    try:
+        return max(1, int(raw or 2))
+    except (TypeError, ValueError):
+        return 2
+
+
+_TRUSTED_PROXY_HOPS = _parse_trusted_proxy_hops(
+    os.getenv("FUNNEL_TRUSTED_PROXY_HOPS")
+)
 
 
 def _funnel_client_ip(request: Request) -> str:
@@ -368,14 +384,12 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
     ip = _funnel_client_ip(request)
-    # The order IS the invariant — allow() both spends a slot AND allocates
-    # the key's deque even when it rejects, and `and` short-circuits, so:
-    #   * per-IP runs FIRST because its key is trusted and bounded — a
-    #     rejected flood allocates nothing in the caller-keyed email bucket
-    #     (whose key space would otherwise grow per request, and whose
-    #     O(n) cleanup runs on the shared event loop),
-    #   * global runs LAST so no single client can drain the shared budget
-    #     with requests a narrower bucket was going to reject anyway.
+    # Order carries ONE invariant — global runs LAST, so no single client
+    # can drain the shared budget with requests a narrower bucket was going
+    # to reject anyway ("and" short-circuits; allow() spends a slot when it
+    # passes). Key allocation needs no ordering care since the limiter
+    # itself stopped allocating on reject (see _rate_limiter.allow); per-IP
+    # leads simply because it is the narrowest TRUSTED bucket.
     allowed = (
         _funnel_report_ip_limiter.allow(ip)
         and _funnel_report_limiter.allow(email or ip)

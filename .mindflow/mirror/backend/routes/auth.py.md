@@ -446,3 +446,18 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
 加/减一跳必须同步,否则 per-IP 静默塌成第二个全局桶;注释改为只依赖跳数
 （append 或 overwrite 语义下从右数都成立）。丢弃计数残留挂到下个窗口的
 行为维持现状（review 认可,span 如实标注）。
+
+### 2026-08-05 R5（review 修正）：HOPS 钳制下界 + key 分配不变量下沉 limiter
+
+- `FUNNEL_TRUSTED_PROXY_HOPS` 经 `_parse_trusted_proxy_hops` 钳制 ≥1：
+  hops=0 时 `parts[-0]==parts[0]`（调用方写的首跳）且 `len>=0` 恒真——
+  回落保护永不触发,空 XFF 直接 IndexError 500;0 恰是「无代理部署」最自然
+  的填法。空串/垃圾值回默认 2,不在 import 期炸 backend（executor_reaper
+  先例）。解析函数纯化,6 个边界有测试。
+- **病根修复**（三轮桶顺序反复的根因,铁律 #5）：`_rate_limiter.allow()`
+  拒绝路径不再分配 key（详见 _rate_limiter.md 同批更新）。调用点顺序从此
+  只承载「global 殿后」一条预算不变量;
+  test_ip_bucket_rejection_allocates_no_caller_chosen_keys 从「依赖顺序」
+  变为「任意顺序成立」。
+- 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
+  仓单独 commit,本仓注释已互指）。
