@@ -4,6 +4,22 @@ last_verified: 2026-08-05
 stub: false
 ---
 
+## 2026-08-04 — 创建不再写占位符描述；创建/更新即时进同伴名录
+
+两处（P1 段02）：
+
+1. `agent_description` 的默认值从 `"A new agent ready for configuration"` 改成
+   **空串**。那句填充被 bus 名录快照、被当事实报给同伴，也被当作 agent 自己的
+   自述注入提示（见 [[entity_schema]] / [[basic_info_module]]）。
+2. 创建成功（默认 instance 建好之后）和更新成功之后，都调
+   [[agent_discovery_sync]] 的 `sync_agent_discovery`。此前注册是"跑过一轮"的
+   副作用，所以刚创建、或改完名字/描述后闲着的 agent 对同伴不存在——票上目标 2。
+   两处都是 best-effort：agent 该建的建了、该改的改了，发现元数据刷新失败不影响
+   请求成功。
+
+创建那次刻意放在 `InstanceFactory.create_agent_level_instances` **之后**，
+capabilities 快照才不是空的。
+
 ## 2026-07-31 — active_run 富集只认 chat/manyfold 来源
 
 `/api/auth/agents` 的 running 行 SELECT 加 `` `trigger` IN

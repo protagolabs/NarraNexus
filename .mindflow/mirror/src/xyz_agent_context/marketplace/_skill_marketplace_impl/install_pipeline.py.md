@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-07-22
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 装/卸技能后刷新同伴发现行
+
+`_audit` 末尾调 [[agent_discovery_sync]]。技能就是能力，而能力正是同伴搜索的
+匹配面（`bus_search_agents` 匹配 `capabilities LIKE ?`）——装完不刷新，名录要等到
+这个 agent 下一轮才反映它新会的事（P1 段02 目标 1）。仍在原来的 try 里：磁盘是
+真相，元数据写失败不许回滚文件操作。
 
 ## 2026-07-22 — review 修复:目录名锁 catalog id
 

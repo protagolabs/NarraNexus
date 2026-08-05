@@ -99,7 +99,8 @@ def _high() -> ContextData:
 #     todo file someone has to remember to read.
 #
 # BasicInfoModule was found in production on 2026-07-29: an agent renaming
-# itself via awareness_module__update_agent_name changed the instruction by ONE
+# itself via the Awareness rename tool (then update_agent_name, since folded
+# into awareness_module__update_agent_profile) changed the instruction by ONE
 # character, which voided the whole prefix behind it (measured ~8,800 full-price
 # tokens on the NetMind path, ~30,000 weighted on CC).
 _KNOWN_DRIFT: dict[str, str] = {

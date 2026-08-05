@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
+
+## 2026-08-05 — 指令不再把模型送去调一个会破坏名录的工具（review）
+
+「When NOT to Call Tools」里那句 `Do NOT call bus_register_agent unless your
+profile needs updating` 有两重问题：工具本身已删（见
+[[_message_bus_mcp_tools]] 同日条），而且原文恰恰在**「想更新 profile 时」**
+把模型指向它——那正是它会把 `owner_user_id` 写空、让自己从同 owner 搜索里消失
+的路径。改写成「平台没有注册工具；要改同伴看到的内容用
+`update_agent_profile`（Awareness），capabilities 是推导的、不能自报」。
+有测试断言指令里不再出现旧工具名、且出现新工具名。
+
+## 2026-08-04 — 名录写入交给统一 seam；Known Agents 不再打印占位符
+
+两处（P1 段02）：
+
+1. `hook_data_gathering` 里那段内联注册（硬编码 `capabilities=[]`、把
+   `agent_description` 原样当描述发布）换成调 [[agent_discovery_sync]] 的
+   `sync_agent_discovery`。那段代码是"`bus_search_agents` 对任何查询都返回空"
+   和"配置好的 agent 被报成待配置"的直接原因（prod 全表 488 行）。现在这里只是
+   **每轮的幂等兜底**——真正的注册发生在创建/配置那一刻（[[auth]]、
+   [[awareness_module]]、[[install_pipeline]]）。
+2. `_volatile_context_parts` 的 Known Agents 渲染：描述判定为 unset
+   （[[entity_schema]] 的 `is_agent_description_unset`）时**整段不渲染**，而不是
+   把占位符打出来。每一行都写着同一句"待配置的新 agent"，等于告诉发问的模型
+   「这些同伴都不可用」——owner 说"问问教学专家"时它无从下手。
 
 ## 2026-08-04 — bus 轮次的回复面声明（origin-aware）+「干完活必须交付」纪律
 

@@ -119,6 +119,9 @@ from .decision_schema import (
 from .entity_schema import (
     # Enums
     UserStatus,
+    # Agent description "unset" judgement (legacy placeholder recognition)
+    LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
+    is_agent_description_unset,
     # Entities
     SocialNetworkEntity,
     User,
@@ -387,6 +390,8 @@ __all__ = [
 
     # Entity Schema (Data Entity Models)
     "UserStatus",
+    "LEGACY_AGENT_DESCRIPTION_PLACEHOLDER",
+    "is_agent_description_unset",
     "SocialNetworkEntity",
     "User",
     "Agent",

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 导出 `is_agent_description_unset` / `LEGACY_AGENT_DESCRIPTION_PLACEHOLDER`
+
+[[entity_schema]] 新增的"描述算不算没设置"判断进公共导出面——三个消费面
+（[[message_bus_module]] 渲染、[[basic_info_module]] 自述、[[agent_discovery_sync]]
+名录写入）都从 `xyz_agent_context.schema` 引，判据只有一份。纯转发。
 
 ## 2026-08-03 — 导出 `BUS_ERRAND_TURN_SOURCE`
 
