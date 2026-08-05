@@ -4,6 +4,32 @@ stub: false
 last_verified: 2026-08-05
 ---
 
+## 2026-08-05 (三) — review 收尾：把「零误伤」这句话说准
+
+PR #237 合入后 review 的两条 🟢 收尾。
+
+**① 不变量的真实边界要写出来，别让注释比代码保证得强。**
+flag 检查是**整 token 等值**，但 `_split_compound_flag` 对任何 `--` 开头且含
+`=` 的 token 都做 partition、不看空格。所以「正文永远够不着控制面规则」有一个
+针尖大的例外：**正文自身以 flag 名开头**时仍会被拦 ——
+`--app-secret`、`--app-secret=xyz please` 都拦。
+
+这是**刻意的取舍**而不是缺陷：dev 的子串匹配同样拦这两个形状（方向上没有放宽），
+而「真实消息以 `--app-secret` 开头」概率约等于零 —— 拿这个针尖换掉
+「secret 进 argv」那个真缺口是划算的。原注释写成「正文是带空格的整 token，
+永远不等于 flag 名」，读起来像零误伤，将来有人照着推理会得出错误结论。已把
+边界写进注释，并加 `test_body_starting_with_a_flag_name_is_refused_by_design`
+把它**钉成显式用例**——已知取舍要可见，不能留白。
+
+**② 删掉不可达的空命令分支。**
+`validate_command` 开头已对 `not command.strip()` 返回，`stripped` 因此非空且
+已去空白；实测这种输入 `shlex.split` 不可能返回 `[]`（`'""'`/`"''"` → `['']`，
+`'#c'` → `['#c']`，`'\x00'` → `['\x00']`；只有纯空白才 `[]`，而那到不了这里）。
+所以上一轮新增的 `if not parsed: return "Empty command"` 是死分支，且与下方
+`"Empty command after parsing"` 对同一输入给出两种 reason，徒增上层日志分析成本。
+删除，保留原有那条。正是这次刚以铁律 #2/#8 之名从 `_reject_unexpandable_shell`
+删掉的同一类东西。
+
 ## 2026-08-05 (三) — 正文永远够不着控制面规则（prod 事故修复）
 
 **事故**：08-04 NarraNexusPM 的每日晨报没能完整发进 Nexus-算法only群，
