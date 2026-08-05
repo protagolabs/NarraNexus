@@ -278,14 +278,55 @@ async def register_account(payload: SignupRequest) -> dict:
 # client-side failures so the funnel is observable end to end.
 #
 # Log-only by design: no DB writes, no response body to probe, hard caps on
-# every field, newlines stripped (log forging), rate-limited per email.
+# every field, newlines stripped (log forging).
+#
+# Rate limiting is this endpoint's ONLY protection (it is auth-exempt by
+# nature), and the resource it spends is the GLOBAL log — so the key cannot
+# be caller-chosen alone. Three buckets, all must pass:
+#   * global: hard ceiling on total report lines per minute — the backstop
+#     that holds even when X-Forwarded-For is being rotated,
+#   * per-IP: one client cannot spend the whole global budget,
+#   * per-email/IP: the polite per-user cadence.
+# (Contrast send-code's per-email limiter: THERE the spent resource is
+# per-email mail, so email is the right key. Here it is not.)
 _funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
+_funnel_report_ip_limiter = SlidingWindowRateLimiter(limit=30, window_sec=60.0)
+_funnel_report_global_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
+
+# Over-limit reports are dropped silently toward the USER (never stack an
+# error on the failure they are already looking at) — but not toward OPS:
+# a NetMind-wide OAuth outage over the limit must not read as "only 10
+# people affected". One aggregate line per minute says how much was cut.
+_funnel_dropped: dict = {"count": 0, "last_log": 0.0}
 
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
-    "signup_ui_error",
 })
+
+
+def _funnel_client_ip(request: Request) -> str:
+    """Best-effort client IP: first X-Forwarded-For hop (Caddy fronts every
+    deployment), else the socket peer. Spoofable when NOT behind the proxy —
+    which is why the global bucket above exists."""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if fwd:
+        return fwd
+    return request.client.host if request.client else "-"
+
+
+def _note_dropped_report() -> None:
+    import time as _time
+
+    _funnel_dropped["count"] += 1
+    now = _time.monotonic()
+    if now - _funnel_dropped["last_log"] >= 60.0:
+        logger.warning(
+            f"[login-funnel] dropped {_funnel_dropped['count']} client "
+            "report(s) over the rate limit in the last window"
+        )
+        _funnel_dropped["count"] = 0
+        _funnel_dropped["last_log"] = now
 
 
 class FunnelReportRequest(BaseModel):
@@ -295,16 +336,22 @@ class FunnelReportRequest(BaseModel):
 
 
 @router.post("/funnel-report")
-async def report_funnel_event(payload: FunnelReportRequest) -> dict:
+async def report_funnel_event(payload: FunnelReportRequest, request: Request) -> dict:
     """Record a client-side auth-funnel failure (fire-and-forget from the UI)."""
     if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
     if payload.stage not in _FUNNEL_STAGES:
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
-    if not _funnel_report_limiter.allow(email or "anon"):
-        # Silently accept — a rate-limited diagnostics channel must never
-        # become an error the UI surfaces on top of the real failure.
+    ip = _funnel_client_ip(request)
+    allowed = (
+        _funnel_report_global_limiter.allow("global")
+        and _funnel_report_ip_limiter.allow(ip)
+        and _funnel_report_limiter.allow(email or ip)
+    )
+    if not allowed:
+        # Silently accept toward the user; visibly count toward ops.
+        _note_dropped_report()
         return {"success": True}
     detail = payload.detail.replace("\n", " ").replace("\r", " ").strip()
     logger.warning(

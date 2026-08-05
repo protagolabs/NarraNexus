@@ -53,6 +53,19 @@ describe('useNetmindAuth.emailLogin', () => {
     await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
     expect(reportAuthFunnel).not.toHaveBeenCalled();
   });
+
+  test('a backend token-exchange failure surfaces the error but does NOT report', async () => {
+    // The exchange hits OUR backend, which already logs the failure as
+    // [login-funnel] — a client report would double-count it under the
+    // wrong label (the NetMind step succeeded).
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockRejectedValue(new Error('exchange blew up'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
+    expect(result.current.error).toBe('exchange blew up');
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(false);
+  });
 });
 
 describe('useNetmindAuth password reset', () => {

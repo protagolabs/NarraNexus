@@ -403,3 +403,18 @@ Base #11 recvre9LlfwXAP + #12 recvre9LlfyyxT 的观测修复,三层：
      session）,有测试钉住。
 
 测试：tests/backend/test_auth_funnel_observability.py（13 条）。
+
+### 2026-08-05 R2（review 修正）：限流按「被消耗的资源」选 key + 丢弃可见化
+
+R1 的 per-email 限流 key 选错了资源维度（review 指出）：/funnel-report 消耗的
+是**全局日志**,不是 per-email 的什么东西——email 是调用方自己填的,换 email
+即换桶,对攻击者形同虚设;OAuth 失败 email 恒空,全世界共享一个 anon 桶,
+真故障时通道自己变成无声采样器。修正：
+- 三层桶全过才记：global 120/min（XFF 轮换也打不穿的兜底）+ per-IP 30/min
+  （XFF 首跳,Caddy 前置;不在代理后时可伪造——所以才有 global 层）+
+  per-email(或 IP) 10/min。
+- 丢弃对用户仍静默 200,对运维不再静默：每分钟一条
+  `[login-funnel] dropped N client report(s)` 汇总。
+- `signup_ui_error` stage 删除（无调用方,铁律 #2）。
+- 未做（有意）：/funnel-report 与 1600+ 行处的 /funnel 物理相邻——纯搬家
+  diff 噪音大于收益,mirror 里两者区别已写死。

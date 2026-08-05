@@ -182,7 +182,7 @@ class NetmindRegisterClient:
             # (their error string — never the form, per the module discipline).
             logger.warning(
                 f"[signup-funnel] upstream refusal path={path} "
-                f"status={resp.status_code} email={email} msg={msg!r}"
+                f"status={resp.status_code} email={email} msg={msg[:120]!r}"
             )
             raise RegistrationError(msg or "Registration failed. Please try again.")
         return payload.get("data") or {}

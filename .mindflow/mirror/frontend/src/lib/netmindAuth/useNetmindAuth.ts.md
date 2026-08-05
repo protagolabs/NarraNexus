@@ -154,3 +154,12 @@ emailLogin 与 handleAuthCallback 是浏览器直连 NetMind 的——失败只�
 不可诊断的根因）。两处 catch 现在在 setError 之外补一发
 `api.reportAuthFunnel(stage, email?, message)`,fire-and-forget、绝不 throw、
 绝不影响用户看到的错误。成功路径零上报（有测试钉住）。
+
+### 2026-08-05 R2（review 修正）：上报范围收窄到「服务端看不见的那一段」
+
+R1 的 catch 罩太宽（review 指出）：emailLogin 的 catch 同时罩住 ①直连
+NetMind、②exchange（打我们后端,服务端已落 [login-funnel]）、③onSuccess
+回调——②被双记且贴错标签,③把成功登录记成失败。修正：拆双 try,只有
+直连 NetMind 的那段失败才 reportAuthFunnel;exchange 失败只 setError
+（服务端已有记录）。handleAuthCallback 同款拆分。测试钉住：exchange
+失败必须 0 上报。

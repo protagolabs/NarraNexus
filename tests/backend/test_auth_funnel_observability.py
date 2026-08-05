@@ -48,6 +48,11 @@ def client(monkeypatch):
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
                         SlidingWindowRateLimiter(limit=10, window_sec=60.0))
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
+                        SlidingWindowRateLimiter(limit=30, window_sec=60.0))
+    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter",
+                        SlidingWindowRateLimiter(limit=120, window_sec=60.0))
+    monkeypatch.setattr(auth_mod, "_funnel_dropped", {"count": 0, "last_log": 0.0})
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
     return TestClient(app)
@@ -171,23 +176,42 @@ def test_funnel_report_is_404_in_local_mode(client, monkeypatch):
     assert r.status_code == 404
 
 
-def test_funnel_report_rate_limit_accepts_silently(client, monkeypatch, log_lines):
+def test_funnel_report_rate_limit_accepts_silently_but_counts(client, monkeypatch, log_lines):
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
                         SlidingWindowRateLimiter(limit=1, window_sec=60.0))
     body = {"stage": "netmind_email_login_failed", "email": "a@b.com", "detail": "x"}
     assert client.post("/api/auth/funnel-report", json=body).status_code == 200
     # Over the limit: still 200 (diagnostics must never add an error on top
-    # of the failure the user is already looking at), but nothing logged.
+    # of the failure the user is already looking at), no per-report line —
+    # but the drop is COUNTED for ops (a NetMind-wide outage must not read
+    # as "only N people affected").
     n_before = sum("[login-funnel] client" in ln for ln in log_lines)
     assert client.post("/api/auth/funnel-report", json=body).status_code == 200
     n_after = sum("[login-funnel] client" in ln for ln in log_lines)
     assert n_after == n_before
+    assert any("[login-funnel] dropped 1 client report" in ln for ln in log_lines)
+
+
+def test_funnel_report_email_rotation_cannot_dodge_the_ip_bucket(client, monkeypatch, log_lines):
+    """The spent resource is the global log, so a caller-chosen key (email)
+    must not be the only bucket."""
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
+                        SlidingWindowRateLimiter(limit=2, window_sec=60.0))
+    for i in range(3):
+        r = client.post("/api/auth/funnel-report", json={
+            "stage": "netmind_email_login_failed",
+            "email": f"rotate{i}@b.com",
+            "detail": "x",
+        })
+        assert r.status_code == 200
+    assert sum("[login-funnel] client" in ln for ln in log_lines) == 2
 
 
 def test_funnel_report_strips_newlines_against_log_forging(client, log_lines):
     client.post("/api/auth/funnel-report", json={
-        "stage": "signup_ui_error",
+        "stage": "netmind_oauth_failed",
         "detail": "line1\nFAKE-LOG-LINE",
     })
     hit = next(ln for ln in log_lines if "[login-funnel] client" in ln)
