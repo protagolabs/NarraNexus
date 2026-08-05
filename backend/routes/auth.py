@@ -206,6 +206,9 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
     client = _register_client()
     email = payload.email.strip().lower()
     if not _signup_code_limiter.allow(email):
+        # Logged, not just refused: seventeen 400s with zero server-side
+        # trace is how the 2026-08-01 funnel post-mortem went blind.
+        logger.info(f"[signup-funnel] send-code rate-limited email={email}")
         raise HTTPException(
             status_code=429,
             detail="A code was just sent. Please wait a minute before retrying.",
@@ -213,9 +216,10 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
     try:
         await client.send_code(email)
     except RegistrationError as e:
+        # The refusal detail is already logged at the source (_post).
         raise HTTPException(status_code=400, detail=str(e))
     except RegistrationUpstreamError as e:
-        logger.error(f"[signup] send-code upstream failure: {e}")
+        logger.error(f"[signup-funnel] send-code upstream failure email={email}: {e}")
         raise HTTPException(
             status_code=502, detail="Sign-up service unavailable, try again"
         )
@@ -244,21 +248,69 @@ async def register_account(payload: SignupRequest) -> dict:
     # that is a convenience, not a guarantee.
     policy_error = password_policy_error(payload.password)
     if policy_error:
+        # The reason names the violated RULE, never the password.
+        logger.info(f"[signup-funnel] policy reject email={email}: {policy_error}")
         raise HTTPException(status_code=400, detail=policy_error)
 
     if not _signup_attempt_limiter.allow(email):
+        logger.info(f"[signup-funnel] signup rate-limited email={email}")
         raise HTTPException(
             status_code=429, detail="Too many attempts. Please try again later."
         )
     try:
         await client.register(email, payload.password, payload.verify_code.strip())
     except RegistrationError as e:
+        # The refusal detail is already logged at the source (_post).
         raise HTTPException(status_code=400, detail=str(e))
     except RegistrationUpstreamError as e:
-        logger.error(f"[signup] register upstream failure: {e}")
+        logger.error(f"[signup-funnel] register upstream failure email={email}: {e}")
         raise HTTPException(
             status_code=502, detail="Sign-up service unavailable, try again"
         )
+    return {"success": True}
+
+
+# The browser talks to NetMind DIRECTLY for the login step (emailLogin /
+# OAuth) — when that call fails, the failure exists only in the user's tab
+# and the server never learns a login was even attempted. That blind spot is
+# exactly where "signed up but can't log in" (2026-08-01, Base
+# recvre9LlfwXAP) disappeared into. This ingest lets the page report those
+# client-side failures so the funnel is observable end to end.
+#
+# Log-only by design: no DB writes, no response body to probe, hard caps on
+# every field, newlines stripped (log forging), rate-limited per email.
+_funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
+
+_FUNNEL_STAGES = frozenset({
+    "netmind_email_login_failed",
+    "netmind_oauth_failed",
+    "signup_ui_error",
+})
+
+
+class FunnelReportRequest(BaseModel):
+    stage: str = Field(min_length=1, max_length=40)
+    email: Optional[EmailStr] = None
+    detail: str = Field(default="", max_length=300)
+
+
+@router.post("/funnel-report")
+async def report_funnel_event(payload: FunnelReportRequest) -> dict:
+    """Record a client-side auth-funnel failure (fire-and-forget from the UI)."""
+    if not is_power_login_enabled():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+    if payload.stage not in _FUNNEL_STAGES:
+        raise HTTPException(status_code=400, detail="Unknown stage")
+    email = (payload.email or "").strip().lower()
+    if not _funnel_report_limiter.allow(email or "anon"):
+        # Silently accept — a rate-limited diagnostics channel must never
+        # become an error the UI surfaces on top of the real failure.
+        return {"success": True}
+    detail = payload.detail.replace("\n", " ").replace("\r", " ").strip()
+    logger.warning(
+        f"[login-funnel] client stage={payload.stage} "
+        f"email={email or '-'} detail={detail!r}"
+    )
     return {"success": True}
 
 
@@ -332,7 +384,13 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         netmind_user = await _get_netmind_auth_client().verify_token(
             request.netmind_token
         )
-    except NetmindAuthError:
+    except NetmindAuthError as e:
+        # The exception message carries upstream status + msg (never the
+        # token). Without this line a "signed up but can't log in" report
+        # is undiagnosable — the 401 count was all we had on 2026-08-01.
+        logger.warning(
+            f"[login-funnel] netmind-login rejected source={request.source or '-'}: {e}"
+        )
         raise HTTPException(status_code=401, detail="Invalid NetMind token")
     except NetmindUpstreamError as exc:
         logger.error(f"netmind-login: upstream failure: {exc}")

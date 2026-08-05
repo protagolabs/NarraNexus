@@ -81,7 +81,11 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         if (!data.loginToken) throw new Error('Login failed');
         await exchange(data.loginToken);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Login failed');
+        const message = e instanceof Error ? e.message : 'Login failed';
+        setError(message);
+        // The emailLogin call above goes browser->NetMind directly; without
+        // this report the server never learns the attempt happened.
+        api.reportAuthFunnel('netmind_email_login_failed', email, message);
       } finally {
         setLoading(false);
       }
@@ -144,7 +148,10 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           setBindInfo(data as AuthBindInfo);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'OAuth failed');
+        const message = e instanceof Error ? e.message : 'OAuth failed';
+        setError(message);
+        // Direct browser->NetMind call — report or the server never sees it.
+        api.reportAuthFunnel('netmind_oauth_failed', undefined, message);
       } finally {
         setLoading(false);
       }

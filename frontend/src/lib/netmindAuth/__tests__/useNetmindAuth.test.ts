@@ -5,9 +5,17 @@ import { useNetmindAuth } from '../useNetmindAuth';
 const netmindPost = vi.fn();
 vi.mock('../request', () => ({ netmindPost: (...a: unknown[]) => netmindPost(...a) }));
 const netmindLogin = vi.fn();
-vi.mock('@/lib/api', () => ({ api: { netmindLogin: (...a: unknown[]) => netmindLogin(...a) } }));
+const reportAuthFunnel = vi.fn();
+vi.mock('@/lib/api', () => ({ api: {
+  netmindLogin: (...a: unknown[]) => netmindLogin(...a),
+  reportAuthFunnel: (...a: unknown[]) => reportAuthFunnel(...a),
+} }));
 
-afterEach(() => { netmindPost.mockReset(); netmindLogin.mockReset(); });
+afterEach(() => {
+  netmindPost.mockReset();
+  netmindLogin.mockReset();
+  reportAuthFunnel.mockReset();
+});
 
 describe('useNetmindAuth.emailLogin', () => {
   test('encrypts, calls emailLogin, then exchanges loginToken via backend', async () => {
@@ -31,6 +39,19 @@ describe('useNetmindAuth.emailLogin', () => {
     await act(async () => { await result.current.emailLogin('a@b.com', 'bad'); });
     expect(result.current.error).toBe('Invalid password');
     expect(netmindLogin).not.toHaveBeenCalled();
+    // The browser->NetMind failure must be reported server-side — this call
+    // is the only trace the funnel gets (Base recvre9LlfwXAP).
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_email_login_failed', 'a@b.com', 'Invalid password',
+    );
+  });
+
+  test('a successful login reports nothing', async () => {
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
   });
 });
 

@@ -381,3 +381,25 @@ to render a one-shot welcome toast on successful cloud-mode registration
 ## 新人易踩的坑
 
 `delete_agent` 里的 `stats` 字典只记录被实际删除的行数（`cnt > 0` 才写入），如果某个表里没有这个 agent 的数据，该表不会出现在删除统计里。不要用 `stats` 的 key 来判断"是否执行了删除操作"，正确的理解是"哪些表删除了至少一行"。
+
+## 2026-08-05 — 注册/登录漏斗观测（[signup-funnel]/[login-funnel]）+ /funnel-report
+
+Base #11 recvre9LlfwXAP + #12 recvre9LlfyyxT 的观测修复,三层：
+
+1. **signup 路由**：限流命中（send-code / signup）与 policy reject 现在都落
+   `[signup-funnel]` 日志;上游 refusal 的细节日志在 register client 源头
+   （见其 mirror）,路由层不重复。
+2. **netmind-login**：NetmindAuthError → 401 之前落 `[login-funnel]` warning,
+   携带 client 层带出的上游 status+msg（永不带 token）。
+3. **POST /auth/funnel-report（新,pre-auth）**：浏览器直连 NetMind 的登录步骤
+   失败时,服务端本来一无所知——前端 fire-and-forget 报到这里,落
+   `[login-funnel] client stage=... email=... detail=...`。
+   - **与既有 POST /auth/funnel 的区别**：那个是登录后的 setup_* 产品埋点
+     （走 analytics）;这个是**登录不成的人**的故障上报（走日志）。
+   - 防滥用：stage 白名单（3 个）、detail ≤300 且去换行（防日志伪造）、
+     per-email 限流 10/min——超限**静默 200**（诊断通道绝不在用户已经在看的
+     失败上再叠一个错误）、local mode 404、无 DB 写入、无可探测响应体。
+   - 必须同时进 backend/auth.py 的 AUTH_EXEMPT_PATHS（上报者按定义没有
+     session）,有测试钉住。
+
+测试：tests/backend/test_auth_funnel_observability.py（13 条）。
