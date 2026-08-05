@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-07-29
+last_verified: 2026-08-05
 stub: false
 ---
+## 2026-08-05 — 导出 `AgentRegistryRepository`
+
+`bus_agent_registry`（同伴发现名录）的数据访问进公共导出面。该表原先由三处
+内联代码各写各的（bus 模块每轮钩子、`bus_register_agent` 工具、
+`InstanceFactory._register_agent_in_bus`），现在收敛成
+[[agent_registry_repository]] + [[agent_discovery_sync]] 单点策略，调用方从包门面
+import 即可。纯转发改动。
+
 ## 2026-07-29 — 移除 `CliSessionRepository` 导出
 
 `cli_session_repository.py` 随 T7 删除:它 CRUD 的 `agent_cli_sessions` 表已摘掉
