@@ -285,8 +285,11 @@ async def register_account(payload: SignupRequest) -> dict:
 # nature), and the resource it spends is the GLOBAL log — so the key cannot
 # be caller-chosen alone. Three buckets, all must pass, listed in
 # EVALUATION ORDER (the order is load-bearing, see the route):
-#   * per-IP first: the narrowest bucket whose key is TRUSTED
-#     (edge-appended, one attacker = one key),
+#   * per-IP first: the one bucket whose key is trusted (edge-appended)
+#     AND bounded (one attacker = one key) — it caps everything behind
+#     it, including how many caller-chosen email keys can ever be
+#     ALLOCATED (a new key under limit>0 is always allowed-and-allocated,
+#     so this ordering is the email bucket's only key-space cap),
 #   * per-email/IP second: the polite per-user cadence,
 #   * global last: hard ceiling on total report lines per minute — the
 #     backstop for what per-IP can't stop (an attacker rotating source
@@ -316,14 +319,15 @@ _FUNNEL_STAGES = frozenset({
 # semantics — whether the edge appends to or overwrites a forged header,
 # the entry it contributes is the same distance from the right.) Today the
 # cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops
-# (docker/nginx.conf carries the reverse pointer for topology editors);
+# (the DEPLOY repo's docker/nginx.conf — not a file in this repo — carries
+# the reverse pointer for topology editors);
 # the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
 # repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
 # proxy) MUST bump this — misconfigure it and per-IP silently collapses
 # into one shared bucket. Overridable per deployment, no config required.
 
 
-def _parse_trusted_proxy_hops(raw) -> int:
+def _parse_trusted_proxy_hops(raw: Optional[str]) -> int:
     """Clamp to >= 1: hops=0 would make ``parts[-0] == parts[0]`` — the
     CALLER-written entry — and `len(parts) >= 0` is always true, so the
     short-chain fallback would never fire (empty header would even
@@ -384,12 +388,16 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
     ip = _funnel_client_ip(request)
-    # Order carries ONE invariant — global runs LAST, so no single client
-    # can drain the shared budget with requests a narrower bucket was going
-    # to reject anyway ("and" short-circuits; allow() spends a slot when it
-    # passes). Key allocation needs no ordering care since the limiter
-    # itself stopped allocating on reject (see _rate_limiter.allow); per-IP
-    # leads simply because it is the narrowest TRUSTED bucket.
+    # The order carries TWO invariants ("and" short-circuits):
+    #   1. per-IP FIRST caps caller-chosen key ALLOCATION: a new email key
+    #      under limit>0 is always allowed-and-allocated by the limiter
+    #      (reject-path no-alloc only covers the limit<=0 degenerate), so
+    #      the trusted bucket in front is the email bucket's ONLY key-space
+    #      cap — at most 30 caller-chosen keys per IP per window instead of
+    #      one per request. Reordering this reintroduces the unbounded
+    #      key-growth regression this PR already paid for once.
+    #   2. global LAST, so no single client can drain the shared budget
+    #      with requests a narrower bucket was going to reject anyway.
     allowed = (
         _funnel_report_ip_limiter.allow(ip)
         and _funnel_report_limiter.allow(email or ip)

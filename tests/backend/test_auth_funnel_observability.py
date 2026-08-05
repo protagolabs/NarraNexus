@@ -231,9 +231,12 @@ def test_ip_bucket_rejection_never_spends_the_global_budget(client, monkeypatch,
 
 
 def test_ip_bucket_rejection_allocates_no_caller_chosen_keys(client, monkeypatch):
-    """An unauthenticated flood of rotating emails must not grow the
-    caller-keyed bucket's dict. Held by the limiter itself now (a rejected
-    allow() allocates nothing), so this passes under ANY bucket order."""
+    """ORDER GUARD: per-IP must evaluate BEFORE the caller-keyed email
+    bucket. A new key under limit>0 is always allowed-and-allocated by the
+    limiter, so the trusted bucket short-circuiting in front is the email
+    bucket's only key-space cap — put email first and this flood of five
+    rotating emails allocates five keys and this test goes red. If a
+    reorder turns it red, the reorder is the bug, not this assert."""
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
                         SlidingWindowRateLimiter(limit=2, window_sec=60.0))
@@ -252,19 +255,22 @@ def test_ip_bucket_rejection_allocates_no_caller_chosen_keys(client, monkeypatch
 
 
 def test_rejected_allow_allocates_no_key_at_the_limiter_itself():
-    """The root-cause guarantee, order-independent: reject != allocate."""
+    """The limiter's DEFENSIVE guarantee: reject != allocate. Honest about
+    its scope — with limit>0 a NEW key is always allowed (0 < limit), so
+    this is observable only when an existing key is over limit or under
+    the limit<=0 degenerate config. It is NOT what caps caller-chosen key
+    growth (the order guard above is; see _rate_limiter.allow's docstring)."""
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     lim = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
     assert lim.allow("a") is True
     assert lim.allow("a") is False          # rejected, key existed already
-    for i in range(50):                     # rejected floods on FRESH keys
-        lim2_key = f"fresh{i}"
-        zero = SlidingWindowRateLimiter(limit=0, window_sec=60.0)
-        assert zero.allow(lim2_key) is False
-        assert lim2_key not in zero._deques
     assert len(lim._deques) == 1
-    # And a verdict is never changed by the no-allocate restructure: a
-    # brand-new key under a sane limit still passes.
+    zero = SlidingWindowRateLimiter(limit=0, window_sec=60.0)
+    for i in range(50):                     # a rejected flood on fresh keys
+        assert zero.allow(f"fresh{i}") is False
+    assert len(zero._deques) == 0           # ...allocated nothing
+    # And the restructure never changes a verdict: a brand-new key under a
+    # sane limit still passes.
     assert lim.allow("b") is True
 
 

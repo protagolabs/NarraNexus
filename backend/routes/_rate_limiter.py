@@ -41,14 +41,16 @@ class SlidingWindowRateLimiter:
     def allow(self, key: str) -> bool:
         """Return True if the request is allowed; False if rate-limited.
 
-        A REJECTED call never allocates state for the key. This matters
-        whenever the key is caller-chosen and the caller is unauthenticated
-        (e.g. /api/auth/funnel-report's per-email bucket): with the old
-        unconditional ``setdefault``, a rejected flood still grew
-        ``_deques`` by one key per request, and ``_cleanup``'s O(n) sweep
-        runs on the shared event loop. An absent key trivially has a
-        window count of 0 < limit, so "don't create on reject" can never
-        change an allow/deny verdict.
+        A REJECTED call never allocates state for the key — a defensive
+        guarantee, and an honest one about its own limits: with
+        ``limit > 0`` a NEW key always has a window count of 0 < limit and
+        is therefore ALLOWED (and allocated). Key growth happens on the
+        allow path. So for a caller-chosen key fed by unauthenticated
+        traffic (/api/auth/funnel-report's per-email bucket), the key
+        space is capped ONLY by whatever trusted bucket short-circuits in
+        front of this one at the call site — the reject-path guarantee
+        here is observable solely under the ``limit <= 0`` degenerate
+        config and must not be mistaken for that cap.
         """
         self._request_count += 1
         if self._request_count % self._cleanup_interval == 0:

@@ -32,16 +32,16 @@ Dashboard 端点每 3s polling，合法用户流量约 0.33 req/s。但恶意用
 - `allow()` 返 bool；route 层负责 raise `HTTPException(429, headers={"Retry-After": "1"})`——**必须带 headers 参数**，普通 `HTTPException` + `response.headers["Retry-After"]=...` 在 FastAPI 里不生效（response 对象会被 exception 路径丢弃）。
 - `cleanup_interval` 默认 100——意味着前 100 请求都不清理。低流量长时间运行下这个 dict 会累积。可接受但别忘了。
 
-## 2026-08-05 — 拒绝不再分配 key（未认证 caller-keyed 场景的病根修复）
+## 2026-08-05 — 拒绝路径零分配（防御性保证,并如实说明它的边界）
 
-原 `allow()` 是先 `setdefault(key, deque())` 后判 limit——**被拒绝的调用也
-会在 `_deques` 留下 key**。对 dashboard 这种 key=viewer 的场景无所谓;对
-/api/auth/funnel-report 这种 **key 由未认证调用方决定**（email）的场景,
-洪水每请求一个新 key,O(n) cleanup 在共享 event loop 上线性涨（review
-三轮都在调用点的桶顺序上绕,R4 指出病根在这里,铁律 #5）。
+重构：`allow()` 从「先 `setdefault` 后判 limit」改为「拒绝路径不分配」。
+key 不存在时窗口计数必然 0 < limit 必放行,「不存在就不建」不可能改变任何
+放行/拒绝判定;limit<=0 的退化配置从「恒拒绝但建 key」变为「恒拒绝零分配」。
 
-改后：key 不存在时窗口计数必然 0 < limit 必放行,「不存在就不建」不可能
-改变任何放行/拒绝判定;拒绝路径零分配。附带把 limit<=0 的退化配置从
-「恒拒绝但仍建 key」改为「恒拒绝零分配」。调用点的桶顺序从此只承载
-「global 殿后」一条预算不变量。测试:
-test_rejected_allow_allocates_no_key_at_the_limiter_itself。
+**这不是 caller-chosen key 增长的封顶**（R5 review 纠正了 R4 commit 的错误
+因果）：limit>0 下**新 key 永远被放行**——放行即 append 即分配,key 增长发生
+在放行路径。所以对 /api/auth/funnel-report 这种 key 由未认证调用方决定的
+场景,key 空间的封顶**只能**由调用点上游短路的可信桶提供（per-IP 置顶,
+每 IP 每窗口最多放行 30 个 caller key）——桶顺序是 load-bearing 的,别信
+任何「顺序无关」的说法。本保证仅在「已有 key 超限」和 limit<=0 时可观测。
+测试: test_rejected_allow_allocates_no_key_at_the_limiter_itself（自述边界）。
