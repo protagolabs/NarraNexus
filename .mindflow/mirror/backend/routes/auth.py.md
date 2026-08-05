@@ -432,3 +432,17 @@ R2 两个残留（review 指出）：
   链条短于预期（本地/单条伪造）回落 socket peer,绝不信调用方文本。
 - 丢弃汇总窗口语义修正：last_log 进程启动即打戳（首个丢弃不再伪装成整窗
   汇总）,日志带实际跨度;`monotonic` 提到模块顶。
+
+### 2026-08-05 R4（review 修正）：per-IP 桶置顶——key 可信且有界的排最前
+
+R3 把 email 桶排第一,但 allow() **拒绝时也会分配 key 的 deque**——未认证
+洪水每请求换一个合法格式邮箱,就每请求在 _deques 落一个新 key（O(n)
+cleanup 在共享 event loop 上）。旧顺序里这是被 global 短路挡住的,重排时
+丢了这层。终版顺序=职责列表=求值顺序：**per-IP（key 由 edge 追加,不可
+伪造、单攻击者一个 key,给身后一切封顶）→ per-email → global 殿后**。
+测试钉住两个不变量：per-IP 拒绝不消耗 global、不在 email 桶分配新 key。
+_TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
+它是钉进应用代码的部署拓扑常量,caddy/local/ 的 per-env 路由在本仓视野外,
+加/减一跳必须同步,否则 per-IP 静默塌成第二个全局桶;注释改为只依赖跳数
+（append 或 overwrite 语义下从右数都成立）。丢弃计数残留挂到下个窗口的
+行为维持现状（review 认可,span 如实标注）。

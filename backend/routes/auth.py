@@ -283,11 +283,15 @@ async def register_account(payload: SignupRequest) -> dict:
 #
 # Rate limiting is this endpoint's ONLY protection (it is auth-exempt by
 # nature), and the resource it spends is the GLOBAL log — so the key cannot
-# be caller-chosen alone. Three buckets, all must pass:
-#   * global: hard ceiling on total report lines per minute — the backstop
-#     that holds even when X-Forwarded-For is being rotated,
-#   * per-IP: one client cannot spend the whole global budget,
-#   * per-email/IP: the polite per-user cadence.
+# be caller-chosen alone. Three buckets, all must pass, listed in
+# EVALUATION ORDER (the order is load-bearing, see the route):
+#   * per-IP first: the one bucket whose key is trusted (edge-appended)
+#     AND bounded (one attacker = one key) — it caps everything behind
+#     it, including how many caller-chosen keys can ever be allocated,
+#   * per-email/IP second: the polite per-user cadence,
+#   * global last: hard ceiling on total report lines per minute — the
+#     backstop for what per-IP can't stop (an attacker rotating source
+#     addresses).
 # (Contrast send-code's per-email limiter: THERE the spent resource is
 # per-email mail, so email is the right key. Here it is not.)
 _funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
@@ -308,19 +312,24 @@ _FUNNEL_STAGES = frozenset({
 })
 
 
-# Cloud request chain: client -> ops-caddy -> frontend nginx -> backend.
-# BOTH proxies APPEND to X-Forwarded-For (nginx uses
-# $proxy_add_x_forwarded_for; Caddy has no trusted_proxies configured), so
-# the FIRST hop is whatever the caller wrote — the trustworthy entry is the
-# one the edge proxy itself appended, counted from the RIGHT.
-_TRUSTED_PROXY_HOPS = 2
+# Counting X-Forwarded-For from the RIGHT depends on exactly ONE fact: the
+# number of proxy hops in front of this backend. (Not on any proxy's XFF
+# semantics — whether the edge appends to or overwrites a forged header,
+# the entry it contributes is the same distance from the right.) Today the
+# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops;
+# the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
+# repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
+# proxy) MUST bump this — misconfigure it and per-IP silently collapses
+# into one shared bucket. Overridable per deployment, no config required.
+_TRUSTED_PROXY_HOPS = int(os.getenv("FUNNEL_TRUSTED_PROXY_HOPS", "2"))
 
 
 def _funnel_client_ip(request: Request) -> str:
     """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
-    from the right (see _TRUSTED_PROXY_HOPS). A shorter-than-expected chain
-    (local runs, tests, or a directly-forged single-entry header) falls back
-    to the socket peer rather than trusting caller-supplied text."""
+    from the right (N = _TRUSTED_PROXY_HOPS — the ONLY assumption, see its
+    comment). A shorter-than-expected chain (local runs, tests, or a
+    directly-forged single-entry header) falls back to the socket peer
+    rather than trusting caller-supplied text."""
     parts = [
         p.strip()
         for p in (request.headers.get("x-forwarded-for") or "").split(",")
@@ -359,14 +368,17 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
     ip = _funnel_client_ip(request)
-    # Narrow buckets FIRST, global LAST: allow() spends a slot when it
-    # passes, and `and` short-circuits — so a request the per-IP bucket
-    # rejects must never have touched the global budget, or one noisy
-    # client (a frontend retry-loop bug suffices) burns the whole minute
-    # for everyone else. The order IS the invariant.
+    # The order IS the invariant — allow() both spends a slot AND allocates
+    # the key's deque even when it rejects, and `and` short-circuits, so:
+    #   * per-IP runs FIRST because its key is trusted and bounded — a
+    #     rejected flood allocates nothing in the caller-keyed email bucket
+    #     (whose key space would otherwise grow per request, and whose
+    #     O(n) cleanup runs on the shared event loop),
+    #   * global runs LAST so no single client can drain the shared budget
+    #     with requests a narrower bucket was going to reject anyway.
     allowed = (
-        _funnel_report_limiter.allow(email or ip)
-        and _funnel_report_ip_limiter.allow(ip)
+        _funnel_report_ip_limiter.allow(ip)
+        and _funnel_report_limiter.allow(email or ip)
         and _funnel_report_global_limiter.allow("global")
     )
     if not allowed:

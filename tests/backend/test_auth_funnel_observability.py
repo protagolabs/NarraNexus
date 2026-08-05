@@ -213,9 +213,9 @@ def test_funnel_report_drop_within_window_stays_quiet(client, monkeypatch, log_l
 
 
 def test_ip_bucket_rejection_never_spends_the_global_budget(client, monkeypatch, log_lines):
-    """The order IS the invariant: narrow buckets first, global last — a
-    request the per-IP bucket rejects must not have touched the global
-    budget, or one noisy client burns the whole minute for everyone."""
+    """The order IS the invariant: per-IP first, global last — a request
+    the per-IP bucket rejects must not have touched the global budget, or
+    one noisy client burns the whole minute for everyone."""
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
     monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
                         SlidingWindowRateLimiter(limit=1, window_sec=60.0))
@@ -228,6 +228,28 @@ def test_ip_bucket_rejection_never_spends_the_global_budget(client, monkeypatch,
         assert client.post("/api/auth/funnel-report", json=body).status_code == 200
     assert sum("[login-funnel] client" in ln for ln in log_lines) == 1
     assert auth_mod._funnel_report_global_limiter.allow("global") is True
+
+
+def test_ip_bucket_rejection_allocates_no_caller_chosen_keys(client, monkeypatch):
+    """allow() allocates the key's deque even when it rejects, so the
+    caller-keyed email bucket must sit BEHIND per-IP — otherwise an
+    unauthenticated flood grows _deques by one key per request (and its
+    O(n) cleanup runs on the shared event loop)."""
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
+                        SlidingWindowRateLimiter(limit=2, window_sec=60.0))
+    for i in range(2):  # spend the IP budget
+        client.post("/api/auth/funnel-report", json={
+            "stage": "netmind_email_login_failed",
+            "email": f"warm{i}@b.com", "detail": "x",
+        })
+    keys_before = len(auth_mod._funnel_report_limiter._deques)
+    for i in range(5):  # flood with rotating emails, all rejected by per-IP
+        client.post("/api/auth/funnel-report", json={
+            "stage": "netmind_email_login_failed",
+            "email": f"flood{i}@b.com", "detail": "x",
+        })
+    assert len(auth_mod._funnel_report_limiter._deques) == keys_before
 
 
 def test_client_ip_is_counted_from_the_right_of_xff():
