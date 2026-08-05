@@ -88,9 +88,19 @@ def test_realistic_report_bodies_send(body):
 
 @pytest.mark.parametrize("pattern", BLOCKED_PATTERNS)
 def test_blocked_pattern_as_actual_command_is_refused(pattern):
-    """Removing false positives must not remove the real defense."""
-    allowed, _reason = validate_command(pattern)
+    """Removing false positives must not remove the real defense.
+
+    Asserting on the REASON matters: 6 of the 7 patterns would also be
+    caught downstream (ALLOWED_DOMAINS for config/profile/update, the auth
+    branch for `auth logout`), so a bare `not allowed` would still pass if
+    this rule were deleted outright and only `event +subscribe` would
+    actually notice.
+    """
+    allowed, reason = validate_command(pattern)
     assert not allowed, f"{pattern!r} must not be runnable as a command"
+    assert "Blocked command" in reason, (
+        f"{pattern!r} was refused by a downstream check, not by this rule: {reason}"
+    )
 
 
 @pytest.mark.parametrize("flag_name", BLOCKED_FLAGS)
@@ -99,6 +109,27 @@ def test_blocked_flag_as_actual_flag_is_refused(flag_name):
         f"im +messages-send --chat-id {CHAT} --text hi {flag_name} sekret"
     )
     assert not allowed
+    assert "--app-secret" in reason
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "docs +blocks-create --content --app-secret SEK",
+        "im +messages-send --chat-id X --text --app-secret SEK",
+        "base +records-create --data --app-secret-stdin",
+        "docs +blocks-create --content --app-secret=SEK",
+    ],
+)
+def test_blocked_flag_directly_after_a_payload_flag_is_refused(cmd):
+    """The secret hits argv at execve — how lark-cli parses the pair is moot.
+
+    A control-token projection that drops "the token after a payload flag"
+    swallows the secret along with it. Caught by review on PR #237: an
+    earlier cut of this fix regressed exactly these shapes versus dev.
+    """
+    allowed, reason = validate_command(cmd)
+    assert not allowed, f"{cmd!r} puts a secret in argv and must be refused"
     assert "--app-secret" in reason
 
 
@@ -142,6 +173,9 @@ def test_unparseable_command_fails_closed(cmd):
         "<<Summary>> Day 57 went fine.",
         "<<摘要>> 今日无阻塞",
         "<<< louder <<< still prose",
+        # A real operator token can never contain whitespace (shlex would
+        # have split it); only a quoted body can, so this is prose.
+        "<< EOF",
     ],
 )
 def test_prose_opening_with_angle_brackets_sends(body):

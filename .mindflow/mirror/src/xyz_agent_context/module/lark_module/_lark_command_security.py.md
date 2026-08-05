@@ -29,17 +29,41 @@ last_verified: 2026-08-05
 「别把 --app-secret 写进命令行」就发不出去）、heredoc 检查的
 `tok.startswith("<<")`（正文以 `<<` 开头即被判成 shell 语法）。
 
-**修法 —— 只改「看哪里」，不改「允许什么」**：新增 `_control_tokens()`，
-shlex 分词后把 payload flag 的**值**剔除，只留描述「跑哪条命令」的 token；
-生命周期规则（BLOCKED_PATTERNS 前导 token 锚定 + BLOCKED_FLAGS token 等值）
-只读它。`ALLOWED_DOMAINS` 一字未动、denylist 条目一条未删、fail-open 保持，
-所以 lark-cli 的广度零收窄（新版新增子命令照常放行）。
+**修法 —— 只改「看哪里」，不改「允许什么」**：两条规则都改成读
+**shlex 分词后的 token**，不再碰扁平串 —— BLOCKED_PATTERNS 做**前导 token
+锚定**（第 0 位永远是 domain、第 1 位是子命令，正文只能待在 flag 之后，
+天然够不着），BLOCKED_FLAGS 做**整 token 等值**（事故正文
+`"Security note: never pass --app-secret on the command line."` 是一个
+**带空格的整 token**，永远不等于 flag 名）。`ALLOWED_DOMAINS` 一字未动、
+denylist 条目一条未删、fail-open 保持，所以 lark-cli 广度零收窄。
+
+> **弯路记录（PR #237 review 抓到）**：第一版曾引入 `_control_tokens()`
+> 投影层，把「payload flag 的下一个 token」整个剔除。这对 pattern 检查是
+> **冗余**的（前导锚定本就够不着正文），对 flag 检查是**净负收益** ——
+> `--content --app-secret SEK` 里的 `--app-secret` 会跟着 payload 值一起被
+> 丢掉，相对 dev **真实收窄了护栏**。要点：这条 denylist 防的是「secret 进
+> argv」，泄漏发生在 `execve` 那一刻（`ps` / 进程审计 / 崩溃日志都看得到），
+> **与 lark-cli 怎么解析这对 flag 无关**。投影层已删除，回到与
+> `_narra_command_security.py:145-159` 一致的形状（全 token 前导锚定 +
+> 全 token 等值），代码更少且没有这个缺口。
 
 **heredoc 用「整形」而非「前缀」**：`_is_heredoc_token()` 只认
 `<<[-]?DELIM` 这种**整个 token 就是操作符**的形态。这里踩过一次：最初按
 「控制位」区分，结果打穿了既有用例 `--markdown <<-EOF` —— 那是真 heredoc
 （会把字面量 `<<-EOF` 当正文发出去），它恰好处在 payload 值位。形状判定
 两边都对：`<<Summary>> Day 57 went fine.` 放行，`<<-EOF` 照旧拦。
+正则里**不含 `\s*`**：token 出自 `shlex.split`，真操作符内部不可能有空白
+（有空白就说明是引号包起来的正文），加了 `\s*` 只会把 `<< EOF` 这种正文
+误判成 heredoc —— 正是本次要消灭的那类误杀（review Minor 2）。
+
+**解析失败 fail closed，且只解析一次**：从 token 读规则意味着解析失败必须
+**拒绝**而非放行，否则 `auth logout "` 会因为拿不到 token 而跳过全部规则
+（旧的子串匹配只是**碰巧**挡住了它）。`validate_command` 统一 shlex 一次，
+`_reject_unexpandable_shell` 改收已解析的 token —— 它原本那个
+「解析失败就放行、留给 sanitize_command 报错」的分支在新顺序下已是死代码，
+且与新的 fail-closed 语义打架，一并删除（review Minor 3，铁律 #2/#8）。
+注意 domain/auth 段仍用朴素 `stripped.split()`，本次**不动**它的分词语义，
+故用 `parsed` / `tokens` 两个名字明确区分。
 
 **边界（与 2026-07-29 那条一脉相承）**：payload **完整性**检查（stdin `-`、
 整值 `$(...)`）**可以**读值，因为它问的是「这个值会不会原样送达」，但只做
