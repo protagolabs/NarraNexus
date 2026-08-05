@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -519,3 +519,9 @@ turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime
   用户等待的下界;oldest 是上界。batch>1 时两者并读。
 - `[bus-timing]` 行移出 try——观测代码不该有能力把已送达已 ack 的消息记成
   投递失败并推进毒药计数。成功（_hop_done）才发。
+
+### 2026-08-05 R3：deliver 差值语义回写
+
+hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
+inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
+已回写进代码注释）。

@@ -788,7 +788,10 @@ class MessageBusTrigger:
         # so observation code can never turn an already-delivered-and-acked
         # message into a recorded failure. hop mirrors queue_wait's -1.0
         # convention when created_at was unparseable, so aggregations can
-        # drop incomplete rows on a single filter.
+        # drop incomplete rows on a single filter. The fourth quantity is
+        # implicit: hop_s - queue_wait_s - turn_s = delivery (the ack +
+        # room post / inbox write after the runtime returned) — a real
+        # number, not rounding error.
         if _hop_done:
             _hop_s = (
                 (time.monotonic() - _t_dispatch) + _queue_wait_s
