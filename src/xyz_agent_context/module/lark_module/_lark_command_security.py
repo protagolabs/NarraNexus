@@ -376,8 +376,10 @@ def validate_command(command: str) -> Tuple[bool, str]:
     #
     # Refusing those two shapes is the price of never letting a secret reach
     # argv; dev's substring matcher refused them too, so nothing widened.
-    # Both the refused and the allowed side are pinned in
-    # test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design.
+    # Both sides are pinned, in a pair of tests:
+    # test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design
+    # (refused) and test_body_merely_containing_a_flag_name_still_sends
+    # (allowed).
     for tok in parsed:
         compound_flag, _value = _split_compound_flag(tok)
         name = (compound_flag or tok).lower()
@@ -389,11 +391,11 @@ def validate_command(command: str) -> Tuple[bool, str]:
     if not ok:
         return False, reason
 
-    # Check domain whitelist
+    # Check domain whitelist. `stripped` is non-empty and whitespace-trimmed
+    # (see the guard at the top), so str.split() always yields at least one
+    # token — the same reasoning that retired the two sibling empty-command
+    # branches; this was the third and last of them.
     tokens = stripped.split()
-    if not tokens:
-        return False, "Empty command after parsing"
-
     domain = tokens[0].lower()
     if domain not in ALLOWED_DOMAINS:
         return False, f"Unknown command domain: '{domain}'. Allowed: {', '.join(sorted(ALLOWED_DOMAINS))}"

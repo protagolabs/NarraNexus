@@ -27,6 +27,12 @@ last_verified: 2026-08-05
 不可达空命令分支（开头已 `if not command or not command.strip()` 返回，
 `shlex.split` 对非空 stripped 输入不会返回 `[]`），一并删除。
 
+**第三条同源死分支**（第二轮 review 抓到，讽刺的是本 PR 标题就叫 sweep the
+twin guard，扫了隔壁模块却漏了本函数下面 15 行）：domain 白名单前的
+`tokens = stripped.split(); if not tokens: return "Empty command after parsing"`
+判据完全相同——`stripped` 非空且已去空白，`str.split()` 不可能返回 `[]`。已删。
+**教训：「顺手扫相邻代码」要先扫正在编辑的那个函数，再去扫隔壁文件。**
+
 ## 2026-08-05 (三) — review 收尾：把「零误伤」这句话说准
 
 PR #237 合入后 review 的两条 🟢 收尾。
