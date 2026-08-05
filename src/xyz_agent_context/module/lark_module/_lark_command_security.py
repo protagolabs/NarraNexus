@@ -366,15 +366,18 @@ def validate_command(command: str) -> Tuple[bool, str]:
     # (visible to ps / process auditing / crash logs) regardless of how
     # lark-cli parses the pair.
     #
-    # This is NOT zero false positives, and the residue is deliberate: a
-    # body that ITSELF STARTS WITH a blocked flag name is still refused
-    # ("--app-secret", and via _split_compound_flag also
-    # "--app-secret=xyz please"). Refusing that vanishingly rare message is
-    # the price of never letting a secret reach argv; dev's substring
-    # matcher refused it too, so nothing widened here. Anyone reasoning
-    # from "payload can never reach a rule" should read that as "except a
-    # body that opens with a flag name" — see the xfail-style case in
-    # tests/lark_module/test_command_payload_never_blocks.py.
+    # This is NOT zero false positives, and the residue is deliberate. It is
+    # exactly two shapes, both following _split_compound_flag's semantics:
+    # the body IS a blocked flag ("--app-secret"), or the body's part before
+    # its FIRST "=" is ("--app-secret=xyz please"). Anything else sails
+    # through, including bodies that merely open with the name —
+    # "--app-secret is bad" is one token, has no "=", so `name` is the whole
+    # sentence and matches nothing.
+    #
+    # Refusing those two shapes is the price of never letting a secret reach
+    # argv; dev's substring matcher refused them too, so nothing widened.
+    # Both the refused and the allowed side are pinned in
+    # test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design.
     for tok in parsed:
         compound_flag, _value = _split_compound_flag(tok)
         name = (compound_flag or tok).lower()

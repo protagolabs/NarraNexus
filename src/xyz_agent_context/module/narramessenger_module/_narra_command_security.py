@@ -137,8 +137,6 @@ def validate_command(command: str) -> Tuple[bool, str]:
         tokens = shlex.split(command.strip())
     except ValueError as e:
         return False, f"Could not parse command: {e}"
-    if not tokens:
-        return False, "Empty command"
 
     lowered = [t.lower() for t in tokens]
 

@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narra_command_security.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-08-05
 ---
+
+## 2026-08-05 — 删掉不可达的空命令分支（随 lark 侧同源清理）
+
+`validate_command` 开头已有 `if not command or not command.strip(): return
+"Empty command"`，因此 `command.strip()` 非空且已去空白；这种输入
+`shlex.split` 不会返回 `[]`（`str.strip()` 的空白集合是 shlex 的
+`' \t\r\n'` 的超集）。所以 `shlex.split` 之后那条
+`if not tokens: return "Empty command"` 不可达，且与开头返回同一句话。
+
+来源：lark 侧 `_lark_command_security.py` 修 payload-vs-控制面 guard 时删掉了
+同一类死分支，review 指出孪生 guard 里一模一样（铁律 #8 顺手扫相邻代码）。
+
+**本文件的匹配写法一直是对的**，是 lark 侧此次修复对齐的参考实现：先 shlex
+分词，再 `lowered[:len(pat)] == pat` 前导 token 锚定 + flag 整 token 等值 ——
+正文永远够不着控制面规则。
 
 ## Why it exists
 
