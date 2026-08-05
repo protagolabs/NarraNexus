@@ -171,6 +171,59 @@ def _is_im_message_command(tokens: list[str]) -> bool:
     )
 
 
+_HEREDOC_TOKEN = re.compile(r"""^<<-?\s*(['"]?)[A-Za-z_][A-Za-z0-9_]*\1$""")
+
+
+def _is_heredoc_token(token: str) -> bool:
+    """True only for a bare heredoc operator: ``<<EOF``/``<<-EOF``/``<<'EOF'``.
+
+    The check is on the WHOLE token, deliberately. ``tok.startswith("<<")``
+    also matched message bodies that merely open with the characters —
+    ``--markdown "<<Summary>> Day 57 went fine."`` was refused with a
+    "Heredoc is shell syntax" error that made no sense to the sender. A
+    real heredoc is `<<` plus a bare delimiter word and nothing else; prose
+    that opens with "<<" carries punctuation, spaces, or non-ASCII after it.
+    """
+    return bool(_HEREDOC_TOKEN.match(token))
+
+
+def _control_tokens(tokens: list[str]) -> list[str]:
+    """The tokens that describe WHICH command runs, excluding payload values.
+
+    Prod 2026-08-04: every lifecycle rule in this file matched against the
+    flat command string, which also carries the quoted --markdown/--text
+    body. ``"update"`` (aimed at lark-cli's self-update subcommand) then
+    refused every daily report containing the word "update"/"updated" —
+    with a message naming a command the agent never typed. The agent
+    probed 8 times into a live chat, blamed --markdown, and downgraded the
+    report to a terse summary.
+
+    A rule about which COMMAND runs must never be reachable from what the
+    MESSAGE says. Payload values are dropped here so that stays true by
+    construction, whatever the rule lists happen to contain.
+
+    Payload INTEGRITY checks (stdin ``-``, whole-value ``$(...)``) are a
+    different question — "will this value arrive intact" — and legitimately
+    read values, but only as whole-value equality, never as substrings.
+    They keep using the full token list.
+    """
+    payload_flags = _payload_flags_for(tokens)
+    control: list[str] = []
+    prev_flag = ""
+    for tok in tokens:
+        if prev_flag in payload_flags:
+            prev_flag = ""
+            continue  # this token is a message body, not a command word
+        compound_flag, _compound_value = _split_compound_flag(tok)
+        if compound_flag in payload_flags:
+            control.append(compound_flag)  # keep the flag, drop its value
+            prev_flag = ""
+            continue
+        control.append(tok)
+        prev_flag = tok if tok.startswith("--") else ""
+    return control
+
+
 def _split_compound_flag(token: str) -> Tuple[str, str]:
     """Normalize ``--flag=value`` to ``(--flag, value)``.
 
@@ -270,7 +323,11 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
         compound_flag, compound_value = _split_compound_flag(tok)
         prev_flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
         offending_flag = compound_flag or prev_flag
-        if tok.startswith("<<"):
+        # Whole-token shape, not a "<<" prefix: `--markdown <<-EOF` really is
+        # a heredoc that would ship the literal delimiter as the message, but
+        # a body may legitimately OPEN with "<<" ("<<Summary>> Day 57 went
+        # fine"). Only a bare `<<[-]DELIM` operator token is the former.
+        if _is_heredoc_token(tok):
             return False, (
                 f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
                 f"directly (execve), not through a shell, so it is never "
@@ -310,16 +367,34 @@ def validate_command(command: str) -> Tuple[bool, str]:
 
     stripped = command.strip()
 
-    # Check blocked patterns
-    lower = stripped.lower()
+    # Lifecycle rules read CONTROL tokens only — never the message body.
+    # (Substring-matching the flat string is what refused every report
+    # containing the word "update" on 2026-08-04; see _control_tokens.)
+    try:
+        control = _control_tokens(shlex.split(stripped))
+    except ValueError as exc:
+        # Fail CLOSED. Deferring here (as _reject_unexpandable_shell does for
+        # its own hint-quality reasons) would hand back an empty control list
+        # and skip every rule below — `auth logout "` would sail through on a
+        # stray quote. An unparseable command is refused outright; the old
+        # substring matcher happened to catch this case only by accident.
+        return False, f"Could not parse command (check quoting): {exc}"
+    lowered = [t.lower() for t in control]
+
+    # Check blocked patterns — anchored at the leading tokens, so a pattern
+    # can only ever match the command the agent actually invoked.
     for pattern in BLOCKED_PATTERNS:
-        if lower.startswith(pattern) or f" {pattern}" in lower:
+        pat = pattern.lower().split()
+        if lowered[: len(pat)] == pat:
             return False, f"Blocked command: '{pattern}' — use the dedicated MCP tool instead"
 
-    # Check blocked flags
-    for flag in BLOCKED_FLAGS:
-        if flag in stripped:
-            return False, f"Blocked flag: '{flag}' — secrets must not be passed via CLI args"
+    # Check blocked flags — token equality, so prose that merely NAMES the
+    # flag ("never pass --app-secret on the command line") is just prose.
+    for tok in control:
+        compound_flag, _value = _split_compound_flag(tok)
+        name = (compound_flag or tok).lower()
+        if name in BLOCKED_FLAGS:
+            return False, f"Blocked flag: '{name}' — secrets must not be passed via CLI args"
 
     # Shell constructs that cannot survive execve (see the NOTE above).
     ok, reason = _reject_unexpandable_shell(stripped)
