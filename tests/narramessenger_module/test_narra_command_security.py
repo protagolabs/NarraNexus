@@ -155,7 +155,10 @@ def test_body_that_parses_as_a_blocked_flag_token_is_refused(body):
     [
         "--token is bad",             # opens with the name but is one token
         "--token-file please rotate",
-        "--token  =  x",              # spaced "=" does not compound-split
+        # This module has no compound-flag split at all: the rule is one
+        # line, `t == flag or t.startswith(f"{flag}=")`. This token neither
+        # equals "--token" nor starts with "--token=".
+        "--token  =  x",
         "never pass --token yourself",
     ],
 )

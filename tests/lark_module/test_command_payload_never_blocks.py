@@ -144,7 +144,10 @@ def test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design(body):
         "--app-secret is bad",            # opens with the name but is one token
         "--app-secret please rotate it",
         "--app-secret-stdin is worse",
-        "--app-secret  =  x",             # spaced "=" does not compound-split
+        # _split_compound_flag DOES split this — into ("--app-secret  ",
+        # "  x") — but the name keeps its trailing spaces, so it does not
+        # equal "--app-secret".
+        "--app-secret  =  x",
         "--foo bar --app-secret=x",       # the flag name is not at the start
     ],
 )
