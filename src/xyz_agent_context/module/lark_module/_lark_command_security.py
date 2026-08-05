@@ -345,8 +345,6 @@ def validate_command(command: str) -> Tuple[bool, str]:
         # yields no tokens and skips every rule below. The old substring
         # matcher happened to catch that shape only by accident.
         return False, f"Could not parse command (check quoting): {exc}"
-    if not parsed:
-        return False, "Empty command"
     lowered = [t.lower() for t in parsed]
 
     # Blocked patterns — anchored at the LEADING tokens. Position 0 is always
@@ -359,12 +357,24 @@ def validate_command(command: str) -> Tuple[bool, str]:
 
     # Blocked flags — whole-token equality. Prose that merely NAMES the flag
     # ("Security note: never pass --app-secret on the command line") is one
-    # token WITH SPACES and can never equal a flag name. Equality is checked
-    # over every token rather than a control-only projection on purpose: a
-    # projection that skips the token after a payload flag would drop
-    # `--content --app-secret SEK`, and the leak this rule exists to stop
-    # happens at execve — the secret is in argv (visible to ps / process
-    # auditing / crash logs) regardless of how lark-cli parses the pair.
+    # token WITH SPACES and can never equal a flag name.
+    #
+    # Equality is checked over every token rather than a control-only
+    # projection on purpose: a projection that skips the token after a
+    # payload flag would drop `--content --app-secret SEK`, and the leak
+    # this rule exists to stop happens at execve — the secret is in argv
+    # (visible to ps / process auditing / crash logs) regardless of how
+    # lark-cli parses the pair.
+    #
+    # This is NOT zero false positives, and the residue is deliberate: a
+    # body that ITSELF STARTS WITH a blocked flag name is still refused
+    # ("--app-secret", and via _split_compound_flag also
+    # "--app-secret=xyz please"). Refusing that vanishingly rare message is
+    # the price of never letting a secret reach argv; dev's substring
+    # matcher refused it too, so nothing widened here. Anyone reasoning
+    # from "payload can never reach a rule" should read that as "except a
+    # body that opens with a flag name" — see the xfail-style case in
+    # tests/lark_module/test_command_payload_never_blocks.py.
     for tok in parsed:
         compound_flag, _value = _split_compound_flag(tok)
         name = (compound_flag or tok).lower()

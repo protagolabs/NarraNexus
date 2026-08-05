@@ -113,6 +113,28 @@ def test_blocked_flag_as_actual_flag_is_refused(flag_name):
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        "--app-secret",
+        "--app-secret=xyz please",
+    ],
+)
+def test_body_starting_with_a_flag_name_is_refused_by_design(body):
+    """The one residue of "payload can never trip a rule" — and it is chosen.
+
+    Whole-token equality still fires when the body ITSELF starts with a
+    blocked flag name (``_split_compound_flag`` partitions any ``--x=y``
+    token, so the compact form counts too). Refusing these is the price of
+    never letting a secret reach argv, and dev's substring matcher refused
+    them as well — nothing widened. Pinned as a test so the invariant's
+    real boundary is visible rather than implied by a comment.
+    """
+    allowed, reason = validate_command(_send(body))
+    assert not allowed, f"expected the documented trade-off to refuse {body!r}"
+    assert "--app-secret" in reason
+
+
+@pytest.mark.parametrize(
     "cmd",
     [
         "docs +blocks-create --content --app-secret SEK",
