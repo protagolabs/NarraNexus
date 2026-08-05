@@ -497,3 +497,13 @@ The team branch of `_handle_channel_batch` wraps the run: `mark_running` before,
 heartbeat) passed through `_invoke_runtime`→`run_and_collect`→`collect_run`, and `mark_idle`
 in a `finally`. Populates [[_bus_activity]] so the team UI shows running/phase/elapsed. Only
 team channels; DM/IM/Job paths pass `on_progress=None` (unchanged).
+
+## 2026-08-05 — [bus-timing]：每 hop 一条计时线
+
+与 runtime 的 [turn-timing] 配套：`_handle_channel_batch` 成功路径落
+`[bus-timing] agent= channel= team= batch= queue_wait_s= turn_s= hop_s=`。
+queue_wait=消息入库→本次 dispatch（受自适应轮询 3-12s 约束）,turn=runtime
+调用,hop=入库→送达完成（team 房含 post 回房;DM 的 bus_send 在 turn 内,
+turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime/ISO
+字符串都吃,缺失回落 -1.0 不炸）。失败路径不发计时线。
+测试:tests/message_bus/test_bus_hop_timing.py。

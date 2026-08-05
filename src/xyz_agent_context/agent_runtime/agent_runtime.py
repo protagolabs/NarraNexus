@@ -371,6 +371,16 @@ class AgentRuntime:
                 cancellation=cancellation,
             )
 
+            # Turn phase timing ([turn-timing], 2026-08-05): three monotonic
+            # stamps that split every turn into setup (Steps 0-2.5) / loop
+            # (Step 3) / persist (Steps 4+4.6). The 2026-08-01 event measured
+            # "one reply = 1-7 minutes" and "a bus hop = 45-95s" with no way
+            # to say WHICH phase ate it — this is the measurement that decides
+            # whether any latency work is worth doing (Base recvrdLPavdQgU).
+            import time as _timing_time
+            _t_setup_start = _timing_time.monotonic()
+            _t_loop_start = _t_loop_end = _t_setup_start
+
             # =============================================================================
             # Step 0: Initialization
             # =============================================================================
@@ -648,6 +658,7 @@ class AgentRuntime:
             #   - execution_steps: List of execution steps
             #   - agent_loop_response: Raw response from Agent Loop
             # =============================================================================
+            _t_loop_start = _timing_time.monotonic()
             if not silent:
                 # Interrupt continuity (2026-07-30): on cancellation we no
                 # longer break away from the driver stream immediately.
@@ -693,6 +704,8 @@ class AgentRuntime:
                     "AgentRuntime.run(silent=True): skipped step_3, "
                     "wrote empty PathExecutionResult; proceeding to persistence."
                 )
+
+            _t_loop_end = _timing_time.monotonic()
 
             # ---- Interrupt continuity: persist BEFORE honouring the stop ----
             # A cancelled turn used to raise here, skipping Step 4 and
@@ -787,6 +800,25 @@ class AgentRuntime:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
+
+            # One line per turn, grep-stable. persist covers Steps 4 + 4.6
+            # (the sync tail between "the model finished" and "this function
+            # returns"); Steps 5-6 are backgrounded below and never counted.
+            _t_now = _timing_time.monotonic()
+            logger.info(
+                "[turn-timing] agent={} event={} source={} "
+                "setup_s={:.2f} loop_s={:.2f} persist_s={:.2f} total_s={:.2f} "
+                "interrupted={}".format(
+                    ctx.agent_id,
+                    ctx.event.id if ctx.event else "-",
+                    ctx.working_source,
+                    _t_loop_start - _t_setup_start,
+                    _t_loop_end - _t_loop_start,
+                    _t_now - _t_loop_end,
+                    _t_now - _t_setup_start,
+                    interrupted,
+                )
+            )
 
             # ---- Cancellation checkpoint (after persistence) ----
             # Raised here (not before Step 4) so an interrupted turn is
