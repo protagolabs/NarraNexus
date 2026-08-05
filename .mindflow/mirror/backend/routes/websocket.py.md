@@ -89,14 +89,20 @@ instrumentation — the nearest surviving funnel event is
   `_format_dt`）。
 
 **为什么是 `created_at` 而不是 `started_at`**：
-`ChatModule.hook_after_event_execution` 把 user 这条持久化进
-`agent_messages` 时用的 `user_ts = params.event.created_at.isoformat()`
-（chat_module.py:786）。前端 ChatPanel 的 dedup 走 `role:content`
+`ChatModule.hook_persist_turn` 把 user 这条写进
+`instance_json_format_memory_chat` 时，`meta_data.timestamp` 取的就是
+`params.event.created_at.isoformat()`（assistant 那条才用 `utc_now()`，
+即 run 结束时刻——两者刻意不同）。前端 ChatPanel 的 dedup 走 `role:content`
 + ±300_000ms 窗口（SAME_MESSAGE_WINDOW_MS），如果时间戳基准不一致，
 即便差几秒也只是窗口在兜底——但用同一个字段作基准让"reconnect 注入
-的 user bubble"和"run 结束后从 agent_messages 拉回来的 user 行"
+的 user bubble"和"run 结束后从 `/simple-chat-history` 拉回来的 user 行"
 匹配精度最高（只差 DB INSERT 时 SQL `datetime('now')` 与 Python
 `utc_now()` 之间的几个毫秒），不会出现双重 user 气泡。
+
+> 2026-08-05 更正：这段原来写的是"持久化进 `agent_messages`"并钉了
+> `chat_module.py:786`。`agent_messages` **没有写入者、0 行**，是墓碑表
+> （见 [[agent_message_repository]] 2026-08-05）；聊天正文一直在
+> `instance_json_format_memory_chat`。行号也已失效，故不再钉行号。
 
 env_context 解析失败（JSON 损坏、列空）走 `suppress + warn-log`：
 reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气泡

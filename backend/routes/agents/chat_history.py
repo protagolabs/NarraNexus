@@ -91,6 +91,83 @@ def _parse_json_field(value: Any, default: Any) -> Any:
     return default
 
 
+def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filter the legacy duplicate `events` rows out of a replay set.
+
+    Until 2026-08-05 step 4.4 authored a COPY of the turn's event row into
+    every auxiliary narrative that narrative selection had returned (see
+    `step_4_persist_results` §4.4). The copy was written at the end of the run
+    from the in-memory event, whose `event_log` is never back-filled, so each
+    multi-narrative turn left 1-2 rows carrying an empty `event_log` and the
+    primary's `final_output` verbatim. Replaying them shows the same exchange
+    up to three times, ordered by the run's finish time — an already-answered
+    question surfacing beneath newer ones.
+
+    The producer is gone, but the rows are in every deployed database and
+    cannot be deleted (铁律 #6 — no destructive migration), so they are
+    filtered here.
+
+    A row is dropped only when all three hold, which is the copy's exact
+    signature and nothing else:
+      1. its `event_log` is empty (the copy never had one);
+      2. it carries a non-empty `final_output` (there is content to duplicate);
+      3. another row in the set has the SAME turn input and the SAME
+         `final_output` *and* a non-empty `event_log` — i.e. the original.
+
+    So a genuine turn that died before its first step (log-less, no logged
+    sibling) survives, and a re-ask survives because it has its own log and
+    its own reply. Both cases exist in real data: `evt_1e33fa7004d54298` is a
+    real turn (1 tool call, a real reply) that nonetheless persisted an empty
+    `event_log`, and it is correctly kept.
+
+    **Known residue, deliberately not filtered.** A copy whose ORIGINAL also
+    has an empty `event_log` is indistinguishable by content — condition (3)
+    finds no logged sibling, so it survives (four such rows exist locally,
+    e.g. `evt_188705c45f7349ab`). They all carry an EMPTY `final_output`, so
+    they add no repeated text and no monologue fragment — the two things the
+    user actually reported. `started_at IS NOT NULL` would separate them (only
+    the primary gets one, from `RunRecorder`), but using it would also drop a
+    genuine crashed re-ask whose reply happens to match an earlier turn's, and
+    hiding a real turn is worse than showing an empty row. Rejected on that
+    basis; revisit only with a stronger primary marker.
+
+    Args:
+        rows: Raw `events` rows for one replay, in display order.
+
+    Returns:
+        The same rows, in the same order, minus the copies.
+    """
+    def _identity(row: Dict[str, Any]) -> tuple:
+        env = _parse_json_field(row.get("env_context"), {})
+        user_input = env.get("input", "") if isinstance(env, dict) else ""
+        return (
+            row.get("trigger") or "",
+            row.get("trigger_source") or "",
+            user_input,
+            row.get("final_output") or "",
+        )
+
+    logged_identities = {
+        _identity(row) for row in rows
+        if _parse_json_field(row.get("event_log"), [])
+    }
+    if not logged_identities:
+        return list(rows)
+
+    kept: List[Dict[str, Any]] = []
+    for row in rows:
+        is_logless = not _parse_json_field(row.get("event_log"), [])
+        has_output = bool(row.get("final_output"))
+        if is_logless and has_output and _identity(row) in logged_identities:
+            logger.debug(
+                f"chat-history: dropping phantom event twin {row.get('event_id')} "
+                f"(narrative={row.get('narrative_id')})"
+            )
+            continue
+        kept.append(row)
+    return kept
+
+
 @router.get("/{agent_id}/chat-history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     agent_id: str,
@@ -249,6 +326,10 @@ async def get_chat_history(
             events_raw.extend(narrative_events)
 
         events_raw.sort(key=lambda e: e.get("created_at", ""))
+
+        # Legacy duplicate rows first — dropping them before the trim below
+        # means `event_limit` buys real turns, not copies.
+        events_raw = _drop_phantom_event_twins(events_raw)
 
         # Trim to most recent N events
         if event_limit > 0 and len(events_raw) > event_limit:
