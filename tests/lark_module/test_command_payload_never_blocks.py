@@ -115,23 +115,50 @@ def test_blocked_flag_as_actual_flag_is_refused(flag_name):
 @pytest.mark.parametrize(
     "body",
     [
-        "--app-secret",
-        "--app-secret=xyz please",
+        "--app-secret",             # body IS the flag
+        "--app-secret-stdin",
+        "--app-secret=xyz please",  # part before the first "=" IS the flag
     ],
 )
-def test_body_starting_with_a_flag_name_is_refused_by_design(body):
-    """The one residue of "payload can never trip a rule" — and it is chosen.
+def test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design(body):
+    """The residue of "payload can never trip a rule" — and it is chosen.
 
-    Whole-token equality still fires when the body ITSELF starts with a
-    blocked flag name (``_split_compound_flag`` partitions any ``--x=y``
-    token, so the compact form counts too). Refusing these is the price of
-    never letting a secret reach argv, and dev's substring matcher refused
-    them as well — nothing widened. Pinned as a test so the invariant's
-    real boundary is visible rather than implied by a comment.
+    Exactly two shapes reach the flag rule, both straight from
+    ``_split_compound_flag``: the body IS a blocked flag, or the body's part
+    before its FIRST ``=`` is. Refusing them is the price of never letting a
+    secret reach argv, and dev's substring matcher refused them too, so
+    nothing widened.
+
+    The allowed side is pinned in the companion test below — together they
+    fix the boundary from both directions, so neither a comment nor a name
+    can drift into claiming more than the code does.
     """
     allowed, reason = validate_command(_send(body))
     assert not allowed, f"expected the documented trade-off to refuse {body!r}"
     assert "--app-secret" in reason
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "--app-secret is bad",            # opens with the name but is one token
+        "--app-secret please rotate it",
+        "--app-secret-stdin is worse",
+        "--app-secret  =  x",             # spaced "=" does not compound-split
+        "--foo bar --app-secret=x",       # the flag name is not at the start
+    ],
+)
+def test_body_merely_containing_a_flag_name_still_sends(body):
+    """"Opens with a blocked flag name" is NOT the boundary — equality is.
+
+    These all begin with (or contain) a blocked flag name and are all sent:
+    each is a single token that neither equals a flag nor has a flag before
+    its first ``=``. Pinned because the source comment previously said
+    "starts with", which describes a wider set than the code refuses and
+    would send a reader hunting for a false positive that does not exist.
+    """
+    allowed, reason = validate_command(_send(body))
+    assert allowed, f"Refused legitimate body {body!r}: {reason}"
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,35 @@ stub: false
 last_verified: 2026-08-05
 ---
 
+## 2026-08-05 (三) — 注释精度第二轮 + 孪生 guard 同源死分支
+
+**同一处、反方向又犯了一次。** 上一轮为了纠正「零误伤」的过度承诺，把边界写成
+「正文**以 flag 名开头**仍会被拦」—— 这句话又比代码**说得多**。实测：
+`--app-secret is bad` / `--app-secret-stdin is worse` / `--app-secret  =  x` /
+`--foo bar --app-secret=x` **全部放行**，因为它们是单个 token、要么不含 `=`、
+要么 `=` 前的部分不等于 flag 名，`name` 取到整句话，匹配不上。
+
+真实边界**恰好两种**：正文整体等于 blocked flag，或首个 `=` 之前的部分等于。
+已按 `_split_compound_flag` 的语义重写注释，并把**放行的一侧也钉成测试**
+(`test_body_merely_containing_a_flag_name_still_sends`)——只钉「被拦」的一侧，
+注释和函数名仍可能漂移到更大的集合；两侧都钉住，边界才锁死。测试也随之改名为
+`test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design`（原名
+`..._body_starting_with_a_flag_name_...` 本身就断言了那个更宽的集合）。
+
+教训：**这个 PR 系列的全部价值就是「注释不能比代码保证得强」，而修正注释时
+最容易再犯一次同样的错。** 写边界时不要用自然语言概括，直接引用代码的判定
+语义，并用双向测试固定。
+
+顺带（铁律 #8）：孪生 `_narra_command_security.py:140-141` 有**一模一样**的
+不可达空命令分支（开头已 `if not command or not command.strip()` 返回，
+`shlex.split` 对非空 stripped 输入不会返回 `[]`），一并删除。
+
+**第三条同源死分支**（第二轮 review 抓到，讽刺的是本 PR 标题就叫 sweep the
+twin guard，扫了隔壁模块却漏了本函数下面 15 行）：domain 白名单前的
+`tokens = stripped.split(); if not tokens: return "Empty command after parsing"`
+判据完全相同——`stripped` 非空且已去空白，`str.split()` 不可能返回 `[]`。已删。
+**教训：「顺手扫相邻代码」要先扫正在编辑的那个函数，再去扫隔壁文件。**
+
 ## 2026-08-05 (三) — review 收尾：把「零误伤」这句话说准
 
 PR #237 合入后 review 的两条 🟢 收尾。
@@ -11,8 +40,10 @@ PR #237 合入后 review 的两条 🟢 收尾。
 **① 不变量的真实边界要写出来，别让注释比代码保证得强。**
 flag 检查是**整 token 等值**，但 `_split_compound_flag` 对任何 `--` 开头且含
 `=` 的 token 都做 partition、不看空格。所以「正文永远够不着控制面规则」有一个
-针尖大的例外：**正文自身以 flag 名开头**时仍会被拦 ——
-`--app-secret`、`--app-secret=xyz please` 都拦。
+针尖大的例外，**恰好两种形状**（就是 `_split_compound_flag` 的语义）：正文
+**整体等于**某个 blocked flag（`--app-secret`），或正文**首个 `=` 之前的部分
+整体等于**（`--app-secret=xyz please`）。**「以 flag 名开头」不是边界** ——
+`--app-secret is bad` 是单个 token、不含 `=`，`name` 取到整句话，照样放行。
 
 这是**刻意的取舍**而不是缺陷：dev 的子串匹配同样拦这两个形状（方向上没有放宽），
 而「真实消息以 `--app-secret` 开头」概率约等于零 —— 拿这个针尖换掉

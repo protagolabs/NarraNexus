@@ -366,15 +366,20 @@ def validate_command(command: str) -> Tuple[bool, str]:
     # (visible to ps / process auditing / crash logs) regardless of how
     # lark-cli parses the pair.
     #
-    # This is NOT zero false positives, and the residue is deliberate: a
-    # body that ITSELF STARTS WITH a blocked flag name is still refused
-    # ("--app-secret", and via _split_compound_flag also
-    # "--app-secret=xyz please"). Refusing that vanishingly rare message is
-    # the price of never letting a secret reach argv; dev's substring
-    # matcher refused it too, so nothing widened here. Anyone reasoning
-    # from "payload can never reach a rule" should read that as "except a
-    # body that opens with a flag name" — see the xfail-style case in
-    # tests/lark_module/test_command_payload_never_blocks.py.
+    # This is NOT zero false positives, and the residue is deliberate. It is
+    # exactly two shapes, both following _split_compound_flag's semantics:
+    # the body IS a blocked flag ("--app-secret"), or the body's part before
+    # its FIRST "=" is ("--app-secret=xyz please"). Anything else sails
+    # through, including bodies that merely open with the name —
+    # "--app-secret is bad" is one token, has no "=", so `name` is the whole
+    # sentence and matches nothing.
+    #
+    # Refusing those two shapes is the price of never letting a secret reach
+    # argv; dev's substring matcher refused them too, so nothing widened.
+    # Both sides are pinned, in a pair of tests:
+    # test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design
+    # (refused) and test_body_merely_containing_a_flag_name_still_sends
+    # (allowed).
     for tok in parsed:
         compound_flag, _value = _split_compound_flag(tok)
         name = (compound_flag or tok).lower()
@@ -386,11 +391,11 @@ def validate_command(command: str) -> Tuple[bool, str]:
     if not ok:
         return False, reason
 
-    # Check domain whitelist
+    # Check domain whitelist. `stripped` is non-empty and whitespace-trimmed
+    # (see the guard at the top), so str.split() always yields at least one
+    # token — the same reasoning that retired the two sibling empty-command
+    # branches; this was the third and last of them.
     tokens = stripped.split()
-    if not tokens:
-        return False, "Empty command after parsing"
-
     domain = tokens[0].lower()
     if domain not in ALLOWED_DOMAINS:
         return False, f"Unknown command domain: '{domain}'. Allowed: {', '.join(sorted(ALLOWED_DOMAINS))}"
