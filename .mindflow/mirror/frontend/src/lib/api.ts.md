@@ -1,8 +1,39 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-05
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 (review R2) — 新增 `getSession()`
+
+`GET /api/auth/session` 的类型化封装（`SessionResponse` 在 [[api]] types）。
+消费方是 [[App]] 的 ProtectedRoute 挂载预热——此前它用 `getAgents()`，为了
+一个"后端还认我吗"的信号把用户的全量 agent 列表（外加 active-run 与预览
+enrichment）从数据库里拉一遍再丢掉。探针端点不查库。
+
+注意 [[sessionGuard.ts]] **不**走这个方法：它必须用裸 fetch，否则自己的
+401 会再次进入 `request()` 的 401 分支 → 递归。
+
+## 2026-08-06 — 401 不再等于"登出"（0802 线下事故）
+
+`request()` 的 401 分支重写：从「带 token 的 401 → 立刻派发
+`narranexus:auth-expired`，除非端点是 `/api/auth/login|register` 或
+`/api/billing/`」改为「先看后端的 `code`（[[authFailure.ts]]），只有会话
+死亡类才交给 [[sessionGuard.ts]]，由它探针确认后再派发」。
+
+旧写法是**拒绝清单**，默认方向是炸掉会话，每个漏加的端点都是地雷；
+`/api/providers` 的 NetMind 401 就是 2026-08-02 现场踩响的那颗——会话完全
+有效的用户被反复踢回 /login，口述为"整个页面重新加载了、很混乱"（其实没有
+任何 reload，是 `ProtectedRoute` 整棵子树被拆重建，所以服务端日志查不到
+reload 痕迹）。
+
+顺带：错误体现在只 parse 一次（`response.clone().json()` 的结果同时喂
+`code` 判断和 `detail` 提取），`getAuthHeaders` 的实现下沉到
+[[authHeaders.ts]]（本类方法保留为转发），避免 `api → sessionGuard → api`
+成环。
+
+注意：绕过 `request<T>` 的直连 fetch 辅助方法（attachment / blob 之类）
+从来就没有走过这条 401 路径，本次也没有改变。
 
 ## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
 
@@ -295,7 +326,7 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
 
-**Side effect on 401 (stale JWT).** Before throwing, `request<T>` dispatches a global `CustomEvent` for one status: `narranexus:auth-expired` on 401, when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). The guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via an event to avoid a circular import on `@/stores/configStore`.
+**Side effect on 401 (session death only).** Before throwing, `request<T>` inspects the 401 body's `code`. Only the session-death codes ([[authFailure.ts]]) go any further, and even those are handed to [[sessionGuard.ts]], which confirms against `GET /api/auth/session` before dispatching `narranexus:auth-expired` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). Every other 401 — stale NetMind token, gateway token, an unclassified 401 from an old backend — just throws `ApiError` for the caller to handle. Still decoupled via an event to avoid a circular import on `@/stores/configStore`.
 
 402 has **no** special side effect any more — it takes the generic throw path like any other non-2xx. It used to dispatch `narranexus:quota-exceeded`; see the 2026-07-30 entry above for why that went away.
 

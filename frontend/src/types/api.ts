@@ -433,6 +433,15 @@ export interface AgentListResponse extends ApiResponse {
   count: number;
 }
 
+/** GET /api/auth/session — "is my session still alive, and until when?".
+ *  `expires_at` / `issued_at` are epoch SECONDS, null in local mode where
+ *  identity is a header and there is nothing to expire. */
+export interface SessionResponse {
+  user_id: string;
+  expires_at: number | null;
+  issued_at: number | null;
+}
+
 export interface UpdateTimezoneResponse extends ApiResponse {
   timezone?: string;
 }

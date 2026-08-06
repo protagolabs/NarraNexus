@@ -35,6 +35,7 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     netmind_slots_only,
 )
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
 router = APIRouter()
@@ -42,9 +43,9 @@ router = APIRouter()
 
 def _require_manyfold_auth(request: Request) -> None:
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail="missing or invalid MANYFOLD_GATEWAY_TOKEN",
+        raise AuthError(
+            GATEWAY_TOKEN_INVALID,
+            "missing or invalid MANYFOLD_GATEWAY_TOKEN",
         )
 
 

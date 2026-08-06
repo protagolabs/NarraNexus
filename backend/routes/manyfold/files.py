@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.settings import settings as core_settings
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
 router = APIRouter()
@@ -60,9 +61,9 @@ def _require_manyfold_auth(request: Request) -> None:
     rather than imported so this module has no inbound dependency on
     its sibling file — keeps the file-tree API self-contained."""
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail="missing or invalid MANYFOLD_GATEWAY_TOKEN",
+        raise AuthError(
+            GATEWAY_TOKEN_INVALID,
+            "missing or invalid MANYFOLD_GATEWAY_TOKEN",
         )
 
 

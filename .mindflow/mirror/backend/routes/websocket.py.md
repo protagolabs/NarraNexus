@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — AuthError 帧带 `error_code`
+
+七个 AuthError 帧各自加一个 `error_code`（token_expired / token_invalid /
+token_missing / identity_missing / identity_unresolved，取值见
+[[auth_errors]]）。动机：这些帧原本只有 `error_type: 'AuthError'`，前端
+[[wsAuthError.ts]] 无法区分"JWT 真的死了"和"local 模式 URL 的 x_user_id 跟
+payload 对不上"（后者是前端状态 bug），一律当成会话死亡直接登出。
+
+前端侧现在不管哪种帧都先走 [[sessionGuard.ts]] 探针确认，所以即使分类错了，
+代价也从"整个会话"降到"这一次运行失败"。
 
 ## 2026-07-31 (三次) — 可见性判定改「agent 属主」（review R2 Critical #1）
 

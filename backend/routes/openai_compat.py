@@ -47,7 +47,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -65,6 +65,7 @@ from xyz_agent_context.channel.message_source_handler import (
 )
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from backend.auth_errors import API_KEY_INVALID, AuthError
 
 
 router = APIRouter()
@@ -115,9 +116,9 @@ class ChatCompletionsRequest(BaseModel):
 
 def _require_manyfold_auth(request: Request, model_echo: str = "") -> None:
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail=_openai_error(
+        raise AuthError(
+            API_KEY_INVALID,
+            _openai_error(
                 "missing or invalid MANYFOLD_GATEWAY_TOKEN",
                 etype="invalid_request_error",
                 model_echo=model_echo,

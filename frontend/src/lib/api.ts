@@ -46,6 +46,7 @@ import type {
   NetmindLoginResponse,
   QuotaMeResponse,
   AgentListResponse,
+  SessionResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
   OnboardingResponse,
@@ -109,6 +110,9 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import { isSessionDeadFailure, readAuthCode } from './authFailure';
+import { confirmSessionDeath } from './sessionGuard';
 
 /**
  * Error thrown for non-2xx API responses. Carries the HTTP status so
@@ -138,37 +142,11 @@ class ApiClient {
   // identity headers to direct fetch / Tauri-proxy file requests that
   // <a download> elements cannot carry.
   getAuthHeaders(): Record<string, string> {
-    // Read identity from configStore (localStorage).
-    //
-    // Two headers, mutually compatible:
-    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
-    //   - X-User-Id: <user_id>         — local mode, unsigned identity
-    //
-    // We send both whenever they're available; backend auth_middleware
-    // decides which one to trust:
-    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
-    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
-    //
-    // The single ApiClient is mode-agnostic for the same reason — the
-    // mode switch happens server-side in auth_middleware, not here.
-    const headers: Record<string, string> = {};
-    try {
-      const raw = localStorage.getItem('narra-nexus-config');
-      if (raw) {
-        const config = JSON.parse(raw);
-        const token = config?.state?.token;
-        const userId = config?.state?.userId;
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        if (userId) {
-          headers['X-User-Id'] = userId;
-        }
-      }
-    } catch {
-      /* localStorage may be unavailable / disabled — fall through */
-    }
-    return headers;
+    // Implementation lives in lib/authHeaders so the session guard can
+    // build the same headers without importing this module (cycle).
+    // The single ApiClient stays mode-agnostic: the cloud/local decision
+    // happens server-side in auth_middleware, not here.
+    return readAuthHeaders();
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -187,39 +165,40 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      // Stale/expired JWT: backend says 401 even though we attached a token.
-      // Tell the app to clear auth state and bounce to /login. We skip when
-      // no token was attached (anonymous probe) and on auth endpoints
-      // themselves (wrong-credentials login should surface in the form, not
-      // log the user out of a session they never had). Decoupled via event
-      // to avoid a circular import with @/stores/configStore.
-      if (response.status === 401 && authHeaders.Authorization) {
-        const isAuthEndpoint =
-          endpoint.startsWith('/api/auth/login') ||
-          endpoint.startsWith('/api/auth/register');
-        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
-        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
-        // missing/expired — it must NOT log the user out of their valid
-        // NarraNexus session. The panel handles this failure locally.
-        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
-        if (!isAuthEndpoint && !isBillingEndpoint) {
-          window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
-        }
+      // Parse the error body once: it feeds both the thrown message and
+      // (on 401) the session-death decision below.
+      let body: unknown = null;
+      try {
+        body = await response.json();
+      } catch {
+        /* not JSON — fall through to status line */
       }
+
+      // A 401 does NOT mean "your session is dead". It can equally mean a
+      // second credential failed (NetMind login token, gateway token) or
+      // that a handler failed to resolve an identity the middleware had
+      // already verified. Only the backend's `code` can tell those apart,
+      // and even then we confirm against GET /api/auth/session before
+      // tearing anything down — see lib/sessionGuard.
+      //
+      // This replaced a denylist ("log out on any 401 except /api/auth/*
+      // and /api/billing/*") whose every missing entry was a live grenade:
+      // /api/providers' NetMind 401 was one, and it bounced demo users to
+      // /login on 2026-08-02 while their sessions were perfectly valid.
+      if (response.status === 401 && isSessionDeadFailure(body)) {
+        void confirmSessionDeath({ endpoint, code: readAuthCode(body) });
+      }
+
       // Extract the FastAPI HTTPException `detail` field so callers get
       // an actionable message ("Cannot add another user's agent") instead
       // of just "API error: 403 Forbidden". Falls back to the status
       // line if the body is missing / not JSON / has no `detail`.
       let detail = '';
-      try {
-        const body = await response.clone().json();
-        if (typeof body?.detail === 'string') {
-          detail = body.detail;
-        } else if (body?.detail) {
-          detail = JSON.stringify(body.detail);
-        }
-      } catch {
-        /* not JSON — fall through to status line */
+      const rawDetail = (body as { detail?: unknown } | null)?.detail;
+      if (typeof rawDetail === 'string') {
+        detail = rawDetail;
+      } else if (rawDetail) {
+        detail = JSON.stringify(rawDetail);
       }
       const label = detail
         ? `API error ${response.status}: ${detail}`
@@ -663,6 +642,15 @@ class ApiClient {
 
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
+  }
+
+  /** Liveness of the caller's own session. Does no database work server-side,
+   *  so it is the cheap way to ask "is my JWT still accepted?" — used by
+   *  ProtectedRoute on mount. (lib/sessionGuard probes the same endpoint with
+   *  a raw fetch, deliberately bypassing `request<T>` to avoid recursing into
+   *  the very 401 handler it serves.) */
+  async getSession(): Promise<SessionResponse> {
+    return this.request<SessionResponse>('/api/auth/session');
   }
 
   // Arena onboarding: ensure the authenticated user has a provisioned Arena

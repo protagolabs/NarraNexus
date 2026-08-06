@@ -41,6 +41,7 @@ from xyz_agent_context.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )
+from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
 
 router = APIRouter()
 
@@ -136,9 +137,9 @@ def _get_user_id(request: Request) -> str:
     """
     uid = getattr(request.state, "user_id", None)
     if not uid:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required (no user_id on request.state)",
+        raise AuthError(
+            IDENTITY_UNRESOLVED,
+            "Authentication required (no user_id on request.state)",
         )
     return uid
 
@@ -467,14 +468,15 @@ async def use_subscription(request: Request):
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
     if not token:
-        raise HTTPException(
-            status_code=401, detail="Missing NetMind token (X-Netmind-Token header)"
+        raise AuthError(
+            NETMIND_TOKEN_INVALID,
+            "Missing NetMind token (X-Netmind-Token header)",
         )
 
     try:
         created = await ensure_netmind_provider(uid, token, activate_if_fresh=True)
     except KeyAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except KeyUpstreamError as e:
         logger.error(f"[use-subscription] key generation failed: {e}")
         raise HTTPException(

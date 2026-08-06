@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '@/lib/api';
+import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
 
@@ -57,6 +58,10 @@ export const useConfigStore = create<ConfigState>()(
       // Actions
       login: (userId, token?, role?, profile?) => {
         const prevUserId = get().userId;
+        // A fresh credential invalidates the previous session's verdict.
+        // Without this, the guard stays latched on "already confirmed
+        // dead" and would never probe again for the NEW session.
+        resetSessionGuard();
         set({
           isLoggedIn: true,
           userId,

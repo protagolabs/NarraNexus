@@ -49,6 +49,7 @@ from backend.integrations.netmind.netmind_billing_client import (
     BillingUpstreamError,
     NetmindBillingClient,
 )
+from backend.auth_errors import NETMIND_TOKEN_INVALID, AuthError
 
 router = APIRouter()
 
@@ -105,9 +106,9 @@ def _require_netmind_token(request: Request) -> str:
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
     if not token:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Missing NetMind token ({_NETMIND_TOKEN_HEADER} header)",
+        raise AuthError(
+            NETMIND_TOKEN_INVALID,
+            f"Missing NetMind token ({_NETMIND_TOKEN_HEADER} header)",
         )
     return token
 
@@ -143,7 +144,7 @@ async def get_subscription(request: Request):
         data = await _client().get_subscription(token)
     except BillingAuthError:
         # Bad / expired loginToken -> 401 so the frontend re-auths with NetMind.
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except (BillingUpstreamError, BillingBusinessError) as exc:
         # Business 4xx on a read endpoint = upstream contract violation -> 502.
         logger.error(f"[billing] get_subscription upstream failure: {exc}")
@@ -269,7 +270,7 @@ async def get_fee_info(request: Request):
     try:
         data = await _client().get_fee_info(token)
     except BillingAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except (BillingUpstreamError, BillingBusinessError) as exc:
         logger.error(f"[billing] get_fee_info upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
@@ -289,7 +290,7 @@ async def get_records(request: Request, direction: str | None = None):
     try:
         body = await _client().get_records(token, direction=direction)
     except BillingAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except (BillingUpstreamError, BillingBusinessError) as exc:
         logger.error(f"[billing] get_records upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
@@ -324,7 +325,7 @@ async def _write_action(
     try:
         data = await method(token, **(extra or {}))
     except BillingAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except BillingBusinessError as exc:
         # e.g. "Already subscribed to Pro." / "No active Pro subscription."
         raise HTTPException(status_code=400, detail=exc.message)
@@ -391,7 +392,7 @@ async def recharge(req: RechargeRequest, request: Request):
             token, req.amount, req.currency, **_return_urls("topup")
         )
     except BillingAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except BillingBusinessError as exc:
         raise HTTPException(status_code=400, detail=exc.message)
     except BillingUpstreamError as exc:
@@ -418,7 +419,7 @@ async def recharge_status(session_id: str, request: Request):
     try:
         body = await _client().recharge_status(token, session_id)
     except BillingAuthError:
-        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
     except BillingForbiddenError:
         raise HTTPException(status_code=403, detail="This recharge is not yours")
     except BillingNotFoundError:

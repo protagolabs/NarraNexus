@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-05
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 新增 `GET /api/auth/session`（会话探针）
+
+两个消费方，都在前端：
+1. **强制登出前的第二意见**——单个 401 不构成"会话已死"的证据，
+   [[sessionGuard.ts]] 先探这里，探针也说死了才拆会话（2026-08-02 线下
+   活动上，一个 401 就拆了整个 SPA）。
+2. **到期预警**——返回 `expires_at`，让 UI 在 JWT 死之前就能提示
+   （[[tokenExpiry.ts]]）。
+
+刻意**不查库**：它跑在每一次可疑 401 上，一批 401 不能变成一批查询。
+能走到这个 handler 本身就是答案（JWT 校验发生在 middleware）。
+**不进** `AUTH_EXEMPT_PATHS`——豁免了就回答不了它存在的那个问题。
+
+同时把本文件两处 `HTTPException(401)` 换成 `AuthError`：netmind-login 的
+"Invalid NetMind token" → `netmind_token_invalid`（登录失败，本来就还没有
+会话可言），analytics 的 `_require_request_user` → `identity_unresolved`。
 
 ## 2026-08-04 — 创建不再写占位符描述；创建/更新即时进同伴名录
 

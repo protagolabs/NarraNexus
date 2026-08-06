@@ -13,6 +13,13 @@ import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
+import { getSessionToken } from '@/lib/authHeaders';
+import {
+  EXPIRY_CHECK_INTERVAL_MS,
+  formatExpiryDistance,
+  msUntilExpiry,
+  shouldShowExpiryWarning,
+} from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -68,7 +75,7 @@ function useResolveAppMode() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isLoggedIn, userId, logout } = useConfigStore();
+  const { isLoggedIn, userId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
   const location = useLocation();
@@ -79,13 +86,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setValidating(false);
       return;
     }
-    // Validate that the session is still valid (JWT token accepted by backend)
-    api.getAgents()
-      .then(res => {
-        if (!res.success) logout();
-      })
+    // Touch the backend once so a session that died while the tab was shut
+    // is noticed now rather than on the user's next click. The verdict is
+    // not made here: a 401 goes through lib/api into lib/sessionGuard, which
+    // confirms before anything is torn down. The response body is irrelevant.
+    //
+    // Two things this deliberately is NOT:
+    //
+    // - It is not `getAgents()` any more. That pulls the user's whole agent
+    //   list (plus active-run and preview enrichment) out of the database on
+    //   every protected mount, to then discard it. `/api/auth/session` does
+    //   no database work at all — same signal, none of the cost.
+    // - It does not `logout()` on `!res.success`, as it used to. GET
+    //   /api/auth/agents answers 200 + {success:false, error} for ANY
+    //   unhandled exception in the handler — a database hiccup during mount,
+    //   say. That is not an authentication failure, and ending the session
+    //   over it is the same nuclear reflex the 401 path just stopped doing.
+    api.getSession()
       .catch(() => {
-        // Backend unreachable — don't force logout
+        // Backend unreachable, or a 401 already handed to the session
+        // guard by lib/api. Either way, nothing to do here.
       })
       .finally(() => setValidating(false));
   }, [isLoggedIn, userId]);
@@ -263,9 +283,19 @@ function App() {
   // expired" bubbles and no way out.
   const [sessionExpired, setSessionExpired] = useState(false);
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
       const { isLoggedIn, logout } = useConfigStore.getState();
       if (isLoggedIn) {
+        // Record what actually triggered the teardown. The 2026-08-02
+        // incident was reported as "the page reloaded and everything got
+        // confusing" and we had nothing client-side to tie that to a
+        // specific endpoint — the server logs were a list of 401s with no
+        // reason attached. lib/sessionGuard puts both on the event.
+        const detail = (e as CustomEvent<{ endpoint?: string; code?: string | null }>).detail;
+        console.warn(
+          `[auth] session confirmed dead — trigger=${detail?.endpoint ?? 'unknown'} ` +
+            `code=${detail?.code ?? 'none'}`,
+        );
         logout();
         setSessionExpired(true);
         // Auto-dismiss after 12s — long enough to read, short enough
@@ -276,6 +306,33 @@ function App() {
     window.addEventListener('narranexus:auth-expired', handler);
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
+
+  // Pre-expiry warning. The JWT lasts 7 days and cannot be refreshed, so
+  // without this the session simply stops working mid-click. Warning a day
+  // ahead lets the user re-login when it costs them nothing, instead of
+  // losing whatever was on screen at the moment the clock ran out.
+  const [expiresInMs, setExpiresInMs] = useState<number | null>(null);
+  // Remaining time at the moment of dismissal — see shouldShowExpiryWarning.
+  const [expiryDismissedAt, setExpiryDismissedAt] = useState<number | null>(null);
+  // Subscribed, not read via getState(): logging out must clear the banner
+  // immediately. Polling alone would leave "your session expires in 5 hours"
+  // sitting on top of the /login page for up to a full tick.
+  const isLoggedIn = useConfigStore((s) => s.isLoggedIn);
+  useEffect(() => {
+    const check = () => {
+      // null in local mode (no JWT) — there is nothing to expire there.
+      setExpiresInMs(isLoggedIn ? msUntilExpiry(getSessionToken()) : null);
+    };
+    check();
+    // Cheap (one base64 decode), so a slow tick is plenty; `focus` covers
+    // the laptop-was-asleep case, where hours pass between two ticks.
+    const id = window.setInterval(check, EXPIRY_CHECK_INTERVAL_MS);
+    window.addEventListener('focus', check);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', check);
+    };
+  }, [isLoggedIn]);
 
   // Agent circuit-breaker open: wsManager dispatches this when the backend
   // refuses to start a run because the agent is paused (repeated auth/quota
@@ -400,6 +457,17 @@ function App() {
           Your session expired. Please sign in again. (click to dismiss)
         </div>
       )}
+      {!sessionExpired &&
+        expiresInMs !== null &&
+        shouldShowExpiryWarning(expiresInMs, expiryDismissedAt) && (
+          <div
+            className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+            onClick={() => setExpiryDismissedAt(expiresInMs)}
+            role="status"
+          >
+            {`Your session expires in ${formatExpiryDistance(expiresInMs)}. Sign out and back in to avoid losing work. (click to dismiss)`}
+          </div>
+        )}
       {circuitOpen && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
