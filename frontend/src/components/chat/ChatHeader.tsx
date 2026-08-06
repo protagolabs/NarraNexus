@@ -26,7 +26,6 @@ import {
   MoreVertical,
   ListTodo,
   Inbox,
-  FileText,
   PanelLeft,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -35,6 +34,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
 import {
   STRIP_CATEGORIES,
+  ArtifactsGlyph,
   deriveTabStatus,
   markTabOpened,
   type AtomicTabId,
@@ -97,8 +97,6 @@ export function ChatHeader({
   const inboxStatus = deriveTabStatus(bookmarkState, 'inbox');
 
   const artifactCount = useArtifactStore((s) => s.artifacts.length);
-  const artifactsCollapsed = useArtifactStore((s) => s.collapsed);
-  const setArtifactsCollapsed = useArtifactStore((s) => s.setCollapsed);
 
   const openPanel = (id: AtomicTabId) => {
     if (!agentId) return;
@@ -197,14 +195,16 @@ export function ChatHeader({
             <Inbox className="h-4 w-4" />
             {inboxStatus.badge ? <HeaderBadge count={inboxStatus.badge} /> : null}
           </button>
+          {/* Artifacts — opens the drawer panel like every other entry (the
+              resizable side column is retired; Owner 2026-08-06). */}
           <button
             type="button"
-            onClick={() => setArtifactsCollapsed(!artifactsCollapsed)}
-            title={t('layout.chatView.tabArtifacts')}
+            onClick={() => openPanel('artifacts')}
+            title={t('rail.artifacts')}
             data-help-id="layout.artifacts"
             className={iconBtn}
           >
-            <FileText className="h-4 w-4" />
+            <ArtifactsGlyph className="h-4 w-4" strokeWidth={1.8} />
             {artifactCount > 0 ? <HeaderBadge count={artifactCount} /> : null}
           </button>
           <span data-help-id="chat.cost">

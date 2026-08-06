@@ -4,6 +4,15 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (3) — 侧边 Artifact 栏退役
+
+Owner 指定 artifacts 一律从聊天头部入口访问:ChatView 里的 ArtifactColumn
+侧栏、chat↔artifact 分栏拖拽全套(chatSplit / contentFrozen 冻结 / 
+chat_artifact_split_v1 持久化)以及移动端 Chat/Artifacts tab 切换全部删除。
+移动端保留一条工具行(artifacts 按钮 → requestPanel('artifacts') + cost
+chip)。loadPinned 保留在 ChatView(头部徽标数与 drawer 面板都靠它水合)。
+artifactStore.collapsed 从此无人写(组件内部未动,留待后续清理)。
+
 ## 2026-08-06 (2) — Chat UI v4:满铺 + BookmarkStrip 退役
 
 - ChatView / TeamChatView 去掉 p-2/p-3 与圆角描边卡片 — 聊天面到边,

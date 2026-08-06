@@ -4,6 +4,12 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — Artifacts 入口改开 drawer + 换 glyph
+
+图标从 FileText 换成 ArtifactsGlyph(tabs.ts,Owner 截图指定);点击从
+"切 artifactStore.collapsed" 改为 openPanel('artifacts') — 与其他条目
+完全同构。徽标仍读 artifactStore.artifacts.length。
+
 # ChatHeader — v4 聊天头部(agent 名主角)
 
 ## 为什么存在

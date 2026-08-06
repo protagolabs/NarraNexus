@@ -1721,7 +1721,8 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "아티팩트"
   },
   "jobs": {
     "title": "작업",

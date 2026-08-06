@@ -13,5 +13,5 @@ export { BookmarkDrawer } from './BookmarkDrawer';
 
 export { BookmarkPanelHost } from './BookmarkPanelHost';
 
-export { STRIP_CATEGORIES, ALL_TABS, tabLabel, tabLabelKey, deriveTabStatus, markTabOpened } from './tabs';
+export { STRIP_CATEGORIES, ALL_TABS, ArtifactsGlyph, tabLabel, tabLabelKey, deriveTabStatus, markTabOpened } from './tabs';
 export type { AtomicTabId, AtomicTabDef, StripCategory, TabStatus } from './tabs';

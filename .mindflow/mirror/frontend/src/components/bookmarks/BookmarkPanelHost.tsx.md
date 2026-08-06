@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-06-11
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — artifacts 面板
+
+`artifacts` tab → lazy ArtifactColumn(forceExpanded:跳过其自身
+sliver/collapse 逻辑,可见性归 drawer 壳)。侧边 Artifact 栏随之退役
+(见 [[../layout/MainLayout.tsx]])。
 
 # BookmarkPanelHost.tsx — One lazy panel per atomic tab
 
