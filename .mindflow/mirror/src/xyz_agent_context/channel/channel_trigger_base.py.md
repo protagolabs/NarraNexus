@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — 空内容丢弃补审计
+
+`_process_message` 的空内容守卫（无正文且无 attachment_refs）从裸
+`return` 改为先写 `EVENT_INGRESS_DROPPED_EMPTY` 再返回。动机：提取器
+不认识的 payload 形状（8/6 Lark 无包裹 post 事故）在这里与真空消息
+不可区分地消失，「bot 为什么没回」从审计表答不出来。丢弃语义不变，
+只是留痕；caption-less 文件上传（有 refs 无正文）不受影响，仍然放行。
 
 ## 2026-08-04 — 起不来的凭据：预检门 + 快速死亡熔断器
 

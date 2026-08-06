@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — ingress_dropped_empty
+
+新增 `EVENT_INGRESS_DROPPED_EMPTY`：`_process_message` 的空内容守卫
+（无正文且无 attachment_refs → 丢弃）此前是裸 `return`，与
+`ingress_dropped_unparsed` 同属审计盲区。8/6 事故：无语言包裹的 post
+payload 被提取成空串后从这里消失，零痕迹。base 与 Lark 覆写两处守卫
+现在都写这条审计。
 
 ## 2026-08-04 — subscriber isolation events
 

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — post 双形状提取 + 空内容丢弃补审计
+
+prod 事故：lark-cli / API 发出的 `post` 消息事件里 payload 是**无语言
+包裹**的 `{"title","content"}`（客户端发的才是 `{"zh_cn":{...}}`）。
+`_extract_post_text` 只认包裹形状 → 提取成空串 → 空内容守卫裸
+`return` → 消息零痕迹消失（audit 只有 ingress_processed，无 event 无
+run）。两处修复：① `_extract_post_text` 把 payload 自身视为候选块
+（顶层有 `title`/`content` 键即无包裹；两种形状键型不同不会撞）；②
+空内容守卫先写 `EVENT_INGRESS_DROPPED_EMPTY`（带 message_type detail）
+再返回，与基类同批修。`_preview_message_content` 仍保持冻结不动。
 
 ## 2026-08-04 — secret 为空的凭据不再启动订阅器
 
