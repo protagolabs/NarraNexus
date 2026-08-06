@@ -10,7 +10,7 @@ review 收口：select_fast 改走公开 keyword_search（私有名转正，serv
 
 ## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
 
-新增 public `select_fast(agent_id, user_id, query)`：BM25 top-1 直取（_retrieval._keyword_search top_k=1 + CRUD load），零 LLM / 零新建 / 零 session 写；fast 模式（F28）唯一入口，select() 仍是唯一可新建/走 LLM 层的路径。
+新增 public `select_fast(agent_id, user_id, query)`：BM25 top-1 直取（retrieval 公开面 keyword_search top_k=1 + CRUD load），零 LLM / 零新建 / 零 session 写；fast 模式（F28）唯一入口，select() 仍是唯一可新建/走 LLM 层的路径。
 
 ## 2026-07-28 — R4a：prompt 生成面扩为稳定/易变两半
 

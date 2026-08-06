@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-07-29
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — `_keyword_search` 转正为公开 `keyword_search`
+
+F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
 
 ## 为什么存在
@@ -13,7 +17,7 @@ stub: false
 
 ## 三层结构
 
-1. **候选召回**：`_keyword_search` 用 [[retrieval.py|memory 的 bm25_rank]] 对
+1. **候选召回**：`keyword_search` 用 [[retrieval.py|memory 的 bm25_rank]] 对
    每条 narrative 的 `name + current_summary + description + topic_keywords`
    打分；`_get_participant_narratives` 另外捞出"用户是参与者"的会话线（关键词
    搜不到它们），以合成中性分 0.5 入池。

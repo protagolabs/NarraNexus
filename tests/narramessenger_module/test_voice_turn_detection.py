@@ -157,3 +157,26 @@ def test_group_room_never_enters_voice_mode():
     assert msg is not None
     assert "rtc_voice" not in msg.raw
     assert msg.content == ENVELOPE + TRANSCRIPT  # body untouched
+
+
+def test_late_voice_upgrade_recovers_cold_roster_cache():
+    """Review finding #17: parse_event's PRIVATE gate reads the cached
+    member count — an unseen room parses as GROUP and the FIRST turn of a
+    real call would lose voice mode. After _classify's authoritative
+    lookup says dm, the late upgrade re-runs the same pure detection."""
+    trigger = MatrixTrigger()
+    # Cold cache: no member count -> parse_event refuses voice mode.
+    raw = trigger._wrap_event(
+        event=_voice_event(), room_id="!fresh:h", credential=_cred()
+    )
+    msg = trigger.parse_event(raw)
+    assert "rtc_voice" not in msg.raw
+
+    upgraded = trigger._late_voice_upgrade(msg)
+    assert upgraded.content == TRANSCRIPT
+    assert upgraded.raw["rtc_voice"]["rtc_session_id"] == "rtc-s1"
+
+    # Idempotent on already-upgraded and inert on plain messages.
+    assert trigger._late_voice_upgrade(upgraded) is upgraded
+    plain = _parse(_voice_event(meta=None, body="hello"))
+    assert trigger._late_voice_upgrade(plain) is plain

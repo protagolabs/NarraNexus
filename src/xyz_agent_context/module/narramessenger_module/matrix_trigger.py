@@ -114,6 +114,27 @@ from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
+def _detect_voice_turn(body: str, source: Any) -> Optional[tuple]:
+    """Pure detection shared by parse_event and the late (post-classify)
+    upgrade: ``(transcript, rtc_voice_dict)`` for a valid RTC voice event,
+    else None. The transcript may be empty (valid metadata, envelope-only
+    body) — callers decide whether that drops the turn or skips the
+    upgrade. voice_instructions precedence: explicit metadata field wins,
+    the narra-system-prompt envelope is the v1 fallback carrier.
+    """
+    rtc = parse_rtc_voice_input(source) if isinstance(source, dict) else None
+    if rtc is None:
+        return None
+    envelope, transcript = split_narra_system_prompt(body)
+    return transcript, {
+        "rtc_session_id": rtc.rtc_session_id,
+        "turn_id": rtc.turn_id,
+        "invocation_id": rtc.invocation_id,
+        "agent_profile_id": rtc.agent_profile_id,
+        "voice_instructions": rtc.voice_instructions or envelope,
+    }
+
+
 def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
     """Map RTC voice detection to the one-shot fast profile.
 
@@ -1364,6 +1385,16 @@ class MatrixTrigger(ChannelTriggerBase):
             f"mentioned={mentioned})"
         )
 
+        if target == "dm":
+            # Cold-roster fallback (review #17): parse_event gates voice
+            # mode on the cached member count, which reads GROUP for an
+            # unseen room — degrading the FIRST turn of a real call.
+            # _classify just did the authoritative lookup; re-run the same
+            # pure detection so a cold cache only costs time, not
+            # correctness. Group rooms never reach this branch, so the
+            # 1:1-only injection boundary is unchanged.
+            message = self._late_voice_upgrade(message)
+
         # Silent path: memory-only, no reply / tool / model. Owner
         # policy override — do not call authorize-event. See
         # SILENT_BYPASS_AUTHORIZE docstring for the full rationale.
@@ -1460,6 +1491,33 @@ class MatrixTrigger(ChannelTriggerBase):
         return await self._build_and_run_agent_atomic(
             credential, message, sender_name, attachments=attachments
         )
+
+    def _late_voice_upgrade(self, message: ParsedMessage) -> ParsedMessage:
+        """Re-run voice detection after _classify confirmed a 1:1 room.
+
+        parse_event's PRIVATE gate is conservative on a cold roster cache
+        (unknown member count parses as GROUP); this recovers the voice
+        register for authoritative DMs. Inert on plain messages and
+        idempotent on already-stamped ones.
+        """
+        raw = message.raw or {}
+        if raw.get("rtc_voice"):
+            return message
+        detected = _detect_voice_turn(
+            message.content, getattr(raw.get("_nio_event"), "source", None)
+        )
+        if detected is None:
+            return message
+        transcript, rtc_voice = detected
+        if not transcript.strip():
+            return message
+        upgraded_raw = dict(raw)
+        upgraded_raw["rtc_voice"] = rtc_voice
+        logger.info(
+            f"[matrix:{getattr(message, 'chat_id', '?')}] voice turn "
+            f"late-upgraded after authoritative dm classify"
+        )
+        return replace(message, content=transcript, raw=upgraded_raw)
 
     async def _run_voice_serialized(
         self,
@@ -1887,13 +1945,18 @@ class MatrixTrigger(ChannelTriggerBase):
         as "nothing sent" (the 2026-07-03 bug this replaced).
         """
         raw_items = getattr(result, "raw_items", None) or []
+        narra_reply_text = ""
+        speak_segments: list[str] = []
         for raw in raw_items:
             if not isinstance(raw, dict):
                 continue
             item = raw.get("item")
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
-            if "narra_reply" not in str(item.get("tool_name") or ""):
+            tool_name = str(item.get("tool_name") or "")
+            is_reply = "narra_reply" in tool_name
+            is_speak = tool_name.endswith("__speak")
+            if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}
             if isinstance(args, str):
@@ -1901,10 +1964,24 @@ class MatrixTrigger(ChannelTriggerBase):
                     args = json.loads(args)
                 except Exception:  # noqa: BLE001
                     args = {}
-            if isinstance(args, dict):
-                text = args.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text
+            if not isinstance(args, dict):
+                continue
+            text = args.get("text")
+            if not (isinstance(text, str) and text.strip()):
+                continue
+            if is_reply:
+                # LAST-writer wins, same as the streaming capture.
+                narra_reply_text = text
+            else:
+                # speak on the atomic path (review #16): no bridge runs
+                # here, so joining the segments into the plain delivery is
+                # what keeps speak from being a dead ok:true tool when the
+                # STREAMING_ENABLED kill switch is off.
+                speak_segments.append(text)
+        if narra_reply_text:
+            return narra_reply_text
+        if speak_segments:
+            return " ".join(speak_segments)
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""
@@ -2391,14 +2468,15 @@ class MatrixTrigger(ChannelTriggerBase):
             # product shape, so gating on PRIVATE loses nothing. Caveat:
             # an unknown member count parses as GROUP (conservative), so
             # a cold roster cache degrades that turn to plain text.
-            source = getattr(raw.get("_nio_event"), "source", None)
-            rtc = (
-                parse_rtc_voice_input(source)
-                if isinstance(source, dict) and chat_type == ChatType.PRIVATE
+            detected = (
+                _detect_voice_turn(
+                    body, getattr(raw.get("_nio_event"), "source", None)
+                )
+                if chat_type == ChatType.PRIVATE
                 else None
             )
-            if rtc is not None:
-                envelope, transcript = split_narra_system_prompt(body)
+            if detected is not None:
+                transcript, rtc_voice = detected
                 if not transcript.strip():
                     # Envelope-only body: nothing to answer. Drop the turn
                     # rather than running the agent on empty input.
@@ -2409,17 +2487,7 @@ class MatrixTrigger(ChannelTriggerBase):
                     return None
                 body = transcript
                 raw = dict(raw)
-                # voice_instructions precedence: explicit metadata field
-                # wins; the narra-system-prompt envelope is the v1
-                # compatibility carrier (handoff 4.2 — never deleted,
-                # injected as controlled current-turn instruction only).
-                raw["rtc_voice"] = {
-                    "rtc_session_id": rtc.rtc_session_id,
-                    "turn_id": rtc.turn_id,
-                    "invocation_id": rtc.invocation_id,
-                    "agent_profile_id": rtc.agent_profile_id,
-                    "voice_instructions": rtc.voice_instructions or envelope,
-                }
+                raw["rtc_voice"] = rtc_voice
             return ParsedMessage(
                 message_id=event_id,
                 chat_id=room_id,

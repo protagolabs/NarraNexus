@@ -63,3 +63,15 @@ def test_other_frameworks_pass_through():
     assert _framework_override_viable(
         "claude_code", claude=_cfg(), codex=_cfg()
     ) is True
+
+
+def test_oauth_claude_shortcircuits_even_with_codex_model():
+    """Review finding #15: _resolve_provider is claude-first short-circuit —
+    a non-empty claude.model means codex is NEVER consulted. The guard must
+    mirror the priority, not just the conditions, or it answers 'viable'
+    for a config the adapter will hard-fail on."""
+    assert _framework_override_viable(
+        "nexus_power",
+        claude=_cfg(model="claude-sonnet-5", auth_type="oauth"),
+        codex=_cfg(model="gpt-5"),
+    ) is False

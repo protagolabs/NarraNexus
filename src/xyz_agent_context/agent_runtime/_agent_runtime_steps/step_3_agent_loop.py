@@ -79,11 +79,11 @@ def _framework_override_viable(
 
         claude = claude if claude is not None else claude_config
         codex = codex if codex is not None else codex_config
-    if claude.model and (claude.auth_type or "api_key") not in (
-        "oauth",
-        "oauth_token",
-    ):
-        return True
+    # Mirror _resolve_provider's claude-FIRST short circuit, not just its
+    # conditions: a non-empty claude.model means codex is never consulted,
+    # so an oauth claude slot is non-viable even if codex carries a model.
+    if claude.model:
+        return (claude.auth_type or "api_key") not in ("oauth", "oauth_token")
     return bool(codex.model)
 
 

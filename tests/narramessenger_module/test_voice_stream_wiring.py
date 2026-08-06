@@ -171,3 +171,28 @@ async def test_speak_on_text_turn_is_delivered_not_dead():
         "!r",
     )
     assert state.narra_reply_text == "spoken by mistake second part"
+
+
+def test_atomic_extract_output_captures_speak_segments():
+    """Review finding #16: the atomic path (STREAMING_ENABLED=False) must
+    not leave speak as a dead tool either — extract_output joins speak
+    segments when no narra_reply was called."""
+    trigger = MatrixTrigger()
+
+    def _tool(name, text):
+        return {"item": {"type": "tool_call_item", "tool_name": name,
+                         "arguments": {"text": text}}}
+
+    result = SimpleNamespace(raw_items=[
+        _tool("mcp__narramessenger_module__speak", "first part."),
+        _tool("mcp__narramessenger_module__speak", "second part."),
+    ])
+    out = trigger.extract_output(result, None, None)
+    assert out == "first part. second part."
+
+    # narra_reply stays THE reply when both are present.
+    result2 = SimpleNamespace(raw_items=[
+        _tool("mcp__narramessenger_module__speak", "spoken"),
+        _tool("mcp__narramessenger_module__narra_reply", "the real answer"),
+    ])
+    assert trigger.extract_output(result2, None, None) == "the real answer"
