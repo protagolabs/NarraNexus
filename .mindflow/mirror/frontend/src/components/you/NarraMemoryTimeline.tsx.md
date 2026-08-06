@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/you/NarraMemoryTimeline.tsx
-last_verified: 2026-06-23
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 布局数学抽到 narraMemoryLayout.ts（时间轴越界修复）
+
+Base recvoAmUUSjKXs「时间轴显示异常」：inline useMemo 的几何有三条越界路径
+（新近创建的窄条 left≈100% 再加 min-width 戳出「now」、时钟偏差把时间戳排到
+未来、全解析失败的兜底恰好落在 100%+min-width），且短跨度下 4 个刻度标签是
+同一天字符串（轴看起来坏了）。数学抽成 [[narraMemoryLayout]] 纯函数并钉了
+单元测试；组件的 useMemo 只剩一行调用。修复语义在那份 md 里。
 
 # NarraMemoryTimeline.tsx — the Narra Memory tab (real data)
 
