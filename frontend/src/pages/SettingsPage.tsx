@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
+import { Package, Upload, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
@@ -71,23 +71,6 @@ function ArtifactsContent() {
         hint={t('pages.settings.artifacts.hint')}
       />
       <ArtifactsSection />
-    </section>
-  );
-}
-
-function ManageAgentsContent() {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  return (
-    <section>
-      <SectionHeader
-        label={t('pages.settings.manageAgents.label')}
-        hint={t('pages.settings.manageAgents.hint')}
-      />
-      <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
-        <Users className="w-4 h-4" />
-        {t('pages.settings.manageAgents.openButton')}
-      </Button>
     </section>
   );
 }
@@ -281,7 +264,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
   { id: 'bundle', labelKey: 'pages.settings.nav.bundle', icon: Package },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
-  { id: 'agents', labelKey: 'pages.settings.nav.manageAgents', icon: Users },
   { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
@@ -369,7 +351,6 @@ export default function SettingsPage() {
             )}
             {active === 'bundle' && <BundleContent />}
             {active === 'artifacts' && <ArtifactsContent />}
-            {active === 'agents' && <ManageAgentsContent />}
             {active === 'updates' && isTauri() && <UpdatesSection />}
           </div>
         </ScrollArea>

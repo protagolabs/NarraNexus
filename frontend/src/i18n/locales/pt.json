@@ -718,7 +718,6 @@
       "crumbDashboard": "Painel",
       "crumbSettings": "Configurações",
       "crumbSystem": "Sistema",
-      "crumbManageAgents": "Gerenciar agentes",
       "crumbTeam": "Equipe",
       "crumbBundle": "Pacote",
       "crumbChat": "Chat",
@@ -1205,7 +1204,22 @@
       "title": "Painel de agentes",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Nenhum agente ainda",
-      "emptyHint": "Crie um agente pela barra lateral para preencher este painel."
+      "emptyHint": "Crie um agente pela barra lateral para preencher este painel.",
+      "statRunning": "Em execução",
+      "statQueued": "Na fila",
+      "statErrors": "Erros",
+      "statCostToday": "Custo de hoje",
+      "colStatus": "Status",
+      "colTeam": "Equipe",
+      "colMembers": "Membros",
+      "teamsCount": "{{count}} equipes",
+      "membersCount": "{{count}} agentes",
+      "noStatusYet": "Ainda sem status ao vivo — a próxima sondagem preencherá.",
+      "publicAgent": "público",
+      "noTeamsLabel": "Ainda sem equipes",
+      "noTeamsHint": "Crie uma no menu Novo da barra lateral.",
+      "manageTeam": "Gerenciar",
+      "teamsTip": "Crie equipes no menu Novo; renomeie, recolora e edite membros aqui."
     },
     "createUser": {
       "title": "Criar novo usuário",
@@ -1244,11 +1258,6 @@
       "artifacts": {
         "label": "Artefatos",
         "hint": "Gerencie todos os gráficos, relatórios e arquivos que seus agentes produziram para você. Selecione em massa para liberar cota quando um agente informar que atingiu o limite."
-      },
-      "manageAgents": {
-        "label": "Gerenciar agentes · lote",
-        "hint": "Selecione agentes em massa para excluir, ou adicione/remova-os de equipes em lote. Útil após importar um pacote que você não quer manter — filtre por 'De pacotes' para encontrá-los.",
-        "openButton": "Abrir gerenciador em lote…"
       },
       "updates": {
         "label": "Atualizações do app",

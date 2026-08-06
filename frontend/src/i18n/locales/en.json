@@ -788,7 +788,6 @@
       "crumbDashboard": "Dashboard",
       "crumbSettings": "Settings",
       "crumbSystem": "System",
-      "crumbManageAgents": "Manage agents",
       "crumbTeam": "Team",
       "crumbBundle": "Bundle",
       "crumbChat": "Chat",
@@ -1496,7 +1495,22 @@
       "title": "Agent Dashboard",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "No agents yet",
-      "emptyHint": "Create an agent from the sidebar to populate this dashboard."
+      "emptyHint": "Create an agent from the sidebar to populate this dashboard.",
+      "statRunning": "Running",
+      "statQueued": "Queued",
+      "statErrors": "Errors",
+      "statCostToday": "Cost today",
+      "colStatus": "Status",
+      "colTeam": "Team",
+      "colMembers": "Members",
+      "teamsCount": "{{count}} teams",
+      "membersCount": "{{count}} agents",
+      "noStatusYet": "No live status yet — the next poll will fill this in.",
+      "publicAgent": "public",
+      "noTeamsLabel": "No teams yet",
+      "noTeamsHint": "Create one from the New menu in the sidebar.",
+      "manageTeam": "Manage",
+      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here."
     },
     "createUser": {
       "title": "Create New User",
@@ -1532,7 +1546,6 @@
         "modelDefaults": "Model Defaults",
         "bundle": "Bundle",
         "artifacts": "Artifacts",
-        "manageAgents": "Manage agents",
         "updates": "App updates"
       },
       "providers": {
@@ -1547,11 +1560,6 @@
       "artifacts": {
         "label": "Artifacts",
         "hint": "Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
-      },
-      "manageAgents": {
-        "label": "Manage agents · batch",
-        "hint": "Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them.",
-        "openButton": "Open batch manager…"
       },
       "modelDefaults": {
         "frameworkFilteredNote": "Only the frameworks your connected providers can actually run are listed.",

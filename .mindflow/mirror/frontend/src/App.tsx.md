@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — /app/manage-agents 路由移除
+
+Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与
+路由删除。其余路由结构(element={null} 的 chat/team-chat 技巧、懒加载、
+ProtectedRoute)不变。
 
 ## 2026-08-04 — PageFallback 根 h-screen → h-dvh-safe
 

@@ -717,7 +717,6 @@
       "crumbDashboard": "ダッシュボード",
       "crumbSettings": "設定",
       "crumbSystem": "システム",
-      "crumbManageAgents": "エージェントを管理",
       "crumbTeam": "チーム",
       "crumbBundle": "バンドル",
       "crumbChat": "チャット",
@@ -1204,7 +1203,22 @@
       "title": "エージェントダッシュボード",
       "agentsCount": "{{count}} 件のエージェント",
       "emptyLabel": "エージェントはまだありません",
-      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。"
+      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。",
+      "statRunning": "実行中",
+      "statQueued": "待機中",
+      "statErrors": "エラー",
+      "statCostToday": "本日のコスト",
+      "colStatus": "ステータス",
+      "colTeam": "チーム",
+      "colMembers": "メンバー",
+      "teamsCount": "{{count}} チーム",
+      "membersCount": "{{count}} エージェント",
+      "noStatusYet": "ライブステータスはまだありません — 次のポーリングで反映されます。",
+      "publicAgent": "公開",
+      "noTeamsLabel": "チームがまだありません",
+      "noTeamsHint": "サイドバーの New メニューから作成できます。",
+      "manageTeam": "管理",
+      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1243,11 +1257,6 @@
       "artifacts": {
         "label": "アーティファクト",
         "hint": "エージェントが作成したすべてのチャート、レポート、ファイルを管理します。エージェントが上限に達したと報告したら、一括選択して容量を解放しましょう。"
-      },
-      "manageAgents": {
-        "label": "エージェント管理 · 一括",
-        "hint": "エージェントを一括選択して削除したり、チームへの追加／削除をまとめて行えます。保持したくないバンドルをインポートした後に便利です。「バンドル由来」で絞り込むと見つけられます。",
-        "openButton": "一括管理を開く…"
       },
       "updates": {
         "label": "アプリの更新",

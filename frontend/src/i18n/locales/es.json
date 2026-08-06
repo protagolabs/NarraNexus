@@ -718,7 +718,6 @@
       "crumbDashboard": "Panel",
       "crumbSettings": "Ajustes",
       "crumbSystem": "Sistema",
-      "crumbManageAgents": "Gestionar agentes",
       "crumbTeam": "Equipo",
       "crumbBundle": "Paquete",
       "crumbChat": "Chat",
@@ -1205,7 +1204,22 @@
       "title": "Panel de agentes",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Aún no hay agentes",
-      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel."
+      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel.",
+      "statRunning": "En ejecución",
+      "statQueued": "En cola",
+      "statErrors": "Errores",
+      "statCostToday": "Costo de hoy",
+      "colStatus": "Estado",
+      "colTeam": "Equipo",
+      "colMembers": "Miembros",
+      "teamsCount": "{{count}} equipos",
+      "membersCount": "{{count}} agentes",
+      "noStatusYet": "Aún no hay estado en vivo — el próximo sondeo lo completará.",
+      "publicAgent": "público",
+      "noTeamsLabel": "Aún no hay equipos",
+      "noTeamsHint": "Crea uno desde el menú Nuevo de la barra lateral.",
+      "manageTeam": "Gestionar",
+      "teamsTip": "Crea equipos desde el menú Nuevo; renombra, cambia el color y edita miembros aquí."
     },
     "createUser": {
       "title": "Crear nuevo usuario",
@@ -1244,11 +1258,6 @@
       "artifacts": {
         "label": "Artefactos",
         "hint": "Gestiona cada gráfico, informe y archivo que tus agentes han producido para ti. Selecciona en bloque para liberar tu cuota cuando un agente indique que ha alcanzado el límite."
-      },
-      "manageAgents": {
-        "label": "Gestionar agentes · en bloque",
-        "hint": "Selecciona agentes en bloque para eliminarlos, o agrégalos/quítalos de equipos por lotes. Útil tras importar un paquete que no quieres conservar — filtra por 'De paquetes' para encontrarlos.",
-        "openButton": "Abrir gestor por lotes…"
       },
       "updates": {
         "label": "Actualizaciones de la app",

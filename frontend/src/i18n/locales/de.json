@@ -718,7 +718,6 @@
       "crumbDashboard": "Dashboard",
       "crumbSettings": "Einstellungen",
       "crumbSystem": "System",
-      "crumbManageAgents": "Agents verwalten",
       "crumbTeam": "Team",
       "crumbBundle": "Bundle",
       "crumbChat": "Chat",
@@ -1205,7 +1204,22 @@
       "title": "Agent-Dashboard",
       "agentsCount": "{{count}} Agenten",
       "emptyLabel": "Noch keine Agenten",
-      "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen."
+      "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen.",
+      "statRunning": "Aktiv",
+      "statQueued": "Wartend",
+      "statErrors": "Fehler",
+      "statCostToday": "Kosten heute",
+      "colStatus": "Status",
+      "colTeam": "Team",
+      "colMembers": "Mitglieder",
+      "teamsCount": "{{count}} Teams",
+      "membersCount": "{{count}} Agenten",
+      "noStatusYet": "Noch kein Live-Status — der nächste Poll füllt das auf.",
+      "publicAgent": "öffentlich",
+      "noTeamsLabel": "Noch keine Teams",
+      "noTeamsHint": "Erstelle eins über das Neu-Menü in der Seitenleiste.",
+      "manageTeam": "Verwalten",
+      "teamsTip": "Teams über das Neu-Menü der Seitenleiste erstellen; hier umbenennen, umfärben und Mitglieder bearbeiten."
     },
     "createUser": {
       "title": "Neuen Benutzer erstellen",
@@ -1244,11 +1258,6 @@
       "artifacts": {
         "label": "Artefakte",
         "hint": "Verwalte jedes Diagramm, jeden Bericht und jede Datei, die deine Agenten für dich erstellt haben. Mehrfachauswahl, um dein Kontingent freizugeben, wenn ein Agent meldet, dass das Limit erreicht ist."
-      },
-      "manageAgents": {
-        "label": "Agenten verwalten · Stapel",
-        "hint": "Wähle mehrere Agenten zum Löschen aus oder füge sie stapelweise zu Teams hinzu bzw. entferne sie. Nützlich nach dem Import eines Bundles, das du nicht behalten möchtest – filtere nach „Aus Bundles“, um sie zu finden.",
-        "openButton": "Stapelverwaltung öffnen…"
       },
       "updates": {
         "label": "App-Updates",

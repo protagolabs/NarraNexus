@@ -718,7 +718,6 @@
       "crumbDashboard": "Tableau de bord",
       "crumbSettings": "Paramètres",
       "crumbSystem": "Système",
-      "crumbManageAgents": "Gérer les agents",
       "crumbTeam": "Équipe",
       "crumbBundle": "Lot",
       "crumbChat": "Chat",
@@ -1205,7 +1204,22 @@
       "title": "Tableau de bord des agents",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "Aucun agent pour l'instant",
-      "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord."
+      "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord.",
+      "statRunning": "En cours",
+      "statQueued": "En attente",
+      "statErrors": "Erreurs",
+      "statCostToday": "Coût du jour",
+      "colStatus": "Statut",
+      "colTeam": "Équipe",
+      "colMembers": "Membres",
+      "teamsCount": "{{count}} équipes",
+      "membersCount": "{{count}} agents",
+      "noStatusYet": "Pas encore de statut en direct — le prochain sondage le remplira.",
+      "publicAgent": "public",
+      "noTeamsLabel": "Pas encore d'équipes",
+      "noTeamsHint": "Créez-en une depuis le menu Nouveau de la barre latérale.",
+      "manageTeam": "Gérer",
+      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici."
     },
     "createUser": {
       "title": "Créer un utilisateur",
@@ -1244,11 +1258,6 @@
       "artifacts": {
         "label": "Artefacts",
         "hint": "Gérez tous les graphiques, rapports et fichiers produits pour vous par vos agents. Sélectionnez en masse pour libérer votre quota lorsqu'un agent signale avoir atteint la limite."
-      },
-      "manageAgents": {
-        "label": "Gérer les agents · par lot",
-        "hint": "Sélectionnez des agents en masse pour les supprimer, ou les ajouter/retirer d'équipes par lot. Utile après l'import d'un bundle que vous ne souhaitez pas conserver — filtrez par « Issus de bundles » pour les trouver.",
-        "openButton": "Ouvrir le gestionnaire par lot…"
       },
       "updates": {
         "label": "Mises à jour de l'application",

@@ -788,7 +788,6 @@
       "crumbDashboard": "仪表盘",
       "crumbSettings": "设置",
       "crumbSystem": "系统",
-      "crumbManageAgents": "管理智能体",
       "crumbTeam": "团队",
       "crumbBundle": "捆绑包",
       "crumbChat": "对话",
@@ -1496,7 +1495,22 @@
       "title": "智能体仪表盘",
       "agentsCount": "{{count}} 个智能体",
       "emptyLabel": "暂无智能体",
-      "emptyHint": "从侧边栏创建一个智能体来填充此仪表盘。"
+      "emptyHint": "从侧边栏创建一个智能体来填充此仪表盘。",
+      "statRunning": "运行中",
+      "statQueued": "排队中",
+      "statErrors": "错误",
+      "statCostToday": "今日成本",
+      "colStatus": "状态",
+      "colTeam": "团队",
+      "colMembers": "成员",
+      "teamsCount": "{{count}} 个团队",
+      "membersCount": "{{count}} 个 Agent",
+      "noStatusYet": "暂无实时状态 — 下次轮询会补上。",
+      "publicAgent": "公开",
+      "noTeamsLabel": "还没有团队",
+      "noTeamsHint": "从侧栏 New 菜单创建一个。",
+      "manageTeam": "管理",
+      "teamsTip": "通过侧栏 New 菜单创建团队；在这里重命名、改色、编辑成员。"
     },
     "createUser": {
       "title": "创建新用户",
@@ -1532,7 +1546,6 @@
         "modelDefaults": "模型默认值",
         "bundle": "捆绑包",
         "artifacts": "制品",
-        "manageAgents": "管理 Agent",
         "updates": "应用更新"
       },
       "providers": {
@@ -1547,11 +1560,6 @@
       "artifacts": {
         "label": "制品",
         "hint": "管理智能体为你生成的所有图表、报告和文件。当智能体提示已达上限时，可批量选择以释放配额。"
-      },
-      "manageAgents": {
-        "label": "管理智能体 · 批量",
-        "hint": "批量选择智能体进行删除，或批量从团队中添加/移除。导入了不想保留的捆绑包后很有用——按“来自捆绑包”筛选即可找到它们。",
-        "openButton": "打开批量管理器…"
       },
       "modelDefaults": {
         "frameworkFilteredNote": "这里只列出当前已连接的服务商能驱动的框架。",

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — manage-agents nav 项移除
+
+Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
+`agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
+desktopOnly/powerOnly 过滤规则不变。
 
 ## 2026-07-30 — `?tab=<nav id>` 深链（付款回跳的落点）
 

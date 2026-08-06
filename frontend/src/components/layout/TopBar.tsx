@@ -31,7 +31,6 @@ function pageLabelKey(pathname: string): string | null {
   if (pathname.startsWith('/app/dashboard')) return 'layout.topBar.crumbDashboard';
   if (pathname.startsWith('/app/settings')) return 'layout.topBar.crumbSettings';
   if (pathname.startsWith('/app/system')) return 'layout.topBar.crumbSystem';
-  if (pathname.startsWith('/app/manage-agents')) return 'layout.topBar.crumbManageAgents';
   if (pathname.startsWith('/app/teams')) return 'layout.topBar.crumbTeam';
   if (pathname.startsWith('/app/bundle')) return 'layout.topBar.crumbBundle';
   return null; // chat

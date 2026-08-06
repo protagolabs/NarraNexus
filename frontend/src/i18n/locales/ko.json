@@ -717,7 +717,6 @@
       "crumbDashboard": "대시보드",
       "crumbSettings": "설정",
       "crumbSystem": "시스템",
-      "crumbManageAgents": "에이전트 관리",
       "crumbTeam": "팀",
       "crumbBundle": "번들",
       "crumbChat": "채팅",
@@ -1204,7 +1203,22 @@
       "title": "에이전트 대시보드",
       "agentsCount": "에이전트 {{count}}개",
       "emptyLabel": "아직 에이전트가 없습니다",
-      "emptyHint": "사이드바에서 에이전트를 만들어 대시보드를 채워보세요."
+      "emptyHint": "사이드바에서 에이전트를 만들어 대시보드를 채워보세요.",
+      "statRunning": "실행 중",
+      "statQueued": "대기 중",
+      "statErrors": "오류",
+      "statCostToday": "오늘 비용",
+      "colStatus": "상태",
+      "colTeam": "팀",
+      "colMembers": "멤버",
+      "teamsCount": "팀 {{count}}개",
+      "membersCount": "에이전트 {{count}}개",
+      "noStatusYet": "아직 실시간 상태가 없습니다 — 다음 폴링에서 채워집니다.",
+      "publicAgent": "공개",
+      "noTeamsLabel": "아직 팀이 없습니다",
+      "noTeamsHint": "사이드바의 새로 만들기 메뉴에서 만드세요.",
+      "manageTeam": "관리",
+      "teamsTip": "팀은 사이드바 새로 만들기 메뉴에서 생성하고, 여기서 이름·색상·멤버를 편집합니다."
     },
     "createUser": {
       "title": "새 사용자 만들기",
@@ -1243,11 +1257,6 @@
       "artifacts": {
         "label": "아티팩트",
         "hint": "에이전트가 만든 모든 차트, 보고서, 파일을 관리합니다. 에이전트가 한도 초과를 알리면 일괄 선택해 할당량을 확보하세요."
-      },
-      "manageAgents": {
-        "label": "에이전트 관리 · 일괄",
-        "hint": "에이전트를 일괄 선택해 삭제하거나, 팀에 일괄 추가/제거합니다. 보관하지 않을 번들을 가져온 뒤에 유용합니다 — '번들에서'로 필터링해 찾으세요.",
-        "openButton": "일괄 관리자 열기…"
       },
       "updates": {
         "label": "앱 업데이트",
