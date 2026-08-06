@@ -4,6 +4,21 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (3) — Chooser 统一 + Agent bundle 收紧为单选
+
+Owner 三连反馈的修复:
+1. **四张选择卡完全同构**:Bundle(agent/team)与 Mode(full/custom)
+   共用 ChoiceCard(同 padding/min-h/圆角;选中 = border-strong +
+   nm-card 白底,未选 = hairline + nm-paper,hover paper-warm),
+   ChooserRow 统一标签列宽。
+2. **Agent bundle = 恰好一个 Agent**(radio 式点击替换选择;切 kind 时
+   仅保留第一个已选)。多 agent 非团队导出能力随之移除 — 语义换清晰度,
+   Owner 认为多选有误导性。AgentsTab 的引导段落、per-team quick-add
+   chips、All/Clear 全部删除(团队整组打包是 Team bundle 的职责),
+   toggleAgent 与相关 i18n key 清掉。
+3. 残余深浅:agent 卡片改 nm-paper/nm-card 词汇,fullNote 用
+   --color-warning。
+
 ## 2026-08-06 (2) — Agent/Team bundle 单选卡落地 + 色板统一
 
 Owner 拍板(此前挂 todo):header 下新增 **Bundle 类型单选卡**(第一道

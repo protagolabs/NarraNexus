@@ -1812,20 +1812,11 @@
         "freeText": "自由文本（认知 / 事件 / 消息）不会被自动扫描内联密钥——请自行核查。"
       },
       "agents": {
-        "whatYouPick": "你在这里选择的：",
-        "intro1": "此捆绑包将包含的智能体集合。向导中的其他所有内容（叙事、技能、MCP、文件…）都会被过滤到这个闭包。",
-        "intro2": "选择一个团队可一键添加其全部现有成员；之后你仍可单独取消勾选。外部引用（例如指向此闭包外智能体的社交实体）会在导出时自动丢弃。",
         "bundleTeamLabel": "捆绑此团队（可选）",
         "noTeamOption": "— 无团队 / 单个智能体 —",
-        "quickAddByTeam": "按团队快速添加",
-        "deselectTeamTitle": "取消选择“{{name}}”的所有成员",
-        "addTeamTitle": "添加“{{name}}”的所有成员",
-        "replaceTeamTitle": "用“{{name}}”的成员替换当前选择",
-        "only": "仅",
-        "allAgents": "全部智能体（{{count}}）",
-        "clear": "清空",
         "agentsToInclude": "要包含的智能体 · {{selected}}/{{total}}",
-        "pickTeamFirst": "先在上方选择团队 — 其成员会自动包含。"
+        "pickTeamFirst": "先在上方选择团队 — 其成员会自动包含。",
+        "pickOne": "选择要导出的 Agent"
       },
       "skills": {
         "emptySelectAgents": "请在上一个标签页选择智能体——它们的技能将显示在这里。",
@@ -2015,7 +2006,7 @@
       "kind": {
         "label": "类型",
         "agentTitle": "Agent bundle",
-        "agentDesc": "选择一个或多个 Agent。叙事、技能与工作区文件按所选范围打包。",
+        "agentDesc": "导出单个 Agent — 其叙事、技能与工作区文件随之打包。",
         "teamTitle": "Team bundle",
         "teamDesc": "导出整个团队 — 其成员 Agent、团队介绍与共享频道一起打包。"
       }

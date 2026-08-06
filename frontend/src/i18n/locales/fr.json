@@ -1453,20 +1453,11 @@
         "freeText": "Le texte libre (perception / événements / messages) n'est PAS analysé automatiquement à la recherche de secrets en ligne — vérifiez vous-même."
       },
       "agents": {
-        "whatYouPick": "Ce que vous choisissez ici :",
-        "intro1": "l'ensemble des agents que contiendra ce bundle. Tout le reste de l'assistant (récits, compétences, MCP, fichiers…) est filtré selon cette closure.",
-        "intro2": "Choisir une équipe ajoute tous ses membres existants en un clic ; vous pouvez ensuite décocher des individus. Les références externes (par ex. une entité sociale pointant vers un agent hors de cette closure) sont supprimées automatiquement à l'export.",
         "bundleTeamLabel": "Inclure cette équipe (facultatif)",
         "noTeamOption": "— Aucune équipe / agents individuels —",
-        "quickAddByTeam": "Ajout rapide par équipe",
-        "deselectTeamTitle": "Désélectionner tous les membres de « {{name}} »",
-        "addTeamTitle": "Ajouter tous les membres de « {{name}} »",
-        "replaceTeamTitle": "Remplacer la sélection par les membres de « {{name}} »",
-        "only": "uniquement",
-        "allAgents": "tous les agents ({{count}})",
-        "clear": "effacer",
         "agentsToInclude": "Agents à inclure · {{selected}}/{{total}}",
-        "pickTeamFirst": "Choisissez une équipe ci-dessus — ses membres sont inclus automatiquement."
+        "pickTeamFirst": "Choisissez une équipe ci-dessus — ses membres sont inclus automatiquement.",
+        "pickOne": "Choisissez l'agent à exporter"
       },
       "skills": {
         "emptySelectAgents": "Sélectionnez des agents dans l'onglet précédent — leurs compétences apparaîtront ici.",
@@ -1656,7 +1647,7 @@
       "kind": {
         "label": "Type",
         "agentTitle": "Bundle d'agents",
-        "agentDesc": "Choisissez un ou plusieurs agents. Narratifs, compétences et fichiers du workspace suivent la sélection.",
+        "agentDesc": "Exportez un agent — ses narratifs, compétences et fichiers de workspace l'accompagnent.",
         "teamTitle": "Bundle d'équipe",
         "teamDesc": "Exportez une équipe entière — ses agents, son intro et ses canaux partagés voyagent ensemble."
       }

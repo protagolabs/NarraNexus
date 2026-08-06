@@ -645,18 +645,6 @@ export default function BundleExportPage() {
     return /\.env(\b|\.)|\.aws\/|\.ssh\/|\.git\/config|id_rsa|\.pem|\.key|credentials\.|_token|_secret/.test(lc);
   }
 
-  function toggleAgent(aid: string) {
-    // Full mode still allows agent selection — see PRD note at the top of the
-    // Full-mode pre-fill effect. Only the *granularity* tabs (skills/social/
-    // workspace/history) become read-only.
-    setSelectedAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(aid)) next.delete(aid);
-      else next.add(aid);
-      return next;
-    });
-  }
-
   function toggleSocial(aid: string, eid: string) {
     if (mode === 'full') return;
     setSocialSelected((prev) => {
@@ -1020,106 +1008,50 @@ export default function BundleExportPage() {
         </BracketSectionLabel>
       </div>
 
-      {/* Bundle kind — v4: agent(s) vs whole team, the first fork. */}
-      <div className="px-6 py-3 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
-        <div className="flex items-start gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
-            {t('pages.bundleExport.kind.label')}
-          </span>
-          <div className="flex-1 grid grid-cols-2 gap-2">
-            {(['agent', 'team'] as const).map((k) => (
-              <button
-                key={k}
-                onClick={() => {
-                  setBundleKind(k);
-                  if (k === 'agent') setSelectedTeam('');
-                }}
-                className={cn(
-                  'text-left p-3 border rounded-[var(--radius-sm)] transition-colors',
-                  bundleKind === k
-                    ? 'border-[var(--border-strong)] bg-[var(--nm-card)]'
-                    : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)] hover:bg-[var(--nm-paper-warm)]'
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    'w-3 h-3 rounded-full border-2',
-                    bundleKind === k
-                      ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)]'
-                      : 'border-[var(--text-tertiary)]'
-                  )} />
-                  <span className="font-mono text-sm">
-                    {k === 'agent'
-                      ? t('pages.bundleExport.kind.agentTitle')
-                      : t('pages.bundleExport.kind.teamTitle')}
-                  </span>
-                </div>
-                <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                  {k === 'agent'
-                    ? t('pages.bundleExport.kind.agentDesc')
-                    : t('pages.bundleExport.kind.teamDesc')}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Mode picker (PRD §5 议题 2) */}
-      <div className="px-6 py-3 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
-        <div className="flex items-start gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
-            {t('pages.bundleExport.mode.label')}
-          </span>
-          <div className="flex-1 grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setMode('full')}
-              className={cn(
-                'text-left p-3 border transition-colors',
-                mode === 'full'
-                  ? 'border-[var(--text-primary)] bg-[var(--nm-raised)]'
-                  : 'border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'w-3 h-3 rounded-full border-2',
-                  mode === 'full' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
-                )} />
-                <span className="font-mono text-sm">{t('pages.bundleExport.mode.fullTitle')}</span>
-                <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
-                  contains_secrets
-                </span>
-              </div>
-              <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                {t('pages.bundleExport.mode.fullDescPrefix')} <strong>{t('pages.bundleExport.mode.fullDescAll')}</strong> {t('pages.bundleExport.mode.fullDescSuffix')}
-              </div>
-            </button>
-            <button
-              onClick={() => setMode('custom')}
-              className={cn(
-                'text-left p-3 border transition-colors',
-                mode === 'custom'
-                  ? 'border-[var(--text-primary)] bg-[var(--nm-raised)]'
-                  : 'border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'w-3 h-3 rounded-full border-2',
-                  mode === 'custom' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
-                )} />
-                <span className="font-mono text-sm">{t('pages.bundleExport.mode.customTitle')}</span>
-              </div>
-              <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                {t('pages.bundleExport.mode.customDescPrefix')} <strong>{t('pages.bundleExport.mode.customDescStripped')}</strong>
-                {' '}{t('pages.bundleExport.mode.customDescSuffix')}
-              </div>
-            </button>
-          </div>
-        </div>
+      {/* Bundle kind + mode — one chooser block, ONE card treatment for all
+          four options (identical size, selected = strong border + white
+          fill) so the two questions read as siblings, not different UIs. */}
+      <div className="px-6 py-3 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)] space-y-2.5">
+        <ChooserRow label={t('pages.bundleExport.kind.label')}>
+          <ChoiceCard
+            selected={bundleKind === 'agent'}
+            title={t('pages.bundleExport.kind.agentTitle')}
+            desc={t('pages.bundleExport.kind.agentDesc')}
+            onClick={() => {
+              setBundleKind('agent');
+              setSelectedTeam('');
+              // Single-agent semantics: keep at most one selection when
+              // arriving from team kind.
+              setSelectedAgents((prev) => {
+                const first = prev.values().next();
+                return first.done ? new Set<string>() : new Set([first.value]);
+              });
+            }}
+          />
+          <ChoiceCard
+            selected={bundleKind === 'team'}
+            title={t('pages.bundleExport.kind.teamTitle')}
+            desc={t('pages.bundleExport.kind.teamDesc')}
+            onClick={() => setBundleKind('team')}
+          />
+        </ChooserRow>
+        <ChooserRow label={t('pages.bundleExport.mode.label')}>
+          <ChoiceCard
+            selected={mode === 'full'}
+            title={t('pages.bundleExport.mode.fullTitle')}
+            badge="contains_secrets"
+            desc={<>{t('pages.bundleExport.mode.fullDescPrefix')} <strong>{t('pages.bundleExport.mode.fullDescAll')}</strong> {t('pages.bundleExport.mode.fullDescSuffix')}</>}
+            onClick={() => setMode('full')}
+          />
+          <ChoiceCard
+            selected={mode === 'custom'}
+            title={t('pages.bundleExport.mode.customTitle')}
+            desc={<>{t('pages.bundleExport.mode.customDescPrefix')} <strong>{t('pages.bundleExport.mode.customDescStripped')}</strong> {t('pages.bundleExport.mode.customDescSuffix')}</>}
+            onClick={() => setMode('custom')}
+          />
+        </ChooserRow>
         {mode === 'full' && (
-          <div className="mt-2 ml-[60px] text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
+          <div className="ml-[60px] text-[11px] text-[var(--color-warning)] flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3" />
             {t('pages.bundleExport.mode.fullNote')}
           </div>
@@ -1136,7 +1068,6 @@ export default function BundleExportPage() {
             agents={agents}
             teams={teams}
             selected={selectedAgents}
-            onToggle={toggleAgent}
             selectedTeam={selectedTeam}
             onSetTeam={handleSetTeam}
             onBulkSet={setSelectedAgents}
@@ -1479,44 +1410,17 @@ function collectWarnings(
 // =============================================================================
 
 function AgentsTab({
-  agents, teams, selected, onToggle, selectedTeam, onSetTeam, onBulkSet, bundleKind,
+  agents, teams, selected, selectedTeam, onSetTeam, onBulkSet, bundleKind,
 }: {
-  agents: any[]; teams: TeamWithMembers[]; selected: Set<string>; onToggle: (id: string) => void;
+  agents: any[]; teams: TeamWithMembers[]; selected: Set<string>;
   selectedTeam: string; onSetTeam: (teamId: string) => void;
   onBulkSet: (next: Set<string>) => void;
   bundleKind: 'agent' | 'team';
 }) {
   const { t } = useTranslation();
-  // Pre-compute (team_id → existing-on-this-instance member ids) so that
-  // batch select doesn't try to add agent_ids that no longer exist locally.
-  const liveAgentIds = useMemo(() => new Set(agents.map((a) => a.agent_id)), [agents]);
-  function teamLiveMembers(t: TeamWithMembers): string[] {
-    return t.member_agent_ids.filter((id) => liveAgentIds.has(id));
-  }
-  function addTeam(t: TeamWithMembers) {
-    const next = new Set(selected);
-    teamLiveMembers(t).forEach((id) => next.add(id));
-    onBulkSet(next);
-  }
-  function replaceWithTeam(t: TeamWithMembers) {
-    onBulkSet(new Set(teamLiveMembers(t)));
-  }
-  function dropTeam(t: TeamWithMembers) {
-    const next = new Set(selected);
-    teamLiveMembers(t).forEach((id) => next.delete(id));
-    onBulkSet(next);
-  }
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
-        <p>
-          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.agents.whatYouPick')}</strong> {t('pages.bundleExport.agents.intro1')}
-        </p>
-        <p>
-          {t('pages.bundleExport.agents.intro2')}
-        </p>
-      </div>
       {/* Team bundle: the dropdown IS the selection — picking a team
           replaces the agent set with its live members (parent handleSetTeam). */}
       {bundleKind === 'team' && (
@@ -1535,73 +1439,11 @@ function AgentsTab({
         </div>
       )}
 
-      {/* Per-team batch select — same gesture as the sidebar Package button:
-          one click pulls in (or replaces with) every live member of that team. */}
-      {bundleKind === 'agent' && teams.length > 0 && (
-        <div>
-          <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.quickAddByTeam')}</label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {teams.map((team) => {
-              const live = teamLiveMembers(team);
-              const inSelected = live.filter((id) => selected.has(id)).length;
-              const allIn = live.length > 0 && inSelected === live.length;
-              const someIn = inSelected > 0 && !allIn;
-              return (
-                <div
-                  key={team.team.team_id}
-                  className={cn(
-                    'flex items-center gap-1 border text-[11px] font-mono',
-                    allIn
-                      ? 'border-[var(--border-strong)] bg-[var(--nm-raised)]'
-                      : someIn
-                        ? 'border-[var(--border-default)]'
-                        : 'border-[var(--border-subtle)]'
-                  )}
-                >
-                  <button
-                    onClick={() => (allIn ? dropTeam(team) : addTeam(team))}
-                    className="px-2 py-1 hover:bg-[var(--nm-paper-warm)] flex items-center gap-1"
-                    title={allIn
-                      ? t('pages.bundleExport.agents.deselectTeamTitle', { name: team.team.name })
-                      : t('pages.bundleExport.agents.addTeamTitle', { name: team.team.name })}
-                  >
-                    {team.team.color && (
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: team.team.color }} />
-                    )}
-                    <span>{team.team.name}</span>
-                    <span className="text-[var(--text-tertiary)]">
-                      ({inSelected}/{live.length})
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => replaceWithTeam(team)}
-                    className="px-1.5 py-1 hover:bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)] border-l border-[var(--border-subtle)]"
-                    title={t('pages.bundleExport.agents.replaceTeamTitle', { name: team.team.name })}
-                  >
-                    {t('pages.bundleExport.agents.only')}
-                  </button>
-                </div>
-              );
-            })}
-            <button
-              onClick={() => onBulkSet(new Set(agents.map((a) => a.agent_id)))}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] text-[11px] font-mono"
-            >
-              {t('pages.bundleExport.agents.allAgents', { count: agents.length })}
-            </button>
-            <button
-              onClick={() => onBulkSet(new Set())}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] text-[11px] font-mono"
-            >
-              {t('pages.bundleExport.agents.clear')}
-            </button>
-          </div>
-        </div>
-      )}
-
       <div>
         <label className="text-xs uppercase text-[var(--text-tertiary)]">
-          {t('pages.bundleExport.agents.agentsToInclude', { selected: selected.size, total: agents.length })}
+          {bundleKind === 'agent'
+            ? t('pages.bundleExport.agents.pickOne')
+            : t('pages.bundleExport.agents.agentsToInclude', { selected: selected.size, total: agents.length })}
         </label>
         {bundleKind === 'team' && !selectedTeam && (
           <div className="mt-2 text-[12px] text-[var(--text-tertiary)]">
@@ -1615,12 +1457,15 @@ function AgentsTab({
               <button
                 key={a.agent_id}
                 disabled={bundleKind === 'team'}
-                onClick={() => bundleKind === 'agent' && onToggle(a.agent_id)}
+                // Agent bundle = exactly ONE agent (Owner 2026-08-06: the
+                // fork must be crisp — one agent, or one team). Clicking
+                // replaces the selection, radio-style.
+                onClick={() => bundleKind === 'agent' && onBulkSet(new Set([a.agent_id]))}
                 className={cn(
-                  'text-left p-3 border transition-colors',
+                  'text-left p-3 border rounded-[var(--radius-sm)] transition-colors',
                   checked
-                    ? 'bg-[var(--nm-raised)] border-[var(--border-strong)]'
-                    : 'bg-[var(--nm-paper)] border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
+                    ? 'bg-[var(--nm-card)] border-[var(--border-strong)]'
+                    : 'bg-[var(--nm-paper)] border-[var(--nm-hairline)] hover:bg-[var(--nm-paper-warm)]'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -3096,6 +2941,62 @@ function ScopeHeader({
       <span className="flex-1 min-w-0 text-[13px] font-semibold text-[var(--nm-ink)]">
         {t(def.labelKey)}
       </span>
+    </button>
+  );
+}
+
+/** Label + two-card grid — the shared layout of both chooser rows. */
+function ChooserRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-[48px] text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
+        {label}
+      </span>
+      <div className="flex-1 grid grid-cols-2 gap-2">{children}</div>
+    </div>
+  );
+}
+
+/** One radio card — identical treatment for every chooser option on this
+ *  page (Owner 2026-08-06: sizes and colors must match exactly). */
+function ChoiceCard({
+  selected,
+  title,
+  badge,
+  desc,
+  onClick,
+}: {
+  selected: boolean;
+  title: string;
+  badge?: string;
+  desc: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'text-left p-3 min-h-[76px] border rounded-[var(--radius-sm)] transition-colors',
+        selected
+          ? 'border-[var(--border-strong)] bg-[var(--nm-card)]'
+          : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)] hover:bg-[var(--nm-paper-warm)]'
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            'w-3 h-3 rounded-full border-2 shrink-0',
+            selected ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)]' : 'border-[var(--nm-ink30)]'
+          )}
+        />
+        <span className="font-mono text-sm text-[var(--nm-ink)]">{title}</span>
+        {badge && (
+          <span className="text-[10px] px-1.5 py-0.5 border rounded-[3px] border-[var(--color-warning)] text-[var(--color-warning)]">
+            {badge}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">{desc}</div>
     </button>
   );
 }

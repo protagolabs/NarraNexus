@@ -1453,20 +1453,11 @@
         "freeText": "Freitext (Bewusstsein / Ereignisse / Nachrichten) wird NICHT automatisch auf eingebettete Geheimnisse geprüft – überprüfe das selbst."
       },
       "agents": {
-        "whatYouPick": "Was du hier auswählst:",
-        "intro1": "die Menge an Agenten, die dieses Bundle enthält. Alles andere im Assistenten (Narrative, Skills, MCPs, Dateien…) wird auf diesen Geltungsbereich gefiltert.",
-        "intro2": "Die Auswahl eines Teams fügt alle vorhandenen Mitglieder mit einem Klick hinzu; du kannst einzelne danach trotzdem abwählen. Externe Verweise (z. B. eine soziale Entität, die auf einen Agenten außerhalb dieses Geltungsbereichs zeigt) werden beim Export automatisch verworfen.",
         "bundleTeamLabel": "Dieses Team bündeln (optional)",
         "noTeamOption": "— Kein Team / einzelne Agenten —",
-        "quickAddByTeam": "Schnell nach Team hinzufügen",
-        "deselectTeamTitle": "Alle Mitglieder von „{{name}}“ abwählen",
-        "addTeamTitle": "Alle Mitglieder von „{{name}}“ hinzufügen",
-        "replaceTeamTitle": "Auswahl durch Mitglieder von „{{name}}“ ersetzen",
-        "only": "nur",
-        "allAgents": "alle Agenten ({{count}})",
-        "clear": "leeren",
         "agentsToInclude": "Einzubeziehende Agenten · {{selected}}/{{total}}",
-        "pickTeamFirst": "Wähle oben ein Team — seine Mitglieder werden automatisch aufgenommen."
+        "pickTeamFirst": "Wähle oben ein Team — seine Mitglieder werden automatisch aufgenommen.",
+        "pickOne": "Wähle den zu exportierenden Agenten"
       },
       "skills": {
         "emptySelectAgents": "Wähle im vorherigen Tab Agenten aus – ihre Skills erscheinen hier.",
@@ -1656,7 +1647,7 @@
       "kind": {
         "label": "Typ",
         "agentTitle": "Agent-Bundle",
-        "agentDesc": "Wähle einen oder mehrere Agenten. Narrative, Skills und Workspace-Dateien folgen der Auswahl.",
+        "agentDesc": "Exportiere einen Agenten — seine Narrative, Skills und Workspace-Dateien reisen mit.",
         "teamTitle": "Team-Bundle",
         "teamDesc": "Exportiere ein ganzes Team — seine Agenten, Intro und geteilte Kanäle reisen zusammen."
       }

@@ -1453,20 +1453,11 @@
         "freeText": "Texto livre (consciência / eventos / mensagens) NÃO é verificado automaticamente em busca de segredos embutidos — verifique você mesmo."
       },
       "agents": {
-        "whatYouPick": "O que você escolhe aqui:",
-        "intro1": "o conjunto de agentes que este pacote conterá. Todo o resto do assistente (narrativas, habilidades, MCPs, arquivos…) é filtrado para este fechamento.",
-        "intro2": "Escolher uma equipe adiciona todos os seus membros existentes em um clique; você ainda pode desmarcar indivíduos depois. Referências externas (ex.: uma entidade social apontando para um agente fora deste fechamento) são descartadas automaticamente na exportação.",
         "bundleTeamLabel": "Empacotar esta equipe (opcional)",
         "noTeamOption": "— Sem equipe / agentes individuais —",
-        "quickAddByTeam": "Adição rápida por equipe",
-        "deselectTeamTitle": "Desmarcar todos os membros de \"{{name}}\"",
-        "addTeamTitle": "Adicionar todos os membros de \"{{name}}\"",
-        "replaceTeamTitle": "Substituir seleção pelos membros de \"{{name}}\"",
-        "only": "apenas",
-        "allAgents": "todos os agentes ({{count}})",
-        "clear": "limpar",
         "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}",
-        "pickTeamFirst": "Escolha uma equipe acima — seus membros são incluídos automaticamente."
+        "pickTeamFirst": "Escolha uma equipe acima — seus membros são incluídos automaticamente.",
+        "pickOne": "Escolha o agente a exportar"
       },
       "skills": {
         "emptySelectAgents": "Selecione agentes na aba anterior — as habilidades deles aparecerão aqui.",
@@ -1656,7 +1647,7 @@
       "kind": {
         "label": "Tipo",
         "agentTitle": "Bundle de agentes",
-        "agentDesc": "Escolha um ou mais agentes. Narrativas, habilidades e arquivos do workspace seguem a seleção.",
+        "agentDesc": "Exporte um agente — suas narrativas, habilidades e arquivos de workspace vão junto.",
         "teamTitle": "Bundle de equipe",
         "teamDesc": "Exporte uma equipe inteira — seus agentes, introdução e canais compartilhados viajam juntos."
       }

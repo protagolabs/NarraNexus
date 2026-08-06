@@ -1812,20 +1812,11 @@
         "freeText": "Free text (awareness / events / messages) is NOT auto-scanned for inline secrets — verify yourself."
       },
       "agents": {
-        "whatYouPick": "What you pick here:",
-        "intro1": "the set of agents this bundle will contain. Everything else in the wizard (narratives, skills, MCPs, files…) is filtered to this closure.",
-        "intro2": "Picking a team adds all of its existing members in one click; you can still uncheck individuals afterwards. External references (e.g. a social entity pointing at an agent outside this closure) get dropped automatically on export.",
         "bundleTeamLabel": "Bundle this team (optional)",
         "noTeamOption": "— No team / individual agents —",
-        "quickAddByTeam": "Quick add by team",
-        "deselectTeamTitle": "Deselect all members of \"{{name}}\"",
-        "addTeamTitle": "Add all members of \"{{name}}\"",
-        "replaceTeamTitle": "Replace selection with \"{{name}}\" members",
-        "only": "only",
-        "allAgents": "all agents ({{count}})",
-        "clear": "clear",
         "agentsToInclude": "Agents to include · {{selected}}/{{total}}",
-        "pickTeamFirst": "Pick a team above — its members are included automatically."
+        "pickTeamFirst": "Pick a team above — its members are included automatically.",
+        "pickOne": "Pick the agent to export"
       },
       "skills": {
         "emptySelectAgents": "Select agents in the previous tab — their skills will appear here.",
@@ -2015,7 +2006,7 @@
       "kind": {
         "label": "Bundle",
         "agentTitle": "Agent bundle",
-        "agentDesc": "Pick one or more agents. Narratives, skills, and workspace files scope to the selection.",
+        "agentDesc": "Export one agent — its narratives, skills and workspace files travel with it.",
         "teamTitle": "Team bundle",
         "teamDesc": "Export a whole team — its agents, intro, and shared channels travel together."
       }
