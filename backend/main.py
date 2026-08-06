@@ -381,6 +381,34 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Middleware order is LIFO: the LAST registration is the OUTERMOST layer
+# and runs FIRST per request. Registration order below therefore yields
+#
+#     CORS  ->  access_log  ->  auth  ->  routes
+#
+# and every response, including ones short-circuited deep inside, unwinds
+# back out through all three.
+#
+# Two constraints are encoded here, both learned the hard way:
+#
+# 1. access_log must wrap auth, so a 401/402 that never reaches a route
+#    still produces an access line.
+# 2. CORS must wrap EVERYTHING. It used to be registered first, which made
+#    it the innermost layer — so when auth_middleware returned a 401
+#    directly, CORSMiddleware never ran and that response carried no
+#    Access-Control-Allow-Origin header. Cross-origin callers (any
+#    deployment where the SPA is not served from the API's own origin)
+#    then had the browser discard the response outright: `fetch` rejects
+#    with a TypeError and the client cannot see the status, let alone the
+#    body. Every 401-handling behaviour on the frontend — reading the
+#    `code` to decide whether the session is dead, and before that even
+#    noticing the 401 at all — was silently dead code there.
+from backend.auth import auth_middleware
+from backend.middleware.access_log import access_log_middleware
+
+app.middleware("http")(auth_middleware)
+app.middleware("http")(access_log_middleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -388,17 +416,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Middleware order is LIFO when registered via decorator/explicit call:
-# the LAST registration runs FIRST per request. We want access_log to
-# wrap auth (so 401/402 responses still produce an access line) — so
-# auth is registered first, then access_log wraps it. (CORSMiddleware
-# was added via add_middleware above and runs at a different stage.)
-from backend.auth import auth_middleware
-from backend.middleware.access_log import access_log_middleware
-
-app.middleware("http")(auth_middleware)
-app.middleware("http")(access_log_middleware)
 
 # Renders route-level AuthError as {detail, code} instead of FastAPI's
 # default {detail} — the `code` is what stops the frontend from treating

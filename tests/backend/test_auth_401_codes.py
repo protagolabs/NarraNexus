@@ -263,3 +263,61 @@ def test_session_probe_touches_no_database(probe_client, monkeypatch):
         "/api/auth/session", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# 5. A 401 the browser cannot read is a 401 the frontend cannot act on.
+#
+# Everything above assumes the client can see the response. For a
+# cross-origin caller — any deployment where the SPA is not served from the
+# API's own origin — that only holds if the 401 carries CORS headers.
+# CORSMiddleware used to be registered FIRST in backend/main.py, which under
+# Starlette's LIFO ordering made it the INNERMOST layer: when auth_middleware
+# returned a 401 directly, CORS never ran, the browser discarded the response,
+# and `fetch` rejected with a TypeError. The client could not see the status,
+# let alone the `code`. Caught while live-testing the frontend on 2026-08-06.
+# ---------------------------------------------------------------------------
+
+def test_early_401_carries_cors_headers():
+    """An auth rejection returned from middleware must still be readable
+    cross-origin. Pins the mechanism: CORS registered LAST (outermost)."""
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app = _build_app()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5174"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    client = TestClient(app)
+
+    resp = client.get("/api/agents", headers={"Origin": "http://localhost:5174"})
+    assert resp.status_code == 401
+    assert resp.headers.get("access-control-allow-origin") == "http://localhost:5174"
+
+
+def test_main_registers_cors_outermost():
+    """Guards the ordering in backend/main.py itself.
+
+    Read as source rather than imported: `backend.main` pulls in the whole
+    app (every router, the LLM stack, settings) and this is a two-line
+    invariant. A behavioural test on the real app would cost seconds of
+    import for the same assertion.
+    """
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "backend" / "main.py"
+    text = src.read_text()
+
+    cors_at = text.index("app.add_middleware(\n    CORSMiddleware,")
+    auth_at = text.index('app.middleware("http")(auth_middleware)')
+    access_at = text.index('app.middleware("http")(access_log_middleware)')
+
+    # Last registered == outermost. CORS must wrap everything, and
+    # access_log must still wrap auth (so early 401s produce an access line).
+    assert cors_at > access_at > auth_at, (
+        "CORSMiddleware must be registered AFTER the http middlewares, or "
+        "early-returned 401s ship without Access-Control-Allow-Origin"
+    )

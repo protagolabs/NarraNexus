@@ -4,6 +4,26 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 — CORSMiddleware 移到最外层（真机测试发现）
+
+中间件注册顺序改为 `auth → access_log → CORS`（后注册者在外层），最终链路是
+**CORS → access_log → auth → 路由**。
+
+原本 CORS 是最先注册的，也就是**最内层**：`auth_middleware` 提前 return 401
+时，CORSMiddleware 根本没被执行过，那条 401 就不带
+`Access-Control-Allow-Origin`。后果是**跨源调用方（SPA 与 API 不同源的任何
+部署）连 401 都看不见**——浏览器直接丢弃响应，`fetch` 以 TypeError 拒绝，
+拿不到状态码，更读不到 body 里的 `code`。前端整套 401 处理在那种部署下是
+死代码。
+
+这个洞比这次的改动更老（旧代码的 `response.status === 401` 同样读不到），
+是 2026-08-06 用浏览器真机验证前端时撞出来的。`test_auth_401_codes.py`
+里两个用例钉住：一个验行为（提前返回的 401 带 CORS 头），一个验
+`backend/main.py` 里的注册顺序本身。
+
+顺带：`OPTIONS` 预检现在由最外层的 CORS 直接接管，auth 里那段 OPTIONS
+放行成了纵深冗余，保留无害。
+
 ## 2026-08-06 — 注册 AuthError 异常处理器
 
 `install_auth_error_handler(app)`（[[auth_errors]]）在两个 middleware 之后
