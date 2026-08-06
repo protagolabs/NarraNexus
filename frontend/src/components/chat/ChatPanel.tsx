@@ -500,6 +500,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [timeline, chatTab],
   );
 
+  // The newest visible full message keeps its meta row (time) always
+  // visible; older rows reveal it on hover (claude.ai convention).
+  const lastMessageId = useMemo(() => {
+    for (let i = visibleTimeline.length - 1; i >= 0; i--) {
+      if (visibleTimeline[i].messageType !== 'activity') return visibleTimeline[i].id;
+    }
+    return null;
+  }, [visibleTimeline]);
+
   // v4 header side label: "session · <last activity time>" — the most recent
   // visible message anchors the label; empty until history lands.
   const sessionLabel = useMemo(() => {
@@ -950,6 +959,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
+              isLatest
             />
           </div>
         )}
@@ -1031,6 +1041,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 eventId={item.eventId}
                 agentId={agentId}
                 agentName={currentAgent?.name || agentId}
+                isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}

@@ -25,7 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
-import { cn, formatDate, formatTime } from '@/lib/utils';
+import { cn, formatDate, formatMessageAge, formatTime } from '@/lib/utils';
 import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
@@ -42,10 +42,14 @@ interface MessageBubbleProps {
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
   agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
+  /** Latest message in the visible stream — its meta row (time) stays
+   *  visible; every other row reveals meta on hover only (claude.ai
+   *  convention, Owner 2026-08-06). */
+  isLatest?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
-  const { t } = useTranslation();
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName, isLatest = false }: MessageBubbleProps) {
+  const { t, i18n } = useTranslation();
   // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
   const navigate = useNavigate();
   const [showDetails, setShowDetails] = useState(false);
@@ -249,7 +253,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   return (
     <div
       className={cn(
-        'flex gap-3',
+        'group flex gap-3',
         isUser && 'flex-row-reverse'
       )}
     >
@@ -619,17 +623,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         )}
 
         {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
-            (no internal footer padding/whitespace). Time + copy/download sit
-            just below the bubble, aligned to the bubble's side: right for own
-            (carbon) messages, left for agent (silicon) messages. Mono 9.5px
-            in the subtle token. */}
+            (no internal footer padding/whitespace). claude.ai convention
+            (Owner 2026-08-06): hidden by default, revealed on row hover;
+            only the LATEST message keeps its time always visible. Copy is
+            offered on BOTH sides (download stays assistant-only — user
+            messages aren't markdown documents). Time reads as a relative
+            "x days ago"; the exact date+time lives in the hover tooltip. */}
         <div
           className={cn(
-            'mt-1 flex items-center gap-1.5 px-0.5',
-            isUser ? 'justify-end' : 'justify-start'
+            'mt-1 flex items-center gap-1.5 px-0.5 transition-opacity duration-150',
+            isUser ? 'justify-end' : 'justify-start',
+            isLatest ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
           )}
         >
-          {!isUser && !isStreaming && message.content && (
+          {!isStreaming && message.content && (
             <>
               <button
                 onClick={handleCopy}
@@ -642,19 +649,21 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Copy className="w-3 h-3" />
                 )}
               </button>
-              <button
-                onClick={handleDownload}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                title={t('chat.message.downloadMd')}
-              >
-                <Download className="w-3 h-3" />
-              </button>
+              {!isUser && (
+                <button
+                  onClick={handleDownload}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title={t('chat.message.downloadMd')}
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              )}
             </>
           )}
           <span
-            className="font-mono tracking-wide"
-            // Hovering the HH:mm:ss reveals the full date — day context for
-            // a single message without waiting for a day separator.
+            className="font-mono tracking-wide cursor-default"
+            // The relative label carries no calendar context — hovering
+            // reveals the full year-month-day + time.
             title={`${formatDate(message.timestamp)} ${formatTime(message.timestamp)}`}
             style={{
               color: 'var(--nm-subtle)',
@@ -663,7 +672,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {formatTime(message.timestamp)}
+            {formatMessageAge(message.timestamp, i18n.language)}
           </span>
         </div>
       </div>

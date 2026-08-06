@@ -4,6 +4,11 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — lastMessageId
+
+visibleTimeline 里最后一条非 activity 消息的 id,传给 MessageBubble 的
+isLatest(meta 行常显);bootstrap greeting 气泡固定 isLatest。
+
 ## 2026-08-06 — Chat UI v4:头部重构 + 满铺纸面
 
 - 旧头部(BindingDot + [INTERACTION] + agentId + Sliders + Cost)与

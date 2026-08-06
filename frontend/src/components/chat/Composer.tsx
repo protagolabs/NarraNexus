@@ -195,7 +195,12 @@ export const Composer = memo(
           onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
-          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
+          // Input-field convention (Owner 2026-08-06): the field is the
+          // LIGHTEST surface on the card and focus is signalled by the
+          // border deepening — so bg overrides the Textarea base to
+          // nm-card, and the base's hover(border-strong)/focus(ink)
+          // treatments are no longer pinned back to the hairline.
+          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
           rows={1}
         />
       </div>

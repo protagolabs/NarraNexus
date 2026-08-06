@@ -4,6 +4,15 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — meta 行 claude.ai 化
+
+- meta 行(时间+按钮)默认隐藏,行 hover 显现(根节点加 group);
+  **仅最新一条**(ChatPanel 传 isLatest)常显 — cc 同款。
+- user 消息也有 copy 了(download 仍仅 assistant — 用户消息不是 md 文档)。
+- 时间从 HH:mm:ss 改为相对时长(lib/utils formatMessageAge,
+  Intl.RelativeTimeFormat 按 i18n.language 本地化,秒→分→时→天→月→年);
+  悬停 title 给完整年月日+时间。
+
 ## 2026-08-06 — Chat UI v4:纸面气泡
 
 own/AI 气泡填色从物种 soft 色(carbon-soft / silicon-soft)改为纸面
