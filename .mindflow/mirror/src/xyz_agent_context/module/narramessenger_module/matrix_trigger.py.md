@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — voice fast mode: VoiceDeliveryBridge 接线
+
+_StreamReplyState 增 voice_bridge（None=文字 turn，所有 legacy 分支以 bridge is None 为守卫，行为逐字不变）。_handle_stream_event：speak 的 AGENT_REPLY_DELTA 喂桥、speak PROGRESS 作权威全文修正且不落 narra_reply_text、narra_reply 捕获在语音 turn 上照旧。finalize：bridge.close() 成功即完；finalized_ok=False 时 _send_matrix_reply 平文兜底；无 spoken 文本则回落 legacy finalize（narra_reply/错误标记/静默三态不变）。
+
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
 
 parse_event 的 text 分支做 RTC v1 检测（_rtc_voice 严格校验，任一失败=普通消息）：剥 envelope、正文=transcript、raw["rtc_voice"] 带四 ID + 有效 voice_instructions（metadata 优先、envelope 兜底）；空 transcript 丢 turn。_voice_profile_for 把 rtc_voice 映射为一次性 TurnProfile.voice_fast()（不落 session）。streaming 路径把 profile 传 run_stream、rtc_voice 进 extra_data。

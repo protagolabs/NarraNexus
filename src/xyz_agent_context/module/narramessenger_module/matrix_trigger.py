@@ -109,6 +109,7 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
 from ._rtc_voice import parse_rtc_voice_input, split_narra_system_prompt
+from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
@@ -148,6 +149,10 @@ class _StreamReplyState:
     narra_reply_text: str = ""
     error_seen: bool = False
     last_error_message: str = ""
+    # F28 voice turn only: the live-delivery bridge. None on text turns —
+    # every legacy branch below checks nothing and behaves exactly as
+    # before (the guard is "bridge is None", not a mode flag).
+    voice_bridge: Optional["VoiceDeliveryBridge"] = None
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -1461,6 +1466,22 @@ class MatrixTrigger(ChannelTriggerBase):
 
         state = _StreamReplyState()
 
+        if rtc_voice:
+            # The bridge owns the live m.text / m.replace lifecycle for
+            # this turn; its sender is a closure over this credential so
+            # the pure lifecycle logic stays homeserver-free (testable).
+            room_id_for_send = message.chat_id
+
+            async def _voice_send(content: dict) -> str:
+                return await matrix_room_send(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id_for_send,
+                    content=content,
+                )
+
+            state.voice_bridge = VoiceDeliveryBridge(send=_voice_send)
+
         run_kwargs: dict[str, Any] = {}
         if turn_profile is not None:
             run_kwargs["turn_profile"] = turn_profile
@@ -1493,6 +1514,26 @@ class MatrixTrigger(ChannelTriggerBase):
             )
 
         # Finalize.
+        if state.voice_bridge is not None:
+            spoken, finalized_ok = await state.voice_bridge.close()
+            if spoken:
+                if not finalized_ok:
+                    # Live lifecycle broke (base or final edit failed) —
+                    # handoff 6.3: never leave the answer undelivered; the
+                    # plain retry-aware sender is the fallback path.
+                    logger.warning(
+                        f"[matrix:{credential.agent_id}] voice live "
+                        f"delivery failed; falling back to plain send "
+                        f"(room={message.chat_id})"
+                    )
+                    await self._send_matrix_reply(
+                        credential, message.chat_id, spoken
+                    )
+                return spoken
+            # Nothing spoken: fall through to the legacy finalize so a
+            # narra_reply answer, an error marker, or a silent turn all
+            # behave exactly as on a text turn.
+
         final_text = (state.narra_reply_text or "").strip()
         if final_text:
             # No placeholder to edit — fresh-send via the retry-aware
@@ -1544,6 +1585,20 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"the error marker"
             )
             return
+        # F28 voice turn: speak's streamed text argument rides
+        # AGENT_REPLY_DELTA (the expressive reply stream). Only speak
+        # deltas feed TTS — narra_reply/narra_send keep their legacy
+        # trigger-captured, deliver-at-finalize semantics even mid-call.
+        if (
+            state.voice_bridge is not None
+            and mt == MessageType.AGENT_REPLY_DELTA
+            and "speak" in (getattr(event, "tool_name", "") or "")
+        ):
+            await state.voice_bridge.on_reply_delta(
+                call_id=getattr(event, "call_id", "") or "",
+                delta=getattr(event, "delta", "") or "",
+            )
+            return
         if mt != MessageType.PROGRESS:
             return
         details = getattr(event, "details", None)
@@ -1562,6 +1617,15 @@ class MatrixTrigger(ChannelTriggerBase):
             return
         text = arguments.get("text")
         if not (isinstance(text, str) and text.strip()):
+            return
+
+        if state.voice_bridge is not None and tool_name.endswith("speak"):
+            # The completed speak call carries the authoritative full text —
+            # corrects the delta view (or substitutes when arg deltas were
+            # unavailable on this provider).
+            state.voice_bridge.on_segment_text(
+                call_id=str(details.get("call_id") or ""), text=text
+            )
             return
 
         if "narra_reply" in tool_name:

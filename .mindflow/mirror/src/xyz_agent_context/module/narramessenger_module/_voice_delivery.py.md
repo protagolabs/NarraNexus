@@ -1,0 +1,36 @@
+---
+code_file: src/xyz_agent_context/module/narramessenger_module/_voice_delivery.py
+stub: false
+last_verified: 2026-08-06
+---
+
+## Why it exists
+
+F28 语音交付桥：一个 voice turn 的出站生命周期唯一所有者。handoff §6 契约
+——首段可播文字立即发 base live m.text（org.matrix.msc4357.live），后续
+m.replace 携**累积**净化全文（body 带 "* " fallback 前缀 + m.new_content，
+live 标记两处都在），final edit 两处去标记。Hybrid LiveKit worker 观察这串
+事件喂 TTS。
+
+## Design decisions
+
+- **纯逻辑注入**：sender（async content→event_id）与 clock 都是构造参数，
+  全生命周期无 homeserver 可测；prod 侧 sender 是 matrix_trigger 里包
+  credential 的闭包，直接走 matrix_room_send（_matrix_send 零改动——edit
+  就是带 m.relates_to 的普通 send）。
+- **净化两道闸的主闸**：sanitize_for_tts 在增量出口执行（markdown/code/
+  URL/emoji 结构层保证，跨 delta 的 `**` 撕裂也漏不出去——测试钉住）；
+  speak executor 的终检是兜底。
+- **节奏**：句边界或 300–500ms 间隔先到者 flush；节奏钟从 bridge 创建起算
+  （中间碎片绝不即时出门）。
+- **失败永不炸事件循环**：send 异常→bridge 置 broken 继续攒文本；close()
+  返回 (text, finalized_ok)，not ok 时 trigger 走 _send_matrix_reply 平文
+  兜底（handoff 6.3：不许把答案留在永久 live 态里不交付）。
+- 多次 speak 调用按段拼接；PROGRESS 的完整参数文本是权威修正
+  （on_segment_text，防 arg delta 不可用的 provider）。
+
+## Downstream
+
+matrix_trigger：_StreamReplyState.voice_bridge 持有；_handle_stream_event
+只喂 speak 的 AGENT_REPLY_DELTA / PROGRESS；finalize 处 close + 兜底。
+测试 tests/narramessenger_module/test_voice_delivery_bridge.py + test_voice_stream_wiring.py。
