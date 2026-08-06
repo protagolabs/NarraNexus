@@ -17,7 +17,23 @@
     "you": "あなた",
     "cloud": "クラウド",
     "localMode": "ローカルモード",
-    "cloudMode": "クラウドモード"
+    "cloudMode": "クラウドモード",
+    "collapseTitle": "サイドバーを折りたたむ",
+    "expandTitle": "サイドバーを展開",
+    "export": "エクスポート",
+    "exportTitle": "バンドルをエクスポート — エージェントまたはチーム",
+    "settingsTitle": "設定 — モデルとプロバイダー",
+    "searchChatsTitle": "エージェントとチームを検索",
+    "account": "アカウント",
+    "billing": "請求",
+    "subscription": "サブスクリプション",
+    "theme": "テーマ",
+    "language": "言語",
+    "themeLight": "ライト",
+    "themeDark": "ダーク",
+    "themeSystem": "システム",
+    "workspace": "あなたのワークスペース",
+    "accountTitle": "アカウント"
   },
   "chat": {
     "conversation": "会話",
@@ -682,7 +698,11 @@
       "create": "作成",
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
-      "createTeam": "チームを作成"
+      "createTeam": "チームを作成",
+      "new": "新規",
+      "newTitle": "新規 — エージェント、チーム、インポート…",
+      "importBundle": ".nxbundle をインポート",
+      "importAgent": "他のソースからインポート"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",

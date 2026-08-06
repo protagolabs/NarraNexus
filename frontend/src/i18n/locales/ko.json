@@ -17,7 +17,23 @@
     "you": "나",
     "cloud": "클라우드",
     "localMode": "로컬 모드",
-    "cloudMode": "클라우드 모드"
+    "cloudMode": "클라우드 모드",
+    "collapseTitle": "사이드바 접기",
+    "expandTitle": "사이드바 펼치기",
+    "export": "내보내기",
+    "exportTitle": "번들 내보내기 — 에이전트 또는 팀",
+    "settingsTitle": "설정 — 모델 및 프로바이더",
+    "searchChatsTitle": "에이전트·팀 검색",
+    "account": "계정",
+    "billing": "결제",
+    "subscription": "구독",
+    "theme": "테마",
+    "language": "언어",
+    "themeLight": "라이트",
+    "themeDark": "다크",
+    "themeSystem": "시스템",
+    "workspace": "내 워크스페이스",
+    "accountTitle": "계정"
   },
   "chat": {
     "conversation": "대화",
@@ -682,7 +698,11 @@
       "create": "생성",
       "createAgentOrTeam": "에이전트 또는 팀 생성",
       "createAgent": "에이전트 생성",
-      "createTeam": "팀 생성"
+      "createTeam": "팀 생성",
+      "new": "새로 만들기",
+      "newTitle": "새로 만들기 — 에이전트, 팀, 가져오기…",
+      "importBundle": ".nxbundle 가져오기",
+      "importAgent": "다른 소스에서 가져오기"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 그룹 채팅",

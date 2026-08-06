@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/help/helpContent.ts
-last_verified: 2026-06-11
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4 锚点跟随
+
+侧栏改版后更新三条注释:`sidebar.create-agent` 现挂在 New 菜单上(文案改为
+create or import);`sidebar.manage-agents` 挂在 Dashboard 导航行(manage
+页并入 Dashboard);`sidebar.agents-menu` 注释改为 `sidebar.export`(⋯ 菜单
+已删除,导出是一级导航行)。overlay 对缺失锚点静默跳过,无需强同步。
 
 ## 2026-06-11 (PM) — pages
 

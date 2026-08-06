@@ -17,7 +17,23 @@
     "you": "أنت",
     "cloud": "سحابي",
     "localMode": "الوضع المحلي",
-    "cloudMode": "الوضع السحابي"
+    "cloudMode": "الوضع السحابي",
+    "collapseTitle": "طيّ الشريط الجانبي",
+    "expandTitle": "فتح الشريط الجانبي",
+    "export": "تصدير",
+    "exportTitle": "تصدير حزمة — وكيل أو فريق",
+    "settingsTitle": "الإعدادات — النماذج والمزوّدون",
+    "searchChatsTitle": "البحث عن الوكلاء والفرق",
+    "account": "الحساب",
+    "billing": "الفواتير",
+    "subscription": "الاشتراك",
+    "theme": "السمة",
+    "language": "اللغة",
+    "themeLight": "فاتح",
+    "themeDark": "داكن",
+    "themeSystem": "النظام",
+    "workspace": "مساحة عملك",
+    "accountTitle": "الحساب"
   },
   "chat": {
     "conversation": "محادثة",
@@ -686,7 +702,11 @@
       "create": "إنشاء",
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
-      "createTeam": "إنشاء فريق"
+      "createTeam": "إنشاء فريق",
+      "new": "جديد",
+      "newTitle": "جديد — وكيل، فريق، استيراد…",
+      "importBundle": "استيراد ‎.nxbundle",
+      "importAgent": "استيراد من مصدر آخر"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — محادثة جماعية",

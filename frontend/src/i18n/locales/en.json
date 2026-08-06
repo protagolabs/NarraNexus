@@ -24,7 +24,23 @@
     "cloud": "Cloud",
     "localMode": "Local Mode",
     "cloudMode": "Cloud Mode",
-    "marketplace": "Marketplace"
+    "marketplace": "Marketplace",
+    "collapseTitle": "Collapse sidebar",
+    "expandTitle": "Expand sidebar",
+    "export": "Export",
+    "exportTitle": "Export bundle — agent or team",
+    "settingsTitle": "Settings — models & providers",
+    "searchChatsTitle": "Search agents & teams",
+    "account": "Account",
+    "billing": "Billing",
+    "subscription": "Subscription",
+    "theme": "Theme",
+    "language": "Language",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "workspace": "Your workspace",
+    "accountTitle": "Account"
   },
   "chat": {
     "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
@@ -752,7 +768,10 @@
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
       "createTeam": "Create Team",
-      "importAgent": "Create Agent (from other source)"
+      "importAgent": "Import from other source",
+      "new": "New",
+      "newTitle": "New — agent, team, import…",
+      "importBundle": "Import .nxbundle"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",

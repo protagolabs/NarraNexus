@@ -37,9 +37,10 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, PanelLeft } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { CommandPalette } from './CommandPalette';
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { ResizableDivider } from './ResizableDivider';
 import {
@@ -459,7 +460,25 @@ export function MainLayout() {
   const navigate = useNavigate();
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
+  const paletteOpen = useUIStore((s) => s.paletteOpen);
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const isMobile = useIsMobile();
+
+  // Global ⌘K / Ctrl+K — hosted here (not the mobile-only TopBar) so the
+  // palette works on every viewport and route.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        const { paletteOpen: open, setPaletteOpen: setOpen } = useUIStore.getState();
+        setOpen(!open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Close the mobile sidebar drawer whenever the view changes (picked an agent
   // or navigated to a sub-page) so the user lands on the content they tapped.
@@ -493,12 +512,31 @@ export function MainLayout() {
     // the toolbar. The class carries a plain-vh fallback for engines
     // without dvh (see index.css).
     <div className="h-dvh-safe flex flex-col bg-[var(--bg-deep)] relative overflow-hidden">
-      {/* Narrow global status strip — breadcrumb + connection + ⌘K */}
+      {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
+          nothing on md+ (v4: the sidebar owns the full height there). */}
       <TopBar />
+
+      {/* Command palette — one instance for all viewports and routes. */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       <div className="flex flex-1 min-h-0 relative">
       {/* Sidebar - Agent List */}
       <Sidebar />
+
+      {/* Collapsed-sidebar expand chip. The chat view renders its own inline
+          expand button in the chat header (v4); sub-pages and team chat get
+          this floating one so the sidebar is never unreachable. */}
+      {!isMobile && sidebarCollapsed && (isSubPage || teamChatId) && (
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed(false)}
+          title={t('sidebar.expandTitle')}
+          aria-label={t('sidebar.expandTitle')}
+          className="absolute top-3 left-3 z-30 flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+      )}
 
       {/* Mobile drawer backdrop — taps to close the off-canvas sidebar.
           Sits below the sidebar (z-40) and above the content (z-10). */}

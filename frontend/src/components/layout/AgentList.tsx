@@ -2,9 +2,10 @@
  * @file_name: AgentList.tsx
  * @author:
  * @date: 2026-06-10
- * @description: Agent selection, creation, editing, and management.
- * Shows agents grouped by team with collapsible sections. Running
- * indicators and completion badges support multi-agent concurrent chat.
+ * @description: The sidebar's Chats list — team rows + a flat agent list
+ * with collapsible sections, per-row quick actions (rename / edit / clear /
+ * delete), unread + running indicators. Creation, import and export moved
+ * to the sidebar's global nav (Chat UI v4); this file owns the list only.
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -13,33 +14,21 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
-  ListChecks,
-  Bot,
-  Users2,
-  Download,
+  Search,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
-import { useConfigStore, useChatStore, useTeamsStore, useRuntimeStore } from '@/stores';
-import { useCreateAgent, useAgentImported } from '@/hooks';
+import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
+import { useConfigStore, useChatStore, useTeamsStore, useUIStore } from '@/stores';
+import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
-import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
+import { AgentGroupSection } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
 import { EditAgentDialog } from './EditAgentDialog';
 import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
-import { AgentsHeaderMenu } from './AgentsHeaderMenu';
-import { CreateMenu } from './CreateMenu';
-import { ImportAgentModal } from './ImportAgentModal';
 import { TeamChatRow } from './TeamChatRow';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
-
-interface AgentListProps {
-  collapsed: boolean;
-}
 
 /**
  * Feature flag — temporary, 2026-05-18.
@@ -99,7 +88,7 @@ function CategoryHeader({
   );
 }
 
-export function AgentList({ collapsed }: AgentListProps) {
+export function AgentList() {
   const { t } = useTranslation();
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
@@ -113,9 +102,6 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [editBusy, setEditBusy] = useState(false);
   const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
   const [clearTeamBusy, setClearTeamBusy] = useState(false);
-  const [openMgmt, setOpenMgmt] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
@@ -142,6 +128,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teamsUpdate = useTeamsStore((s) => s.updateTeam);
   const teamsDelete = useTeamsStore((s) => s.deleteTeam);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
 
   // Ensure teams are loaded so grouping is accurate.
   useEffect(() => {
@@ -270,14 +257,6 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleCreateAgent = async () => {
     await createAgent();
   };
-
-  // Import-from-other-source is local-only: the scanner reads the user's
-  // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
-  const isLocalMode = useRuntimeStore((s) => s.mode) === 'local';
-
-  // After a successful migrate/apply: refresh the agent list + select the new
-  // agent. Shared with the guided-flow entry point so they can't drift.
-  const handleImportApplied = useAgentImported();
 
   // #43: create a new agent already assigned to this team, then open the
   // team's group chat so the membership change is immediately visible. The
@@ -490,13 +469,6 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
-  const handleImport = () => navigate('/app/bundle/import');
-  const handleExport = () => {
-    // Pre-fill export wizard with agents if a team context is relevant.
-    navigate('/app/bundle/export');
-  };
-  const handleManageTeams = () => setOpenMgmt(true);
-
   const handleDeleteTeam = async (teamId: string) => {
     const team = teams.find((x) => x.team.team_id === teamId);
     const ok = await confirm({
@@ -526,142 +498,6 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
   const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
 
-  // Collapsed mode: avatar rail — EVERY agent across all groups (spec §11.2;
-  // the old rail silently capped at 4). The rail's job is fast agent
-  // switching: RingAvatar + unread badge, hairline divider between teams,
-  // no team chips / filter glyphs.
-  if (collapsed) {
-    return (
-      <div className="p-2 flex flex-col items-center gap-2">
-        {/* Create — a portal dropdown (Agent / Team) so it escapes the rail's
-            scroll clip; trigger is sized to match the agent avatars below. */}
-        <Popover open={collapsedCreateOpen} onOpenChange={setCollapsedCreateOpen}>
-          <PopoverTrigger asChild>
-            <button
-              disabled={creatingAgent}
-              className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                'text-[var(--accent-primary)] border border-dashed border-[var(--accent-primary)]/40',
-                'hover:bg-[var(--bg-elevated)]',
-                creatingAgent && 'opacity-50 cursor-not-allowed',
-              )}
-              title={t('layout.agentList.createAgentOrTeam')}
-              aria-label={t('layout.agentList.createAgentOrTeam')}
-            >
-              <Plus className={cn('w-4 h-4', creatingAgent && 'animate-pulse')} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent side="right" align="start" sideOffset={8} className="w-auto min-w-[150px] p-1">
-            <CollapsedCreateItem
-              icon={<Bot className="w-3.5 h-3.5" />}
-              label={t('layout.agentList.createAgent')}
-              onClick={() => { setCollapsedCreateOpen(false); handleCreateAgent(); }}
-            />
-            <CollapsedCreateItem
-              icon={<Users2 className="w-3.5 h-3.5" />}
-              label={t('layout.agentList.createTeam')}
-              onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
-            />
-            {isLocalMode && (
-              <CollapsedCreateItem
-                icon={<Download className="w-3.5 h-3.5" />}
-                label={t('layout.createMenu.importAgent')}
-                onClick={() => { setCollapsedCreateOpen(false); setImportOpen(true); }}
-              />
-            )}
-          </PopoverContent>
-        </Popover>
-
-        {/* Manage agents — same 32px circular footprint as the avatars. */}
-        <button
-          onClick={() => navigate('/app/manage-agents')}
-          className="w-8 h-8 rounded-full flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
-          title={t('layout.agentList.manageAgentsTitle')}
-          aria-label={t('layout.agentList.manageAgents')}
-        >
-          <ListChecks className="w-3.5 h-3.5" />
-        </button>
-
-        {/* TEAMS — two-colour group avatars open the group chat. */}
-        {teams.length > 0 && (
-          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
-        )}
-        {teams.map((team) => {
-          const initials = team.team.name
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((w) => w[0])
-            .join('')
-            .slice(0, 2)
-            .toUpperCase();
-          const active = activeTeamChatId === team.team.team_id;
-          return (
-            <button
-              key={team.team.team_id}
-              onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
-              className={cn(
-                'p-0.5 rounded-full transition-colors duration-150',
-                active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
-              )}
-              title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
-              aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
-              aria-current={active ? 'true' : undefined}
-            >
-              <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
-            </button>
-          );
-        })}
-
-        {/* AGENTS — flat & deduped (every agent once), matching the expanded
-            list; the old per-team grouping duplicated agents in two teams.
-            Same recent-activity order as the expanded list so the rail doesn't
-            flip back to creation order when the sidebar is collapsed. */}
-        {teams.length > 0 && sortedAgents.length > 0 && (
-          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
-        )}
-        {sortedAgents.map((agent) => {
-          const isSelected = activeTeamChatId ? false : agentId === agent.agent_id;
-          const completed = completedAgentIds.includes(agent.agent_id);
-          const label = (agent.name || agent.agent_id).slice(0, 2);
-          const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
-          const { unread } = getRowMeta(agent.agent_id);
-          return (
-            <div key={agent.agent_id} className="relative flex justify-center">
-              <button
-                onClick={() => handleSelectAgent(agent.agent_id)}
-                className={cn(
-                  'p-1.5 rounded-full transition-colors duration-150',
-                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
-                )}
-                title={agent.name || agent.agent_id}
-                aria-label={agent.name || agent.agent_id}
-                aria-current={isSelected ? 'true' : undefined}
-              >
-                <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
-              </button>
-              {unread > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
-                  style={{
-                    background: 'var(--nm-card)',
-                    border: '1px solid var(--nm-ink30)',
-                    color: 'var(--nm-ink70)',
-                  }}
-                >
-                  {unread > 9 ? '9+' : unread}
-                </span>
-              )}
-              {completed && !isSelected && unread === 0 && (
-                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // Expanded mode: grouped agent list
   return (
     <div>
       {confirmDialog}
@@ -690,16 +526,9 @@ export function AgentList({ collapsed }: AgentListProps) {
           onConfirm={doClearTeamData}
         />
       )}
-      <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
-      {importOpen && (
-        <ImportAgentModal
-          onClose={() => setImportOpen(false)}
-          onApplied={handleImportApplied}
-        />
-      )}
-
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
+      {/* Header — v4: label + count with search (⌘K palette) and refresh.
+          Creation / import / export moved to the sidebar's global nav. */}
+      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-2.5 pb-1.5">
         <div className="flex items-center justify-between px-1 gap-2">
           <span data-help-id="sidebar.agent-list">
             <BracketSectionLabel
@@ -709,26 +538,16 @@ export function AgentList({ collapsed }: AgentListProps) {
             </BracketSectionLabel>
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            <span data-help-id="sidebar.create-agent">
-              <CreateMenu
-                onCreateAgent={handleCreateAgent}
-                onCreateTeam={() => setOpenMgmt(true)}
-                onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
-                disabled={creatingAgent}
-              />
-            </span>
-            <span data-help-id="sidebar.manage-agents">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('/app/manage-agents')}
-                className="w-7 h-7"
-                title={t('layout.agentList.manageAgentsTitle')}
-                aria-label={t('layout.agentList.manageAgents')}
-              >
-                <ListChecks className="w-3.5 h-3.5" />
-              </Button>
-            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setPaletteOpen(true)}
+              className="w-7 h-7"
+              title={t('sidebar.searchChatsTitle')}
+              aria-label={t('sidebar.searchChatsTitle')}
+            >
+              <Search className="w-3.5 h-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -739,13 +558,6 @@ export function AgentList({ collapsed }: AgentListProps) {
             >
               <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
             </Button>
-            <span data-help-id="sidebar.agents-menu">
-              <AgentsHeaderMenu
-                onImport={handleImport}
-                onExport={handleExport}
-                onManageTeams={handleManageTeams}
-              />
-            </span>
           </div>
         </div>
       </div>
@@ -852,30 +664,5 @@ export function AgentList({ collapsed }: AgentListProps) {
       </div>
 
     </div>
-  );
-}
-
-/** A row in the collapsed rail's "+" create popover (Agent / Team). */
-function CollapsedCreateItem({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs text-left',
-        'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)] transition-colors',
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }

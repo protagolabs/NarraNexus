@@ -17,7 +17,23 @@
     "you": "Tú",
     "cloud": "Nube",
     "localMode": "Modo local",
-    "cloudMode": "Modo nube"
+    "cloudMode": "Modo nube",
+    "collapseTitle": "Contraer barra lateral",
+    "expandTitle": "Expandir barra lateral",
+    "export": "Exportar",
+    "exportTitle": "Exportar bundle — agente o equipo",
+    "settingsTitle": "Ajustes — modelos y proveedores",
+    "searchChatsTitle": "Buscar agentes y equipos",
+    "account": "Cuenta",
+    "billing": "Facturación",
+    "subscription": "Suscripción",
+    "theme": "Tema",
+    "language": "Idioma",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "themeSystem": "Sistema",
+    "workspace": "Tu espacio de trabajo",
+    "accountTitle": "Cuenta"
   },
   "chat": {
     "conversation": "Conversación",
@@ -682,7 +698,11 @@
       "create": "Crear",
       "createAgentOrTeam": "Crear agente o equipo",
       "createAgent": "Crear agente",
-      "createTeam": "Crear equipo"
+      "createTeam": "Crear equipo",
+      "new": "Nuevo",
+      "newTitle": "Nuevo — agente, equipo, importar…",
+      "importBundle": "Importar .nxbundle",
+      "importAgent": "Importar desde otra fuente"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — chat grupal",

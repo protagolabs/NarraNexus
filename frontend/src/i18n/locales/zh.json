@@ -24,7 +24,23 @@
     "cloud": "云端",
     "localMode": "本地模式",
     "cloudMode": "云端模式",
-    "marketplace": "市场"
+    "marketplace": "市场",
+    "collapseTitle": "收起侧栏",
+    "expandTitle": "展开侧栏",
+    "export": "导出",
+    "exportTitle": "导出 bundle — Agent 或团队",
+    "settingsTitle": "设置 — 模型与 Provider",
+    "searchChatsTitle": "搜索 Agent 与团队",
+    "account": "账户",
+    "billing": "账单",
+    "subscription": "订阅",
+    "theme": "主题",
+    "language": "语言",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "workspace": "你的工作台",
+    "accountTitle": "账户"
   },
   "chat": {
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
@@ -752,7 +768,10 @@
       "createAgentOrTeam": "创建智能体或团队",
       "createAgent": "创建智能体",
       "createTeam": "创建团队",
-      "importAgent": "创建 Agent(从其他来源导入)"
+      "importAgent": "从其他来源导入",
+      "new": "新建",
+      "newTitle": "新建 — Agent、团队、导入…",
+      "importBundle": "导入 .nxbundle"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 群聊",

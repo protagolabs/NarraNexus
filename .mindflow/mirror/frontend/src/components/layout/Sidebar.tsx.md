@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:三层结构重写
+
+按 v4 设计稿(specs/2026-08-06-chat-ui-v4-design.dc.html)整体重排:
+① logo + 收起按钮(panel 图标);② 全局导航列 — New(下拉:Create agent /
+Create team / Import .nxbundle / Import from other source,见 [[CreateMenu.tsx]])
+/ Export / Dashboard / Marketplace / Settings / System(gated),之后才是
+Chats 列表;③ 底部用户行 → **账户弹层**(工作台 / Account / Billing /
+Subscription(netmindToken 才显示)/ Theme / Language(内联展开列表)/
+Logout)+ Find Us 外链(从 TopBar 迁入,保持 target=_blank + noopener)。
+
+关键不变量(沿袭):logout / 切模式仍是 wipeAllSessionData() + **硬跳转**
+window.location.href;SHOW_MODE_SWITCHER 逻辑保留在弹层里未删。
+收起态改为 **整个 aside 隐藏**(uiStore.sidebarCollapsed,md:hidden),
+72px 图标栏退役;展开按钮在聊天头部 / MainLayout 浮动 chip 上,不在本组件。
+TeamManagementModal / ImportAgentModal 的挂载点从 AgentList 移到这里。
+宽度 288→272px。ThemeToggle / LanguageToggle 组件不再被本文件引用
+(账户弹层内联实现),组件本身保留给其他调用方。
 
 ## 2026-07-28 — Beta 徽章挂到 logo 旁
 

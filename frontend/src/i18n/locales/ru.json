@@ -17,7 +17,23 @@
     "you": "Вы",
     "cloud": "Облако",
     "localMode": "Локальный режим",
-    "cloudMode": "Облачный режим"
+    "cloudMode": "Облачный режим",
+    "collapseTitle": "Свернуть боковую панель",
+    "expandTitle": "Развернуть боковую панель",
+    "export": "Экспорт",
+    "exportTitle": "Экспорт бандла — агент или команда",
+    "settingsTitle": "Настройки — модели и провайдеры",
+    "searchChatsTitle": "Поиск агентов и команд",
+    "account": "Аккаунт",
+    "billing": "Счета",
+    "subscription": "Подписка",
+    "theme": "Тема",
+    "language": "Язык",
+    "themeLight": "Светлая",
+    "themeDark": "Тёмная",
+    "themeSystem": "Системная",
+    "workspace": "Ваше рабочее пространство",
+    "accountTitle": "Аккаунт"
   },
   "chat": {
     "conversation": "Беседа",
@@ -684,7 +700,11 @@
       "create": "Создать",
       "createAgentOrTeam": "Создать агента или команду",
       "createAgent": "Создать агента",
-      "createTeam": "Создать команду"
+      "createTeam": "Создать команду",
+      "new": "Создать",
+      "newTitle": "Создать — агент, команда, импорт…",
+      "importBundle": "Импортировать .nxbundle",
+      "importAgent": "Импорт из другого источника"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — групповой чат",

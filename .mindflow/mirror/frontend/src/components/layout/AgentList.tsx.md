@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:回归纯列表
+
+创建 / 导入 / 导出 / manage-agents 入口全部移出(去 Sidebar 全局导航),
+`collapsed` prop 与 72px 头像栏代码路径删除(v4 收起=整栏隐藏)。头部只剩
+Chats 标签 + 计数 + 搜索(打开 ⌘K palette,uiStore.paletteOpen)+ 刷新。
+activitySignature 性能契约、TEAMS/AGENTS 两段式去重结构、unread 逻辑不变。
+TeamManagementModal / ImportAgentModal 挂载移交 [[Sidebar.tsx]];
+AgentsHeaderMenu 组件删除。
 
 ## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
 

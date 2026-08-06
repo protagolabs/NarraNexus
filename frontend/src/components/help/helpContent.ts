@@ -46,15 +46,15 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
     annotations: [
       {
         helpId: 'sidebar.create-agent',
-        note: 'Create an agent',
-        detail: 'One click. Then shape who it is by simply chatting with it.',
+        note: 'New — create or import',
+        detail: 'Create an agent or team, or import one — then shape it by simply chatting with it.',
         rail: 'left',
         priority: 1,
       },
       {
         helpId: 'sidebar.manage-agents',
-        note: 'Manage agents',
-        detail: 'Batch view — rename, delete, organize all agents in one page.',
+        note: 'Dashboard',
+        detail: 'Every agent in one page — status, jobs, batch rename / delete / organize.',
         rail: 'left',
         priority: 2,
       },
@@ -162,9 +162,9 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         priority: 2,
       },
       {
-        helpId: 'sidebar.agents-menu',
-        note: 'The three-dots menu',
-        detail: 'Create & manage teams. Export agents or whole teams as a .nxbundle; import bundles or marketplace templates.',
+        helpId: 'sidebar.export',
+        note: 'Export bundles',
+        detail: 'Package agents or whole teams as a .nxbundle to back up or share; import them back from New.',
         rail: 'left',
         priority: 3,
       },
