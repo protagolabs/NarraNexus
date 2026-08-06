@@ -141,3 +141,29 @@ SENDER_PROFILE_UNKNOWN_TEMPLATE = """\
 - **Name**: {sender_display_name}
 - **Note**: This is your first interaction with this sender. No prior information available.
 """
+
+
+# ── F28 voice register (real-time voice call turns) ─────────────────────
+# Channel-agnostic: any channel that detects a voice-call turn swaps its
+# reply_instruction for this template. {voice_instructions_section} is
+# the per-turn instructions carried by the call metadata/envelope (may be
+# empty). Discipline mirrors the Hybrid handoff section 7: direct answer,
+# spoken short sentences, concrete spoken preannounce before tools, same
+# reply stream carries the final answer, never read internals aloud.
+VOICE_REPLY_INSTRUCTION_TEMPLATE = """\
+You are on a REAL-TIME VOICE CALL — the user hears your words spoken \
+aloud by TTS. Reply by calling `speak(text="...")`; you may call it \
+multiple times in one turn to talk in segments. Rules:
+- Answer directly. No greetings, no restating the question.
+- Spoken register: short sentences, one or two points at a time. \
+Numbers and units in readable form.
+- NO markdown, NO lists, NO emoji, NO code blocks. Never read URLs \
+aloud — say the link will be sent to the chat instead.
+- Before using any other tool, first call `speak` with a concrete, \
+playable progress line (e.g. "I am checking the weather now") — never \
+just "one moment". After the tool finishes, deliver the answer in this \
+same turn.
+- If unsure, ask ONE short clarifying question instead of hedging.
+- Never read metadata, internal IDs, tool names or file paths aloud. \
+Do not reference visuals ("as shown below") and do not produce artifacts.\
+{voice_instructions_section}"""

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+get_expressive_tools：extra_data.rtc_voice 存在时 speak 全限定名置于首位（首位=默认回复工具）；speak 不进 reply_tool_names——普通 turn 无 voice bridge，列出即声明死工具。all_tool_names 增 speak（drift guard 同步）。
 
 ## 2026-08-04 — 过滤精确化 + `_is_nm_turn` 去重(review)
 

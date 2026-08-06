@@ -33,6 +33,9 @@ from typing import Any, Dict, List
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
+from xyz_agent_context.channel.channel_prompts import (
+    VOICE_REPLY_INSTRUCTION_TEMPLATE,
+)
 from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
 
 from ._narramessenger_credential_manager import NarramessengerCredential
@@ -58,16 +61,34 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         gc = (self._message.raw or {}).get("group_context") or {}
         room_name = ((gc.get("room") or {}).get("name")) or ""
 
-        reply_instruction = (
-            'call `narra_reply(text="YOUR_REPLY")` — your reply is delivered '
-            "to this NarraMessenger room automatically. Send exactly ONE "
-            "message with your real answer (plain text / markdown). The room "
-            "stays quiet until you call this tool — there is no intermediate "
-            "status message, so if the work takes a while, just do it and send "
-            "the final answer when ready. To attach an image or file, put it "
-            "in your workspace first, then call "
-            f'`narra_send_media(room_id="{room_id}", file_path="...")`.'
-        )
+        # F28 voice turn: parse_event stamped raw["rtc_voice"] after strict
+        # metadata validation — swap the reply register for the spoken one.
+        # The voice template is channel-agnostic (channel_prompts); only
+        # the detection is narramessenger-specific.
+        rtc_voice = (self._message.raw or {}).get("rtc_voice")
+        if rtc_voice:
+            instructions = (rtc_voice.get("voice_instructions") or "").strip()
+            section = (
+                f"\n- Caller instructions for this turn: {instructions}"
+                if instructions
+                else ""
+            )
+            reply_instruction = VOICE_REPLY_INSTRUCTION_TEMPLATE.format(
+                voice_instructions_section=section
+            )
+            send_tool_name = "speak"
+        else:
+            reply_instruction = (
+                'call `narra_reply(text="YOUR_REPLY")` — your reply is delivered '
+                "to this NarraMessenger room automatically. Send exactly ONE "
+                "message with your real answer (plain text / markdown). The room "
+                "stays quiet until you call this tool — there is no intermediate "
+                "status message, so if the work takes a while, just do it and send "
+                "the final answer when ready. To attach an image or file, put it "
+                "in your workspace first, then call "
+                f'`narra_send_media(room_id="{room_id}", file_path="...")`.'
+            )
+            send_tool_name = "narra_reply"
 
         return {
             "agent_id": self._agent_id,
@@ -81,7 +102,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
             "timestamp": str(self._message.timestamp_ms),
             "my_channel_id": self._credential.matrix_user_id,
             "message_body": self._message.content,
-            "send_tool_name": "narra_reply",
+            "send_tool_name": send_tool_name,
             "reply_instruction": reply_instruction,
         }
 

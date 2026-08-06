@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+parse_event 的 text 分支做 RTC v1 检测（_rtc_voice 严格校验，任一失败=普通消息）：剥 envelope、正文=transcript、raw["rtc_voice"] 带四 ID + 有效 voice_instructions（metadata 优先、envelope 兜底）；空 transcript 丢 turn。_voice_profile_for 把 rtc_voice 映射为一次性 TurnProfile.voice_fast()（不落 session）。streaming 路径把 profile 传 run_stream、rtc_voice 进 extra_data。
 
 ## 2026-08-04 — `matrix_since_token` 排除出熔断指纹
 

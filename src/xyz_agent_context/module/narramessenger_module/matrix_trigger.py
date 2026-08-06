@@ -98,6 +98,7 @@ from xyz_agent_context.schema.parsed_message import (
     ParsedMessage,
 )
 from xyz_agent_context.schema.runtime_message import MessageType
+from xyz_agent_context.schema.turn_profile import TurnProfile
 
 from ._matrix_send import (
     MatrixSendError,
@@ -107,7 +108,21 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
+from ._rtc_voice import parse_rtc_voice_input, split_narra_system_prompt
 from .narramessenger_context_builder import NarramessengerContextBuilder
+
+
+def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
+    """Map RTC voice detection to the one-shot fast profile.
+
+    The profile exists ONLY for the turn whose event carried valid
+    metadata (parse_event stamps ``raw["rtc_voice"]``) — nothing is
+    persisted, so the next plain message runs the normal path untouched
+    (handoff: the override must never be written to any session store).
+    """
+    if (message.raw or {}).get("rtc_voice"):
+        return TurnProfile.voice_fast()
+    return None
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
@@ -1436,7 +1451,19 @@ class MatrixTrigger(ChannelTriggerBase):
                 a.model_dump(mode="json") for a in attachments
             ]
 
+        # F28 voice turn: the one-shot fast profile rides this run only;
+        # rtc_voice reaches modules via extra_data (expressive surface
+        # ordering) without any session write.
+        turn_profile = _voice_profile_for(message)
+        rtc_voice = (message.raw or {}).get("rtc_voice")
+        if rtc_voice:
+            extra_data["rtc_voice"] = rtc_voice
+
         state = _StreamReplyState()
+
+        run_kwargs: dict[str, Any] = {}
+        if turn_profile is not None:
+            run_kwargs["turn_profile"] = turn_profile
 
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
@@ -1444,6 +1471,7 @@ class MatrixTrigger(ChannelTriggerBase):
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,
+            **run_kwargs,
         )
 
         try:
@@ -2104,6 +2132,40 @@ class MatrixTrigger(ChannelTriggerBase):
             body = raw.get("body") or ""
             if not body.strip():
                 return None
+            # ── F28 RTC voice turn detection ────────────────────────────
+            # Hybrid sends final STT as a normal m.text plus the
+            # ai.netmind.rtc.voice_input v1 metadata on the same event.
+            # Strict validation lives in _rtc_voice; ANY miss keeps this a
+            # plain text message (contract: bad metadata must never break
+            # the normal reply path). Metadata is a presentation hint,
+            # NOT authorization — classify/authorize gates run unchanged.
+            source = getattr(raw.get("_nio_event"), "source", None)
+            rtc = (
+                parse_rtc_voice_input(source) if isinstance(source, dict) else None
+            )
+            if rtc is not None:
+                envelope, transcript = split_narra_system_prompt(body)
+                if not transcript.strip():
+                    # Envelope-only body: nothing to answer. Drop the turn
+                    # rather than running the agent on empty input.
+                    logger.info(
+                        f"[matrix:{raw.get('_agent_id', '?')}] voice turn "
+                        f"with empty transcript dropped (event={event_id})"
+                    )
+                    return None
+                body = transcript
+                raw = dict(raw)
+                # voice_instructions precedence: explicit metadata field
+                # wins; the narra-system-prompt envelope is the v1
+                # compatibility carrier (handoff 4.2 — never deleted,
+                # injected as controlled current-turn instruction only).
+                raw["rtc_voice"] = {
+                    "rtc_session_id": rtc.rtc_session_id,
+                    "turn_id": rtc.turn_id,
+                    "invocation_id": rtc.invocation_id,
+                    "agent_profile_id": rtc.agent_profile_id,
+                    "voice_instructions": rtc.voice_instructions or envelope,
+                }
             return ParsedMessage(
                 message_id=event_id,
                 chat_id=room_id,

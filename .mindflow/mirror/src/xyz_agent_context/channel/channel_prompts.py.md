@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-04-20
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+新增 VOICE_REPLY_INSTRUCTION_TEMPLATE（channel 无关的 voice register，handoff §7 行为纪律），任何 channel 检测到语音 turn 即可复用。
 
 # channel_prompts.py — 所有 IM 渠道共用的 Prompt 模板库
 
