@@ -4,6 +4,13 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (review R2) — 单点解析
+
+`getAuthHeaders()` 和 `getSessionToken()` 原本各自 `getItem` + `JSON.parse`
+同一个 blob、各带一套 try/catch。抽出私有 `readIdentity()`：一处解析、一处
+容错。顺带对 token/userId 加了类型判断——persist 里存着别的类型时不会把
+`[object Object]` 拼进请求头。
+
 # authHeaders.ts — 出站请求的身份头（唯一来源）
 
 ## Why it exists

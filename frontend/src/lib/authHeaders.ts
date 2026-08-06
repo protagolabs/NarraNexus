@@ -10,6 +10,38 @@
  * the store here would create `api → configStore → api`.
  */
 
+const CONFIG_KEY = 'narra-nexus-config';
+
+interface PersistedIdentity {
+  token: string;
+  userId: string;
+}
+
+/**
+ * The two identity fields out of the persisted configStore blob.
+ *
+ * Single parse point on purpose: both exports below need the same blob, and
+ * duplicating `getItem` + `JSON.parse` + try/catch means duplicating the
+ * failure handling too. localStorage can be unavailable outright (private
+ * mode, storage disabled) and the blob can be malformed (a half-written
+ * value, a schema from an older build) — either way the honest answer is
+ * "no identity", which the backend then rejects with `token_missing` /
+ * `identity_missing`. That is correct behaviour, not a bug to paper over.
+ */
+function readIdentity(): PersistedIdentity {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (!raw) return { token: '', userId: '' };
+    const state = JSON.parse(raw)?.state;
+    return {
+      token: typeof state?.token === 'string' ? state.token : '',
+      userId: typeof state?.userId === 'string' ? state.userId : '',
+    };
+  } catch {
+    return { token: '', userId: '' };
+  }
+}
+
 /**
  * Two headers, mutually compatible:
  *   - `Authorization: Bearer <jwt>` — cloud mode, signed identity
@@ -20,30 +52,14 @@
  * depth; local: X-User-Id only, there is no signing key).
  */
 export function getAuthHeaders(): Record<string, string> {
+  const { token, userId } = readIdentity();
   const headers: Record<string, string> = {};
-  try {
-    const raw = localStorage.getItem('narra-nexus-config');
-    if (raw) {
-      const config = JSON.parse(raw);
-      const token = config?.state?.token;
-      const userId = config?.state?.userId;
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (userId) headers['X-User-Id'] = userId;
-    }
-  } catch {
-    /* localStorage may be unavailable / disabled — fall through */
-  }
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (userId) headers['X-User-Id'] = userId;
   return headers;
 }
 
 /** The raw session JWT, or '' when there is none (local mode / logged out). */
 export function getSessionToken(): string {
-  try {
-    const raw = localStorage.getItem('narra-nexus-config');
-    if (!raw) return '';
-    const token = JSON.parse(raw)?.state?.token;
-    return typeof token === 'string' ? token : '';
-  } catch {
-    return '';
-  }
+  return readIdentity().token;
 }

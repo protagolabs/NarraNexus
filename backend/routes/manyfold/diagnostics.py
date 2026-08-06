@@ -20,7 +20,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client

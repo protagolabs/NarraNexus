@@ -321,3 +321,39 @@ def test_main_registers_cors_outermost():
         "CORSMiddleware must be registered AFTER the http middlewares, or "
         "early-returned 401s ship without Access-Control-Allow-Origin"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. The audit line must not be forgeable or unbounded.
+#
+# On the TOKEN_INVALID path the signature did NOT verify, so the whole
+# payload is attacker-chosen. Concatenating it raw into a WARNING line lets
+# anyone plant a second, fabricated [auth-reject] record (CWE-117) or bill
+# us a 100KB log line per unauthenticated request — either way destroying
+# the forensic value this logging exists for.
+# ---------------------------------------------------------------------------
+
+def test_forged_claim_cannot_inject_a_second_log_line(cloud_client, log_lines):
+    forged = (
+        "x\n2026-08-06 10:00:00 | WARNING | [auth-reject] "
+        "code=token_expired GET /api/billing/subscription user=victim"
+    )
+    token = jwt.encode({"user_id": forged, "exp": 1, "iat": 1}, "not-our-secret",
+                       algorithm=JWT_ALGORITHM)
+
+    cloud_client.get("/api/agents", headers={"Authorization": f"Bearer {token}"})
+
+    hits = [ln for ln in log_lines if "[auth-reject]" in ln]
+    assert len(hits) == 1, "an unverified claim must not be able to add log lines"
+    # The newline survives as an escape, not as a line break.
+    assert "\\n" in hits[0]
+
+
+def test_oversized_claim_is_truncated(cloud_client, log_lines):
+    token = jwt.encode({"user_id": "A" * 100_000, "exp": 1, "iat": 1},
+                       "not-our-secret", algorithm=JWT_ALGORITHM)
+
+    cloud_client.get("/api/agents", headers={"Authorization": f"Bearer {token}"})
+
+    hits = [ln for ln in log_lines if "[auth-reject]" in ln]
+    assert hits and len(hits[0]) < 1000, "one request must not buy a huge log line"

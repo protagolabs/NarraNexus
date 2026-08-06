@@ -4,6 +4,22 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (review R2) — 未验签 claims 必须先过 `_render_claim`
+
+`_token_lifetime` 原本把 iat/exp/user_id 直接拼进日志行。问题在于它的两个
+调用点之一是 **TOKEN_INVALID**——签名没验过，整个 payload 是调用方随手写
+的。两个后果：
+
+- **日志注入（CWE-117）**：`user_id` 里塞一个换行加一条伪造的
+  `[auth-reject]` 文本，一次请求就能在审计日志里种出第二行看起来货真价实
+  的记录。本模块存在的理由就是"让下一个 8/2 可定性"，而一条谁都能伪造的
+  取证日志把这个理由取消掉了。
+- **体积放大**：100KB 的 `user_id` = 每个请求一行 100KB 日志，无需认证、
+  可重复。
+
+现在每个 claim 走 `_render_claim`：`repr()` 把换行变成字面 `\n`（不再断
+行），并截断到 `_MAX_CLAIM_CHARS`。两个用例钉住（伪造行、超长 claim）。
+
 # auth_errors.py — 401 的语义词汇表 + 可观测性
 
 ## Why it exists

@@ -4,6 +4,16 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (review R2) — 新增 `getSession()`
+
+`GET /api/auth/session` 的类型化封装（`SessionResponse` 在 [[api]] types）。
+消费方是 [[App]] 的 ProtectedRoute 挂载预热——此前它用 `getAgents()`，为了
+一个"后端还认我吗"的信号把用户的全量 agent 列表（外加 active-run 与预览
+enrichment）从数据库里拉一遍再丢掉。探针端点不查库。
+
+注意 [[sessionGuard.ts]] **不**走这个方法：它必须用裸 fetch，否则自己的
+401 会再次进入 `request()` 的 401 分支 → 递归。
+
 ## 2026-08-06 — 401 不再等于"登出"（0802 线下事故）
 
 `request()` 的 401 分支重写：从「带 token 的 401 → 立刻派发

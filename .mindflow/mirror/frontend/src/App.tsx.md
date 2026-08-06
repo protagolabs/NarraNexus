@@ -14,9 +14,13 @@ stub: false
 同一种核弹反射,只是换了触发源,而且**绕过 [[sessionGuard.ts]]**(全程没有
 401)。
 
-现在只保留"摸一次后端"的预热语义:能进 `.then` 就说明返回了 200,也就
-说明认证已经通过;JWT 还认不认由 401 那条路裁决。列表拉失败的代价应该是
-侧栏空着,仅此而已。
+现在只保留"摸一次后端"的预热语义,判决权在 401 那条路(经 [[api.ts]] 交给
+[[sessionGuard.ts]] 确认)。列表拉失败的代价应该是侧栏空着,仅此而已。
+
+**review R2 追加**:调用也从 `getAgents()` 换成新的 `api.getSession()`。前者
+为了一个"后端还认我吗"的信号,把用户的全量 agent 列表(外加 active-run 与
+预览 enrichment)从数据库里拉一遍再整个丢掉;`/api/auth/session` 不查库,
+同样的信号、没有那份开销。
 
 同时把到期横幅的 `isLoggedIn` 从 `getState()` 改成订阅:否则手动登出后,
 "Your session expires in 5 hours" 会继续挂在 /login 顶上,直到下一个

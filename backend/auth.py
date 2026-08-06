@@ -390,10 +390,13 @@ async def auth_middleware(request: Request, call_next):
     # would kill all /api/* calls from the dev server or from a cloud-app
     # frontend on a different origin.
     #
-    # CORSMiddleware is registered in backend/main.py, but FastAPI middleware
-    # is LIFO — this auth middleware runs FIRST, so CORSMiddleware never gets
-    # a chance at the preflight unless we call_next here. Let the request fall
-    # through; CORSMiddleware will intercept and return the correct headers.
+    # Since 2026-08-06 CORSMiddleware is the OUTERMOST layer (see the
+    # ordering note in backend/main.py), so a preflight is answered before it
+    # ever reaches this function and this branch is defence in depth. It used
+    # to be load-bearing: CORS was registered innermost, and without this
+    # bypass every cross-origin preflight died here. Kept because the cost is
+    # one comparison and the failure mode of losing it — should the ordering
+    # ever regress — is "all cross-origin calls stop working".
     if request.method == "OPTIONS":
         return await call_next(request)
 

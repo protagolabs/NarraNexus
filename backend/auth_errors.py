@@ -96,6 +96,31 @@ class AuthError(HTTPException):
 # Observability
 # =============================================================================
 
+# Longest rendered claim we will put in a log line. A rejected token's
+# payload is attacker-chosen, so an unbounded claim is an unbounded log line.
+_MAX_CLAIM_CHARS = 64
+
+
+def _render_claim(value: object) -> str:
+    """Make ONE unverified claim safe to concatenate into a log line.
+
+    Two hazards, both from the same source: on the TOKEN_INVALID path the
+    signature did not verify, so every byte of the payload is whatever the
+    caller wrote.
+
+    - `repr()` escapes newlines to a literal ``\\n``. Without it a claim of
+      ``"x\\n2026-08-06 | WARNING | [auth-reject] code=... user=victim"``
+      lands as a second, entirely fabricated audit line (CWE-117). A forgery
+      -friendly audit trail is worse than none: this module exists so the
+      next 8/2 is diagnosable, and a line anyone can plant destroys exactly
+      that.
+    - Truncation caps the cost. A 100KB `user_id` would otherwise buy an
+      unauthenticated caller a 100KB log line per request, repeatable.
+    """
+    text = repr(value)
+    return text if len(text) <= _MAX_CLAIM_CHARS else f"{text[:_MAX_CLAIM_CHARS]}…"
+
+
 def _token_lifetime(token: Optional[str]) -> str:
     """Render a rejected token's own iat/exp claims for the log line.
 
@@ -105,6 +130,9 @@ def _token_lifetime(token: Optional[str]) -> str:
     a legitimate login" apart from "signed by a key this process doesn't
     have" (a redeploy with a rotated JWT_SECRET looks identical to the
     user, and produced the unanswered question of the 8/2 incident).
+
+    Every claim goes through `_render_claim` first — see there for why an
+    unverified payload must never reach a log line raw.
     """
     if not token:
         return ""
@@ -112,7 +140,11 @@ def _token_lifetime(token: Optional[str]) -> str:
         claims = jwt.decode(token, options={"verify_signature": False})
     except Exception:
         return " iat=? exp=? (undecodable)"
-    return f" iat={claims.get('iat')} exp={claims.get('exp')} sub={claims.get('user_id')}"
+    return (
+        f" iat={_render_claim(claims.get('iat'))}"
+        f" exp={_render_claim(claims.get('exp'))}"
+        f" sub={_render_claim(claims.get('user_id'))}"
+    )
 
 
 def log_auth_rejection(

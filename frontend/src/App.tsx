@@ -86,19 +86,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setValidating(false);
       return;
     }
-    // Warm the session by touching the backend once. Whether the JWT is
-    // still accepted is decided by the 401 path (lib/sessionGuard), not
-    // here: reaching `.then` at all means the request returned 200, which
-    // means auth succeeded.
+    // Touch the backend once so a session that died while the tab was shut
+    // is noticed now rather than on the user's next click. The verdict is
+    // not made here: a 401 goes through lib/api into lib/sessionGuard, which
+    // confirms before anything is torn down. The response body is irrelevant.
     //
-    // This used to `logout()` on `!res.success`. But GET /api/auth/agents
-    // answers 200 + {success:false, error} for ANY unhandled exception in
-    // the handler — a database hiccup during app mount, say. That is not an
-    // authentication failure, and ending the session over it is the same
-    // nuclear reflex the 401 path just stopped doing: the user loses
-    // everything on screen because a query timed out. A failed listing
-    // should cost an empty sidebar, nothing more.
-    api.getAgents()
+    // Two things this deliberately is NOT:
+    //
+    // - It is not `getAgents()` any more. That pulls the user's whole agent
+    //   list (plus active-run and preview enrichment) out of the database on
+    //   every protected mount, to then discard it. `/api/auth/session` does
+    //   no database work at all — same signal, none of the cost.
+    // - It does not `logout()` on `!res.success`, as it used to. GET
+    //   /api/auth/agents answers 200 + {success:false, error} for ANY
+    //   unhandled exception in the handler — a database hiccup during mount,
+    //   say. That is not an authentication failure, and ending the session
+    //   over it is the same nuclear reflex the 401 path just stopped doing.
+    api.getSession()
       .catch(() => {
         // Backend unreachable, or a 401 already handed to the session
         // guard by lib/api. Either way, nothing to do here.

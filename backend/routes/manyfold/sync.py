@@ -35,7 +35,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from loguru import logger
 
 from xyz_agent_context.schema.channel_tag import ChannelTag
