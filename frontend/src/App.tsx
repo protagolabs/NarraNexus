@@ -75,7 +75,7 @@ function useResolveAppMode() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isLoggedIn, userId, logout } = useConfigStore();
+  const { isLoggedIn, userId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
   const location = useLocation();
@@ -86,13 +86,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setValidating(false);
       return;
     }
-    // Validate that the session is still valid (JWT token accepted by backend)
+    // Warm the session by touching the backend once. Whether the JWT is
+    // still accepted is decided by the 401 path (lib/sessionGuard), not
+    // here: reaching `.then` at all means the request returned 200, which
+    // means auth succeeded.
+    //
+    // This used to `logout()` on `!res.success`. But GET /api/auth/agents
+    // answers 200 + {success:false, error} for ANY unhandled exception in
+    // the handler — a database hiccup during app mount, say. That is not an
+    // authentication failure, and ending the session over it is the same
+    // nuclear reflex the 401 path just stopped doing: the user loses
+    // everything on screen because a query timed out. A failed listing
+    // should cost an empty sidebar, nothing more.
     api.getAgents()
-      .then(res => {
-        if (!res.success) logout();
-      })
       .catch(() => {
-        // Backend unreachable — don't force logout
+        // Backend unreachable, or a 401 already handed to the session
+        // guard by lib/api. Either way, nothing to do here.
       })
       .finally(() => setValidating(false));
   }, [isLoggedIn, userId]);
@@ -301,9 +310,12 @@ function App() {
   const [expiresInMs, setExpiresInMs] = useState<number | null>(null);
   // Remaining time at the moment of dismissal — see shouldShowExpiryWarning.
   const [expiryDismissedAt, setExpiryDismissedAt] = useState<number | null>(null);
+  // Subscribed, not read via getState(): logging out must clear the banner
+  // immediately. Polling alone would leave "your session expires in 5 hours"
+  // sitting on top of the /login page for up to a full tick.
+  const isLoggedIn = useConfigStore((s) => s.isLoggedIn);
   useEffect(() => {
     const check = () => {
-      const { isLoggedIn } = useConfigStore.getState();
       // null in local mode (no JWT) — there is nothing to expire there.
       setExpiresInMs(isLoggedIn ? msUntilExpiry(getSessionToken()) : null);
     };
@@ -316,7 +328,7 @@ function App() {
       window.clearInterval(id);
       window.removeEventListener('focus', check);
     };
-  }, []);
+  }, [isLoggedIn]);
 
   // Agent circuit-breaker open: wsManager dispatches this when the backend
   // refuses to start a run because the agent is paused (repeated auth/quota

@@ -4,6 +4,24 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (自审补) — ProtectedRoute 不再因 `success:false` 登出
+
+`ProtectedRoute` 的会话校验原本是
+`api.getAgents().then(res => { if (!res.success) logout() })`。问题:
+`GET /api/auth/agents` 对**处理器里任何未捕获异常**都回 200 +
+`{success:false, error}`(见路由末尾的兜底 except)——比如 app 挂载时数据库
+抖一下。那不是认证失败,却会销毁整个会话:这正是 401 那条路刚刚被治好的
+同一种核弹反射,只是换了触发源,而且**绕过 [[sessionGuard.ts]]**(全程没有
+401)。
+
+现在只保留"摸一次后端"的预热语义:能进 `.then` 就说明返回了 200,也就
+说明认证已经通过;JWT 还认不认由 401 那条路裁决。列表拉失败的代价应该是
+侧栏空着,仅此而已。
+
+同时把到期横幅的 `isLoggedIn` 从 `getState()` 改成订阅:否则手动登出后,
+"Your session expires in 5 hours" 会继续挂在 /login 顶上,直到下一个
+10 分钟 tick 才消失。
+
 ## 2026-08-06 — auth-expired 记录触发源 + 新增到期预警横幅
 
 **1. 记录触发源。** `narranexus:auth-expired` 的 handler 现在读事件的

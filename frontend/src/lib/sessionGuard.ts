@@ -77,7 +77,8 @@ export async function confirmSessionDeath(
   if (confirmed) return;
   // No credential attached → there is no session to lose. Anonymous
   // probes and pre-login requests must never reach the teardown path.
-  if (!getAuthHeaders().Authorization && !getAuthHeaders()['X-User-Id']) return;
+  const headers = getAuthHeaders();
+  if (!headers.Authorization && !headers['X-User-Id']) return;
 
   if (!inFlight) {
     inFlight = (async () => {
