@@ -1824,7 +1824,8 @@
         "only": "仅",
         "allAgents": "全部智能体（{{count}}）",
         "clear": "清空",
-        "agentsToInclude": "要包含的智能体 · {{selected}}/{{total}}"
+        "agentsToInclude": "要包含的智能体 · {{selected}}/{{total}}",
+        "pickTeamFirst": "先在上方选择团队 — 其成员会自动包含。"
       },
       "skills": {
         "emptySelectAgents": "请在上一个标签页选择智能体——它们的技能将显示在这里。",
@@ -2010,6 +2011,13 @@
         "noArtifacts": "此智能体没有制品。",
         "pinned": "已固定",
         "fullModeNote": "完整快照模式自动包含所有制品。切换到自定义以手动选择。"
+      },
+      "kind": {
+        "label": "类型",
+        "agentTitle": "Agent bundle",
+        "agentDesc": "选择一个或多个 Agent。叙事、技能与工作区文件按所选范围打包。",
+        "teamTitle": "Team bundle",
+        "teamDesc": "导出整个团队 — 其成员 Agent、团队介绍与共享频道一起打包。"
       }
     },
     "signup": {

@@ -1465,7 +1465,8 @@
         "only": "nur",
         "allAgents": "alle Agenten ({{count}})",
         "clear": "leeren",
-        "agentsToInclude": "Einzubeziehende Agenten · {{selected}}/{{total}}"
+        "agentsToInclude": "Einzubeziehende Agenten · {{selected}}/{{total}}",
+        "pickTeamFirst": "Wähle oben ein Team — seine Mitglieder werden automatisch aufgenommen."
       },
       "skills": {
         "emptySelectAgents": "Wähle im vorherigen Tab Agenten aus – ihre Skills erscheinen hier.",
@@ -1651,6 +1652,13 @@
         "noArtifacts": "Dieser Agent hat keine Artefakte.",
         "pinned": "angeheftet",
         "fullModeNote": "Der vollständige Snapshot-Modus bezieht automatisch jedes Artefakt ein. Wechsle zu Benutzerdefiniert, um auszuwählen."
+      },
+      "kind": {
+        "label": "Typ",
+        "agentTitle": "Agent-Bundle",
+        "agentDesc": "Wähle einen oder mehrere Agenten. Narrative, Skills und Workspace-Dateien folgen der Auswahl.",
+        "teamTitle": "Team-Bundle",
+        "teamDesc": "Exportiere ein ganzes Team — seine Agenten, Intro und geteilte Kanäle reisen zusammen."
       }
     },
     "signup": {

@@ -138,6 +138,10 @@ export default function BundleExportPage() {
   // PRD §5 议题 2 — Full vs Custom export mode (PRD names: Full = 1:1 snapshot
   // for self-backup; Custom = pick-and-choose for sharing).
   const [mode, setMode] = useState<'full' | 'custom'>('custom');
+  // v4: what travels — one-or-more agents, or a whole team (its live members
+  // auto-select when picked). The two flows shared one tab before; the
+  // explicit fork is the design's first question, so it comes first.
+  const [bundleKind, setBundleKind] = useState<'agent' | 'team'>('agent');
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [introMd, setIntroMd] = useState('');
@@ -246,13 +250,29 @@ export default function BundleExportPage() {
   useEffect(() => {
     const teamFromQuery = searchParams.get('team');
     const agentsFromQuery = searchParams.get('agents');
-    if (teamFromQuery) setSelectedTeam(teamFromQuery);
+    if (teamFromQuery) {
+      setSelectedTeam(teamFromQuery);
+      setBundleKind('team');
+    }
     if (agentsFromQuery) {
       const ids = agentsFromQuery.split(',').filter(Boolean);
       if (ids.length > 0) setSelectedAgents(new Set(ids));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Team bundle: picking the team IS the selection — its live members
+  // replace the agent set (agents that no longer exist locally are skipped).
+  const handleSetTeam = (teamId: string) => {
+    setSelectedTeam(teamId);
+    if (bundleKind === 'team' && teamId) {
+      const team = teams.find((tm) => tm.team.team_id === teamId);
+      if (team) {
+        const live = new Set(agents.map((a) => a.agent_id));
+        setSelectedAgents(new Set(team.member_agent_ids.filter((id) => live.has(id))));
+      }
+    }
+  };
 
   // P9: derive default filename from selected team. User can still type over
   // it. We only auto-fill when the field is empty OR matches a previous
@@ -1000,8 +1020,53 @@ export default function BundleExportPage() {
         </BracketSectionLabel>
       </div>
 
+      {/* Bundle kind — v4: agent(s) vs whole team, the first fork. */}
+      <div className="px-6 py-3 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
+        <div className="flex items-start gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
+            {t('pages.bundleExport.kind.label')}
+          </span>
+          <div className="flex-1 grid grid-cols-2 gap-2">
+            {(['agent', 'team'] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => {
+                  setBundleKind(k);
+                  if (k === 'agent') setSelectedTeam('');
+                }}
+                className={cn(
+                  'text-left p-3 border rounded-[var(--radius-sm)] transition-colors',
+                  bundleKind === k
+                    ? 'border-[var(--border-strong)] bg-[var(--nm-card)]'
+                    : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)] hover:bg-[var(--nm-paper-warm)]'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    'w-3 h-3 rounded-full border-2',
+                    bundleKind === k
+                      ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)]'
+                      : 'border-[var(--text-tertiary)]'
+                  )} />
+                  <span className="font-mono text-sm">
+                    {k === 'agent'
+                      ? t('pages.bundleExport.kind.agentTitle')
+                      : t('pages.bundleExport.kind.teamTitle')}
+                  </span>
+                </div>
+                <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
+                  {k === 'agent'
+                    ? t('pages.bundleExport.kind.agentDesc')
+                    : t('pages.bundleExport.kind.teamDesc')}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Mode picker (PRD §5 议题 2) */}
-      <div className="px-6 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+      <div className="px-6 py-3 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
         <div className="flex items-start gap-3">
           <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
             {t('pages.bundleExport.mode.label')}
@@ -1012,8 +1077,8 @@ export default function BundleExportPage() {
               className={cn(
                 'text-left p-3 border transition-colors',
                 mode === 'full'
-                  ? 'border-[var(--text-primary)] bg-[var(--bg-elevated)]'
-                  : 'border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+                  ? 'border-[var(--text-primary)] bg-[var(--nm-raised)]'
+                  : 'border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
               )}
             >
               <div className="flex items-center gap-2">
@@ -1035,8 +1100,8 @@ export default function BundleExportPage() {
               className={cn(
                 'text-left p-3 border transition-colors',
                 mode === 'custom'
-                  ? 'border-[var(--text-primary)] bg-[var(--bg-elevated)]'
-                  : 'border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+                  ? 'border-[var(--text-primary)] bg-[var(--nm-raised)]'
+                  : 'border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
               )}
             >
               <div className="flex items-center gap-2">
@@ -1073,8 +1138,9 @@ export default function BundleExportPage() {
             selected={selectedAgents}
             onToggle={toggleAgent}
             selectedTeam={selectedTeam}
-            onSetTeam={setSelectedTeam}
+            onSetTeam={handleSetTeam}
             onBulkSet={setSelectedAgents}
+            bundleKind={bundleKind}
           />
         </div>
         )}
@@ -1294,7 +1360,7 @@ export default function BundleExportPage() {
       </div>
 
       {/* Bundle notes (README.md) + filename (P9) */}
-      <div className="px-6 py-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+      <div className="px-6 py-4 border-t border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
         {/* Filename input */}
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-tertiary)] shrink-0">
@@ -1304,7 +1370,7 @@ export default function BundleExportPage() {
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
             placeholder="bundle.nxbundle"
-            className="flex-1 px-3 py-1.5 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+            className="flex-1 px-3 py-1.5 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none"
           />
         </div>
         <div className="flex items-center gap-2 mb-2">
@@ -1316,7 +1382,7 @@ export default function BundleExportPage() {
           onChange={(e) => setIntroMd(e.target.value)}
           rows={4}
           placeholder={`# ${selectedTeam ? teams.find((x) => x.team.team_id === selectedTeam)?.team.name : t('pages.bundleExport.bundleNotesPlaceholderTeam')}\n\n${t('pages.bundleExport.bundleNotesPlaceholderDesc')}`}
-          className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none resize-y"
+          className="w-full px-3 py-2 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none resize-y"
         />
         <label className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
           <input
@@ -1413,11 +1479,12 @@ function collectWarnings(
 // =============================================================================
 
 function AgentsTab({
-  agents, teams, selected, onToggle, selectedTeam, onSetTeam, onBulkSet,
+  agents, teams, selected, onToggle, selectedTeam, onSetTeam, onBulkSet, bundleKind,
 }: {
   agents: any[]; teams: TeamWithMembers[]; selected: Set<string>; onToggle: (id: string) => void;
   selectedTeam: string; onSetTeam: (teamId: string) => void;
   onBulkSet: (next: Set<string>) => void;
+  bundleKind: 'agent' | 'team';
 }) {
   const { t } = useTranslation();
   // Pre-compute (team_id → existing-on-this-instance member ids) so that
@@ -1450,23 +1517,27 @@ function AgentsTab({
           {t('pages.bundleExport.agents.intro2')}
         </p>
       </div>
-      <div>
-        <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.bundleTeamLabel')}</label>
-        <select
-          value={selectedTeam}
-          onChange={(e) => onSetTeam(e.target.value)}
-          className="mt-1 px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
-        >
-          <option value="">{t('pages.bundleExport.agents.noTeamOption')}</option>
-          {teams.map((team) => (
-            <option key={team.team.team_id} value={team.team.team_id}>{team.team.name} ({team.member_agent_ids.length})</option>
-          ))}
-        </select>
-      </div>
+      {/* Team bundle: the dropdown IS the selection — picking a team
+          replaces the agent set with its live members (parent handleSetTeam). */}
+      {bundleKind === 'team' && (
+        <div>
+          <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.bundleTeamLabel')}</label>
+          <select
+            value={selectedTeam}
+            onChange={(e) => onSetTeam(e.target.value)}
+            className="mt-1 px-3 py-2 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] rounded-[var(--radius-sm)]"
+          >
+            <option value="">{t('pages.bundleExport.agents.noTeamOption')}</option>
+            {teams.map((team) => (
+              <option key={team.team.team_id} value={team.team.team_id}>{team.team.name} ({team.member_agent_ids.length})</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Per-team batch select — same gesture as the sidebar Package button:
           one click pulls in (or replaces with) every live member of that team. */}
-      {teams.length > 0 && (
+      {bundleKind === 'agent' && teams.length > 0 && (
         <div>
           <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.quickAddByTeam')}</label>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -1481,7 +1552,7 @@ function AgentsTab({
                   className={cn(
                     'flex items-center gap-1 border text-[11px] font-mono',
                     allIn
-                      ? 'border-[var(--border-strong)] bg-[var(--bg-elevated)]'
+                      ? 'border-[var(--border-strong)] bg-[var(--nm-raised)]'
                       : someIn
                         ? 'border-[var(--border-default)]'
                         : 'border-[var(--border-subtle)]'
@@ -1489,7 +1560,7 @@ function AgentsTab({
                 >
                   <button
                     onClick={() => (allIn ? dropTeam(team) : addTeam(team))}
-                    className="px-2 py-1 hover:bg-[var(--bg-tertiary)] flex items-center gap-1"
+                    className="px-2 py-1 hover:bg-[var(--nm-paper-warm)] flex items-center gap-1"
                     title={allIn
                       ? t('pages.bundleExport.agents.deselectTeamTitle', { name: team.team.name })
                       : t('pages.bundleExport.agents.addTeamTitle', { name: team.team.name })}
@@ -1504,7 +1575,7 @@ function AgentsTab({
                   </button>
                   <button
                     onClick={() => replaceWithTeam(team)}
-                    className="px-1.5 py-1 hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border-l border-[var(--border-subtle)]"
+                    className="px-1.5 py-1 hover:bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)] border-l border-[var(--border-subtle)]"
                     title={t('pages.bundleExport.agents.replaceTeamTitle', { name: team.team.name })}
                   >
                     {t('pages.bundleExport.agents.only')}
@@ -1514,13 +1585,13 @@ function AgentsTab({
             })}
             <button
               onClick={() => onBulkSet(new Set(agents.map((a) => a.agent_id)))}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] text-[11px] font-mono"
             >
               {t('pages.bundleExport.agents.allAgents', { count: agents.length })}
             </button>
             <button
               onClick={() => onBulkSet(new Set())}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] text-[11px] font-mono"
             >
               {t('pages.bundleExport.agents.clear')}
             </button>
@@ -1532,18 +1603,24 @@ function AgentsTab({
         <label className="text-xs uppercase text-[var(--text-tertiary)]">
           {t('pages.bundleExport.agents.agentsToInclude', { selected: selected.size, total: agents.length })}
         </label>
+        {bundleKind === 'team' && !selectedTeam && (
+          <div className="mt-2 text-[12px] text-[var(--text-tertiary)]">
+            {t('pages.bundleExport.agents.pickTeamFirst')}
+          </div>
+        )}
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {agents.map((a) => {
+          {(bundleKind === 'team' ? agents.filter((a) => selected.has(a.agent_id)) : agents).map((a) => {
             const checked = selected.has(a.agent_id);
             return (
               <button
                 key={a.agent_id}
-                onClick={() => onToggle(a.agent_id)}
+                disabled={bundleKind === 'team'}
+                onClick={() => bundleKind === 'agent' && onToggle(a.agent_id)}
                 className={cn(
                   'text-left p-3 border transition-colors',
                   checked
-                    ? 'bg-[var(--bg-elevated)] border-[var(--border-strong)]'
-                    : 'bg-[var(--bg-secondary)] border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+                    ? 'bg-[var(--nm-raised)] border-[var(--border-strong)]'
+                    : 'bg-[var(--nm-paper)] border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -1619,7 +1696,7 @@ function SkillsTab({
         if (!loaded) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
-              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
                 {t('pages.bundleExport.skills.agentLoading', { name: a.name || a.agent_id })}
               </summary>
@@ -1629,7 +1706,7 @@ function SkillsTab({
         if (skills.length === 0) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
-              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)]">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)]">
                 {t('pages.bundleExport.skills.agentNoSkills', { name: a.name || a.agent_id })}
               </summary>
             </details>
@@ -1637,7 +1714,7 @@ function SkillsTab({
         }
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
-            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <span className="text-[10px] text-[var(--text-tertiary)]">
                 {t('pages.bundleExport.skills.skillCount', { count: skills.length })}
@@ -1733,7 +1810,7 @@ function SkillsTab({
                             source_url: e.target.value, source_type: 'github',
                             branch: choice.branch || 'main',
                           })}
-                          className="flex-1 px-2 py-1 text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:outline-none"
+                          className="flex-1 px-2 py-1 text-xs font-mono bg-[var(--nm-card)] border border-[var(--border-subtle)] focus:outline-none"
                         />
                         <input
                           type="text"
@@ -1744,7 +1821,7 @@ function SkillsTab({
                             source_url: choice.source_url || '', source_type: 'github',
                             branch: e.target.value || 'main',
                           })}
-                          className="w-24 px-2 py-1 text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:outline-none"
+                          className="w-24 px-2 py-1 text-xs font-mono bg-[var(--nm-card)] border border-[var(--border-subtle)] focus:outline-none"
                         />
                       </div>
                     )}
@@ -1830,7 +1907,7 @@ function AskAgentToBackupButton({
         }
       }}
       disabled={busy || agentIds.length === 0}
-      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
       title={t('pages.bundleExport.skills.backupButtonTitle')}
     >
       {busy ? '…' : t('pages.bundleExport.skills.backupButton')}
@@ -1906,7 +1983,7 @@ function HistoryTab({
         const exNars = excludedNarratives[a.agent_id] || new Set();
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
-            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
                 {!loaded ? (
@@ -1922,14 +1999,14 @@ function HistoryTab({
                 <button
                   onClick={(e) => { e.preventDefault(); onSelectAllNarratives(a.agent_id); }}
                   disabled={!loaded}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
                 >
                   {t('pages.bundleExport.history.selectAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onSelectNoneNarratives(a.agent_id); }}
                   disabled={!loaded}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
                 >
                   {t('pages.bundleExport.history.selectNone')}
                 </button>
@@ -1955,7 +2032,7 @@ function HistoryTab({
                     'border border-[var(--border-subtle)]',
                     narExcluded && 'opacity-50'
                   )}>
-                    <div className="px-3 py-2 flex items-center gap-2 bg-[var(--bg-secondary)]">
+                    <div className="px-3 py-2 flex items-center gap-2 bg-[var(--nm-paper)]">
                       {!isOrphanJobsRow && (
                         <input
                           type="checkbox"
@@ -1993,13 +2070,13 @@ function HistoryTab({
                             <>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectAllEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id)); }}
-                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                               >
                                 {t('pages.bundleExport.history.allEvents')}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectNoneEventsInNarrative(n.narrative_id); }}
-                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                               >
                                 {t('pages.bundleExport.history.noEvents')}
                               </button>
@@ -2009,13 +2086,13 @@ function HistoryTab({
                             <>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectAllJobsInNarrative(n.narrative_id); }}
-                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                               >
                                 {t('pages.bundleExport.history.allJobs')}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectNoneJobsInNarrative(n.narrative_id, n.jobs.map((x) => x.job_id)); }}
-                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                               >
                                 {t('pages.bundleExport.history.noJobs')}
                               </button>
@@ -2041,7 +2118,7 @@ function HistoryTab({
                             const evIncluded = inEvts.has(e.event_id);
                             return (
                               <label key={e.event_id} className={cn(
-                                'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                                'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--nm-paper-warm)]',
                                 !evIncluded && 'opacity-50'
                               )}>
                                 <input
@@ -2060,20 +2137,20 @@ function HistoryTab({
                             );
                           })}
                           {hidden > 0 && (
-                            <div className="px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] bg-[var(--bg-secondary)]/40 border-t border-[var(--border-subtle)]">
+                            <div className="px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] bg-[var(--nm-paper)]/40 border-t border-[var(--border-subtle)]">
                               <span className="text-[var(--text-tertiary)]">
                                 {t('pages.bundleExport.history.showingEvents', { visible: visible.length, total: n.events.length, hidden })}
                               </span>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   onClick={(ev) => { ev.stopPropagation(); onShowMoreEvents(n.narrative_id, n.events.length); }}
-                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                                 >
                                   {t('pages.bundleExport.history.showMore', { count: Math.min(eventPageSize, hidden) })}
                                 </button>
                                 <button
                                   onClick={(ev) => { ev.stopPropagation(); onShowAllEvents(n.narrative_id, n.events.length); }}
-                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                                 >
                                   {t('pages.bundleExport.history.showAll', { count: n.events.length })}
                                 </button>
@@ -2084,7 +2161,7 @@ function HistoryTab({
                       );
                     })()}
                     {!narExcluded && n.jobs.length > 0 && (
-                      <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
+                      <div className="border-t border-[var(--border-subtle)] bg-[var(--nm-card)]/30">
                         <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
                           {t('pages.bundleExport.history.jobsHeader', { included: n.jobs.length - exJobs.size, total: n.jobs.length })}
                         </div>
@@ -2092,7 +2169,7 @@ function HistoryTab({
                           const jobExcluded = exJobs.has(j.job_id);
                           return (
                             <label key={j.job_id} className={cn(
-                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--nm-paper-warm)]',
                               jobExcluded && 'opacity-40'
                             )}>
                               <input
@@ -2152,7 +2229,7 @@ function SensitiveZipConfirmModal({
             {t('pages.bundleExport.sensitiveZip.body')}
             <strong> {t('pages.bundleExport.sensitiveZip.bodyStrong')}</strong>
           </p>
-          <ul className="list-disc list-inside space-y-1 text-xs font-mono bg-[var(--bg-tertiary)] p-3 max-h-[200px] overflow-y-auto">
+          <ul className="list-disc list-inside space-y-1 text-xs font-mono bg-[var(--nm-card)] p-3 max-h-[200px] overflow-y-auto">
             {hits.map((w, i) => (
               <li key={i}>
                 <span className="text-[var(--color-red-500)]">{w.skill}</span>:{' '}
@@ -2168,7 +2245,7 @@ function SensitiveZipConfirmModal({
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder={t('pages.bundleExport.sensitiveZip.inputPlaceholder')}
-            className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+            className="w-full px-3 py-2 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none"
           />
         </div>
         <div className="px-5 py-3 border-t border-[var(--border-default)] flex justify-end gap-2">
@@ -2196,8 +2273,8 @@ function RadioCard({ label, desc, disabled, active, onClick }: { label: string; 
         'p-2 text-left border text-xs transition-colors',
         disabled && 'opacity-40 cursor-not-allowed',
         active
-          ? 'border-[var(--text-primary)] bg-[var(--bg-elevated)]'
-          : 'border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+          ? 'border-[var(--text-primary)] bg-[var(--nm-raised)]'
+          : 'border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]'
       )}
     >
       <div className="font-mono">{label}</div>
@@ -2262,7 +2339,7 @@ function SocialTab({
         if (!loaded) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
-              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
                 {t('pages.bundleExport.social.agentLoading', { name: a.name || a.agent_id })}
               </summary>
@@ -2271,7 +2348,7 @@ function SocialTab({
         }
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
-            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">
@@ -2279,14 +2356,14 @@ function SocialTab({
                 </span>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, list.map((x) => x.entity_id)); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                   disabled={list.length === 0}
                 >
                   {t('pages.bundleExport.social.selectAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, []); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                   disabled={selected.size === 0}
                 >
                   {t('pages.bundleExport.social.selectNone')}
@@ -2305,7 +2382,7 @@ function SocialTab({
                 {slice.map((e) => {
                   const isSel = selected.has(e.entity_id);
                   return (
-                    <div key={e.entity_id} className="flex items-start gap-2 px-2 py-1 hover:bg-[var(--bg-tertiary)]">
+                    <div key={e.entity_id} className="flex items-start gap-2 px-2 py-1 hover:bg-[var(--nm-paper-warm)]">
                       <input type="checkbox" checked={isSel} onChange={() => onToggle(a.agent_id, e.entity_id)} className="mt-1" />
                       <div className="flex-1 min-w-0">
                         <details>
@@ -2437,13 +2514,13 @@ function BusTab({
           <div className="flex items-center gap-1">
             <button
               onClick={onSelectAll}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
             >
               {t('pages.bundleExport.bus.selectAll')}
             </button>
             <button
               onClick={onSelectNone}
-              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
             >
               {t('pages.bundleExport.bus.selectNone')}
             </button>
@@ -2461,7 +2538,7 @@ function BusTab({
             <label
               key={c.channel_id}
               className={cn(
-                'flex items-start gap-3 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                'flex items-start gap-3 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--nm-paper-warm)]',
                 readOnly && 'cursor-default opacity-90'
               )}
             >
@@ -2544,7 +2621,7 @@ function WorkspaceTab({
         if (!loaded) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
-              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
                 {t('pages.bundleExport.workspace.agentLoading', { name: a.name || a.agent_id })}
               </summary>
@@ -2557,7 +2634,7 @@ function WorkspaceTab({
         ).length;
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
-            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--nm-paper)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">
@@ -2566,14 +2643,14 @@ function WorkspaceTab({
                 </span>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'all'); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                   disabled={files.length === 0}
                 >
                   {t('pages.bundleExport.workspace.includeAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'non-sensitive'); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                   disabled={sensitiveCount === 0 && includedCount === files.length - 0}
                   title={t('pages.bundleExport.workspace.defaultsTitle')}
                 >
@@ -2581,7 +2658,7 @@ function WorkspaceTab({
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'none'); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)]"
                   disabled={files.length === 0}
                 >
                   {t('pages.bundleExport.workspace.excludeAll')}
@@ -2610,7 +2687,7 @@ function WorkspaceTab({
                   <label
                     key={f.path}
                     className={cn(
-                      "flex items-center gap-2 px-2 py-1 hover:bg-[var(--bg-tertiary)]",
+                      "flex items-center gap-2 px-2 py-1 hover:bg-[var(--nm-paper-warm)]",
                       sensitive && "bg-[var(--color-yellow-500)]/10",
                     )}
                   >
@@ -2778,11 +2855,11 @@ function McpSection({
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => onSelectAllForAgent(a.agent_id)}
-                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] font-mono"
                     >{t('pages.bundleExport.mcp.selectAll')}</button>
                     <button
                       onClick={() => onClearForAgent(a.agent_id)}
-                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] font-mono"
                     >{t('pages.bundleExport.mcp.clear')}</button>
                   </div>
                 )}
@@ -2803,7 +2880,7 @@ function McpSection({
                       <label
                         key={m.mcp_id}
                         className={cn(
-                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--nm-paper-warm)]',
                           readOnly && 'cursor-default opacity-90'
                         )}
                       >
@@ -2911,11 +2988,11 @@ function ArtifactsTab({
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => onSelectAllForAgent(a.agent_id)}
-                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] font-mono"
                     >{t('pages.bundleExport.artifacts.selectAll')}</button>
                     <button
                       onClick={() => onClearForAgent(a.agent_id)}
-                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] font-mono"
                     >{t('pages.bundleExport.artifacts.clear')}</button>
                   </div>
                 )}
@@ -2936,7 +3013,7 @@ function ArtifactsTab({
                       <label
                         key={art.artifact_id}
                         className={cn(
-                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--nm-paper-warm)]',
                           readOnly && 'cursor-default opacity-90'
                         )}
                       >

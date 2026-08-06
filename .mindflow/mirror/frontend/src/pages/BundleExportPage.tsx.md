@@ -4,6 +4,21 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — Agent/Team bundle 单选卡落地 + 色板统一
+
+Owner 拍板(此前挂 todo):header 下新增 **Bundle 类型单选卡**(第一道
+分叉,mode 卡之前)。agent kind = 多选网格 + per-team quick-add chips
+(team 下拉隐藏);team kind = 下拉即选择(handleSetTeam 把该团队的
+live 成员整组替换进 selectedAgents,成员卡只读展示 — v4 语义「成员
+自动随行」),?team= 深链自动切到 team kind。切回 agent kind 清空
+selectedTeam。
+
+色板统一(「一会深一会浅」修复):全页扫除 legacy 灰阶
+bg-secondary(nm-bg2 偏深米)/bg-tertiary/bg-elevated/bg-sunken,
+统一为 nm-paper / nm-card / nm-raised / nm-paper-warm 词汇;条带底
+一律 nm-paper,可点卡片 nm-card,hover nm-paper-warm。
+todo/2026-08-06-export-bundle-kind-radio.md 已闭环。
+
 ## 2026-08-06 — Chat UI v4:七个 tab 改为可折叠分区
 
 排他 tab 条删除,七个 scope(agents/history/skills/social/bus/artifacts/

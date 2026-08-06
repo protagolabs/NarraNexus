@@ -1824,7 +1824,8 @@
         "only": "only",
         "allAgents": "all agents ({{count}})",
         "clear": "clear",
-        "agentsToInclude": "Agents to include · {{selected}}/{{total}}"
+        "agentsToInclude": "Agents to include · {{selected}}/{{total}}",
+        "pickTeamFirst": "Pick a team above — its members are included automatically."
       },
       "skills": {
         "emptySelectAgents": "Select agents in the previous tab — their skills will appear here.",
@@ -2010,6 +2011,13 @@
         "noArtifacts": "This agent has no artifacts.",
         "pinned": "pinned",
         "fullModeNote": "Full snapshot mode auto-includes every artifact. Switch to Custom to pick."
+      },
+      "kind": {
+        "label": "Bundle",
+        "agentTitle": "Agent bundle",
+        "agentDesc": "Pick one or more agents. Narratives, skills, and workspace files scope to the selection.",
+        "teamTitle": "Team bundle",
+        "teamDesc": "Export a whole team — its agents, intro, and shared channels travel together."
       }
     },
     "signup": {

@@ -1465,7 +1465,8 @@
         "only": "solo",
         "allAgents": "todos los agentes ({{count}})",
         "clear": "limpiar",
-        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}"
+        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}",
+        "pickTeamFirst": "Elige un equipo arriba — sus miembros se incluyen automáticamente."
       },
       "skills": {
         "emptySelectAgents": "Selecciona agentes en la pestaña anterior — sus habilidades aparecerán aquí.",
@@ -1651,6 +1652,13 @@
         "noArtifacts": "Este agente no tiene artefactos.",
         "pinned": "fijado",
         "fullModeNote": "El modo de instantánea completa incluye automáticamente cada artefacto. Cambia a Personalizado para elegir."
+      },
+      "kind": {
+        "label": "Tipo",
+        "agentTitle": "Bundle de agentes",
+        "agentDesc": "Elige uno o más agentes. Narrativas, habilidades y archivos del workspace siguen la selección.",
+        "teamTitle": "Bundle de equipo",
+        "teamDesc": "Exporta un equipo completo — sus agentes, introducción y canales compartidos viajan juntos."
       }
     },
     "signup": {
