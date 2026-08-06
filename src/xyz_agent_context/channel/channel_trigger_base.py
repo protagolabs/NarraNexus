@@ -64,6 +64,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_UNBOUND,
     EVENT_INGRESS_DROPPED_UNPARSED,
+    EVENT_INGRESS_DROPPED_EMPTY,
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
@@ -1331,6 +1332,22 @@ class ChannelTriggerBase(ABC):
         # only when there's NEITHER text NOR attachment refs.
         has_refs = bool((message.raw or {}).get("attachment_refs"))
         if (not message.content or not message.content.strip()) and not has_refs:
+            # Audited, not silent: a payload shape the extractor didn't
+            # recognise lands here looking identical to a genuinely empty
+            # message, and "why didn't the bot reply?" must stay
+            # answerable from the trace (lessons #3/#5).
+            await self._audit(
+                EVENT_INGRESS_DROPPED_EMPTY,
+                message_id=message.message_id,
+                agent_id=agent_id,
+                app_id=app_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={
+                    "content_type": message.content_type.value,
+                    "has_raw": bool(message.raw),
+                },
+            )
             return
 
         # Name resolution + sanitization

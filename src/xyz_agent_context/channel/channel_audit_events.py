@@ -28,6 +28,12 @@ EVENT_INGRESS_DROPPED_UNBOUND = "ingress_dropped_unbound"
 # voice on a text-only channel). Was a bare `continue` with zero trace —
 # unanswerable "why didn't the bot reply?" tickets (lessons #3/#5).
 EVENT_INGRESS_DROPPED_UNPARSED = "ingress_dropped_unparsed"
+# parse_event succeeded but yielded NEITHER text NOR attachment refs, so
+# the pipeline has nothing to run the agent on. Same audit-blind-spot
+# class as `unparsed` above: the guard was a bare `return`, and a payload
+# shape the extractor didn't recognise (live incident 2026-08-06: a post
+# body without the language wrapper) vanished without a trace.
+EVENT_INGRESS_DROPPED_EMPTY = "ingress_dropped_empty"
 # A group-room message that did not @-mention this bot. Once a bot holds a
 # read-all-group-messages scope EVERY group message reaches the subscriber,
 # and replying to all of them is the single most visible misbehaviour a
