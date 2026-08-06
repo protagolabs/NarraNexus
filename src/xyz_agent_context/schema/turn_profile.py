@@ -30,7 +30,11 @@ class TurnProfile(BaseModel, frozen=True):
     prompt_mode: Literal["full", "minimal"] = "full"
     reasoning_effort: Optional[str] = None            # -> llm_extra["reasoning_effort"]
     include_arg_deltas: Optional[bool] = None         # None = TurnOptions default
-    reply_tool: Optional[str] = None                  # promoted to expressive_tools[0]
+    # NOTE deliberately absent: a reply_tool field. The reply surface is
+    # declared by modules (get_expressive_tools orders speak first on
+    # voice turns via extra_data) — a profile field nothing consumes
+    # would be exactly the declared-but-unimplemented schema trap
+    # turn_input.py warns about.
 
     @classmethod
     def voice_fast(cls, *, reasoning_effort: str = "low") -> "TurnProfile":
@@ -42,7 +46,6 @@ class TurnProfile(BaseModel, frozen=True):
             prompt_mode="full",
             reasoning_effort=reasoning_effort,
             include_arg_deltas=True,
-            reply_tool="speak",
         )
 
     @property

@@ -25,7 +25,6 @@ def test_defaults_mean_no_behavior_change():
     assert p.prompt_mode == "full"
     assert p.reasoning_effort is None
     assert p.include_arg_deltas is None
-    assert p.reply_tool is None
     assert p.is_fast is False
 
 
@@ -37,7 +36,6 @@ def test_voice_fast_factory_carries_v1_decisions():
     assert p.prompt_mode == "full"
     assert p.reasoning_effort == "low"
     assert p.include_arg_deltas is True
-    assert p.reply_tool == "speak"
     assert p.is_fast is True
 
 
