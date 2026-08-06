@@ -12,6 +12,47 @@ review 收口：framework_override 过 _framework_override_viable 守卫——�
 
 framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
 
+## 2026-08-06 — 兜底扩到 1:1 IM 私聊（推翻 2026-05-12 的门禁前提）
+
+原门禁是 `working_source != "chat" → non_chat_trigger`，理由（2026-05-12 条目里
+写着）「job/lark 有自己的回复通道」。**这个前提把「有回复工具」和「回复发生了」
+混为一谈**：模型输出明文却没调渠道发送工具时，文本被丢弃、这轮记成 activity 行、
+对端一个字也收不到。0802 微信工单就是这条。`message_bus` 仍排除——那半个理由
+（不许回复同伴 agent，防 agent 间循环）今天依然成立。
+
+- `_has_organic_reply(agent_loop_response, working_source="chat")` **改走
+  `MessageSourceRegistry`**，不再硬编码 `send_message_to_user_directly`。
+  **这是防重复发送的那道闸**：不改的话，一个正确调用了 `wechat_send` 的轮次会被
+  判成「没回复」，兜底就会在**每一次成功对话**后再发一条 helper 写的消息。默认参数
+  保持 chat 语义，既有调用点行为不变。权威与 `chat_module._delivered_to_origin`
+  同源，两层不可能再漂移。
+- `_should_run_helper_llm_fallback(..., is_direct_message=False)` 新增
+  `"no_reply_im_dm"` 模式；跳过理由细分：`group_room_may_stay_silent`（IM 群聊——
+  那里沉默是设计行为）、`fatal_no_invented_reply`（私聊轮次中途 fatal：chat 敢做
+  `after_error` 是因为前端还会并排显示错误徽章，IM 对端**没有任何错误面**，
+  给他一条自信满满、由半个念头合成的回复更糟）、原有 `non_chat_trigger`。
+  「是不是真渠道」用 handler 的 `dedicated_trigger` 判定——把 lark/wechat/telegram
+  与 `callback`/`a2a` 区分开，后者没有房间，报「群聊」是胡说。
+- `_deliver_im_fallback_reply()` 经 `ChannelSenderRegistry` 真投递（chat 不需要
+  对应物：那边把 delta 流给前端**就是**投递；IM 对端没有这个流，没人调渠道 API 的话
+  回复只存在于我们数据库里，正是 0802 的形态）。**只有渠道确认成功才 yield
+  synthetic 帧**——把「没发出去」记成「已回复」和我们正在修的丢弃明文属同一类谎报。
+  永不抛异常。
+- IM 分支刻意**不 yield `AgentTextDelta`**、synthetic 帧刻意**不标
+  `send_message_to_user_directly`**（改标渠道自己的发送工具，见
+  `_im_reply_tool_name`）。两者都会让这条回复出现在**主人**的聊天面板里，像是 agent
+  对主人说了话；`chat_module._split_user_visible_response` 正是按这个工具名分流的。
+- 文案复用 `_FALLBACK_NO_REPLY_INSTRUCTIONS`（`_fallback_instructions_for_mode`
+  对非 `after_error` 一律返回它），因此 2026-07-30 那两条诚实性规则自动继承。
+- 渠道事实经 `_channel_turn_envelope(ctx)` 从 `ctx_data.extra_data` 读通用键
+  （`channel_room_type` / `channel_reply_kwargs` / `channel_tag`，由
+  `ChannelTriggerBase` 放入）。**没信封 = 不是 IM 轮次 = 不兜底**，这是 chat/job/bus
+  的安全默认。
+
+测试：`tests/agent_runtime/test_im_dm_no_reply_fallback.py`（防重复发送、决策六
+分支、投递五种失败形态）；`test_helper_llm_fallback_decision.py` 补 IM 群聊用例，
+并把 `lark` 从 `non_chat_trigger` 参数化里移出（它是渠道，理由现在取决于房间类型）。
+
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 TurnInput 组包新增 `agent_id=ctx.agent_id` 与

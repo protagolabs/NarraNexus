@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_context_builder.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — `room_type` 现在是行为开关
+
+判定逻辑没变（`chat_id` 以 `-` 开头 = 群），只是换用 `channel_prompts` 的
+`ROOM_TYPE_*` 常量。**语义变了**：这个值现在**选择注入哪份通讯协议**（私聊
+「默认回复」vs 群聊沉默纪律），并决定 `step_3` 是否在模型没调表达工具时替 agent
+投递回复。详见 `channel_prompts.py.md` / `step_3_agent_loop.py.md` 同日条目。
+
+因此下面「`room_type` 靠 chat_id 符号推断」那条注意事项的赌注变大了：推断错
+不再只是 prompt 里一行显示不准，而是把私聊当群聊对待（agent 对真人装死）或反过来。
 
 ## Why it exists
 

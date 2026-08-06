@@ -1506,6 +1506,12 @@ class ChannelTriggerBase(ABC):
             # here (not in ChannelTag) so it stays ephemeral, not persisted.
             "source_message_id": message.message_id or "",
         }
+        # Room type + this channel's delivery kwargs. step_3 needs both to
+        # decide whether a silent turn was a 1:1 DM (where a person is
+        # waiting) and, if so, to deliver a platform-written reply through
+        # ChannelSenderRegistry. Generic keys on purpose — the runtime must
+        # not learn any channel's specifics (iron rule #3).
+        extra_data.update(builder.turn_envelope())
         # Only set "attachments" when non-empty — matches the WS route
         # pattern in backend/routes/websocket.py:644-648 so ChatModule's
         # downstream `.get("attachments")` check behaves identically.

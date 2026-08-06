@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_context_builder.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — `room_type` 现在是行为开关
+
+`chat_type == "p2p" → ROOM_TYPE_DIRECT else ROOM_TYPE_GROUP`：判定逻辑没变，
+只是把两个字面量换成 `channel_prompts` 的常量。**语义变了**——这个值不再只是
+prompt 里「Conversation Type」那行，它现在**选择注入哪份通讯协议**（私聊「默认回复」
+vs 群聊沉默纪律），并决定 `step_3` 是否在模型没调表达工具时替 agent 投递回复。
+详见 `channel_prompts.py.md` / `step_3_agent_loop.py.md` 同日条目。
+
+所以别再为了省事把这个判定折叠成常量（Slack 曾经那么做，代价是私聊被当群聊对待、
+agent 对真人的直接提问装死）。
 
 ## 2026-07-29 — group rooms get a read-the-history instruction
 

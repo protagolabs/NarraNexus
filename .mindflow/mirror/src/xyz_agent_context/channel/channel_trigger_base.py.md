@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 (二次) — 轮次信封带上 room_type 与渠道投递参数
+
+`_build_and_run_agent` 组 `extra_data` 时多一行
+`extra_data.update(builder.turn_envelope())`，带进两个通用键：
+`channel_room_type`、`channel_reply_kwargs`（见
+`channel_context_builder_base.py.md` 同日条目）。
+
+消费者是 `step_3`：判断这轮是不是 1:1 私聊，以及在模型一个表达工具都没调的
+情况下，用什么参数替 agent 把回复投递出去。**键刻意是通用的**——编排层不该
+知道任何渠道的细节（铁律 #3），微信的 `context_token` 对它只是
+`channel_reply_kwargs` 里的一个不透明键值。
+
 ## 2026-08-06 — 空内容丢弃补审计
 
 `_process_message` 的空内容守卫（无正文且无 attachment_refs）从裸

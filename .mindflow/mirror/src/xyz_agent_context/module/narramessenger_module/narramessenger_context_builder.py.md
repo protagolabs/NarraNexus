@@ -8,6 +8,13 @@ last_verified: 2026-08-06
 
 get_message_info 增 voice 分支：raw["rtc_voice"] 存在时 send_tool_name="speak"、reply_instruction 换 channel_prompts.VOICE_REPLY_INSTRUCTION_TEMPLATE（口语短句/禁 markdown/工具前 speak 预告/同 turn 交付/禁读内部 ID），per-turn voice_instructions 以受控行附加。普通分支逐字不变（test_voice_register 回归钉住）。
 
+## 2026-08-06 — `room_type` 现在是行为开关
+
+判定逻辑没变（`is_group`），只是换用 `channel_prompts` 的 `ROOM_TYPE_*` 常量。
+**语义变了**：这个值现在**选择注入哪份通讯协议**（私聊「默认回复」vs 群聊沉默纪律），
+并决定 `step_3` 是否在模型没调表达工具时替 agent 投递回复。详见
+`channel_prompts.py.md` / `step_3_agent_loop.py.md` 同日条目。
+
 ## 2026-07-20 — roster-on-demand now via `narra_cli`
 
 Intent unchanged (``get_room_members`` still returns ``[]``; roster is not

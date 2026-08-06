@@ -14,6 +14,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+    ROOM_TYPE_GROUP,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -46,7 +50,15 @@ class SlackContextBuilder(ChannelContextBuilderBase):
             "channel_key": "slack",
             "room_name": "",  # could resolve via conversations.info — Phase 3 leaves blank
             "room_id": chat_id,
-            "room_type": "Group Room",  # Slack channels behave as group conversations
+            # Slack DM channels are the `D...` id space. This used to be
+            # hard-coded "Group Room" because the API surface is identical
+            # either way and room_type was only a prompt label — but it now
+            # SELECTS the Communication Protocol, so calling a DM a group
+            # room would tell the agent it may stay silent on a 1:1
+            # message (the 0802 WeChat failure, latent here).
+            "room_type": (
+                ROOM_TYPE_DIRECT if chat_id.startswith("D") else ROOM_TYPE_GROUP
+            ),
             "sender_display_name": self._message.sender_name or self._message.sender_id,
             "sender_id": self._message.sender_id,
             "timestamp": str(self._message.timestamp_ms),
