@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — voice fast mode: 通话级串行（per-rtc_session）
+
+_build_and_run_agent 在 rtc_voice 消息上先过 _run_voice_serialized：按 rtc_session_id（缺省 agent_id:room）一条 drain loop 串行；run 期间到达的语句缓冲并 _merge_voice_batch 合并成一次后续 turn（transcript 按序拼接、以最后一条的 rtc 元数据为基准——correlation 跟最新 turn_id）。不同通话完全并行；通话闲置即清 state。设计蓝本是 group_silent 的 per-(agent,room) 缓冲。非语音消息 dispatch 逐字不变（getattr 守卫，替身消息也安全）。
+
 ## 2026-08-06 — voice fast mode: VoiceDeliveryBridge 接线
 
 _StreamReplyState 增 voice_bridge（None=文字 turn，所有 legacy 分支以 bridge is None 为守卫，行为逐字不变）。_handle_stream_event：speak 的 AGENT_REPLY_DELTA 喂桥、speak PROGRESS 作权威全文修正且不落 narra_reply_text、narra_reply 捕获在语音 turn 上照旧。finalize：bridge.close() 成功即完；finalized_ok=False 时 _send_matrix_reply 平文兜底；无 spoken 文本则回落 legacy finalize（narra_reply/错误标记/静默三态不变）。

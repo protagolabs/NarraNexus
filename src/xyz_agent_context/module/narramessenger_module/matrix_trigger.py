@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
 
 import aiohttp
@@ -127,6 +127,38 @@ def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+@dataclass
+class _VoiceCallState:
+    """Per-call serialization state (F28): one drain loop at a time."""
+
+    running: bool = False
+    pending: list = field(default_factory=list)  # (message, sender_name, attachments)
+
+
+def _merge_voice_batch(batch: list) -> tuple:
+    """Merge buffered utterances of one call into a single turn.
+
+    The caller kept talking while the agent worked — the queued
+    transcripts concatenate in arrival order into ONE message. The last
+    utterance's metadata (event id, rtc ids, timestamps) is the base:
+    correlation follows the newest turn_id, matching Hybrid's view that
+    earlier turns were superseded.
+    """
+    if len(batch) == 1:
+        return batch[0]
+    messages = [b[0] for b in batch]
+    _, last_sender, _ = batch[-1]
+    merged_content = "\n".join(
+        m.content for m in messages if (m.content or "").strip()
+    )
+    merged_message = replace(messages[-1], content=merged_content)
+    merged_attachments: list = []
+    for _, _, atts in batch:
+        if atts:
+            merged_attachments.extend(atts)
+    return merged_message, last_sender, (merged_attachments or None)
 
 
 @dataclass
@@ -410,6 +442,12 @@ class MatrixTrigger(ChannelTriggerBase):
         # Per-key lock — flush is async and buffer mutation must not race
         # a concurrent enqueue that arrives while we're draining.
         self._silent_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+        # ── F28 voice-call serialization ─────────────────────────────────
+        # Keyed by rtc_session_id (fallback agent_id:room_id). One worker
+        # holds a call's drain loop; overlapping utterances buffer and
+        # merge into one follow-up turn. Entries die when the call idles.
+        self._voice_calls: dict[str, _VoiceCallState] = {}
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -1354,6 +1392,15 @@ class MatrixTrigger(ChannelTriggerBase):
         the runtime completes. Both paths still let the base's
         ``_process_message`` write to the inbox on the returned string.
         """
+        # F28 voice turns serialize per call BEFORE dispatch: the trigger's
+        # worker pool runs same-room messages concurrently (by design for
+        # text), but two overlapping voice runs would interleave two TTS
+        # streams on one call. Modeled on the group_silent per-(agent, room)
+        # buffer; the call key is rtc_session_id.
+        if (getattr(message, "raw", None) or {}).get("rtc_voice"):
+            return await self._run_voice_serialized(
+                credential, message, sender_name, attachments=attachments
+            )
         if self.STREAMING_ENABLED:
             return await self._build_and_run_agent_streaming(
                 credential, message, sender_name, attachments=attachments
@@ -1361,6 +1408,54 @@ class MatrixTrigger(ChannelTriggerBase):
         return await self._build_and_run_agent_atomic(
             credential, message, sender_name, attachments=attachments
         )
+
+    async def _run_voice_serialized(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Serialize voice turns per call; merge utterances that queue up.
+
+        One worker holds a call's drain loop; messages arriving while a
+        run is active are buffered and merged into ONE follow-up turn
+        (consecutive utterances concatenate — the caller kept talking).
+        Different calls (different rtc_session_id) stay fully parallel.
+        State is per-trigger-instance and dies with the call going idle.
+        """
+        rtc = (getattr(message, "raw", None) or {}).get("rtc_voice") or {}
+        key = (
+            rtc.get("rtc_session_id")
+            or f"{getattr(credential, 'agent_id', '?')}:{message.chat_id}"
+        )
+        call = self._voice_calls.setdefault(key, _VoiceCallState())
+        call.pending.append((message, sender_name, attachments))
+        if call.running:
+            # The draining worker will pick this up; nothing to return for
+            # the buffered message itself (its content is merged).
+            return ""
+        call.running = True
+        last_text = ""
+        try:
+            while call.pending:
+                batch = call.pending
+                call.pending = []
+                merged_message, merged_sender, merged_attachments = (
+                    _merge_voice_batch(batch)
+                )
+                last_text = await self._build_and_run_agent_streaming(
+                    credential,
+                    merged_message,
+                    merged_sender,
+                    attachments=merged_attachments,
+                )
+        finally:
+            call.running = False
+            if not call.pending:
+                self._voice_calls.pop(key, None)
+        return last_text
 
     async def _build_and_run_agent_atomic(
         self,
