@@ -307,7 +307,7 @@ async def run_turn_events(
                 # above, so a reply tool granted by them counts too.
                 default_reply_tool=next(iter(expression.names()), ""),
             ),
-            PromptMode.FULL,
+            PromptMode(opts.prompt_mode),
         )
         base_messages = _insert_harness(request.messages, prompt.messages())
 

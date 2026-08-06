@@ -73,7 +73,8 @@ class RunContext:
     pass_mcp_servers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     job_instance_id: Optional[str] = None  # Instance ID when executing a Job
     forced_narrative_id: Optional[str] = None  # Forced Narrative ID (used for Job triggers)
-    trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Trigger 层传入的附加数据（如 channel_tag）
+    trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Extra data from the trigger layer (e.g. channel_tag)
+    turn_profile: Optional[Any] = None  # Per-turn fast-mode knobs (schema.turn_profile.TurnProfile); None = normal path
 
     # ===== Cancellation =====
     cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token

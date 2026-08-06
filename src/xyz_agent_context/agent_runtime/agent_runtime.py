@@ -37,6 +37,7 @@ from xyz_agent_context.schema import (
     ProgressStatus,
     WorkingSource,
 )
+from xyz_agent_context.schema.turn_profile import TurnProfile
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, AsyncDatabaseClient
@@ -256,6 +257,7 @@ class AgentRuntime:
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
         silent: bool = False,
+        turn_profile: Optional["TurnProfile"] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -407,6 +409,7 @@ class AgentRuntime:
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
+                turn_profile=turn_profile,
             )
 
             # Second timing stamp: Steps 0-2.5 start here (see _t_run_start

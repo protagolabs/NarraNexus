@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-05
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+run() 新增 turn_profile 参数（None=原行为），透传进 RunContext；fast 分支的编排改动在后续批次。
 
 ## 2026-07-30 — 打断连续性:先持久化、再让位(interrupt continuity)
 

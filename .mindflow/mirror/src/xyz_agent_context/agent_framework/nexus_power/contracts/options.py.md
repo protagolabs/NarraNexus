@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+新增 `prompt_mode: Literal["full","minimal","none"]="full"`（字符串字面量，wire 层禁 import PromptMode 枚举；assembler 侧转换）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

@@ -881,6 +881,11 @@ async def step_3_agent_loop(
     # short aliases (claude / codex), so any value we read here that
     # the system supports will resolve.
     framework_name = await _resolve_agent_framework_name(ctx.agent_id, db_client)
+    # Fast-mode profiles may pin the framework (voice needs NexusPower's
+    # streaming/expressive seams). None/empty override = slot resolution
+    # stands untouched.
+    if ctx.turn_profile is not None and ctx.turn_profile.framework_override:
+        framework_name = ctx.turn_profile.framework_override
     logger.info(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
@@ -909,6 +914,7 @@ async def step_3_agent_loop(
             # (context 3.2). NexusPower's monologue contract routes every
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
+            turn_profile=ctx.turn_profile,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

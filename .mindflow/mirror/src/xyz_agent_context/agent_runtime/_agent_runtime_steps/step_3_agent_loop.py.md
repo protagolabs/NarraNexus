@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
