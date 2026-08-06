@@ -37,6 +37,7 @@ import {
   BookmarkDrawer,
   BookmarkPanelHost,
   tabLabelKey,
+  tabDescKey,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -233,6 +234,7 @@ export function ChatView() {
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
+          description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
           // Desktop: transient drawer is an in-flow column (chat shifts left,

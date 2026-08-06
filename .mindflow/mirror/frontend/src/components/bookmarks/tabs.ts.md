@@ -4,6 +4,14 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — tabDescKey:每个面板一句话说明
+
+新增 `tabDescKey(id)` → `rail.desc.<id>` 约定(11 个面板 × 10 语言)。
+消费方:BookmarkDrawer 头部的 ? 圆圈(hover 气泡)、ChatHeader ⋯ 菜单项
+的 title。目的:不看文档的用户也能知道 Awareness / Channels / MCP 等
+是干什么的(Owner 2026-08-06)。文案讲「用处 + 使用逻辑」各一句,
+新增面板时必须同步补 10 语言的 desc key。
+
 ## 2026-08-06 — artifacts 成为原子 tab + 自定义 glyph
 
 新增 `artifacts` AtomicTabId(Activity 类目,Jobs/Inbox 之后),面板 =

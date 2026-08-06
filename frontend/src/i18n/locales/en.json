@@ -2084,7 +2084,20 @@
       "nexus": "Nexus"
     },
     "smarthome": "Smart Home",
-    "artifacts": "Artifacts"
+    "artifacts": "Artifacts",
+    "desc": {
+      "awareness": "Who your agent is — identity, personality and standing instructions. Edit here, or just tell the agent in chat and it keeps this updated itself.",
+      "workspace": "The agent's file space: upload documents for it to read; files it produces land here too.",
+      "channels": "Connect this agent to IM platforms (Lark, Slack, Telegram…) so people can reach it outside this app.",
+      "smarthome": "Link smart-home devices (Home Assistant) so the agent can see and control them.",
+      "jobs": "Scheduled and background work. Just ask in chat — “every morning send me a brief” — and the agent creates one.",
+      "inbox": "Messages arriving for this agent from channels and other agents; items needing your attention show a badge.",
+      "artifacts": "Reports, pages and files the agent has produced — open and review any of them here.",
+      "skills": "Installed abilities the agent can use. Add more from the Marketplace, or install from GitHub / zip.",
+      "mcp": "External MCP tool servers the agent can call — plug in third-party capabilities.",
+      "memory": "The agent's long-term memory, organized as narratives — what it carries across conversations.",
+      "social": "Who the agent knows — contacts accumulate as it works with people and other agents."
+    }
   },
   "jobs": {
     "title": "Jobs",

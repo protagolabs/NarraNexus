@@ -1725,7 +1725,20 @@
       "nexus": "Nexus"
     },
     "smarthome": "Smart Home",
-    "artifacts": "Artefakte"
+    "artifacts": "Artefakte",
+    "desc": {
+      "awareness": "Wer dein Agent ist — Identität, Persönlichkeit und ständige Anweisungen. Hier bearbeiten oder einfach im Chat sagen; er hält es selbst aktuell.",
+      "workspace": "Der Dateibereich des Agenten: Lade Dokumente zum Lesen hoch; auch seine Ergebnisse landen hier.",
+      "channels": "Verbinde den Agenten mit IM-Plattformen (Lark, Slack, Telegram…), damit er auch außerhalb der App erreichbar ist.",
+      "smarthome": "Verknüpfe Smart-Home-Geräte (Home Assistant), damit der Agent sie sehen und steuern kann.",
+      "jobs": "Geplante und Hintergrund-Arbeit. Sag es einfach im Chat — „schick mir jeden Morgen ein Briefing“ — und der Agent legt einen Job an.",
+      "inbox": "Nachrichten aus Kanälen und von anderen Agenten; Einträge, die dich brauchen, zeigen ein Badge.",
+      "artifacts": "Berichte, Seiten und Dateien, die der Agent erstellt hat — hier öffnen und ansehen.",
+      "skills": "Installierte Fähigkeiten des Agenten. Mehr im Marketplace oder per GitHub / zip installieren.",
+      "mcp": "Externe MCP-Tool-Server, die der Agent aufrufen kann — Drittanbieter-Fähigkeiten anschließen.",
+      "memory": "Das Langzeitgedächtnis des Agenten, als Narrative organisiert — was er über Gespräche hinweg behält.",
+      "social": "Wen der Agent kennt — Kontakte sammeln sich an, während er mit Menschen und Agenten arbeitet."
+    }
   },
   "jobs": {
     "title": "Jobs",

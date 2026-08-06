@@ -2084,7 +2084,20 @@
       "nexus": "Nexus"
     },
     "smarthome": "智能家居",
-    "artifacts": "制品"
+    "artifacts": "制品",
+    "desc": {
+      "awareness": "Agent 的自我认知 — 身份、性格与长期指令。可以在这里手动编辑，也可以在聊天里直接告诉它，它会自己更新。",
+      "workspace": "Agent 的文件空间：上传文档给它阅读，它产出的文件也会放在这里。",
+      "channels": "把这个 Agent 接入 IM 平台（Lark、Slack、Telegram…），让别人在本应用之外也能联系它。",
+      "smarthome": "接入智能家居设备（Home Assistant），让 Agent 能查看和控制它们。",
+      "jobs": "定时与后台任务。在聊天里直接说 —「每天早上给我发简报」— Agent 就会创建一个。",
+      "inbox": "来自频道和其他 Agent 的消息；需要你处理的条目会显示徽标。",
+      "artifacts": "Agent 产出的报告、页面和文件 — 都可以在这里打开查看。",
+      "skills": "Agent 已安装的技能。可以去 Marketplace 添加，或从 GitHub / zip 安装。",
+      "mcp": "Agent 可调用的外部 MCP 工具服务器 — 接入第三方能力。",
+      "memory": "Agent 的长期记忆，以叙事（Narrative）组织 — 跨会话记住的内容。",
+      "social": "Agent 认识的人和 Agent — 随着协作交往，联系人会自动累积。"
+    }
   },
   "jobs": {
     "title": "任务",

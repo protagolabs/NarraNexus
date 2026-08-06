@@ -1725,7 +1725,20 @@
       "nexus": "Nexus"
     },
     "smarthome": "Smart Home",
-    "artifacts": "Artefactos"
+    "artifacts": "Artefactos",
+    "desc": {
+      "awareness": "Quién es tu agente — identidad, personalidad e instrucciones permanentes. Edita aquí o díselo en el chat: se mantiene actualizado solo.",
+      "workspace": "El espacio de archivos del agente: sube documentos para que lea; sus productos también quedan aquí.",
+      "channels": "Conecta este agente a plataformas de IM (Lark, Slack, Telegram…) para contactarlo fuera de la app.",
+      "smarthome": "Vincula dispositivos de domótica (Home Assistant) para que el agente pueda verlos y controlarlos.",
+      "jobs": "Trabajo programado y en segundo plano. Pídelo en el chat — «envíame un resumen cada mañana» — y el agente lo crea.",
+      "inbox": "Mensajes que llegan de canales y otros agentes; lo que requiere tu atención muestra una insignia.",
+      "artifacts": "Informes, páginas y archivos producidos por el agente — ábrelos aquí.",
+      "skills": "Habilidades instaladas del agente. Añade más desde el Marketplace o instala desde GitHub / zip.",
+      "mcp": "Servidores de herramientas MCP externos que el agente puede llamar — conecta capacidades de terceros.",
+      "memory": "La memoria a largo plazo del agente, organizada en narrativas — lo que recuerda entre conversaciones.",
+      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes."
+    }
   },
   "jobs": {
     "title": "Trabajos",

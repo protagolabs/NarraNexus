@@ -37,6 +37,7 @@ import {
   ArtifactsGlyph,
   deriveTabStatus,
   markTabOpened,
+  tabDescKey,
   type AtomicTabId,
 } from '@/components/bookmarks';
 import { useUIStore, useArtifactStore } from '@/stores';
@@ -284,6 +285,9 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
     <button
       type="button"
       onClick={() => onOpen(id)}
+      // Hover title = the same one-sentence explainer the drawer header's
+      // ? icon shows — orientation before the click, not only after.
+      title={t(tabDescKey(id), '')}
       className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13.5px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
     >
       <Icon className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />

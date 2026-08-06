@@ -4,6 +4,13 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — 头部 ? 说明气泡
+
+标题右侧新增 HelpCircle 圆圈(description prop 非空才渲染):hover /
+focus 浮出 ink 底 paper 字的一句话说明(max-w 280,面板下方展开,
+不会被 drawer 的 overflow-hidden 裁掉)。文案由 MainLayout 用
+tabDescKey 取,语言随 i18n 切换。
+
 ## 2026-08-06 — 桌面临时抽屉改内嵌列 + per-tab 宽度
 
 Owner 两点:①悬浮 overlay 盖住聊天内容(own 头像被挡)→ 桌面端

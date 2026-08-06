@@ -177,6 +177,16 @@ export function tabLabelKey(id: AtomicTabId): string {
   return ALL_TABS.find((t) => t.id === id)?.labelKey ?? `rail.${id}`;
 }
 
+/**
+ * i18n key for a tab's one-sentence explainer — what the panel is for and
+ * how a user works with it. Shown behind the ? icon in the drawer header
+ * and as hover text on the detail-menu items, so users who never read the
+ * docs still get oriented (Owner 2026-08-06).
+ */
+export function tabDescKey(id: AtomicTabId): string {
+  return `rail.desc.${id}`;
+}
+
 // ---------------------------------------------------------------------------
 // bookmarkStore signal → tab status mapping
 // ---------------------------------------------------------------------------
