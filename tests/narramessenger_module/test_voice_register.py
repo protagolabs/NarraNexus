@@ -79,7 +79,8 @@ async def test_voice_register_swaps_reply_tool_and_instruction():
     assert "speak(" in inst
     assert "voice call" in inst.lower()
     # Multi-call + preannounce discipline + output bans.
-    assert "more than once" in inst.lower() or "multiple times" in inst.lower()
+    assert "several short" in inst.lower()  # long answers segment into calls
+    assert "private notes" in inst.lower()  # prose is never delivered
     assert "before" in inst.lower()  # preannounce before other tools
     assert "markdown" in inst.lower()
     # Per-turn instructions ride along verbatim.
