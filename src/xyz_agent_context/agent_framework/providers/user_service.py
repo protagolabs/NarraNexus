@@ -180,30 +180,19 @@ class UserProviderService:
             # pre-dating the migration won't have it; default False so we
             # err on the side of disabling WebSearch rather than hanging it.
             _server_tools = row.get("supports_anthropic_server_tools", 0)
-            # ``codex_oauth`` provider's model list is NOT user-customizable —
-            # codex CLI's interactive picker is the source of truth. Always
-            # override the stored ``models`` column with the current
-            # ``CODEX_CURATED_MODELS`` constant so a code-side update
-            # propagates to existing rows on the next Settings reload, no
-            # DB migration needed.
-            if row.get("source") == "codex_oauth":
-                stored_models = list(CODEX_CURATED_MODELS)
-            elif row.get("source") == "claude_oauth":
-                # Same override for claude_oauth, with the CLI family ALIASES
-                # (the claude CLI resolves opus|sonnet|haiku to the newest of
-                # each family, so this list can never go stale). Legacy cards
-                # stored pinned full ids; once those died upstream they still
-                # looked valid to the slot self-heal, whose membership test
-                # runs against this very list — the override makes self-heal
-                # repair such slots to a live alias on the next resolve.
-                from xyz_agent_context.agent_framework.providers.model_catalog import (
-                    get_default_models,
-                )
-                stored_models = get_default_models("claude_oauth", "anthropic")
-            elif row.get("models"):
-                stored_models = json.loads(row["models"])
-            else:
-                stored_models = []
+            # The OAuth CLI cards' (claude_oauth / codex_oauth) model lists
+            # are catalog-owned, not user data — ``effective_card_models``
+            # overrides the stored column on every read so a code-side
+            # update propagates to existing rows with no DB migration. It
+            # is the SAME helper the resolver's slot self-heal judges
+            # membership with; keeping both paths on one source of truth
+            # is the fix for the "UI shows aliases but the run stays
+            # pinned to a stale full id" split.
+            from xyz_agent_context.agent_framework.providers.model_catalog import (
+                effective_card_models,
+            )
+            raw_models = json.loads(row["models"]) if row.get("models") else []
+            stored_models = effective_card_models(row.get("source"), raw_models)
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],

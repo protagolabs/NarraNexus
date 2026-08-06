@@ -91,8 +91,22 @@ async def self_heal_if_broken(
       slot through — the LLM call will fail downstream, but at least
       we don't silently rewrite to a garbage value).
     """
+    # Membership is judged against the card's EFFECTIVE list, not the raw
+    # stored column. For the OAuth CLI cards (claude_oauth / codex_oauth)
+    # the runtime list is catalog-owned (family aliases / curated); a slot
+    # pinned to a legacy full id sits happily inside the raw column and
+    # would never heal if we checked that (the "local CC model name never
+    # updates" bug — the UI showed aliases via get_user_config's override
+    # while this path kept resolving the stale pin).
+    from xyz_agent_context.agent_framework.providers.model_catalog import (
+        claude_family_alias,
+        effective_card_models,
+    )
+
+    card_models = effective_card_models(card.source, card.models)
+
     slot_model = slot.get("model") or ""
-    if not is_slot_broken(slot_model, card.models):
+    if not is_slot_broken(slot_model, card_models):
         return card, slot
 
     # Debounce: skip if we auto-repaired in the last 24h.
@@ -104,7 +118,16 @@ async def self_heal_if_broken(
         )
         return card, slot
 
-    new_model = pick_default_model(card.models, card.source, card.protocol)
+    # A pinned Claude full id keeps its own family: a sonnet user stays on
+    # sonnet, not whatever happens to head the list. Only when no family is
+    # recognizable (or the alias is somehow off-card) does the generic
+    # list-head strategy take over.
+    new_model: Optional[str] = None
+    family = claude_family_alias(slot_model)
+    if family and family in card_models:
+        new_model = family
+    if not new_model:
+        new_model = pick_default_model(card_models, card.source, card.protocol)
     if not new_model:
         logger.error(
             f"[self_heal] slot {slot.get('slot_name')!r} broken AND no safe default "

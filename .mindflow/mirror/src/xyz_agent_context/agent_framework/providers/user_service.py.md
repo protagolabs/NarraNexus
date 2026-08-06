@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — OAuth 卡读时覆盖抽到 effective_card_models（口径统一）
+
+`get_user_config` 的 codex_oauth / claude_oauth 内联覆盖分支替换为
+`model_catalog.effective_card_models(source, stored)`。**07-30 条目
+声称的「覆盖后自愈会修掉死 id 槽位」当时并不成立**：self-heal 挂在
+resolver 路径，比对的是 `ProviderCard.from_row` 的裸存量列而非本函数的
+覆盖结果——两条加载路径口径分叉，钉旧全 id 的槽位一直判「健康」。
+现在两处共用同一函数（self_heal.md 2026-08-06 条目），分叉不可能复发。
 
 ## 2026-08-02 — free-tier 开卡用部署配置的模型对 + thinking off（main e1f2acec 的 port）
 
