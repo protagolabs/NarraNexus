@@ -106,6 +106,41 @@ describe('computeTimelineLayout — axis tick labels', () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
+  it('keeps ticks distinguishable across a 3-day span', () => {
+    // Adjacent ticks sit span/4 = 18h apart here: day-granular labels
+    // collide even though the TOTAL span exceeds two days. The formatter
+    // must key off the tick gap, not the span.
+    const layout = computeTimelineLayout(
+      [
+        narrative({
+          created_at: new Date(NOW - 3 * 86400_000).toISOString(),
+          updated_at: new Date(NOW - 3600_000).toISOString(),
+        }),
+      ],
+      '',
+      NOW,
+    );
+    const labels = layout!.ticks.map((t) => t.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('keeps ticks distinguishable across a minute-scale span', () => {
+    // A cold-start user's only narrative is seconds old: ticks sit
+    // ~20s apart, so minute-precision labels collide too.
+    const layout = computeTimelineLayout(
+      [
+        narrative({
+          created_at: new Date(NOW - 90_000).toISOString(),
+          updated_at: new Date(NOW - 1000).toISOString(),
+        }),
+      ],
+      '',
+      NOW,
+    );
+    const labels = layout!.ticks.map((t) => t.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
   it('keeps plain day labels for a multi-week span', () => {
     const layout = computeTimelineLayout(
       [

@@ -57,11 +57,13 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
   // Time range + lane layout, derived once per data set. A search query
   // filters storylines by name / summary / topic / owning agent. The math
   // lives in narraMemoryLayout.ts (pure, unit-tested) — it keeps every bar
-  // inside the axis and picks tick-label granularity from the span.
+  // inside the axis and picks tick-label granularity from the tick gap.
+  // The layout owns query normalization; `q` above is only for the
+  // empty-state copy.
   const layout = useMemo(() => {
     if (state.phase !== 'ready') return null;
-    return computeTimelineLayout(state.items, q, Date.now());
-  }, [state, q]);
+    return computeTimelineLayout(state.items, search, Date.now());
+  }, [state, search]);
 
   if (state.phase === 'loading') {
     return (

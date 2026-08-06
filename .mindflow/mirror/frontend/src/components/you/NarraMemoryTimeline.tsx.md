@@ -27,17 +27,20 @@ timeline. Data source: `api.getMyNarratives()` → `GET /api/me/narratives`
   on a shared time axis, gutter-labelled by storyline name + a **silicon**
   agent dot (carbon=Narra/you, silicon=the agent that holds it). Point-in-time
   narratives (created == updated, common early on) get a min-width marker so
-  they stay visible. Axis = 4 short-date ticks + a carbon `now`.
+  they stay visible. Axis = 4 ticks（粒度随刻度间距自适应，见
+  [[narraMemoryLayout]]）+ a carbon `now`.
 - Click a lane → a detail card (topic_hint, summary, started/last-active,
-  rounds, keywords). Pure client layout maths in a single `useMemo`.
+  rounds, keywords). 几何数学在 [[narraMemoryLayout]]（纯函数、单测钉住）；
+  组件的 useMemo 只做一行调用，`search` 原值直接传入（规范化归纯函数管），
+  组件自己的 `q` 只服务空态文案。
 - Optional `search` prop filters storylines by name / summary / topic / owning
   agent (driven by the [[YouWorkspace]] search box).
 - Owner-scoped: it must NEVER read the selected `agentId`.
 
 ## 新人易踩的坑
 
-- Backend returns ISO-UTC strings (or null); guard `Date.parse` (`ts()` helper)
-  — don't assume a parseable value.
+- 时间戳解析、越界 clamp、坏值兜底都在 [[narraMemoryLayout]] 里——别在组件层
+  再包一层日期防御，两处防御会漂移。
 - When the user has zero lived narratives the component shows an empty state,
   NOT an error — that is the expected cold-start, storylines accrue as agents
   actually converse.

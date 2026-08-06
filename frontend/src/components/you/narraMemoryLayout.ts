@@ -27,8 +27,9 @@ import type { MyNarrative } from '@/types';
 
 export const MIN_BAR_WIDTH_PCT = 3;
 
-/** Spans at or below this render ticks with time-of-day appended. */
-const DAY_LABEL_MIN_SPAN_MS = 2 * 24 * 3600_000;
+const TICK_COUNT = 4;
+const DAY_MS = 24 * 3600_000;
+const MINUTE_MS = 60_000;
 
 const fmtDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 const fmtDayTime = new Intl.DateTimeFormat('en-US', {
@@ -38,6 +39,26 @@ const fmtDayTime = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
   hour12: false,
 });
+const fmtDayTimeSec = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+/**
+ * Label granularity keys off the gap BETWEEN adjacent ticks, not the total
+ * span: a 3-day span puts ticks 18h apart, where day labels collide even
+ * though the span exceeds two days; a seconds-old span collides at minute
+ * precision. Each tier is finer than the gap it serves.
+ */
+function tickFormatter(tickGapMs: number): Intl.DateTimeFormat {
+  if (tickGapMs < MINUTE_MS) return fmtDayTimeSec;
+  if (tickGapMs < DAY_MS) return fmtDayTime;
+  return fmtDay;
+}
 
 function ts(value: string | null): number | null {
   if (!value) return null;
@@ -62,7 +83,8 @@ export interface TimelineLayout {
  * Compute the lane/tick geometry for a set of narratives.
  *
  * @param items  narratives from GET /api/me/narratives
- * @param query  lower-cased trimmed search query ('' = no filter)
+ * @param query  raw search text — normalization (trim/lowercase) happens
+ *               here, callers pass what the user typed
  * @param now    the axis's right edge (injectable for tests)
  * @returns      null when nothing matches (caller renders the empty state)
  */
@@ -97,7 +119,10 @@ export function computeTimelineLayout(
   const pct = (t: number) => ((t - start) / span) * 100;
 
   const lanes = [...filtered]
-    .sort((a, b) => (ts(a.created_at) ?? 0) - (ts(b.created_at) ?? 0))
+    // Same `?? now` fallback as the positioning below: an unparseable
+    // created_at sorts last AND draws at the right edge — one story,
+    // not a lane that lists first but renders at the axis end.
+    .sort((a, b) => (ts(a.created_at) ?? now) - (ts(b.created_at) ?? now))
     .map((n) => {
       const c = clamp(ts(n.created_at) ?? now);
       const u = Math.max(clamp(ts(n.updated_at) ?? c), c);
@@ -107,10 +132,10 @@ export function computeTimelineLayout(
       return { n, left, width };
     });
 
-  const fmt = span <= DAY_LABEL_MIN_SPAN_MS ? fmtDayTime : fmtDay;
-  const ticks = Array.from({ length: 4 }, (_, i) => {
-    const t = start + (span * (i + 0.5)) / 4;
-    return { left: ((t - start) / span) * 100, label: fmt.format(new Date(t)) };
+  const fmt = tickFormatter(span / TICK_COUNT);
+  const ticks = Array.from({ length: TICK_COUNT }, (_, i) => {
+    const t = start + (span * (i + 0.5)) / TICK_COUNT;
+    return { left: pct(t), label: fmt.format(new Date(t)) };
   });
 
   return { lanes, ticks };
