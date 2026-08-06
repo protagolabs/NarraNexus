@@ -111,20 +111,13 @@
       "recoveredAfterErrorTip": "A step in this turn failed; the reply was written from the completed work plus what we know about the error."
     },
     "onboarding": {
-      "eyebrow": "New conversation",
-      "heading": "A fresh page.",
-      "framing": "Nothing here yet — and that's the point. The more you and {{name}} work together, the more it remembers, connects, and carries forward.",
       "defaultAgentName": "your agent",
-      "narraBrand": "Narra · Memory",
-      "narraCaption": "it remembers",
-      "nexusBrand": "Nexus · Network",
-      "nexusCaption": "it connects",
-      "teamBrand": "Your Team",
-      "teamCaption": "it delivers",
-      "tryAsking": "Try asking",
       "prompt1": "Summarise this week's most important updates for me",
       "prompt2": "Connect a channel and watch it for anything urgent",
-      "prompt3": "Set up a Monday-morning digest of what matters"
+      "prompt3": "Set up a Monday-morning digest of what matters",
+      "readyTitle": "{{name}} is ready",
+      "readyBody": "Try one of these to get started, or just say what you need.",
+      "dismiss": "Dismiss"
     },
     "team": {
       "notFound": "Team not found.",
@@ -275,7 +268,14 @@
       "plan": "Plan",
       "title": "agent · process",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "session · {{time}}",
+      "agentDetailTitle": "Agent detail",
+      "detailMenuTitle": "Agent detail — panels",
+      "modelFramework": "Model & framework"
+    },
+    "composerPrivacyHint": "Avoid sharing sensitive personal information."
   },
   "awareness": {
     "common": {

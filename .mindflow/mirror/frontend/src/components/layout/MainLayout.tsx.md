@@ -4,6 +4,15 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — Chat UI v4:满铺 + BookmarkStrip 退役
+
+- ChatView / TeamChatView 去掉 p-2/p-3 与圆角描边卡片 — 聊天面到边,
+  分隔靠 hairline 与拖拽柄。RAIL_GUTTER_PX 常量随 strip 一起删除。
+- 右缘 BookmarkStrip 删除;所有面板入口在 ChatHeader(icons + ⋯ 菜单),
+  统一走 uiStore.requestPanel → pendingPanel effect(现在带 toggle 语义:
+  重复请求当前打开的 tab = 关闭,对齐旧 strip 行为)。BookmarkDrawer
+  单实例约束不变,edgeReservePx=0。
+
 ## 2026-08-06 — Chat UI v4:TopBar 降级为移动端专属
 
 TopBar 仅 < md 渲染(自带 md:hidden);桌面端侧栏占满全高。CommandPalette

@@ -1,0 +1,31 @@
+---
+code_file: frontend/src/components/chat/ChatHeader.tsx
+last_verified: 2026-08-06
+stub: false
+---
+
+# ChatHeader — v4 聊天头部(agent 名主角)
+
+## 为什么存在
+
+Chat UI v4 把三层头部(品牌行 / tab 行 / 安全横幅)压成一行,并接管了
+被退役的右缘 BookmarkStrip 的全部入口职责。桌面专属(hidden md:flex);
+移动端由 MainLayout 顶条 + ChatPanel 里 md:hidden 的 tab 行代替。
+
+## 结构
+
+左:侧栏展开钮(仅 sidebarCollapsed 时)→ RingAvatar(silicon)→
+agent 名按钮(开 ⋯ 菜单同款面板)→ mono "会话 · 时间"。
+右:ExecutionPopover(流式时)→ Chat/Inner Thoughts segmented(状态在
+ChatPanel)→ Jobs / Inbox / Artifacts 图标(徽标来自
+deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
+
+## 设计决策
+
+- **只做门,不做房间**:所有条目通过 uiStore.requestPanel 打开 ChatView
+  里既有的 BookmarkDrawer 面板;面板内部零改动(Owner 2026-08-06 口头
+  确认:设计稿未提到的界面细节保持不变)。
+- ⋯ 菜单顺序 = 旧 strip 类目摊平:config 六项 | Network(rail.socialShort)
+  + Memory | Model & framework(AgentLlmConfigPanel 的新入口)。
+- Artifacts 图标切 artifactStore.collapsed(列自身有 sliver 逻辑)。
+- 徽标/markTabOpened 语义沿用 tabs.ts 注册表,不另造信号源。

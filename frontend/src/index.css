@@ -916,11 +916,6 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
    visualising "the more you work together, the more it carries forward"
    (onboarding empty state). Honors prefers-reduced-motion via the global
    reduce block below. */
-@keyframes nm-travel {
-  0%   { left: 2%; }
-  100% { left: 98%; }
-}
-.animate-travel { animation: nm-travel 5s ease-in-out infinite alternate; }
 
 /* Header activity glyph — the agent's heartbeat, drawn as an ECG (silicon =
    the AI side). Two stacked paths: a faint static baseline, and a bright pulse

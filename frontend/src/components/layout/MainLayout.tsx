@@ -25,9 +25,9 @@
  * divider and its own persisted width — every column on the right resizes
  * the same way.
  *
- * The bookmark strip is never covered: an open slide-over reserves
- * STRIP_WIDTH_PX + RAIL_GUTTER_PX of the right edge for it, backdrop
- * included, so switching panels is one click rather than close-then-click.
+ * Panel entries (Awareness / Jobs / Inbox / …) live in the chat header
+ * (v4); they funnel through uiStore.requestPanel into the single
+ * BookmarkDrawer below. The old right-edge BookmarkStrip is retired.
  *
  * Signal source: artifact_id signals arrive via the chat WebSocket stream
  * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
@@ -44,11 +44,9 @@ import { CommandPalette } from './CommandPalette';
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { ResizableDivider } from './ResizableDivider';
 import {
-  BookmarkStrip,
   BookmarkDrawer,
   BookmarkPanelHost,
   tabLabelKey,
-  STRIP_WIDTH_PX,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -82,13 +80,6 @@ const SPLIT_HARD_MAX = 0.9;
 const DEFAULT_DRAWER_PX = 400;
 const MIN_DRAWER_PX = 300;
 const MAX_DRAWER_PX = 720;
-/**
- * Gutter between the bookmark strip and the viewport edge — `<main>`'s
- * `md:p-3`. The strip only renders on desktop (≥ md), so 12 is the only
- * value that can apply; the open slide-over reserves strip + gutter so it
- * never lands on top of the strip.
- */
-const RAIL_GUTTER_PX = 12;
 
 function readInitialSplit(): number {
   if (typeof window === 'undefined') return DEFAULT_SPLIT;
@@ -130,25 +121,21 @@ export function ChatView() {
   const pendingPanel = useUIStore((s) => s.pendingPanel);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
 
-  const handleBookmarkOpen = (tab: AtomicTabId) => {
-    // Re-clicking the open tab closes the drawer (toggle).
-    if (drawerTab === tab) {
-      setDrawerTab(null);
-      return;
-    }
-    setDrawerTab(tab);
-    try {
-      window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
-    } catch { /* storage unavailable — onboarding hint just stays */ }
-  };
-
   const handleDrawerClose = () => setDrawerTab(null);
 
-  // A panel requested from the command palette (mobile entry point) — open its
-  // drawer, then clear the request so it fires once.
+  // A panel requested from the chat header entries / ⋯ detail menu / the
+  // command palette (all funnel through uiStore.requestPanel — the strip
+  // that used to own this is retired in v4). Re-requesting the open tab
+  // closes the drawer (toggle), matching the old strip behavior.
   useEffect(() => {
     if (pendingPanel) {
-      setDrawerTab(pendingPanel as AtomicTabId);
+      setDrawerTab((prev) => {
+        if (prev === (pendingPanel as AtomicTabId)) return null;
+        try {
+          window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
+        } catch { /* storage unavailable — onboarding hint just stays */ }
+        return pendingPanel as AtomicTabId;
+      });
       clearPendingPanel();
     }
   }, [pendingPanel, clearPendingPanel]);
@@ -281,7 +268,9 @@ export function ChatView() {
   const artifactExpanded = !!agentId && artifactsLength > 0 && !artifactsCollapsed;
 
   return (
-    <main className="flex-1 flex min-w-0 p-2 gap-2 md:p-3 md:gap-3 overflow-hidden relative z-10">
+    // v4: full-bleed, seam-free — the chat surface runs edge to edge with
+    // hairline separations instead of padded floating cards.
+    <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       {/* Chat + Artifact group — owns the resizable divider. */}
       <div
         ref={groupRef}
@@ -331,12 +320,11 @@ export function ChatView() {
         <div
           ref={chatColRef}
           className={cn(
-            'min-w-0 lg:min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col',
+            'min-w-0 lg:min-w-[400px] animate-fade-in overflow-hidden flex flex-col',
             isMobile && mobileTab === 'artifacts' && 'hidden',
           )}
           style={{
             background: 'var(--nm-card)',
-            border: '1px solid var(--nm-hairline)',
             ...(artifactExpanded
               ? { flexGrow: chatSplit, flexBasis: 0 }
               : { flexGrow: 1, flexBasis: 0 }),
@@ -378,16 +366,13 @@ export function ChatView() {
               ))}
       </div>
 
-      {/* Drag handle for the pinned drawer's width. `-mx-2` cancels most of
-          <main>'s own `md:gap-3`, which lands on both sides of the handle and
-          would otherwise add up to a ~30px blank strip. */}
+      {/* Drag handle for the pinned drawer's width. */}
       {drawerPinned && drawerTab && agentId && !isMobile && (
         <ResizableDivider
           onResize={handleDrawerResize}
           onResizeEnd={handleDrawerResizeEnd}
           label={tr('layout.resizableDivider.drawerAriaLabel')}
           title={tr('layout.resizableDivider.drawerTitle')}
-          marginClassName="-mx-2"
         />
       )}
 
@@ -405,7 +390,7 @@ export function ChatView() {
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
-          edgeReservePx={isMobile ? 0 : STRIP_WIDTH_PX + RAIL_GUTTER_PX}
+          edgeReservePx={0}
           pinnedWidth={drawerWidth}
           columnRef={drawerColRef}
         >
@@ -413,16 +398,9 @@ export function ChatView() {
         </BookmarkDrawer>
       )}
 
-      {/* Bookmark strip — the paper edge. ~36px (spec §2). Desktop only; on
-          mobile the panels are reached from the ⌘K command palette instead,
-          which sets pendingPanel → opens the same drawer. */}
-      {!isMobile && agentId && (
-        <BookmarkStrip
-          agentId={agentId}
-          activeTab={drawerTab}
-          onOpen={handleBookmarkOpen}
-        />
-      )}
+      {/* The right-edge bookmark strip is retired in v4 — every panel entry
+          now lives in the chat header (icons + ⋯ detail menu), all funneling
+          through uiStore.requestPanel into the same drawer above. */}
 
       {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
@@ -441,10 +419,10 @@ export function ChatView() {
  */
 export function TeamChatView({ teamId }: { teamId: string }) {
   return (
-    <main className="flex-1 flex min-w-0 p-2 gap-2 md:p-3 md:gap-3 overflow-hidden relative z-10">
+    <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       <div
-        className="flex-1 min-w-0 animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col"
-        style={{ background: 'var(--nm-card)', border: '1px solid var(--nm-hairline)' }}
+        className="flex-1 min-w-0 animate-fade-in overflow-hidden flex flex-col"
+        style={{ background: 'var(--nm-card)' }}
       >
         <TeamChatPanel teamId={teamId} />
       </div>

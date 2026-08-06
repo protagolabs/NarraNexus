@@ -87,20 +87,13 @@
       "recoveredAfterErrorTip": "Un paso de este turno falló; la respuesta se escribió a partir del trabajo completado y lo que sabemos del error."
     },
     "onboarding": {
-      "eyebrow": "Nueva conversación",
-      "heading": "Una página en blanco.",
-      "framing": "Aún no hay nada aquí — y ese es el punto. Cuanto más trabajen tú y {{name}} juntos, más recordará, conectará y llevará adelante.",
       "defaultAgentName": "tu agente",
-      "narraBrand": "Narra · Memoria",
-      "narraCaption": "recuerda",
-      "nexusBrand": "Nexus · Red",
-      "nexusCaption": "conecta",
-      "teamBrand": "Tu equipo",
-      "teamCaption": "entrega",
-      "tryAsking": "Prueba a preguntar",
       "prompt1": "Resume para mí las actualizaciones más importantes de esta semana",
       "prompt2": "Conecta un canal y vigílalo por si surge algo urgente",
-      "prompt3": "Configura un resumen del lunes por la mañana con lo importante"
+      "prompt3": "Configura un resumen del lunes por la mañana con lo importante",
+      "readyTitle": "{{name}} está listo",
+      "readyBody": "Prueba una de estas sugerencias, o simplemente di lo que necesitas.",
+      "dismiss": "Cerrar"
     },
     "team": {
       "notFound": "Equipo no encontrado.",
@@ -231,7 +224,14 @@
       "plan": "Plan",
       "title": "agente · proceso",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "sesión · {{time}}",
+      "agentDetailTitle": "Detalle del agente",
+      "detailMenuTitle": "Detalle del agente — paneles",
+      "modelFramework": "Modelo y framework"
+    },
+    "composerPrivacyHint": "Evita compartir información personal sensible."
   },
   "awareness": {
     "common": {

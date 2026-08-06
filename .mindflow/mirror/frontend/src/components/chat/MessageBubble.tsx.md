@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-01
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:纸面气泡
+
+own/AI 气泡填色从物种 soft 色(carbon-soft / silicon-soft)改为纸面
+(--nm-paper-warm / --nm-paper)+ hairline 边;物种信号完全由 3px 描边
+(own 右 carbon / AI 左 silicon)+ 头像环承担 — 这是 Owner 在 v4 设计稿
+里亲自定的,覆盖 2026-06-20「own = carbon-soft 填色」的旧决策。
+nm-bubble-ai(蓝色 code/table 重绑定)随 silicon-soft 填色一起退役。
+错误气泡(实心 error 红)与「补救按钮放纸面上」规则不变。时间戳 9.5→10px。
 
 ## 2026-08-01 — 余额用完的第二个入口（Owner 决定）
 

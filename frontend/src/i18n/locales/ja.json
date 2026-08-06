@@ -87,20 +87,13 @@
       "recoveredAfterErrorTip": "このターンのあるステップが失敗しました。返信は完了した作業と既知のエラー情報から生成されました。"
     },
     "onboarding": {
-      "eyebrow": "新しい会話",
-      "heading": "まっさらなページ。",
-      "framing": "ここにはまだ何もありません — それが狙いです。あなたと {{name}} が一緒に取り組むほど、記憶し、つなぎ、引き継いでいきます。",
       "defaultAgentName": "あなたのエージェント",
-      "narraBrand": "Narra · メモリー",
-      "narraCaption": "記憶する",
-      "nexusBrand": "Nexus · ネットワーク",
-      "nexusCaption": "つなげる",
-      "teamBrand": "あなたのチーム",
-      "teamCaption": "成し遂げる",
-      "tryAsking": "こう聞いてみましょう",
       "prompt1": "今週の最も重要なアップデートをまとめて",
       "prompt2": "チャンネルを接続して、緊急の事項を監視して",
-      "prompt3": "月曜の朝に重要事項のダイジェストを設定して"
+      "prompt3": "月曜の朝に重要事項のダイジェストを設定して",
+      "readyTitle": "{{name}} の準備ができました",
+      "readyBody": "以下の提案から始めるか、必要なことをそのまま伝えてください。",
+      "dismiss": "閉じる"
     },
     "team": {
       "notFound": "チームが見つかりません。",
@@ -231,7 +224,14 @@
       "plan": "プラン",
       "title": "エージェント · プロセス",
       "ops": "回の操作"
-    }
+    },
+    "header": {
+      "sessionLabel": "セッション · {{time}}",
+      "agentDetailTitle": "エージェント詳細",
+      "detailMenuTitle": "エージェント詳細 — パネル",
+      "modelFramework": "モデルとフレームワーク"
+    },
+    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
   },
   "awareness": {
     "common": {

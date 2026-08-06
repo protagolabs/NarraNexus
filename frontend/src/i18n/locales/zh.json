@@ -111,20 +111,13 @@
       "recoveredAfterErrorTip": "本轮中的某个步骤失败；回复是根据已完成的工作以及已知错误信息生成的。"
     },
     "onboarding": {
-      "eyebrow": "新对话",
-      "heading": "崭新的一页。",
-      "framing": "这里还空无一物——而这正是重点。你和 {{name}} 协作越多，它就越能记住、连接并延续这一切。",
       "defaultAgentName": "你的智能体",
-      "narraBrand": "Narra · 记忆",
-      "narraCaption": "它会记住",
-      "nexusBrand": "Nexus · 网络",
-      "nexusCaption": "它会连接",
-      "teamBrand": "你的团队",
-      "teamCaption": "它会交付",
-      "tryAsking": "试试这样问",
       "prompt1": "为我总结本周最重要的动态",
       "prompt2": "连接一个频道并留意任何紧急情况",
-      "prompt3": "设置一份周一早晨的重点摘要"
+      "prompt3": "设置一份周一早晨的重点摘要",
+      "readyTitle": "{{name}} 已就绪",
+      "readyBody": "试试下面的建议开始，或直接说出你的需求。",
+      "dismiss": "关闭"
     },
     "team": {
       "notFound": "未找到团队。",
@@ -275,7 +268,14 @@
       "plan": "计划",
       "title": "智能体 · 过程",
       "ops": "次操作"
-    }
+    },
+    "header": {
+      "sessionLabel": "会话 · {{time}}",
+      "agentDetailTitle": "Agent 详情",
+      "detailMenuTitle": "Agent 详情 — 面板入口",
+      "modelFramework": "模型与框架"
+    },
+    "composerPrivacyHint": "请勿分享敏感个人信息。"
   },
   "awareness": {
     "common": {

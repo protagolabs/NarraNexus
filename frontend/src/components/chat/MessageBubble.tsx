@@ -271,23 +271,18 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             'px-3.5 py-2.5',
             'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',
-            // AI (silicon) bubble: rebind markdown code/table fills to a blue
-            // tint so they don't read as muddy gray on the blue surface.
-            !isUser && !message.isError && 'nm-bubble-ai',
           )}
           style={
             isUser
               ? {
-                  // Own bubble — Carbon (human) species variant, matching
-                  // the Narra Agent App design ref: carbon-soft coral fill,
-                  // carbon-hair border, and a 3px solid carbon stripe on the
-                  // RIGHT (the "own" side). This mirrors the AI bubble's
-                  // silicon-on-the-LEFT treatment, so a conversation reads as
-                  // a clear human(carbon)·AI(silicon) dialogue. Both tints
-                  // flip automatically in dark mode via token redefinition.
-                  background: 'var(--color-carbon-soft)',
+                  // Own bubble — v4 paper treatment: warm-paper fill with a
+                  // hairline border; the human(carbon) species now reads
+                  // entirely from the 3px carbon stripe on the RIGHT (the
+                  // "own" side) + the carbon avatar ring, instead of a coral
+                  // fill. Mirrors the AI bubble's silicon-on-the-LEFT.
+                  background: 'var(--nm-paper-warm)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--color-carbon-hair)',
+                  border: '1px solid var(--nm-hairline)',
                   borderRight: '3px solid var(--color-carbon)',
                 }
               : message.isError
@@ -297,14 +292,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                     border: '1px solid var(--color-error)',
                   }
                 : {
-                    // AI bubble — NM canonical FinBubble: silicon-soft fill,
-                    // silicon-hair border, 3px silicon stripe on the LEFT
-                    // edge. Light mode lands on light-blue bg + dark-blue
-                    // stripe; dark mode flips to grayish-blue bg + light-blue
-                    // stripe (driven entirely by token redefinition).
-                    background: 'var(--color-silicon-soft)',
+                    // AI bubble — v4 paper treatment: plain paper fill,
+                    // hairline border, 3px silicon stripe on the LEFT edge.
+                    // Species signal = stripe + avatar ring; markdown code /
+                    // table fills keep their default paper-warm surfaces
+                    // (the old silicon-soft fill + nm-bubble-ai rebinding
+                    // are retired with it).
+                    background: 'var(--nm-paper)',
                     color: 'var(--nm-ink)',
-                    border: '1px solid var(--color-silicon-hair)',
+                    border: '1px solid var(--nm-hairline)',
                     borderLeft: '3px solid var(--color-silicon)',
                   }
           }
@@ -662,7 +658,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             title={`${formatDate(message.timestamp)} ${formatTime(message.timestamp)}`}
             style={{
               color: 'var(--nm-subtle)',
-              fontSize: '9.5px',
+              fontSize: '10px',
               letterSpacing: '0.05em',
               fontVariantNumeric: 'tabular-nums',
             }}

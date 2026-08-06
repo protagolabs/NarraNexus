@@ -87,20 +87,13 @@
       "recoveredAfterErrorTip": "Ein Schritt in dieser Runde ist fehlgeschlagen; die Antwort wurde aus der abgeschlossenen Arbeit und dem Bekannten über den Fehler verfasst."
     },
     "onboarding": {
-      "eyebrow": "Neue Unterhaltung",
-      "heading": "Ein leeres Blatt.",
-      "framing": "Hier ist noch nichts — und genau das ist der Sinn. Je mehr du und {{name}} zusammenarbeiten, desto mehr merkt es sich, verknüpft und trägt es weiter.",
       "defaultAgentName": "deinem Agenten",
-      "narraBrand": "Narra · Gedächtnis",
-      "narraCaption": "es merkt sich",
-      "nexusBrand": "Nexus · Netzwerk",
-      "nexusCaption": "es verbindet",
-      "teamBrand": "Dein Team",
-      "teamCaption": "es liefert",
-      "tryAsking": "Frag doch mal",
       "prompt1": "Fasse mir die wichtigsten Neuigkeiten dieser Woche zusammen",
       "prompt2": "Verbinde einen Kanal und behalte ihn auf Dringendes im Blick",
-      "prompt3": "Richte eine Montagmorgen-Übersicht mit dem Wichtigsten ein"
+      "prompt3": "Richte eine Montagmorgen-Übersicht mit dem Wichtigsten ein",
+      "readyTitle": "{{name}} ist bereit",
+      "readyBody": "Starte mit einem der Vorschläge — oder sag einfach, was du brauchst.",
+      "dismiss": "Schließen"
     },
     "team": {
       "notFound": "Team nicht gefunden.",
@@ -231,7 +224,14 @@
       "plan": "Plan",
       "title": "Agent · Prozess",
       "ops": "Ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "Sitzung · {{time}}",
+      "agentDetailTitle": "Agent-Details",
+      "detailMenuTitle": "Agent-Details — Panels",
+      "modelFramework": "Modell & Framework"
+    },
+    "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten."
   },
   "awareness": {
     "common": {

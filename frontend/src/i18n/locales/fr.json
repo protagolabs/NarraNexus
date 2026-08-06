@@ -87,20 +87,13 @@
       "recoveredAfterErrorTip": "Une étape de ce tour a échoué ; la réponse a été rédigée à partir du travail accompli et de ce que nous savons de l'erreur."
     },
     "onboarding": {
-      "eyebrow": "Nouvelle conversation",
-      "heading": "Une page vierge.",
-      "framing": "Rien ici pour l'instant — et c'est tout l'intérêt. Plus vous travaillez avec {{name}}, plus il mémorise, connecte et fait avancer les choses.",
       "defaultAgentName": "votre agent",
-      "narraBrand": "Narra · Mémoire",
-      "narraCaption": "il se souvient",
-      "nexusBrand": "Nexus · Réseau",
-      "nexusCaption": "il connecte",
-      "teamBrand": "Votre équipe",
-      "teamCaption": "il livre",
-      "tryAsking": "Essayez de demander",
       "prompt1": "Résume-moi les actualités les plus importantes de cette semaine",
       "prompt2": "Connecte un canal et surveille-le pour toute urgence",
-      "prompt3": "Configure un récapitulatif du lundi matin sur l'essentiel"
+      "prompt3": "Configure un récapitulatif du lundi matin sur l'essentiel",
+      "readyTitle": "{{name}} est prêt",
+      "readyBody": "Essayez l'une de ces suggestions, ou dites simplement ce dont vous avez besoin.",
+      "dismiss": "Fermer"
     },
     "team": {
       "notFound": "Équipe introuvable.",
@@ -231,7 +224,14 @@
       "plan": "Plan",
       "title": "agent · processus",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "session · {{time}}",
+      "agentDetailTitle": "Détail de l'agent",
+      "detailMenuTitle": "Détail de l'agent — panneaux",
+      "modelFramework": "Modèle & framework"
+    },
+    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
   },
   "awareness": {
     "common": {

@@ -87,20 +87,13 @@
       "recoveredAfterErrorTip": "فشلت إحدى خطوات هذه الجولة؛ كُتب الرد اعتمادًا على العمل المنجز وما نعرفه عن الخطأ."
     },
     "onboarding": {
-      "eyebrow": "محادثة جديدة",
-      "heading": "صفحة جديدة.",
-      "framing": "لا شيء هنا بعد — وهذا هو المقصود. كلما عملت أنت و{{name}} معًا أكثر، تذكّر وربط ومضى قُدُمًا أكثر.",
       "defaultAgentName": "وكيلك",
-      "narraBrand": "Narra · الذاكرة",
-      "narraCaption": "يتذكّر",
-      "nexusBrand": "Nexus · الشبكة",
-      "nexusCaption": "يربط",
-      "teamBrand": "فريقك",
-      "teamCaption": "يُنجز",
-      "tryAsking": "جرّب أن تسأل",
       "prompt1": "لخّص لي أهم تحديثات هذا الأسبوع",
       "prompt2": "اربط قناة وراقبها بحثًا عن أي أمر عاجل",
-      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم"
+      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم",
+      "readyTitle": "{{name}} جاهز",
+      "readyBody": "جرّب أحد هذه الاقتراحات، أو قل ما تحتاجه مباشرة.",
+      "dismiss": "إغلاق"
     },
     "team": {
       "notFound": "لم يتم العثور على الفريق.",
@@ -235,7 +228,14 @@
       "plan": "الخطة",
       "title": "الوكيل · العملية",
       "ops": "عمليات"
-    }
+    },
+    "header": {
+      "sessionLabel": "الجلسة · {{time}}",
+      "agentDetailTitle": "تفاصيل الوكيل",
+      "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
+      "modelFramework": "النموذج وإطار العمل"
+    },
+    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
   },
   "awareness": {
     "common": {
