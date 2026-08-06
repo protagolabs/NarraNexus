@@ -142,6 +142,45 @@ def is_cli_family_alias(model_id: str) -> bool:
     return model_id in _CLI_ALIAS_TO_MODEL_ID
 
 
+def claude_family_alias(model_id: str) -> Optional[str]:
+    """Map a pinned Claude full id to its CLI family alias, or None.
+
+    ``claude-sonnet-4-6`` → ``sonnet``; already-an-alias passes through;
+    anything without a recognizable ``claude-{family}-`` shape (including
+    aggregator-prefixed ids like ``anthropic/claude-...``, which belong to
+    API-proxy cards where full ids are correct) returns None.
+    """
+    if model_id in _CLI_ALIAS_TO_MODEL_ID:
+        return model_id
+    for family in _CLI_ALIAS_TO_MODEL_ID:
+        if model_id.startswith(f"claude-{family}-"):
+            return family
+    return None
+
+
+def effective_card_models(source: str, stored: Optional[list]) -> list[str]:
+    """The model list a provider card presents at runtime.
+
+    Single source of truth shared by EVERY card-load path. The OAuth CLI
+    cards' lists are not user data: the claude CLI resolves family aliases
+    to the newest of each family, and the codex curated list tracks the
+    codex CLI's picker — so both are overridden from the catalog on every
+    read and can never go stale. Everything else keeps the stored column.
+
+    History: ``get_user_config`` applied this override inline while the
+    resolver path built cards via ``ProviderCard.from_row`` — raw column,
+    no override — so slot self-heal judged membership against the raw
+    list, a slot pinned to a legacy full id ("claude-sonnet-4-6") counted
+    as healthy, and the CLI stayed pinned to a stale model forever ("local
+    CC model name never updates", Base recvqEiNbacKWa).
+    """
+    if source == "claude_oauth":
+        return get_default_models("claude_oauth", "anthropic")
+    if source == "codex_oauth":
+        return get_default_models("codex_oauth", "openai")
+    return [str(m) for m in (stored or [])]
+
+
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
 _register(
