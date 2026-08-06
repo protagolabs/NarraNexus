@@ -400,6 +400,14 @@ from backend.middleware.access_log import access_log_middleware
 app.middleware("http")(auth_middleware)
 app.middleware("http")(access_log_middleware)
 
+# Renders route-level AuthError as {detail, code} instead of FastAPI's
+# default {detail} — the `code` is what stops the frontend from treating
+# "your NetMind token is stale" as "your session is dead". See
+# backend/auth_errors.py.
+from backend.auth_errors import install_auth_error_handler
+
+install_auth_error_handler(app)
+
 
 # Import and include routers
 from backend.routes.websocket import router as websocket_router

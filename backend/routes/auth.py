@@ -15,6 +15,7 @@ Provides endpoints for:
 
 import os
 import json
+import jwt
 from time import monotonic
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
@@ -63,8 +64,14 @@ from xyz_agent_context.schema import (
 )
 from backend.auth import (
     create_token,
+    decode_token,
     _is_cloud_mode,
     resolve_current_user_id,
+)
+from backend.auth_errors import (
+    IDENTITY_UNRESOLVED,
+    NETMIND_TOKEN_INVALID,
+    AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
@@ -493,7 +500,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         logger.warning(
             f"[login-funnel] netmind-login rejected source={request.source or '-'}: {e}"
         )
-        raise HTTPException(status_code=401, detail="Invalid NetMind token")
+        raise AuthError(NETMIND_TOKEN_INVALID, "Invalid NetMind token")
     except NetmindUpstreamError as exc:
         logger.error(f"netmind-login: upstream failure: {exc}")
         raise HTTPException(
@@ -1668,6 +1675,62 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
     )
 
 
+class SessionResponse(BaseModel):
+    """Liveness of the caller's own session."""
+
+    user_id: str
+    # Epoch seconds. None in local mode, where identity is the X-User-Id
+    # header and there is nothing to expire.
+    expires_at: Optional[int] = None
+    issued_at: Optional[int] = None
+
+
+@router.get("/session", response_model=SessionResponse)
+async def get_session(http_request: Request):
+    """Confirm the caller's session is still alive, and say when it dies.
+
+    Two consumers, both in the frontend:
+
+    1. **Second opinion before a forced logout.** A single 401 on some
+       unrelated endpoint is not proof the session is dead — it may be a
+       transient failure or a bug in that one route. The frontend probes
+       here first and only destroys the session if the probe agrees.
+       (Before this existed, one stray 401 tore down the whole SPA — the
+       2026-08-02 demo incident.)
+    2. **Pre-expiry warning.** `expires_at` lets the UI warn the user
+       *before* the JWT dies, instead of teleporting them to /login
+       mid-sentence. There is no refresh flow, so an unannounced expiry
+       is a hard stop.
+
+    Deliberately does NO database work: it runs on every suspected-dead
+    session, and a burst of 401s must not become a burst of queries. The
+    JWT check already happened in auth_middleware — reaching this handler
+    at all *is* the answer.
+    """
+    user_id = await resolve_current_user_id(http_request)
+    expires_at: Optional[int] = None
+    issued_at: Optional[int] = None
+
+    auth_header = http_request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        # Verified again rather than read raw: cheap (HMAC over a short
+        # string) and keeps this handler from ever reporting claims the
+        # middleware would have rejected.
+        try:
+            claims = decode_token(auth_header[7:])
+            expires_at = claims.get("exp")
+            issued_at = claims.get("iat")
+        except jwt.InvalidTokenError:
+            # Unreachable in practice — the middleware verified the same
+            # token moments ago. Degrade to "alive, expiry unknown"
+            # rather than 500 on a race with a key rotation.
+            logger.warning("[session-probe] token verified by middleware but not here")
+
+    return SessionResponse(
+        user_id=user_id, expires_at=expires_at, issued_at=issued_at
+    )
+
+
 @router.get("/onboarding", response_model=OnboardingResponse)
 async def get_onboarding(http_request: Request):
     """Return the authenticated user's onboarding checklist state.
@@ -1743,7 +1806,7 @@ def _require_request_user(http_request: Request) -> str:
     user can't read or flip another user's privacy preference."""
     uid = getattr(http_request.state, "user_id", None)
     if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     return uid
 
 

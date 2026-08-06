@@ -1,8 +1,14 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-03
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 注册 AuthError 异常处理器
+
+`install_auth_error_handler(app)`（[[auth_errors]]）在两个 middleware 之后
+注册。没有它，FastAPI 默认的 HTTPException 处理器会把路由级 401 的 `code`
+字段整个丢掉，前端就退回到"只能看状态码"的老状态。
 
 ## 2026-08-03 — lifespan 预热价目表（把 1.5s 同步 import 挪出 event loop）
 

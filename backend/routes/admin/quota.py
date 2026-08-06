@@ -31,6 +31,7 @@ from xyz_agent_context.integrations.free_tier.wallet_client import (
     WalletError,
     WalletMissing,
 )
+from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 router = APIRouter(prefix="/api/admin/quota", tags=["admin", "quota"])
 
@@ -54,7 +55,7 @@ def _require_staff_or_raise(request: Request) -> str:
     role = getattr(request.state, "role", None)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     if role != "staff":
         raise HTTPException(status_code=403, detail="staff role required")
     return user_id

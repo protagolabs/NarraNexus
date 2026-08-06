@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 两处 auth 桥接改调 `reportWsAuthFailure(frame)`
+
+`run()` 与 `reconnect()` 的 onmessage 里，`dispatchAuthExpired()` →
+`reportWsAuthFailure(message/raw)`，把帧本身传下去（里面带
+`error_code`）。语义变化见 [[wsAuthError.ts]]：AuthError 帧不再直接登出，
+先经 [[sessionGuard.ts]] 探针确认。
 
 ## 2026-07-31 — translateReconnectFrame 导出（观察面共用翻译器）
 

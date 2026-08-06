@@ -1,8 +1,25 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-05
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 每个 401 带上 `code` + 一行 `[auth-reject]` 日志
+
+middleware 的三个 401 出口（无 Bearer / 过期 / 非法）和 local 模式缺
+`X-User-Id` 的那个出口，改用 [[auth_errors]] 的 `auth_error_response()`：
+响应体从 `{"detail": ...}` 变成 `{"detail": ..., "code": ...}`，并且**每次
+拒绝都写一行 WARNING**（token 类还带这枚 token 自己的 iat/exp）。
+
+为什么非改不可：这几处原本是裸 `_json_response`，**一行日志都没有**。
+2026-08-02 线下活动那小时的 10 个带 token 401，事后只能看到路径和状态码，
+"到底是自然过期还是签名密钥换了"至今无解——而这两者在日志里的区别就是
+`exp` 是否还在未来。`_json_response` 现在只剩 402 配额那一处在用。
+
+`resolve_current_user_id`（86 处路由调用的共享身份出口）改抛
+`AuthError(IDENTITY_UNRESOLVED)`：middleware 已经放行、处理器却拿不到身份，
+那是我们自己的接线 bug，**不是**会话死亡，不该把用户踢下线。分类表见
+[[auth_errors]]。
 
 ## 2026-07-22 — 共享 CSRF 守卫 `reject_cross_origin`
 

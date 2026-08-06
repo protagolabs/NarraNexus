@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-07-30
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 7 处 NetMind 401 改带 `netmind_token_invalid`
+
+全部 `HTTPException(401)` → `AuthError(NETMIND_TOKEN_INVALID)`。行为不变
+（仍是 401），但前端不再需要靠"端点前缀是不是 `/api/billing/`"来判断该不该
+登出——那份手写豁免清单已随 [[authFailure.ts]] 的允许清单一起删掉了。
+见 [[auth_errors]]。
 
 ## 2026-07-30 — 付款后跳回站内：`_return_urls`（取代下方 2026-07-05 的判断）
 

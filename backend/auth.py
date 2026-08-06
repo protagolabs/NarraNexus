@@ -21,6 +21,17 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
 
+from backend.auth_errors import (
+    GATEWAY_TOKEN_INVALID,
+    IDENTITY_MISSING,
+    IDENTITY_UNRESOLVED,
+    TOKEN_EXPIRED,
+    TOKEN_INVALID,
+    TOKEN_MISSING,
+    AuthError,
+    auth_error_response,
+)
+
 
 # =============================================================================
 # Configuration
@@ -219,7 +230,7 @@ async def get_current_user(request: Request) -> Optional[CurrentUser]:
     # Cloud mode: require JWT
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
 
     token = auth_header[7:]
     try:
@@ -229,9 +240,9 @@ async def get_current_user(request: Request) -> Optional[CurrentUser]:
             role=payload.get("role", "user"),
         )
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        raise AuthError(TOKEN_EXPIRED, "Token expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise AuthError(TOKEN_INVALID, "Invalid token")
 
 
 def require_auth(request: Request) -> CurrentUser:
@@ -403,13 +414,16 @@ async def auth_middleware(request: Request, call_next):
             # auth rules (which would either let them pass without auth
             # in local mode or 401 via JWT logic — both wrong here).
             if not has_token:
-                return _json_response(401, {
-                    "detail": (
+                return auth_error_response(
+                    GATEWAY_TOKEN_INVALID,
+                    (
                         "missing or invalid MANYFOLD_GATEWAY_TOKEN — "
                         "manyfold-class endpoints require Authorization: "
                         "Bearer <token>"
                     ),
-                })
+                    path=path,
+                    method=request.method,
+                )
             request.state.manyfold_authed = True
             return await call_next(request)
         if has_token and (path.startswith("/api/") or path.startswith("/ws/")):
@@ -480,14 +494,17 @@ async def auth_middleware(request: Request, call_next):
                 # routes skip agent-scoped annotations.
                 return await call_next(request)
             if not header_uid:
-                return _json_response(401, {
-                    "success": False,
-                    "detail": (
+                return auth_error_response(
+                    IDENTITY_MISSING,
+                    (
                         "Missing X-User-Id header. The frontend must send "
                         "this header for every authenticated request in "
                         "local mode. If you just registered, log in first."
                     ),
-                })
+                    path=local_path,
+                    method=request.method,
+                    extra={"success": False},
+                )
             request.state.user_id = header_uid
             # Mirror cloud mode: tag the cost-tracker ContextVar so usage
             # records get attributed to the right user even in local mode.
@@ -514,7 +531,10 @@ async def auth_middleware(request: Request, call_next):
         if _is_marketplace_public_read(request):
             # Anonymous marketplace read (desktop clients have no cloud JWT).
             return await call_next(request)
-        return _json_response(401, {"detail": "Authentication required"})
+        return auth_error_response(
+            TOKEN_MISSING, "Authentication required",
+            path=path, method=request.method,
+        )
 
     token = auth_header[7:]
     try:
@@ -522,9 +542,15 @@ async def auth_middleware(request: Request, call_next):
         request.state.user_id = payload["user_id"]
         request.state.role = payload.get("role", "user")
     except jwt.ExpiredSignatureError:
-        return _json_response(401, {"detail": "Token expired"})
+        return auth_error_response(
+            TOKEN_EXPIRED, "Token expired",
+            path=path, method=request.method, token=token,
+        )
     except jwt.InvalidTokenError:
-        return _json_response(401, {"detail": "Invalid token"})
+        return auth_error_response(
+            TOKEN_INVALID, "Invalid token",
+            path=path, method=request.method, token=token,
+        )
 
     # Provider routing. Tag current_user_id on the ContextVar (consumed by
     # cost_tracker to attribute usage) and dispatch the resolver, which puts
@@ -626,10 +652,13 @@ async def resolve_current_user_id(request) -> str:
     route is on an exempt path and called this helper by mistake) —
     treats it as an authentication failure rather than masking the bug.
     """
-    from fastapi import HTTPException
     uid = getattr(request.state, "user_id", None)
     if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        # NOT session death — the middleware already accepted this request's
+        # credential; an empty request.state.user_id here is our own wiring
+        # bug. Tagged so the frontend surfaces it locally instead of logging
+        # the user out (see backend/auth_errors.py).
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     return uid
 
 

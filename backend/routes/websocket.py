@@ -35,6 +35,13 @@ from loguru import logger
 
 from backend.config import settings
 from backend.auth import _is_cloud_mode, decode_token
+from backend.auth_errors import (
+    IDENTITY_MISSING,
+    IDENTITY_UNRESOLVED,
+    TOKEN_EXPIRED,
+    TOKEN_INVALID,
+    TOKEN_MISSING,
+)
 
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
@@ -623,6 +630,7 @@ async def websocket_agent_run(websocket: WebSocket):
                         "must include ?x_user_id=<user_id> on the WS URL."
                     ),
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -635,6 +643,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "user_id mismatch between URL and payload",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -646,6 +655,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Authentication required",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -657,6 +667,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Token expired",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_EXPIRED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -666,6 +677,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -677,6 +689,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token claims",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -690,6 +703,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "User ID does not match token",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return

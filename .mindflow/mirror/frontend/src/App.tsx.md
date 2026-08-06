@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — auth-expired 记录触发源 + 新增到期预警横幅
+
+**1. 记录触发源。** `narranexus:auth-expired` 的 handler 现在读事件的
+`detail: {endpoint, code}`（由 [[sessionGuard.ts]] 附带），登出前打一条
+console.warn。2026-08-02 事故复盘时，客户端侧对"是哪个请求把我踢下线的"
+一无所知。
+
+**2. 到期预警横幅（琥珀色，可点击忽略）。** JWT 7 天有效且**无续期端点**，
+到期前毫无提示，用户是在下一次点击时被当场击毙的。新增一个每 10 分钟 +
+`focus` 时检查的 effect：剩余时间进入 `EXPIRY_WARNING_WINDOW_MS`（24h）就
+提示，local 模式（无 JWT）恒不显示。解析逻辑在 [[tokenExpiry.ts]]。
+
+横幅与既有 `sessionExpired`（已过期）横幅互斥——已经死了就不必再预告。
 
 ## 2026-08-04 — PageFallback 根 h-screen → h-dvh-safe
 
@@ -155,7 +169,7 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 
 **Session validation in `ProtectedRoute` is soft.** If `api.getAgents()` throws (backend unreachable), the user is NOT logged out — they stay in the app. Only a `!res.success` response from a reachable backend triggers logout. This prevents local-mode users from being logged out during a backend restart.
 
-**Hard logout on 401 via `narranexus:auth-expired` event.** The `App` component registers a global listener for `narranexus:auth-expired` and calls `configStore.logout()` on receipt. `api.ts` dispatches this event whenever an authenticated request comes back 401 from a non-auth endpoint (see `request<T>` in `lib/api.ts`). This complements `ProtectedRoute`'s one-shot session check: a JWT that expires mid-session — or is invalidated by a backend restart that recycled session state — gets caught by the next API call instead of leaving the UI to spam silent 401s.
+**Hard logout on confirmed session death via `narranexus:auth-expired`.** The `App` component registers a global listener for `narranexus:auth-expired` and calls `configStore.logout()` on receipt. Since 2026-08-06 the event fires only after [[sessionGuard.ts]] has confirmed the session is really dead — not on every 401 (see `request<T>` in `lib/api.ts`). This complements `ProtectedRoute`'s one-shot session check: a JWT that expires mid-session — or is invalidated by a backend restart that recycled session state — gets caught by the next API call instead of leaving the UI to spam silent 401s.
 
 **`RootRedirect` reads `VITE_FORCE_CLOUD`.** Cloud-web deployments set this env var to skip `ModeSelectPage` entirely. On first render with `mode=null` and `VITE_FORCE_CLOUD=true`, `setMode('cloud-web')` is called inline (not in a `useEffect`), which is a Zustand write during render. This is technically unsafe in React strict mode but is a one-time initialization that only fires when `mode` is null.
 
