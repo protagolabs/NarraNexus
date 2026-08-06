@@ -54,16 +54,22 @@ def test_sanitize_removes_urls_and_code_fences():
 
 
 class Recorder:
+    """Failure injection is by ATTEMPT number (failed attempts count too),
+    so retry semantics are testable: fail_on={1} fails only the second
+    attempt, whatever it is."""
+
     def __init__(self, fail_on: set[int] | None = None):
         self.sent: list[dict] = []
+        self.attempts = 0
         self._fail_on = fail_on or set()
 
     async def __call__(self, content: dict) -> str:
-        idx = len(self.sent)
-        if idx in self._fail_on:
+        attempt = self.attempts
+        self.attempts += 1
+        if attempt in self._fail_on:
             raise RuntimeError("send failed")
         self.sent.append(content)
-        return f"$ev{idx}"
+        return f"$ev{len(self.sent) - 1}"
 
 
 class FakeClock:
@@ -166,12 +172,25 @@ async def test_no_deltas_close_is_silent():
 
 
 @pytest.mark.asyncio
-async def test_base_send_failure_reports_not_finalized():
+async def test_base_send_failure_recovers_at_close_when_possible():
+    """A failed live base doesn't doom the turn: close() retries a
+    marker-free send, which doubles as the delivery."""
     rec = Recorder(fail_on={0})
     bridge = _bridge(rec)
     await bridge.on_reply_delta(call_id="c1", delta="Sunny.")  # must not raise
     text, ok = await bridge.close()
+    assert text == "Sunny." and ok is True
+    assert LIVE_MARKER_KEY not in rec.sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_total_send_failure_reports_not_finalized():
+    rec = Recorder(fail_on={0, 1})
+    bridge = _bridge(rec)
+    await bridge.on_reply_delta(call_id="c1", delta="Sunny.")
+    text, ok = await bridge.close()
     assert text == "Sunny." and ok is False
+    assert rec.sent == []
 
 
 @pytest.mark.asyncio
@@ -212,3 +231,34 @@ async def test_bridge_exposes_observability_stamps():
     clock.t = 2.5
     await bridge.close()
     assert bridge.finalized_at == 2.5
+
+
+@pytest.mark.asyncio
+async def test_no_delta_multi_segment_authoritative_texts_all_survive():
+    """Review finding #1: provider without arg deltas delivers speak only
+    via PROGRESS. Segment boundaries must close on call_id change or every
+    segment except the last is silently lost."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    bridge.on_segment_text(call_id="c1", text="I am checking the weather now.")
+    bridge.on_segment_text(call_id="c2", text="It is sunny, twenty five degrees.")
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "I am checking the weather now. It is sunny, twenty five degrees."
+
+
+@pytest.mark.asyncio
+async def test_close_recovers_live_state_after_mid_stream_failure():
+    """Review finding #10: a failed mid-stream edit must not leave the base
+    event permanently live when the final edit CAN still succeed."""
+    rec = Recorder(fail_on={1})
+    clock = FakeClock()
+    bridge = _bridge(rec, clock)
+    await bridge.on_reply_delta(call_id="c1", delta="First sentence.")  # idx0 base ok
+    clock.t = 1.0
+    await bridge.on_reply_delta(call_id="c1", delta=" Second one.")  # idx1 fails -> broken
+    text, ok = await bridge.close()  # idx2: final edit retry succeeds
+    assert text == "First sentence. Second one."
+    assert ok is True
+    final = rec.sent[-1]
+    assert LIVE_MARKER_KEY not in final and LIVE_MARKER_KEY not in final["m.new_content"]

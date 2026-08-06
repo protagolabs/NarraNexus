@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_5_ini
 last_verified: 2026-04-10
 stub: false
 ---
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：新增 read_history 参数——fast 轮只跳过 markdown 读取（唯一喂给被绕过的 decision LLM 的产出），previous_instances 轨迹快照与 initialize_markdown 照常执行（step_4 轨迹与 narrative 统计依赖它们）。
 # step_1_5_init_markdown.py — 流水线第 1.5 步：初始化 Markdown 历史
 
 ## 为什么存在

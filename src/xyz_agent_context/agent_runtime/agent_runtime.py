@@ -565,9 +565,12 @@ class AgentRuntime:
             # =============================================================================
             # Fast mode (F28): the profile may swap step_1 for the BM25
             # top-1 direct pick — no continuity LLM, no creation, no
-            # session writes. Step 1.5 is skipped with it: markdown
-            # history only feeds the instance-decision LLM, which
-            # settings.skip_module_decision_llm already bypasses.
+            # session writes. Step 1.5 still runs but skips the history
+            # read (that output only feeds the instance-decision LLM,
+            # which settings.skip_module_decision_llm already bypasses);
+            # its other two outputs — the previous_instances trajectory
+            # snapshot and initialize_markdown — are load-bearing for
+            # step_4 records and narrative statistics, so they are kept.
             use_fast_narrative = (
                 ctx.turn_profile is not None
                 and ctx.turn_profile.narrative_strategy == "bm25_top1"
@@ -597,8 +600,9 @@ class AgentRuntime:
             #   - Contains Instance state information
             #   - Will be used as part of the LLM context
             # =============================================================================
-            if not use_fast_narrative:
-                await step_1_5_init_markdown(ctx, self.markdown_manager)
+            await step_1_5_init_markdown(
+                ctx, self.markdown_manager, read_history=not use_fast_narrative
+            )
 
             # =============================================================================
             # Step 2: Load Modules and decide execution path -- Core Step

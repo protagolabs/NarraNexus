@@ -1435,9 +1435,24 @@ class MatrixTrigger(ChannelTriggerBase):
         # streams on one call. Modeled on the group_silent per-(agent, room)
         # buffer; the call key is rtc_session_id.
         if (getattr(message, "raw", None) or {}).get("rtc_voice"):
-            return await self._run_voice_serialized(
-                credential, message, sender_name, attachments=attachments
-            )
+            if not self.STREAMING_ENABLED:
+                # The streaming kill switch governs voice too: live
+                # delivery IS streaming, so degrade the whole turn to a
+                # plain text turn (no voice register, no speak surface,
+                # no serialization) instead of half-activating voice on
+                # the atomic path.
+                message = replace(
+                    message,
+                    raw={
+                        k: v
+                        for k, v in (message.raw or {}).items()
+                        if k != "rtc_voice"
+                    },
+                )
+            else:
+                return await self._run_voice_serialized(
+                    credential, message, sender_name, attachments=attachments
+                )
         if self.STREAMING_ENABLED:
             return await self._build_and_run_agent_streaming(
                 credential, message, sender_name, attachments=attachments
@@ -1740,7 +1755,7 @@ class MatrixTrigger(ChannelTriggerBase):
         if (
             state.voice_bridge is not None
             and mt == MessageType.AGENT_REPLY_DELTA
-            and "speak" in (getattr(event, "tool_name", "") or "")
+            and (getattr(event, "tool_name", "") or "").endswith("__speak")
         ):
             await state.voice_bridge.on_reply_delta(
                 call_id=getattr(event, "call_id", "") or "",
@@ -1767,12 +1782,28 @@ class MatrixTrigger(ChannelTriggerBase):
         if not (isinstance(text, str) and text.strip()):
             return
 
-        if state.voice_bridge is not None and tool_name.endswith("speak"):
-            # The completed speak call carries the authoritative full text —
-            # corrects the delta view (or substitutes when arg deltas were
-            # unavailable on this provider).
-            state.voice_bridge.on_segment_text(
-                call_id=str(details.get("call_id") or ""), text=text
+        if tool_name.endswith("__speak"):
+            if state.voice_bridge is not None:
+                # The completed speak call carries the authoritative full
+                # text — corrects the delta view (or substitutes when arg
+                # deltas were unavailable on this provider).
+                state.voice_bridge.on_segment_text(
+                    call_id=str(details.get("call_id") or ""), text=text
+                )
+                return
+            # Text turn: no bridge consumes speak, so without this capture
+            # the call would be a dead tool — ok:true returned, nothing
+            # delivered, a fully silent round. Deliver via the legacy
+            # finalize path instead; segments concatenate (speak is a
+            # multi-call tool).
+            state.narra_reply_text = (
+                f"{state.narra_reply_text} {text}".strip()
+                if state.narra_reply_text
+                else text
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] speak on a text turn "
+                f"captured for plain delivery (room={room_id})"
             )
             return
 
@@ -2351,9 +2382,20 @@ class MatrixTrigger(ChannelTriggerBase):
             # plain text message (contract: bad metadata must never break
             # the normal reply path). Metadata is a presentation hint,
             # NOT authorization — classify/authorize gates run unchanged.
+            #
+            # 1:1 rooms ONLY: the metadata has no source binding (format
+            # is validated, provenance is not — and the handoff forbids a
+            # sync backend round trip for the fast-mode decision), so a
+            # group member could otherwise inject voice_instructions into
+            # the reply register. F13 RTC calls are Agent-Human 1:1 by
+            # product shape, so gating on PRIVATE loses nothing. Caveat:
+            # an unknown member count parses as GROUP (conservative), so
+            # a cold roster cache degrades that turn to plain text.
             source = getattr(raw.get("_nio_event"), "source", None)
             rtc = (
-                parse_rtc_voice_input(source) if isinstance(source, dict) else None
+                parse_rtc_voice_input(source)
+                if isinstance(source, dict) and chat_type == ChatType.PRIVATE
+                else None
             )
             if rtc is not None:
                 envelope, transcript = split_narra_system_prompt(body)

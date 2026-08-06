@@ -147,6 +147,7 @@ def _install_runtime(monkeypatch, runtime: ScriptedRuntime):
 
 
 async def _ingest_and_run(trigger, content: dict, event_id: str = "$sim1") -> str:
+    trigger._room_member_count["!call:h"] = 2  # voice mode is 1:1-only
     raw = trigger._wrap_event(
         event=_nio_text_event(content, event_id), room_id="!call:h", credential=_cred()
     )

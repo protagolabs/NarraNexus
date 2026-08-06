@@ -120,3 +120,21 @@ async def test_non_voice_message_bypasses_voice_queue():
     assert out == "ok"
     assert trigger._voice_calls == {}
     streaming.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_kill_switch_degrades_voice_to_text_turn(monkeypatch):
+    """Review finding #9: STREAMING_ENABLED is the streaming kill switch;
+    voice turns must respect it by degrading to a plain text turn (no
+    voice queue, no rtc_voice reaching the builder/modules)."""
+    trigger = MatrixTrigger()
+    monkeypatch.setattr(trigger, "STREAMING_ENABLED", False)
+    atomic = AsyncMock(return_value="plain")
+    trigger._build_and_run_agent_atomic = atomic  # type: ignore[assignment]
+
+    out = await trigger._build_and_run_agent(None, _voice_msg("hello."), "Caller")
+
+    assert out == "plain"
+    assert trigger._voice_calls == {}
+    passed_msg = atomic.await_args.args[1]
+    assert "rtc_voice" not in (passed_msg.raw or {})

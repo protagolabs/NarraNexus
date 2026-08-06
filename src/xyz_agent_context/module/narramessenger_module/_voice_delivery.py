@@ -124,10 +124,15 @@ class VoiceDeliveryBridge:
         """Authoritative full text of a completed speak call.
 
         Corrects the delta view (or substitutes for it entirely when arg
-        deltas were unavailable). Replaces the open segment's raw text.
+        deltas were unavailable). Replaces the open segment's raw text;
+        a call_id change closes the previous segment first — same rule as
+        the delta path, or the no-delta path would keep only the LAST
+        speak call and silently drop every earlier one.
         """
         if self._closed:
             return
+        if call_id != self._current_call:
+            self._close_segment()
         self._current_call = call_id
         self._current_raw = text
 
@@ -150,8 +155,12 @@ class VoiceDeliveryBridge:
         text = self._cumulative()
         if not text:
             return None, True
-        if self._broken:
-            return text, False
+        # Attempt the final (marker-free) emit even when a mid-stream send
+        # broke: a successful final edit both delivers the full text AND
+        # closes the live state on the base event — otherwise the observer
+        # is left with a permanently-live stream plus a duplicate fallback
+        # message. Only when this attempt also fails do we report not-
+        # finalized and let the trigger's plain sender take over.
         try:
             await self._emit(text, live=False)
         except Exception as e:  # noqa: BLE001 — fallback path takes over

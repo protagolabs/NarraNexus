@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：①voice 检测限 1:1 房间（metadata 只验格式不验来源，群内成员可注入 voice_instructions；F13 本就是 1:1 通话，冷 roster 缓存的 turn 保守降级普通文本）；②speak 在文字轮由 PROGRESS 捕获进 narra_reply_text 平文投递，不再是 ok:true 的死工具，段落拼接；③speak 匹配谓词统一 endswith("__speak")；④STREAMING_ENABLED 同样约束语音——开关关闭时剥 rtc_voice 整轮降级普通文本，不半激活。
+
 ## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
 
 观测：[voice-timing] 纯函数行（handoff §9 六 timestamp 映射为自 received 起的时长，缺失戳 -1.00，只带非敏感 correlation ID 绝不带 transcript），finalize 处发射；戳位 = streaming 入口(received/applied)、run_stream 创建后(request)、bridge 的 first_delta/first_sent/finalized。

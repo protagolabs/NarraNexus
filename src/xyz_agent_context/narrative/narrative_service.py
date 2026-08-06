@@ -131,10 +131,15 @@ class NarrativeService:
         The full select() below stays the only path that may create
         narratives or consult the continuity/LLM tiers.
         """
-        results = await self._retrieval._keyword_search(
+        from .config import config
+
+        results = await self._retrieval.keyword_search(
             query=query, user_id=user_id, agent_id=agent_id, top_k=1
         )
-        if not results:
+        # Same raw-score floor the full path uses before direct-return: the
+        # fast path has no LLM arbitration tier, so a sub-floor top-1 (a
+        # one-word accidental overlap) is a miss, not a background pick.
+        if not results or results[0].raw_score < config.NARRATIVE_MATCH_RAW_FLOOR:
             return None
         return await self._crud.load_by_id(results[0].narrative_id)
 

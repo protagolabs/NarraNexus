@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-06 — voice register 实测硬化（dev 网关真 V4 Flash bench）
 
-裸 register 首版实测两个失败模式：工具后答案漏成 prose（只有进度没结果）、长答案完全绕开 speak。两步硬化后 5 场景 × 多样本全过：①「plain text = 私人笔记，用户永远听不见」的重构式表述（比禁令服从率高）；②「工具完成后必须再 call speak 交付答案」「长答案拆成连续多个短 speak」写成显式规则。实测（经 dev litellm 网关）：TTFT 0.8–1.9s、首段 speak 参数 1.2–3.4s、markdown/URL 零泄漏、预告纪律 100%、长答案 4–6 段口语分段（3/3 一致）。尾部 prose 泄漏在 NexusPower 里是 monologue（桥只消费 speak deltas），用户不可见。reasoning_effort 经网关未 400 但 drop_params:true 是否真透传上游待与网关侧确认。
+裸 register 首版实测两个失败模式：工具后答案漏成 prose（只有进度没结果）、长答案完全绕开 speak。两步硬化后 5 场景 × 多样本全过：①「plain text = 私人笔记，用户永远听不见」的重构式表述（比禁令服从率高）；②「工具完成后必须再 call speak 交付答案」「长答案拆成连续多个短 speak」写成显式规则。实测（经 dev litellm 网关）：TTFT 0.8–1.9s、首段 speak 参数 1.2–3.4s、markdown/URL 零泄漏、预告纪律 100%、长答案 4–6 段口语分段（3/3 一致）。尾部 prose 泄漏在 NexusPower 里是 monologue（桥只消费 speak deltas），用户不可见。reasoning_effort 档位结论待网关侧透传确认后回写（跟踪在 reference/self_notebook/todo/）。
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
 

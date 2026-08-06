@@ -147,3 +147,27 @@ def test_voice_timing_line_tolerates_missing_stamps():
     assert "first_token_s=-1.00" in line
     assert "first_live_s=-1.00" in line
     assert "finalized_s=-1.00" in line
+
+
+@pytest.mark.asyncio
+async def test_speak_on_text_turn_is_delivered_not_dead():
+    """Review finding #2: without a bridge (text turn), a speak call must
+    still reach the room via the legacy capture — never a silent ok:true."""
+    state = _StreamReplyState()
+    trigger = MatrixTrigger()
+    await trigger._handle_stream_event(
+        _progress("mcp__narramessenger_module__speak", "spoken by mistake"),
+        state,
+        _cred(),
+        "!r",
+    )
+    assert state.narra_reply_text == "spoken by mistake"
+
+    # Segments concatenate (speak is a multi-call tool).
+    await trigger._handle_stream_event(
+        _progress("mcp__narramessenger_module__speak", "second part"),
+        state,
+        _cred(),
+        "!r",
+    )
+    assert state.narra_reply_text == "spoken by mistake second part"

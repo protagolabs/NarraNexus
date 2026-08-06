@@ -93,6 +93,8 @@ def _voice_event(*, body: str = ENVELOPE + TRANSCRIPT, meta: Any = "default") ->
 
 def _parse(ev) -> ParsedMessage:
     trigger = MatrixTrigger()
+    # Voice mode is 1:1-only (finding #3); positive cases need a known DM.
+    trigger._room_member_count["!call:h"] = 2
     raw = trigger._wrap_event(event=ev, room_id="!call:h", credential=_cred())
     assert raw is not None
     msg = trigger.parse_event(raw)
@@ -139,3 +141,19 @@ def test_voice_profile_for_maps_presence_to_voice_fast():
 
     plain_msg = _parse(_voice_event(meta=None, body="hello"))
     assert _voice_profile_for(plain_msg) is None
+
+
+def test_group_room_never_enters_voice_mode():
+    """Review finding #3: RTC metadata carries no source binding, so voice
+    mode (and its instruction injection) is restricted to 1:1 rooms —
+    matching F13's Agent-Human 1:1 call product shape. A group member
+    posting crafted metadata gets a plain text turn."""
+    trigger = MatrixTrigger()
+    trigger._room_member_count["!group:h"] = 3
+    raw = trigger._wrap_event(
+        event=_voice_event(), room_id="!group:h", credential=_cred()
+    )
+    msg = trigger.parse_event(raw)
+    assert msg is not None
+    assert "rtc_voice" not in msg.raw
+    assert msg.content == ENVELOPE + TRANSCRIPT  # body untouched

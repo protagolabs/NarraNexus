@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：on_segment_text 换 call_id 先关段（无 delta 路径多段不再丢）；close() 即使 mid-stream broken 也重试一次无标记终态 edit——成功即同时完成交付与 live 收口，失败才交还平文兜底。
+
 ## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
 
 桥暴露观测戳：first_delta_at（≈first_model_token）/ first_sent_at（first_matrix_live_reply_sent）/ finalized_at（matrix_live_reply_finalized），供 [voice-timing] 行发射。

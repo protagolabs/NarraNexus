@@ -4,6 +4,10 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：framework_override 过 _framework_override_viable 守卫——镜像 nexus adapter 的两个硬失败条件（OAuth 凭据 / 双槽均无模型），不可行时保留 slot 解析并告警，语音轮经 legacy finalize 链自然降级；覆盖必要性（AGENT_REPLY_DELTA 表达流仅 nexus_power 有）与不可用时的降级路径以此为准。
+
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
 framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
