@@ -235,6 +235,16 @@ export function ChatView() {
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
+          // Desktop: transient drawer is an in-flow column (chat shifts left,
+          // nothing gets covered). Artifacts wants big-screen readability —
+          // ~half the viewport, clamped so the sidebar (272) + chat (400)
+          // always keep their minimum room; other panels stay at 440px.
+          inset={!isMobile}
+          insetWidth={
+            drawerTab === 'artifacts'
+              ? 'min(max(440px, 50vw), calc(100vw - 672px))'
+              : 440
+          }
           columnRef={drawerColRef}
         >
           {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}

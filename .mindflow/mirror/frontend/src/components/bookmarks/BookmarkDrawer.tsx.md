@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 桌面临时抽屉改内嵌列 + per-tab 宽度
+
+Owner 两点:①悬浮 overlay 盖住聊天内容(own 头像被挡)→ 桌面端
+(inset=true)未 pin 的抽屉也**入流布局**,chat 左移让位;临时语义保留
+(backdrop 点击 + Esc 关闭;in-flow 列 z-[201] 压过 z-[200] backdrop,
+自身点击不被吃)。真正的 fixed overlay 只剩移动端。②新增 insetWidth:
+artifacts 面板 ~50vw(大屏可读性,clamp 保住 sidebar272+chat400 底线),
+其余面板 440px;pinned 仍走用户可拖的 pinnedWidth。
+「单元素稳定槽位、模式切换不 remount」约束未破坏(drawerPinToggle 测试通过)。
 
 ## 2026-07-30 (2) — pin/unpin no longer remounts the panel; the portal is gone
 

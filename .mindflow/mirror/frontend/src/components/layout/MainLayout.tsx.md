@@ -4,6 +4,11 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (5) — 抽屉 inset + artifacts 50vw
+
+BookmarkDrawer 传 inset={!isMobile} 与 per-tab insetWidth
+(artifacts → min(max(440px, 50vw), calc(100vw - 672px)),其他 440)。
+
 ## 2026-08-06 (4) — 折叠展开钮从浮动 chip 改为保留左轨
 
 浮动 absolute chip 会盖住子页面标题(Marketplace/Dashboard 截图实证)。
