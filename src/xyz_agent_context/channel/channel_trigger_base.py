@@ -1339,10 +1339,14 @@ class ChannelTriggerBase(ABC):
             await self._audit(
                 EVENT_INGRESS_DROPPED_EMPTY,
                 message_id=message.message_id,
-                agent_id=getattr(credential, "agent_id", ""),
-                app_id=getattr(credential, "app_id", ""),
+                agent_id=agent_id,
+                app_id=app_id,
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
+                details={
+                    "content_type": message.content_type.value,
+                    "has_raw": bool(message.raw),
+                },
             )
             return
 

@@ -40,8 +40,8 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_ECHO,
-    EVENT_INGRESS_DROPPED_HISTORIC,
     EVENT_INGRESS_DROPPED_EMPTY,
+    EVENT_INGRESS_DROPPED_HISTORIC,
     EVENT_INGRESS_DROPPED_NOT_MENTIONED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
     EVENT_INGRESS_DROPPED_UNBOUND,
@@ -436,7 +436,9 @@ class LarkTrigger(ChannelTriggerBase):
         on ``message_type``:
 
           - ``text``   → ``{"text": "..."}``                   — extract ``text``
-          - ``post``   → ``{"<lang>": {"title", "content"}}``  — walk segments
+          - ``post``   → ``{"<lang>": {"title", "content"}}`` (Lark clients)
+            or unwrapped ``{"title", "content"}`` (API / lark-cli
+            senders)                                           — walk segments
           - ``file`` / ``image`` / ``audio`` / ``media`` /
             ``sticker``                                        — payload carries
             file/image metadata only, NO user-visible text. ``content`` MUST
@@ -657,8 +659,6 @@ class LarkTrigger(ChannelTriggerBase):
         if "title" in payload or "content" in payload:
             blocks.insert(0, payload)
         for lang_block in blocks:
-            if not isinstance(lang_block, dict):
-                continue
             title = lang_block.get("title", "") or ""
             body_bits: list[str] = []
             for line in lang_block.get("content", []) or []:

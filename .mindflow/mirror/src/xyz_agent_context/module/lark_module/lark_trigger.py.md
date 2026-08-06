@@ -13,7 +13,11 @@ prod 事故：lark-cli / API 发出的 `post` 消息事件里 payload 是**无�
 run）。两处修复：① `_extract_post_text` 把 payload 自身视为候选块
 （顶层有 `title`/`content` 键即无包裹；两种形状键型不同不会撞）；②
 空内容守卫先写 `EVENT_INGRESS_DROPPED_EMPTY`（带 message_type detail）
-再返回，与基类同批修。`_preview_message_content` 仍保持冻结不动。
+再返回，与基类同批修。`_preview_message_content` 仍保持冻结不动——
+**已知分叉**：preview 的 post walker 不认无包裹形状，靠
+`if not text: text = raw_content` 兜底，所以无包裹 post 的
+`ingress_processed.content_preview` 是裁到 160 字的原始 JSON。痕迹
+不丢但不好读；对着 preview 里的 JSON 排查时这是预期行为，别当新 bug。
 
 ## 2026-08-04 — secret 为空的凭据不再启动订阅器
 
