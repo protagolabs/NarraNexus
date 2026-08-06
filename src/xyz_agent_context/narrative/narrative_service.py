@@ -120,6 +120,24 @@ class NarrativeService:
     # Main Feature: select()
     # =========================================================================
 
+    async def select_fast(
+        self, agent_id: str, user_id: str, query: str
+    ) -> Optional[Narrative]:
+        """BM25 top-1 direct pick — the fast-mode (F28) narrative path.
+
+        Zero LLM, zero creation, zero session writes: one keyword search
+        (top_k=1) plus a CRUD load. None when nothing scores or the row
+        vanished between search and load; the caller runs the turn bare.
+        The full select() below stays the only path that may create
+        narratives or consult the continuity/LLM tiers.
+        """
+        results = await self._retrieval._keyword_search(
+            query=query, user_id=user_id, agent_id=agent_id, top_k=1
+        )
+        if not results:
+            return None
+        return await self._crud.load_by_id(results[0].narrative_id)
+
     async def select(
         self,
         agent_id: str,

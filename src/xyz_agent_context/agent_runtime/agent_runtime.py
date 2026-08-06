@@ -60,6 +60,7 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
     RunContext,
     step_0_initialize,
     step_1_select_narrative,
+    step_1_fast_select,
     step_1_5_init_markdown,
     step_2_load_modules,
     step_2_5_sync_instances,
@@ -556,10 +557,23 @@ class AgentRuntime:
             #   - ctx.narrative_list: List[Narrative] (may match multiple)
             #   - ctx.main_narrative: Narrative (the primary one)
             # =============================================================================
-            async for msg in step_1_select_narrative(
-                ctx, self.narrative_service, self.session_service
-            ):
-                yield msg
+            # Fast mode (F28): the profile may swap step_1 for the BM25
+            # top-1 direct pick — no continuity LLM, no creation, no
+            # session writes. Step 1.5 is skipped with it: markdown
+            # history only feeds the instance-decision LLM, which
+            # settings.skip_module_decision_llm already bypasses.
+            use_fast_narrative = (
+                ctx.turn_profile is not None
+                and ctx.turn_profile.narrative_strategy == "bm25_top1"
+            )
+            if use_fast_narrative:
+                async for msg in step_1_fast_select(ctx, self.narrative_service):
+                    yield msg
+            else:
+                async for msg in step_1_select_narrative(
+                    ctx, self.narrative_service, self.session_service
+                ):
+                    yield msg
 
             # =============================================================================
             # Step 1.5: Initialize/Read Markdown History
@@ -577,7 +591,8 @@ class AgentRuntime:
             #   - Contains Instance state information
             #   - Will be used as part of the LLM context
             # =============================================================================
-            await step_1_5_init_markdown(ctx, self.markdown_manager)
+            if not use_fast_narrative:
+                await step_1_5_init_markdown(ctx, self.markdown_manager)
 
             # =============================================================================
             # Step 2: Load Modules and decide execution path -- Core Step

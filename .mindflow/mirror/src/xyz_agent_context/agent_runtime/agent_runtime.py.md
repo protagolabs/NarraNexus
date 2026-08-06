@@ -4,6 +4,10 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
+
+run() 在 turn_profile.narrative_strategy=="bm25_top1" 时以 step_1_fast_select 替换 step_1 并跳过 step_1_5；普通路径代码原样在 else 分支内，一行未改。
+
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
 run() 新增 turn_profile 参数（None=原行为），透传进 RunContext；fast 分支的编排改动在后续批次。

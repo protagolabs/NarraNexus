@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-07-28
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
+
+新增 public `select_fast(agent_id, user_id, query)`：BM25 top-1 直取（_retrieval._keyword_search top_k=1 + CRUD load），零 LLM / 零新建 / 零 session 写；fast 模式（F28）唯一入口，select() 仍是唯一可新建/走 LLM 层的路径。
 
 ## 2026-07-28 — R4a：prompt 生成面扩为稳定/易变两半
 
