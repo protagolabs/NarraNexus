@@ -715,7 +715,9 @@
       "agentCount_two": "وكيلان",
       "agentCount_few": "{{count}} وكلاء",
       "agentCount_many": "{{count}} وكيلًا",
-      "agentCount_other": "{{count}} وكيل"
+      "agentCount_other": "{{count}} وكيل",
+      "toggleMembers": "عرض الأعضاء",
+      "noMembers": "لا يوجد أعضاء بعد"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
@@ -1698,7 +1700,10 @@
       "noAgents": "لا يوجد وكلاء بعد — أنشئ واحدًا أولًا من قائمة جديد.",
       "createButton": "إنشاء الفريق",
       "manageHint": "أدر الفرق الحالية من لوحة التحكم.",
-      "membersFailed": "تم إنشاء الفريق، لكن تعذّرت إضافة {{count}} عضوًا: {{ids}}"
+      "membersFailed": "تم إنشاء الفريق، لكن تعذّرت إضافة {{count}} عضوًا: {{ids}}",
+      "searchPlaceholder": "ابحث عن الوكلاء بالاسم / المعرف…",
+      "noMatch": "لا يوجد وكلاء مطابقون",
+      "cancel": "إلغاء"
     },
     "account": {
       "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."

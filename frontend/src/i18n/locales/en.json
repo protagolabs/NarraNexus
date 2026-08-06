@@ -776,7 +776,9 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
       "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents"
+      "agentCount_other": "{{count}} agents",
+      "toggleMembers": "Show members",
+      "noMembers": "No members yet"
     },
     "teamRowMenu": {
       "options": "Group chat options",
@@ -2049,7 +2051,10 @@
       "noAgents": "No agents yet — create one first from the New menu.",
       "createButton": "Create team",
       "manageHint": "Manage existing teams in the Dashboard.",
-      "membersFailed": "Team created, but {{count}} member(s) could not be added: {{ids}}"
+      "membersFailed": "Team created, but {{count}} member(s) could not be added: {{ids}}",
+      "searchPlaceholder": "Search agents by name / id…",
+      "noMatch": "No agents match",
+      "cancel": "Cancel"
     },
     "account": {
       "powerOnlyHint": "Account, billing and subscription are NetMind account features — sign in with a NetMind account to see them here."

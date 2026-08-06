@@ -776,7 +776,9 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 群聊",
       "agentCount_one": "{{count}} 个智能体",
-      "agentCount_other": "{{count}} 个智能体"
+      "agentCount_other": "{{count}} 个智能体",
+      "toggleMembers": "展开成员",
+      "noMembers": "还没有成员"
     },
     "teamRowMenu": {
       "options": "群聊选项",
@@ -2049,7 +2051,10 @@
       "noAgents": "还没有 Agent — 先从 New 菜单创建一个。",
       "createButton": "创建团队",
       "manageHint": "已有团队在 Dashboard 里管理。",
-      "membersFailed": "团队已创建，但 {{count}} 个成员添加失败：{{ids}}"
+      "membersFailed": "团队已创建，但 {{count}} 个成员添加失败：{{ids}}",
+      "searchPlaceholder": "按名称 / ID 搜索 Agent…",
+      "noMatch": "没有匹配的 Agent",
+      "cancel": "取消"
     },
     "account": {
       "powerOnlyHint": "账户、账单与订阅是 NetMind 账号功能 — 使用 NetMind 账号登录后这里才会显示。"

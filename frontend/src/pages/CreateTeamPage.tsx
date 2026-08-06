@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Search } from 'lucide-react';
 import { Button, ScrollArea, useNotice } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { useConfigStore, useTeamsStore } from '@/stores';
@@ -46,12 +46,23 @@ export default function CreateTeamPage() {
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(COLOR_PRESETS[0]);
   const [members, setMembers] = useState<Set<string>>(new Set());
+  const [memberQuery, setMemberQuery] = useState('');
   const [busy, setBusy] = useState(false);
 
   const canCreate = name.trim().length > 0 && !busy;
   const selectedCount = members.size;
 
-  const sortedAgents = useMemo(() => [...agents], [agents]);
+  // Search narrows the checklist by name / id; selections OUTSIDE the
+  // current filter are kept (the Set is independent of the view).
+  const sortedAgents = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return [...agents];
+    return agents.filter(
+      (a) =>
+        (a.name || '').toLowerCase().includes(q) ||
+        a.agent_id.toLowerCase().includes(q),
+    );
+  }, [agents, memberQuery]);
 
   const toggleMember = (agentId: string) => {
     setMembers((prev) => {
@@ -102,7 +113,8 @@ export default function CreateTeamPage() {
     'w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)] px-3 text-[13.5px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none focus:border-[var(--border-strong)]';
 
   return (
-    <ScrollArea className="h-full" viewportClassName="px-6 py-7">
+    <div className="h-full flex flex-col">
+    <ScrollArea className="flex-1 min-h-0" viewportClassName="px-6 py-7">
       <div className="max-w-[600px] mx-auto flex flex-col gap-5">
         {dialog}
 
@@ -171,9 +183,25 @@ export default function CreateTeamPage() {
               · {t('pages.createTeam.selectedCount', { count: selectedCount })}
             </span>
           </span>
-          {sortedAgents.length === 0 ? (
+          {/* Search — narrows the checklist without dropping selections. */}
+          {agents.length > 0 && (
+            <div className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)] max-w-[340px]">
+              <Search className="w-3 h-3 shrink-0 text-[var(--nm-ink30)]" />
+              <input
+                value={memberQuery}
+                onChange={(e) => setMemberQuery(e.target.value)}
+                placeholder={t('pages.createTeam.searchPlaceholder')}
+                className="flex-1 bg-transparent text-[12.5px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none"
+              />
+            </div>
+          )}
+          {agents.length === 0 ? (
             <div className="text-[12.5px] text-[var(--nm-ink50)]">
               {t('pages.createTeam.noAgents')}
+            </div>
+          ) : sortedAgents.length === 0 ? (
+            <div className="text-[12.5px] text-[var(--nm-ink50)]">
+              {t('pages.createTeam.noMatch')}
             </div>
           ) : (
             sortedAgents.map((a) => {
@@ -215,16 +243,28 @@ export default function CreateTeamPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-2.5">
+      </div>
+    </ScrollArea>
+
+    {/* Sticky action bar — always visible regardless of checklist length
+        (UI/UX doc 2026-08-06: the create button used to sit below the fold
+        with no cancel). */}
+    <div className="shrink-0 border-t border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
+      <div className="max-w-[600px] mx-auto flex items-center justify-between gap-3 px-6 py-3">
+        <span className="text-[12px] text-[var(--nm-ink30)] truncate">
+          {t('pages.createTeam.manageHint')}
+        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="ghost" onClick={() => navigate('/app/chat')} disabled={busy}>
+            {t('pages.createTeam.cancel')}
+          </Button>
           <Button onClick={handleCreate} disabled={!canCreate} className="gap-1.5">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t('pages.createTeam.createButton')}
           </Button>
-          <span className="text-[12px] text-[var(--nm-ink30)]">
-            {t('pages.createTeam.manageHint')}
-          </span>
         </div>
       </div>
-    </ScrollArea>
+    </div>
+    </div>
   );
 }

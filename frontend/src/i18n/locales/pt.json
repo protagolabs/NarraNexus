@@ -707,7 +707,9 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — chat em grupo",
       "agentCount_one": "{{count}} agente",
-      "agentCount_other": "{{count}} agentes"
+      "agentCount_other": "{{count}} agentes",
+      "toggleMembers": "Mostrar membros",
+      "noMembers": "Ainda sem membros"
     },
     "teamRowMenu": {
       "options": "Opções do chat em grupo",
@@ -1690,7 +1692,10 @@
       "noAgents": "Ainda sem agentes — crie um no menu Novo primeiro.",
       "createButton": "Criar equipe",
       "manageHint": "Gerencie equipes existentes no Dashboard.",
-      "membersFailed": "Equipe criada, mas {{count}} membro(s) não puderam ser adicionados: {{ids}}"
+      "membersFailed": "Equipe criada, mas {{count}} membro(s) não puderam ser adicionados: {{ids}}",
+      "searchPlaceholder": "Buscar agentes por nome / id…",
+      "noMatch": "Nenhum agente corresponde",
+      "cancel": "Cancelar"
     },
     "account": {
       "powerOnlyHint": "Conta, cobrança e assinatura são recursos da conta NetMind — entre com uma conta NetMind para vê-los aqui."

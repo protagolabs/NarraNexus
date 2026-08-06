@@ -706,7 +706,9 @@
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",
-      "agentCount_other": "{{count}} 体のエージェント"
+      "agentCount_other": "{{count}} 体のエージェント",
+      "toggleMembers": "メンバーを表示",
+      "noMembers": "メンバーはまだいません"
     },
     "teamRowMenu": {
       "options": "グループチャットのオプション",
@@ -1689,7 +1691,10 @@
       "noAgents": "エージェントがまだありません — まず New メニューから作成してください。",
       "createButton": "チームを作成",
       "manageHint": "既存のチームはダッシュボードで管理します。",
-      "membersFailed": "チームは作成されましたが、{{count}} 件のメンバーを追加できませんでした: {{ids}}"
+      "membersFailed": "チームは作成されましたが、{{count}} 件のメンバーを追加できませんでした: {{ids}}",
+      "searchPlaceholder": "名前 / ID でエージェントを検索…",
+      "noMatch": "一致するエージェントがありません",
+      "cancel": "キャンセル"
     },
     "account": {
       "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"

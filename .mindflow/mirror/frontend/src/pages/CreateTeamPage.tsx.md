@@ -4,6 +4,14 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — 成员搜索 + 固定底部操作条(UI/UX 设计文档采纳项)
+
+- Add agents 清单上方加搜索框(按 name/id 过滤;过滤不丢已勾选 —
+  members Set 独立于视图)。
+- 页面改 flex 列:字段区滚动,底部 shrink-0 操作条常驻(Cancel +
+  Create team)— 修复原按钮沉在清单下方且无取消路径的问题;
+  manageHint 移入操作条左侧。
+
 # CreateTeamPage — v4 团队创建独立页
 
 ## 为什么存在

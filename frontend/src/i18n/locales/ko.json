@@ -706,7 +706,9 @@
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 그룹 채팅",
-      "agentCount_other": "에이전트 {{count}}명"
+      "agentCount_other": "에이전트 {{count}}명",
+      "toggleMembers": "멤버 표시",
+      "noMembers": "아직 멤버가 없습니다"
     },
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
@@ -1689,7 +1691,10 @@
       "noAgents": "아직 에이전트가 없습니다 — 먼저 새로 만들기 메뉴에서 생성하세요.",
       "createButton": "팀 만들기",
       "manageHint": "기존 팀은 대시보드에서 관리합니다.",
-      "membersFailed": "팀은 생성되었지만 멤버 {{count}}명을 추가하지 못했습니다: {{ids}}"
+      "membersFailed": "팀은 생성되었지만 멤버 {{count}}명을 추가하지 못했습니다: {{ids}}",
+      "searchPlaceholder": "이름 / ID로 에이전트 검색…",
+      "noMatch": "일치하는 에이전트가 없습니다",
+      "cancel": "취소"
     },
     "account": {
       "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."

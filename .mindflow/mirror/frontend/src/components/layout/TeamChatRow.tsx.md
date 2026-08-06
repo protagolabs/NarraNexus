@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-07-22
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 团队行可展开成员(UI/UX 设计文档采纳项)
+
+行首新增 chevron 展开钮(stopPropagation,行本体仍开群聊):展开后缩进
+列出成员 agent,点成员跳到该 agent **自己的单聊**(onSelectMember =
+AgentList.handleSelectAgent),当前打开的 agent 高亮。members 由
+AgentList 从 team.member_agent_ids ⨝ rawAgents 计算传入。
+同文档中的拖拽入团 / manage-team 重构方案 Owner 未定,未实现
+(见 self_notebook/todo)。
 
 > 2026-06-24：`GroupAvatar` size `md`→`sm` (32px),与 agent 行 + 用户头部统一大小。
 > 同时改成**单行**:去掉 "Group chat · N agents" 副标题,成员数 "N agents" 移到右侧

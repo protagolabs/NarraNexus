@@ -711,7 +711,9 @@
       "agentCount_one": "{{count}} агент",
       "agentCount_few": "{{count}} агента",
       "agentCount_many": "{{count}} агентов",
-      "agentCount_other": "{{count}} агентов"
+      "agentCount_other": "{{count}} агентов",
+      "toggleMembers": "Показать участников",
+      "noMembers": "Участников пока нет"
     },
     "teamRowMenu": {
       "options": "Параметры группового чата",
@@ -1694,7 +1696,10 @@
       "noAgents": "Агентов пока нет — сначала создайте одного через меню «Создать».",
       "createButton": "Создать команду",
       "manageHint": "Существующие команды управляются в Dashboard.",
-      "membersFailed": "Команда создана, но не удалось добавить участников ({{count}}): {{ids}}"
+      "membersFailed": "Команда создана, но не удалось добавить участников ({{count}}): {{ids}}",
+      "searchPlaceholder": "Поиск агентов по имени / id…",
+      "noMatch": "Нет подходящих агентов",
+      "cancel": "Отмена"
     },
     "account": {
       "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."

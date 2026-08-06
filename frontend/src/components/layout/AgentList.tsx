@@ -600,6 +600,12 @@ export function AgentList() {
                         teamName={t.team.name}
                         agentCount={t.member_agent_ids.length}
                         active={activeTeamChatId === t.team.team_id}
+                        members={t.member_agent_ids.map((aid) => ({
+                          agentId: aid,
+                          name: rawAgents.find((a) => a.agent_id === aid)?.name || aid,
+                        }))}
+                        activeAgentId={activeTeamChatId ? null : agentId}
+                        onSelectMember={handleSelectAgent}
                         onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
                         onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
                         onDelete={handleDeleteTeam}
