@@ -4,6 +4,10 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+[turn-timing] 行新增可选尾部 profile=<name>（仅 fast turn 携带；基础形状逐字不变，既有 grep 契约不破——pin 测试同批扩展）。
+
 ## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
 
 run() 在 turn_profile.narrative_strategy=="bm25_top1" 时以 step_1_fast_select 替换 step_1 并跳过 step_1_5；普通路径代码原样在 else 分支内，一行未改。

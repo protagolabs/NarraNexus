@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
 
@@ -127,6 +128,42 @@ def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+def _format_voice_timing(
+    *,
+    agent_id: str,
+    room_id: str,
+    rtc_session_id: str,
+    received_at: float,
+    applied_at: float,
+    request_started_at: float,
+    first_delta_at: Optional[float],
+    first_sent_at: Optional[float],
+    finalized_at: Optional[float],
+) -> str:
+    """The [voice-timing] log line — handoff section 9's six timestamps as
+    durations from matrix_voice_input_received. Grep-stable pure function
+    (same treatment as [turn-timing]); missing stamps emit -1.00. Carries
+    only non-sensitive correlation IDs — never transcript content."""
+
+    def _d(stamp: Optional[float]) -> float:
+        return (stamp - received_at) if stamp is not None else -1.0
+
+    return (
+        "[voice-timing] agent={} room={} rtc_session={} "
+        "applied_s={:.2f} request_s={:.2f} first_token_s={:.2f} "
+        "first_live_s={:.2f} finalized_s={:.2f}".format(
+            agent_id,
+            room_id,
+            rtc_session_id,
+            _d(applied_at),
+            _d(request_started_at),
+            _d(first_delta_at),
+            _d(first_sent_at),
+            _d(finalized_at),
+        )
+    )
 
 
 @dataclass
@@ -1554,7 +1591,9 @@ class MatrixTrigger(ChannelTriggerBase):
         # F28 voice turn: the one-shot fast profile rides this run only;
         # rtc_voice reaches modules via extra_data (expressive surface
         # ordering) without any session write.
+        _t_voice_received = time.monotonic()
         turn_profile = _voice_profile_for(message)
+        _t_voice_applied = time.monotonic()
         rtc_voice = (message.raw or {}).get("rtc_voice")
         if rtc_voice:
             extra_data["rtc_voice"] = rtc_voice
@@ -1589,6 +1628,7 @@ class MatrixTrigger(ChannelTriggerBase):
             trigger_extra_data=extra_data,
             **run_kwargs,
         )
+        _t_voice_request = time.monotonic()
 
         try:
             async for event in client_stream:
@@ -1611,6 +1651,19 @@ class MatrixTrigger(ChannelTriggerBase):
         # Finalize.
         if state.voice_bridge is not None:
             spoken, finalized_ok = await state.voice_bridge.close()
+            logger.info(_format_voice_timing(
+                agent_id=agent_id,
+                room_id=message.chat_id,
+                rtc_session_id=str((rtc_voice or {}).get("rtc_session_id", "")),
+                received_at=_t_voice_received,
+                applied_at=_t_voice_applied,
+                request_started_at=_t_voice_request,
+                first_delta_at=state.voice_bridge.first_delta_at,
+                first_sent_at=state.voice_bridge.first_sent_at,
+                finalized_at=(
+                    state.voice_bridge.finalized_at if finalized_ok else None
+                ),
+            ))
             if spoken:
                 if not finalized_ok:
                     # Live lifecycle broke (base or final edit failed) —

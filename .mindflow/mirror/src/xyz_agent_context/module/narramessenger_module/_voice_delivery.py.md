@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+桥暴露观测戳：first_delta_at（≈first_model_token）/ first_sent_at（first_matrix_live_reply_sent）/ finalized_at（matrix_live_reply_finalized），供 [voice-timing] 行发射。
+
 ## Why it exists
 
 F28 语音交付桥：一个 voice turn 的出站生命周期唯一所有者。handoff §6 契约

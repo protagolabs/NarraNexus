@@ -99,6 +99,12 @@ class VoiceDeliveryBridge:
         self._last_sent_text = ""
         self._broken = False
         self._closed = False
+        # Observability stamps (handoff section 9 mapping): first speak
+        # delta ≈ first_model_token; first successful send =
+        # first_matrix_live_reply_sent; close = matrix_live_reply_finalized.
+        self.first_delta_at: Optional[float] = None
+        self.first_sent_at: Optional[float] = None
+        self.finalized_at: Optional[float] = None
 
     # ── event intake ────────────────────────────────────────────────────
 
@@ -106,6 +112,8 @@ class VoiceDeliveryBridge:
         """Streamed increment of a speak call's text argument."""
         if self._closed:
             return
+        if self.first_delta_at is None:
+            self.first_delta_at = self._clock()
         if call_id != self._current_call:
             self._close_segment()
             self._current_call = call_id
@@ -137,6 +145,7 @@ class VoiceDeliveryBridge:
         if self._closed:
             return (self._last_sent_text or None), not self._broken
         self._closed = True
+        self.finalized_at = self._clock()
         self._close_segment()
         text = self._cumulative()
         if not text:
@@ -202,3 +211,5 @@ class VoiceDeliveryBridge:
             await self._send(content)
         self._last_sent_text = text
         self._last_flush = self._clock()
+        if self.first_sent_at is None:
+            self.first_sent_at = self._last_flush

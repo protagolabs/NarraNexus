@@ -103,3 +103,47 @@ async def test_text_turn_ignores_deltas_as_before():
     trigger = MatrixTrigger()
     await trigger._handle_stream_event(_delta(), state, _cred(), "!r")
     assert state.narra_reply_text == ""
+
+
+def test_voice_timing_line_shape():
+    from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+        _format_voice_timing,
+    )
+
+    line = _format_voice_timing(
+        agent_id="agent_v",
+        room_id="!call:h",
+        rtc_session_id="rtc-s1",
+        received_at=10.0,
+        applied_at=10.001,
+        request_started_at=10.05,
+        first_delta_at=11.2,
+        first_sent_at=11.3,
+        finalized_at=14.0,
+    )
+    assert line == (
+        "[voice-timing] agent=agent_v room=!call:h rtc_session=rtc-s1 "
+        "applied_s=0.00 request_s=0.05 first_token_s=1.20 "
+        "first_live_s=1.30 finalized_s=4.00"
+    )
+
+
+def test_voice_timing_line_tolerates_missing_stamps():
+    from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+        _format_voice_timing,
+    )
+
+    line = _format_voice_timing(
+        agent_id="a",
+        room_id="!r",
+        rtc_session_id="s",
+        received_at=10.0,
+        applied_at=10.0,
+        request_started_at=10.0,
+        first_delta_at=None,
+        first_sent_at=None,
+        finalized_at=None,
+    )
+    assert "first_token_s=-1.00" in line
+    assert "first_live_s=-1.00" in line
+    assert "finalized_s=-1.00" in line

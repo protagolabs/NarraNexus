@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+观测：[voice-timing] 纯函数行（handoff §9 六 timestamp 映射为自 received 起的时长，缺失戳 -1.00，只带非敏感 correlation ID 绝不带 transcript），finalize 处发射；戳位 = streaming 入口(received/applied)、run_stream 创建后(request)、bridge 的 first_delta/first_sent/finalized。
+
 ## 2026-08-06 — voice fast mode: 通话级串行（per-rtc_session）
 
 _build_and_run_agent 在 rtc_voice 消息上先过 _run_voice_serialized：按 rtc_session_id（缺省 agent_id:room）一条 drain loop 串行；run 期间到达的语句缓冲并 _merge_voice_batch 合并成一次后续 turn（transcript 按序拼接、以最后一条的 rtc 元数据为基准——correlation 跟最新 turn_id）。不同通话完全并行；通话闲置即清 state。设计蓝本是 group_silent 的 per-(agent,room) 缓冲。非语音消息 dispatch 逐字不变（getattr 守卫，替身消息也安全）。

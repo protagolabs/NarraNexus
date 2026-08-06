@@ -88,6 +88,7 @@ def _turn_timing_line(
     persist_s: float,
     total_s: float,
     interrupted: bool,
+    profile: str = "",
 ) -> str:
     """The [turn-timing] log line — a grep-stable contract, so it lives in a
     pure function a test can pin (see test_turn_timing_line.py). Phases:
@@ -95,7 +96,7 @@ def _turn_timing_line(
     construction), setup (Steps 0-2.5), loop (Step 3), persist (Steps
     4+4.6). total covers run() entry to the sync tail's end; the
     backgrounded Steps 5-6 are never counted."""
-    return (
+    line = (
         "[turn-timing] agent={} event={} source={} "
         "pre_s={:.2f} setup_s={:.2f} loop_s={:.2f} persist_s={:.2f} "
         "total_s={:.2f} interrupted={}".format(
@@ -103,6 +104,11 @@ def _turn_timing_line(
             pre_s, setup_s, loop_s, persist_s, total_s, interrupted,
         )
     )
+    if profile:
+        # Fast-mode turns append a trailing marker; the base shape stays
+        # byte-identical so existing grep one-liners keep matching.
+        line += f" profile={profile}"
+    return line
 
 
 async def _stream_step3_with_interrupt_drain(
@@ -866,6 +872,7 @@ class AgentRuntime:
                 persist_s=_t_now - _t_loop_end,
                 total_s=_t_now - _t_run_start,
                 interrupted=interrupted,
+                profile=(ctx.turn_profile.name if ctx.turn_profile else ""),
             ))
 
             # ---- Cancellation checkpoint (after persistence) ----

@@ -193,3 +193,22 @@ async def test_authoritative_segment_text_replaces_deltas():
     text, ok = await bridge.close()
     assert ok
     assert text == "Sunny today, twenty five degrees."
+
+
+@pytest.mark.asyncio
+async def test_bridge_exposes_observability_stamps():
+    """Handoff section 9: first_model_token / first_matrix_live_reply_sent /
+    matrix_live_reply_finalized need trigger-side stamps."""
+    rec = Recorder()
+    clock = FakeClock()
+    bridge = _bridge(rec, clock)
+    assert bridge.first_delta_at is None and bridge.first_sent_at is None
+
+    clock.t = 1.0
+    await bridge.on_reply_delta(call_id="c1", delta="Sunny.")
+    assert bridge.first_delta_at == 1.0
+    assert bridge.first_sent_at == 1.0  # boundary flush sent immediately
+
+    clock.t = 2.5
+    await bridge.close()
+    assert bridge.finalized_at == 2.5
