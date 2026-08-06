@@ -4,6 +4,12 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (3) — 账户弹层三项指向 /app/account
+
+Account / Billing / Subscription 从 navigate('/app/settings?tab=account')
+改为 navigate('/app/account')(Settings 的 account 面板已迁出,见
+[[../../pages/AccountPage.tsx]])。仍以 netmindToken 存在为显示条件。
+
 ## 2026-08-06 (2) — Create team 入口改跳页
 
 New 菜单的 Create team 从打开 TeamManagementModal 改为 navigate

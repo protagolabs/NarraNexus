@@ -1249,12 +1249,6 @@
       "providers": {
         "label": "Provedores de LLM"
       },
-      "bundle": {
-        "label": "Pacote · Exportar / Importar",
-        "hint": "Empacote seus agentes (e, opcionalmente, uma equipe) em um arquivo .nxbundle portátil para compartilhar, ou importe um arquivo .nxbundle que compartilharam com você.",
-        "exportButton": "Exportar pacote…",
-        "importButton": "Importar pacote…"
-      },
       "artifacts": {
         "label": "Artefatos",
         "hint": "Gerencie todos os gráficos, relatórios e arquivos que seus agentes produziram para você. Selecione em massa para liberar cota quando um agente informar que atingiu o limite."
@@ -1697,6 +1691,9 @@
       "createButton": "Criar equipe",
       "manageHint": "Gerencie equipes existentes no Dashboard.",
       "membersFailed": "Equipe criada, mas {{count}} membro(s) não puderam ser adicionados: {{ids}}"
+    },
+    "account": {
+      "powerOnlyHint": "Conta, cobrança e assinatura são recursos da conta NetMind — entre com uma conta NetMind para vê-los aqui."
     }
   },
   "rail": {

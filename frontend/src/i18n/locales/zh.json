@@ -1544,18 +1544,11 @@
         "account": "账户与订阅",
         "providers": "LLM 服务商",
         "modelDefaults": "模型默认值",
-        "bundle": "捆绑包",
         "artifacts": "制品",
         "updates": "应用更新"
       },
       "providers": {
         "label": "LLM 服务商"
-      },
-      "bundle": {
-        "label": "捆绑包 · 导出 / 导入",
-        "hint": "将你的智能体（可选附带一个团队）打包成可移植的 .nxbundle 文件以便分享，或导入别人分享给你的 .nxbundle 文件。",
-        "exportButton": "导出捆绑包…",
-        "importButton": "导入捆绑包…"
       },
       "artifacts": {
         "label": "制品",
@@ -2057,6 +2050,9 @@
       "createButton": "创建团队",
       "manageHint": "已有团队在 Dashboard 里管理。",
       "membersFailed": "团队已创建，但 {{count}} 个成员添加失败：{{ids}}"
+    },
+    "account": {
+      "powerOnlyHint": "账户、账单与订阅是 NetMind 账号功能 — 使用 NetMind 账号登录后这里才会显示。"
     }
   },
   "rail": {

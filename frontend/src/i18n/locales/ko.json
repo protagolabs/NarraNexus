@@ -1248,12 +1248,6 @@
       "providers": {
         "label": "LLM 제공자"
       },
-      "bundle": {
-        "label": "번들 · 내보내기 / 가져오기",
-        "hint": "에이전트(및 선택적으로 팀)를 휴대 가능한 .nxbundle 파일로 패키징해 공유하거나, 공유받은 .nxbundle 파일을 가져옵니다.",
-        "exportButton": "번들 내보내기…",
-        "importButton": "번들 가져오기…"
-      },
       "artifacts": {
         "label": "아티팩트",
         "hint": "에이전트가 만든 모든 차트, 보고서, 파일을 관리합니다. 에이전트가 한도 초과를 알리면 일괄 선택해 할당량을 확보하세요."
@@ -1696,6 +1690,9 @@
       "createButton": "팀 만들기",
       "manageHint": "기존 팀은 대시보드에서 관리합니다.",
       "membersFailed": "팀은 생성되었지만 멤버 {{count}}명을 추가하지 못했습니다: {{ids}}"
+    },
+    "account": {
+      "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."
     }
   },
   "rail": {

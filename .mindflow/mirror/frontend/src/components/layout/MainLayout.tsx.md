@@ -4,6 +4,13 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (4) — 折叠展开钮从浮动 chip 改为保留左轨
+
+浮动 absolute chip 会盖住子页面标题(Marketplace/Dashboard 截图实证)。
+改为 flex 内的 44px 左轨(border-r + nm-paper 底,顶端放展开钮),
+子页面/团队聊天内容整体右移,零遮挡。聊天视图仍由 ChatHeader 内联展开钮
+负责,不出轨。
+
 ## 2026-08-06 (3) — 侧边 Artifact 栏退役
 
 Owner 指定 artifacts 一律从聊天头部入口访问:ChatView 里的 ArtifactColumn

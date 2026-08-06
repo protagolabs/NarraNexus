@@ -344,19 +344,22 @@ export function MainLayout() {
       {/* Sidebar - Agent List */}
       <Sidebar />
 
-      {/* Collapsed-sidebar expand chip. The chat view renders its own inline
+      {/* Collapsed-sidebar expand rail. The chat view renders its own inline
           expand button in the chat header (v4); sub-pages and team chat get
-          this floating one so the sidebar is never unreachable. */}
+          a slim reserved rail instead of a floating chip — the page content
+          shifts right, so nothing is ever covered (Owner 2026-08-06). */}
       {!isMobile && sidebarCollapsed && (isSubPage || teamChatId) && (
-        <button
-          type="button"
-          onClick={() => setSidebarCollapsed(false)}
-          title={t('sidebar.expandTitle')}
-          aria-label={t('sidebar.expandTitle')}
-          className="absolute top-3 left-3 z-30 flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
-        >
-          <PanelLeft className="h-4 w-4" />
-        </button>
+        <div className="shrink-0 flex w-11 flex-col items-center border-r border-[var(--nm-hairline)] bg-[var(--nm-paper)] pt-3">
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed(false)}
+            title={t('sidebar.expandTitle')}
+            aria-label={t('sidebar.expandTitle')}
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       {/* Mobile drawer backdrop — taps to close the off-canvas sidebar.

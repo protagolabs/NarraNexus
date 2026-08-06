@@ -28,6 +28,7 @@ const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
 const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
+const AccountPage = lazy(() => import('@/pages/AccountPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
@@ -479,6 +480,10 @@ function App() {
           <Route path="you" element={<YouWorkspace />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          {/* User settings (account / billing / subscription) — reached from
+              the sidebar account popover; Settings redirects its legacy
+              ?tab=account deep link (Stripe return) here. */}
+          <Route path="account" element={<AccountPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />
           {/* Deep-link entry point from narra.nexus templates marketplace.

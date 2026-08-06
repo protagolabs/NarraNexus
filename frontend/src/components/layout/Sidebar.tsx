@@ -347,25 +347,25 @@ export function Sidebar() {
                 label={t('sidebar.workspace')}
                 onClick={() => accountNavigate('/app/you')}
               />
-              {/* Account / billing / subscription live in Settings › Account —
-                  present only for NetMind-authenticated (power) users, same
-                  gate as the Settings nav item. */}
+              {/* Account / billing / subscription — the user-scoped
+                  /app/account page (moved out of app Settings); present only
+                  for NetMind-authenticated (power) users. */}
               {netmindToken && (
                 <>
                   <AccountItem
                     icon={<User className="w-3.5 h-3.5" />}
                     label={t('sidebar.account')}
-                    onClick={() => accountNavigate('/app/settings?tab=account')}
+                    onClick={() => accountNavigate('/app/account')}
                   />
                   <AccountItem
                     icon={<CreditCard className="w-3.5 h-3.5" />}
                     label={t('sidebar.billing')}
-                    onClick={() => accountNavigate('/app/settings?tab=account')}
+                    onClick={() => accountNavigate('/app/account')}
                   />
                   <AccountItem
                     icon={<Star className="w-3.5 h-3.5" />}
                     label={t('sidebar.subscription')}
-                    onClick={() => accountNavigate('/app/settings?tab=account')}
+                    onClick={() => accountNavigate('/app/account')}
                   />
                 </>
               )}

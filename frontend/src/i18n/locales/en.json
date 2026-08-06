@@ -1544,18 +1544,11 @@
         "account": "Account & Subscription",
         "providers": "LLM Providers",
         "modelDefaults": "Model Defaults",
-        "bundle": "Bundle",
         "artifacts": "Artifacts",
         "updates": "App updates"
       },
       "providers": {
         "label": "LLM Providers"
-      },
-      "bundle": {
-        "label": "Bundle · Export / Import",
-        "hint": "Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you.",
-        "exportButton": "Export bundle…",
-        "importButton": "Import bundle…"
       },
       "artifacts": {
         "label": "Artifacts",
@@ -2057,6 +2050,9 @@
       "createButton": "Create team",
       "manageHint": "Manage existing teams in the Dashboard.",
       "membersFailed": "Team created, but {{count}} member(s) could not be added: {{ids}}"
+    },
+    "account": {
+      "powerOnlyHint": "Account, billing and subscription are NetMind account features — sign in with a NetMind account to see them here."
     }
   },
   "rail": {

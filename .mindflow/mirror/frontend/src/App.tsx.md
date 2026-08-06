@@ -4,6 +4,11 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (3) — /app/account 路由
+
+用户级设置页(account/billing/subscription)懒加载路由;Settings 对
+?tab=account 的重定向指向这里。
+
 ## 2026-08-06 (2) — /app/teams/new 路由
 
 新增 CreateTeamPage 懒加载路由,列在 teams/:teamId 之前(静态段本就
