@@ -392,43 +392,73 @@ async def step_4_persist_results(
 
     # =========================================================================
     # 4.4 Update Narratives
+    #
+    # A turn is AUTHORED into exactly one thread — the head of narrative_list
+    # (post-4.0 routing). The rest of the list are the BM25 neighbours step_1
+    # pulled in only to widen the read-side context (see
+    # `MAX_NARRATIVES_IN_CONTEXT`); they get associated with the SAME event by
+    # id. `narratives.event_ids` is a list, which is where that many-to-many
+    # belongs, so a neighbouring thread can still replay this exchange via
+    # `select_events_for_context`. `events.narrative_id` stays single-valued
+    # and names the one thread the turn was authored into.
+    #
+    # This block used to write a COPY of the event row per auxiliary narrative
+    # (`EventService.duplicate_event_for_narrative`, since deleted). The copy
+    # was made here — at the END of the run — from the in-memory event, whose
+    # `event_log` is never back-filled by 4.3, so every multi-narrative turn
+    # left 1-2 rows carrying `state='completed'`, `started_at IS NULL`,
+    # `tool_call_count=0`, `event_log='[]'` and the turn's `final_output`
+    # (which is the agent's reasoning, not its reply). Replay surfaces that
+    # read the `events` table then rendered the same exchange up to three
+    # times, positioned by the run's FINISH time — an already-answered
+    # question surfacing below newer ones, plus monologue fragments as
+    # standalone entries. That is the 0802 "对话时序错乱" report.
     # =========================================================================
-    for i, narrative in enumerate(ctx.narrative_list):
+    await event_service.update_event_narrative_id(ctx.event.id, main_narrative.id)
+
+    # One thread must be visited at most once. §4.0 sets narrative_list[0] to
+    # the routing target, which may ALREADY sit at index 1-2 (the agent
+    # switched to a thread that BM25 had also pulled in as a neighbour) — the
+    # loop then hit that narrative twice. Before this change that produced a
+    # second duplicate event row; it still appends a second identical
+    # dynamic_summary entry, so the de-dup stays. Evidence it happens:
+    # evt_f590aef867f14187 in the local DB carries the same narrative_id as
+    # its own primary row.
+    seen_narrative_ids: set[str] = set()
+    unique_narratives = []
+    for narrative in ctx.narrative_list:
+        if narrative.id in seen_narrative_ids:
+            logger.debug(f"narrative {narrative.id} listed twice this turn; visiting once")
+            continue
+        seen_narrative_ids.add(narrative.id)
+        unique_narratives.append(narrative)
+
+    for i, narrative in enumerate(unique_narratives):
         # Determine Narrative type
         is_default = narrative.is_special == "default"
         is_main = (i == 0) and not is_default  # Default Narrative is not treated as main Narrative
-        
+
         if is_default:
             update_type = "default"
         elif is_main:
             update_type = "main"
         else:
             update_type = "auxiliary"
-        
-        logger.debug(f"updating narrative[{i}] ({update_type}) id={narrative.id}")
 
-        if i == 0:
-            # First Narrative: use the original Event
-            current_event = ctx.event
-            await event_service.update_event_narrative_id(ctx.event.id, narrative.id)
-        else:
-            # Subsequent Narratives: duplicate Event
-            current_event = await event_service.duplicate_event_for_narrative(
-                ctx.event, narrative.id
-            )
+        logger.debug(f"updating narrative[{i}] ({update_type}) id={narrative.id}")
 
         # Update Narrative
         # is_default_narrative=True: only add event_id (no other updates)
         # is_main_narrative=True: full update (async LLM summary)
         # is_main_narrative=False: basic update only (associate Event, update dynamic_summary)
         await narrative_service.update_with_event(
-            narrative, 
-            current_event, 
+            narrative,
+            ctx.event,
             is_main_narrative=is_main,
             is_default_narrative=is_default
         )
         ctx.substeps_4.append(f"[4.4.{i+1}] ✓ Narrative: {narrative.narrative_info.name} ({update_type})")
-        logger.info(f"Narrative[{i}] ({update_type}) updated with event {current_event.id}")
+        logger.info(f"Narrative[{i}] ({update_type}) updated with event {ctx.event.id}")
 
     # =========================================================================
     # 4.5 Update Session continuity anchor (last_response / narrative)
@@ -532,12 +562,12 @@ async def step_4_persist_results(
     yield ProgressMessage(
         step="4",
         title="Persist Results",
-        description=f"✓ Round={current_round}, Event={ctx.event.id}, Narratives={len(ctx.narrative_list)}",
+        description=f"✓ Round={current_round}, Event={ctx.event.id}, Narratives={len(unique_narratives)}",
         status=ProgressStatus.COMPLETED,
         details={
             "round": current_round,
             "event_id": ctx.event.id,
-            "narratives_updated": len(ctx.narrative_list),
+            "narratives_updated": len(unique_narratives),
             "total_toolcalls": total_toolcalls,
         },
         substeps=ctx.substeps_4

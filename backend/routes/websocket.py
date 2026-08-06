@@ -188,8 +188,9 @@ async def _handle_reconnect(
             return
 
     # Extract the user's original input + the canonical timestamp that
-    # ChatModule will later use when persisting this turn into
-    # agent_messages.user_ts (= event.created_at). Frontend uses these
+    # ChatModule will later stamp on this turn's persisted USER row
+    # (`meta_data.timestamp` in instance_json_format_memory_chat, set to
+    # event.created_at — see ChatModule.hook_persist_turn). Frontend uses these
     # to inject the user bubble that triggered this run; the timestamp
     # match guarantees ChatPanel's role:content + 60s dedup collapses
     # the reconnect-injected bubble with the eventual history row,
@@ -225,10 +226,10 @@ async def _handle_reconnect(
             # Phase C dedup: input_content + input_timestamp let the
             # client paint the user-side bubble while replaying.
             # input_timestamp is events.created_at — the same value
-            # ChatModule.hook_after_event_execution will write as
-            # agent_messages.user_ts after the run finishes, so the
-            # frontend's existing role:content + 60s dedup matches them
-            # by exact millisecond rather than by approximation.
+            # ChatModule.hook_persist_turn stamps on the persisted user row
+            # once the run finishes, so the frontend's existing role:content
+            # + 60s dedup matches them by exact millisecond rather than by
+            # approximation.
             "input_content": input_content_str,
             "input_timestamp": _format_dt(events_row.get("created_at")),
         })

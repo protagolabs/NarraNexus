@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/narrative/event_service.py
-last_verified: 2026-06-23
+last_verified: 2026-08-05
 stub: false
 ---
+
+## 2026-08-05 — `duplicate_event_for_narrative()` 删除（0802 时序错乱根因）
+
+这个方法（连同 [[crud]] 里的 `EventCRUD.duplicate`）是 0802【对话时序错乱】
+的产生路径，已删除。step_4 §4.4 原来每遇到一条"辅助 Narrative"就复制一行
+Event；复制发生在 run 收尾、源是内存 Event（`event_log` 从未回填），于是每轮
+多 Narrative 的执行都留下 1-2 行 `state='completed'` + `started_at IS NULL`
++ `tool_call_count=0` + `event_log='[]'`、却带着本轮 `final_output` 的幽灵行，
+`created_at` 还是 run **结束**时刻。从 `events` 表回放的界面因此把同一轮对话
+显示最多 3 次、排在更新的对话下面。
+
+替代做法：同一个 event id 追加进每条 `narratives.event_ids`（见
+[[step_4_persist_results]] §4.4）。`events.narrative_id` 保持单值 = 这轮被写
+入的那一条线程。已落库的旧幽灵行按铁律 #6 不做删除迁移，由
+[[chat_history]] 的 `_drop_phantom_event_twins()` 在读侧过滤。
 
 > 2026-06-23：`create_event` 新增可选参数 `trigger_type`（默认 `TriggerType.CHAT`）。
 > 团队群聊路径传 `MESSAGE_BUS`（见 [[step_0_initialize]]），使群聊回复在 `events`
@@ -26,7 +41,7 @@ Event 是系统里"一次完整 Agent 执行"的原子记录单位，包含触�
 
 曾考虑把 embedding 生成放在 `create_event()` 阶段，但 create 时 final_output 还没有，embedding 质量差。最终放在 `update_event_in_db()`（`generate_embedding=True` 默认开启），此时 input + output 都齐全。代价是 create 和 update 都必须被调用，中途崩溃会产生没有 embedding 的孤儿 Event——这些孤儿会被 `EmbeddingMigrationService` 在重建时补齐。
 
-`duplicate_event_for_narrative()` 是给"同一次 Event 需要关联到多条 Narrative"的场景用的（比如 Job 完成通知需要同时更新主 Narrative 和全局日志 Narrative）。
+"同一次 Event 关联多条 Narrative"**不复制行**——见本文顶部 2026-08-05 段。
 
 ## Gotcha / 边界情况
 

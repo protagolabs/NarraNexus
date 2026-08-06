@@ -1,18 +1,46 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_message_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-08-05
 stub: false
 ---
+
+## 2026-08-05 — READ THIS FIRST: `agent_messages` has no writer. It is a tombstone.
+
+The "Upstream / Downstream" paragraph below described a design that is **not
+what the code does**, and believing it cost a real misdiagnosis: the 0802
+【对话时序错乱】 analysis checked `agent_messages`, found **0 rows**, and
+concluded the chat panel must therefore be replaying the `events` table. It is
+not — see below for where the transcript actually lives.
+
+Verified 2026-08-05 on today's `origin/dev`:
+
+- **Nothing calls `create_message()`.** `git grep AgentMessageRepository` over
+  `src/` + `backend/` returns only `repository/__init__.py` (the re-export) and
+  one dead import in [[chat_module]] (now removed). Nothing calls
+  `get_unresponded_messages()` / `update_response_status()` either.
+- **`agent_messages` is 0 rows** locally and in prod.
+- The chat transcript lives in **`instance_json_format_memory_chat`**, keyed by
+  ChatModule instance id, written by `ChatModule.hook_persist_turn` and replayed
+  by `/simple-chat-history` → [[buildTimeline.ts]]. The `events` table is a
+  separate surface: one row per agent run, replayed by `/chat-history` into the
+  Narrative / Runtime panels.
+
+The table and this repository stay in place as a tombstone (铁律 #6 — no
+destructive migration). The delete/export sites that still name it
+([[wipe_service]], [[builder]], `auth.delete_agent`) are correct to keep
+sweeping it. **Do not** write new code against it without the Owner deciding
+the table's future first.
 
 # agent_message_repository.py
 
 ## Why it exists
 
-`AgentMessageRepository` manages the `agent_messages` table, which is the inbox/outbox audit trail for every message flowing through an agent. It provides the primary-query contract for the async message bus pattern: channels push messages in, the execution pipeline reads unreplied messages in FIFO order, and after execution the pipeline stamps `narrative_id` and `event_id` back onto each record.
-
-## Upstream / Downstream
-
-`ChatModule` writes incoming messages via `create_message()`. `AgentRuntime` (or a future message bus) reads pending messages via `get_unresponded_messages()` and then calls `update_response_status()` or `batch_update_response_status()` after execution. The simple chat history API route reads `agent_messages` (filtered by `source_type`) to build the user-facing message list.
+`AgentMessageRepository` was built as the CRUD surface for `agent_messages` —
+intended as the inbox/outbox audit trail for every message flowing through an
+agent, with a FIFO "read the unreplied ones" contract for an async message-bus
+pattern. That pattern was never wired up here (the real one lives in
+[[message_bus_trigger]] against its own tables), so the class below is
+unreferenced. Read the 2026-08-05 note above before using any of it.
 
 ## Design decisions
 

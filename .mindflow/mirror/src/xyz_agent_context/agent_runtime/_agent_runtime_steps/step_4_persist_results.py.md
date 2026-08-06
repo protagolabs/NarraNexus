@@ -1,8 +1,50 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
+
+## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
+
+§4.4 原来对 `ctx.narrative_list[1:]`（辅助 Narrative）逐条调
+`event_service.duplicate_event_for_narrative(ctx.event, narrative.id)`，
+把同一轮对话**复制成新的 `events` 行**。三处叠加成了用户看到的乱序：
+
+1. 复制发生在 run 收尾，源是**内存里的** `ctx.event`——§4.3 只把
+   `final_output` 同步回内存，`event_log` / `module_instances` 从未回填。所以
+   副本行是 `event_log='[]'`、`module_instances='[]'`。
+2. 生命周期列由 [[run_recorder]] 只写主 run 那一行（`run_id` = 主 event id），
+   副本行因此永远 `state='completed'` + `started_at IS NULL` +
+   `tool_call_count=0`。
+3. 副本的 `created_at` 是 run **结束**时刻，不是提问时刻。
+
+于是从 `events` 表回放的界面（[[chat_history]] `/chat-history` → 前端
+[[NarrativeList.tsx]] / [[AwarenessPanel.tsx]]）把同一轮显示最多 3 次，且排在
+更新的对话**下面**——"已经回答过的老问题又冒出来"，`final_output` 那段独白也成了
+独立条目。这就是 0802 现场多人复现的签名（实锤 08:21:08.370/.403 两组；本地
+2026-08-03 数据同样可复现，31 行里 12 行是副本）。
+
+**现在的语义**：一轮对话**只被写入一条线程** = `narrative_list[0]`（经 §4.0
+routing 后的头部）。`narrative_list[1:]` 是 step_1 为了拓宽**读侧**上下文而按
+BM25 拉进来的邻居（`MAX_NARRATIVES_IN_CONTEXT=3`），它们通过把**同一个
+event id** 追加进各自的 `narratives.event_ids` 建立关联——多对多本来就该放在
+这个列表列上，邻居线程仍能通过 `select_events_for_context` 回放这轮对话。
+`events.narrative_id` 保持单值。`update_event_narrative_id` 移出循环、只调一次。
+
+`duplicate_event_for_narrative` / `EventCRUD.duplicate` 一并删除（铁律 #2，不留
+休眠接口）。已落库的旧副本行按铁律 #6 不做删除迁移，由 [[chat_history]] 的
+`_drop_phantom_event_twins()` 在读侧兜底。
+
+**顺带修掉同族的第二种重复：一条线程被访问两次。** §4.0 的 `switch_narrative`
+把 `narrative_list[0]` 指向 agent 点名的那条线程，而那条线程**可能本来就在
+列表里**（BM25 也把它当邻居捞进来了）。于是循环会撞到同一条 narrative 两次：
+修复前多产出一行副本，修复后仍会往它的 `dynamic_summary` 里追加**第二条一模
+一样**的条目。现在按 narrative id 去重（保序），进度消息里的
+`Narratives=` / `narratives_updated` 也改报去重后的条数。真实证据：本地
+`evt_f590aef867f14187` 这行副本的 `narrative_id` 与它自己的正本相同。
+
+测试：`tests/agent_runtime/test_step4_event_attribution.py`（真 SQLite 驱动整个
+step_4，断言 `events` 只有一行、无幽灵签名、三条 Narrative 都引用同一个 id）。
 
 ## 2026-08-04 (review 修正) — 锚点判定改用 owner-visible 谓词
 
@@ -156,12 +198,20 @@ After the LLM turn completes (Step 3), all results must be durably written to th
 ## Key Design Decisions
 
 ### Narrative Typing Logic
-Each Narrative in `ctx.narrative_list` gets typed as `default`, `main`, or `auxiliary` based on its role in the turn:
-- **default**: the first Narrative (index 0) if no explicit main was selected
-- **main**: the Narrative that received the primary LLM output
-- **auxiliary**: all other Narratives consulted during context building
+Each Narrative in `ctx.narrative_list` gets typed by **list position**, not by
+anything the LLM decided in Step 3:
+- **main**: index 0 (post-§4.0 routing) *and* not a default Narrative — the one
+  thread the turn is authored into. Only this one triggers the async LLM
+  summary update.
+- **default**: any Narrative with `is_special == "default"`, wherever it sits —
+  it only collects the event id, nothing else.
+- **auxiliary**: every other entry — a BM25 neighbour step_1 pulled in to widen
+  the read-side context. It gets the event id + a `dynamic_summary` entry, no
+  LLM update (`updater.py` has a standing TODO for an auxiliary-specific
+  prompt).
 
-This typing is persisted so that future turns can prioritize the main Narrative in search.
+The typing is not a persisted column — it is recomputed from list position on
+every turn.
 
 ### Event Final State
 The Event record (created in Step 0) is updated here with: final status (`completed`/`failed`/`cancelled`), response summary, token counts, and duration. Downstream analytics and Job scheduling depend on Event records being consistently closed.
@@ -185,5 +235,5 @@ Step 4 does not mutate `RunContext` fields — it reads and writes to the databa
 ## Common New-Developer Mistakes
 
 - Adding new DB writes after Step 4 in the main pipeline: anything that needs to be durable before the WebSocket closes must go here. Steps 5–6 run as background tasks after the socket closes.
-- Assuming `ctx.narrative_list[0]` is always the "main" Narrative: main is determined by the LLM's selection logic in Step 3, not by list position.
+- Writing a per-Narrative COPY of the turn's `events` row to associate it with more than one thread. `narratives.event_ids` is a list — that is where the many-to-many lives. See the 2026-08-05 entry above for what copying cost us.
 - Forgetting to handle the case where `ctx.execution_result` is `None` (cancelled turn) — all sub-steps must guard for this.
