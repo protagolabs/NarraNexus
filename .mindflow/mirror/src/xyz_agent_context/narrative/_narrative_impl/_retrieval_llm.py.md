@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/_retrieval_llm.py
-last_verified: 2026-06-17
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 两个判定函数 opt into latency_sensitive
+
+`llm_confirm` 与 `llm_judge_unified` 传 `latency_sensitive=True`。它们是 step.1 的 setup_s 热路径（prod 实测 unified match 平均 13s / 最大 44s，全在 DeepSeek-V4-Flash 思考上）。换模型的机制与三重门在 [[openai_agents]] `_latency_swap_model`；本文件只声明调用性质。
+
 # _retrieval_llm.py — Narrative 匹配判定的纯 LLM 逻辑
 
 ## 为什么存在

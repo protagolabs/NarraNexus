@@ -222,6 +222,7 @@ Please determine whether the current query belongs to the current Narrative (not
                 output_type=ContinuityOutput,
                 model=narrative_config.CONTINUITY_LLM_MODEL,
                 reasoning_effort=narrative_config.CONTINUITY_LLM_REASONING_EFFORT or None,
+                latency_sensitive=True,
             )
 
             # result is RunResult, get the parsed Pydantic object via .final_output

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-06-10
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — continuity detect opts into latency_sensitive
+
+`_call_llm` now passes `latency_sensitive=True`. This call sits on the setup_s hot path of every turn ([turn-timing]); with helper slots mass-flipped to DeepSeek-V4-Flash (always-thinking, no request-level off switch) it averaged 7.5s / max 30s on prod. The swap mechanics and scope guards live in [[openai_agents]] `_latency_swap_model` — this file only declares 'small classification call, latency over depth'.
+
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 `self.sdk` is now `get_helper_sdk()`. NOTE: on the anthropic helper the

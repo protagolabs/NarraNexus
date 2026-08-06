@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/openai_agents.py
-last_verified: 2026-08-03
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — latency_sensitive：前置分类调用的 fast-model swap
+
+`llm_function` 新增 `latency_sensitive: bool`。背景实测（2026-08-06，NetMind 上游
+与 dev 网关各跑一轮矩阵）：DeepSeek-V4 系思考**没有任何请求级开关**——
+`reasoning_effort`（none/minimal）、`chat_template_kwargs.thinking/enable_thinking`、
+body 级 `thinking` 全部被上游无视，网关侧 `drop_params: true` 还会先剥一遍；同一道
+叙事仲裁题 V4-Flash 1.5-5k reasoning token / 15-40s，V3.2 零思考 ~2s 且判决一致。
+所以"关思考"唯一可行的杠杆是换模型。
+
+`_latency_swap_model` 三重门（顺序即语义）：调用方显式 opt-in（只有平台内部小分类
+调用有资格，agent 槽对话轮永远不换——铁律 #15 管的是 agent 槽，helper 槽的平台内部
+子调用是我们的编排面）；端点 host 在允许名单（默认 NetMind + 自家网关，二者共享
+catalog，OpenRouter/Yunwu id 命名空间不同不能换）；resolved 模型命中已知思考型前缀
+（用户主动选的快模型原样保留）。env：`HELPER_FAST_MODEL`（空串=全局关）、
+`HELPER_FAST_MODEL_HOSTS`、`HELPER_REASONING_MODEL_PREFIXES`（追加式）。
+swap 发生在 `_resolve_model` 之后、`_probe_emit`/capability-key 之前，所以
+blocklist、探针、`get_last_llm_call_info` 的 model tag 看到的都是换后的模型。
 
 ## 2026-08-03 — 接上 [[_prompt_probe]]（默认关闭的诊断挂点）
 

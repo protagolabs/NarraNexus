@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-08-03
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — `latency_sensitive` 形参对齐（no-op）
+
+`llm_function` 接受 `latency_sensitive` 并忽略：CLI 跑订阅解析出来的模型，没有同端点 fast sibling。语义见 [[openai_agents]] 同日条目。
+
 
 ## 2026-08-03 — 两条改动的合并点
 

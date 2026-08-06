@@ -268,6 +268,75 @@ def _is_response_format_unsupported_error(exc: Exception) -> bool:
 _OFFICIAL_OPENAI_BASE_URLS = {"", "https://api.openai.com/v1", "https://api.openai.com/v1/"}
 
 
+# ── Latency-sensitive helper calls: fast-model swap ─────────────────────
+#
+# Measured 2026-08-06 (NetMind upstream AND our LiteLLM gateway): the
+# DeepSeek-V4 family always emits a full CoT (1-5k reasoning tokens,
+# 15-40s wall on a narrative-arbitration prompt) and NO request
+# parameter turns it off — reasoning_effort, chat_template_kwargs.
+# thinking / enable_thinking, and body-level thinking variants are all
+# ignored upstream; the gateway additionally strips them via
+# drop_params=true. The same prompt on DeepSeek-V3.2 answers in ~2s
+# with zero thinking and the identical verdict. A model swap is
+# therefore the only working lever for "small internal classification
+# call, latency matters more than depth".
+#
+# Scope guards, in order:
+#   1. The caller must opt in (latency_sensitive=True) — only small
+#      platform-internal classification calls qualify, never user
+#      conversation turns (iron rule #15 protects the AGENT slot; the
+#      helper slot's platform-internal sub-calls are ours to route).
+#   2. The endpoint host must be allowlisted — the fast model id must
+#      exist there. Default: NetMind + our LiteLLM gateway, which serve
+#      the same catalog. OpenRouter/Yunwu use different id namespaces.
+#   3. The resolved model must belong to a known always-thinking family
+#      — a user who picked a fast helper (Qwen-Coder, V3, gpt-5.4-mini)
+#      keeps their exact choice.
+_THINKING_HELPER_MODEL_PREFIXES = (
+    "deepseek-ai/deepseek-v4",
+    "deepseek-ai/deepseek-r1",
+    "zai-org/glm-5",
+    "minimax/minimax-m",
+)
+_FAST_HELPER_MODEL_DEFAULT = "deepseek-ai/DeepSeek-V3.2"
+_FAST_HELPER_HOSTS_DEFAULT = "api.netmind.ai,litellm"
+
+
+def _latency_swap_model(resolved_model: str) -> str:
+    """Return the fast-judge model for a latency-sensitive helper call,
+    or ``resolved_model`` unchanged when any scope guard says no."""
+    import os
+    from urllib.parse import urlparse
+
+    fast_model = os.environ.get("HELPER_FAST_MODEL", _FAST_HELPER_MODEL_DEFAULT)
+    if not fast_model or fast_model == resolved_model:
+        return resolved_model
+
+    host = urlparse(openai_config.base_url or "").hostname or ""
+    allowed_hosts = {
+        h.strip()
+        for h in os.environ.get(
+            "HELPER_FAST_MODEL_HOSTS", _FAST_HELPER_HOSTS_DEFAULT
+        ).split(",")
+        if h.strip()
+    }
+    if host not in allowed_hosts:
+        return resolved_model
+
+    prefixes = list(_THINKING_HELPER_MODEL_PREFIXES)
+    extra = os.environ.get("HELPER_REASONING_MODEL_PREFIXES", "")
+    prefixes += [p.strip().lower() for p in extra.split(",") if p.strip()]
+    lowered = resolved_model.lower()
+    if not any(lowered.startswith(p) for p in prefixes):
+        return resolved_model
+
+    logger.info(
+        f"[FastHelper] latency-sensitive call: {resolved_model} -> {fast_model} "
+        f"(host={host})"
+    )
+    return fast_model
+
+
 class OpenAIAgentsSDK:
     def __init__(self):
         pass
@@ -322,6 +391,7 @@ class OpenAIAgentsSDK:
         agent_id: Optional[str] = None,
         db=None,
         reasoning_effort: Optional[str] = None,
+        latency_sensitive: bool = False,
     ):
         """
         Call an LLM with instructions and user input.
@@ -336,8 +406,16 @@ class OpenAIAgentsSDK:
         "none" / "low" / "medium" / "high" / "xhigh". Non-reasoning
         models will reject this parameter — caller is responsible for
         only passing it when the model supports it.
+
+        latency_sensitive: the caller is a small internal classification
+        call on the turn's critical path. On allowlisted endpoints an
+        always-thinking slot model is swapped for a fast non-thinking
+        one — see ``_latency_swap_model`` for the measurement and the
+        scope guards.
         """
         model_name = self._resolve_model(model)
+        if latency_sensitive:
+            model_name = _latency_swap_model(model_name)
         _probe_emit("openai", model_name, instructions, user_input)
 
         # Resolve max_tokens from model catalog (per-model limit)

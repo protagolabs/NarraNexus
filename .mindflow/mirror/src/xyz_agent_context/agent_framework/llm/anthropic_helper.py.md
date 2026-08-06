@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/anthropic_helper.py
-last_verified: 2026-07-30
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — `latency_sensitive` 形参对齐（no-op）
+
+`llm_function` 接受 `latency_sensitive`，纯接口对齐：本 SDK 从不发 `thinking` block，扩展思考对 helper 调用本来就是关的，没有更快的同端点兄弟模型可换。语义见 [[openai_agents]] 同日条目。
+
 
 ## 2026-07-30 — 记账改为分桶，不再压平成一个数
 

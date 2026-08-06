@@ -355,12 +355,17 @@ class CliHelperSDK:
         agent_id: Optional[str] = None,
         db=None,
         reasoning_effort: Optional[str] = None,
+        latency_sensitive: bool = False,
     ):
         """Run a one-shot helper completion through the subscription's CLI.
 
         ``reasoning_effort`` is accepted for interface parity and ignored (the
         one-shot CLI path has no per-call knob; the platform never errors on a
         user's parameter choice — iron rule #15).
+
+        ``latency_sensitive`` is parity-only here: the CLI runs whatever
+        model the subscription resolves; there is no same-endpoint fast
+        sibling to swap to.
         """
         model_name = self._resolve_model(model)
         _probe_emit("cli", model_name, instructions, user_input)

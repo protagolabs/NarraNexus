@@ -121,6 +121,7 @@ class AnthropicHelperSDK:
         agent_id: Optional[str] = None,
         db=None,
         reasoning_effort: Optional[str] = None,
+        latency_sensitive: bool = False,
     ):
         """Call the Anthropic helper with instructions and user input.
 
@@ -128,6 +129,10 @@ class AnthropicHelperSDK:
         clamped (logged, never raised) — the Messages API has no
         equivalent per-call knob and the platform never errors on a
         user's parameter choice (iron rule #15).
+
+        ``latency_sensitive`` is likewise parity-only: this SDK never
+        sends a ``thinking`` block, so extended thinking is already off
+        for every helper call — there is nothing faster to swap to.
         """
         model_name = self._resolve_model(model)
         _probe_emit("anthropic", model_name, instructions, user_input)
