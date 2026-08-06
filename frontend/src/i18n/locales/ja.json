@@ -1366,7 +1366,7 @@
       "orSeparator": "— または —",
       "chooseFile": "ファイルを選択",
       "fileSizeKb": "（{{size}} KB）",
-      "preview": "プレビュー",
+      "preview": "プリフライトを実行 →",
       "preflightFailed": "プリフライトに失敗しました",
       "waitingForBackend": "バックエンドを待機中（試行 {{attempt}}/{{total}}）…",
       "fetchFailed": "テンプレートの取得に失敗しました",
@@ -1408,7 +1408,8 @@
         "skillsTip": "ヒント：「フルコピー」のスキルには既に認証情報が含まれています。URL/Zip スキルは再学習または新しい認証情報が必要です — インポートしたエージェントと対話してセットアップを完了してください。",
         "viewTeamIntro": "チーム紹介を表示",
         "doneButton": "完了"
-      }
+      },
+      "uploadInfoNote": "バンドルには単一のエージェント、またはチーム全体（エージェント、メモリ、スキル、チャンネル）を含められます。次のステップで名前の衝突や警告を確認してから書き込みが行われます。"
     },
     "bundleExport": {
       "title": "バンドルをエクスポート",
@@ -1680,6 +1681,21 @@
         "special": "記号を含む"
       },
       "codePlaceholder": "6桁のコード"
+    },
+    "createTeam": {
+      "title": "チームを作成",
+      "back": "戻る",
+      "nameLabel": "名前",
+      "namePlaceholder": "例: Research",
+      "descLabel": "説明",
+      "descPlaceholder": "このチームの目的は？",
+      "colorLabel": "カラー",
+      "membersLabel": "エージェントを追加",
+      "selectedCount": "{{count}} 件選択中",
+      "noAgents": "エージェントがまだありません — まず New メニューから作成してください。",
+      "createButton": "チームを作成",
+      "manageHint": "既存のチームはダッシュボードで管理します。",
+      "membersFailed": "チームは作成されましたが、{{count}} 件のメンバーを追加できませんでした: {{ids}}"
     }
   },
   "rail": {

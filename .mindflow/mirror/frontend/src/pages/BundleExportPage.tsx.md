@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:七个 tab 改为可折叠分区
+
+排他 tab 条删除,七个 scope(agents/history/skills/social/bus/artifacts/
+workspace)变为同一滚动流里的折叠分区(openScopes: Set,可多开,默认开
+agents;ScopeHeader = chevron+icon+label)。**内容组件零改动** — 只是换
+容器;mode 卡、footer 表单、Review Summary 强制步骤、各 scope 的默认勾选
+极性(events/MCP opt-in,narratives/artifacts/bus opt-out)、
+?team=&agents= 深链全部原样。v4 mock 里的 Agent/Team bundle 单选卡未做:
+AgentsTab 内部现成的 team 下拉 + quick-add chips 已承担同一职责,再加一层
+单选卡是重复控件 — 记入 self_notebook/todo 待 Owner 裁决。
 
 ## 2026-07-13 — full-mode checkbox also carries skill secrets
 

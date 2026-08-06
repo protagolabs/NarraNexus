@@ -1716,7 +1716,7 @@
       "orSeparator": "— or —",
       "chooseFile": "Choose file",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Preview",
+      "preview": "Run preflight →",
       "preflightFailed": "Preflight failed",
       "waitingForBackend": "Waiting for backend (try {{attempt}}/{{total}})…",
       "fetchFailed": "Failed to fetch template",
@@ -1767,7 +1767,8 @@
         "skillsTip": "Tip: skills marked as \"full copy\" already have credentials. URL/Zip skills need re-study or new credentials — talk to the imported agents to complete setup.",
         "viewTeamIntro": "View team intro",
         "doneButton": "Done"
-      }
+      },
+      "uploadInfoNote": "A bundle can contain a single agent or a whole team (agents, memory, skills, channels). Next you’ll review name clashes and warnings before anything is written."
     },
     "bundleExport": {
       "title": "Export bundle",
@@ -2041,6 +2042,21 @@
         "special": "A special character"
       },
       "codePlaceholder": "6-character code"
+    },
+    "createTeam": {
+      "title": "Create team",
+      "back": "Back",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Research",
+      "descLabel": "Description",
+      "descPlaceholder": "What is this team for?",
+      "colorLabel": "Color",
+      "membersLabel": "Add agents",
+      "selectedCount": "{{count}} selected",
+      "noAgents": "No agents yet — create one first from the New menu.",
+      "createButton": "Create team",
+      "manageHint": "Manage existing teams in the Dashboard.",
+      "membersFailed": "Team created, but {{count}} member(s) could not be added: {{ids}}"
     }
   },
   "rail": {

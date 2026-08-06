@@ -27,6 +27,7 @@ const MarketplacePage = lazy(() => import('@/pages/MarketplacePage'));
 const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
 const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
+const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
@@ -484,6 +485,9 @@ function App() {
               Same component as bundle/import; URL query (?url=&sha256=)
               triggers the auto-fetch-then-preflight path. */}
           <Route path="templates/install" element={<BundleImportPage />} />
+          {/* Static segment ranks above :teamId in v6 route ranking, but it
+              also reads clearer listed first. */}
+          <Route path="teams/new" element={<CreateTeamPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           {/* Team group chat — element null; MainLayout renders TeamChatView
               in the main slot (like /app/chat) so it isn't a sub-page overlay. */}

@@ -1367,7 +1367,7 @@
       "orSeparator": "— ou —",
       "chooseFile": "Choisir un fichier",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Aperçu",
+      "preview": "Lancer le précontrôle →",
       "preflightFailed": "Échec de la vérification préalable",
       "waitingForBackend": "En attente du backend (essai {{attempt}}/{{total}})…",
       "fetchFailed": "Échec de la récupération du modèle",
@@ -1409,7 +1409,8 @@
         "skillsTip": "Astuce : les compétences marquées « copie complète » disposent déjà d'identifiants. Les compétences URL/Zip nécessitent une nouvelle étude ou de nouveaux identifiants — discutez avec les agents importés pour finaliser la configuration.",
         "viewTeamIntro": "Voir la présentation de l'équipe",
         "doneButton": "Terminé"
-      }
+      },
+      "uploadInfoNote": "Un bundle peut contenir un seul agent ou une équipe entière (agents, mémoire, compétences, canaux). Vous examinerez ensuite les conflits de noms et les avertissements avant toute écriture."
     },
     "bundleExport": {
       "title": "Exporter le bundle",
@@ -1681,6 +1682,21 @@
         "special": "Un caractère spécial"
       },
       "codePlaceholder": "Code à 6 caractères"
+    },
+    "createTeam": {
+      "title": "Créer une équipe",
+      "back": "Retour",
+      "nameLabel": "Nom",
+      "namePlaceholder": "ex. Research",
+      "descLabel": "Description",
+      "descPlaceholder": "À quoi sert cette équipe ?",
+      "colorLabel": "Couleur",
+      "membersLabel": "Ajouter des agents",
+      "selectedCount": "{{count}} sélectionné(s)",
+      "noAgents": "Pas encore d'agents — créez-en un depuis le menu Nouveau.",
+      "createButton": "Créer l'équipe",
+      "manageHint": "Gérez les équipes existantes dans le Dashboard.",
+      "membersFailed": "Équipe créée, mais {{count}} membre(s) n'ont pas pu être ajoutés : {{ids}}"
     }
   },
   "rail": {

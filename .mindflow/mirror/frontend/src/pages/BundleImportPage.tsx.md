@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-07-23
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:upload 步骤加说明块 + 动作改名
+
+dropzone 下新增 info note(bundle 可含单 agent 或整团队;review 前不写入
+任何数据),主按钮文案 pages.bundleImport.preview 改为 "Run preflight →"
+(10 语言)。三模式共享布局、exitToOrigin 返回规则、退避重试逻辑不变。
 
 ## 2026-07-23 — done 屏列出 warnings 正文(review #3)
 

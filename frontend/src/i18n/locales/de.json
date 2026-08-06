@@ -1367,7 +1367,7 @@
       "orSeparator": "— oder —",
       "chooseFile": "Datei auswählen",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Vorschau",
+      "preview": "Preflight ausführen →",
       "preflightFailed": "Vorabprüfung fehlgeschlagen",
       "waitingForBackend": "Warten auf Backend (Versuch {{attempt}}/{{total}})…",
       "fetchFailed": "Vorlage konnte nicht abgerufen werden",
@@ -1409,7 +1409,8 @@
         "skillsTip": "Tipp: Als „Vollkopie“ markierte Skills haben bereits Anmeldedaten. URL-/Zip-Skills benötigen erneutes Lernen oder neue Anmeldedaten – sprich mit den importierten Agenten, um die Einrichtung abzuschließen.",
         "viewTeamIntro": "Team-Vorstellung ansehen",
         "doneButton": "Fertig"
-      }
+      },
+      "uploadInfoNote": "Ein Bundle kann einen einzelnen Agenten oder ein ganzes Team enthalten (Agenten, Gedächtnis, Skills, Kanäle). Im nächsten Schritt prüfst du Namenskonflikte und Warnungen, bevor etwas geschrieben wird."
     },
     "bundleExport": {
       "title": "Bundle exportieren",
@@ -1681,6 +1682,21 @@
         "special": "Ein Sonderzeichen"
       },
       "codePlaceholder": "6-stelliger Code"
+    },
+    "createTeam": {
+      "title": "Team erstellen",
+      "back": "Zurück",
+      "nameLabel": "Name",
+      "namePlaceholder": "z. B. Research",
+      "descLabel": "Beschreibung",
+      "descPlaceholder": "Wofür ist dieses Team?",
+      "colorLabel": "Farbe",
+      "membersLabel": "Agenten hinzufügen",
+      "selectedCount": "{{count}} ausgewählt",
+      "noAgents": "Noch keine Agenten — erstelle zuerst einen über das Neu-Menü.",
+      "createButton": "Team erstellen",
+      "manageHint": "Bestehende Teams verwaltest du im Dashboard.",
+      "membersFailed": "Team erstellt, aber {{count}} Mitglied(er) konnten nicht hinzugefügt werden: {{ids}}"
     }
   },
   "rail": {

@@ -316,6 +316,19 @@ export default function BundleImportPage() {
               </BracketDropzone>
             </div>
             {error && <ErrorBanner error={error} />}
+            {/* v4 info note — what a bundle can contain and that nothing is
+                written before the review step. */}
+            <div
+              className="flex gap-2.5 rounded-[var(--radius-sm)] border px-3.5 py-3 text-[12.5px] leading-relaxed"
+              style={{
+                borderColor: 'var(--nm-hairline)',
+                background: 'var(--nm-paper)',
+                color: 'var(--nm-ink70)',
+              }}
+            >
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--nm-ink50)' }} />
+              <span>{t('pages.bundleImport.uploadInfoNote')}</span>
+            </div>
             <div className="flex justify-end">
               <Button onClick={runPreflight} disabled={!file || busy} size="sm" className="gap-1">
                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}

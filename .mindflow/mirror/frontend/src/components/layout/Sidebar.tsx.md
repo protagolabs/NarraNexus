@@ -4,6 +4,12 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — Create team 入口改跳页
+
+New 菜单的 Create team 从打开 TeamManagementModal 改为 navigate
+('/app/teams/new')(新 [[../../pages/CreateTeamPage.tsx]]);modal 挂载
+从 Sidebar 移除(Dashboard Teams 视图仍在用它管理既有团队)。
+
 ## 2026-08-06 — Chat UI v4:三层结构重写
 
 按 v4 设计稿(specs/2026-08-06-chat-ui-v4-design.dc.html)整体重排:

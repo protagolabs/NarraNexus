@@ -1716,7 +1716,7 @@
       "orSeparator": "— 或 —",
       "chooseFile": "选择文件",
       "fileSizeKb": "（{{size}} KB）",
-      "preview": "预览",
+      "preview": "运行预检 →",
       "preflightFailed": "预检失败",
       "waitingForBackend": "等待后端（尝试 {{attempt}}/{{total}}）…",
       "fetchFailed": "获取模板失败",
@@ -1767,7 +1767,8 @@
         "skillsTip": "提示：标记为“完整副本”的技能已包含凭据。URL/Zip 技能需要重新学习或新的凭据——与导入的智能体对话以完成设置。",
         "viewTeamIntro": "查看团队简介",
         "doneButton": "完成"
-      }
+      },
+      "uploadInfoNote": "一个 bundle 可以包含单个 Agent 或整个团队（Agent、记忆、技能、频道）。下一步会先审阅重名与警告，确认前不会写入任何数据。"
     },
     "bundleExport": {
       "title": "导出捆绑包",
@@ -2041,6 +2042,21 @@
         "special": "含特殊字符"
       },
       "codePlaceholder": "6 位验证码"
+    },
+    "createTeam": {
+      "title": "创建团队",
+      "back": "返回",
+      "nameLabel": "名称",
+      "namePlaceholder": "例如 Research",
+      "descLabel": "描述",
+      "descPlaceholder": "这个团队是做什么的？",
+      "colorLabel": "颜色",
+      "membersLabel": "添加 Agent",
+      "selectedCount": "已选 {{count}} 个",
+      "noAgents": "还没有 Agent — 先从 New 菜单创建一个。",
+      "createButton": "创建团队",
+      "manageHint": "已有团队在 Dashboard 里管理。",
+      "membersFailed": "团队已创建，但 {{count}} 个成员添加失败：{{ids}}"
     }
   },
   "rail": {

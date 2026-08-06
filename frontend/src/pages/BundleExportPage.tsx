@@ -36,6 +36,7 @@ import {
   Radio,
   Sparkles,
   Server,
+  ChevronRight,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
@@ -123,7 +124,17 @@ export default function BundleExportPage() {
   const { teams, refresh: refreshTeams } = useTeamsStore();
   const { alert, confirm: confirmDialog, dialog } = useConfirm();
 
-  const [tab, setTab] = useState<TabId>('agents');
+  // v4: the seven scope surfaces are collapsible sections (all in one
+  // scroll), not exclusive tabs — several can be open at once. Content
+  // components are unchanged; only the container swapped.
+  const [openScopes, setOpenScopes] = useState<Set<TabId>>(() => new Set(['agents']));
+  const toggleScope = (id: TabId) =>
+    setOpenScopes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // PRD §5 议题 2 — Full vs Custom export mode (PRD names: Full = 1:1 snapshot
   // for self-backup; Custom = pick-and-choose for sharing).
   const [mode, setMode] = useState<'full' | 'custom'>('custom');
@@ -1050,31 +1061,12 @@ export default function BundleExportPage() {
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="px-6 border-b border-[var(--border-subtle)] flex">
-        {TABS.map((tabItem) => {
-          const Icon = tabItem.icon;
-          return (
-            <button
-              key={tabItem.id}
-              onClick={() => setTab(tabItem.id)}
-              className={cn(
-                'px-4 py-3 text-sm font-mono flex items-center gap-2 border-b-2 -mb-px',
-                tab === tabItem.id
-                  ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
-                  : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-              )}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {t(tabItem.labelKey)}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {tab === 'agents' && (
+      {/* Include scopes — v4 collapsible sections (one consistent stack) */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] overflow-hidden">
+        <ScopeHeader id="agents" open={openScopes.has('agents')} onToggle={toggleScope} />
+        {openScopes.has('agents') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <AgentsTab
             agents={agents}
             teams={teams}
@@ -1084,8 +1076,11 @@ export default function BundleExportPage() {
             onSetTeam={setSelectedTeam}
             onBulkSet={setSelectedAgents}
           />
+        </div>
         )}
-        {tab === 'history' && (
+        <ScopeHeader id="history" open={openScopes.has('history')} onToggle={toggleScope} />
+        {openScopes.has('history') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <HistoryTab
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             historyByAgent={historyByAgent}
@@ -1145,8 +1140,11 @@ export default function BundleExportPage() {
             }))}
             chatHistoryEnabled={includeChat}
           />
+        </div>
         )}
-        {tab === 'skills' && (
+        <ScopeHeader id="skills" open={openScopes.has('skills')} onToggle={toggleScope} />
+        {openScopes.has('skills') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <div className="flex flex-col">
             <SkillsTab
               agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
@@ -1187,8 +1185,11 @@ export default function BundleExportPage() {
               }}
             />
           </div>
+        </div>
         )}
-        {tab === 'social' && (
+        <ScopeHeader id="social" open={openScopes.has('social')} onToggle={toggleScope} />
+        {openScopes.has('social') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <SocialTab
             entitiesByAgent={socialEntities}
             selectedByAgent={socialSelected}
@@ -1202,8 +1203,11 @@ export default function BundleExportPage() {
             selectedTeam={selectedTeam}
             teams={teams}
           />
+        </div>
         )}
-        {tab === 'bus' && (
+        <ScopeHeader id="bus" open={openScopes.has('bus')} onToggle={toggleScope} />
+        {openScopes.has('bus') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <BusTab
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             channels={busChannels}
@@ -1226,8 +1230,11 @@ export default function BundleExportPage() {
               setBusSelected(new Set());
             }}
           />
+        </div>
         )}
-        {tab === 'artifacts' && (
+        <ScopeHeader id="artifacts" open={openScopes.has('artifacts')} onToggle={toggleScope} />
+        {openScopes.has('artifacts') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <ArtifactsTab
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             artifactsByAgent={artifactsForAgents}
@@ -1252,8 +1259,11 @@ export default function BundleExportPage() {
               setArtifactSelected((cur) => ({ ...cur, [aid]: new Set() }));
             }}
           />
+        </div>
         )}
-        {tab === 'workspace' && (
+        <ScopeHeader id="workspace" open={openScopes.has('workspace')} onToggle={toggleScope} />
+        {openScopes.has('workspace') && (
+          <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
           <WorkspaceTab
             filesByAgent={workspaceFiles}
             excludesByAgent={workspaceExcludes}
@@ -1278,7 +1288,9 @@ export default function BundleExportPage() {
               });
             }}
           />
+        </div>
         )}
+        </div>
       </div>
 
       {/* Bundle notes (README.md) + filename (P9) */}
@@ -2972,5 +2984,41 @@ function ArtifactsTab({
         </div>
       )}
     </div>
+  );
+}
+
+/** v4 collapsible scope-section header — chevron + icon + label. */
+function ScopeHeader({
+  id,
+  open,
+  onToggle,
+}: {
+  id: TabId;
+  open: boolean;
+  onToggle: (id: TabId) => void;
+}) {
+  const { t } = useTranslation();
+  const def = TABS.find((x) => x.id === id)!;
+  const Icon = def.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(id)}
+      className={cn(
+        'w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left border-b border-[var(--nm-hairline)] transition-colors',
+        open ? 'bg-[var(--nm-paper)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-paper)]',
+      )}
+    >
+      <ChevronRight
+        className={cn(
+          'w-3 h-3 shrink-0 text-[var(--nm-ink30)] transition-transform duration-150',
+          open && 'rotate-90',
+        )}
+      />
+      <Icon className="w-3.5 h-3.5 shrink-0 text-[var(--nm-ink70)]" />
+      <span className="flex-1 min-w-0 text-[13px] font-semibold text-[var(--nm-ink)]">
+        {t(def.labelKey)}
+      </span>
+    </button>
   );
 }

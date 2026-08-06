@@ -4,6 +4,11 @@ last_verified: 2026-08-06
 stub: false
 ---
 
+## 2026-08-06 (2) — /app/teams/new 路由
+
+新增 CreateTeamPage 懒加载路由,列在 teams/:teamId 之前(静态段本就
+优先于动态段,列前只为可读性)。
+
 ## 2026-08-06 — /app/manage-agents 路由移除
 
 Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与

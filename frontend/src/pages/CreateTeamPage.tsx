@@ -1,0 +1,230 @@
+/**
+ * @file_name: CreateTeamPage.tsx
+ * @author:
+ * @date: 2026-08-06
+ * @description: Chat UI v4 — team creation as a full page (the sidebar New
+ * menu's "Create team" entry). Pure creation only: name, description, color
+ * swatch, and an agent multi-select checklist. Management of existing teams
+ * (rename / intro / members / delete) lives in the Dashboard's Teams view.
+ *
+ * Member selection is DEFERRED: nothing hits the API until Create — the
+ * page first createTeam({name, description, color}), then loops addMember
+ * for each checked agent (per-row best effort, failures surfaced via
+ * useNotice — never window.alert, wry drops it). On success it navigates
+ * straight into the new team's group chat so the result is visible.
+ */
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Button, ScrollArea, useNotice } from '@/components/ui';
+import { RingAvatar } from '@/components/nm';
+import { useConfigStore, useTeamsStore } from '@/stores';
+import { cn } from '@/lib/utils';
+
+/** Same palette the team management modal offers — one visual vocabulary. */
+const COLOR_PRESETS = [
+  '#3b82f6', // blue
+  '#22c55e', // green
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#a855f7', // purple
+  '#06b6d4', // cyan
+  '#ec4899', // pink
+  '#64748b', // slate
+];
+
+export default function CreateTeamPage() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const agents = useConfigStore((s) => s.agents);
+  const createTeam = useTeamsStore((s) => s.createTeam);
+  const addMember = useTeamsStore((s) => s.addMember);
+  const { notifyError, dialog } = useNotice();
+
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [color, setColor] = useState(COLOR_PRESETS[0]);
+  const [members, setMembers] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  const canCreate = name.trim().length > 0 && !busy;
+  const selectedCount = members.size;
+
+  const sortedAgents = useMemo(() => [...agents], [agents]);
+
+  const toggleMember = (agentId: string) => {
+    setMembers((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+  };
+
+  const handleCreate = async () => {
+    if (!canCreate) return;
+    setBusy(true);
+    try {
+      const teamId = await createTeam({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        color,
+      });
+      if (!teamId) throw new Error('createTeam returned no team_id');
+      const failed: string[] = [];
+      for (const aid of Array.from(members)) {
+        try {
+          await addMember(teamId, aid);
+        } catch {
+          failed.push(aid);
+        }
+      }
+      if (failed.length) {
+        await notifyError(
+          t('pages.createTeam.membersFailed', {
+            count: failed.length,
+            ids: failed.slice(0, 3).join(', '),
+          }),
+        );
+      }
+      navigate(`/app/teams/${teamId}/chat`);
+    } catch (e) {
+      await notifyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fieldLabel =
+    'font-mono text-[11px] uppercase tracking-[0.1em] text-[var(--nm-ink50)]';
+  const inputCls =
+    'w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)] px-3 text-[13.5px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none focus:border-[var(--border-strong)]';
+
+  return (
+    <ScrollArea className="h-full" viewportClassName="px-6 py-7">
+      <div className="max-w-[600px] mx-auto flex flex-col gap-5">
+        {dialog}
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('/app/chat')}
+            title={t('pages.createTeam.back')}
+            aria-label={t('pages.createTeam.back')}
+            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <h1
+            className="text-[20px] font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            {t('pages.createTeam.title')}
+          </h1>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>{t('pages.createTeam.nameLabel')}</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t('pages.createTeam.namePlaceholder')}
+            className={cn(inputCls, 'h-9')}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>{t('pages.createTeam.descLabel')}</span>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={t('pages.createTeam.descPlaceholder')}
+            rows={3}
+            className={cn(inputCls, 'resize-none py-2.5 leading-relaxed')}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>{t('pages.createTeam.colorLabel')}</span>
+          <div className="flex items-center gap-1.5">
+            {COLOR_PRESETS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-label={c}
+                className={cn(
+                  'h-[18px] w-[18px] rounded-full transition-shadow',
+                  color === c && 'outline outline-2 outline-offset-[1.5px] outline-[var(--nm-ink)]',
+                )}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className={fieldLabel}>
+            {t('pages.createTeam.membersLabel')}{' '}
+            <span className="normal-case tracking-normal text-[var(--nm-ink30)]">
+              · {t('pages.createTeam.selectedCount', { count: selectedCount })}
+            </span>
+          </span>
+          {sortedAgents.length === 0 ? (
+            <div className="text-[12.5px] text-[var(--nm-ink50)]">
+              {t('pages.createTeam.noAgents')}
+            </div>
+          ) : (
+            sortedAgents.map((a) => {
+              const checked = members.has(a.agent_id);
+              return (
+                <label
+                  key={a.agent_id}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] border bg-[var(--nm-card)] px-3 py-2 transition-colors',
+                    checked ? 'border-[var(--border-default)]' : 'border-[var(--nm-hairline)] hover:border-[var(--border-subtle)]',
+                  )}
+                  onClick={() => toggleMember(a.agent_id)}
+                >
+                  <span
+                    className={cn(
+                      'inline-flex h-3.5 w-3.5 items-center justify-center rounded-[2px] border text-[10px] leading-none',
+                      checked
+                        ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)] text-[var(--nm-paper)]'
+                        : 'border-[var(--border-default)] bg-[var(--nm-card)] text-transparent',
+                    )}
+                  >
+                    ✓
+                  </span>
+                  <RingAvatar
+                    species="silicon"
+                    label={(a.name || a.agent_id).slice(0, 2)}
+                    size="sm"
+                    className="shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--nm-ink)]">
+                    {a.name || a.agent_id}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10.5px] text-[var(--nm-ink30)]">
+                    {a.agent_id}
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <Button onClick={handleCreate} disabled={!canCreate} className="gap-1.5">
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {t('pages.createTeam.createButton')}
+          </Button>
+          <span className="text-[12px] text-[var(--nm-ink30)]">
+            {t('pages.createTeam.manageHint')}
+          </span>
+        </div>
+      </div>
+    </ScrollArea>
+  );
+}

@@ -55,7 +55,6 @@ import { ScrollArea } from '@/components/ui';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { FIND_US_URL } from './TopBar';
 
 // v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
@@ -75,7 +74,6 @@ export function Sidebar() {
   const [showModePopup, setShowModePopup] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
-  const [openMgmt, setOpenMgmt] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   // Mobile-only feedback entry. Desktop uses the floating FeedbackButton
   // (bottom-right, by the help "?"); on mobile that corner is the composer's,
@@ -227,7 +225,6 @@ export function Sidebar() {
     >
       {confirmDialog}
       {isMobile && <FeedbackDialog isOpen={showFeedback} onClose={() => setShowFeedback(false)} />}
-      <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
       {importOpen && (
         <ImportAgentModal
           onClose={() => setImportOpen(false)}
@@ -261,7 +258,7 @@ export function Sidebar() {
         <span data-help-id="sidebar.create-agent">
           <CreateMenu
             onCreateAgent={() => void createAgent()}
-            onCreateTeam={() => setOpenMgmt(true)}
+            onCreateTeam={() => navigate('/app/teams/new')}
             onImportBundle={() => navigate('/app/bundle/import')}
             onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
             disabled={creatingAgent}
