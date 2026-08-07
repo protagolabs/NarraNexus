@@ -66,10 +66,32 @@ export interface Artifact {
   kind: ArtifactKind;
   description: string | null;
   pinned: boolean;
+  /**
+   * Owning team, or null for a private artifact. Null is also every artifact
+   * created before team workspaces existed, so "no team" and "private" are
+   * the same state — no migration flag to check anywhere.
+   */
+  team_id: string | null;
   /** Entry file, relative to settings.base_working_path. */
   file_path: string;
   /** Recursive size of the artifact root directory. */
   size_bytes: number;
   created_at: string;
   updated_at: string;
+}
+
+
+/** One file shared into a team's folder (GET /api/teams/{id}/files). */
+export interface TeamFile {
+  file_id: string;
+  /** Human-facing name. The on-disk name is the file_id, so this is the only
+   *  place the original survives. */
+  original_name: string;
+  rel_path: string;
+  size_bytes: number;
+  mime_type: string | null;
+  category: string | null;
+  /** Which agent shared it — the team panel attributes every row. */
+  shared_by_agent_id: string;
+  created_at: string;
 }

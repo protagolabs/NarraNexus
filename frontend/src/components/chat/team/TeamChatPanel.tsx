@@ -28,6 +28,7 @@ import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
+import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
@@ -376,7 +377,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const accent = team.team.color || 'var(--color-silicon)';
 
   return (
-    <div className="flex h-full flex-col min-h-0">
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full flex-1 flex-col min-h-0">
       {/* Member bar — team identity + the roster of agents in this room. */}
       <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
@@ -891,6 +893,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           </Button>
         </DialogFooter>
       </Dialog>
+      </div>
+      {/* The team's output. Sits beside the transcript rather than behind a
+          route, because "what did we make" is a question asked WHILE reading
+          the conversation. Keyed off message count so a turn that registers an
+          artifact surfaces it without the user reloading. */}
+      <TeamWorkspacePanel teamId={teamId} refreshKey={messages.length} />
     </div>
   );
 }

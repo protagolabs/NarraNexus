@@ -3,6 +3,7 @@
  * Uses relative paths in dev (Vite proxy) and configurable base URL in production
  */
 
+import type { Artifact, TeamFile } from '@/types/artifact';
 import type {
   MigrationFramework,
   MigrationDetectResponse,
@@ -1762,6 +1763,42 @@ class ApiClient {
 
   async listTeams(): Promise<TeamListResponse> {
     return this.request<TeamListResponse>('/api/teams');
+  }
+
+  /**
+   * A team's artifacts, newest first — the workspace panel's Artifacts tab.
+   *
+   * Not scoped to one agent: the panel shows the TEAM's output whoever made
+   * it, and each row carries agent_id so the UI can attribute it.
+   */
+  async listTeamArtifacts(teamId: string): Promise<Artifact[]> {
+    return this.request<Artifact[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifacts`,
+    );
+  }
+
+  /** Files shared into the team folder, newest first — the Files tab. */
+  async listTeamFiles(teamId: string): Promise<TeamFile[]> {
+    return this.request<TeamFile[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/files`,
+    );
+  }
+
+  /**
+   * Short-TTL view token for a team artifact's raw content.
+   *
+   * Separate from the agent route because that one requires the caller's
+   * agent to BE the artifact's agent — backwards for a team, where opening a
+   * teammate's artifact is the normal case. Authorisation is by team here.
+   */
+  async mintTeamArtifactViewToken(
+    teamId: string,
+    artifactId: string,
+  ): Promise<{ token: string; raw_url: string }> {
+    return this.request<{ token: string; raw_url: string }>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifacts/${encodeURIComponent(artifactId)}/view-token`,
+      { method: 'POST' },
+    );
   }
 
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {

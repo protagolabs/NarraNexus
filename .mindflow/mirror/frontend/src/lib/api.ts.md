@@ -4,6 +4,12 @@ last_verified: 2026-08-07
 stub: false
 ---
 
+## 2026-08-07 — 团队工作台三个端点
+
+`listTeamArtifacts` / `listTeamFiles` / `mintTeamArtifactViewToken`。最后一个与 agent 侧的 mint
+分开，表达的是「按 team 归属授权」这一更贴切的语义（见 [[teams.py]]）；功能上与 agent 路由
+重叠——后者校验的是「JWT 用户是否拥有该 agent」，而团队成员本就都是同一 owner 的 agent。
+
 ## 2026-08-07 — cancelRun(runId)
 
 `POST /api/runs/{run_id}/cancel` 的调用点。**resolve 不代表 run 停了** ——

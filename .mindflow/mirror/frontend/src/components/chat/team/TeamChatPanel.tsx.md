@@ -12,6 +12,11 @@ stub: false
 团队任务是当众跑的,所以也应当众停止:没有留痕,其他成员只看到一个凭空
 消失的任务,只能猜是跑完了、崩了、还是还在跑。
 
+## 2026-08-07 — 右侧挂上团队工作台
+
+根布局从纵向 flex 改为「横向 flex：transcript 列 + [[TeamWorkspacePanel.tsx]]」。此前该组件
+注释里的「artifacts 暂不提供」不再成立。
+
 ## 2026-07-31 — roster v2 接线：accent 下传 + drawer 不再定宽
 
 TeamRosterPanel 拿到 `accent`（团队色）画选中态；移动端 drawer 的
