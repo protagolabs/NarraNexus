@@ -27,6 +27,7 @@ call.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -214,16 +215,59 @@ def test_unrecognised_scope_degrades_to_the_turn():
         assert _resolve_scope(invented, "team_1") == "team_1"
 
 
-def test_scope_parameter_is_not_optional_typed():
-    """FastMCP renders Optional[str] as anyOf:[str,null], which strict-schema
-    providers reject with a request-level 400 — the whole request fails, not
-    just this call. The parameter must stay a plain str with a default."""
-    import inspect
+@pytest.mark.asyncio
+async def test_scope_renders_without_anyof_null_in_the_real_schema():
+    """Assert the SCHEMA FastMCP actually emits, not the source text.
+
+    The 400 is a property of the emitted JSON Schema: FastMCP renders
+    `Optional[X]` as `anyOf:[X,null]`, and strict-schema providers reject the
+    whole REQUEST — every tool in it, not just this call. Grepping the
+    signature would pass while a type-alias or a future annotation change
+    quietly reintroduced the shape, so the generated schema is the only
+    honest assertion.
+    """
+    from mcp.server.fastmcp import FastMCP
 
     from xyz_agent_context.module.common_tools_module._common_tools_impl import (
         artifact_tool,
     )
 
-    src = inspect.getsource(artifact_tool)
-    assert 'scope: str = "auto"' in src, "scope must be a plain str with a default"
-    assert "scope: Optional" not in src
+    mcp = FastMCP("schema-probe")
+    artifact_tool.register(mcp)
+    tool = next(t for t in await mcp.list_tools() if t.name == "register_artifact")
+    spec = tool.inputSchema["properties"]["scope"]
+
+    assert spec.get("type") == "string", spec
+    assert "anyOf" in spec is False or "anyOf" not in spec, spec
+    assert "null" not in json.dumps(spec), spec
+    assert spec.get("default") == "auto", spec
+
+
+@pytest.mark.asyncio
+async def test_scope_did_not_widen_the_tools_strict_schema_exposure():
+    """A regression fence, deliberately not a clean-schema assertion.
+
+    `session_id` / `description` / `target_artifact_id` were already
+    Optional-typed before the team workspace, so this tool ALREADY carries the
+    anyOf:[X,null] shape on a strict provider — that debt is pre-existing and
+    is not this change's to fix (per the design, schema normalisation belongs
+    in a gateway layer). What must hold is that adding `scope` did not make it
+    worse: the risky set stays exactly those three.
+    """
+    from mcp.server.fastmcp import FastMCP
+
+    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+        artifact_tool,
+    )
+
+    mcp = FastMCP("schema-probe")
+    artifact_tool.register(mcp)
+    tool = next(t for t in await mcp.list_tools() if t.name == "register_artifact")
+
+    risky = {
+        name for name, spec in tool.inputSchema["properties"].items()
+        if "anyOf" in spec or "null" in json.dumps(spec)
+    }
+    assert risky == {"session_id", "description", "target_artifact_id"}, (
+        f"strict-schema exposure changed: {risky}"
+    )
