@@ -140,10 +140,16 @@
         "neverRan": "jamais exécuté",
         "loading": "Chargement du processus…",
         "workingCount": "{{count}} en cours",
-        "process": "processus"
+        "process": "processus",
+        "stop": "Arrêter",
+        "stopping": "Arrêt en cours…",
+        "stopped": "Arrêté par le propriétaire",
+        "stopFailed": "Impossible d'arrêter cette exécution",
+        "stopHint": "Arrêter cette exécution"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
-      "leadTitle": "{{name}} · répond quand personne n'est mentionné"
+      "leadTitle": "{{name}} · répond quand personne n'est mentionné",
+      "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire"
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",

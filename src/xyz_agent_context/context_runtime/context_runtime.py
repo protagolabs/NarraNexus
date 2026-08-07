@@ -1080,6 +1080,12 @@ class ContextRuntime:
         turn_extra = ctx_data.extra_data or {}
         errand_peer = str(turn_extra.get("bus_errand_peer") or "")
         errand_channel = str(turn_extra.get("bus_errand_channel") or "")
+        # Which trigger TREE this turn belongs to. A message the agent sends
+        # this turn becomes the trigger for someone else's run, and the tree
+        # would otherwise be lost at that hop — so the bus send tools stamp it
+        # onto the message. Empty when unknown; the cascade reads that as "not
+        # part of the tree being stopped".
+        root_run_id = str(turn_extra.get("root_run_id") or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
@@ -1131,6 +1137,7 @@ class ContextRuntime:
                             # triggers) — the builder then omits the header
                             # and tools fall back to the model's parameter.
                             user_id=self.user_id,
+                            root_run_id=root_run_id,
                         ),
                     }
                     collected_count += 1

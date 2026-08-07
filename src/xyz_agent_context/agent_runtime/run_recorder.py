@@ -127,8 +127,15 @@ def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
 
 
 async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
-    """Flip running rows whose heartbeat died to 'failed'. Returns the
-    number of rows flipped.
+    """Settle running rows whose heartbeat died. Returns the number of rows
+    flipped.
+
+    The terminal state depends on whether a stop was pending: a row with
+    ``cancel_requested_at`` set settles as 'cancelled', anything else as
+    'failed'. Without that split the outcome of a user's stop would hinge on
+    a race — whether the run's own finalize beat its heartbeat going stale —
+    and a stop recorded as a failure feeds retry and failure alerting with
+    what was actually a deliberate user action.
 
     Heartbeat-based on purpose: runs may be alive in OTHER processes
     (trigger containers), so "this process doesn't know the run" proves
@@ -147,16 +154,16 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
     for row in running_rows or []:
         if run_is_live(row):
             continue
+        # A stop was pending → the run died stopping, not crashing.
+        stopping = bool(row.get("cancel_requested_at"))
+        patch: dict = {
+            "state": STATE_CANCELLED if stopping else STATE_FAILED,
+            "finished_at": utc_now(),
+        }
+        if not stopping:
+            patch["error_message"] = "run lost (process died mid-run)"
         try:
-            await db.update(
-                "events",
-                {"event_id": row["event_id"]},
-                {
-                    "state": STATE_FAILED,
-                    "error_message": "run lost (process died mid-run)",
-                    "finished_at": utc_now(),
-                },
-            )
+            await db.update("events", {"event_id": row["event_id"]}, patch)
             flipped += 1
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -310,8 +317,15 @@ class RunRecorder:
         db: "AsyncDatabaseClient",
         on_run_id: Optional[Callable[[str], Awaitable[None]]] = None,
         on_thinking_buffer: Optional[Callable[[str], None]] = None,
+        inherited_root_run_id: Optional[str] = None,
     ) -> None:
         self.db = db
+        # The trigger TREE this run belongs to. Non-empty when the trigger knew
+        # it was continuing somebody else's tree; otherwise this run IS a root
+        # and stamps its own id at bind time. Recorded here rather than in
+        # Event/create_event because it is a run-control fact (same family as
+        # state / heartbeat / cancel_requested_at), not a narrative one.
+        self.inherited_root_run_id = inherited_root_run_id or None
         self.run_id: Optional[str] = None
         self.state: str = STATE_RUNNING
         self.tool_call_count: int = 0
@@ -481,7 +495,17 @@ class RunRecorder:
         self.run_id = run_id
         now = utc_now()
         await self._update_events_row(
-            {"state": STATE_RUNNING, "started_at": now, "last_event_at": now},
+            {
+                "state": STATE_RUNNING,
+                "started_at": now,
+                "last_event_at": now,
+                # A root run labels itself; a caused run carries the label it
+                # inherited. Written in the same UPDATE as the running flip so
+                # a tree is complete from the first moment any of its runs is
+                # visible — a cascade that raced the label would silently miss
+                # the branch it was aimed at.
+                "root_run_id": self.inherited_root_run_id or run_id,
+            },
             context="running init",
         )
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())

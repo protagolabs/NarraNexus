@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-05
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 两个发送工具盖上 root_run_id
+
+`bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
+`bus_messages.root_run_id`。这是血缘链**唯一的断点**:工具跑在共享的 MCP
+进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
+run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
 
 ## 2026-08-05 — 删掉 `bus_register_agent`：名录不能有第二个写入者
 

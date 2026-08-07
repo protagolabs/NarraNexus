@@ -140,10 +140,16 @@
         "neverRan": "まだ実行していません",
         "loading": "処理を読み込み中…",
         "workingCount": "{{count}} 件実行中",
-        "process": "プロセス"
+        "process": "プロセス",
+        "stop": "停止",
+        "stopping": "停止中…",
+        "stopped": "オーナーにより停止されました",
+        "stopFailed": "この実行を停止できませんでした",
+        "stopHint": "この実行を停止"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
-      "leadTitle": "{{name}} · 誰も @ されていないときに対応"
+      "leadTitle": "{{name}} · 誰も @ されていないときに対応",
+      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました"
     },
     "execution": {
       "showSteps": "実行ステップを表示",

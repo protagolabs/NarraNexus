@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 被停止的树,排队消息不再唤起 run
+
+`get_pending_messages` 增加 `LEFT JOIN events ON m.root_run_id = e.event_id`
++ `AND (m.root_run_id IS NULL OR e.cancel_requested_at IS NULL)`。
+
+停掉正在跑的轮次**不够**:它们排队中的后续消息会在下一次轮询启动新 run,
+用户按了停之后眼看着新活冒出来(设计文档里的"打地鼠")。
+
+- **写成 SQL 谓词而不是逐行判断**:poison 过滤已经是每行一次查询,再加一次
+  就是第二个 N+1。
+- **NULL root 永不被压制**:用户消息和所有前置列的老行都是 NULL,若 NULL 被
+  当成"同一棵树",一次停止会让整张表哑掉。测试专门钉了这条。
+
+`send_message` / `send_to_agent` / `_row_to_message` 同步接受并透出
+`root_run_id`。
 
 ## 2026-08-04 — send_message/send_to_agent 记录发送方 turn 的种类
 

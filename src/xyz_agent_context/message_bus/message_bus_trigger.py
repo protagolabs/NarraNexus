@@ -583,6 +583,16 @@ class MessageBusTrigger:
         and teammates all see it in the shared room. Every other channel
         (peer DM, IM bridges) keeps the original owner-relay + inbox path.
         """
+        # Imported here, not at module scope: `agent_runtime` pulls in
+        # `module`, which imports back into this package — the same circular
+        # import that keeps `get_agent_runtime_client` local to
+        # `_invoke_runtime`.
+        from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+        from xyz_agent_context.agent_runtime.cancellation import (
+            CancellationToken,
+            CancelledByUser,
+        )
+
         is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
         member_map: Dict[str, str] = {}
         # DM branch overwrites this with the classifier's verdict; team rooms
@@ -674,7 +684,7 @@ class MessageBusTrigger:
             # the idle flip, whichever way the body exits.
             async with contextlib.AsyncExitStack() as stack:
                 on_progress = None
-                on_event_id = None
+                note_event_id = None
                 if is_team:
                     from xyz_agent_context.utils.db.db_factory import get_db_client
                     from xyz_agent_context.message_bus import _bus_activity
@@ -682,7 +692,30 @@ class MessageBusTrigger:
                         _bus_activity.turn(await get_db_client(), agent_id, channel_id)
                     )
                     on_progress = act.on_progress
-                    on_event_id = act.note_event_id
+                    note_event_id = act.note_event_id
+
+                # A stop request for this run arrives through the DB (the
+                # owner's click lands in the backend process, not here), so the
+                # token needs a watcher to fire it. Registration can only
+                # happen once the run HAS an id — Step 0 mints it and
+                # `on_event_id` is the first moment it exists. Registered for
+                # every bus run, not just team ones: the endpoint is
+                # run-scoped, so a future surface should be able to stop a
+                # peer-DM turn too.
+                from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                cancellation = CancellationToken()
+                watcher = get_cancel_watcher(await get_db_client())
+                watched_run_id: list[str] = [""]
+                # Unregister however the body exits — a token left behind
+                # keeps the poll loop alive for a run that is gone.
+                stack.callback(lambda: watcher.unregister(watched_run_id[0]))
+
+                async def on_event_id(run_id: str) -> None:
+                    watched_run_id[0] = run_id
+                    watcher.register(run_id, cancellation)
+                    if note_event_id is not None:
+                        await note_event_id(run_id)
 
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
@@ -697,11 +730,16 @@ class MessageBusTrigger:
                     errand_continuation=errand_continuation,
                     on_progress=on_progress,
                     on_event_id=on_event_id,
+                    cancellation=cancellation,
                     # Team rooms are the one surface whose prompt tells the
                     # agent its plain text IS the delivered reply (auto-posted
                     # to the room), so NexusPower monologue joins the collected
                     # text. The peer-DM/inbox branch keeps the monologue
                     # private — its prompt makes no such promise.
+                    # The tree this turn continues, as stamped on the message
+                    # that woke it. Empty for a user's message (this run then
+                    # becomes a root) — see the recorder's bind.
+                    root_run_id=trigger_message.root_run_id or "",
                     include_monologue=is_team,
                     # Same fact, module-side consumer: the team room must NOT
                     # advertise bus tools as its reply surface (plain text
@@ -759,6 +797,35 @@ class MessageBusTrigger:
 
             _hop_done = True
 
+        except CancelledByUser as e:
+            # `_hop_done` deliberately stays False: a stopped turn is not a
+            # completed hop, and letting it into the [bus-timing] series would
+            # mix "how long delivery takes" with "when the owner pressed stop".
+            # A stop is a user decision, not a fault. Three things must NOT
+            # happen here, each of which the generic handler below would do:
+            #
+            #  1. `record_failure` — three "failures" poison the message and
+            #     `get_pending_messages` filters it out FOREVER. Stopping a
+            #     run three times would make that message undeliverable.
+            #  2. the owner-facing permanent-failure notice — telling someone
+            #     their agent broke when they pressed stop themselves.
+            #  3. failure alerting / retry accounting downstream.
+            #
+            # And one thing that must happen and has no other home: ADVANCE
+            # THE CURSOR. On the success path the ack sits at the END of the
+            # try block, so an exception skips it — the message would still be
+            # pending, the next poll would start the very run the owner just
+            # stopped, and stop would read as "it restarted itself".
+            logger.info(
+                f"MessageBusTrigger: run stopped by owner — agent {agent_id}, "
+                f"channel {channel_id} ({e.reason or 'no reason given'})"
+            )
+            with contextlib.suppress(Exception):
+                await self._bus.ack_processed(
+                    agent_id=agent_id,
+                    channel_id=channel_id,
+                    up_to_timestamp=trigger_message.created_at,
+                )
         except Exception as e:
             logger.exception(
                 f"MessageBusTrigger: failed to process channel {channel_id} "
@@ -1416,6 +1483,8 @@ class MessageBusTrigger:
         on_event_id=None,
         include_monologue: bool = False,
         team_room: bool = False,
+        cancellation=None,
+        root_run_id: str = "",
     ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -1467,6 +1536,12 @@ class MessageBusTrigger:
             on_progress=on_progress,
             on_event_id=on_event_id,
             include_monologue=include_monologue,
+            # Rides the extra_kwargs seam straight to AgentRuntime.run — no
+            # signature change anywhere in between (collect_run's docstring
+            # names `cancellation` as a supported pass-through). Until now
+            # this was always the runtime's own no-op token, which is why a
+            # bus run could not be stopped from anywhere.
+            cancellation=cancellation,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
@@ -1482,6 +1557,12 @@ class MessageBusTrigger:
                 # i.e. exactly who a follow-up would go to.
                 "bus_errand_peer": sender_agent_id if errand_continuation else "",
                 "bus_errand_channel": channel_id if errand_continuation else "",
+                # Trigger tree. Two consumers, both needed: the client hands it
+                # to RunRecorder (so this run's events row joins the tree) and
+                # context_runtime injects it into the MCP identity headers (so a
+                # send from this turn stamps the next message and the tree
+                # survives the next hop).
+                "root_run_id": root_run_id,
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id

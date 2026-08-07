@@ -21,10 +21,11 @@
  * stream.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import { elapsedSince } from '@/lib/teamActivity';
 import { useRunObservation } from '@/hooks/useRunObservation';
 import {
@@ -110,6 +111,30 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
+
+  // The stop request is fire-and-observe: the endpoint records intent and
+  // returns, the run is interrupted in another process, and the terminal
+  // state arrives on the observation stream. This state only covers the gap
+  // between those two — the answer the 8-minute black box never gave.
+  const [stopRequest, setStopRequest] = useState<
+    { runId: string; failed: boolean } | null
+  >(null);
+  const runId = activity.event_id ?? null;
+  // A stop belongs to the run it was aimed at; a new turn starts clean.
+  const stopping = !!stopRequest && stopRequest.runId === runId && !stopRequest.failed;
+  const stopFailed = !!stopRequest && stopRequest.runId === runId && stopRequest.failed;
+
+  const requestStop = async () => {
+    if (!runId || stopping) return;
+    setStopRequest({ runId, failed: false });
+    try {
+      await api.cancelRun(runId);
+    } catch {
+      // Owner check rejected, run already gone, network down — the button
+      // must not stay stuck on "stopping" for something that never landed.
+      setStopRequest({ runId, failed: true });
+    }
+  };
 
   const processEvents = useMemo(
     () => observation.events.filter(
@@ -234,6 +259,32 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
                 <span>{observation.opsCount} {t('chat.process.ops', 'ops')}</span>
               )}
               <span>{elapsedSince(activity.started_at, now)}</span>
+              {runId && (
+                <button
+                  type="button"
+                  onClick={requestStop}
+                  disabled={stopping}
+                  data-testid={`member-stop-${activity.agent_id}`}
+                  title={t('chat.team.roster.stopHint')}
+                  className={cn(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors',
+                    stopping
+                      ? 'cursor-default text-[var(--nm-ink50)]'
+                      : 'text-[var(--nm-ink70)] hover:bg-[var(--color-warning)]/10 hover:text-[var(--color-warning)]',
+                  )}
+                >
+                  {stopping ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <Square className="h-3 w-3 shrink-0" />
+                  )}
+                  <span>
+                    {stopping
+                      ? t('chat.team.roster.stopping')
+                      : t('chat.team.roster.stop')}
+                  </span>
+                </button>
+              )}
             </>
           ) : (
             idleOps > 0 && <span>{idleOps} {t('chat.process.ops', 'ops')}</span>
@@ -256,6 +307,18 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
           </div>
         )}
         {body}
+        {stopFailed && (
+          <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
+            {t('chat.team.roster.stopFailed')}
+          </div>
+        )}
+        {/* The terminal word matters: a stopped run rendered as "completed"
+            tells the owner the task they killed ran to the end. */}
+        {observation.endState === 'cancelled' && (
+          <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
+            {t('chat.team.roster.stopped')}
+          </div>
+        )}
         {stalled && (
           <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
             {t('chat.team.activity.silentFor', {

@@ -37,6 +37,9 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** 'text' | 'multimodal' for ordinary messages; 'system_stop' is the
+   *  owner-stopped notice, rendered as a system line rather than a bubble. */
+  msg_type?: string | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */
   event_id?: string | null;

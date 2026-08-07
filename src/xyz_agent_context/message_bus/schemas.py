@@ -47,6 +47,10 @@ class BusMessage(BaseModel):
     # MessageBusTrigger selects the recipient's directive from it. None on
     # legacy rows and on adapters that cannot forward the injected header.
     sender_turn_source: Optional[str] = None
+    # The trigger TREE the sending run belonged to (events.root_run_id). The run
+    # this message wakes up inherits it, which is how a cascade stop reaches
+    # past an agent→agent hop. None for user messages and legacy rows.
+    root_run_id: Optional[str] = None
     created_at: Any = None
 
 

@@ -245,6 +245,40 @@ async def test_sweep_flips_only_heartbeat_dead_rows(db_client):
     assert "run lost" in (dead["error_message"] or "")
 
 
+@pytest.mark.asyncio
+async def test_sweep_settles_a_cancel_in_flight_as_cancelled(db_client):
+    """A stop that was requested but whose run died before writing its own
+    terminal row settles as 'cancelled', not 'failed'.
+
+    The acceptance criterion is explicit that a stop must not be recorded as
+    a failure (no retry, no failure alert). Without this branch the outcome
+    depends on a race — whether the run's own finalize beat the heartbeat
+    going stale — so the run would read as 'failed' intermittently, which is
+    the worst kind of green: it passes on a re-run.
+    """
+    stale = utc_now() - timedelta(seconds=600)
+    await _seed_events_row(
+        db_client, "evt_stopped", state="running",
+        started_at=stale, last_event_at=stale,
+        cancel_requested_at=utc_now(),
+    )
+    await _seed_events_row(
+        db_client, "evt_crashed", state="running",
+        started_at=stale, last_event_at=stale,
+    )
+
+    flipped = await sweep_stale_runs(db_client)
+
+    assert flipped == 2
+    stopped = await db_client.get_one("events", {"event_id": "evt_stopped"})
+    crashed = await db_client.get_one("events", {"event_id": "evt_crashed"})
+    assert stopped["state"] == STATE_CANCELLED
+    # A cancellation is not a fault — nothing may look like an error here,
+    # or the failure alerting downstream treats a user action as an incident.
+    assert not (stopped["error_message"] or "")
+    assert crashed["state"] == STATE_FAILED
+
+
 def test_recording_kill_switch(monkeypatch):
     monkeypatch.delenv(RECORDING_DISABLED_ENV, raising=False)
     assert recording_enabled() is True

@@ -39,6 +39,7 @@ class MessageBusService(ABC):
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -141,6 +142,7 @@ class MessageBusService(ABC):
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.

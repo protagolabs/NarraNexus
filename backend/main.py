@@ -432,6 +432,7 @@ from backend.routes.agents.core import router as agents_router
 from backend.routes.agents.artifacts import router as agents_artifacts_router
 from backend.routes.artifacts.users import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
+from backend.routes.runs import router as runs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
@@ -476,6 +477,7 @@ app.include_router(office_watch_router, prefix="/api", tags=["OfficeWatch"])
 app.include_router(office_watch_public_router, prefix="/api/public", tags=["OfficeWatch"])
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
+app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.

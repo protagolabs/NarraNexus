@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-08-03
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 签名跟随抽象契约增加 root_run_id
+
+仍然 NotImplementedError;签名一致是为了 cloud 落地时不必再改一遍协议层。
 
 ## 2026-08-03 — both send stubs carry sender_turn_source
 

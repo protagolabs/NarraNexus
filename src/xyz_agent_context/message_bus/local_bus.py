@@ -92,6 +92,7 @@ class LocalMessageBus(MessageBusService):
             attachments=attachments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
+            root_run_id=row.get("root_run_id"),
             created_at=row.get("created_at"),
         )
 
@@ -107,6 +108,7 @@ class LocalMessageBus(MessageBusService):
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -116,6 +118,11 @@ class LocalMessageBus(MessageBusService):
         answering a peer, so this is a reply). MessageBusTrigger reads it to
         decide whether the recipient should answer the peer or relay to its
         owner — see the column comment in schema_registry.
+
+        ``root_run_id`` records WHICH TRIGGER TREE the sending run belonged to,
+        so the run this message wakes up inherits it. Without it the lineage
+        breaks at every agent→agent hop and a cascade stop leaves the branch
+        beyond the hop running.
         """
         msg_id = _generate_id("msg")
         # A message carrying files is tagged "multimodal" so UI / search can
@@ -132,6 +139,7 @@ class LocalMessageBus(MessageBusService):
             "attachments": json.dumps(attachments) if attachments else None,
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
+            "root_run_id": root_run_id,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -238,6 +246,7 @@ class LocalMessageBus(MessageBusService):
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -275,6 +284,7 @@ class LocalMessageBus(MessageBusService):
         return await self.send_message(
             from_agent, channel_id, content, msg_type, attachments=attachments,
             sender_turn_source=sender_turn_source,
+            root_run_id=root_run_id,
         )
 
     # ===== Channel Management =====
@@ -435,16 +445,28 @@ class LocalMessageBus(MessageBusService):
         """
         Get messages that have not been processed by the agent.
 
-        Uses the cursor model and filters out self-sent messages
-        and poison messages (failure_count >= 3).
+        Uses the cursor model and filters out self-sent messages,
+        poison messages (failure_count >= 3), and messages belonging to a
+        trigger tree whose owner asked to stop.
+
+        The stopped-tree filter is what makes a cascade stop actually stick:
+        stopping the running turns is not enough while their queued follow-ups
+        are still waiting, because the next poll would start those and the owner
+        would watch new work appear right after pressing stop. It is a SQL
+        predicate rather than a per-row check on purpose — the poison filter
+        below already costs one query per row, and this must not add a second.
         """
         ph = self._db.placeholder
         rows = await self._db.execute(
             f"SELECT m.* FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
+            f"LEFT JOIN events e ON m.root_run_id = e.event_id "
             f"WHERE cm.agent_id = {ph} "
             f"AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
             f"AND m.from_agent != {ph} "
+            # NULL root = not part of any tree (user messages, legacy rows):
+            # those are never suppressed. A LEFT JOIN miss behaves the same way.
+            f"AND (m.root_run_id IS NULL OR e.cancel_requested_at IS NULL) "
             f"ORDER BY m.created_at ASC "
             f"LIMIT {int(limit)}",
             (agent_id, agent_id),

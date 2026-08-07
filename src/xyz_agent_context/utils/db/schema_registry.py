@@ -169,6 +169,29 @@ _register(
             Column("tool_call_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("current_stage", "TEXT", "VARCHAR(64)"),
             Column("error_message", "TEXT", "TEXT"),
+            # When the owner asked for this run to stop. NULL = no request.
+            #
+            # A TIMESTAMP rather than a boolean, because the flag has to answer
+            # three questions and only a timestamp answers all three: is a stop
+            # pending (non-NULL), is a repeated click a no-op (idempotent write),
+            # and does this request apply to THIS run (`started_at` earlier than
+            # the request — a later run must not inherit an older stop).
+            #
+            # Written by the cancel endpoint, read by CancelWatcher (which owns
+            # the token) and by `sweep_stale_runs` (a stop in flight settles as
+            # 'cancelled', never 'failed').
+            Column("cancel_requested_at", "TEXT", "DATETIME(6)"),
+            # The trigger TREE this run belongs to: a root run stores its own
+            # event_id, and every run it causes (directly or transitively)
+            # inherits the same value.
+            #
+            # A flat inherited LABEL, deliberately not a parent pointer. The
+            # only question asked of it is "which runs belong to the tree the
+            # owner is stopping", which a label answers in one indexed query;
+            # parent/child edges would additionally let you WALK the tree,
+            # which nothing here needs (a collaboration graph would — that is
+            # a different feature).
+            Column("root_run_id", "TEXT", "VARCHAR(128)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -183,6 +206,9 @@ _register(
             # Phase C: filter running rows for reconcile + active_run lookup
             Index("idx_events_state", ["state"]),
             Index("idx_events_agent_state", ["agent_id", "state"]),
+            # Cascade stop's only hot path: "every still-running run in this
+            # tree". Composite because the flag write always filters on both.
+            Index("idx_events_root_state", ["root_run_id", "state"]),
         ],
     )
 )
@@ -710,6 +736,13 @@ _register(
             # rows written before the column existed. Powers the per-message
             # "view reasoning & tools" disclosure in the team transcript.
             Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
+            # The trigger TREE the sending run belonged to (events.root_run_id).
+            # Carries the lineage across the one hop where it would otherwise
+            # be lost: an agent asking a peer writes a NEW message, and the run
+            # that message wakes up has no other way to know which tree it
+            # continues. NULL for user messages and pre-column rows — the
+            # cascade treats NULL as "not part of any tree being stopped".
+            Column("root_run_id", "TEXT", "VARCHAR(128)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

@@ -173,10 +173,16 @@
         "neverRan": "还没运行过",
         "loading": "过程加载中…",
         "workingCount": "{{count}} 个在忙",
-        "process": "过程"
+        "process": "过程",
+        "stop": "停止",
+        "stopping": "正在停止…",
+        "stopped": "已被所有者停止",
+        "stopFailed": "无法停止该运行",
+        "stopHint": "停止本次运行"
       },
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
-      "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手"
+      "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手",
+      "stoppedNotice": "{{name}} 的任务已被所有者停止"
     },
     "execution": {
       "showSteps": "显示执行步骤",

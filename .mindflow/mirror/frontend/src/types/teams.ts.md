@@ -1,8 +1,11 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — TeamChatMessage.msg_type
+
+`'text' | 'multimodal' | 'system_stop'`。见 [[TeamChatPanel]] 的系统行分支。
 
 ## 2026-07-31 — TeamChatMessage.event_id
 

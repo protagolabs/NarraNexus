@@ -499,6 +499,26 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   const mine = m.is_user;
                   const avatarLabel = (mine ? userLabel : m.author_name) || '?';
                   const ts = Date.parse(m.created_at);
+                  // A stop notice is the ROOM speaking, not the agent: a task
+                  // that ran in public should visibly stop in public, but
+                  // dressing it as the agent's own reply would read as the agent
+                  // announcing its own death.
+                  if (m.msg_type === 'system_stop') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`stop-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <span
+                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+                          style={{ color: 'var(--nm-ink50)' }}
+                        >
+                          {t('chat.team.stoppedNotice', { name: m.author_name })}
+                        </span>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
                       {/* Carbon ring for the human, silicon for an agent — matching

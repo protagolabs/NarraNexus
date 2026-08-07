@@ -140,10 +140,16 @@
         "neverRan": "aún sin ejecuciones",
         "loading": "Cargando proceso…",
         "workingCount": "{{count}} trabajando",
-        "process": "proceso"
+        "process": "proceso",
+        "stop": "Detener",
+        "stopping": "Deteniendo…",
+        "stopped": "Detenido por el propietario",
+        "stopFailed": "No se pudo detener esta ejecución",
+        "stopHint": "Detener esta ejecución"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
-      "leadTitle": "{{name}} · responde cuando no se menciona a nadie"
+      "leadTitle": "{{name}} · responde cuando no se menciona a nadie",
+      "stoppedNotice": "La tarea de {{name}} fue detenida por el propietario"
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",

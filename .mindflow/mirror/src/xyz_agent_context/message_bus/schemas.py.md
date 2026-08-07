@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — BusMessage.root_run_id
+
+发送方那一轮所属的触发树。被唤起的 run 从这里继承,级联停止才能越过
+agent→agent 的一跳。用户消息与老行为 None。
 
 ## 2026-08-04 — BusMessage 增加 sender_turn_source
 

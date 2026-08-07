@@ -39,6 +39,7 @@ from ._mcp_identity import (
     USER_ID_HEADER,
     ERRAND_PEER_HEADER,
     ERRAND_CHANNEL_HEADER,
+    ROOT_RUN_ID_HEADER,
     agent_id_headers,
 )
 
@@ -134,6 +135,7 @@ __all__ = [
     "USER_ID_HEADER",
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
+    "ROOT_RUN_ID_HEADER",
     "agent_id_headers",
     # ===== Base class =====
     "XYZBaseModule",

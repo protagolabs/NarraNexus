@@ -374,6 +374,10 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
             "is_user": is_user,
             "content": m.content,
             "attachments": m.attachments,
+            # "text"/"multimodal" for ordinary messages; "system_stop" marks the
+            # stop notice, which the frontend renders as a system line (from an
+            # i18n key) rather than as this agent speaking.
+            "msg_type": m.msg_type,
             # Turn that produced this reply (None for user messages / legacy
             # rows) — powers the per-message reasoning disclosure.
             "event_id": m.event_id,

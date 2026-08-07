@@ -140,10 +140,16 @@
         "neverRan": "아직 실행한 적 없음",
         "loading": "처리 과정 불러오는 중…",
         "workingCount": "{{count}}개 작업 중",
-        "process": "프로세스"
+        "process": "프로세스",
+        "stop": "중지",
+        "stopping": "중지 중…",
+        "stopped": "소유자가 중지함",
+        "stopFailed": "이 실행을 중지할 수 없습니다",
+        "stopHint": "이 실행 중지"
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
-      "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리"
+      "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
+      "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다"
     },
     "execution": {
       "showSteps": "실행 단계 표시",

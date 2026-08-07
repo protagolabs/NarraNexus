@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-03
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — send_message / send_to_agent 增加 root_run_id
+
+抽象契约跟着 local 实现走,否则协议层无法透传。语义见 [[local_bus]]。
 
 ## 2026-08-03 — sender_turn_source in both send contracts
 
