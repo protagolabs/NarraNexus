@@ -9,6 +9,25 @@ stub: false
 在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
 索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
 
+## 2026-08-07 (二次) — 团队 artifact 的 view-token
+
+`POST /{team_id}/artifacts/{artifact_id}/view-token`。
+
+**token 载荷刻意不动**。既有设计里 token 就是「针对某一个 artifact 的 bearer 能力」，授权
+发生在 **mint 那一刻**——所以团队校验放在这条路由里，签发时仍用**产出者**的 agent_id，
+而那正是 raw serving（[[raw_access.py]]）解析所依据的字段。下游一行都不用知道 team 的存在。
+
+为什么必须换一套校验：agent 侧的 `_get_owned_artifact` 要求调用方 agent **就是** artifact 的
+agent——这在团队里恰好是反的，面板本来就展示多个成员的产出，队友打开同事的 artifact 是常态
+而非攻击。`_authorize_team_artifact` 改判 **artifact 属于这个 team**。
+
+拒绝一律 404（与 agent 路由一致）：换成 403 会让探测者据此枚举出哪些 artifact_id 存在。
+`team_id IS NULL` 的私有 artifact 同样通不过这条比较——**拥有一个 team 不是通往该 owner
+私有产出的入口**。
+
+可行的前提（已核）：`resolve_raw_file` 的路径约束是 `base_working_path` 而非 agent workspace
+（`raw_access.py:97`），所以落在团队共享目录里的 artifact 本来就能正常提供。
+
 ## 2026-08-07 — 工作台读取路由 + 清理链路跟上新表
 
 新增 `GET /{team_id}/artifacts`（团队面板，**不按 agent 过滤**——面板是团队的，谁产出的都算，

@@ -663,6 +663,46 @@ async def list_team_artifacts(team_id: str, request: Request):
     return await ArtifactRepository(db).list_by_team(team_id)
 
 
+async def _authorize_team_artifact(db, team_id: str, artifact_id: str):
+    """Fetch an artifact and enforce it belongs to THIS team.
+
+    The agent-scoped route next to this one requires the caller's agent to BE
+    the artifact's agent, which is precisely wrong for a team: the panel shows
+    work from several members, and a teammate opening a colleague's artifact is
+    the normal case. Team membership of the ARTIFACT replaces that check.
+
+    404 rather than 403 for every refusal, matching the agent route — a
+    different status would let a prober map which artifact ids exist. Owning a
+    team is also not a way into the owner's private work: a NULL team_id fails
+    the same comparison.
+    """
+    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+
+    art = await ArtifactRepository(db).get_by_id(artifact_id)
+    if art is None or art.team_id != team_id:
+        raise HTTPException(404, "artifact not found")
+    return art
+
+
+@router.post("/{team_id}/artifacts/{artifact_id}/view-token")
+async def mint_team_view_token(team_id: str, artifact_id: str, request: Request):
+    """Mint a short-TTL view token for a team artifact's raw content.
+
+    Authorisation happens HERE, which is where the existing design already put
+    it: the token is a bearer capability for exactly one artifact, so the mint
+    call is the gate. That is why the payload does not grow a team field — it
+    keeps carrying the PRODUCER's agent_id, which is what the raw serving path
+    resolves against, and nothing downstream has to learn about teams.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    art = await _authorize_team_artifact(db, team_id, artifact_id)
+
+    from backend.routes.artifacts import _token as artifact_token
+
+    token = artifact_token.mint(agent_id=art.agent_id, artifact_id=artifact_id)
+    return {"token": token, "raw_url": f"/api/public/artifacts/raw/{token}/"}
+
+
 @router.get("/{team_id}/files")
 async def list_team_files(team_id: str, request: Request):
     """Files shared into the team folder, newest first.
