@@ -218,17 +218,37 @@ class ArtifactRepository(BaseRepository[Artifact]):
         rows = await self._db.execute(sql, params=(agent_id, session_id), fetch=True)
         return [self._row_to_entity(row) for row in rows]
 
-    async def list_pinned(self, agent_id: str) -> List[Artifact]:
+    async def list_pinned(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[Artifact]:
         """
-        Return pinned artifacts for a given agent.
+        Return pinned artifacts for a given agent, freshest first.
+
+        Ordered by `updated_at DESC` so callers that only want the working
+        set can take the head. Re-registering an artifact refreshes that
+        timestamp, so "freshest" tracks what the agent is actually iterating
+        on rather than what it happened to create first.
 
         Args:
             agent_id: Agent scope.
+            limit: Cap the result at this many rows. None (default) returns
+                every pinned artifact — bootstrap's duplicate check relies on
+                an exhaustive scan, so truncation must stay opt-in.
 
         Returns:
-            List of pinned Artifact objects.
+            List of pinned Artifact objects, most recently updated first.
         """
-        return await self.find({"agent_id": agent_id, "pinned": 1})
+        sql = """
+        SELECT * FROM instance_artifacts
+        WHERE agent_id = %s AND pinned = 1
+        ORDER BY updated_at DESC
+        """
+        params: tuple = (agent_id,)
+        if limit is not None:
+            sql += " LIMIT %s"
+            params = (agent_id, int(limit))
+        rows = await self._db.execute(sql, params=params, fetch=True)
+        return [self._row_to_entity(row) for row in rows]
 
     async def list_by_user(self, user_id: str) -> List[Artifact]:
         """

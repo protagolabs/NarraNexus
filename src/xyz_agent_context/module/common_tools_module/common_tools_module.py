@@ -29,6 +29,21 @@ from xyz_agent_context.settings import settings
 from xyz_agent_context.utils import DatabaseClient
 
 
+#: How many artifacts the "Your registered artifacts" block may carry.
+#:
+#: The block used to list every pinned artifact with no limit, on every
+#: turn. Artifacts have no quota, so a prolific agent grew its own system
+#: prompt without bound — a cost paid on each turn forever, for entries it
+#: had long stopped touching.
+#:
+#: Capping is safe because the block is a convenience, not the source of
+#: truth: the full set stays reachable through the artifact tooling. Paired
+#: with `updated_at DESC` the cap is also self-correcting — the update path
+#: re-registers, refreshing the timestamp, so whatever is being iterated on
+#: stays listed and only cold entries fall off.
+ARTIFACT_STATE_BLOCK_LIMIT = 20
+
+
 COMMON_TOOLS_INSTRUCTIONS = """\
 #### Generic Web Search
 
@@ -302,7 +317,9 @@ class CommonToolsModule(XYZBaseModule):
                 ArtifactRepository,
             )
             repo = ArtifactRepository(self.db)
-            artifacts = await repo.list_pinned(self.agent_id)
+            artifacts = await repo.list_pinned(
+                self.agent_id, limit=ARTIFACT_STATE_BLOCK_LIMIT
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"artifact-state block: list_pinned failed: {e}")
             return ""

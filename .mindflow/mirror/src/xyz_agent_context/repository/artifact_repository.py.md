@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-07-21
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — list_pinned：按 updated_at 倒序 + 可选 limit
+
+`list_pinned` 从 `find()` 改为裸 SQL，加 `ORDER BY updated_at DESC` 与可选 `limit`。
+排序不是装饰：更新路径是「重新注册同一个 artifact」，会刷新 `updated_at`，因此
+「最新」正好等于「agent 当前在迭代的东西」，取头部即工作集。
+
+**limit 缺省必须是 None（全量）**：[[profiles.py]] 的 bootstrap 去重扫的就是这个列表，
+一旦默认截断，profile artifact 会被判定为不存在而重复创建。截断只能是调用方显式要求。
+唯一的截断调用方见 [[common_tools_module.py]]。
+
 
 ## 2026-07-21 — update_title() added
 

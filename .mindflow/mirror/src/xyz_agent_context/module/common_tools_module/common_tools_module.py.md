@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — artifact 状态块设上限（ARTIFACT_STATE_BLOCK_LIMIT=20）
+
+`_render_artifact_state_block` 此前列出**全部** pinned artifact、无上限无排序，而
+artifact 没有数量配额 → 注册得越多，system prompt 每轮越长，无限增长，且为早已不碰
+的条目持续付费。现在取 `list_pinned(limit=20)`（按 updated_at 倒序）。
+
+截断是安全的：该块是便利视图而非事实来源，全量始终可经 artifact 工具取回；配合倒序
+后还能自我修正——正在迭代的会因重新注册刷新时间戳而留在列表，掉出去的是真正冷的。
+
+上限值放在模块常量而非 artifact 领域层：约束来自 **prompt 预算**，属于本模块的关切。
+
 
 ## 2026-07-28 — R4b：两个附录搬进 get_turn_context
 
