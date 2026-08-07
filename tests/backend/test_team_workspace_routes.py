@@ -143,3 +143,84 @@ async def test_team_files_are_newest_first(db_client):
 
     rows = await _team_files(db_client, TID)
     assert [r["file_id"] for r in rows] == ["newer", "older"]
+
+
+# ── which turn produced which artifact ────────────────────────────────────
+#
+# The chip under a team message needs to know what THAT turn produced. The
+# link is the events-row id, carried by both bus_messages and the artifact
+# history — a real key, not a timestamp guess, which matters because the
+# ordinary cases defeat guessing: one turn registering two artifacts, or two
+# agents answering in the same room at once.
+
+
+async def _seed_history(db, artifact_id, *, event_id, agent_id="agent_a"):
+    await db.insert("instance_artifact_history", {
+        "artifact_id": artifact_id, "agent_id": agent_id,
+        "file_path": "p", "action": "created", "event_id": event_id,
+    })
+
+
+@pytest.mark.asyncio
+async def test_turn_map_groups_artifacts_by_event(db_client):
+    from backend.routes.teams import _team_artifact_turns
+
+    await _seed_artifact(db_client, "art_1", team_id=TID)
+    await _seed_artifact(db_client, "art_2", team_id=TID)
+    await _seed_history(db_client, "art_1", event_id="evt_a")
+    await _seed_history(db_client, "art_2", event_id="evt_a")
+
+    assert await _team_artifact_turns(db_client, TID) == {"evt_a": ["art_1", "art_2"]}
+
+
+@pytest.mark.asyncio
+async def test_turn_map_excludes_other_teams(db_client):
+    """A chip must never point at another team's work."""
+    from backend.routes.teams import _team_artifact_turns
+
+    await _seed_artifact(db_client, "art_mine", team_id=TID)
+    await _seed_artifact(db_client, "art_theirs", team_id=OTHER_TID)
+    await _seed_history(db_client, "art_mine", event_id="evt_a")
+    await _seed_history(db_client, "art_theirs", event_id="evt_a")
+
+    assert await _team_artifact_turns(db_client, TID) == {"evt_a": ["art_mine"]}
+
+
+@pytest.mark.asyncio
+async def test_turn_map_excludes_private_artifacts(db_client):
+    from backend.routes.teams import _team_artifact_turns
+
+    await _seed_artifact(db_client, "art_private", team_id=None)
+    await _seed_history(db_client, "art_private", event_id="evt_a")
+
+    assert await _team_artifact_turns(db_client, TID) == {}
+
+
+@pytest.mark.asyncio
+async def test_an_updating_turn_also_gets_a_chip(db_client):
+    """Re-registration is how a teammate picks work up, so the turn that
+    UPDATED an artifact is exactly the one worth surfacing."""
+    from backend.routes.teams import _team_artifact_turns
+
+    await _seed_artifact(db_client, "art_1", team_id=TID)
+    await _seed_history(db_client, "art_1", event_id="evt_first")
+    await db_client.insert("instance_artifact_history", {
+        "artifact_id": "art_1", "agent_id": "agent_b", "file_path": "p",
+        "action": "updated", "event_id": "evt_second",
+    })
+
+    assert await _team_artifact_turns(db_client, TID) == {
+        "evt_first": ["art_1"], "evt_second": ["art_1"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_rows_without_a_turn_are_skipped(db_client):
+    """event_id is nullable — legacy rows and callers with no event in scope
+    simply produce no chip rather than a bogus grouping."""
+    from backend.routes.teams import _team_artifact_turns
+
+    await _seed_artifact(db_client, "art_1", team_id=TID)
+    await _seed_history(db_client, "art_1", event_id=None)
+
+    assert await _team_artifact_turns(db_client, TID) == {}

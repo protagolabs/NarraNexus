@@ -9,6 +9,17 @@ stub: false
 在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
 索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
 
+## 2026-08-07 (三次) — `GET /{team_id}/artifact-turns`
+
+消息下方芯片的数据源：`event_id → [artifact_id]`。join 键是 events 行 id，transcript 和
+`instance_artifact_history` 两边都带它。
+
+**为什么不用时间戳近邻**：一轮可以注册两个 artifact，两个 agent 也可以在同一房间同时回复——
+按时间就近匹配会把产出挂到错误的消息上。
+
+**更新型 turn 也纳入**：重新注册正是队友接力的方式，那一轮恰恰最值得浮现。`event_id` 为 NULL
+的行（历史数据、或调用方无 event 在作用域）直接跳过，不归到占位分组里。
+
 ## 2026-08-07 (二次) — 团队 artifact 的 view-token
 
 `POST /{team_id}/artifacts/{artifact_id}/view-token`。

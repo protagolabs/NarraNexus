@@ -663,6 +663,41 @@ async def list_team_artifacts(team_id: str, request: Request):
     return await ArtifactRepository(db).list_by_team(team_id)
 
 
+async def _team_artifact_turns(db, team_id: str) -> dict[str, list[str]]:
+    """Map each turn to the team artifacts it created or updated.
+
+    Powers the chip under a team message: the transcript already carries each
+    reply's `event_id`, so a real key joins the two sides. Timestamps were
+    never an option — one turn can register two artifacts, and two agents can
+    answer in the same room at once, so proximity would attribute the wrong
+    work to the wrong message.
+
+    UPDATING turns are included deliberately: re-registration is how a
+    teammate picks work up, which makes that turn exactly the one worth
+    surfacing. Rows with no event_id (legacy, or a caller with no event in
+    scope) are skipped rather than grouped under a placeholder.
+    """
+    rows = await db.execute(
+        "SELECT DISTINCT h.event_id AS event_id, h.artifact_id AS artifact_id "
+        "FROM instance_artifact_history h "
+        "JOIN instance_artifacts a ON a.artifact_id = h.artifact_id "
+        "WHERE a.team_id = %s AND h.event_id IS NOT NULL "
+        "ORDER BY h.artifact_id",
+        (team_id,), fetch=True,
+    )
+    out: dict[str, list[str]] = {}
+    for r in rows or []:
+        out.setdefault(r["event_id"], []).append(r["artifact_id"])
+    return out
+
+
+@router.get("/{team_id}/artifact-turns")
+async def list_team_artifact_turns(team_id: str, request: Request):
+    """Which artifacts each turn in this room produced (event_id → ids)."""
+    db, _team = await _require_team_owner(request, team_id)
+    return await _team_artifact_turns(db, team_id)
+
+
 async def _authorize_team_artifact(db, team_id: str, artifact_id: str):
     """Fetch an artifact and enforce it belongs to THIS team.
 

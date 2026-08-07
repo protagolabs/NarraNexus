@@ -1777,6 +1777,20 @@ class ApiClient {
     );
   }
 
+  /**
+   * Which artifacts each turn in this room produced (event_id → artifact ids).
+   *
+   * The transcript already carries each reply's event_id, so this is a real
+   * join key. Matching by timestamp was never viable: one turn can register
+   * two artifacts and two agents can answer at once, so proximity would pin
+   * the wrong work to the wrong message.
+   */
+  async listTeamArtifactTurns(teamId: string): Promise<Record<string, string[]>> {
+    return this.request<Record<string, string[]>>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifact-turns`,
+    );
+  }
+
   /** Files shared into the team folder, newest first — the Files tab. */
   async listTeamFiles(teamId: string): Promise<TeamFile[]> {
     return this.request<TeamFile[]>(

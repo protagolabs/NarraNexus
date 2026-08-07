@@ -19,16 +19,24 @@
  * list is how a shared workspace turns into an anonymous pile.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
-import { api } from '@/lib/api';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
-  teamId: string;
-  /** Bumped by the parent when a turn ends, so the panel refetches. */
-  refreshKey?: number;
+  artifacts: Artifact[];
+  files: TeamFile[];
+  loading: boolean;
+  error: string | null;
+  /**
+   * Selection is CONTROLLED by the parent. A chip under a message has to be
+   * able to open something here, so exactly one component can own "what is
+   * showing" — and it has to be the one both the transcript and this panel
+   * live inside.
+   */
+  selectedId: string | null;
+  onSelect: (artifactId: string | null) => void;
 }
 
 type Tab = 'artifacts' | 'files';
@@ -52,42 +60,15 @@ function formatWhen(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePanelProps) {
+export function TeamWorkspacePanel({
+  artifacts,
+  files,
+  loading,
+  error,
+  selectedId,
+  onSelect,
+}: TeamWorkspacePanelProps) {
   const [tab, setTab] = useState<Tab>('artifacts');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [files, setFiles] = useState<TeamFile[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Both tabs load together: the counts are part of the tab labels, so
-      // fetching lazily would make the un-opened tab claim zero items.
-      const [a, f] = await Promise.all([
-        api.listTeamArtifacts(teamId),
-        api.listTeamFiles(teamId),
-      ]);
-      setArtifacts(a);
-      setFiles(f);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load workspace');
-    } finally {
-      setLoading(false);
-    }
-  }, [teamId]);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      if (alive) await load();
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [load, refreshKey]);
 
   // Rendered in place rather than opened in a new tab: the panel exists so a
   // team's output can be read WHILE reading the conversation that produced it,
@@ -99,6 +80,10 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
   // an agent of the team's single owner, so a teammate's artifact resolves
   // without a team-specific token path.
   const selected = artifacts.find((a) => a.artifact_id === selectedId) ?? null;
+
+  // No tab switching when a chip selects something: the preview is its own
+  // region BELOW the list, so it shows regardless of which tab is active.
+  // Forcing the tab would also yank the user out of Files mid-browse.
 
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
@@ -142,7 +127,7 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
               <button
                 key={a.artifact_id}
                 type="button"
-                onClick={() => setSelectedId(a.artifact_id)}
+                onClick={() => onSelect(a.artifact_id)}
                 className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)] ${
                   selectedId === a.artifact_id ? 'bg-[var(--nm-hairline)]' : ''
                 }`}
@@ -185,7 +170,7 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
             </span>
             <button
               type="button"
-              onClick={() => setSelectedId(null)}
+              onClick={() => onSelect(null)}
               className="text-[10px] font-mono text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
             >
               close
