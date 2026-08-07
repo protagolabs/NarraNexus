@@ -124,16 +124,31 @@ class VoiceDeliveryBridge:
         """Authoritative full text of a completed speak call.
 
         Corrects the delta view (or substitutes for it entirely when arg
-        deltas were unavailable). Replaces the open segment's raw text;
-        a call_id change closes the previous segment first — same rule as
-        the delta path, or the no-delta path would keep only the LAST
-        speak call and silently drop every earlier one.
+        deltas were unavailable). Same-segment vs new-segment is decided
+        by BOTH signals, because the real PROGRESS event may carry NO
+        call_id (dev probe 2026-08-07: deltas had the provider id, the
+        completed-call event an empty string — the old id-only rule then
+        closed the delta segment and appended the authoritative text as a
+        duplicate, doubling every spoken line in the room):
+
+        - explicit differing call_ids -> new segment (no-delta path with
+          real ids keeps every call);
+        - otherwise prefix-equivalence: the authoritative text of the SAME
+          call is always a superset (or equal) of its accumulated deltas,
+          so either-is-prefix-of-other = same segment (replace/correct);
+          disjoint content = a genuinely new call (close, then open).
         """
         if self._closed:
             return
-        if call_id != self._current_call:
+        current = sanitize_for_tts(self._current_raw)
+        incoming = sanitize_for_tts(text)
+        ids_differ = bool(call_id) and bool(self._current_call) and (
+            call_id != self._current_call
+        )
+        same_segment = not current or incoming.startswith(current) or current.startswith(incoming)
+        if ids_differ or not same_segment:
             self._close_segment()
-        self._current_call = call_id
+        self._current_call = call_id or self._current_call
         self._current_raw = text
 
     # ── lifecycle ───────────────────────────────────────────────────────

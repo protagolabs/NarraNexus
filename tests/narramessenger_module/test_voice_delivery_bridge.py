@@ -262,3 +262,39 @@ async def test_close_recovers_live_state_after_mid_stream_failure():
     assert ok is True
     final = rec.sent[-1]
     assert LIVE_MARKER_KEY not in final and LIVE_MARKER_KEY not in final["m.new_content"]
+
+
+@pytest.mark.asyncio
+async def test_empty_call_id_progress_corrects_instead_of_duplicating():
+    """Dev-probe regression (2026-08-07): the real PROGRESS event carries NO
+    call_id (empty string), while deltas carry the provider's real id. The
+    authoritative text must CORRECT the open segment, not close it and
+    append a duplicate — the probe showed every speak doubled in the room."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    await bridge.on_reply_delta(call_id="c1", delta="It is sunny today.")
+    bridge.on_segment_text(call_id="", text="It is sunny today.")
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "It is sunny today."  # no duplication
+
+    # Truncated deltas: the authoritative superset REPLACES, not appends.
+    rec2 = Recorder()
+    bridge2 = _bridge(rec2)
+    await bridge2.on_reply_delta(call_id="c1", delta="It is sun")
+    bridge2.on_segment_text(call_id="", text="It is sunny today.")
+    text2, _ = await bridge2.close()
+    assert text2 == "It is sunny today."
+
+
+@pytest.mark.asyncio
+async def test_empty_call_id_multi_segment_still_survives():
+    """No-delta path with anonymous PROGRESS events: DIFFERENT contents are
+    different segments even without call_ids (prefix-equivalence judge)."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    bridge.on_segment_text(call_id="", text="I am checking the weather now.")
+    bridge.on_segment_text(call_id="", text="It is sunny, twenty five degrees.")
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "I am checking the weather now. It is sunny, twenty five degrees."

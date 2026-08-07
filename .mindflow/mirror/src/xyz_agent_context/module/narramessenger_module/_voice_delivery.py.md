@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_voice_delivery.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — dev 全真探针抓到的重复播报 bug
+
+真实事件流里 PROGRESS **不带 call_id**（空串），而 delta 带 provider 真 id——纯 id 判据把 delta 段错误关袋、权威全文再入一段，房间里每句话播两遍（dev probe gw4/gw5 实锤）。修法：同段判定改为**双信号**——显式不同 id → 新段（no-delta 多段保留，review #1 语义不回退）；否则前缀等价判据（同一 call 的权威文本必是其 delta 累积的超集/相等 → 替换修正；内容不相交 → 真新段）。边缘取舍：两个 call 说完全相同的话且都无 id 会被合并为一段——同文重复本就冗余，接受。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
