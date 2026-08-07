@@ -3,6 +3,11 @@ code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (二次) — 取消分支不设 `_hop_done`
+
+rebase 时与 dev 的 `[bus-timing]` 埋点相遇。`_hop_done` 只在完整跑完一跳时
+置 True,被取消的轮次刻意保持 False —— 让它进时延序列会把「投递要多久」
+和「owner 什么时候按的停止」混成一个指标。
 
 ## 2026-08-07 — 总线驱动的 run 终于可以被停止
 

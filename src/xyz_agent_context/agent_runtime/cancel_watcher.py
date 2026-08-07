@@ -22,6 +22,7 @@ and loses on multi-process topology, service discovery and auth.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -209,10 +210,11 @@ class CancelWatcher:
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()
-            try:
+            # The await is only here to let the cancellation land; both the
+            # CancelledError we just caused and any late failure inside the loop
+            # are equally uninteresting at shutdown.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
 
 
 # ===== Process-wide accessor =====

@@ -3,6 +3,15 @@ code_file: backend/routes/runs.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (二次) — 留痕覆盖整个被停集合(PR #252 review Important #4)
+
+初版只对**被点击**的那个 run 留痕。一次点击停掉三层树时,房间里只出现一
+条通知,另外两个 agent 是凭空安静下去的 —— 正是这个函数自己 docstring 里
+写的「其他成员只能猜是跑完了、崩了、还是还在跑」。
+
+`_leave_room_trace` 改收整个 stopped 列表,按 channel 分组,每个房间一条
+(`_post_stop_notice`)。同房间多个 agent 合并成一条,三条独立通知本身就是
+另一种噪音。
 
 # routes/runs.py — run 级控制面(目前只有:owner 的停止请求)
 

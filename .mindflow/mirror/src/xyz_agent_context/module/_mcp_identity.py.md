@@ -3,6 +3,18 @@ code_file: src/xyz_agent_context/module/_mcp_identity.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (二次) — root_run_id 落在第 6 位,不是第 5 位
+
+`user_id`(dev)与 `root_run_id`(级联停止)是并行写的,**两者都曾落在
+第 5 位**。rebase 时按「先到先得」定序:`user_id` 已经在 dev 上、已经在线,
+它的位置不可动;`root_run_id` 追加到第 6。
+
+这次撞车暴露了守卫的一个缺口:原来的契约测试只断言**元数**,冲突时把 5 改
+成 6、两个字段各自保留就绿了 —— 但如果顺序拍反,`root_run_id` 会被解成
+`user_id`,**没有任何测试会红**,而下游是 job 归属与级联停止两条真实链路。
+现在 `test_every_field_count_parses` 逐位断言(参数化扩到 count=6),并额外
+钉死 `BEARER_FIELDS[4] == "user_id"` / `[5] == "root_run_id"`。
+
 ## 2026-08-07 — bearer 追加第 5 段 root_run_id(级联停止)
 
 `BEARER_FIELDS` 变为 5 段,新增 `ROOT_RUN_ID_HEADER` + `caller_root_run_id()`。

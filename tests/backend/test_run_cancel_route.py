@@ -41,7 +41,7 @@ async def db_client():
     await client.close()
 
 
-def _build_client(db_client, viewer_id: str = "user_owner"):
+def _build_client(db_client, monkeypatch, viewer_id: str = "user_owner"):
     app = FastAPI()
     app.include_router(runs_mod.router, prefix="/api/runs")
 
@@ -53,7 +53,9 @@ def _build_client(db_client, viewer_id: str = "user_owner"):
     async def _get_db_override():
         return db_client
 
-    runs_mod.get_db_client = _get_db_override
+    # monkeypatch, not a bare assignment: a permanent rewrite would leave every
+    # later test in the session holding this closed in-memory client.
+    monkeypatch.setattr(runs_mod, "get_db_client", _get_db_override)
     return TestClient(app)
 
 
@@ -94,9 +96,9 @@ async def _seed(
 
 
 @pytest.mark.asyncio
-async def test_owner_stop_records_the_request(db_client):
+async def test_owner_stop_records_the_request(db_client, monkeypatch):
     await _seed(db_client)
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     resp = client.post("/api/runs/evt_r1/cancel")
 
@@ -112,9 +114,9 @@ async def test_owner_stop_records_the_request(db_client):
 
 
 @pytest.mark.asyncio
-async def test_non_owner_is_refused_by_the_server(db_client):
+async def test_non_owner_is_refused_by_the_server(db_client, monkeypatch):
     await _seed(db_client, owner="user_owner")
-    client = _build_client(db_client, viewer_id="user_intruder")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_intruder")
 
     resp = client.post("/api/runs/evt_r1/cancel")
 
@@ -124,14 +126,14 @@ async def test_non_owner_is_refused_by_the_server(db_client):
 
 
 @pytest.mark.asyncio
-async def test_triggering_user_is_not_the_owner(db_client):
+async def test_triggering_user_is_not_the_owner(db_client, monkeypatch):
     """events.user_id is the run's triggering key, not ownership.
 
     In a team room it holds the SENDER. If the endpoint trusted it, every
     participant who ever addressed the agent could stop it.
     """
     await _seed(db_client, owner="user_owner", triggering_user="usr_sender")
-    client = _build_client(db_client, viewer_id="usr_sender")
+    client = _build_client(db_client, monkeypatch, viewer_id="usr_sender")
 
     resp = client.post("/api/runs/evt_r1/cancel")
 
@@ -139,15 +141,15 @@ async def test_triggering_user_is_not_the_owner(db_client):
 
 
 @pytest.mark.asyncio
-async def test_unknown_run_is_404(db_client):
-    client = _build_client(db_client)
+async def test_unknown_run_is_404(db_client, monkeypatch):
+    client = _build_client(db_client, monkeypatch)
     assert client.post("/api/runs/evt_nope/cancel").status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_repeated_clicks_are_idempotent(db_client):
+async def test_repeated_clicks_are_idempotent(db_client, monkeypatch):
     await _seed(db_client)
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     first = client.post("/api/runs/evt_r1/cancel")
     row_after_first = await db_client.get_one("events", {"event_id": "evt_r1"})
@@ -163,7 +165,7 @@ async def test_repeated_clicks_are_idempotent(db_client):
 
 
 @pytest.mark.asyncio
-async def test_settled_run_is_not_flagged(db_client):
+async def test_settled_run_is_not_flagged(db_client, monkeypatch):
     """A finished run acquires no pending stop.
 
     The flag outlives the request, and the watcher's guard is
@@ -171,7 +173,7 @@ async def test_settled_run_is_not_flagged(db_client):
     trap for whatever run comes next on that agent.
     """
     await _seed(db_client, state="completed")
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     resp = client.post("/api/runs/evt_r1/cancel")
 
@@ -186,7 +188,7 @@ async def test_settled_run_is_not_flagged(db_client):
 
 
 @pytest.mark.asyncio
-async def test_the_whole_tree_is_stopped(db_client):
+async def test_the_whole_tree_is_stopped(db_client, monkeypatch):
     """One click stops every still-running run in the tree.
 
     The clicked run is a middle node on purpose: the owner clicks whatever the
@@ -198,7 +200,7 @@ async def test_the_whole_tree_is_stopped(db_client):
     await _seed(db_client, run_id="evt_grandchild", root="evt_root")
     # A different tree must be untouched.
     await _seed(db_client, run_id="evt_other", root="evt_other")
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     resp = client.post("/api/runs/evt_child/cancel")
 
@@ -212,12 +214,12 @@ async def test_the_whole_tree_is_stopped(db_client):
 
 
 @pytest.mark.asyncio
-async def test_settled_runs_in_the_tree_are_not_flagged(db_client):
+async def test_settled_runs_in_the_tree_are_not_flagged(db_client, monkeypatch):
     """Only still-running rows are flagged — a finished sibling must not keep a
     pending stop that a future run could inherit."""
     await _seed(db_client, run_id="evt_root", root="evt_root")
     await _seed(db_client, run_id="evt_done", root="evt_root", state="completed")
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     resp = client.post("/api/runs/evt_root/cancel")
 
@@ -227,13 +229,13 @@ async def test_settled_runs_in_the_tree_are_not_flagged(db_client):
 
 
 @pytest.mark.asyncio
-async def test_an_unlabelled_run_stops_only_itself(db_client):
+async def test_an_unlabelled_run_stops_only_itself(db_client, monkeypatch):
     """A run from before the column exists has root_run_id NULL. Matching on
     NULL would select every other legacy row — so it degrades to a single stop.
     """
     await _seed(db_client, run_id="evt_legacy_a", root=None)
     await _seed(db_client, run_id="evt_legacy_b", root=None)
-    client = _build_client(db_client, viewer_id="user_owner")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
 
     resp = client.post("/api/runs/evt_legacy_a/cancel")
 

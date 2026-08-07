@@ -54,22 +54,47 @@ TEAM_ROOM_OWNER_PREFIX = "team_"
 STOP_NOTICE_MSG_TYPE = "system_stop"
 
 
-async def _leave_room_trace(db, run_id: str, agent_id: str) -> None:
-    """Post "this agent was stopped" into the team room, if the run was in one.
+async def _leave_room_trace(db, stopped_runs: list[dict]) -> None:
+    """Post "these agents were stopped" into the team rooms the runs lived in.
 
     A team task runs in public, so it should stop in public: without a trace the
     other members (and the owner, later) see a task that simply vanished and are
     left guessing whether it finished, crashed, or is still going.
 
+    Takes the WHOLE stopped set, not just the clicked run: a cascade silences
+    every agent in the tree, and narrating only the one the owner happened to
+    click leaves the others vanishing exactly as described above. Runs are
+    grouped per room and announced in one message each — three separate notices
+    in one room would be its own kind of noise.
+
     Best-effort by design — the stop itself is already durable, and failing to
     narrate it must never turn a successful stop into a 500.
     """
     try:
-        activity = await db.get_one("bus_agent_activity", {"event_id": run_id})
-        channel_id = (activity or {}).get("channel_id") or ""
-        if not channel_id:
-            return  # not a bus/room run (chat, job) — nothing to narrate
+        by_channel: dict[str, list[str]] = {}
+        for run in stopped_runs:
+            run_id, agent_id = run.get("event_id") or "", run.get("agent_id") or ""
+            if not run_id:
+                continue
+            activity = await db.get_one("bus_agent_activity", {"event_id": run_id})
+            channel_id = (activity or {}).get("channel_id") or ""
+            if not channel_id:
+                continue  # not a bus/room run (chat, job) — nothing to narrate
+            by_channel.setdefault(channel_id, [])
+            if agent_id and agent_id not in by_channel[channel_id]:
+                by_channel[channel_id].append(agent_id)
 
+        for channel_id, agent_ids in by_channel.items():
+            await _post_stop_notice(db, channel_id, agent_ids)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[run-cancel] could not post stop notice: {e}")
+
+
+async def _post_stop_notice(db, channel_id: str, agent_ids: list[str]) -> None:
+    """One notice per team room, naming every agent stopped there."""
+    if not agent_ids:
+        return  # nothing to attribute the notice to
+    try:
         channel = await db.get_one("bus_channels", {"channel_id": channel_id})
         if not str((channel or {}).get("created_by") or "").startswith(
             TEAM_ROOM_OWNER_PREFIX
@@ -79,8 +104,11 @@ async def _leave_room_trace(db, run_id: str, agent_id: str) -> None:
         from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 
         bus = LocalMessageBus(backend=db._backend)
+        # Posted AS one of the stopped agents so the transcript can resolve a
+        # display name; the frontend renders it as a room-level system line,
+        # never as that agent speaking.
         await bus.send_message(
-            from_agent=agent_id,
+            from_agent=agent_ids[0],
             to_channel=channel_id,
             content="Run stopped by owner.",
             msg_type=STOP_NOTICE_MSG_TYPE,
@@ -90,7 +118,7 @@ async def _leave_room_trace(db, run_id: str, agent_id: str) -> None:
             mentions=None,
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[run-cancel] could not post stop notice for {run_id}: {e}")
+        logger.warning(f"[run-cancel] could not post notice in {channel_id}: {e}")
 
 
 @router.post("/{run_id}/cancel", response_model=CancelRunResponse)
@@ -146,13 +174,13 @@ async def cancel_run(run_id: str, request: Request) -> CancelRunResponse:
     else:
         siblings = [row]
 
-    cascaded = 0
+    stopped: list[dict] = []
     for sibling in siblings or []:
         # Repeated clicks keep each row's ORIGINAL timestamp: the watcher's
         # verdict is `requested >= started_at`, and re-stamping later could move
         # that verdict for a run that started in between.
         if sibling.get("cancel_requested_at"):
-            cascaded += 1
+            stopped.append(sibling)
             continue
         try:
             await db.update(
@@ -160,7 +188,7 @@ async def cancel_run(run_id: str, request: Request) -> CancelRunResponse:
                 {"event_id": sibling["event_id"]},
                 {"cancel_requested_at": requested_at},
             )
-            cascaded += 1
+            stopped.append(sibling)
         except Exception as e:  # noqa: BLE001
             # One unwritable row must not abort the rest of the tree — a
             # partially stopped tree still beats a fully running one, and the
@@ -169,12 +197,14 @@ async def cancel_run(run_id: str, request: Request) -> CancelRunResponse:
                 f"[run-cancel] could not flag {sibling.get('event_id')!r}: {e}"
             )
 
+    cascaded = len(stopped)
     logger.info(
         f"[run-cancel] stop requested for run {run_id} by {user_id} "
         f"(tree={root or 'single'}, runs={cascaded})"
     )
 
-    await _leave_room_trace(db, run_id, row.get("agent_id", ""))
+    # Every silenced agent gets narrated, not just the clicked one.
+    await _leave_room_trace(db, stopped)
 
     return CancelRunResponse(
         success=True,

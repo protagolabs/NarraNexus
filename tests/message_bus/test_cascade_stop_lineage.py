@@ -162,3 +162,33 @@ async def test_an_unlabelled_message_is_never_suppressed(db_client):
     pending = await bus.get_pending_messages("agent_b")
     assert len(pending) == 1
     assert pending[0].root_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_tree_whose_root_already_finished_still_suppresses(db_client):
+    """The delegating shape: the root run ENDS before the work does.
+
+    An agent that hands work to a peer typically finishes its own turn right
+    after sending — "fire it off, end my turn, they'll answer later". So by the
+    time the owner sees the peer running and presses stop, the ROOT row is
+    already `completed` and never receives a flag (settled rows are
+    deliberately not flagged — a terminal row must not carry a pending stop).
+
+    A suppression predicate that only looks at the root row therefore reads
+    "nothing was stopped" and keeps waking new runs — the whack-a-mole this
+    feature exists to kill, in its most common form. The question the filter
+    must ask is "did ANYONE in this tree get stopped", not "did the root".
+    """
+    await _seed_channel(db_client)
+    # Root finished long ago, carries no flag.
+    await _seed_run(db_client, "evt_root", root="evt_root", state="completed")
+    # Its child is the one still running, and the one the owner stopped.
+    await _seed_run(db_client, "evt_child", root="evt_root", cancel_at=utc_now())
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    await bus.send_message(
+        from_agent="agent_a", to_channel="ch_1", content="queued follow-up",
+        root_run_id="evt_root",
+    )
+
+    assert await bus.get_pending_messages("agent_b") == []

@@ -128,7 +128,13 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     if (!runId || stopping) return;
     setStopRequest({ runId, failed: false });
     try {
-      await api.cancelRun(runId);
+      const r = await api.cancelRun(runId);
+      if (r.already_settled) {
+        // The run finished between render and click. Nothing was flagged, so
+        // no terminal frame is coming — holding "stopping…" would wait forever
+        // for an event that already happened.
+        setStopRequest(null);
+      }
     } catch {
       // Owner check rejected, run already gone, network down — the button
       // must not stay stuck on "stopping" for something that never landed.

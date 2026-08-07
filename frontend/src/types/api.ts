@@ -162,6 +162,9 @@ export interface CancelRunResponse extends ApiResponse {
   state: string;
   /** True when the run had already finished — nothing was flagged. */
   already_settled: boolean;
+  /** How many runs the stop was applied to, this one included. >1 means the
+   *  run had caused others and the whole trigger tree was stopped. */
+  cascaded?: number;
 }
 
 // Clear history types

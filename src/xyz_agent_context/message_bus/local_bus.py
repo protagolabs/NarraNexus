@@ -460,13 +460,23 @@ class LocalMessageBus(MessageBusService):
         rows = await self._db.execute(
             f"SELECT m.* FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
-            f"LEFT JOIN events e ON m.root_run_id = e.event_id "
             f"WHERE cm.agent_id = {ph} "
             f"AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
             f"AND m.from_agent != {ph} "
+            # "Was ANYONE in this tree stopped" — deliberately not "was the
+            # ROOT stopped". The root row is often already `completed` when the
+            # owner presses stop (an agent that delegates typically ends its own
+            # turn right after sending), and settled rows are never flagged, so
+            # keying off the root alone reads as "nothing was stopped" in the
+            # most common delegating shape and keeps waking new runs.
+            #
             # NULL root = not part of any tree (user messages, legacy rows):
-            # those are never suppressed. A LEFT JOIN miss behaves the same way.
-            f"AND (m.root_run_id IS NULL OR e.cancel_requested_at IS NULL) "
+            # never suppressed, otherwise one stop would mute the whole table.
+            f"AND (m.root_run_id IS NULL OR NOT EXISTS ("
+            f"  SELECT 1 FROM events e"
+            f"  WHERE e.root_run_id = m.root_run_id"
+            f"    AND e.cancel_requested_at IS NOT NULL"
+            f")) "
             f"ORDER BY m.created_at ASC "
             f"LIMIT {int(limit)}",
             (agent_id, agent_id),
