@@ -31,6 +31,7 @@ and checked to stay inside the sender's workspace (no ``../`` escape).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import mimetypes
 import os
@@ -267,6 +268,43 @@ async def resolve_and_stage_refs(
     return out
 
 
+def _content_hash(path: Path) -> str:
+    """sha256 of a file's bytes, streamed.
+
+    sha256 rather than md5: the same cost in practice, and it is the hash a
+    content-addressed store would reuse later, so the index does not have to
+    be re-computed to get there.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path):
+    """The existing row for this exact file, or None.
+
+    Two-stage on purpose. Hashing reads the whole file, so it runs only after
+    a cheap indexed lookup on (team, name, size) finds a candidate — a
+    genuinely new file is never hashed. Same name with a different hash is NOT
+    a duplicate: those are two different files that happen to share a name,
+    and folding one onto the other would silently destroy a share.
+    """
+    candidates = await db.execute(
+        "SELECT * FROM team_files WHERE team_id = %s AND original_name = %s "
+        "AND size_bytes = %s",
+        params=(team_id, name, size), fetch=True,
+    )
+    if not candidates:
+        return None
+    digest = await asyncio.to_thread(_content_hash, src)
+    for row in candidates:
+        if row.get("content_hash") == digest:
+            return row
+    return digest  # no match; hand the caller the digest it already paid for
+
+
 async def stage_path_into_team(
     *,
     sender_agent_id: str,
@@ -274,17 +312,72 @@ async def stage_path_into_team(
     team_id: str,
     ref: str,
     base: Optional[str] = None,
+    db=None,
 ) -> Optional[dict]:
     """Stage one workspace file (or att_ file_id) into a team's shared scratch
-    dir. Returns the staged dict with an added absolute ``path``, or None if the
-    handle does not resolve. Membership/ownership are validated by the caller."""
+    dir and index it. Returns the staged dict with an added absolute ``path``,
+    or None if the handle does not resolve. Membership/ownership are validated
+    by the caller.
+
+    The index row is what makes the folder enumerable at all: files land under
+    a generated file_id, so without a row the original name exists nowhere and
+    the only way to find anything is an agent reciting a path in chat.
+
+    Re-sharing a byte-identical file reuses the existing row and skips the
+    copy. Indexing failures are logged, never raised: the file is already on
+    disk and reachable by path at that point, so refusing the share to protect
+    the bookkeeping would cost the user the actual outcome.
+    """
     base = _base(base)
     src = _resolve_ref_to_source(ref, sender_agent_id, owner_user_id, base)
     if src is None:
         return None
+
+    if db is None:
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+        db = await get_db_client()
+
+    name = src.name
+    size = src.stat().st_size
+    digest = None
+    try:
+        found = await _find_duplicate(db, team_id, name, size, src)
+        if isinstance(found, dict):
+            # Byte-identical re-share: hand back the row that already exists.
+            return {
+                "file_id": found["file_id"],
+                "original_name": found["original_name"],
+                "mime_type": found.get("mime_type"),
+                "size_bytes": int(found.get("size_bytes") or 0),
+                "category": found.get("category"),
+                "rel_path": found["rel_path"],
+                "path": str((_base_root(base) / found["rel_path"]).resolve()),
+            }
+        digest = found  # str when a name/size collision existed, else None
+    except Exception as e:  # noqa: BLE001 — dedup is an optimisation, not a gate
+        logger.warning(f"[team files] dedup lookup failed for {name!r}: {e}")
+
     dest_dir = team_shared_dir(owner_user_id, team_id, base)
-    staged = await _stage_into(src, dest_dir, base, original_name=src.name)
+    staged = await _stage_into(src, dest_dir, base, original_name=name)
     staged["path"] = str((_base_root(base) / staged["rel_path"]).resolve())
+
+    if digest is None:
+        digest = await asyncio.to_thread(_content_hash, src)
+    try:
+        await db.insert("team_files", {
+            "file_id": staged["file_id"],
+            "team_id": team_id,
+            "owner_user_id": owner_user_id,
+            "shared_by_agent_id": sender_agent_id,
+            "original_name": staged["original_name"],
+            "rel_path": staged["rel_path"],
+            "mime_type": staged.get("mime_type"),
+            "category": staged.get("category"),
+            "size_bytes": staged.get("size_bytes") or 0,
+            "content_hash": digest,
+        })
+    except Exception as e:  # noqa: BLE001 — see docstring
+        logger.warning(f"[team files] index row not written for {name!r}: {e}")
     return staged
 
 

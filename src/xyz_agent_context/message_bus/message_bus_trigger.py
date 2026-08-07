@@ -741,8 +741,9 @@ class MessageBusTrigger:
                     # becomes a root) — see the recorder's bind.
                     root_run_id=trigger_message.root_run_id or "",
                     include_monologue=is_team,
-                    # The turn's team, for the MCP identity headers — tools must
-                    # learn it from the server, not a model parameter.
+                    # The turn's team, for the MCP identity headers — tools
+                    # must learn it from the server, never from a model
+                    # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
                     # Same fact, module-side consumer: the team room must NOT
                     # advertise bus tools as its reply surface (plain text
