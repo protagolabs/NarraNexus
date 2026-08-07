@@ -10,6 +10,14 @@ stub: false
 进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
 run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
 
+## 2026-08-07 — 新增 bus_list_team_files
+
+共享目录终于可被枚举。工具本身是薄封装，规则在 [[team_files.py]]：授权按 **成员关系**
+而非 owner（一个 user 多个 team，按 owner 判会让该 owner 的任意 agent 读到全部 team）。
+
+配套：team prompt（[[message_bus_trigger.py]]）从「用 Read 打开这个目录」改为**明确指向本工具**
+——此前 agent 只能猜路径或让别人复述，发现文件靠模型之间的社交协议。
+
 ## 2026-08-05 — 删掉 `bus_register_agent`：名录不能有第二个写入者
 
 `bus_agent_registry` 现在是 A2A 发现的权威行，而这个工具是它的**第二个写入

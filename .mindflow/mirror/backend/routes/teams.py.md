@@ -9,6 +9,17 @@ stub: false
 在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
 索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
 
+## 2026-08-07 — 工作台读取路由 + 清理链路跟上新表
+
+新增 `GET /{team_id}/artifacts`（团队面板，**不按 agent 过滤**——面板是团队的，谁产出的都算，
+`agent_id` 留在行上供 UI 归因）与 `GET /{team_id}/files`（共享目录的**用户入口**，此前不存在：
+`_shared/` 是 agent workspace 的 sibling，workspace 浏览器看不见它）。两者复用既有 owner 校验。
+
+**`_wipe_team_data` 必须同步删索引**：清理会 rmtree 掉共享目录，行若留下，面板照样列出这些
+文件，用户要等到下载失败才发现——**留下孤儿行比不显示更糟**。团队 artifact 指向的正是被删掉
+的那棵树，所以一并删除，连同它们的归因行（否则 history 表堆积永远无人读取的孤儿）。
+过滤条件是**这个 team**，不是这个 owner：私有 artifact 与其他 team 不受影响。
+
 ## 2026-07-31 — idle carries started_at; messages carry event_id
 
 Two serialization fixes for the roster/transcript:

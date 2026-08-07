@@ -118,7 +118,10 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
     """
-    result = {"chat_messages": 0, "chat_failures": 0, "files_removed": False, "errors": []}
+    result = {
+        "chat_messages": 0, "chat_failures": 0, "files_removed": False,
+        "file_rows": 0, "artifacts": 0, "errors": [],
+    }
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
 
     if clear_chat:
@@ -140,6 +143,26 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
                 result["chat_messages"] = await db.delete("bus_messages", {"channel_id": cid})
 
     if clear_files:
+        # The index has to go with the bytes. A row that outlives its file is
+        # worse than no row: the panel still lists it and the user only finds
+        # out when the download fails. Team artifacts point into the very tree
+        # being deleted, so they follow — with their attribution rows, which
+        # would otherwise accumulate as orphans nothing can ever read.
+        # Private artifacts and other teams are untouched: the filter is this
+        # team, not this owner.
+        async with db.transaction():
+            arts = await db.execute(
+                "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
+                (team.team_id,), fetch=True,
+            )
+            ids = [r["artifact_id"] for r in arts or []]
+            for aid in ids:
+                await db.delete("instance_artifact_history", {"artifact_id": aid})
+            result["artifacts"] = await db.delete(
+                "instance_artifacts", {"team_id": team.team_id}
+            )
+            result["file_rows"] = await db.delete("team_files", {"team_id": team.team_id})
+
         d = team_shared_dir(team.owner_user_id, team.team_id)
         try:
             if d.exists():
@@ -592,6 +615,65 @@ async def clear_team_data(
 
     result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files)
     return {"success": True, **result}
+
+
+# --- Team workspace (artifacts + shared files) -----------------------------
+#
+# The read surface for the team room's workspace panel. Both are owner-scoped
+# through the same check every other team route uses: a team belongs to one
+# user (the bus forbids cross-user messaging, so a team cannot span users),
+# which makes the owner the tenant boundary here too.
+
+
+async def _team_files(db, team_id: str) -> list[dict]:
+    """A team's shared files, newest first.
+
+    Split out from the route so the ordering and the team filter can be tested
+    without standing up an HTTP client.
+    """
+    rows = await db.execute(
+        "SELECT * FROM team_files WHERE team_id = %s ORDER BY id DESC",
+        (team_id,), fetch=True,
+    )
+    return list(rows or [])
+
+
+async def _require_team_owner(request: Request, team_id: str):
+    """Resolve the team after checking the caller owns it. Returns (db, team)."""
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    team = await TeamRepository(db).get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.owner_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return db, team
+
+
+@router.get("/{team_id}/artifacts")
+async def list_team_artifacts(team_id: str, request: Request):
+    """Artifacts owned by this team, newest first — the team room's panel.
+
+    Not filtered by agent: the panel shows the TEAM's output whoever produced
+    it. `agent_id` rides on every row so the UI can attribute each one.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+
+    return await ArtifactRepository(db).list_by_team(team_id)
+
+
+@router.get("/{team_id}/files")
+async def list_team_files(team_id: str, request: Request):
+    """Files shared into the team folder, newest first.
+
+    This is the user-facing entry point the folder never had: `_shared/` is a
+    sibling of every agent workspace, so the workspace browser cannot see it
+    and the only previous way to find a file was an agent naming its path in
+    chat.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    return await _team_files(db, team_id)
 
 
 @router.post("/{team_id}/members", response_model=TeamOperationResponse)
