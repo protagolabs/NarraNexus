@@ -4,6 +4,20 @@ last_verified: 2026-08-07
 stub: false
 ---
 
+## 2026-08-07 (二次) — 改为面板内联渲染，并发现团队 view-token 是多余的
+
+初版点击 artifact 走 `window.open` 新标签页。改为在面板下半部内联渲染
+（复用 [[ArtifactRenderer.tsx]]）——这个面板存在的意义就是**边读对话边看产出**，新开标签页
+恰好把那个上下文丢掉。
+
+**关键发现**：`ArtifactRenderer` 零 store 耦合，且内部按 `artifact.agent_id`（**产出者**）走
+agent 侧 view-token。而 agent 路由的鉴权是「JWT 用户是否拥有该 agent」——团队成员本来就都是
+团队 owner 的 agent，所以**队友的 artifact 用既有路由就能取到**，无需任何团队专用 token 通道。
+
+因此 `POST /teams/{id}/artifacts/{id}/view-token`（commit 6209dba5）在当前 UI 路径上**用不到**。
+保留与否见该 commit 的说明与 owner 决定；它表达的是「按 team 归属授权」这一更贴切的语义，
+但功能上与 agent 路由重叠。
+
 # TeamWorkspacePanel — 团队房间的工作台
 
 ## 为什么存在

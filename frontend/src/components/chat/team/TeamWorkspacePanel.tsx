@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
 import { api } from '@/lib/api';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
@@ -53,6 +54,7 @@ function formatWhen(iso: string): string {
 
 export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePanelProps) {
   const [tab, setTab] = useState<Tab>('artifacts');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [files, setFiles] = useState<TeamFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -87,19 +89,16 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
     };
   }, [load, refreshKey]);
 
-  const openArtifact = useCallback(
-    async (artifactId: string) => {
-      try {
-        // The team route mints it: the agent-scoped one would refuse, because
-        // it requires the caller's agent to be the artifact's producer.
-        const { raw_url } = await api.mintTeamArtifactViewToken(teamId, artifactId);
-        window.open(raw_url, '_blank', 'noopener,noreferrer');
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not open artifact');
-      }
-    },
-    [teamId],
-  );
+  // Rendered in place rather than opened in a new tab: the panel exists so a
+  // team's output can be read WHILE reading the conversation that produced it,
+  // and a new tab throws that context away.
+  //
+  // ArtifactRenderer needs no team plumbing. It mints through the agent-scoped
+  // route using the artifact's own agent_id — the producer — and that route
+  // authorises on "does the JWT user own this agent". Every member of a team is
+  // an agent of the team's single owner, so a teammate's artifact resolves
+  // without a team-specific token path.
+  const selected = artifacts.find((a) => a.artifact_id === selectedId) ?? null;
 
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
@@ -143,8 +142,10 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
               <button
                 key={a.artifact_id}
                 type="button"
-                onClick={() => void openArtifact(a.artifact_id)}
-                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)]"
+                onClick={() => setSelectedId(a.artifact_id)}
+                className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)] ${
+                  selectedId === a.artifact_id ? 'bg-[var(--nm-hairline)]' : ''
+                }`}
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{a.title}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
@@ -175,6 +176,26 @@ export function TeamWorkspacePanel({ teamId, refreshKey = 0 }: TeamWorkspacePane
             ))
           ))}
       </div>
+
+      {selected && (
+        <div className="shrink-0 h-64 border-t border-[var(--nm-hairline)] flex flex-col min-h-0">
+          <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-[var(--nm-hairline)]">
+            <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
+              {selected.title}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="text-[10px] font-mono text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
+            >
+              close
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ArtifactRenderer artifact={selected} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
