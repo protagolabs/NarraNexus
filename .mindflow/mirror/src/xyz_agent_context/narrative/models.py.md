@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-07-31
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — RoutingAudit / RoutingCandidate（E1）
+
+路由决策的载体。`RoutingCandidate.text_hash` 指向 narrative **被打分那一刻**的文本，
+不是它现在的文本——`name / current_summary / topic_keywords` 被 [[updater.py]] 几乎
+每轮全量重写且不留历史，事后回读 `narratives` 表重建的池子是一个从未存在过的池子。
+
+`RoutingAudit.candidates` 刻意装**整个池子**而不是 top-K：`bm25_rank` 的 IDF 和
+avgdl 在候选集自身上算，裁过的池子重放出来是另一组数。详见
+[[narrative_routing_audit_repository.py]]。
+
+`NarrativeSelectionResult` 上新增的 `audit` / `audit_snapshots` 是**临时字段**，只在
+retrieval tier 和 `NarrativeService.select` 之间传递，不随任何东西落库。挂在结果对象上
+而不是另开返回值，是为了让调用点没法忘记它。
+
 
 ## 2026-07-31 — TriggerType 与 WorkingSource 1:1 对齐
 

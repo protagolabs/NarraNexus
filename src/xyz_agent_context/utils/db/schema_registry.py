@@ -2127,6 +2127,86 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# Narrative routing audit (E1) — the decision trail for narrative selection.
+#
+# Until this table, `selection_method` / `retrieval_method` / `selection_reason`
+# / scores went only to a ProgressMessage and loguru. Docker logs rotate and a
+# grep only finds what you thought to search for (incident lesson #5), so there
+# was no denominator: "routing accuracy improved by X%" had nothing to measure
+# against, and the continuity tier — which can lock a thread for several turns
+# on one false positive — left no trace at all.
+#
+# `candidates_json` holds the WHOLE pool, not top-K, each entry pointing at a
+# content-addressed text snapshot. That is not belt-and-braces: `bm25_rank`
+# computes IDF and avgdl over the candidate set it is handed, so a partial
+# pool replays to different numbers — and the scored text itself (name /
+# current_summary / topic_keywords) is rewritten wholesale by the async LLM
+# updater on almost every turn with no history kept, so re-reading `narratives`
+# later reconstructs a pool that never existed.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="narrative_routing_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            Column("query_text", "TEXT", "MEDIUMTEXT"),
+            Column("trigger", "TEXT", "VARCHAR(64)"),
+            Column("is_user_chat", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # tier 1 — continuity
+            Column("continuity_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("continuity_is_continuous", "INTEGER", "TINYINT(1)"),
+            Column("continuity_confidence", "REAL", "DOUBLE"),
+            Column("continuity_reason", "TEXT", "TEXT"),
+            # tier 2 — BM25 pool + gate
+            Column("candidates_json", "TEXT", "MEDIUMTEXT"),
+            Column("gate_short_circuit", "INTEGER", "TINYINT(1)"),
+            Column("gate_reason", "TEXT", "TEXT"),
+            Column("gate_top1_raw", "REAL", "DOUBLE"),
+            Column("gate_top2_raw", "REAL", "DOUBLE"),
+            Column("gate_margin", "REAL", "DOUBLE"),
+            # tier 3 — LLM arbitration
+            Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("judge_category", "TEXT", "VARCHAR(32)"),
+            Column("judge_matched_id", "TEXT", "VARCHAR(128)"),
+            Column("judge_reason", "TEXT", "TEXT"),
+            # outcome
+            Column("selection_method", "TEXT", "VARCHAR(64)"),
+            Column("retrieval_method", "TEXT", "VARCHAR(32)"),
+            Column("chosen_narrative_id", "TEXT", "VARCHAR(128)"),
+            Column("is_new", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_nra_agent_time", ["agent_id", "created_at"]),
+            Index("idx_nra_selection_method", ["selection_method"]),
+            Index("idx_nra_chosen", ["chosen_narrative_id"]),
+        ],
+    )
+)
+
+
+# Content-addressed store for the searchable text each narrative carried at
+# decision time. Keyed by sha256 of the text, so a pool that did not change
+# between turns costs one row total, not one row per turn — the 100-candidate
+# pool of a busy agent adds ~1 new snapshot per turn (only the main narrative's
+# summary moves), with the audit row storing pointers.
+_register(
+    TableDef(
+        name="narrative_text_snapshots",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("text_hash", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("text", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_nts_hash", ["text_hash"], unique=True)],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

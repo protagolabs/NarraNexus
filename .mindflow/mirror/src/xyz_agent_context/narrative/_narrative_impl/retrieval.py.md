@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 池子拆出 `load_pool` / `rank_pool`，为的是审计能精确重放
+
+`keyword_search` 内部原来一口气做完「读 narrative → 拼文本 → BM25」。现在拆成
+`load_pool`（读 + 拼，返回 `(id, text, is_default)`）和 `rank_pool`（纯函数打分），
+`keyword_search` 保持签名不变——它是 `select_fast` 依赖的公开接缝。
+
+拆的原因不是整洁，是**审计必须存下被打分的那份文本和完整池子**：`bm25_rank` 的
+IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组数。2026-08-07 实测 452
+条真实本地 query，仅仅移除 8 条 default narrative 就让 top-1 翻转 9.7%、闸门决策
+翻转 5.8%——那 8 条语义上毫不相关，却真实地改变了排序。
+
+`retrieve_top_k` 变成薄包装，内层是 `_retrieve_top_k`。这么做是因为决策出口有 7 个
+（本方法 + `_llm_unified_match`），在每个出口分别拼装审计是必然会腐烂的记账——将来
+加一个分支就静默失去可观测性，而这正是这张表要终结的失败模式。外层只在**一个地方**
+盖上结局章。
+
+判官的 `reason` 原文也存下来了：它是流水线里唯一的语义检查，而它的推理过程以前只
+活在一个进 loguru 的 f-string 里。
+
 
 ## 2026-08-06 — `_keyword_search` 转正为公开 `keyword_search`
 

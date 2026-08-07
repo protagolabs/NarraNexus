@@ -1,0 +1,212 @@
+"""
+@file_name: test_routing_audit.py
+@date: 2026-08-07
+@description: The routing audit must be sufficient for EXACT offline replay.
+
+Why this file exists
+====================
+Narrative routing decisions were previously written only to a ProgressMessage
+and loguru — nothing reached the database (incident lesson #5: docker logs
+rotate, a grep only finds what you thought to search for). With no persisted
+decision there is no denominator, so "we improved routing accuracy by X%" had
+nothing to measure against.
+
+The trap this pins down is subtler than "we forgot to log it". A naive audit
+that stores only narrative IDs and scores CANNOT be replayed, because
+``bm25_rank`` computes IDF *and* avgdl over the candidate set it is handed —
+so the score of a candidate depends on every other document in the pool, and
+on the exact ``current_summary`` / ``topic_keywords`` text each carried AT
+DECISION TIME. Those fields are rewritten wholesale by the async LLM updater
+on (almost) every turn and keep no history, so re-reading `narratives` later
+reconstructs a pool that never existed.
+
+Hence: the audit stores the WHOLE pool as content-addressed text snapshots.
+`test_audit_replays_bm25_exactly` is the property that makes the table worth
+its bytes — it fails if anyone trims the pool to top-K or drops the text.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+from xyz_agent_context.narrative.models import RoutingAudit, RoutingCandidate
+from xyz_agent_context.repository.narrative_routing_audit_repository import (
+    NarrativeRoutingAuditRepository,
+    text_hash,
+)
+
+pytestmark = pytest.mark.asyncio
+
+
+# A pool shaped like the real thing: a handful of Chinese narratives plus the
+# eight English default-narrative descriptions that sit in every agent's pool
+# (measured on dev 2026-08-07: 89.3% of all narrative rows are defaults).
+# They matter here precisely because they are semantically irrelevant yet
+# still move IDF/avgdl — a replay that omits them produces different numbers.
+_POOL = [
+    ("nar_a", "飞书 OAuth 授权与消息测试\nTopic: 授权回调调试\n飞书 oauth 授权 回调", False),
+    ("nar_b", "会议纪要整理\nTopic: 今天参加过的会议内容\n会议 纪要 整理", False),
+    ("nar_c", "MathFRAYT bug 排查\nStatus: 定位中\nbug 排查 前端", False),
+    ("nar_d0", "GreetingAndCourtesy Greetings, small talk, thanks, farewells, "
+               "ending chat or explicitly terminating current conversation", True),
+    ("nar_d1", "CasualChatOrEmotion Casual chat or emotional expression that "
+               "clearly doesn't point to any specific object, event, or issue", True),
+]
+_QUERY = "帮我看下飞书授权回调"
+
+
+def _audit_from_pool(pool, query):
+    """Build the audit payload the production writer will build."""
+    scores = bm25_rank(query, [(nid, text) for nid, text, _ in pool])
+    return (
+        RoutingAudit(
+            agent_id="agent_test",
+            user_id="user_test",
+            query_text=query,
+            trigger="chat",
+            is_user_chat=True,
+            candidates=[
+                RoutingCandidate(
+                    narrative_id=nid,
+                    text_hash=text_hash(text),
+                    raw_score=scores.get(nid, 0.0),
+                    is_default=is_default,
+                )
+                for nid, text, is_default in pool
+            ],
+            selection_method="high_confidence",
+            retrieval_method="keyword",
+            chosen_narrative_id="nar_a",
+        ),
+        {text_hash(text): text for _, text, _ in pool},
+    )
+
+
+async def test_audit_replays_bm25_exactly(db_client):
+    """The stored pool must reproduce the original scores bit-for-bit.
+
+    This is the whole point of the table. It fails if the pool is truncated
+    to top-K (IDF/avgdl change) or if only IDs are stored (text is gone).
+    """
+    # Arrange — score a pool and persist the decision
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+    original = {c.narrative_id: c.raw_score for c in audit.candidates}
+    repo = NarrativeRoutingAuditRepository(db_client)
+    await repo.record(audit, snapshots)
+
+    # Act — reconstruct the pool from the audit alone, then re-rank
+    row = (await repo.recent(agent_id="agent_test", limit=1))[0]
+    stored = [RoutingCandidate(**c) for c in row["candidates"]]
+    texts = await repo.load_snapshots([c.text_hash for c in stored])
+    replayed = bm25_rank(
+        row["query_text"], [(c.narrative_id, texts[c.text_hash]) for c in stored]
+    )
+
+    # Assert — identical, not merely close
+    for nid, score in original.items():
+        if score > 0:
+            assert replayed[nid] == pytest.approx(score, abs=1e-12), (
+                f"{nid} replayed to {replayed.get(nid)} but was scored {score} "
+                f"at decision time — the audit is not replay-sufficient"
+            )
+
+
+async def test_dropping_the_defaults_changes_the_scores(db_client):
+    """Guards the reason the full pool is stored, not just the interesting rows.
+
+    Measured on 452 real local queries: removing the eight default narratives
+    flips top-1 on 9.7% of turns. If this test ever passes trivially (scores
+    unchanged), the justification for storing the whole pool is gone and the
+    docstring above is wrong.
+    """
+    full = bm25_rank(_QUERY, [(nid, t) for nid, t, _ in _POOL])
+    trimmed = bm25_rank(_QUERY, [(nid, t) for nid, t, d in _POOL if not d])
+    shared = [nid for nid in full if nid in trimmed]
+    assert shared, "fixture must have candidates surviving both rankings"
+    assert any(full[nid] != trimmed[nid] for nid in shared), (
+        "removing the default narratives did not move any score — "
+        "the pool-completeness requirement this table is built around no "
+        "longer holds; re-derive it before trimming the audit"
+    )
+
+
+async def test_snapshots_are_content_addressed_and_deduped(db_client):
+    """Two turns over an unchanged pool must not double-store the texts."""
+    repo = NarrativeRoutingAuditRepository(db_client)
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+
+    await repo.record(audit, snapshots)
+    after_first = await repo.snapshot_count()
+    await repo.record(audit, snapshots)
+    after_second = await repo.snapshot_count()
+
+    assert after_first == len(_POOL)
+    assert after_second == after_first, (
+        "re-recording an unchanged pool grew the snapshot table; the "
+        "content-addressed key is not deduplicating"
+    )
+
+
+def test_record_pool_captures_participants_not_in_the_bm25_pool():
+    """P0-4 candidates must appear in the audit, flagged, with raw_score 0.
+
+    Participant narratives are appended to the result list AFTER ranking, with
+    a synthetic neutral similarity — they never went through bm25_rank. An
+    audit taken before that merge (the first cut of this code did exactly
+    that) silently drops them and leaves `is_participant` permanently false,
+    losing precisely the candidates the participant-priority rule is about.
+    """
+    from datetime import datetime, timezone
+
+    from xyz_agent_context.narrative.models import (
+        Narrative, NarrativeInfo, NarrativeSearchResult, NarrativeType,
+    )
+    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
+
+    now = datetime.now(timezone.utc)
+    invited = Narrative(
+        id="nar_invited", type=NarrativeType.CHAT, agent_id="agent_test",
+        narrative_info=NarrativeInfo(
+            name="别人邀请我进来的任务", description="", current_summary="", actors=[]
+        ),
+        event_ids=[], created_at=now, updated_at=now,
+    )
+    pool = [(nid, text, is_d) for nid, text, is_d in _POOL]
+    audit = RoutingAudit(agent_id="agent_test", user_id="user_test", query_text=_QUERY)
+    snapshots: dict = {}
+
+    NarrativeRetrieval._record_pool(
+        audit, snapshots, pool,
+        [NarrativeSearchResult(narrative_id="nar_a", similarity_score=0.9, rank=1, raw_score=9.0)],
+        [invited],
+    )
+
+    by_id = {c.narrative_id: c for c in audit.candidates}
+    assert "nar_invited" in by_id, "participant candidate missing from the audit"
+    assert by_id["nar_invited"].is_participant
+    assert by_id["nar_invited"].raw_score == 0.0, (
+        "a participant carries a synthetic neutral similarity, never a BM25 "
+        "score — recording one would make a replay read it as a keyword hit"
+    )
+    assert by_id["nar_invited"].text_hash in snapshots
+    assert not by_id["nar_a"].is_participant
+
+
+async def test_record_never_raises(db_client):
+    """The observer must not break the observed (audit is advisory)."""
+    repo = NarrativeRoutingAuditRepository(db_client)
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+
+    class _Broken:
+        async def insert(self, *a, **k):
+            raise RuntimeError("db is down")
+
+        async def execute(self, *a, **k):
+            raise RuntimeError("db is down")
+
+        async def get(self, *a, **k):
+            raise RuntimeError("db is down")
+
+    repo._db = _Broken()
+    await repo.record(audit, snapshots)  # must not raise

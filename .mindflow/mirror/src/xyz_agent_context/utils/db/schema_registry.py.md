@@ -3,6 +3,17 @@ code_file: src/xyz_agent_context/utils/db/schema_registry.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — narrative_routing_audit + narrative_text_snapshots（E1）
+
+narrative 路由的决策轨迹。`candidates_json` 存**整个** BM25 候选池而非 top-K，每条
+指向一份内容寻址的文本快照——这不是保险起见：`bm25_rank` 的 IDF/avgdl 在候选集自身
+上算，裁过的池子重放不出原来的分数；而被打分的文本本身又被异步 LLM 更新几乎每轮
+覆写且不留历史。两条约束叠加，"只存 id 和分数"的审计等于不能重放。
+
+`narrative_text_snapshots` 按 sha256 内容寻址去重：相邻两轮通常只有主 narrative 的
+摘要变了，所以 100 条候选的池子每轮只新增约 1 行。详见
+[[narrative_routing_audit_repository.py]]。
+
 ## 2026-08-07 — events.root_run_id / bus_messages.root_run_id + 索引
 
 触发树标签。**从根继承的扁平标签,刻意不是父子指针**:这里唯一被问到的问题
