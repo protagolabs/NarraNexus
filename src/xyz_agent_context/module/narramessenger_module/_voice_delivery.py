@@ -124,29 +124,35 @@ class VoiceDeliveryBridge:
         """Authoritative full text of a completed speak call.
 
         Corrects the delta view (or substitutes for it entirely when arg
-        deltas were unavailable). Same-segment vs new-segment is decided
-        by BOTH signals, because the real PROGRESS event may carry NO
-        call_id (dev probe 2026-08-07: deltas had the provider id, the
-        completed-call event an empty string — the old id-only rule then
-        closed the delta segment and appended the authoritative text as a
-        duplicate, doubling every spoken line in the room):
+        deltas were unavailable). Same-segment vs new-segment:
 
-        - explicit differing call_ids -> new segment (no-delta path with
-          real ids keeps every call);
-        - otherwise prefix-equivalence: the authoritative text of the SAME
-          call is always a superset (or equal) of its accumulated deltas,
-          so either-is-prefix-of-other = same segment (replace/correct);
-          disjoint content = a genuinely new call (close, then open).
+        - Explicit ids, when BOTH sides have one, are authoritative in
+          both directions: same id -> correct in place (even if the text
+          is disjoint), different id -> new segment. NOTE: today this
+          branch is defensive only — run_collector does not propagate
+          tool_call_id into PROGRESS, so the real event always carries an
+          empty string (dev probe 2026-08-07) and the prefix judge below
+          is the SOLE guard for the no-delta multi-call path.
+        - Otherwise: forward prefix on the RAW text. The authoritative
+          text of the SAME call is a superset of (or equal to) its
+          accumulated deltas BY CONSTRUCTION on raw — never compare after
+          sanitize_for_tts, which deletes paired structure markers and
+          breaks the prefix relation exactly when a delta is cut inside a
+          markdown link / inline code / URL (the inputs sanitize exists
+          for). No reverse branch: a shorter disjoint text is a NEW
+          segment — replacing a longer finished segment with a shorter
+          one would silently lose spoken content, which is worse than
+          duplicating it.
         """
         if self._closed:
             return
-        current = sanitize_for_tts(self._current_raw)
-        incoming = sanitize_for_tts(text)
-        ids_differ = bool(call_id) and bool(self._current_call) and (
-            call_id != self._current_call
-        )
-        same_segment = not current or incoming.startswith(current) or current.startswith(incoming)
-        if ids_differ or not same_segment:
+        if call_id and self._current_call:
+            same_segment = call_id == self._current_call
+        else:
+            same_segment = not self._current_raw or text.startswith(
+                self._current_raw
+            )
+        if not same_segment:
             self._close_segment()
         self._current_call = call_id or self._current_call
         self._current_raw = text

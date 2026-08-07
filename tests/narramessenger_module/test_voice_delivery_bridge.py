@@ -298,3 +298,51 @@ async def test_empty_call_id_multi_segment_still_survives():
     text, ok = await bridge.close()
     assert ok
     assert text == "I am checking the weather now. It is sunny, twenty five degrees."
+
+
+@pytest.mark.asyncio
+async def test_delta_cut_inside_markdown_still_corrects_in_place():
+    """PR-251 review #1: the prefix judge must run on RAW text. sanitize
+    deletes paired structure markers, so a delta cut inside a markdown
+    link / inline code / URL leaves a half-marker that no longer
+    prefix-matches the sanitized full text — and the duplication this PR
+    kills comes straight back on exactly the inputs sanitize exists for."""
+    for cut, full in (
+        ("See [the docs", "See [the docs](https://x.com) for more."),
+        ("It is `sunn", "It is `sunny` today."),
+        ("Hi http", "Hi https://x.com now."),
+    ):
+        rec = Recorder()
+        bridge = _bridge(rec)
+        await bridge.on_reply_delta(call_id="c1", delta=cut)
+        bridge.on_segment_text(call_id="", text=full)
+        text, ok = await bridge.close()
+        assert ok
+        assert text == sanitize_for_tts(full), f"cut={cut!r}"  # no duplication
+
+
+@pytest.mark.asyncio
+async def test_anonymous_shorter_second_call_never_truncates_the_first():
+    """PR-251 review #2: the reverse-prefix branch could silently REPLACE a
+    longer finished segment with a shorter new one — content loss is worse
+    than duplication. A disjoint shorter call is a NEW segment."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    bridge.on_segment_text(call_id="", text="I am checking the weather now.")
+    bridge.on_segment_text(call_id="", text="I am")  # prefix of the first!
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "I am checking the weather now. I am"
+
+
+@pytest.mark.asyncio
+async def test_same_explicit_call_id_always_corrects_in_place():
+    """PR-251 review #3: if ids ever propagate, an explicitly IDENTICAL id
+    must short-circuit to same-segment even when the text is disjoint."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    await bridge.on_reply_delta(call_id="c1", delta="Hello there.")
+    bridge.on_segment_text(call_id="c1", text="Goodbye now.")
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "Goodbye now."

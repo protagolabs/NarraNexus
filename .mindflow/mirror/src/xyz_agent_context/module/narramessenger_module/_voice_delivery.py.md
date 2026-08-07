@@ -6,7 +6,7 @@ last_verified: 2026-08-07
 
 ## 2026-08-07 — dev 全真探针抓到的重复播报 bug
 
-真实事件流里 PROGRESS **不带 call_id**（空串），而 delta 带 provider 真 id——纯 id 判据把 delta 段错误关袋、权威全文再入一段，房间里每句话播两遍（dev probe gw4/gw5 实锤）。修法：同段判定改为**双信号**——显式不同 id → 新段（no-delta 多段保留，review #1 语义不回退）；否则前缀等价判据（同一 call 的权威文本必是其 delta 累积的超集/相等 → 替换修正；内容不相交 → 真新段）。边缘取舍：两个 call 说完全相同的话且都无 id 会被合并为一段——同文重复本就冗余，接受。
+真实事件流里 PROGRESS **不带 call_id**（空串），而 delta 带 provider 真 id——纯 id 判据把 delta 段错误关袋、权威全文再入一段，房间里每句话播两遍（dev probe gw4/gw5 实锤）。修法（经 PR-251 review 再校正）：①id 双方都有时 id 是权威（同 id 必同段、异 id 必新段）——但**今天 id 分支纯防御**：run_collector 不透传 tool_call_id，PROGRESS 恒空串，no-delta 多段实际只靠前缀判据在扛；②否则**raw 正向前缀**判据——权威文本按构造是 delta 累积的超集，**绝不能比 sanitize 后的文本**（成对删标记不保前缀，delta 切在 markdown/URL/行内代码中间就误判成新段，重复播报原样回归——review 给了实测表）；③**无反向分支**——较短的不相交文本是新段，用短文本替换已完成的长段=静默丢内容，比重复更糟（铁律 #16）。边缘取舍：匿名两 call 说前缀相同的话，后者并入前者段——同文冗余，接受。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
