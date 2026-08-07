@@ -47,6 +47,14 @@ runtime 于是自己造一个外界无法触发的 no-op token —— 这就是 
 又 import 回本包,顶层 import 直接循环(`get_agent_runtime_client` 一直
 留在 `_invoke_runtime` 里就是同一个原因)。
 
+## 2026-08-07 — trigger_extra_data 新增 bus_team_id
+
+team turn 的 `team_id` 本来就在 `is_team` 分支里算好了（用于 team prompt），只是没往下游
+传。现在发布到 `trigger_extra_data`，供 [[context_runtime.py]] 注入 MCP 身份 header，让工具
+从**服务端**而非模型参数得知本回合属于哪个 team。非 team 回合为 `""`。
+
+不折叠进 `bus_errand_channel`：后者只在 errand continuation 时 stamp，多数 team turn 为空。
+
 ## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
 
 team 房与普通 bus 轮同为 working_source=MESSAGE_BUS，但交付契约相反

@@ -419,7 +419,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
     count — and each present field must land in its own slot.
@@ -439,16 +439,22 @@ def test_every_field_count_parses(count):
         BEARER_FIELDS,
         caller_errand_scope,
         caller_root_run_id,
+        caller_team_id_from_request,
         caller_turn_source,
         caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 6, "arity changed — update _parse_bearer + this test"
+    assert len(BEARER_FIELDS) == 7, "arity changed — update _parse_bearer + this test"
     assert BEARER_FIELDS[4] == "user_id" and BEARER_FIELDS[5] == "root_run_id", (
         "field ORDER changed — the wire is positional; a swap silently "
         "decodes one fact as another"
     )
-    values = [REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1", "evt_root1"][:count]
+    values = [
+        REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1",
+        # root_run_id at #6 and team_id at #7 — two facts written in parallel;
+        # root_run_id reached dev first, so it keeps the earlier slot.
+        "evt_root1", "team_1",
+    ][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
         assert caller_turn_source() == (values[1] if count >= 2 else None)
@@ -457,6 +463,7 @@ def test_every_field_count_parses(count):
         assert channel == (values[3] if count >= 4 else None)
         assert caller_user_id_from_request() == (values[4] if count >= 5 else None)
         assert caller_root_run_id() == (values[5] if count >= 6 else None)
+        assert caller_team_id_from_request() == (values[6] if count >= 7 else None)
 
 
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():

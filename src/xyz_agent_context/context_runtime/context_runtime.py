@@ -1086,6 +1086,11 @@ class ContextRuntime:
         # onto the message. Empty when unknown; the cascade reads that as "not
         # part of the tree being stopped".
         root_run_id = str(turn_extra.get("root_run_id") or "")
+        # The turn's team, when it has one. Server-side on purpose: tools take
+        # agent_id as a model-filled parameter, so "am I in a team" can never
+        # be answered from tool arguments without letting a private turn claim
+        # a team it is not in.
+        team_id = str(turn_extra.get("bus_team_id") or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
@@ -1138,6 +1143,7 @@ class ContextRuntime:
                             # and tools fall back to the model's parameter.
                             user_id=self.user_id,
                             root_run_id=root_run_id,
+                            team_id=team_id,
                         ),
                     }
                     collected_count += 1

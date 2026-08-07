@@ -741,6 +741,9 @@ class MessageBusTrigger:
                     # becomes a root) — see the recorder's bind.
                     root_run_id=trigger_message.root_run_id or "",
                     include_monologue=is_team,
+                    # The turn's team, for the MCP identity headers — tools must
+                    # learn it from the server, not a model parameter.
+                    team_id=team_id if is_team else "",
                     # Same fact, module-side consumer: the team room must NOT
                     # advertise bus tools as its reply surface (plain text
                     # auto-posts; the prompt forbids delivery tools), so the
@@ -1483,6 +1486,7 @@ class MessageBusTrigger:
         on_event_id=None,
         include_monologue: bool = False,
         team_room: bool = False,
+        team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
     ) -> tuple[str, Optional[str]]:
@@ -1563,6 +1567,13 @@ class MessageBusTrigger:
                 # send from this turn stamps the next message and the tree
                 # survives the next hop).
                 "root_run_id": root_run_id,
+                # The team whose room this turn runs in ("" outside a team).
+                # The trigger already resolved it above; publishing it here is
+                # what lets tools learn the team from the SERVER rather than
+                # from a model-filled parameter (see module/_mcp_identity.py).
+                # Not folded into bus_errand_channel: that one is stamped only
+                # for errand continuations, so it is empty on most team turns.
+                "bus_team_id": team_id,
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id

@@ -9,6 +9,12 @@ stub: false
 errand scope 同一个注入点、同一份 turn_extra。作用见 [[_mcp_identity]]:
 本轮发出的消息要盖上这棵树,血缘才能过下一跳。
 
+## 2026-08-07 — 向 MCP 身份 header 注入 team_id
+
+`agent_id_headers(...)` 增加 `team_id=`，取自 `turn_extra["bus_team_id"]`（由
+[[message_bus_trigger.py]] 发布）。与既有 agent_id 注入同一动机：工具的 `agent_id` 是模型
+填的参数，「我在不在 team」若也靠参数，私聊回合就能声称自己在 team 并写进其工作台。
+
 ## 2026-08-04 (review 修正) — team 房中央门控：整轮空 expressive
 
 review Critical #1：只在 bus module 挡 team 房不够——ChatModule 无条件
