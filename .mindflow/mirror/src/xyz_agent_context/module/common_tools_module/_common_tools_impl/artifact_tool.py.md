@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-07-22
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — scope 参数：team 由服务端定，模型只有否决权
+
+新增 `scope: str = "auto"`。**非对称设计**，这是本次的关键：
+
+- **team 来自服务端** `caller_team_id_from_request()`。模型**无法**通过传参把 artifact 放进
+  某个 team——`agent_id` 本身就是模型填的参数，若 team 也信参数，私聊回合就能写进团队空间。
+- **`scope="private"` 是模型唯一的杠杆，且只能收窄**：把草稿从「它确实所在的 team」里摘出来，
+  永远不能用来够到一个它不在的 team。
+- **其他任何值（含默认值与模型瞎编的值）一律跟随 turn**。这是弱模型下的安全方向：常见情况
+  零决策，编错了退化成**正确行为**，而不是退化成「一个团队里谁都找不到的私有 artifact」。
+
+**参数必须是 `str` + 默认值，不能是 `Optional[str]`**：FastMCP 会把 Optional 渲染成
+`anyOf:[X,null]`，strict-schema provider 直接**请求级 400**——整个请求挂掉，不是这一次调用
+降级。测试 `test_scope_parameter_is_not_optional_typed` 守着这条。
+
+⚠️ 本文件顶部的前端耦合警告（`ARTIFACT_TOOL_BASE_NAMES`）仍然有效：本次**没有改工具名**，
+只加参数，故前端无需同步。
 
 ## 2026-07-22 — new `open_url` MCP tool
 

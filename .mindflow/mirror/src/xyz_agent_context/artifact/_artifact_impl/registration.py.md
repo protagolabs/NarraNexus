@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-07-23
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — team 归属、共享目录可注册（缺口 T6）、归因历史
+
+**归属**：`register_artifact` 增加 `team_id`（None = 私有）。它来自服务端身份 header，
+**不是**模型参数——见 [[artifact_tool.py]]。
+
+**放开路径（缺口 T6）**：`_resolve_entry` 此前把 entry 硬限制在 agent 自己 workspace 内，
+而共享目录按设计是每个 agent workspace 的 **sibling**（谁都不拥有它）→ 放进共享目录的文件
+**永远无法注册成 artifact**。「共享目录里的东西不能变成团队可见产出」，那这个共享目录只是
+半个功能。现在额外允许**本回合所属那个 team** 的目录：兄弟 team 的目录仍然越界；且**相对
+路径依旧只相对自己 workspace 解析**，团队目录只能用绝对路径抵达，不会把相对路径悄悄重定基
+到 agent 没有指名的根上。
+
+**归因历史**：三条写入路径（新建 / target 重注册 / 同 entry 去重）各追加一行
+`instance_artifact_history`。`_record_history` **永不抛异常**——此刻 artifact 本身已经正确，
+让一条日志失败去毁掉一次成功注册，是拿 agent 的真实工作换记账；缺行只是历史降级，抛异常
+才是功能降级。
 
 ## 2026-07-23 — agent-scoped re-register dedup
 

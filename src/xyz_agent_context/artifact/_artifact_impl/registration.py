@@ -118,12 +118,24 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, str]:
+def _resolve_entry(
+    agent_id: str, user_id: str, entry_path: str, team_id: Optional[str] = None
+) -> tuple[str, str]:
     """Resolve and validate the entry file path.
 
     `entry_path` may be absolute or relative to the agent workspace. The
-    resolved file must be an existing regular file, strictly inside the agent
-    workspace.
+    resolved file must be an existing regular file, inside the agent workspace
+    — or, on a team turn, inside THAT team's shared folder.
+
+    Why the second root: the shared folder is deliberately a SIBLING of every
+    agent workspace so no single agent owns it, which meant a file placed
+    there could never be registered as an artifact. A shared folder whose
+    contents cannot become the team's visible output is only half a feature.
+
+    The widening is scoped to the team the turn actually belongs to — a
+    sibling team's folder stays out of bounds — and `team_id` reaches here
+    from the server-side identity headers, never from a tool argument, so a
+    private turn cannot name a team to reach its files.
 
     Returns:
         (abs_entry, artifact_root) — both realpath-resolved absolute paths.
@@ -138,10 +150,18 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
         ArtifactPathEscape: file missing / not a file / outside the workspace.
     """
     workspace = os.path.realpath(workspace_root(agent_id, user_id))
+    # Relative paths keep resolving against the agent's OWN workspace: the
+    # team folder is reachable by absolute path, never by silently re-basing
+    # a relative one onto a root the agent did not name.
     raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
     abs_entry = os.path.realpath(raw)
 
-    if not abs_entry.startswith(workspace + os.sep):
+    allowed_roots = [workspace]
+    if team_id:
+        from xyz_agent_context.utils.workspace_paths import team_shared_dir
+        allowed_roots.append(os.path.realpath(str(team_shared_dir(user_id, team_id))))
+
+    if not any(abs_entry.startswith(root + os.sep) for root in allowed_roots):
         raise ArtifactPathEscape(
             "entry_path is outside your agent workspace. Write the artifact "
             "files inside your workspace first, then register the entry file."
@@ -153,6 +173,37 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
 
     artifact_root = os.path.dirname(abs_entry)
     return abs_entry, artifact_root
+
+
+async def _record_history(
+    repo: ArtifactRepository,
+    *,
+    artifact_id: str,
+    agent_id: str,
+    file_path: str,
+    size_bytes: int,
+    action: str,
+) -> None:
+    """Append one attribution row. Never raises.
+
+    Registration must not fail because bookkeeping did: the artifact itself is
+    already correct at this point, and turning a successful registration into
+    an error would cost the agent real work to save a log line. A missing row
+    degrades the history; a raised exception would degrade the feature.
+
+    `event_id` stays NULL here — the MCP registration path has no turn handle
+    in scope (see the column comment in schema_registry).
+    """
+    try:
+        await repo._db.insert("instance_artifact_history", {
+            "artifact_id": artifact_id,
+            "agent_id": agent_id,
+            "file_path": file_path,
+            "size_bytes": size_bytes,
+            "action": action,
+        })
+    except Exception as e:  # noqa: BLE001 — bookkeeping is never flow control
+        logger.warning(f"artifact history not recorded for {artifact_id}: {e}")
 
 
 # ── registration ───────────────────────────────────────────────────────────────
@@ -169,6 +220,7 @@ async def register_artifact(
     title: str,
     description: Optional[str],
     target_artifact_id: Optional[str],
+    team_id: Optional[str] = None,
 ) -> CreateArtifactToolResult:
     """
     Register a pointer to an entry file the agent wrote in its workspace.
@@ -199,6 +251,8 @@ async def register_artifact(
         title: Human-readable title (truncated to 200 chars).
         description: Optional freeform description.
         target_artifact_id: If set, re-register onto this existing artifact.
+        team_id: Owning team when this is a team turn, else None (private).
+            Comes from the server-side identity headers, never from the model.
 
     Returns:
         CreateArtifactToolResult with artifact_id, url, created_at.
@@ -223,7 +277,7 @@ async def register_artifact(
             f"image/png, image/jpeg, application/pdf."
         )
 
-    abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path)
+    abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path, team_id)
     workspace = os.path.realpath(workspace_root(agent_id, user_id))
     # Single-file mode when entry sits at the workspace root: account only for
     # the entry file (and serve only the entry — see raw_access.py).
@@ -261,6 +315,10 @@ async def register_artifact(
             title=title[:200],
             description=description,
         )
+        await _record_history(
+            repo, artifact_id=target_artifact_id, agent_id=agent_id,
+            file_path=rel_path, size_bytes=size_bytes, action="updated",
+        )
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
             artifact_id=target_artifact_id,
@@ -283,6 +341,10 @@ async def register_artifact(
                     size_bytes=size_bytes,
                     title=title[:200],
                     description=description,
+                )
+                await _record_history(
+                    repo, artifact_id=existing.artifact_id, agent_id=agent_id,
+                    file_path=rel_path, size_bytes=size_bytes, action="updated",
                 )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
@@ -308,11 +370,16 @@ async def register_artifact(
             kind=kind,
             description=description,
             pinned=session_id is None,
+            team_id=team_id,
             file_path=rel_path,
             size_bytes=size_bytes,
             created_at=now,
             updated_at=now,
         )
+    )
+    await _record_history(
+        repo, artifact_id=artifact_id, agent_id=agent_id,
+        file_path=rel_path, size_bytes=size_bytes, action="created",
     )
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(

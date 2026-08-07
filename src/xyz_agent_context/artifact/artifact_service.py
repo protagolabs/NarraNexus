@@ -62,6 +62,7 @@ class ArtifactService:
         title: str,
         description: Optional[str] = None,
         target_artifact_id: Optional[str] = None,
+        team_id: Optional[str] = None,
     ) -> CreateArtifactToolResult:
         """Register (or re-register) a pointer to a workspace entry file.
 
@@ -79,6 +80,7 @@ class ArtifactService:
             title=title,
             description=description,
             target_artifact_id=target_artifact_id,
+            team_id=team_id,
         )
 
     async def heal(

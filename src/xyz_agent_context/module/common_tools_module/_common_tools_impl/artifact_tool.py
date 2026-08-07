@@ -19,6 +19,7 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from xyz_agent_context.artifact import ArtifactError, ArtifactService
+from xyz_agent_context.module._mcp_identity import caller_team_id_from_request
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
@@ -93,6 +94,11 @@ def register(mcp: FastMCP) -> None:
             "title — a short, human-readable tab title.\n"
             "target_artifact_id — pass to update an existing tab in place "
             "(kind must match); omit to create a new tab.\n"
+            "scope — leave as \"auto\". In a team room your artifact goes to "
+            "the TEAM workspace, where the whole team (people and teammate "
+            "agents) can see it and build on it; in a one-to-one chat it "
+            "stays private. Pass \"private\" only for a scratch draft you do "
+            "NOT want your team to see.\n"
             "\n"
             "On success returns {artifact_id, url}; the tab is already visible "
             "to the user, so don't repeat the URL in your reply. On failure "
@@ -111,17 +117,39 @@ def register(mcp: FastMCP) -> None:
         session_id: Optional[str] = None,
         description: Optional[str] = None,
         target_artifact_id: Optional[str] = None,
+        scope: str = "auto",
     ) -> dict:
         """Register-scoped MCP handler for `register_artifact`.
 
         The LLM-facing contract lives in the `description=` above. This body
-        just resolves a DB client and delegates to `ArtifactService.register`;
-        all validation and path logic is there. Every failure path returns a
-        structured `{error, code}` dict.
+        resolves a DB client, decides the artifact's OWNING SCOPE, and
+        delegates to `ArtifactService.register`; all validation and path logic
+        is there. Every failure path returns a structured `{error, code}` dict.
+
+        Scope resolution — the team comes from the SERVER, the model only gets
+        a veto:
+
+          * the turn's team is read from the identity headers, so a model
+            cannot place an artifact into a team by naming one (`agent_id` is
+            already a model-filled parameter — trusting arguments here would
+            let a private chat write into a team's workspace);
+          * `scope="private"` is the one lever the model has, and it can only
+            NARROW: it opts a draft out of the team it is actually in;
+          * anything else, including the default and any value the model
+            invents, follows the turn. Defaulting to the turn is what makes
+            this safe under a weak model: the common case needs no decision at
+            all, and an unrecognised value degrades to the correct behaviour
+            rather than to a private artifact nobody can find.
+
+        `scope` is a plain `str` with a default rather than `Optional[str]`:
+        FastMCP renders Optional as `anyOf:[X,null]`, which strict-schema
+        providers reject with a request-level 400 — the whole request fails,
+        not just this call.
         """
         try:
             db = await get_db_client()
             service = ArtifactService(db)
+            team_id = None if str(scope).strip().lower() == "private" else caller_team_id_from_request()
             result = await service.register(
                 agent_id=agent_id,
                 user_id=user_id,
@@ -131,6 +159,7 @@ def register(mcp: FastMCP) -> None:
                 title=title,
                 description=description,
                 target_artifact_id=target_artifact_id,
+                team_id=team_id,
             )
             return result.model_dump(mode="json")
         except ArtifactError as e:
