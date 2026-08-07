@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 ---
+## 2026-08-07 — 导出 ROOT_RUN_ID_HEADER
+
+注入面继续走公开面(2026-08-04 定的规矩:私有模块不跨包被 import),
+服务端解析仍留在 `_mcp_identity`。
 
 ## 2026-08-04 — 导出调用者身份的注入面
 

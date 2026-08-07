@@ -105,6 +105,15 @@ USER_ID_HEADER = "X-NarraNexus-User-Id"
 ERRAND_PEER_HEADER = "X-NarraNexus-Errand-Peer"
 ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 
+# WHICH TRIGGER TREE this turn belongs to (events.root_run_id). Needed because
+# a message an agent sends here becomes the trigger for somebody else's run,
+# and that run has no other way to learn which tree it continues — the lineage
+# would break at exactly this hop. Consumed by the bus send tools, which stamp
+# it onto the message they write; the cascade stop then selects a whole tree by
+# this one value. A turn with no known tree omits it, and the cascade reads
+# NULL as "not part of the tree being stopped".
+ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
+
 # Everything above ALSO rides the borrowed bearer, because codex forwards
 # nothing else. Shipping a fact only on an explicit header was a real hole
 # (PR #229 review): a codex-side asker always wrote NULL turn source, and the
@@ -112,7 +121,7 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 # flips a FOLLOW-UP question back to Owner Relay and reproduces the P1. Iron
 # rule #15 forbids treating a first-class adapter as a corner.
 #
-#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>
+#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>
 #
 # Contract — pin it, do not improvise:
 #   * fields are POSITIONAL and their order is frozen; ``BEARER_FIELDS`` names
@@ -129,7 +138,24 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 #   * every field stays token68-safe (RFC 7235): "~" qualifies, and it appears
 #     in none of our ids (``agent_`` / ``ch_`` + hex), turn sources or stamps.
 BEARER_FIELD_SEP = "~"
-BEARER_FIELDS = ("agent_id", "turn_source", "errand_peer", "errand_channel", "user_id")
+BEARER_FIELDS = (
+    "agent_id",
+    "turn_source",
+    "errand_peer",
+    "errand_channel",
+    "user_id",
+    # Appended 2026-08-07 (cascade stop). Appending is the ONLY legal way to
+    # add a fact here: an older reader truncates past its own field count and
+    # simply does not see it, which is the intended degradation.
+    #
+    # It lands at #6 and NOT at #5, even though both facts were written in
+    # parallel: `user_id` reached dev first, so its position is already on the
+    # wire. Swapping them would make an in-flight bearer decode `root_run_id`
+    # as a user id — and because the arity guard below only checks the COUNT,
+    # nothing would go red. That is why `test_every_field_count_parses`
+    # asserts position by position, not just the total.
+    "root_run_id",
+)
 
 # Values a model supplies when it is guessing instead of reading its prompt.
 # These are NOT agent ids and must never reach a DB lookup: treat them as
@@ -207,6 +233,7 @@ class BearerIdentity(NamedTuple):
     errand_peer: Optional[str] = None
     errand_channel: Optional[str] = None
     user_id: Optional[str] = None
+    root_run_id: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -564,6 +591,7 @@ def agent_id_headers(
     errand_peer: str | None = None,
     errand_channel: str | None = None,
     user_id: str | None = None,
+    root_run_id: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -578,7 +606,14 @@ def agent_id_headers(
     """
     # Positional bearer record; trailing unknowns are dropped, an unknown in
     # the middle stays as an empty field so later positions keep their meaning.
-    fields = [agent_id, turn_source or "", errand_peer or "", errand_channel or "", user_id or ""]
+    fields = [
+        agent_id,
+        turn_source or "",
+        errand_peer or "",
+        errand_channel or "",
+        user_id or "",
+        root_run_id or "",
+    ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
     bearer_value = BEARER_AGENT_PREFIX + BEARER_FIELD_SEP.join(fields)
@@ -592,6 +627,7 @@ def agent_id_headers(
         (ERRAND_PEER_HEADER, errand_peer),
         (ERRAND_CHANNEL_HEADER, errand_channel),
         (USER_ID_HEADER, user_id),
+        (ROOT_RUN_ID_HEADER, root_run_id),
     ):
         if value:
             headers[header] = str(value)
@@ -640,6 +676,28 @@ def caller_errand_scope() -> tuple[Optional[str], Optional[str]]:
         return (None, None)
 
 
+def caller_root_run_id() -> Optional[str]:
+    """The trigger tree this turn belongs to (``events.root_run_id``), or None.
+
+    None means "we could not tell" — no request in scope, or a caller that has
+    no tree (a run started before this field shipped, or one whose own root was
+    never recorded). A message stamped with None is simply not part of any tree
+    a cascade can select, which is the correct degradation: failing to stop is
+    recoverable, stopping the wrong tree is not.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        return (
+            _explicit_header(headers, ROOT_RUN_ID_HEADER)
+            or _bearer(headers).root_run_id
+        )
+    except Exception as e:  # noqa: BLE001 — never flow control
+        logger.debug(f"[mcp-identity] could not read root run id: {e}")
+        return None
+
+
 __all__ = [
     "AGENT_ID_HEADER",
     "BEARER_FIELD_SEP",
@@ -649,8 +707,10 @@ __all__ = [
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
     "USER_ID_HEADER",
+    "ROOT_RUN_ID_HEADER",
     "caller_turn_source",
     "caller_errand_scope",
+    "caller_root_run_id",
     "BEARER_AGENT_PREFIX",
     "PLACEHOLDER_AGENT_IDS",
     "PLACEHOLDER_USER_IDS",

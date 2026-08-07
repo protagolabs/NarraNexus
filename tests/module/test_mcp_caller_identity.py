@@ -419,19 +419,36 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
-    count — and each present field must land in its own slot."""
+    count — and each present field must land in its own slot.
+
+    Every count is also a back-compat case: a sender that predates a later
+    field transmits fewer, and every earlier field must still read exactly as
+    before.
+
+    The per-POSITION assertions below are load-bearing, not thoroughness for
+    its own sake. ``user_id`` (dev) and ``root_run_id`` (cascade stop) were
+    written in parallel and both landed on slot #5 before this merge. An arity
+    check alone would go green the moment the count says 6 — even with the two
+    swapped, which would decode a run id as a user id on the wire. Only
+    asserting slot by slot can catch that.
+    """
     from xyz_agent_context.module._mcp_identity import (
         BEARER_FIELDS,
         caller_errand_scope,
+        caller_root_run_id,
         caller_turn_source,
         caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 5, "arity changed — update _parse_bearer + this test"
-    values = [REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1"][:count]
+    assert len(BEARER_FIELDS) == 6, "arity changed — update _parse_bearer + this test"
+    assert BEARER_FIELDS[4] == "user_id" and BEARER_FIELDS[5] == "root_run_id", (
+        "field ORDER changed — the wire is positional; a swap silently "
+        "decodes one fact as another"
+    )
+    values = [REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1", "evt_root1"][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
         assert caller_turn_source() == (values[1] if count >= 2 else None)
@@ -439,6 +456,7 @@ def test_every_field_count_parses(count):
         assert peer == (values[2] if count >= 3 else None)
         assert channel == (values[3] if count >= 4 else None)
         assert caller_user_id_from_request() == (values[4] if count >= 5 else None)
+        assert caller_root_run_id() == (values[5] if count >= 6 else None)
 
 
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
@@ -477,6 +495,50 @@ def test_a_real_token_containing_the_marker_is_not_parsed():
         assert caller_agent_id_from_request() is None
         assert caller_turn_source() is None
         assert caller_errand_scope() == (None, None)
+
+
+def test_root_run_id_round_trips_on_both_channels():
+    """The trigger tree must survive on the bearer alone.
+
+    codex forwards no custom headers, so a header-only lineage would break the
+    cascade for every codex-backed agent — the exact hole the turn source had
+    (PR #229 review). Iron rule #15: a first-class adapter is not a corner case.
+    """
+    from xyz_agent_context.module._mcp_identity import (
+        ROOT_RUN_ID_HEADER,
+        agent_id_headers,
+        caller_root_run_id,
+    )
+
+    headers = agent_id_headers(
+        REAL, turn_source="message_bus", root_run_id="evt_root1",
+    )
+    assert headers[ROOT_RUN_ID_HEADER] == "evt_root1"
+
+    with injected(headers):
+        assert caller_root_run_id() == "evt_root1"
+    # Bearer alone (codex): same answer.
+    with injected({"Authorization": headers["Authorization"]}):
+        assert caller_root_run_id() == "evt_root1"
+
+
+def test_root_run_id_survives_an_empty_errand_scope():
+    """A turn with a tree but no errand must not shift the tree left.
+
+    The common shape: a team-room turn always has a root, and never has an
+    errand scope. If the empty middle fields collapsed, the root would be read
+    as the errand peer and the cascade would select nothing.
+    """
+    from xyz_agent_context.module._mcp_identity import (
+        agent_id_headers,
+        caller_errand_scope,
+        caller_root_run_id,
+    )
+
+    headers = agent_id_headers(REAL, turn_source="message_bus", root_run_id="evt_root1")
+    with injected({"Authorization": headers["Authorization"]}):
+        assert caller_errand_scope() == (None, None)
+        assert caller_root_run_id() == "evt_root1"
 
 
 def test_errand_scope_round_trips_on_both_channels():

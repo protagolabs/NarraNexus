@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-05
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (二次) — 取消分支不设 `_hop_done`
+
+rebase 时与 dev 的 `[bus-timing]` 埋点相遇。`_hop_done` 只在完整跑完一跳时
+置 True,被取消的轮次刻意保持 False —— 让它进时延序列会把「投递要多久」
+和「owner 什么时候按的停止」混成一个指标。
+
+## 2026-08-07 — 总线驱动的 run 终于可以被停止
+
+在此之前 `_invoke_runtime` 调 `run_and_collect` **不传 cancellation**,
+runtime 于是自己造一个外界无法触发的 no-op token —— 这就是 2026-07-23
+事故的机制底座:群聊里喊停,8 分钟内什么都不会发生,因为**从任何地方都
+停不掉一个总线驱动的 run**。
+
+三处改动:
+
+- `_handle_channel_batch` 造 token,经 `on_event_id` 回调注册进
+  [[cancel_watcher]](Step 0 铸出 event_id 的那一刻是最早能键的时机),
+  用 `stack.callback` 保证无论怎么退出都 unregister。**所有** bus run 都
+  注册,不只 team —— 端点是 run-scoped 的,未来 dashboard 也该能停一次
+  peer-DM 轮。
+- token 经 `cancellation=` 走 extra_kwargs 缝一路到 `AgentRuntime.run`
+  (`collect_run` 的 docstring 早就把 `cancellation` 列为可透传参数),
+  中间**没有任何签名需要改**。通道一直是通的,只是没人往里传。
+- 新增 `except CancelledByUser` 分支,必须在通用 `except Exception` 之前。
+
+## 2026-08-07 — 取消分支为什么必须自己 ack 游标
+
+成功路径的 `ack_processed` 在 try 块**末尾**,异常会跳过它。所以取消若不
+自己 ack,那条消息仍然 pending,下一轮轮询会把用户刚刚停掉的那个 run
+**重新拉起来** —— 停止会表现为"它自己重启了"。这是取消分支里唯一"必须
+发生且无处可依"的动作。
+
+同时三件事**不能**发生(通用分支会全做):
+
+1. `record_failure` —— 攒够 3 次进 poison,`get_pending_messages` 从此
+   **永久**过滤掉这条消息。停三次就把一条消息弄成不可投递。
+2. owner 面的永久失败通知 —— 用户自己按的停止,却收到"你的 agent 坏了"。
+3. 下游失败告警 / 重试记账。
+
+`import` 位置:`cancel_watcher` / `cancellation` 在 `_handle_channel_batch`
+**方法体内** import,不在模块顶层 —— `agent_runtime` 会拉进 `module`,后者
+又 import 回本包,顶层 import 直接循环(`get_agent_runtime_client` 一直
+留在 `_invoke_runtime` 里就是同一个原因)。
 
 ## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
 

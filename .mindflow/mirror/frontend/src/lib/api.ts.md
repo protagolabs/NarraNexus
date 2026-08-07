@@ -1,39 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
 
-## 2026-08-06 (review R2) — 新增 `getSession()`
+## 2026-08-07 — cancelRun(runId)
 
-`GET /api/auth/session` 的类型化封装（`SessionResponse` 在 [[api]] types）。
-消费方是 [[App]] 的 ProtectedRoute 挂载预热——此前它用 `getAgents()`，为了
-一个"后端还认我吗"的信号把用户的全量 agent 列表（外加 active-run 与预览
-enrichment）从数据库里拉一遍再丢掉。探针端点不查库。
-
-注意 [[sessionGuard.ts]] **不**走这个方法：它必须用裸 fetch，否则自己的
-401 会再次进入 `request()` 的 401 分支 → 递归。
-
-## 2026-08-06 — 401 不再等于"登出"（0802 线下事故）
-
-`request()` 的 401 分支重写：从「带 token 的 401 → 立刻派发
-`narranexus:auth-expired`，除非端点是 `/api/auth/login|register` 或
-`/api/billing/`」改为「先看后端的 `code`（[[authFailure.ts]]），只有会话
-死亡类才交给 [[sessionGuard.ts]]，由它探针确认后再派发」。
-
-旧写法是**拒绝清单**，默认方向是炸掉会话，每个漏加的端点都是地雷；
-`/api/providers` 的 NetMind 401 就是 2026-08-02 现场踩响的那颗——会话完全
-有效的用户被反复踢回 /login，口述为"整个页面重新加载了、很混乱"（其实没有
-任何 reload，是 `ProtectedRoute` 整棵子树被拆重建，所以服务端日志查不到
-reload 痕迹）。
-
-顺带：错误体现在只 parse 一次（`response.clone().json()` 的结果同时喂
-`code` 判断和 `detail` 提取），`getAuthHeaders` 的实现下沉到
-[[authHeaders.ts]]（本类方法保留为转发），避免 `api → sessionGuard → api`
-成环。
-
-注意：绕过 `request<T>` 的直连 fetch 辅助方法（attachment / blob 之类）
-从来就没有走过这条 401 路径，本次也没有改变。
+`POST /api/runs/{run_id}/cancel` 的调用点。**resolve 不代表 run 停了** ——
+端点只记录意图就返回,真正的中断发生在另一个进程(见后端
+[[cancel_watcher]])。调用方应据 resolve 立刻渲染「正在停止」,终态从该
+run 的观察流里等。唯一消费者:[[TeamMemberPanel]] 的停止按钮。
 
 ## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
 

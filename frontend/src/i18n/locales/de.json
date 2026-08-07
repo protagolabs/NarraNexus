@@ -140,10 +140,16 @@
         "neverRan": "noch nie gelaufen",
         "loading": "Prozess wird geladen…",
         "workingCount": "{{count}} aktiv",
-        "process": "Prozess"
+        "process": "Prozess",
+        "stop": "Stoppen",
+        "stopping": "Wird gestoppt…",
+        "stopped": "Vom Eigentümer gestoppt",
+        "stopFailed": "Dieser Lauf konnte nicht gestoppt werden",
+        "stopHint": "Diesen Lauf stoppen"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
-      "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird"
+      "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
+      "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",

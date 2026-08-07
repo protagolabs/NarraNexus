@@ -18,6 +18,7 @@ import type {
   MarkReadResponse,
   NoticesResponse,
   AwarenessResponse,
+  CancelRunResponse,
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
@@ -490,6 +491,22 @@ class ApiClient {
   async getEventLog(agentId: string, eventId: string): Promise<EventLogResponse> {
     return this.request<EventLogResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/event-log/${encodeURIComponent(eventId)}`
+    );
+  }
+
+  /**
+   * Ask a run to stop. Owner only — the server rejects anyone else with 403
+   * regardless of whether the caller rendered a button.
+   *
+   * Resolves as soon as the request is recorded, NOT when the run has
+   * stopped: the run lives in another process and is interrupted there. The
+   * caller should render "stopping" off this resolution and watch the run's
+   * observation stream for the terminal state.
+   */
+  async cancelRun(runId: string): Promise<CancelRunResponse> {
+    return this.request<CancelRunResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/cancel`,
+      { method: 'POST' },
     );
   }
 

@@ -173,10 +173,16 @@
         "neverRan": "no runs yet",
         "loading": "Loading process…",
         "workingCount": "{{count}} working",
-        "process": "process"
+        "process": "process",
+        "stop": "Stop",
+        "stopping": "Stopping…",
+        "stopped": "Stopped by owner",
+        "stopFailed": "Could not stop this run",
+        "stopHint": "Stop this run"
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
-      "leadTitle": "{{name}} · answers when no one is @mentioned"
+      "leadTitle": "{{name}} · answers when no one is @mentioned",
+      "stoppedNotice": "{{name}}'s task was stopped by the owner"
     },
     "execution": {
       "showSteps": "Show execution steps",

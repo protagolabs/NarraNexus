@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — events.root_run_id / bus_messages.root_run_id + 索引
+
+触发树标签。**从根继承的扁平标签,刻意不是父子指针**:这里唯一被问到的问题
+是"哪些 run 属于用户要停的这棵树",标签一条索引查询就能答,任意深度;父子边
+额外提供的是"遍历树"的能力,级联停止不需要(协作拓扑图才需要,那是另一个
+需求)。
+
+- `events.root_run_id`:根 run 存自己的 event_id,被引发的 run 继承同一个值。
+  由 [[run_recorder]] 在 late-bind 时与 running 翻转同一条 UPDATE 写入。
+- `bus_messages.root_run_id`:发送方那一轮的树,把血缘带过唯一会丢的那一跳
+  (agent 问同伴,写的是一条新消息)。
+- `Index("idx_events_root_state", ["root_run_id", "state"])`:级联唯一的热
+  路径("这棵树里还在跑的 run"),复合是因为写旗标必定同时过滤这两列。
+
+## 2026-08-07 — events 增加 cancel_requested_at 列
+
+可空 DATETIME(6),owner 请求停止这个 run 的时刻。纯新增列,
+`auto_migrate` 下次启动自动加上,不改任何既有列语义(铁律 #6)。
+
+**为什么是时间戳而不是布尔**:这个旗标要回答三个问题,只有时间戳能全部
+回答 —— 是否有待处理的停止(非空)、重复点击是否无副作用(幂等写)、
+这次请求是否属于**当前**这个 run(`started_at` 早于请求时间)。第三点是
+关键:旗标活在长寿的 events 行上,布尔值无法区分"给这一轮的"和"上一轮
+遗留的",后者会杀掉无辜的后继 run。
+
+写者:`backend/routes/runs.py`。读者两个:[[cancel_watcher]](持有 token,
+据此触发)和 [[run_recorder]] 的 `sweep_stale_runs`(据此把停止中的 run
+落成 cancelled 而非 failed)。
 
 ## 2026-08-04 — bus_messages 增加 sender_turn_source 列
 

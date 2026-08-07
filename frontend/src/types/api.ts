@@ -155,6 +155,18 @@ export interface AwarenessResponse extends ApiResponse {
   update_time?: string;
 }
 
+/** Response of POST /api/runs/{run_id}/cancel. */
+export interface CancelRunResponse extends ApiResponse {
+  run_id: string;
+  /** The run's state at the moment the request was recorded. */
+  state: string;
+  /** True when the run had already finished — nothing was flagged. */
+  already_settled: boolean;
+  /** How many runs the stop was applied to, this one included. >1 means the
+   *  run had caused others and the whole trigger tree was stopped. */
+  cascaded?: number;
+}
+
 // Clear history types
 export interface ClearHistoryResponse extends ApiResponse {
   scopes: string[];

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — MCP 身份注入带上 root_run_id
+
+`turn_extra["root_run_id"]` → `agent_id_headers(root_run_id=…)`。与
+errand scope 同一个注入点、同一份 turn_extra。作用见 [[_mcp_identity]]:
+本轮发出的消息要盖上这棵树,血缘才能过下一跳。
 
 ## 2026-08-04 (review 修正) — team 房中央门控：整轮空 expressive
 

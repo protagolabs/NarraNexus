@@ -25,6 +25,7 @@ from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 # it, and both tools write the same table — so both must record it.
 from xyz_agent_context.module._mcp_identity import (
     caller_errand_scope,
+    caller_root_run_id,
     caller_turn_source,
 )
 
@@ -177,6 +178,12 @@ def register_message_bus_mcp_tools(
                 mentions=mentions,
                 attachments=attachments or None,
                 sender_turn_source=_send_turn_source(channel_id=channel_id),
+                # Carry this turn's trigger tree onto the message. The run this
+                # message wakes up has no other way to learn which tree it
+                # continues, so this is the one hop where the lineage would
+                # break — and a broken lineage means a cascade stop silently
+                # leaves that branch running.
+                root_run_id=caller_root_run_id(),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:
@@ -345,6 +352,9 @@ def register_message_bus_mcp_tools(
                 content=content,
                 attachments=attachments or None,
                 sender_turn_source=_send_turn_source(to_agent=to_agent_id),
+                # Same lineage hop as bus_send_message — this is the ask that
+                # spawns a peer's run, i.e. exactly how a tree grows.
+                root_run_id=caller_root_run_id(),
             )
             return {
                 "success": True,

@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-31
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — chat messages 透出 msg_type
+
+`"system_stop"` 标记 owner 停止留痕,前端据此渲染成系统行而不是"这个 agent
+在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
+索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
 
 ## 2026-07-31 — idle carries started_at; messages carry event_id
 

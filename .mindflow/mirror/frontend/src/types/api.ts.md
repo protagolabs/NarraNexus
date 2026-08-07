@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-07
 stub: true
 ---
+
+## 2026-08-07 — CancelRunResponse
+
+`already_settled` 表示该 run 在请求到达时已经终态 —— 服务端此时**不会**
+落旗标(否则那个旗标会成为该 agent 下一个 run 的陷阱),前端据此知道
+"没什么可停的",而不是当成失败。
 
 ## 2026-07-30 — Cost*/EventLogMeta 镜像缓存两桶字段
 

@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
+
+初版是 `LEFT JOIN events ON m.root_run_id = e.event_id` + 判断**那一行**的
+`cancel_requested_at` —— 即只看**根**有没有被盖旗标。而端点只给 running 的
+行盖旗标(终态行绝不盖,否则会成为下一个 run 的陷阱)。
+
+失效场景恰好是委派的**主流形态**:agent 把活交给同伴后自己这一轮就结束
+(「发出去、结束本轮、对方稍后回」)。owner 在 roster 上看到同伴在跑、点
+停止时,根那一行早已 `completed` 且永远不会被盖旗标 → 谓词读成「没人被
+停」→ 排队消息照常投递 → 正是本功能要消灭的打地鼠。
+
+改为相关子查询 `NOT EXISTS (SELECT 1 FROM events e WHERE e.root_run_id =
+m.root_run_id AND e.cancel_requested_at IS NOT NULL)`:问的是**整棵树**有没有
+任何一个 run 被请求停止,与哪一行是根、根是什么状态都无关。
+
+初版的测试全部只覆盖「根仍 running」,所以这个洞不会红 ——
+`test_a_stopped_tree_whose_root_already_finished_still_suppresses` 补上了这
+一支。这条 SQL 走 RAW backend(**无 `%s→?` 翻译**),是本次方言风险最高的
+一句,已在真 MySQL 上验证(`tests/message_bus/test_cascade_stop_mysql.py`)。
+
+## 2026-08-07 — 被停止的树,排队消息不再唤起 run
+
+`get_pending_messages` 增加 `LEFT JOIN events ON m.root_run_id = e.event_id`
++ `AND (m.root_run_id IS NULL OR e.cancel_requested_at IS NULL)`。
+
+停掉正在跑的轮次**不够**:它们排队中的后续消息会在下一次轮询启动新 run,
+用户按了停之后眼看着新活冒出来(设计文档里的"打地鼠")。
+
+- **写成 SQL 谓词而不是逐行判断**:poison 过滤已经是每行一次查询,再加一次
+  就是第二个 N+1。
+- **NULL root 永不被压制**:用户消息和所有前置列的老行都是 NULL,若 NULL 被
+  当成"同一棵树",一次停止会让整张表哑掉。测试专门钉了这条。
+
+`send_message` / `send_to_agent` / `_row_to_message` 同步接受并透出
+`root_run_id`。
 
 ## 2026-08-04 — send_message/send_to_agent 记录发送方 turn 的种类
 

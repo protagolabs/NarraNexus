@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 停止留痕渲染成系统行
+
+`msg_type === 'system_stop'` 的消息走独立分支:居中的小胶囊,文案
+`chat.team.stoppedNotice`(带 agent 名)。**不复用气泡**——把它画成 agent
+自己的回复,读起来就像 agent 在宣告自己的死亡;这条消息是房间在说话。
+
+团队任务是当众跑的,所以也应当众停止:没有留痕,其他成员只看到一个凭空
+消失的任务,只能猜是跑完了、崩了、还是还在跑。
 
 ## 2026-07-31 — roster v2 接线：accent 下传 + drawer 不再定宽
 
