@@ -13,7 +13,7 @@
  * process in the roster (one selection, two surfaces).
  */
 import { describe, expect, test, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 const getTeamChatMock = vi.fn();
 const getEventLogMock = vi.fn();
@@ -91,6 +91,19 @@ function typingButtons() {
     .filter((b) => (b.getAttribute('aria-label') || '').startsWith('chat.team.typing'));
 }
 
+/** Wait for the transcript's typing indicators to settle at `count`.
+ *
+ * `renderRoom` only awaits a ROSTER row, which says nothing about the
+ * transcript on the other side of the room: the two panes settle in separate
+ * commits, so reading the indicators immediately is a race that stays green on
+ * a fast machine and fails on a loaded CI runner (observed 2026-08-07). Any
+ * assertion about them has to wait for them specifically.
+ */
+async function settledTypingButtons(count: number) {
+  await waitFor(() => expect(typingButtons()).toHaveLength(count));
+  return typingButtons();
+}
+
 async function renderRoom(activity: unknown[], messages: unknown[] = [MESSAGE]) {
   getTeamChatMock.mockResolvedValue({
     success: true,
@@ -125,15 +138,14 @@ describe('TeamChatPanel · two-pane room', () => {
   test('typing indicator appears only for running members', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    const typing = typingButtons();
-    expect(typing).toHaveLength(1);
+    const typing = await settledTypingButtons(1);
     expect(typing[0].getAttribute('aria-label')).toBe('chat.team.typing(Ana)');
   });
 
   test('clicking the typing indicator expands that member in the roster', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    fireEvent.click(typingButtons()[0]);
+    fireEvent.click((await settledTypingButtons(1))[0]);
 
     // Every roster surface showing that member reflects the same selection.
     const rows = screen.getAllByTestId('roster-row-a1');
@@ -150,7 +162,7 @@ describe('TeamChatPanel · two-pane room', () => {
       { ...IDLE_WITH_TRACE, agent_id: 'a1', event_id: 'evt_2' },
     ]);
 
-    expect(typingButtons()).toHaveLength(0);
+    await settledTypingButtons(0);
   });
 });
 
