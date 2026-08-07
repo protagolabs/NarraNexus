@@ -169,3 +169,89 @@ class TestMalformedFramesAreSurvivable:
             _Result([_platform_frame(text="   ")]), None, None
         )
         assert out == CHANNEL_SILENT_SENTINEL
+
+
+# ---------- the streaming path (NarraMessenger's default) ---------------
+
+
+class TestStreamingPathCapturesPlatformReply:
+    """`MatrixTrigger._build_and_run_agent_streaming` is the DEFAULT
+    NarraMessenger path and never calls `resolve_agent_response` — it
+    returns text captured mid-stream. So the base-class fix above does not
+    reach it: the frame step_3 synthesises carries `content` +
+    PLATFORM_REPLY_TEXT_KEY and no `text`, which is the only key the stream
+    handler looked at. The turn finalised as silent and the inbox recorded
+    "" for a message the person had received.
+
+    Captured into its own state field, never `narra_reply_text`: finalize
+    fresh-sends that one to the room, so reusing it would deliver the same
+    message twice.
+    """
+
+    @staticmethod
+    def _handler_and_state():
+        from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+            MatrixTrigger,
+            _StreamReplyState,
+        )
+
+        return MatrixTrigger.__new__(MatrixTrigger), _StreamReplyState()
+
+    @staticmethod
+    def _progress(arguments, tool_name="wechat_send"):
+        from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+
+        return ProgressMessage(
+            step="3.4.fallback",
+            title="Reply",
+            description=tool_name,
+            status=ProgressStatus.COMPLETED,
+            details={"tool_name": tool_name, "arguments": arguments},
+        )
+
+    @pytest.mark.asyncio
+    async def test_platform_frame_is_captured_mid_stream(self):
+        trigger, state = self._handler_and_state()
+        cred = type("C", (), {"agent_id": "agent_x"})()
+
+        await trigger._handle_stream_event(
+            self._progress({"content": PLATFORM_TEXT, PLATFORM_REPLY_TEXT_KEY: PLATFORM_TEXT}),
+            state,
+            cred,
+            "!room:example",
+        )
+
+        assert state.platform_reply_text == PLATFORM_TEXT
+        # The anti-double-send invariant: finalize fresh-sends
+        # narra_reply_text to the room, so this must NOT land there.
+        assert state.narra_reply_text == ""
+        assert state.error_seen is False
+
+    @pytest.mark.asyncio
+    async def test_organic_narra_reply_still_captured(self):
+        trigger, state = self._handler_and_state()
+        cred = type("C", (), {"agent_id": "agent_x"})()
+
+        await trigger._handle_stream_event(
+            self._progress({"text": "the agent's own words"}, tool_name="narra_reply"),
+            state,
+            cred,
+            "!room:example",
+        )
+
+        assert state.narra_reply_text == "the agent's own words"
+        assert state.platform_reply_text == ""
+
+    @pytest.mark.asyncio
+    async def test_blank_platform_text_is_ignored(self):
+        trigger, state = self._handler_and_state()
+        cred = type("C", (), {"agent_id": "agent_x"})()
+
+        await trigger._handle_stream_event(
+            self._progress({PLATFORM_REPLY_TEXT_KEY: "   "}),
+            state,
+            cred,
+            "!room:example",
+        )
+
+        assert state.platform_reply_text == ""

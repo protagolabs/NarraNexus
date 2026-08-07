@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
 
 from loguru import logger
@@ -839,15 +840,38 @@ async def _stream_fallback_recovery(
         # The DM protocol's one silence carve-out, honoured. Without this
         # exit the platform would answer even a bare "谢谢", because the
         # decision to get here only asks whether a reply tool was called —
-        # and a model that correctly stayed silent called none. Compared
-        # after stripping so a stray newline doesn't turn the sentinel into
-        # a delivered message.
-        if text.strip() == NO_REPLY_NEEDED_SENTINEL:
-            logger.info(
-                "[FALLBACK-IM] helper judged the turn needs no reply "
-                "(pure acknowledgment); staying silent"
-            )
-            text = ""
+        # and a model that correctly stayed silent called none.
+        #
+        # STRIPPED OUT rather than compared for equality. The helper runs on
+        # whichever provider the user configured (binding rule #15 — we do
+        # not police that choice), so quoting the sentinel, adding a full
+        # stop, or prefacing it with a sentence are all within range. An
+        # equality test misses every one of those and delivers the literal
+        # `<<<NO_REPLY_NEEDED>>>` into someone's IM thread — a worse look
+        # than the extra message this carve-out exists to avoid. Removing it
+        # unconditionally means the marker can never reach a person, whether
+        # it arrived alone or embedded in prose; if real text remains, that
+        # text is delivered and the sentinel is simply gone.
+        if NO_REPLY_NEEDED_SENTINEL in text:
+            text = text.replace(NO_REPLY_NEEDED_SENTINEL, "").strip()
+            # What is left after removing the marker may be punctuation the
+            # model wrapped it in — `"…"`, a trailing `。` — which is not a
+            # reply, just residue. Delivering that is barely better than
+            # delivering the marker. `\w` treats CJK as word characters, so
+            # this asks "is there any actual content here" rather than
+            # enumerating quote and punctuation forms.
+            if not re.search(r"\w", text):
+                text = ""
+            if text:
+                logger.warning(
+                    "[FALLBACK-IM] helper mixed the no-reply marker into a "
+                    "real reply; stripped the marker and delivering the rest"
+                )
+            else:
+                logger.info(
+                    "[FALLBACK-IM] helper judged the turn needs no reply "
+                    "(pure acknowledgment); staying silent"
+                )
 
         if not text:
             logger.warning(

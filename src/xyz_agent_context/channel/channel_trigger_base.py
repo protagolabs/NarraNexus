@@ -98,6 +98,15 @@ from xyz_agent_context.repository.channel_trigger_audit_repository import (
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.channel_tag import ChannelTag
+# Top-level, matching the same hoist done in step_3 this round: no cycle
+# here either — `channel/__init__.py` imports message_source_handler well
+# before channel_trigger_base. (The NOTE at the top of this file about lazy
+# imports is specifically about `agent_runtime.client`, a different
+# direction.) Two styles for the same module in one change would read as a
+# trap that isn't there.
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+)
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
 from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
@@ -1469,10 +1478,15 @@ class ChannelTriggerBase(ABC):
         batch merge) get no envelope, which degrades to "not a DM" — no
         fallback, the safe default.
 
-        ``**extra`` carries per-path keys (Lark's ``source_message_id``,
-        NarraMessenger's ``rtc_voice``, the batch path's
-        ``batch_messages``). Empty values are dropped so callers don't have
-        to branch.
+        ``**extra`` carries per-path keys — Lark's ``source_message_id`` and
+        the batch path's ``batch_messages`` today. Empty values are dropped
+        so callers don't have to branch.
+
+        NarraMessenger's ``rtc_voice`` deliberately does NOT come through
+        here: it depends on a ``turn_profile`` computed after this call, so
+        that path assigns it onto the returned dict afterwards. Stated
+        because this docstring is the contract for the seat — an example
+        listed here that the code does differently is worse than no example.
         """
         extra_data: dict[str, Any] = {
             "channel_tag": channel_tag.to_dict(),
@@ -1890,10 +1904,6 @@ class ChannelTriggerBase(ABC):
         extractor about the key is the approach this change already
         rejected once.
         """
-        from xyz_agent_context.channel.message_source_handler import (
-            PLATFORM_REPLY_TEXT_KEY,
-        )
-
         for raw in getattr(result, "raw_items", []) or []:
             if not isinstance(raw, dict):
                 continue

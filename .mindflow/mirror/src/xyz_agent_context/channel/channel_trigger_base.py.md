@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-07
 ---
 
+## 2026-08-07 (二次) — 两处小收口
+
+- `PLATFORM_REPLY_TEXT_KEY` 的延迟 import 提到模块顶层。同一次改动里刚以「无循环依赖」
+  为由把 step_3 的六处同模块延迟 import 上提，这里却留了一处，下一个读者会以为这里有坑。
+  确认无循环：`channel/__init__.py` 先 import `message_source_handler`、后 import
+  `channel_trigger_base`；本文件顶部关于延迟 import 的 NOTE 讲的是 `agent_runtime.client`
+  那个反向依赖，与本模块无关。
+- `build_trigger_extra_data` 的 docstring 原来举例说 `**extra` 承载 NarraMessenger 的
+  `rtc_voice`，但代码里 `rtc_voice` 是在调用**之后**单独赋上去的（它依赖后面才算出的
+  `turn_profile`）。这份 md 当时写对了、docstring 没跟上。**docstring 是这个座位的契约
+  说明**，举的例子和代码不一致比不举例更糟，已改为写明 rtc_voice 刻意不走这条路及原因。
+
 ## 2026-08-07 — `build_trigger_extra_data`：四个手搓构造点收成一个（review 收口）
 
 昨天的信封只加在 `_build_and_run_agent` 一处，而 `trigger_extra_data` 这个 dict

@@ -250,3 +250,67 @@ class TestNothingIsRecordedWhenDeliveryFails:
         frames = await _drive(cancellation=_Cancelled())
         assert frames == []
         assert sent == []
+
+
+# ---------- 5. the no-reply sentinel ------------------------------------
+
+
+@pytest.mark.asyncio
+class TestNoReplySentinel:
+    """The DM protocol's silence carve-out, and its robustness.
+
+    Without an exit the platform answers even a bare "谢谢": the decision to
+    run this fallback asks only whether a reply tool was called, and a model
+    that correctly stayed silent called none — so the protocol's own
+    exemption was unreachable in production.
+
+    The marker is STRIPPED, not compared for equality. The helper runs on
+    whichever provider the user configured (binding rule #15), so a quoted
+    marker, a trailing full stop, or a prefacing sentence are all in range —
+    and an equality test would deliver the literal `<<<NO_REPLY_NEEDED>>>`
+    into someone's IM thread.
+    """
+
+    async def _run(self, monkeypatch, helper_output, fake_sender):
+        async def _stream(**kwargs):
+            yield helper_output
+
+        monkeypatch.setattr(step3, "_generate_fallback_reply_stream", _stream)
+        return await _drive(), fake_sender[0]
+
+    @pytest.mark.parametrize(
+        "helper_output",
+        [
+            step3.NO_REPLY_NEEDED_SENTINEL,
+            f"{step3.NO_REPLY_NEEDED_SENTINEL}\n",
+            f'"{step3.NO_REPLY_NEEDED_SENTINEL}"',
+            f"{step3.NO_REPLY_NEEDED_SENTINEL}。",
+            f"  {step3.NO_REPLY_NEEDED_SENTINEL}  ",
+        ],
+    )
+    async def test_sentinel_variants_all_stay_silent(
+        self, monkeypatch, fake_sender, helper_output
+    ):
+        frames, sent = await self._run(monkeypatch, helper_output, fake_sender)
+        assert frames == []
+        assert sent == []
+
+    async def test_sentinel_never_reaches_the_person_even_mixed_into_prose(
+        self, monkeypatch, fake_sender
+    ):
+        """A model that explains itself before emitting the marker must not
+        leak the marker; the surviving prose is still delivered."""
+        frames, sent = await self._run(
+            monkeypatch,
+            f"好的，我判断无需回复：{step3.NO_REPLY_NEEDED_SENTINEL}",
+            fake_sender,
+        )
+        assert len(sent) == 1
+        assert step3.NO_REPLY_NEEDED_SENTINEL not in sent[0]["message"]
+        assert sent[0]["message"] == "好的，我判断无需回复："
+        assert len(frames) == 1
+
+    async def test_ordinary_reply_is_untouched(self, monkeypatch, fake_sender):
+        frames, sent = await self._run(monkeypatch, "答案是 42。", fake_sender)
+        assert len(sent) == 1
+        assert sent[0]["message"] == "答案是 42。"

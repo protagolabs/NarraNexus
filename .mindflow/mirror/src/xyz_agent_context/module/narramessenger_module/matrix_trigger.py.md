@@ -4,6 +4,37 @@ stub: false
 last_verified: 2026-08-07
 ---
 
+## 2026-08-07 (二次) — 流式路径也认平台代投递的回复（review 收口）
+
+`resolve_agent_response` 那层收口**到不了这条路径**：`_build_and_run_agent_streaming`
+不走 `extract_output`，它返回流中捕获的 `state.narra_reply_text`，而该字段只从
+`arguments["text"]` 取——step_3 兜底那帧的参数是
+`{"content": …, PLATFORM_REPLY_TEXT_KEY: …}`，没有 `text` 键，于是被
+`_handle_stream_event` 的空值守卫直接丢掉。后果：消息真的进了房间（
+`ChannelSenderRegistry` 发的），但 `final_text == ""` → 走
+`_finalize_stream_silent` → NO-OP，且基类按 `agent_response=""` 写 `bus_messages`
+——**又一次「已投递却记成沉默」，偏偏发生在本改动自称「最尖锐的一例」的路径上。**
+
+- `_StreamReplyState` 新增 **独立字段** `platform_reply_text`。**不复用
+  `narra_reply_text`**：finalize 会把后者 fresh-send 进房间，复用就等于把已经投递过的
+  消息**再发一次**。
+- `_handle_stream_event` 在取 `text` 之前先认 `PLATFORM_REPLY_TEXT_KEY`，命中即记录
+  并 return（不碰房间）。
+- finalize 顺序：`narra_reply_text` → 发房间并返回；否则 `platform_reply_text` →
+  **只返回、零房间写操作**（inbox 因此记到真实文本）；都空才走
+  `_finalize_stream_silent`。
+- `_finalize_stream_silent` 那行「no reply, no error」日志改成「agent 没回、平台也没代写」
+  ——原措辞在平台已代投递时是**假的**，会把排障的人引向一个其实已被回答的轮次。
+
+爆炸半径（诚实标注）：本渠道 `get_conversation_history` 返回 `[]`（历史由 homeserver
+提供），所以**不会**出现微信那种「下一轮上下文里 bot 说了 (stayed silent)」的污染。
+受影响的是 `bus_messages` 记录本身（Inbox / 历史展示及以该表为准的下游）与那行误导日志。
+
+测试：`tests/channel/test_platform_reply_reaches_the_inbox.py` 的
+`TestStreamingPathCapturesPlatformReply` 驱动真的 `_handle_stream_event`，断言
+平台帧进 `platform_reply_text`、`narra_reply_text` **保持为空**（防双发的结构性钉子）、
+organic `narra_reply` 不受影响、空白平台文本被忽略。
+
 ## 2026-08-07 — 流式路径不再手搓 trigger_extra_data
 
 `_build_and_run_agent_streaming`（`STREAMING_ENABLED` 是**默认路径**）自己组
