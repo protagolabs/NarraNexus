@@ -317,7 +317,10 @@ class CommonToolsModule(XYZBaseModule):
                 ArtifactRepository,
             )
             repo = ArtifactRepository(self.db)
-            artifacts = await repo.list_pinned(
+            # Union, not `list_pinned`: the agent must also see the artifacts
+            # of every team it belongs to, or it cannot pick up a teammate's
+            # work — the block is where it learns those exist at all.
+            artifacts = await repo.list_for_agent_context(
                 self.agent_id, limit=ARTIFACT_STATE_BLOCK_LIMIT
             )
         except Exception as e:  # noqa: BLE001

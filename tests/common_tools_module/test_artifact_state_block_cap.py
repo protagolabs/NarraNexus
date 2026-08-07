@@ -104,3 +104,42 @@ async def test_repository_default_is_still_unlimited(env):
         await _seed(env["repo"], f"art_{i:03d}", age_minutes=i)
 
     assert len(await env["repo"].list_pinned("agent_x")) == over
+
+
+# ── the block spans the agent's teams ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_block_shows_teammates_artifact_from_a_shared_team(env, db_client):
+    """End-to-end guard for the reverse leak: the block is where an agent
+    learns a teammate's artifact exists at all. If it only listed the agent's
+    own rows, hand-off would silently stop working — nothing would raise, the
+    agent would just never mention the artifact again.
+    """
+    await db_client.insert("team_members", {"team_id": "team_1", "agent_id": "agent_x"})
+    now = datetime.now(timezone.utc)
+    await env["repo"].create(Artifact(
+        artifact_id="art_teammate", agent_id="agent_other", user_id="user_y",
+        session_id=None, title="Teammate report", kind="text/markdown",
+        pinned=True, team_id="team_1", file_path=f"{WS_REL}/teammate.md",
+        size_bytes=1, created_at=now, updated_at=now,
+    ))
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "art_teammate" in block
+
+
+@pytest.mark.asyncio
+async def test_block_hides_a_team_the_agent_does_not_belong_to(env, db_client):
+    """Membership is the boundary. Same owning user, different team → not
+    visible, or one team would read another's workspace."""
+    now = datetime.now(timezone.utc)
+    await env["repo"].create(Artifact(
+        artifact_id="art_foreign", agent_id="agent_other", user_id="user_y",
+        session_id=None, title="Other team", kind="text/markdown",
+        pinned=True, team_id="team_zzz", file_path=f"{WS_REL}/foreign.md",
+        size_bytes=1, created_at=now, updated_at=now,
+    ))
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "art_foreign" not in block

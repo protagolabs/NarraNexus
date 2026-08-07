@@ -4,6 +4,13 @@ last_verified: 2026-08-07
 stub: false
 ---
 
+## 2026-08-07 — artifact 状态块改用并集查询
+
+`_render_artifact_state_block` 从 `list_pinned`（纯私有）改为 `list_for_agent_context`
+（私有 ∪ 所属全部 team）。这个块正是 agent **得知队友产出存在**的唯一途径——继续只列自己的
+行，接力更新就会静默失效（不报错、agent 只是再也不提那个 artifact）。上限 20 不变，跨两半
+统一按 `updated_at` 倒序。跨 team 边界由 [[artifact_repository.py]] 的成员子查询保证。
+
 ## 2026-08-07 — artifact 状态块设上限（ARTIFACT_STATE_BLOCK_LIMIT=20）
 
 `_render_artifact_state_block` 此前列出**全部** pinned artifact、无上限无排序，而
