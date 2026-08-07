@@ -271,3 +271,73 @@ async def test_scope_did_not_widen_the_tools_strict_schema_exposure():
     assert risky == {"session_id", "description", "target_artifact_id"}, (
         f"strict-schema exposure changed: {risky}"
     )
+
+
+# ── dedup must not cross the scope boundary ────────────────────────────────
+#
+# Found by an end-to-end probe over the real MCP transport, not by the unit
+# tests above: each of those used a fresh database, so the collision never
+# arose. Registering the SAME entry file in both scopes is ordinary —
+# an agent writes report.md once and surfaces it privately, then again for
+# the team.
+
+
+@pytest.mark.asyncio
+async def test_same_file_in_both_scopes_makes_two_artifacts(env):
+    """Agent-scoped dedup keys on (agent_id, file_path). Without the scope in
+    that key, the second registration silently returns the FIRST artifact and
+    the requested scope is discarded."""
+    entry = str(env["ws"] / "own.md")
+    private = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R", description=None, target_artifact_id=None,
+    )
+    team = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R", description=None, target_artifact_id=None,
+        team_id=TEAM,
+    )
+
+    assert private.artifact_id != team.artifact_id, (
+        "a team registration must not be deduped onto the private artifact"
+    )
+    assert (await env["repo"].get_by_id(private.artifact_id)).team_id is None
+    assert (await env["repo"].get_by_id(team.artifact_id)).team_id == TEAM
+
+
+@pytest.mark.asyncio
+async def test_private_call_never_returns_a_team_artifact(env):
+    """The leak direction the probe actually hit: a private-chat registration
+    handed back an artifact owned by a team."""
+    entry = str(env["ws"] / "own.md")
+    team = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R", description=None, target_artifact_id=None,
+        team_id=TEAM,
+    )
+    private = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R", description=None, target_artifact_id=None,
+    )
+
+    assert private.artifact_id != team.artifact_id
+    assert (await env["repo"].get_by_id(private.artifact_id)).team_id is None
+
+
+@pytest.mark.asyncio
+async def test_dedup_still_works_within_one_scope(env):
+    """The guard that made dedup exist stays intact: re-registering the same
+    file in the SAME scope must still reuse the row, not mint a duplicate tab
+    (prod 2026-06-30: two pinned 'Welcome' tabs on one agent)."""
+    entry = str(env["ws"] / "own.md")
+    first = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R", description=None, target_artifact_id=None,
+        team_id=TEAM,
+    )
+    second = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=entry, title="R2", description=None, target_artifact_id=None,
+        team_id=TEAM,
+    )
+    assert first.artifact_id == second.artifact_id

@@ -334,7 +334,15 @@ async def register_artifact(
         # agent). Same agent + same entry pointer + agent scope = the same
         # artifact: update it in place and hand the existing id back.
         for existing in await repo.find({"agent_id": agent_id, "file_path": rel_path}):
-            if existing.pinned and existing.kind == kind:
+            # The scope is part of the identity, not a detail of it. Without
+            # it, an agent that surfaces the same file both privately and to
+            # its team gets ONE artifact and the second call's scope is
+            # silently discarded — in either direction: a private call can be
+            # handed back the team's artifact, or a team registration can be
+            # folded into a private one nobody on the team can see. (Caught by
+            # an end-to-end probe; the unit tests each used a fresh database,
+            # so the collision never arose.)
+            if existing.pinned and existing.kind == kind and existing.team_id == team_id:
                 await repo.update_pointer(
                     existing.artifact_id,
                     file_path=rel_path,
