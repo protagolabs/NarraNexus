@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_context_builder.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-08-07
 ---
 
 ## Why it exists
@@ -26,10 +26,18 @@ rather than reconstructing from our own inbox.
 - **Slack returns newest-first; we reverse before yielding.** Every
   prompt assembler in this codebase expects chronological order. Doing
   the reverse here keeps the convention out of the higher layers.
-- **``room_type`` hard-coded to "Group Room".** Slack DMs (``D...``
-  channels) are technically 2-person but the surface is identical to
-  group channels — same API endpoints, same threading model. Calling
-  them all "Group Room" simplifies the prompt without losing fidelity.
+- **``room_type`` is derived from the channel id (2026-08-06).** DMs
+  live in the ``D...`` id space → ``ROOM_TYPE_DIRECT``; everything else
+  → ``ROOM_TYPE_GROUP``.
+
+  It used to be hard-coded ``"Group Room"``, justified as "DMs are
+  technically 2-person but the API surface is identical, so calling them
+  all Group Room simplifies the prompt without losing fidelity". **That
+  justification died on 2026-08-06**: ``room_type`` now SELECTS the
+  Communication Protocol (see ``channel_prompts.py.md``), so labelling a
+  DM a group room tells the agent its default action is NO REPLY — the
+  0802 WeChat failure, latent here. The API surface really is identical;
+  the *conversational obligation* is not.
 - **``send_tool_name = "slack_cli"``.** The prompt's reply
   instructions include the exact callable so the agent doesn't have
   to guess between ``slack_send`` / ``slack_post`` / ``slack_cli``.

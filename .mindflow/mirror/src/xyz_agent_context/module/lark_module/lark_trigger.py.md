@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — 不再手搓 trigger_extra_data；回复记录走共享收口
+
+本文件 `_build_and_run_agent` **完整覆盖**基类方法，因此也自己手搓了
+`trigger_extra_data`。代价：2026-08-06 加的轮次信封（`channel_room_type`）没进这条
+链路，**Lark p2p 私聊在 `step_3` 里恒被判成群聊，1:1 无回复兜底一次都不会跑**。
+改为调 `ChannelTriggerBase.build_trigger_extra_data(...)`（attachments 也由它统一
+处理），差异项 `source_message_id` 经 `**extra` 传入。
+
+两处 `extract_output(...)` 调用点改为 `resolve_agent_response(...)`：平台代写并投递
+成功的回复要先被认出来，否则 Lark 的抽取器（要求 `command` 含 `+messages-send`）读不到
+它，inbox 会把一条真发出去的回复记成 `(stayed silent)`。`extract_output` 本身没动。
+
+两条都属于同一个教训：**覆盖基类方法的子类会静默错过基类新增的契约**。理由与守卫
+（含 grep 级）记在 `channel_trigger_base.py.md` 2026-08-07 两条条目。
 
 ## 2026-08-06 — post 双形状提取 + 空内容丢弃补审计
 

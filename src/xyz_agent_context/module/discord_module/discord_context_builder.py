@@ -12,6 +12,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+    ROOM_TYPE_GROUP,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -45,7 +49,7 @@ class DiscordContextBuilder(ChannelContextBuilderBase):
             "channel_key": "discord",
             "room_name": "",  # could resolve via GET /channels/{id} — left blank for now
             "room_id": chat_id,
-            "room_type": "Direct Message" if is_dm else "Group Room",
+            "room_type": ROOM_TYPE_DIRECT if is_dm else ROOM_TYPE_GROUP,
             "sender_display_name": self._message.sender_name or self._message.sender_id,
             "sender_id": self._message.sender_id,
             "timestamp": str(self._message.timestamp_ms),

@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_context_builder_base.py
-last_verified: 2026-06-01
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 按 room_type 选通讯协议 + 新增轮次信封
+
+两件事，都因为 `room_type` 从展示标签变成了行为开关（缘由见
+`channel_prompts.py.md` 同日条目）：
+
+1. **`build_prompt()` 多填一个占位符**：`communication_protocol=
+   communication_protocol_for(info.get("room_type"))`。1:1 私聊拿到「默认回复」那份，
+   群聊拿到原有的沉默纪律那份。子类不需要改任何东西——只要 `get_message_info()`
+   照旧返回 `room_type` 就自动生效。
+2. **`turn_envelope()` + `reply_kwargs()`**：给 trigger 层取用的通用轮次事实。
+   `build_prompt()` 把 `get_message_info()` 的结果缓存进 `_message_info_cache`
+   （**别再调一次** `get_message_info()`——Slack/Lark 那几个会打平台 API），
+   `turn_envelope()` 从缓存产出 `{channel_room_type, channel_reply_kwargs}`，
+   由 `ChannelTriggerBase` 并进 `trigger_extra_data`。
+   `reply_kwargs()` 默认空 dict；只有寻址一个会话还需要额外参数的渠道才重写
+   （目前只有微信 iLink 要 `context_token`）。
+
+   **为什么放在信封里而不是让 step_3 去问渠道**：`step_3` 要在「1:1 私聊、模型
+   一个表达工具都没调」时替 agent 把回复发出去（见 `step_3_agent_loop.py.md`
+   同日条目）。信封是通用键 + `ChannelSenderRegistry`，所以编排层不 import 任何
+   渠道模块（铁律 #3）。
+
+   `build_prompt()` 没跑过时 `turn_envelope()` 返回 `{}`，调用方按「不是私聊」处理
+   ——即不兜底。
 
 # channel_context_builder_base.py — 渠道消息 Prompt 组装的抽象基类
 

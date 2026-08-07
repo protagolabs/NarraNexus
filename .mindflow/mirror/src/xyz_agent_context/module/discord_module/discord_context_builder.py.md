@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_context_builder.py
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — `room_type` 现在是行为开关
+
+判定逻辑没变（raw 的 `is_dm`），只是换用 `channel_prompts` 的 `ROOM_TYPE_*` 常量。
+**语义变了**：这个值现在**选择注入哪份通讯协议**（私聊「默认回复」vs 群聊沉默纪律），
+并决定 `step_3` 是否在模型没调表达工具时替 agent 投递回复。详见
+`channel_prompts.py.md` / `step_3_agent_loop.py.md` 同日条目。`is_dm` 判错的代价
+从「显示不准」升级成「agent 对真人的私聊装死」。
 
 ## Why it exists
 
