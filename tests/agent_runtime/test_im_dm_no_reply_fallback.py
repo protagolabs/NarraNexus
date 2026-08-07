@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    _channel_turn_envelope,
     _deliver_im_fallback_reply,
     _has_organic_reply,
     _im_reply_tool_name,
@@ -156,7 +157,68 @@ class TestImDmFallbackDecision:
         assert reason == "fatal_no_invented_reply"
 
 
-# ---------- 3. delivery ------------------------------------------------
+# ---------- 3. the envelope actually arrives ---------------------------
+
+
+class _FakeContextData:
+    def __init__(self, extra_data):
+        self.extra_data = extra_data
+
+
+class _FakeContextOutput:
+    """Shaped like ``ContextRuntimeOutput``: the envelope lives at
+    ``.ctx_data.extra_data``, NOT on the pipeline ctx."""
+
+    def __init__(self, extra_data):
+        self.ctx_data = _FakeContextData(extra_data)
+
+
+class TestChannelTurnEnvelope:
+    """Regression guard for a wiring bug found in live testing on
+    2026-08-06: the extractor was reading ``ctx.ctx_data``, but ContextData
+    is built fresh inside step_3 and hangs off the ContextRuntime OUTPUT —
+    ``ctx`` has no such attribute. It silently returned ``{}`` for every
+    turn, so ``is_direct_message`` was always False and the whole IM DM
+    fallback was dead code. A real Telegram DM proved it: the prompt
+    carried the DM protocol, yet the decision logged
+    ``group_room_may_stay_silent``.
+    """
+
+    def test_reads_the_envelope_off_context_output(self):
+        out = _FakeContextOutput(
+            {
+                "channel_room_type": "Direct Message",
+                "channel_reply_kwargs": {"context_token": "tok"},
+                "channel_tag": {"channel": "wechat", "room_id": "peer"},
+            }
+        )
+        env = _channel_turn_envelope(out)
+        assert env["channel_room_type"] == "Direct Message"
+        assert env["channel_reply_kwargs"] == {"context_token": "tok"}
+        assert env["channel_tag"]["room_id"] == "peer"
+
+    def test_object_without_ctx_data_yields_empty(self):
+        """chat / job / bus turns — and the bug's symptom if it ever
+        returns. Empty envelope = not a DM = no fallback."""
+        assert _channel_turn_envelope(object()) == {}
+
+    def test_none_ctx_data_yields_empty(self):
+        class _NoData:
+            ctx_data = None
+
+        assert _channel_turn_envelope(_NoData()) == {}
+
+    def test_malformed_extra_data_yields_empty(self):
+        assert _channel_turn_envelope(_FakeContextOutput("not-a-dict")) == {}
+
+    def test_missing_keys_degrade_to_not_a_dm(self):
+        env = _channel_turn_envelope(_FakeContextOutput({"unrelated": 1}))
+        assert env["channel_room_type"] == ""
+        assert env["channel_reply_kwargs"] == {}
+        assert env["channel_tag"] == {}
+
+
+# ---------- 4. delivery ------------------------------------------------
 
 
 @pytest.fixture

@@ -767,6 +767,10 @@ async def _stream_fallback_recovery(
         # The frame is emitted ONLY after the channel confirms the send.
         # Recording "replied" for a message that never left the process is
         # the same class of lie as the discarded plain text we are fixing.
+        from xyz_agent_context.channel.message_source_handler import (
+            PLATFORM_REPLY_TEXT_KEY,
+        )
+
         text = ""
         try:
             chunks: list[str] = []
@@ -816,7 +820,16 @@ async def _stream_fallback_recovery(
                     status=ProgressStatus.COMPLETED,
                     details={
                         "tool_name": _im_reply_tool_name(working_source),
-                        "arguments": {"content": text},
+                        # `content` for the generic reader; PLATFORM_REPLY_TEXT_KEY
+                        # so every channel-specific extractor reads the real
+                        # text instead of mis-parsing a frame that was never
+                        # shaped like its tool call (wechat's would fall back
+                        # to a "(sent via …)" placeholder, lark's would see
+                        # no `command` and report silence).
+                        "arguments": {
+                            "content": text,
+                            PLATFORM_REPLY_TEXT_KEY: text,
+                        },
                         "reply_via": "helper_llm_no_reply_im_dm",
                     },
                 )
@@ -914,7 +927,7 @@ def _im_reply_tool_name(working_source: str) -> str:
     )
 
     handler = MessageSourceRegistry.get(working_source)
-    for name in handler.user_reply_tool_names:
+    for name in handler.user_reply_tool_names:  # noqa: SIM110 — first non-owner wins
         if "send_message_to_user_directly" not in name:
             return name
     return f"{working_source}_send"
@@ -1436,7 +1449,13 @@ async def step_3_agent_loop(
         # chat / job / bus.
         from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
 
-        channel_envelope = _channel_turn_envelope(ctx)
+        # NOTE: `context` (the ContextRuntime OUTPUT), not `ctx`. ContextData
+        # is built fresh inside this step and hangs off the output — `ctx`
+        # has no `ctx_data` attribute, so passing it here silently produced
+        # an empty envelope and made the whole IM DM fallback dead code
+        # (caught in live Telegram testing 2026-08-06: the prompt carried
+        # the DM protocol while the decision logged group_room).
+        channel_envelope = _channel_turn_envelope(context)
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,
@@ -1444,6 +1463,21 @@ async def step_3_agent_loop(
             is_direct_message=(
                 channel_envelope.get("channel_room_type") == ROOM_TYPE_DIRECT
             ),
+        )
+        # One unconditional line per turn recording what the recovery slot
+        # decided AND the room type it decided on. The prompt and this
+        # decision read the SAME room_type, so "prompt said Direct Message,
+        # decision said group_room" is the exact signature of a broken
+        # envelope — and it was invisible before, because the
+        # already_replied case logs nothing and the wrong branch looked
+        # like a legitimate skip. That blind spot cost one dead-code
+        # release of this fallback (caught only by reading the DB during
+        # live Telegram testing, 2026-08-06).
+        logger.info(
+            f"[FALLBACK] decision: mode={fallback_mode!r} skip_reason={skip_reason!r} "
+            f"working_source={ctx.working_source!r} "
+            f"room_type={channel_envelope.get('channel_room_type', '')!r} "
+            f"has_reply_kwargs={bool(channel_envelope.get('channel_reply_kwargs'))}"
         )
         if fallback_mode is None and skip_reason != "already_replied_via_tool":
             logger.info(

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
 
@@ -11,6 +11,38 @@ review 收口：framework_override 过 _framework_override_viable 守卫——�
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
 framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
+
+## 2026-08-07 — 真机测试揪出的两处收口（信封接线 + 决策可观测性）
+
+同日 IM 私聊兜底（下一条）上线后用真 Telegram 私聊验，两个问题：
+
+1. **信封接线错了，整个兜底是死代码。** `_channel_turn_envelope(ctx)` 里
+   `getattr(ctx, "ctx_data")` 恒为 `None`——ContextData 是本步**新建**的、挂在
+   ContextRuntime **输出**上（`context.ctx_data`），`ctx` 没这个属性。于是信封恒空、
+   `is_direct_message` 恒 False，`no_reply_im_dm` 一次都不会触发。改为传 `context`。
+
+   **函数级单测抓不到它**：函数本身是对的，错在调用点传了哪个对象。所以补的不是
+   更多单测，而是下面的可观测性 + 一个跨层集成测试。发现方式是对读数据库：
+   同一轮的 prompt 里写着 `Direct Message`，日志里却是
+   `skip_reason='group_room_may_stay_silent'`。
+
+2. **矛盾之前不可见。** 已回复的分支**不打日志**（原有行为），走错的分支看起来又像
+   一次合法跳过。现在每轮无条件打一行
+   `[FALLBACK] decision: mode=… skip_reason=… working_source=… room_type=…
+   has_reply_kwargs=…`。prompt 与这个决策**读的是同一个 room_type**，所以
+   「prompt 说私聊、决策说群聊」是信封坏掉的确切特征，一眼可见。这正是
+   CLAUDE.md 事故教训 #4 要的 L2 级观测（不是「进程活着」，而是「它在做该做的事」）。
+
+真机结论：第一层（协议分叉）三轮验证通过——prompt 逐字确认注入私聊协议、无群聊纪律，
+模型对一句问候正常作答（旧协议下沉默才是「正解」）。修好后拿到正面证据：
+`room_type='Direct Message' skip_reason='already_replied_via_tool'` ——
+信封到位，且防重复发送那道闸在工作（模型自己回了，平台没有多发一条）。
+
+**第二层的投递路径真机没触发过**：第一层修好后模型一直正常回复，这正是想要的结果，
+但也意味着手动测试撞不到兜底。故补
+`tests/agent_runtime/test_im_dm_fallback_delivery_e2e.py`——它第一次运行就抓到了
+第三个 bug（见 `message_source_handler.py.md` 2026-08-07 条目：合成帧被渠道抽取器
+误读成占位符 / 沉默）。
 
 ## 2026-08-06 — 兜底扩到 1:1 IM 私聊（推翻 2026-05-12 的门禁前提）
 
