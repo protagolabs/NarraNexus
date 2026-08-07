@@ -63,9 +63,16 @@ async def _leave_room_trace(db, stopped_runs: list[dict]) -> None:
 
     Takes the WHOLE stopped set, not just the clicked run: a cascade silences
     every agent in the tree, and narrating only the one the owner happened to
-    click leaves the others vanishing exactly as described above. Runs are
-    grouped per room and announced in one message each — three separate notices
-    in one room would be its own kind of noise.
+    click leaves the others vanishing exactly as described above.
+
+    ONE NOTICE PER AGENT, not one merged notice per room. Merging reads better
+    in a busy room, but the name in the rendered line comes from the message's
+    own sender (the transcript resolves ``from_agent`` to a display name, which
+    is what makes the line localise correctly). A merged notice would have to
+    carry the other names inside ``content`` — an English sentence the frontend
+    would then have to scrape — because ``bus_messages`` has no structured
+    metadata column to put a name list in. Two or three grey system lines is a
+    smaller price than a scraped string, and each line stays attributable.
 
     Best-effort by design — the stop itself is already durable, and failing to
     narrate it must never turn a successful stop into a 500.
@@ -85,14 +92,15 @@ async def _leave_room_trace(db, stopped_runs: list[dict]) -> None:
                 by_channel[channel_id].append(agent_id)
 
         for channel_id, agent_ids in by_channel.items():
-            await _post_stop_notice(db, channel_id, agent_ids)
+            for agent_id in agent_ids:
+                await _post_stop_notice(db, channel_id, agent_id)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[run-cancel] could not post stop notice: {e}")
 
 
-async def _post_stop_notice(db, channel_id: str, agent_ids: list[str]) -> None:
-    """One notice per team room, naming every agent stopped there."""
-    if not agent_ids:
+async def _post_stop_notice(db, channel_id: str, agent_id: str) -> None:
+    """One notice for one stopped agent, if its room is a team room."""
+    if not agent_id:
         return  # nothing to attribute the notice to
     try:
         channel = await db.get_one("bus_channels", {"channel_id": channel_id})
@@ -104,11 +112,11 @@ async def _post_stop_notice(db, channel_id: str, agent_ids: list[str]) -> None:
         from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 
         bus = LocalMessageBus(backend=db._backend)
-        # Posted AS one of the stopped agents so the transcript can resolve a
-        # display name; the frontend renders it as a room-level system line,
-        # never as that agent speaking.
+        # Posted AS the stopped agent so the transcript resolves its display
+        # name (and localises it); the frontend renders the row as a
+        # room-level system line, never as that agent speaking.
         await bus.send_message(
-            from_agent=agent_ids[0],
+            from_agent=agent_id,
             to_channel=channel_id,
             content="Run stopped by owner.",
             msg_type=STOP_NOTICE_MSG_TYPE,

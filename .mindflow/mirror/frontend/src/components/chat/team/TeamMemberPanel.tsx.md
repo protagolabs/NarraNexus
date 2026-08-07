@@ -15,11 +15,21 @@ live 状态。
 要的就是这个即时答复,所以按钮**不等** `api.cancelRun` 的 resolve 才变样,
 点下去立刻转 stopping。
 
+`stopping` 有**三条出口**,少一条就会挂住:
+
+- **观察流给终态** —— 正常路径。
+- **请求失败**(403 / run 已消失 / 断网)→ 落回可点状态并显示 `stopFailed`,
+  而不是永远转着 spinner —— 那等于用新的黑箱换旧的黑箱。
+- **`already_settled`** —— run 在渲染与点击之间自己跑完了。此时服务端**没有
+  盖旗标**,也就不会有任何终态帧到来;不清掉 `stopping` 就会永远等一个已经
+  发生过的事件。语义见 [[api]](「前端据此知道『没什么可停的』,而不是当成
+  失败」)。
+
+其余:
+
 - **停止请求按 run 作用域**:state 里存 `{runId, failed}`,`runId` 与当前
   `activity.event_id` 不符就当没有。否则同一成员开下一轮时,按钮会因为上
   一轮的 pending 停止而灰着,而没人要求停这一轮。
-- **请求失败要说出来**:403 / run 已消失 / 断网都会落回可点状态并显示
-  `stopFailed`,而不是永远转着 spinner —— 那等于用新的黑箱换旧的黑箱。
 - **cancelled 必须与 completed 可区分**:`observation.endState ===
   'cancelled'` 时显示 `stopped`。把用户掐掉的任务显示成"已完成",等于告诉
   他那 25 分钟还是跑完了。

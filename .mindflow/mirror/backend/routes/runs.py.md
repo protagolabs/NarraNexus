@@ -3,15 +3,21 @@ code_file: backend/routes/runs.py
 last_verified: 2026-08-07
 stub: false
 ---
-## 2026-08-07 (二次) — 留痕覆盖整个被停集合(PR #252 review Important #4)
+## 2026-08-07 (三次) — 每个被停的 agent 各一条,不合并
 
-初版只对**被点击**的那个 run 留痕。一次点击停掉三层树时,房间里只出现一
-条通知,另外两个 agent 是凭空安静下去的 —— 正是这个函数自己 docstring 里
-写的「其他成员只能猜是跑完了、崩了、还是还在跑」。
+二次改动收了整个 stopped 集合、按房间分组,但 `_post_stop_notice` 只用了
+`agent_ids[0]`,正文又是固定英文句 —— 结果**只报出一个名字**,其余是死数据,
+docstring 却写着 "naming every agent stopped there"。描述了一个没写出来的
+行为(PR #252 review 连续两轮点名)。
 
-`_leave_room_trace` 改收整个 stopped 列表,按 channel 分组,每个房间一条
-(`_post_stop_notice`)。同房间多个 agent 合并成一条,三条独立通知本身就是
-另一种噪音。
+改为**一个 agent 一条**。为什么不真去实现合并:渲染出来的名字来自消息自己的
+发送者(transcript 把 `from_agent` 解析成显示名),这正是它能本地化的原因。
+合并就得把其余名字塞进 `content` —— 一个前端只能去抠字符串的英文句子,因为
+`bus_messages` 没有可放名单的结构化列。两三条灰色系统行比一次字符串抠取
+便宜,而且每条都可归属。
+
+路由级用例补齐(此前零覆盖):一个房间三个被停 agent → 三条可归属的系统行;
+peer DM 不留痕;没有 activity 行的 chat run 不留痕。
 
 # routes/runs.py — run 级控制面(目前只有:owner 的停止请求)
 

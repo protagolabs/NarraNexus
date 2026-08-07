@@ -242,3 +242,86 @@ async def test_an_unlabelled_run_stops_only_itself(db_client, monkeypatch):
     assert resp.json()["cascaded"] == 1
     b = await db_client.get_one("events", {"event_id": "evt_legacy_b"})
     assert not b["cancel_requested_at"]
+
+
+# ── room trace ──────────────────────────────────────────────────────────────
+
+
+async def _seed_room(db, channel_id="ch_team", agent_ids=("agent_a",), team=True):
+    await db.insert(
+        "bus_channels",
+        {
+            "channel_id": channel_id,
+            "name": "room",
+            "channel_type": "group",
+            "created_by": "team_t1" if team else "agent_owner",
+        },
+    )
+    for aid in agent_ids:
+        await db.insert(
+            "bus_channel_members", {"channel_id": channel_id, "agent_id": aid}
+        )
+
+
+async def _bind_activity(db, *, run_id, agent_id, channel_id="ch_team"):
+    """The run→room mapping the trace walks (written by the bus trigger)."""
+    await db.insert(
+        "bus_agent_activity",
+        {
+            "agent_id": agent_id,
+            "channel_id": channel_id,
+            "state": "running",
+            "event_id": run_id,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_every_stopped_agent_is_narrated(db_client, monkeypatch):
+    """Three agents stopped by one click → three attributable system lines.
+
+    The failure this pins: narrating only the clicked run leaves the other two
+    vanishing from the room with no explanation — which is the exact confusion
+    the trace exists to prevent, reintroduced by the cascade.
+    """
+    for i, aid in enumerate(("agent_a", "agent_b", "agent_c")):
+        await _seed(db_client, run_id=f"evt_{i}", agent_id=aid, root="evt_0")
+    await _seed_room(db_client, agent_ids=("agent_a", "agent_b", "agent_c"))
+    for i, aid in enumerate(("agent_a", "agent_b", "agent_c")):
+        await _bind_activity(db_client, run_id=f"evt_{i}", agent_id=aid)
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
+
+    resp = client.post("/api/runs/evt_1/cancel")
+
+    assert resp.json()["cascaded"] == 3
+    notices = await db_client.get("bus_messages", {"msg_type": "system_stop"})
+    # Every stopped agent is traceable — a merged notice naming only one of
+    # them would silently pass a "there is a notice" assertion.
+    assert {n["from_agent"] for n in notices} == {"agent_a", "agent_b", "agent_c"}
+    # And the notice must not be able to wake anyone it just stopped.
+    assert all(not n["mentions"] for n in notices)
+
+
+@pytest.mark.asyncio
+async def test_a_peer_dm_gets_no_notice(db_client, monkeypatch):
+    """A DM is not an audience — only team rooms are narrated."""
+    await _seed(db_client, run_id="evt_dm", agent_id="agent_a", root="evt_dm")
+    await _seed_room(db_client, channel_id="ch_dm", agent_ids=("agent_a",), team=False)
+    await _bind_activity(db_client, run_id="evt_dm", agent_id="agent_a", channel_id="ch_dm")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
+
+    client.post("/api/runs/evt_dm/cancel")
+
+    assert await db_client.get("bus_messages", {"msg_type": "system_stop"}) == []
+
+
+@pytest.mark.asyncio
+async def test_a_chat_run_is_not_narrated(db_client, monkeypatch):
+    """No activity row = the run never lived in a room; nothing to narrate."""
+    await _seed(db_client, run_id="evt_chat", agent_id="agent_a", root="evt_chat")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
+
+    resp = client.post("/api/runs/evt_chat/cancel")
+
+    assert resp.status_code == 200
+    assert await db_client.get("bus_messages", {"msg_type": "system_stop"}) == []

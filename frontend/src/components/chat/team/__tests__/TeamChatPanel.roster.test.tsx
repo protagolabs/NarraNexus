@@ -91,20 +91,34 @@ function typingButtons() {
     .filter((b) => (b.getAttribute('aria-label') || '').startsWith('chat.team.typing'));
 }
 
-/** Wait for the transcript's typing indicators to settle at `count`.
+/** Assert the transcript's typing-indicator count, once the room has settled.
  *
- * `renderRoom` only awaits a ROSTER row, which says nothing about the
- * transcript on the other side of the room: the two panes settle in separate
- * commits, so reading the indicators immediately is a race that stays green on
- * a fast machine and fails on a loaded CI runner (observed 2026-08-07). Any
- * assertion about them has to wait for them specifically.
+ * Only meaningful AFTER `renderRoom` — its anchor is what proves the fetch
+ * landed. A `waitFor` here cannot carry that weight on its own: `waitFor`
+ * polls until the assertion first PASSES, so `toHaveLength(0)` is already
+ * true before anything renders and returns immediately. Waiting only works
+ * for counts > 0; the zero case needs the positive anchor below.
  */
 async function settledTypingButtons(count: number) {
   await waitFor(() => expect(typingButtons()).toHaveLength(count));
   return typingButtons();
 }
 
-async function renderRoom(activity: unknown[], messages: unknown[] = [MESSAGE]) {
+/**
+ * `anchor` must be something that only exists once `getTeamChat` RESOLVED.
+ *
+ * The roster rows are the wrong anchor: they come from the synchronous store
+ * mock, so they are on screen before the fetch lands — the transcript (typing
+ * indicators, message bubbles) settles in a later commit. Anchoring on a
+ * roster row made every transcript assertion a race: green on a fast machine,
+ * red on a loaded CI runner (observed 2026-08-07), and — worse — permanently
+ * green for any assertion that a transcript element is ABSENT.
+ */
+async function renderRoom(
+  activity: unknown[],
+  messages: unknown[] = [MESSAGE],
+  anchor: string = MESSAGE.content,
+) {
   getTeamChatMock.mockResolvedValue({
     success: true,
     messages,
@@ -112,7 +126,7 @@ async function renderRoom(activity: unknown[], messages: unknown[] = [MESSAGE]) 
     lead_agent_id: 'a1',
   });
   const view = render(<TeamChatPanel teamId="t1" />);
-  await screen.findByTestId('roster-row-a1');
+  await screen.findByText(anchor);
   return view;
 }
 
@@ -188,7 +202,9 @@ describe('TeamChatPanel · addressing help', () => {
   });
 
   test('an empty room shows the hero instead of the transcript', async () => {
-    await renderRoom([], []);
+    // No messages, so the hero — which also only renders after the fetch —
+    // is this case's proof that the room settled.
+    await renderRoom([], [], 'chat.team.guide.plainTitle');
 
     // The room names itself in the hero on top of the member bar's copy.
     expect(screen.getAllByText('Desk')).toHaveLength(2);
