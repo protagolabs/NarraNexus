@@ -129,6 +129,37 @@ async def _post_stop_notice(db, channel_id: str, agent_id: str) -> None:
         logger.warning(f"[run-cancel] could not post notice in {channel_id}: {e}")
 
 
+async def _pause_work_items(db, root_run_id: str) -> None:
+    """Park this tree's work-board items so patrol stops chasing them.
+
+    Without this the stop is quietly undone: stopping a tree ends its RUNS,
+    but the work board still lists the task as unfinished, so the Leader's next
+    patrol sees "unfinished item, assignee idle", chases it, and starts a fresh
+    run. The owner presses stop and watches new work appear — the same
+    whack-a-mole the queued-message filter exists to prevent, one layer up and
+    this time initiated by the platform itself.
+
+    PAUSED, not CANCELLED (owner decision 2026-08-07): stopping means "stop
+    running", not "abandon the task". The item stays on the board and resuming
+    is an explicit user action — the platform does not decide that a task the
+    user merely interrupted is finished with.
+
+    Best-effort, like the room trace: the stop itself is already durable.
+    """
+    if not root_run_id:
+        return  # a single-run stop that predates trees has nothing to park
+    try:
+        from xyz_agent_context.repository.team_work_repository import (
+            TeamWorkItemRepository,
+        )
+
+        paused = await TeamWorkItemRepository(db).pause_by_root(root_run_id)
+        if paused:
+            logger.info(f"[run-cancel] paused {paused} work item(s) of {root_run_id}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[run-cancel] could not pause work items: {e}")
+
+
 @router.post("/{run_id}/cancel", response_model=CancelRunResponse)
 async def cancel_run(run_id: str, request: Request) -> CancelRunResponse:
     """Ask the run to stop. Owner only.
@@ -213,6 +244,7 @@ async def cancel_run(run_id: str, request: Request) -> CancelRunResponse:
 
     # Every silenced agent gets narrated, not just the clicked one.
     await _leave_room_trace(db, stopped)
+    await _pause_work_items(db, root)
 
     return CancelRunResponse(
         success=True,

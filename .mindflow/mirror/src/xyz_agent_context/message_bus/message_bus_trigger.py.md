@@ -3,13 +3,26 @@ code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-07 (三次) — lead 知道自己是 lead;工作板随 prompt 注入
+
+`_build_team_prompt` 增加 `lead_agent_id` / `work_items`,`_team_board()` 负责
+取数(best-effort:板子读不到就退化成「没有条目」,房间对话才是主表面 —— 丢一
+段板子只是少点上下文,丢一轮是用户拿不到答复)。
+
+**在此之前 `lead_agent_id` 在 agent 侧零语义**:全部消费者只有「无 @ 时的兜底
+路由」和前端徽章。lead 不知道自己是 lead,所以「Leader 应该盯进度」根本无处
+挂载。现在 lead 会拿到职责段:派活必须落 `work_add_item`,收到交付要
+`work_complete_item`。
+
+**板子是注入的,不是让它自己去查**:如果看自己的板子还得先调工具,「我派出去
+什么」就取决于模型愿不愿意去看 —— 铁律 #15 要避开的正是这类依赖。普通成员也
+看得到板子(它得知道自己认领了什么),只是不给驱动流程的职责。
 
 ## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
 
 `resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
 wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
 只是签名与 docstring 不再谎称"永远返回 str"。
-
 
 ## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
 

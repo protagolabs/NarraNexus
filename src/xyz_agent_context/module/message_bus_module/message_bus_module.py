@@ -103,6 +103,13 @@ class MessageBusModule(XYZBaseModule):
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools
             register_message_bus_mcp_tools(mcp, get_message_bus_fn=_get_default_bus_async)
+            # The team work board rides the same MCP server: its items are
+            # scoped to a team ROOM, which is a bus channel, so an agent that
+            # can talk in the room is exactly the agent that can maintain its
+            # board. Separate file, separate state machine — see
+            # _work_board_mcp_tools for the platform/model write boundary.
+            from ._work_board_mcp_tools import register_work_board_mcp_tools
+            register_work_board_mcp_tools(mcp)
 
             logger.info(f"MessageBusModule MCP server created on port {MESSAGE_BUS_MCP_PORT}")
             return mcp

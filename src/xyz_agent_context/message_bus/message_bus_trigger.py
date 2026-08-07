@@ -639,10 +639,13 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                lead_agent_id, work_items = await self._team_board(team_id)
                 prompt = self._build_team_prompt(
                     agent_id, history, member_map,
                     owner_user_id=team_owner, team_id=team_id,
                     trigger_messages=messages,
+                    lead_agent_id=lead_agent_id,
+                    work_items=work_items,
                 )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
@@ -1015,6 +1018,42 @@ class MessageBusTrigger:
                 out[m.agent_id] = row.get("agent_name") or m.agent_id
         return out
 
+    async def _team_board(self, team_id: str) -> tuple[str, List[dict]]:
+        """``(lead_agent_id, unfinished work items)`` for a team room's prompt.
+
+        Best-effort: a board that cannot be read degrades to "no items" rather
+        than failing the turn. The room conversation is the primary surface —
+        losing the board section costs the lead some context, losing the turn
+        costs the user their answer.
+        """
+        if not team_id:
+            return ("", [])
+        try:
+            from xyz_agent_context.repository.team_work_repository import (
+                TeamWorkItemRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            team = await db.get_one("teams", {"team_id": team_id})
+            lead = str((team or {}).get("lead_agent_id") or "")
+            items = await TeamWorkItemRepository(db).list_active(team_id)
+            return (
+                lead,
+                [
+                    {
+                        "item_id": i.item_id,
+                        "title": i.title,
+                        "assignee_id": i.assignee_id or "",
+                        "status": i.status,
+                    }
+                    for i in items
+                ],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[work-board] could not load board for {team_id}: {e}")
+            return ("", [])
+
     def _build_team_prompt(
         self,
         agent_id: str,
@@ -1023,6 +1062,8 @@ class MessageBusTrigger:
         owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
+        lead_agent_id: str = "",
+        work_items: Optional[List[dict]] = None,
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1066,6 +1107,41 @@ class MessageBusTrigger:
                 f"own workspace is private to you, so work left there is work "
                 f"your teammates cannot open or continue."
             )
+
+        # --- The work board, and (for the lead) what it obliges -------------
+        #
+        # Injected rather than fetched: if seeing your own board required
+        # calling a tool, "what did I hand out" would depend on the model
+        # choosing to look — the same dependency iron rule #15 keeps off
+        # correctness-critical paths. Every member sees the board (it is how
+        # they know what they own); only the lead is given the duty to drive it.
+        lines += ["", "[Work board] — tasks that outlive this turn:"]
+        if work_items:
+            for item in work_items:
+                who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
+                lines.append(
+                    f"- [{item.get('status')}] {item.get('title')} "
+                    f"({who}) · id={item.get('item_id')}"
+                )
+        else:
+            lines.append("- (no open work items)")
+
+        if lead_agent_id and lead_agent_id == agent_id:
+            lines += [
+                "",
+                "[You are the Leader of this team]",
+                "Nobody else is watching whether this team's work actually "
+                "finishes — that is your job, and it does not end when you "
+                "hand something out.",
+                "- When you assign work, record it: work_add_item(title, "
+                "assignee_id). A task that exists only in your reply is a task "
+                "nobody can notice has stalled — including you, next time you "
+                "wake up, because this turn's memory is gone by then.",
+                "- When someone delivers, close it: work_complete_item(item_id).",
+                "- The board above is the team's real state. If it disagrees "
+                "with what you just read in the room, the room is right and the "
+                "board needs updating.",
+            ]
 
         def _sender(msg: BusMessage) -> str:
             return (
