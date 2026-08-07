@@ -53,6 +53,10 @@ class TurnInput:
     # Reserved reference layer (design §8.2): serializable IDs/results
     # for drivers that project their own context. Always None today.
     refs: dict[str, Any] | None = None
+    # Per-turn fast-mode knobs (schema.turn_profile.TurnProfile). None =
+    # today's behavior everywhere; drivers that never heard of it ignore
+    # the kwarg via **kwargs.
+    turn_profile: Any | None = None
 
     def driver_kwargs(self) -> dict[str, Any]:
         """Kwargs for ``AgentLoopDriver.agent_loop`` — legacy-identical.
@@ -73,4 +77,6 @@ class TurnInput:
         }
         if self.expressive_tools:
             kwargs["expressive_tools"] = list(self.expressive_tools)
+        if self.turn_profile is not None:
+            kwargs["turn_profile"] = self.turn_profile
         return kwargs

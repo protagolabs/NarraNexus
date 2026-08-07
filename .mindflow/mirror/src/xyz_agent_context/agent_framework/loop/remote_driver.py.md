@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+kwargs 里的 turn_profile 以 model_dump() dict 进 wire body（白名单式 body，漏键=云端静默丢失，故显式传）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

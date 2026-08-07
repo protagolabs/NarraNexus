@@ -129,7 +129,7 @@ class NarrativeRetrieval:
         # MemoryEngine uses, so narrative routing and memory recall share one
         # ranking implementation. Zero vectors.
         with timed("narrative.retrieve.keyword_search"):
-            search_results = await self._keyword_search(
+            search_results = await self.keyword_search(
                 query=query,
                 user_id=user_id,
                 agent_id=agent_id,
@@ -304,7 +304,7 @@ class NarrativeRetrieval:
             )
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
 
-    async def _keyword_search(
+    async def keyword_search(
         self,
         query: str,
         user_id: str,

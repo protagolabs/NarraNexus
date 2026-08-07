@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+_build_request_payload 消费 kwargs["turn_profile"]（模型或 wire dict，单点归一化）：prompt_mode 进 options（无 profile 时 "full" = 旧硬编码值）、reasoning_effort 进 llm_extra（litellm 直通网关）、include_arg_deltas 仅非 None 时覆盖。无 profile 时 payload 语义与改动前一致（test_nexus_turn_profile 钉住）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

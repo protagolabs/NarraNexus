@@ -54,6 +54,39 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
+def _framework_override_viable(
+    framework: str, *, claude: Any = None, codex: Any = None
+) -> bool:
+    """Can THIS turn's provider config actually serve the override?
+
+    Mirrors NexusAgent._build_request_payload's two hard-fail conditions
+    (OAuth subscription credentials; no model on either protocol slot)
+    so a fast-mode override never bricks a turn that would have worked
+    on the slot framework (review finding: no-fallback override). Other
+    framework names pass through — this is a viability check, not
+    policy (binding rule #15).
+
+    ``claude``/``codex`` default to the ambient per-task configs; tests
+    inject fakes instead of mutating the shared proxies.
+    """
+    if framework != "nexus_power":
+        return True
+    if claude is None or codex is None:
+        from xyz_agent_context.agent_framework.api_config import (
+            claude_config,
+            codex_config,
+        )
+
+        claude = claude if claude is not None else claude_config
+        codex = codex if codex is not None else codex_config
+    # Mirror _resolve_provider's claude-FIRST short circuit, not just its
+    # conditions: a non-empty claude.model means codex is never consulted,
+    # so an oauth claude slot is non-viable even if codex carries a model.
+    if claude.model:
+        return (claude.auth_type or "api_key") not in ("oauth", "oauth_token")
+    return bool(codex.model)
+
+
 async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     """Return the coding-agent framework name for THIS agent (for the driver
     registry).
@@ -881,6 +914,21 @@ async def step_3_agent_loop(
     # short aliases (claude / codex), so any value we read here that
     # the system supports will resolve.
     framework_name = await _resolve_agent_framework_name(ctx.agent_id, db_client)
+    # Fast-mode profiles may pin the framework (voice needs NexusPower's
+    # streaming/expressive seams). None/empty override = slot resolution
+    # stands untouched. The override is refused when the provider config
+    # cannot serve the pinned framework — a turn that worked on the slot
+    # framework must never be bricked by fast mode; the voice bridge then
+    # simply sees no deltas and the legacy finalize chain delivers.
+    if ctx.turn_profile is not None and ctx.turn_profile.framework_override:
+        _override = ctx.turn_profile.framework_override
+        if _framework_override_viable(_override):
+            framework_name = _override
+        else:
+            logger.warning(
+                f"[step_3] framework_override {_override!r} not viable for "
+                f"this provider config; keeping {framework_name!r}"
+            )
     logger.info(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
@@ -909,6 +957,7 @@ async def step_3_agent_loop(
             # (context 3.2). NexusPower's monologue contract routes every
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
+            turn_profile=ctx.turn_profile,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

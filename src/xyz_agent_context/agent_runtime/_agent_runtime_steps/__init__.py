@@ -44,6 +44,7 @@ from .step_0_initialize import step_0_initialize
 
 # Step 1 series - Narrative selection
 from .step_1_select_narrative import step_1_select_narrative
+from .step_1_fast_select import step_1_fast_select
 from .step_1_5_init_markdown import step_1_5_init_markdown
 
 # Step 2 series - Module loading
@@ -81,6 +82,7 @@ __all__ = [
 
     # Step 1
     "step_1_select_narrative",
+    "step_1_fast_select",
     "step_1_5_init_markdown",
 
     # Step 2

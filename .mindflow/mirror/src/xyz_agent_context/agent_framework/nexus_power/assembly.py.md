@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+PromptAssembler 的模式来源从硬编码 PromptMode.FULL 改为 PromptMode(opts.prompt_mode)——默认值不变，快速模式可按 turn 降面。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

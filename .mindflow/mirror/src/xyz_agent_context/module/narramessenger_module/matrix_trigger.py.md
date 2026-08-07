@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice 检测双入口 + atomic speak 投递（第三轮 review 收口）
+
+**voice 检测现在有两个入口，这是本文件最新的承重结构**：①parse_event（热 roster 缓存、chat_type==PRIVATE 才检测）；②`_late_voice_upgrade`（`_process_message` 在 `_classify` 返回权威 dm 之后调用，专为冷 roster 缓存兜底——真实通话第一轮不再降级）。两入口共用纯函数 `_detect_voice_turn`，判据永不分叉。边界是函数自证的：`authoritative_dm` 形参强制调用方声明权威房型（不是靠调用点位置），接线由 test_late_upgrade_wired_only_on_dm_classify 钉住——把调用挪出 dm 分支测试必红。envelope-only 正文在两条路径上同规则**丢 turn**（late 路径返回 None，调用方 return——envelope 永远不能以用户输入身份跑 agent）。atomic 路径的 speak：extract_output 改为与 streaming 语义同构的有序折叠（speak 追加、narra_reply 置换），同一调用序列两条路径同一答案；「never silent ok:true」承诺自此对两条路径都成立。
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：①voice 检测限 1:1 房间（metadata 只验格式不验来源，群内成员可注入 voice_instructions；F13 本就是 1:1 通话；冷 roster 缓存在 parse 期保守拒绝、由 _process_message 的 late upgrade 补齐（见 08-06 第三轮条目））；②speak 在文字轮不再是 ok:true 的死工具——streaming 由 PROGRESS 捕获进 narra_reply_text，atomic 由 extract_output 有序折叠（两路径同答案，见 08-06 第三轮条目）；③speak 匹配谓词统一 endswith("__speak")；④STREAMING_ENABLED 同样约束语音——开关关闭时剥 rtc_voice 整轮降级普通文本，不半激活。
+
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+观测：[voice-timing] 纯函数行（handoff §9 六 timestamp 映射为自 received 起的时长，缺失戳 -1.00，只带非敏感 correlation ID 绝不带 transcript），finalize 处发射；戳位 = streaming 入口(received/applied)、run_stream 创建后(request)、bridge 的 first_delta/first_sent/finalized。
+
+## 2026-08-06 — voice fast mode: 通话级串行（per-rtc_session）
+
+_build_and_run_agent 在 rtc_voice 消息上先过 _run_voice_serialized：按 rtc_session_id（缺省 agent_id:room）一条 drain loop 串行；run 期间到达的语句缓冲并 _merge_voice_batch 合并成一次后续 turn（transcript 按序拼接、以最后一条的 rtc 元数据为基准——correlation 跟最新 turn_id）。不同通话完全并行；通话闲置即清 state。设计蓝本是 group_silent 的 per-(agent,room) 缓冲。非语音消息 dispatch 逐字不变（getattr 守卫，替身消息也安全）。
+
+## 2026-08-06 — voice fast mode: VoiceDeliveryBridge 接线
+
+_StreamReplyState 增 voice_bridge（None=文字 turn，所有 legacy 分支以 bridge is None 为守卫，行为逐字不变）。_handle_stream_event：speak 的 AGENT_REPLY_DELTA 喂桥、speak PROGRESS 作权威全文修正且不落 narra_reply_text、narra_reply 捕获在语音 turn 上照旧。finalize：bridge.close() 成功即完；finalized_ok=False 时 _send_matrix_reply 平文兜底；无 spoken 文本则回落 legacy finalize（narra_reply/错误标记/静默三态不变）。
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+parse_event 的 text 分支做 RTC v1 检测（_rtc_voice 严格校验，任一失败=普通消息）：剥 envelope、正文=transcript、raw["rtc_voice"] 带四 ID + 有效 voice_instructions（metadata 优先、envelope 兜底）；空 transcript 丢 turn。_voice_profile_for 把 rtc_voice 映射为一次性 TurnProfile.voice_fast()（不落 session）。streaming 路径把 profile 传 run_stream、rtc_voice 进 extra_data。
 
 ## 2026-08-04 — `matrix_since_token` 排除出熔断指纹
 

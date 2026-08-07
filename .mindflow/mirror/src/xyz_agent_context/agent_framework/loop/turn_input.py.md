@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+bundle 新增 `turn_profile` 字段（None 时 driver_kwargs 不发键——legacy 形状不变）；这是 fast-mode 旋钮束进 driver 的载体。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

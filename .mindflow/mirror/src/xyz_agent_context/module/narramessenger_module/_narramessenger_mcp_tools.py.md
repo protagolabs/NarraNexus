@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+新增 speak 工具（narra_reply 同型空壳 marker）：语音通话回复面，允许一 turn 多次调用；投递由 trigger 侧 voice bridge 消费流式参数完成。
 
 ## 2026-07-24 — setup residency (B++): empty `narra_bind` returns the guide
 

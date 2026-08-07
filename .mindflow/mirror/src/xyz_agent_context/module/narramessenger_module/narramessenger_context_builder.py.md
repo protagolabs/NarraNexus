@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+get_message_info 增 voice 分支：raw["rtc_voice"] 存在时 send_tool_name="speak"、reply_instruction 换 channel_prompts.VOICE_REPLY_INSTRUCTION_TEMPLATE（口语短句/禁 markdown/工具前 speak 预告/同 turn 交付/禁读内部 ID），per-turn voice_instructions 以受控行附加。普通分支逐字不变（test_voice_register 回归钉住）。
 
 ## 2026-07-20 — roster-on-demand now via `narra_cli`
 

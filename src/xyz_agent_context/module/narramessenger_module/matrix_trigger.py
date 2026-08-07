@@ -57,7 +57,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
 
 import aiohttp
@@ -98,6 +99,7 @@ from xyz_agent_context.schema.parsed_message import (
     ParsedMessage,
 )
 from xyz_agent_context.schema.runtime_message import MessageType
+from xyz_agent_context.schema.turn_profile import TurnProfile
 
 from ._matrix_send import (
     MatrixSendError,
@@ -107,10 +109,114 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
+from ._rtc_voice import parse_rtc_voice_input, split_narra_system_prompt
+from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
+def _detect_voice_turn(body: str, source: Any) -> Optional[tuple[str, dict]]:
+    """Pure detection shared by parse_event and the late (post-classify)
+    upgrade: ``(transcript, rtc_voice_dict)`` for a valid RTC voice event,
+    else None. The transcript may be empty (valid metadata, envelope-only
+    body) — callers decide whether that drops the turn or skips the
+    upgrade. voice_instructions precedence: explicit metadata field wins,
+    the narra-system-prompt envelope is the v1 fallback carrier.
+    """
+    rtc = parse_rtc_voice_input(source) if isinstance(source, dict) else None
+    if rtc is None:
+        return None
+    envelope, transcript = split_narra_system_prompt(body)
+    return transcript, {
+        "rtc_session_id": rtc.rtc_session_id,
+        "turn_id": rtc.turn_id,
+        "invocation_id": rtc.invocation_id,
+        "agent_profile_id": rtc.agent_profile_id,
+        "voice_instructions": rtc.voice_instructions or envelope,
+    }
+
+
+def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
+    """Map RTC voice detection to the one-shot fast profile.
+
+    The profile exists ONLY for the turn whose event carried valid
+    metadata (parse_event stamps ``raw["rtc_voice"]``) — nothing is
+    persisted, so the next plain message runs the normal path untouched
+    (handoff: the override must never be written to any session store).
+    """
+    if (message.raw or {}).get("rtc_voice"):
+        return TurnProfile.voice_fast()
+    return None
+
+
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+def _format_voice_timing(
+    *,
+    agent_id: str,
+    room_id: str,
+    rtc_session_id: str,
+    received_at: float,
+    applied_at: float,
+    request_started_at: float,
+    first_delta_at: Optional[float],
+    first_sent_at: Optional[float],
+    finalized_at: Optional[float],
+) -> str:
+    """The [voice-timing] log line — handoff section 9's six timestamps as
+    durations from matrix_voice_input_received. Grep-stable pure function
+    (same treatment as [turn-timing]); missing stamps emit -1.00. Carries
+    only non-sensitive correlation IDs — never transcript content."""
+
+    def _d(stamp: Optional[float]) -> float:
+        return (stamp - received_at) if stamp is not None else -1.0
+
+    return (
+        "[voice-timing] agent={} room={} rtc_session={} "
+        "applied_s={:.2f} request_s={:.2f} first_token_s={:.2f} "
+        "first_live_s={:.2f} finalized_s={:.2f}".format(
+            agent_id,
+            room_id,
+            rtc_session_id,
+            _d(applied_at),
+            _d(request_started_at),
+            _d(first_delta_at),
+            _d(first_sent_at),
+            _d(finalized_at),
+        )
+    )
+
+
+@dataclass
+class _VoiceCallState:
+    """Per-call serialization state (F28): one drain loop at a time."""
+
+    running: bool = False
+    pending: list = field(default_factory=list)  # (message, sender_name, attachments)
+
+
+def _merge_voice_batch(batch: list) -> tuple:
+    """Merge buffered utterances of one call into a single turn.
+
+    The caller kept talking while the agent worked — the queued
+    transcripts concatenate in arrival order into ONE message. The last
+    utterance's metadata (event id, rtc ids, timestamps) is the base:
+    correlation follows the newest turn_id, matching Hybrid's view that
+    earlier turns were superseded.
+    """
+    if len(batch) == 1:
+        return batch[0]
+    messages = [b[0] for b in batch]
+    _, last_sender, _ = batch[-1]
+    merged_content = "\n".join(
+        m.content for m in messages if (m.content or "").strip()
+    )
+    merged_message = replace(messages[-1], content=merged_content)
+    merged_attachments: list = []
+    for _, _, atts in batch:
+        if atts:
+            merged_attachments.extend(atts)
+    return merged_message, last_sender, (merged_attachments or None)
 
 
 @dataclass
@@ -133,6 +239,10 @@ class _StreamReplyState:
     narra_reply_text: str = ""
     error_seen: bool = False
     last_error_message: str = ""
+    # F28 voice turn only: the live-delivery bridge. None on text turns —
+    # every legacy branch below checks nothing and behaves exactly as
+    # before (the guard is "bridge is None", not a mode flag).
+    voice_bridge: Optional["VoiceDeliveryBridge"] = None
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -390,6 +500,12 @@ class MatrixTrigger(ChannelTriggerBase):
         # Per-key lock — flush is async and buffer mutation must not race
         # a concurrent enqueue that arrives while we're draining.
         self._silent_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+        # ── F28 voice-call serialization ─────────────────────────────────
+        # Keyed by rtc_session_id (fallback agent_id:room_id). One worker
+        # holds a call's drain loop; overlapping utterances buffer and
+        # merge into one follow-up turn. Entries die when the call idles.
+        self._voice_calls: dict[str, _VoiceCallState] = {}
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -1269,6 +1385,21 @@ class MatrixTrigger(ChannelTriggerBase):
             f"mentioned={mentioned})"
         )
 
+        if target == "dm":
+            # Cold-roster fallback (review #17): parse_event gates voice
+            # mode on the cached member count, which reads GROUP for an
+            # unseen room — degrading the FIRST turn of a real call.
+            # _classify just did the authoritative lookup; re-run the same
+            # pure detection so a cold cache only costs time, not
+            # correctness. Group rooms never reach this branch, so the
+            # 1:1-only injection boundary is unchanged. None = valid
+            # metadata with an envelope-only body → drop the turn, same
+            # rule as parse_event (review #21).
+            upgraded = self._late_voice_upgrade(message, authoritative_dm=True)
+            if upgraded is None:
+                return
+            message = upgraded
+
         # Silent path: memory-only, no reply / tool / model. Owner
         # policy override — do not call authorize-event. See
         # SILENT_BYPASS_AUTHORIZE docstring for the full rationale.
@@ -1334,6 +1465,30 @@ class MatrixTrigger(ChannelTriggerBase):
         the runtime completes. Both paths still let the base's
         ``_process_message`` write to the inbox on the returned string.
         """
+        # F28 voice turns serialize per call BEFORE dispatch: the trigger's
+        # worker pool runs same-room messages concurrently (by design for
+        # text), but two overlapping voice runs would interleave two TTS
+        # streams on one call. Modeled on the group_silent per-(agent, room)
+        # buffer; the call key is rtc_session_id.
+        if (getattr(message, "raw", None) or {}).get("rtc_voice"):
+            if not self.STREAMING_ENABLED:
+                # The streaming kill switch governs voice too: live
+                # delivery IS streaming, so degrade the whole turn to a
+                # plain text turn (no voice register, no speak surface,
+                # no serialization) instead of half-activating voice on
+                # the atomic path.
+                message = replace(
+                    message,
+                    raw={
+                        k: v
+                        for k, v in (message.raw or {}).items()
+                        if k != "rtc_voice"
+                    },
+                )
+            else:
+                return await self._run_voice_serialized(
+                    credential, message, sender_name, attachments=attachments
+                )
         if self.STREAMING_ENABLED:
             return await self._build_and_run_agent_streaming(
                 credential, message, sender_name, attachments=attachments
@@ -1341,6 +1496,94 @@ class MatrixTrigger(ChannelTriggerBase):
         return await self._build_and_run_agent_atomic(
             credential, message, sender_name, attachments=attachments
         )
+
+    def _late_voice_upgrade(
+        self, message: ParsedMessage, *, authoritative_dm: bool
+    ) -> Optional[ParsedMessage]:
+        """Re-run voice detection after _classify confirmed a 1:1 room.
+
+        parse_event's PRIVATE gate is conservative on a cold roster cache
+        (unknown member count parses as GROUP); this recovers the voice
+        register for authoritative DMs. Inert on plain messages and
+        idempotent on already-stamped ones.
+
+        ``authoritative_dm`` must be the CALLER'S declaration that
+        _classify returned "dm" — the 1:1 injection boundary is asserted
+        here, not by call-site position alone (review #23). Returns None
+        for a metadata-valid but envelope-only body: the turn is DROPPED,
+        same rule as parse_event — the envelope must never run the agent
+        as user content (review #21).
+        """
+        raw = message.raw or {}
+        if not authoritative_dm or raw.get("rtc_voice"):
+            return message
+        detected = _detect_voice_turn(
+            message.content, getattr(raw.get("_nio_event"), "source", None)
+        )
+        if detected is None:
+            return message
+        transcript, rtc_voice = detected
+        if not transcript.strip():
+            logger.info(
+                f"[matrix:{getattr(message, 'chat_id', '?')}] late voice "
+                f"turn with empty transcript dropped"
+            )
+            return None
+        upgraded_raw = dict(raw)
+        upgraded_raw["rtc_voice"] = rtc_voice
+        logger.info(
+            f"[matrix:{getattr(message, 'chat_id', '?')}] voice turn "
+            f"late-upgraded after authoritative dm classify"
+        )
+        return replace(message, content=transcript, raw=upgraded_raw)
+
+    async def _run_voice_serialized(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Serialize voice turns per call; merge utterances that queue up.
+
+        One worker holds a call's drain loop; messages arriving while a
+        run is active are buffered and merged into ONE follow-up turn
+        (consecutive utterances concatenate — the caller kept talking).
+        Different calls (different rtc_session_id) stay fully parallel.
+        State is per-trigger-instance and dies with the call going idle.
+        """
+        rtc = (getattr(message, "raw", None) or {}).get("rtc_voice") or {}
+        key = (
+            rtc.get("rtc_session_id")
+            or f"{getattr(credential, 'agent_id', '?')}:{message.chat_id}"
+        )
+        call = self._voice_calls.setdefault(key, _VoiceCallState())
+        call.pending.append((message, sender_name, attachments))
+        if call.running:
+            # The draining worker will pick this up; nothing to return for
+            # the buffered message itself (its content is merged).
+            return ""
+        call.running = True
+        last_text = ""
+        try:
+            while call.pending:
+                batch = call.pending
+                call.pending = []
+                merged_message, merged_sender, merged_attachments = (
+                    _merge_voice_batch(batch)
+                )
+                last_text = await self._build_and_run_agent_streaming(
+                    credential,
+                    merged_message,
+                    merged_sender,
+                    attachments=merged_attachments,
+                )
+        finally:
+            call.running = False
+            if not call.pending:
+                self._voice_calls.pop(key, None)
+        return last_text
 
     async def _build_and_run_agent_atomic(
         self,
@@ -1436,7 +1679,37 @@ class MatrixTrigger(ChannelTriggerBase):
                 a.model_dump(mode="json") for a in attachments
             ]
 
+        # F28 voice turn: the one-shot fast profile rides this run only;
+        # rtc_voice reaches modules via extra_data (expressive surface
+        # ordering) without any session write.
+        _t_voice_received = time.monotonic()
+        turn_profile = _voice_profile_for(message)
+        _t_voice_applied = time.monotonic()
+        rtc_voice = (message.raw or {}).get("rtc_voice")
+        if rtc_voice:
+            extra_data["rtc_voice"] = rtc_voice
+
         state = _StreamReplyState()
+
+        if rtc_voice:
+            # The bridge owns the live m.text / m.replace lifecycle for
+            # this turn; its sender is a closure over this credential so
+            # the pure lifecycle logic stays homeserver-free (testable).
+            room_id_for_send = message.chat_id
+
+            async def _voice_send(content: dict) -> str:
+                return await matrix_room_send(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id_for_send,
+                    content=content,
+                )
+
+            state.voice_bridge = VoiceDeliveryBridge(send=_voice_send)
+
+        run_kwargs: dict[str, Any] = {}
+        if turn_profile is not None:
+            run_kwargs["turn_profile"] = turn_profile
 
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
@@ -1444,7 +1717,9 @@ class MatrixTrigger(ChannelTriggerBase):
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,
+            **run_kwargs,
         )
+        _t_voice_request = time.monotonic()
 
         try:
             async for event in client_stream:
@@ -1465,6 +1740,39 @@ class MatrixTrigger(ChannelTriggerBase):
             )
 
         # Finalize.
+        if state.voice_bridge is not None:
+            spoken, finalized_ok = await state.voice_bridge.close()
+            logger.info(_format_voice_timing(
+                agent_id=agent_id,
+                room_id=message.chat_id,
+                rtc_session_id=str((rtc_voice or {}).get("rtc_session_id", "")),
+                received_at=_t_voice_received,
+                applied_at=_t_voice_applied,
+                request_started_at=_t_voice_request,
+                first_delta_at=state.voice_bridge.first_delta_at,
+                first_sent_at=state.voice_bridge.first_sent_at,
+                finalized_at=(
+                    state.voice_bridge.finalized_at if finalized_ok else None
+                ),
+            ))
+            if spoken:
+                if not finalized_ok:
+                    # Live lifecycle broke (base or final edit failed) —
+                    # handoff 6.3: never leave the answer undelivered; the
+                    # plain retry-aware sender is the fallback path.
+                    logger.warning(
+                        f"[matrix:{credential.agent_id}] voice live "
+                        f"delivery failed; falling back to plain send "
+                        f"(room={message.chat_id})"
+                    )
+                    await self._send_matrix_reply(
+                        credential, message.chat_id, spoken
+                    )
+                return spoken
+            # Nothing spoken: fall through to the legacy finalize so a
+            # narra_reply answer, an error marker, or a silent turn all
+            # behave exactly as on a text turn.
+
         final_text = (state.narra_reply_text or "").strip()
         if final_text:
             # No placeholder to edit — fresh-send via the retry-aware
@@ -1516,6 +1824,20 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"the error marker"
             )
             return
+        # F28 voice turn: speak's streamed text argument rides
+        # AGENT_REPLY_DELTA (the expressive reply stream). Only speak
+        # deltas feed TTS — narra_reply/narra_send keep their legacy
+        # trigger-captured, deliver-at-finalize semantics even mid-call.
+        if (
+            state.voice_bridge is not None
+            and mt == MessageType.AGENT_REPLY_DELTA
+            and (getattr(event, "tool_name", "") or "").endswith("__speak")
+        ):
+            await state.voice_bridge.on_reply_delta(
+                call_id=getattr(event, "call_id", "") or "",
+                delta=getattr(event, "delta", "") or "",
+            )
+            return
         if mt != MessageType.PROGRESS:
             return
         details = getattr(event, "details", None)
@@ -1534,6 +1856,31 @@ class MatrixTrigger(ChannelTriggerBase):
             return
         text = arguments.get("text")
         if not (isinstance(text, str) and text.strip()):
+            return
+
+        if tool_name.endswith("__speak"):
+            if state.voice_bridge is not None:
+                # The completed speak call carries the authoritative full
+                # text — corrects the delta view (or substitutes when arg
+                # deltas were unavailable on this provider).
+                state.voice_bridge.on_segment_text(
+                    call_id=str(details.get("call_id") or ""), text=text
+                )
+                return
+            # Text turn: no bridge consumes speak, so without this capture
+            # the call would be a dead tool — ok:true returned, nothing
+            # delivered, a fully silent round. Deliver via the legacy
+            # finalize path instead; segments concatenate (speak is a
+            # multi-call tool).
+            state.narra_reply_text = (
+                f"{state.narra_reply_text} {text}".strip()
+                if state.narra_reply_text
+                else text
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] speak on a text turn "
+                f"captured for plain delivery (room={room_id})"
+            )
             return
 
         if "narra_reply" in tool_name:
@@ -1616,13 +1963,24 @@ class MatrixTrigger(ChannelTriggerBase):
         as "nothing sent" (the 2026-07-03 bug this replaced).
         """
         raw_items = getattr(result, "raw_items", None) or []
+        # Ordered fold mirroring the STREAMING capture semantics exactly
+        # (review #22): narra_reply REPLACES the accumulator (last-writer,
+        # like state.narra_reply_text = text), speak APPENDS a segment
+        # (review #16 — no bridge runs on the atomic path, so joining the
+        # segments into the plain delivery is what keeps speak from being
+        # a dead ok:true tool when the STREAMING_ENABLED switch is off).
+        # Same call sequence must yield the same answer on both paths.
+        accumulated = ""
         for raw in raw_items:
             if not isinstance(raw, dict):
                 continue
             item = raw.get("item")
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
-            if "narra_reply" not in str(item.get("tool_name") or ""):
+            tool_name = str(item.get("tool_name") or "")
+            is_reply = "narra_reply" in tool_name
+            is_speak = tool_name.endswith("__speak")
+            if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}
             if isinstance(args, str):
@@ -1630,10 +1988,17 @@ class MatrixTrigger(ChannelTriggerBase):
                     args = json.loads(args)
                 except Exception:  # noqa: BLE001
                     args = {}
-            if isinstance(args, dict):
-                text = args.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text
+            if not isinstance(args, dict):
+                continue
+            text = args.get("text")
+            if not (isinstance(text, str) and text.strip()):
+                continue
+            if is_reply:
+                accumulated = text
+            else:
+                accumulated = f"{accumulated} {text}".strip() if accumulated else text
+        if accumulated:
+            return accumulated
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""
@@ -2104,6 +2469,44 @@ class MatrixTrigger(ChannelTriggerBase):
             body = raw.get("body") or ""
             if not body.strip():
                 return None
+            # ── F28 RTC voice turn detection ────────────────────────────
+            # Hybrid sends final STT as a normal m.text plus the
+            # ai.netmind.rtc.voice_input v1 metadata on the same event.
+            # Strict validation lives in _rtc_voice; ANY miss keeps this a
+            # plain text message (contract: bad metadata must never break
+            # the normal reply path). Metadata is a presentation hint,
+            # NOT authorization — classify/authorize gates run unchanged.
+            #
+            # 1:1 rooms ONLY: the metadata has no source binding (format
+            # is validated, provenance is not — and the handoff forbids a
+            # sync backend round trip for the fast-mode decision), so a
+            # group member could otherwise inject voice_instructions into
+            # the reply register. F13 RTC calls are Agent-Human 1:1 by
+            # product shape, so gating on PRIVATE loses nothing. A cold
+            # roster cache (unknown member count) parses as GROUP and is
+            # conservatively refused HERE; _process_message recovers it
+            # after _classify's authoritative dm verdict — see
+            # _late_voice_upgrade. The argument chain closes there.
+            detected = (
+                _detect_voice_turn(
+                    body, getattr(raw.get("_nio_event"), "source", None)
+                )
+                if chat_type == ChatType.PRIVATE
+                else None
+            )
+            if detected is not None:
+                transcript, rtc_voice = detected
+                if not transcript.strip():
+                    # Envelope-only body: nothing to answer. Drop the turn
+                    # rather than running the agent on empty input.
+                    logger.info(
+                        f"[matrix:{raw.get('_agent_id', '?')}] voice turn "
+                        f"with empty transcript dropped (event={event_id})"
+                    )
+                    return None
+                body = transcript
+                raw = dict(raw)
+                raw["rtc_voice"] = rtc_voice
             return ParsedMessage(
                 message_id=event_id,
                 chat_id=room_id,

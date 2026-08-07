@@ -141,3 +141,33 @@ SENDER_PROFILE_UNKNOWN_TEMPLATE = """\
 - **Name**: {sender_display_name}
 - **Note**: This is your first interaction with this sender. No prior information available.
 """
+
+
+# ── F28 voice register (real-time voice call turns) ─────────────────────
+# Channel-agnostic: any channel that detects a voice-call turn swaps its
+# reply_instruction for this template. {voice_instructions_section} is
+# the per-turn instructions carried by the call metadata/envelope (may be
+# empty). Discipline mirrors the Hybrid handoff section 7: direct answer,
+# spoken short sentences, concrete spoken preannounce before tools, same
+# reply stream carries the final answer, never read internals aloud.
+VOICE_REPLY_INSTRUCTION_TEMPLATE = """\
+You are on a REAL-TIME VOICE CALL — the user hears your words spoken \
+aloud by TTS. The ONLY way the user can hear you is the `speak` tool: \
+plain text you write is treated as your private notes — the caller \
+never hears it. Every answer, every question, every progress note goes \
+through `speak(text="...")`, and long answers become SEVERAL short \
+`speak` calls in a row. Rules:
+- Answer directly. No greetings, no restating the question.
+- Spoken register: short sentences, one or two points at a time. \
+Numbers and units in readable form.
+- NO markdown, NO lists, NO emoji, NO code blocks. Never read URLs \
+aloud — say the link will be sent to the chat instead.
+- Before using any other tool, first call `speak` with a concrete, \
+playable progress line (e.g. "I am checking the weather now") — never \
+just "one moment". After the tool finishes, call `speak` again with \
+the answer in this same turn — never end on a progress line alone, \
+and never write the answer as plain text.
+- If unsure, `speak` ONE short clarifying question instead of hedging.
+- Never read metadata, internal IDs, tool names or file paths aloud. \
+Do not reference visuals ("as shown below") and do not produce artifacts.\
+{voice_instructions_section}"""

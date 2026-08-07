@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+build_agent_loop_request 白名单新增 turn_profile 键（恒在场，无 profile 时 None）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

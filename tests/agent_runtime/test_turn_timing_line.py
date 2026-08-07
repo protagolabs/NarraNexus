@@ -51,3 +51,21 @@ def test_turn_timing_line_interrupted_and_missing_event():
     assert m, line
     assert m["event"] == "-"
     assert m["interrupted"] == "True"
+
+
+def test_turn_timing_line_profile_marker():
+    """Fast-mode turns append ` profile=<name>`; normal turns stay
+    byte-identical to the pinned contract above (no trailing field)."""
+    base = _turn_timing_line(
+        agent_id="a", event_id="e", source="chat",
+        pre_s=0.1, setup_s=0.2, loop_s=0.3, persist_s=0.4,
+        total_s=1.0, interrupted=False,
+    )
+    assert _TIMING_RE.match(base)  # unchanged without a profile
+
+    fast = _turn_timing_line(
+        agent_id="a", event_id="e", source="chat",
+        pre_s=0.1, setup_s=0.2, loop_s=0.3, persist_s=0.4,
+        total_s=1.0, interrupted=False, profile="voice_fast",
+    )
+    assert fast == base + " profile=voice_fast"

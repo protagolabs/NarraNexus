@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：framework_override 过 _framework_override_viable 守卫——与 nexus adapter 的 _resolve_provider **结构同构**——不止抄两个硬失败条件（OAuth 凭据 / 双槽均无模型），还抄 claude-first 短路优先级：claude.model 非空时 codex 永不被咨询，oauth claude + 有模型的 codex 也判不可行（第三轮 review #15 修正），不可行时保留 slot 解析并告警，语音轮经 legacy finalize 链自然降级；覆盖必要性（AGENT_REPLY_DELTA 表达流仅 nexus_power 有）与不可用时的降级路径以此为准。
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

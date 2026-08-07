@@ -92,6 +92,29 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
+    async def speak(agent_id: str, text: str) -> dict:
+        """Speak to the user on the current REAL-TIME VOICE CALL.
+
+        ``text`` is read aloud by TTS — spoken register only: short plain
+        sentences, no markdown/emoji/code, never read URLs or internal IDs.
+        You may call this MULTIPLE times in one turn (progress line before
+        a tool, then the answer). Streaming delivery happens as you
+        generate; this tool is the declaration of what you said.
+
+        Only meaningful while you are on a voice call (your instructions
+        say so). On a normal text turn use ``narra_reply`` instead.
+
+        Returns ``{"ok": true}``, else ``{"ok": false, "error": ...}``.
+        """
+        if not text or not text.strip():
+            return {"ok": False, "error": "non-empty text is required"}
+        # Marker only — same pattern as narra_reply: the voice delivery
+        # bridge in the trigger consumes the streamed arguments and owns
+        # the Matrix live m.text / m.replace lifecycle.
+        return {"ok": True}
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
     async def narra_send(agent_id: str, room_id: str, text: str) -> dict:
         """PROACTIVELY send a text message to a NarraMessenger room (NOT a reply).
 

@@ -110,6 +110,7 @@ def build_agent_loop_request(
     disallowed_tools: Optional[list[str]] = None,
     agent_id: str = "agent",
     expressive_tools: Optional[list[str]] = None,
+    turn_profile: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -134,6 +135,10 @@ def build_agent_loop_request(
         # monologue contract with the right tools.
         "agent_id": agent_id,
         "expressive_tools": expressive_tools or [],
+        # Per-turn fast-mode knobs — per-run state like the messages. The
+        # whitelist body means a missing key is a silent cloud-side drop,
+        # so the key is always present (None when no profile).
+        "turn_profile": turn_profile or None,
         "provider_configs": serialize_provider_configs(),
     }
     return body
