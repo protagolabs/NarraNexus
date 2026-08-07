@@ -1830,6 +1830,14 @@ _register(
             # and are hand-migrated per the cleanup TODO.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            # Team dimension. NULL = a private artifact, which is every row
+            # that existed before this column and everything registered
+            # outside a team turn — so the private semantics are unchanged by
+            # construction and no backfill is needed (iron rule #6: additive
+            # only). Set on artifacts produced in a team turn; the team room's
+            # panel lists by it, and the owning agent still shows in agent_id
+            # so "who produced this" survives the ownership move.
+            Column("team_id", "TEXT", "VARCHAR(64)"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept registered because dropping a column is a
             # destructive migration (铁律 #6) — removal is Owner-gated
@@ -1842,9 +1850,122 @@ _register(
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
             Index("idx_artifact_agent_pinned", ["agent_id", "pinned"]),
             Index("idx_artifact_agent_id", ["agent_id"]),  # agent-scoped scans
+            # Team-panel listing (and the agent prompt's team half, which
+            # unions private with every team the agent belongs to). Without
+            # it that query scans every artifact row in the database.
+            Index("idx_artifact_team_updated", ["team_id", "updated_at"]),
         ],
     )
 )
+
+# ----------------------------------------------------------------------------
+# instance_artifact_history — attribution log for artifact (re-)registrations.
+#
+# Artifacts are POINTERS and re-registering overwrites in place, so today
+# "who changed this and when" is unanswerable. That is tolerable for a single
+# agent in a private chat; in a team, where several agents hand the same
+# artifact back and forth, it is the difference between a shared document and
+# an anonymous one.
+#
+# This is deliberately NOT a revival of the retired `instance_artifact_versions`
+# (see the note below): it stores no CONTENT, only who/when/where-it-pointed.
+# One row is a few dozen bytes, so the log is always-on and needs no agent
+# cooperation — which is the point, because attribution has to be correct even
+# when the model does nothing to help. Rolling back to an old version remains
+# impossible by design; the agent-initiated backup capability covers that case
+# and pays storage only when someone asks for it.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_artifact_history",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
+            # The agent that performed THIS registration — not necessarily the
+            # artifact's original producer, which is exactly what makes the log
+            # worth keeping once teammates start updating each other's work.
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # This codebase's turn handle (same meaning as bus_messages.event_id),
+            # so a history entry can open the turn that produced it. Nullable:
+            # the MCP registration path has no event id in scope yet.
+            Column("event_id", "TEXT", "VARCHAR(64)"),
+            # Where the pointer aimed at the time, so the log stays readable
+            # after the artifact is later re-pointed somewhere else.
+            Column("file_path", "TEXT", "VARCHAR(512)"),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            # "created" | "updated" — lets a reader tell the first registration
+            # from the ones that overwrote it without diffing timestamps.
+            Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # The only read pattern: one artifact's history, newest first.
+            Index("idx_artifact_history_artifact", ["artifact_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# team_files — index for the team shared folder (`_shared/teams/{team_id}`).
+#
+# The folder itself has existed for a while, along with `bus_share_to_team` to
+# put files in it, and the team prompt advertises it. What it never had was a
+# row anywhere: files landed on disk under a generated file_id and nothing
+# could enumerate them, so "what is in our shared folder" was answerable only
+# by agents reciting paths at each other in chat.
+#
+# `content_hash` (sha256) is what makes de-duplication honest: sharing the same
+# NAME twice does not make it the same file. Identical name + identical hash is
+# a true re-share and reuses the existing row; identical name + different hash
+# is a different file and BOTH are kept, because silently overwriting one with
+# the other would be a destructive write (iron rule #6). sha256 rather than md5
+# because the eventual content-addressed store would reuse this same hash, and
+# it costs the same.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_files",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            # The generated id that is also the on-disk filename.
+            Column("file_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # Scoping + cleanup: the shared tree lives under the OWNER's root
+            # ({base}/{user_id}/_shared/teams/{team_id}), and team membership
+            # implies a single owner, so this is the tenant boundary.
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("shared_by_agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # Human-facing name; the disk name is file_id, so this is the only
+            # place the original is recorded.
+            Column("original_name", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("rel_path", "TEXT", "VARCHAR(1024)", nullable=False),
+            Column("mime_type", "TEXT", "VARCHAR(255)"),
+            Column("category", "TEXT", "VARCHAR(64)"),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("content_hash", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_files_file_id", ["file_id"], unique=True),
+            # Listing: a team's files, newest first.
+            Index("idx_team_files_team_created", ["team_id", "created_at"]),
+            # Dedup, race-safe at the database level. Keyed on the hash as well
+            # as the name so a same-name-different-content share is still
+            # insertable — collapsing those would lose data.
+            Index(
+                "idx_team_files_dedup",
+                ["team_id", "original_name", "content_hash"],
+                unique=True,
+            ),
+            # Cheap pre-filter for the write path: hashing costs a full read,
+            # so only hash when (team, name, size) already collides. Without
+            # this index that "cheap" check is itself a table scan.
+            Index("idx_team_files_prefilter", ["team_id", "original_name", "size_bytes"]),
+        ],
+    )
+)
+
 
 # RETIRED (2026-07-21): `instance_artifact_versions` is no longer registered.
 # The pointer model (2026-05-14) dropped per-version content rows; no code has
