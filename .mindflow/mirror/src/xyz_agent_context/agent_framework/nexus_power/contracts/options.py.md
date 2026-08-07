@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — TurnOptions.extra_readable_roots
+
+框架外部调用面新增：本回合额外可读的绝对根，由调用方（知道 user/team 的那一层）决定。
+保持框架通用性（铁律 #9）——这里不出现 team/user 概念，只有「这些根也允许」。
+缺省空 = 纯 workspace 收敛。
+
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 

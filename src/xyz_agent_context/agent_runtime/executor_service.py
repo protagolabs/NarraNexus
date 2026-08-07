@@ -206,6 +206,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
                 agent_id=str(body.get("agent_id") or "agent"),
                 expressive_tools=body.get("expressive_tools") or None,
                 turn_profile=body.get("turn_profile") or None,
+                extra_readable_roots=body.get("extra_readable_roots") or None,
             ):
                 yield json.dumps({"event": event}, default=str) + "\n"
         except Exception as e:  # noqa: BLE001 — surface to caller, never crash the service

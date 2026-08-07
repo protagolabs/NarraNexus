@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — 授予 per-user `_shared` 为额外可读根
+
+组 TurnInput 时把 `{base}/{user_id}/_shared` 作为 `extra_readable_roots` 传下去，让
+NexusPower 的 confinement 放行团队共享目录与 bus 附件（此前 prompt 让读、框架层拒绝，
+且与 claude/codex 行为不一致——见 [[policy.py]]）。
+
+范围性质：`_shared` 在**本 user 根之下**，而 message bus 禁止跨 user，故这不授予任何
+跨 user 访问——正是 per-user Executor 已经挂载的同一棵子树。
+
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 

@@ -117,6 +117,12 @@ class ToolContext:
     agent_id: str
     workspace: str
     extra_env: dict[str, str] = field(default_factory=dict)
+    #: Absolute roots that are readable THIS TURN in addition to the
+    #: workspace. The framework never interprets them — the platform decides
+    #: what to grant (e.g. a team's shared folder, which lives outside any
+    #: single agent's workspace by design). Empty (the default) reproduces
+    #: pure workspace confinement, so the widening is always opt-in.
+    extra_readable_roots: tuple[str, ...] = ()
 
 
 class PolicyVerdict(Enum):

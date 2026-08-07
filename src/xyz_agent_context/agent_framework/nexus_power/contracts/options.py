@@ -85,6 +85,12 @@ class TurnOptions(BaseModel):
     cwd: str
     agent_id: str = "agent"
     env: dict[str, str] = Field(default_factory=dict)
+    # Absolute roots readable this turn IN ADDITION to cwd. The framework
+    # never interprets them; the caller (which knows the user/team) decides.
+    # Exists because collaborative areas live OUTSIDE any single agent's
+    # workspace by design — see ToolContext.extra_readable_roots. Empty means
+    # pure workspace confinement, so nothing widens unless asked.
+    extra_readable_roots: tuple[str, ...] = ()
 
     # --- model ---
     model: str

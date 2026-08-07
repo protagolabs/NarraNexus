@@ -45,6 +45,39 @@ _TOOL_PATH_ARG_NAMES = {
 }
 
 
+def _permitted_roots(ctx: PolicyContext) -> tuple[Path, ...]:
+    """Every root a path may resolve into: the workspace plus whatever the
+    PLATFORM declared readable for this turn.
+
+    Why extra roots exist: the team shared folder (`_shared/teams/{id}`) is
+    deliberately a SIBLING of each agent's workspace so no single agent owns
+    it — which put it permanently outside confinement. The team prompt told
+    the agent to `Read` it anyway, so prompt and framework contradicted each
+    other (claude/codex, which run no such layer, quietly allowed it — three
+    frameworks, two behaviours).
+
+    Fail-closed is preserved: the framework never DERIVES a root (deriving
+    `workspace.parent/_shared` would resolve to the whole base directory
+    under the legacy flat workspace layout). Roots arrive explicitly from the
+    caller that knows the user, and an unresolvable one is dropped rather
+    than widened.
+    """
+    roots = [Path(ctx.tool_ctx.workspace).resolve()]
+    for raw in ctx.tool_ctx.extra_readable_roots:
+        if not raw:
+            continue
+        try:
+            roots.append(Path(raw).resolve())
+        except (OSError, RuntimeError):  # pragma: no cover — defensive
+            continue
+    return tuple(roots)
+
+
+def _within_permitted(resolved: Path, roots: tuple[Path, ...]) -> bool:
+    """True when ``resolved`` sits inside ANY permitted root."""
+    return any(resolved.is_relative_to(root) for root in roots)
+
+
 class PolicyEngine:
     """Runs every layer in order; any deny (or layer crash) denies."""
 
@@ -92,6 +125,7 @@ class WorkspaceConfinementLayer:
         if call.name.startswith("mcp__"):
             return ALLOW
         workspace = Path(ctx.tool_ctx.workspace).resolve()
+        roots = _permitted_roots(ctx)
         arg_names = _PATH_ARG_NAMES + _TOOL_PATH_ARG_NAMES.get(call.name, ())
         for arg_name in arg_names:
             raw = call.args.get(arg_name)
@@ -99,9 +133,12 @@ class WorkspaceConfinementLayer:
                 continue
             candidate = Path(raw)
             if not candidate.is_absolute():
+                # Relative paths still resolve against the workspace only:
+                # extra roots are reachable by absolute path, never by
+                # implicitly re-basing a relative one.
                 candidate = workspace / candidate
             resolved = candidate.resolve()
-            if not resolved.is_relative_to(workspace):
+            if not _within_permitted(resolved, roots):
                 return Decision(
                     PolicyVerdict.DENY,
                     f"path '{raw}' resolves outside the workspace ({resolved})",
@@ -152,6 +189,7 @@ class ShellConfinementLayer:
         if not command:
             return ALLOW
         workspace = Path(ctx.tool_ctx.workspace).resolve()
+        roots = _permitted_roots(ctx)
         lowered = command.lower()
         for marker in self._ESCAPE_TOKENS:
             if marker in lowered:
@@ -170,7 +208,7 @@ class ShellConfinementLayer:
                 resolved = candidate.resolve()
             except (OSError, RuntimeError):
                 continue
-            if not resolved.is_relative_to(workspace):
+            if not _within_permitted(resolved, roots):
                 return Decision(
                     PolicyVerdict.DENY,
                     f"shell command references '{token}' outside the workspace; "

@@ -111,6 +111,7 @@ def build_agent_loop_request(
     agent_id: str = "agent",
     expressive_tools: Optional[list[str]] = None,
     turn_profile: Optional[dict[str, Any]] = None,
+    extra_readable_roots: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -139,6 +140,13 @@ def build_agent_loop_request(
         # whitelist body means a missing key is a silent cloud-side drop,
         # so the key is always present (None when no profile).
         "turn_profile": turn_profile or None,
+        # Extra readable roots (the per-user `_shared` area) — per-run state
+        # like the messages, and subject to the same silent-drop hazard noted
+        # above, so the key is always present. Paths are orchestrator-side
+        # absolutes; this is safe for the same reason `working_path` is: the
+        # per-user Executor bind-mounts that same user subtree, so both sides
+        # name it identically.
+        "extra_readable_roots": extra_readable_roots or [],
         "provider_configs": serialize_provider_configs(),
     }
     return body

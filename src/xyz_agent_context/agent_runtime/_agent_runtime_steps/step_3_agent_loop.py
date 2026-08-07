@@ -895,6 +895,20 @@ async def step_3_agent_loop(
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
+    # The per-user shared area (`{base}/{user_id}/_shared`) holds bus
+    # attachments and every team's shared folder. It is deliberately a
+    # SIBLING of each agent workspace so no single agent owns it — which
+    # also puts it outside NexusPower's workspace confinement, while the
+    # team prompt tells the agent to Read exactly those paths (and
+    # claude/codex, running no such layer, always could). Granting it here
+    # makes the three frameworks agree with the prompt.
+    #
+    # Scope note: `_shared` is under THIS user's root, and the message bus
+    # forbids cross-user messaging, so this grants nothing across users —
+    # it is the same subtree the per-user Executor already bind-mounts.
+    from xyz_agent_context.utils.workspace_paths import user_shared_root
+    extra_readable_roots = (str(user_shared_root(ctx.user_id, base=working_path)),)
+
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}
     if context.ctx_data and context.ctx_data.extra_data:
@@ -958,6 +972,7 @@ async def step_3_agent_loop(
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
             turn_profile=ctx.turn_profile,
+            extra_readable_roots=extra_readable_roots,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

@@ -499,3 +499,82 @@ async def test_dispatcher_rejects_missing_required_args_before_routing(ctx, engi
         ToolCall(id="2", name="write_file", args={"path": "out.txt", "content": "hi"})
     )
     assert ok.ok
+
+
+# ── extra readable roots (team shared workspace) ────────────────────────────
+#
+# Why these exist: the team prompt tells an agent to `Read` the team shared
+# folder (`_shared/teams/{team_id}`, a SIBLING of the agent workspace), but
+# both confinement layers denied it — prompt and framework contradicted each
+# other, and claude/codex (which have no such layer) behaved differently.
+# `extra_readable_roots` is the framework-generic escape hatch: the PLATFORM
+# decides which roots are additionally readable this turn; the framework
+# never learns what `_shared` means. Fail-closed is preserved — an empty
+# tuple (the default) reproduces the old behaviour exactly.
+
+
+@pytest.fixture()
+def shared_root(tmp_path):
+    """A sibling of the agent workspace, mirroring `_shared/` on disk."""
+    d = tmp_path.parent / "_shared_probe"
+    d.mkdir(exist_ok=True)
+    (d / "team_report.md").write_text("shared\n")
+    return d
+
+
+@pytest.fixture()
+def ctx_with_shared(workspace, shared_root):
+    return ToolContext(
+        agent_id="a1",
+        workspace=str(workspace),
+        extra_readable_roots=(str(shared_root),),
+    )
+
+
+def test_extra_root_allows_path_tools(engine, ctx_with_shared, shared_root):
+    """A declared extra root is readable by the path-argument tools."""
+    ok = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(shared_root / "team_report.md")}),
+        _pctx(ctx_with_shared),
+    )
+    assert ok.allowed, ok.reason
+
+
+def test_extra_root_allows_shell(engine, ctx_with_shared, shared_root):
+    """The shell layer honours the same roots — otherwise `cat` would be
+    denied for a file `read_file` just allowed (inconsistent surface)."""
+    ok = engine.check(
+        ToolCall(
+            id="2",
+            name="bash",
+            args={"command": f"cat {shared_root / 'team_report.md'}"},
+        ),
+        _pctx(ctx_with_shared),
+    )
+    assert ok.allowed, ok.reason
+
+
+def test_extra_root_does_not_widen_anything_else(engine, ctx_with_shared):
+    """Declaring one extra root must not turn the layers off: any OTHER
+    outside path stays denied, for both layers."""
+    denied = engine.check(
+        ToolCall(id="3", name="read_file", args={"path": "/etc/passwd"}),
+        _pctx(ctx_with_shared),
+    )
+    assert not denied.allowed
+
+    denied_shell = engine.check(
+        ToolCall(id="4", name="bash", args={"command": "cat /etc/passwd"}),
+        _pctx(ctx_with_shared),
+    )
+    assert not denied_shell.allowed
+
+
+def test_no_extra_roots_preserves_old_behaviour(engine, ctx, shared_root):
+    """Default (empty tuple) must deny the shared dir exactly as before —
+    the widening is opt-in, never implicit."""
+    denied = engine.check(
+        ToolCall(id="5", name="read_file", args={"path": str(shared_root / "team_report.md")}),
+        _pctx(ctx),
+    )
+    assert not denied.allowed and "outside the workspace" in denied.reason
