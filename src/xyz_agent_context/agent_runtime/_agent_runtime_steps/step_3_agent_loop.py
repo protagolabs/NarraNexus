@@ -819,7 +819,12 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.1: Initialize ContextRuntime -------------
-    context_runtime = ContextRuntime(ctx.agent_id, ctx.user_id, db_client)
+    context_runtime = ContextRuntime(
+        ctx.agent_id, ctx.user_id, db_client,
+        # Step 0 already created the event row; passing it here is what
+        # lets tools stamp attribution with the turn that called them.
+        event_id=getattr(ctx.event, "id", None),
+    )
     substeps.append("[3.1] ✓ ContextRuntime initialization complete")
     logger.debug("ContextRuntime initialized")
 

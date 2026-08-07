@@ -125,6 +125,13 @@ ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 # team turn" — the failure would be silent and intermittent.
 TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
 
+# The events-row id of the turn making the call — this codebase's turn handle
+# (same meaning as bus_messages.event_id). Attribution needs to record WHICH
+# turn changed an artifact, and the tool cannot ask the model for that without
+# accepting a guess. Available because the event row is created in Step 0,
+# before context_runtime builds the MCP spec in Step 3.
+EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
+
 # Everything above ALSO rides the borrowed bearer, because codex forwards
 # nothing else. Shipping a fact only on an explicit header was a real hole
 # (PR #229 review): a codex-side asker always wrote NULL turn source, and the
@@ -172,6 +179,7 @@ BEARER_FIELDS = (
     # Taking #6 here would make an in-flight bearer decode a team id as a run
     # id — and the cascade stop selects a whole trigger tree by that value.
     "team_id",
+    "event_id",
 )
 
 # Values a model supplies when it is guessing instead of reading its prompt.
@@ -252,6 +260,7 @@ class BearerIdentity(NamedTuple):
     user_id: Optional[str] = None
     root_run_id: Optional[str] = None
     team_id: Optional[str] = None
+    event_id: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -366,6 +375,27 @@ def caller_team_id_from_request() -> Optional[str]:
         return _bearer(headers).team_id or None
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller team: {e}")
+    return None
+
+
+def caller_event_id_from_request() -> Optional[str]:
+    """The events-row id of the calling turn, or None.
+
+    None is normal: plenty of callers have no event in scope. Absence degrades
+    attribution (the history row simply records no turn) and must never fail a
+    registration — losing the agent's work to protect a log line would be the
+    wrong trade.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, EVENT_ID_HEADER)
+        if injected:
+            return injected
+        return _bearer(headers).event_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller event: {e}")
     return None
 
 
@@ -634,6 +664,7 @@ def agent_id_headers(
     user_id: str | None = None,
     root_run_id: str | None = None,
     team_id: str | None = None,
+    event_id: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -656,6 +687,7 @@ def agent_id_headers(
         user_id or "",
         root_run_id or "",
         team_id or "",
+        event_id or "",
     ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
@@ -672,6 +704,7 @@ def agent_id_headers(
         (USER_ID_HEADER, user_id),
         (ROOT_RUN_ID_HEADER, root_run_id),
         (TEAM_ID_HEADER, team_id),
+        (EVENT_ID_HEADER, event_id),
     ):
         if value:
             headers[header] = str(value)

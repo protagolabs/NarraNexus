@@ -69,7 +69,12 @@ class ContextRuntime:
         self,
         agent_id: str,
         user_id: Optional[str] = None,
-        database_client: Optional[DatabaseClient] = None
+        database_client: Optional[DatabaseClient] = None,
+        # APPENDED, never inserted: existing callers pass database_client
+        # positionally, so a new parameter ahead of it would silently rebind
+        # their third argument. Same rule the bearer-identity record follows,
+        # and for the same reason.
+        event_id: Optional[str] = None,
     ):
         """
         Initialize ContextRuntime
@@ -78,10 +83,17 @@ class ContextRuntime:
             agent_id: Agent ID
             user_id: User ID (if applicable)
             database_client: Database client (used for reading data)
+            event_id: This turn's events-row id, forwarded to MCP tools so
+                artifact attribution can name the turn that made a change.
         """
         logger.debug(f"    → ContextRuntime.__init__() called with agent_id={agent_id}, user_id={user_id}")
         self.agent_id = agent_id
         self.user_id = user_id
+        # This turn's events-row id, for the MCP identity headers. Created in
+        # Step 0, so Step 3 (which builds this) already has it — which is what
+        # lets artifact attribution record WHICH turn made a change instead of
+        # inferring one from timestamps.
+        self.event_id = event_id
         self.db = database_client or get_db_client_sync()
         self.hook_manager = HookManager()
         logger.debug("    ContextRuntime initialized")
@@ -1091,6 +1103,13 @@ class ContextRuntime:
         # be answered from tool arguments without letting a private turn claim
         # a team it is not in.
         team_id = str(turn_extra.get("bus_team_id") or "")
+        # This turn's events-row id. Created in Step 0, so it is already known
+        # by the time Step 3 builds this spec — which is what lets attribution
+        # record WHICH turn changed an artifact instead of guessing.
+        # getattr, not self.event_id: several tests build this object with
+        # ``ContextRuntime.__new__`` and set only the attributes they exercise,
+        # so a bare read would make an optional field break unrelated suites.
+        event_id = str(getattr(self, "event_id", None) or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
@@ -1144,6 +1163,7 @@ class ContextRuntime:
                             user_id=self.user_id,
                             root_run_id=root_run_id,
                             team_id=team_id,
+                            event_id=event_id,
                         ),
                     }
                     collected_count += 1

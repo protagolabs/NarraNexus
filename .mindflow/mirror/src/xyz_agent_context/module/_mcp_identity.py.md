@@ -32,6 +32,17 @@ stub: false
 两条:bearer-only 往返(codex 只转发 bearer,header-only 的事实就是个洞)、
 空 errand 段不把 root 左移(team 轮永远有 root、永远没有 errand scope)。
 
+## 2026-08-07 (二次) — 追加 event_id（BEARER_FIELDS 6 → 7）
+
+归因要回答「**哪一次 turn** 改的」。这个事实不能问模型——问了就是让它猜。所以 turn 句柄
+（events 行 id，同 [[bus_messages]] 的语义）走和 agent_id/team_id 同一条服务端通道。
+
+**时序可行**：event 行在 **Step 0** 创建（[[step_0_initialize.py]]），而 MCP spec 在 **Step 3**
+才构建（[[context_runtime.py]]）——写这条时先核过顺序，否则整条链路是空的。
+
+缺席不是错误：多数调用方没有 event 在作用域内。缺席只让记录降级，**绝不让注册失败**——
+为保住一行日志而丢掉 agent 的实际工作是错误的取舍。
+
 ## 2026-08-07 — 追加 team_id 字段（BEARER_FIELDS 5 → 6）
 
 工具无法从**模型**得知「我在不在 team」——`agent_id` 本身就是模型填的参数，私聊回合完全

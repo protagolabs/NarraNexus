@@ -4,6 +4,13 @@ last_verified: 2026-08-07
 stub: false
 ---
 
+## 2026-08-07 (三次) — 归因行写入 turn 句柄
+
+`_record_history` 落 `event_id`。此前该列恒为 NULL（schema 阶段有意推迟）。
+
+**为什么不靠时间戳推断**：同一轮产出两个 artifact、或同房间并发回合，按时间近邻匹配都会错。
+turn 是平台**持有的事实**，传进来即可，不必猜。
+
 ## 2026-08-07 (二次) — scope 必须进去重键
 
 agent-scoped 去重（`session_id is None` 分支）原本按 `{agent_id, file_path}` 匹配。加了 team

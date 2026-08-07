@@ -9,6 +9,19 @@ stub: false
 errand scope 同一个注入点、同一份 turn_extra。作用见 [[_mcp_identity]]:
 本轮发出的消息要盖上这棵树,血缘才能过下一跳。
 
+## 2026-08-07 (二次) — event_id 作为构造参数，**追加在 database_client 之后**
+
+`ContextRuntime.__init__` 新增 `event_id`，由 [[step_3_agent_loop.py]] 从 `ctx.event` 传入，
+再注入 MCP 身份 header。
+
+⚠️ **踩过一次**：初版把 `event_id` 插在 `database_client` **之前**，于是所有
+`ContextRuntime(agent_id, user_id, db)` 的位置参数调用把 db 绑进了 event_id 槽位（18 个测试
+当场红）。这正是本仓库 `BEARER_FIELDS` 契约写的那条「**追加，绝不中插**」——同一条规则在
+Python 签名上同样成立。
+
+读取端用 `getattr(self, "event_id", None)`：9 处测试用 `ContextRuntime.__new__` 绕过 `__init__`
+只设自己关心的属性，裸读会让一个可选字段拖垮无关测试套件。
+
 ## 2026-08-07 — 向 MCP 身份 header 注入 team_id
 
 `agent_id_headers(...)` 增加 `team_id=`，取自 `turn_extra["bus_team_id"]`（由

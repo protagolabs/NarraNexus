@@ -341,3 +341,46 @@ async def test_dedup_still_works_within_one_scope(env):
         team_id=TEAM,
     )
     assert first.artifact_id == second.artifact_id
+
+
+# ── the turn handle reaches the attribution row ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_history_records_the_turn_that_made_the_change(env):
+    """Attribution answers "who changed this, in which turn". The turn is a
+    fact the platform holds (the events row exists from Step 0), so it is
+    passed in rather than inferred — matching artifacts to turns by timestamp
+    breaks on the ordinary cases: two artifacts in one turn, or concurrent
+    turns in the same room.
+    """
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM, event_id="evt_first",
+    )
+    mate_ws = Path(workspace_root("agent_b", USER))
+    mate_ws.mkdir(parents=True, exist_ok=True)
+    (mate_ws / "edit.md").write_text("theirs\n")
+    await env["svc"].register(
+        agent_id="agent_b", user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(mate_ws / "edit.md"), title="T2", description=None,
+        target_artifact_id=res.artifact_id, team_id=TEAM, event_id="evt_second",
+    )
+
+    rows = await _history(env["db"], res.artifact_id)
+    assert [r["event_id"] for r in rows] == ["evt_first", "evt_second"]
+
+
+@pytest.mark.asyncio
+async def test_a_missing_turn_handle_still_records_the_change(env):
+    """Plenty of callers have no event in scope. Absence degrades the record;
+    it must never cost the agent a successful registration."""
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None,
+    )
+    rows = await _history(env["db"], res.artifact_id)
+    assert len(rows) == 1
+    assert rows[0]["event_id"] is None

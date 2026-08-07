@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from xyz_agent_context.module._mcp_identity import (
     BEARER_FIELDS,
+    EVENT_ID_HEADER,
     TEAM_ID_HEADER,
     _parse_bearer,
     agent_id_headers,
@@ -45,6 +46,7 @@ def test_team_id_is_appended_not_inserted():
     )
     assert BEARER_FIELDS[5] == "root_run_id"
     assert BEARER_FIELDS[6] == "team_id"
+    assert BEARER_FIELDS[7] == "event_id"
 
 
 def test_headers_carry_team_on_both_channels():
@@ -83,3 +85,45 @@ def test_old_bearer_without_team_still_parses():
     assert parsed.agent_id == "agent_a"
     assert parsed.user_id == "user_1"
     assert parsed.team_id is None
+
+
+# ── event_id: the turn handle attribution needs ───────────────────────────
+
+
+def test_event_id_rides_both_channels():
+    """Attribution records WHICH turn changed an artifact. The tool cannot ask
+    the model for that — it would be guessing — so the turn's events-row id
+    travels the same server-side channel as the agent and the team."""
+    headers = agent_id_headers("agent_a", team_id="team_9", event_id="evt_123")
+
+    assert headers[EVENT_ID_HEADER] == "evt_123"
+    assert _parse_bearer(headers["Authorization"]).event_id == "evt_123"
+
+
+def test_event_id_is_appended_after_team():
+    """Order is frozen and additions go on the end; inserting event_id before
+    team_id would make every older reader parse a team as an event."""
+    headers = agent_id_headers("agent_a", team_id="team_9", event_id="evt_123")
+    parsed = _parse_bearer(headers["Authorization"])
+
+    assert parsed.team_id == "team_9"
+    assert parsed.event_id == "evt_123"
+
+
+def test_event_id_absent_is_not_an_error():
+    """Most turns are not team turns and plenty of callers have no event in
+    scope. Absence degrades attribution, it never fails a registration."""
+    headers = agent_id_headers("agent_a", user_id="user_1")
+
+    assert EVENT_ID_HEADER not in headers
+    assert _parse_bearer(headers["Authorization"]).event_id is None
+
+
+def test_a_team_turn_without_an_event_still_carries_the_team():
+    """Empty middle fields must hold their slot or team_id shifts into
+    event_id's position."""
+    headers = agent_id_headers("agent_a", team_id="team_9")
+    parsed = _parse_bearer(headers["Authorization"])
+
+    assert parsed.team_id == "team_9"
+    assert parsed.event_id is None

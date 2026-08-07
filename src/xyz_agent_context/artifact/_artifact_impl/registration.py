@@ -183,6 +183,7 @@ async def _record_history(
     file_path: str,
     size_bytes: int,
     action: str,
+    event_id: Optional[str] = None,
 ) -> None:
     """Append one attribution row. Never raises.
 
@@ -191,8 +192,11 @@ async def _record_history(
     an error would cost the agent real work to save a log line. A missing row
     degrades the history; a raised exception would degrade the feature.
 
-    `event_id` stays NULL here — the MCP registration path has no turn handle
-    in scope (see the column comment in schema_registry).
+    `event_id` names the turn that made the change. It arrives from the
+    server-side identity headers, so it is a fact rather than an inference —
+    matching an artifact to a turn by timestamp would break on the ordinary
+    cases (two artifacts in one turn, concurrent turns). None when the caller
+    had no event in scope, which degrades the record without failing anything.
     """
     try:
         await repo._db.insert("instance_artifact_history", {
@@ -201,6 +205,7 @@ async def _record_history(
             "file_path": file_path,
             "size_bytes": size_bytes,
             "action": action,
+            "event_id": event_id,
         })
     except Exception as e:  # noqa: BLE001 — bookkeeping is never flow control
         logger.warning(f"artifact history not recorded for {artifact_id}: {e}")
@@ -221,6 +226,7 @@ async def register_artifact(
     description: Optional[str],
     target_artifact_id: Optional[str],
     team_id: Optional[str] = None,
+    event_id: Optional[str] = None,
 ) -> CreateArtifactToolResult:
     """
     Register a pointer to an entry file the agent wrote in its workspace.
@@ -318,6 +324,7 @@ async def register_artifact(
         await _record_history(
             repo, artifact_id=target_artifact_id, agent_id=agent_id,
             file_path=rel_path, size_bytes=size_bytes, action="updated",
+            event_id=event_id,
         )
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
@@ -353,6 +360,7 @@ async def register_artifact(
                 await _record_history(
                     repo, artifact_id=existing.artifact_id, agent_id=agent_id,
                     file_path=rel_path, size_bytes=size_bytes, action="updated",
+                    event_id=event_id,
                 )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
@@ -388,6 +396,7 @@ async def register_artifact(
     await _record_history(
         repo, artifact_id=artifact_id, agent_id=agent_id,
         file_path=rel_path, size_bytes=size_bytes, action="created",
+        event_id=event_id,
     )
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(

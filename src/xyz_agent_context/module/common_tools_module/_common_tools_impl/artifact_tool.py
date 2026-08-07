@@ -19,7 +19,10 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from xyz_agent_context.artifact import ArtifactError, ArtifactService
-from xyz_agent_context.module._mcp_identity import caller_team_id_from_request
+from xyz_agent_context.module._mcp_identity import (
+    caller_event_id_from_request,
+    caller_team_id_from_request,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
@@ -160,6 +163,9 @@ def register(mcp: FastMCP) -> None:
                 description=description,
                 target_artifact_id=target_artifact_id,
                 team_id=team_id,
+                # Server-side, like the team: the turn that made a change is a
+                # fact the platform holds, not something to ask the model for.
+                event_id=caller_event_id_from_request(),
             )
             return result.model_dump(mode="json")
         except ArtifactError as e:
