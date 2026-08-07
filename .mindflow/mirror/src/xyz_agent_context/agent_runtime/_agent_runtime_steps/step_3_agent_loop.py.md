@@ -12,6 +12,31 @@ review 收口：framework_override 过 _framework_override_viable 守卫——�
 
 framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
 
+## 2026-08-07 (二次) — review 收口：沉默豁免可达、severity 不再漂移、import 上提
+
+三处，都来自 PR review：
+
+1. **`NO_REPLY_NEEDED_SENTINEL` + `_FALLBACK_IM_DM_EXTRA`**：私聊协议承诺了一个窄
+   豁免（对方那条是纯确认且无新内容可加则不回），但兜底的判据只有「有没有调表达
+   工具」——模型**正确地**对「谢谢」保持沉默恰好就是没有工具调用，于是兜底照样写一条
+   发出去，**该豁免在生产上永远不生效**。现在 `no_reply_im_dm` 模式的指令多一段：
+   命中纯确认就只输出哨兵串，`_stream_fallback_recovery` 见到它把 text 归零，复用
+   既有的静默出口（不投递、不写 synthetic 帧）。prompt 说的和平台做的从此一致。
+2. **`_has_organic_reply` 的 `working_source` 去掉默认值**（铁律 #2）。默认 `"chat"`
+   让 severity 那个姊妹调用点悄悄保留了本函数存在就是为了消除的漂移：一轮 IM 对话
+   已经通过 `wechat_send` / `lark_cli` 回复过、随后撞上 executor-infra 失败 →
+   被判「从未说话」→ `severity="fatal"` → `had_fatal_error=True`，**一轮实际已交付的
+   对话记成失败轮次**，用户前端拿到硬「retry」而不是 warning 徽章。两个调用点现在
+   都显式传值。
+3. **六处函数内延迟 import 提到模块顶层**。核查过无循环依赖：
+   `channel.message_source_handler` / `channel_sender_registry` / `channel_prompts`
+   只依赖 stdlib + loguru，都不 import `agent_runtime`（反向依赖由
+   `channel_trigger_base` 自己的延迟 import 解决）。其中一处在生成器体内，**每轮
+   执行一次**。
+4. 顺带：`_FALLBACK_NO_REPLY_INSTRUCTIONS` 正文里的
+   `didn't call send_message_to_user_directly` 改成中性的「never called its reply
+   tool」——IM 轮次里那个工具本就不是表达工具，给模型的事实前提是错的。
+
 ## 2026-08-07 — 真机测试揪出的两处收口（信封接线 + 决策可观测性）
 
 同日 IM 私聊兜底（下一条）上线后用真 Telegram 私聊验，两个问题：

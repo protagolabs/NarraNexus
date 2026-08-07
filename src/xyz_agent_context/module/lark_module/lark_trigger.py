@@ -1936,25 +1936,26 @@ class LarkTrigger(ChannelTriggerBase):
         except Exception as e:  # noqa: BLE001
             logger.warning(f"build_retrieval_anchor failed; using input fallback: {e}")
             _anchor = None
-        trigger_extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": _anchor,
-            "trigger_id": (
+        # Through the base builder — this method overrides
+        # ``_build_and_run_agent`` wholesale, and hand-rolling the dict here
+        # is exactly how Lark missed the 2026-08-06 turn envelope (p2p DMs
+        # read as group rooms, so the 1:1 no-reply fallback never ran).
+        # Attachments are handled by the builder (base/Slack/WS parity for
+        # ChatModule's ``extra_data.get("attachments")`` check).
+        trigger_extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=_anchor,
+            trigger_id=(
                 f"lark_{message.message_id}"
                 if message.message_id
                 else "lark_unknown"
             ),
+            builder=builder,
+            attachments=attachments,
             # Inbound message id, surfaced per-turn so get_instructions can tell
             # the agent which message to react to (react_to_user_message).
-            "source_message_id": message.message_id or "",
-        }
-        # Phase 1c T9d: only attach when non-empty — matches base/Slack/WS
-        # patterns so ChatModule's ``ctx_data.extra_data.get("attachments")``
-        # check behaves identically across all upload sources.
-        if attachments:
-            trigger_extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            source_message_id=message.message_id or "",
+        )
         # Through the client seam like every other trigger — admission
         # gating + run recording (observability) come with it.
         from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
@@ -1976,16 +1977,18 @@ class LarkTrigger(ChannelTriggerBase):
             # Route through the shared error-fallback so Lark also skips the
             # channel send when the agent already replied before failing
             # (no double-message), consistent with every other channel.
-            sent = self.extract_output(result, message, cred)
+            sent = self.resolve_agent_response(result, message, cred)
             already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
             await self._send_error_fallback(
                 cred, message, friendly, already_replied=already_replied
             )
             return friendly
 
-        # Happy path: scrape the text the agent itself sent via
-        # `lark_cli im +messages-send` from the tool_call raw payloads.
-        return self.extract_output(result, message, cred)
+        # Happy path: a platform-written fallback reply wins (see
+        # ChannelTriggerBase.platform_written_reply); otherwise scrape the
+        # text the agent itself sent via `lark_cli im +messages-send` from
+        # the tool_call raw payloads.
+        return self.resolve_agent_response(result, message, cred)
 
     async def send_channel_reply(
         self, credential: LarkCredential, message: ParsedMessage, text: str

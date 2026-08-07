@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — 流式路径不再手搓 trigger_extra_data
+
+`_build_and_run_agent_streaming`（`STREAMING_ENABLED` 是**默认路径**）自己组
+`extra_data`，于是错过了 2026-08-06 加的轮次信封：`channel_room_type` 恒为空 →
+`step_3` 把 NarraMessenger 私聊全判成群聊 → **1:1 无回复兜底在本渠道是死代码**。
+尤其讽刺的是，这条路径「无回复 + 无错误」的终局逻辑正是 NO-OP（房间不动），也就是
+那个兜底存在的全部理由。
+
+改为调 `ChannelTriggerBase.build_trigger_extra_data(..., builder=builder,
+attachments=attachments)`；`rtc_voice` 仍在其后按原逻辑附加（它依赖本方法算出的
+`turn_profile`，不属于公共键）。教训与 grep 级守卫见
+`channel_trigger_base.py.md` 2026-08-07 条目。
 
 ## 2026-08-06 — voice 检测双入口 + atomic speak 投递（第三轮 review 收口）
 

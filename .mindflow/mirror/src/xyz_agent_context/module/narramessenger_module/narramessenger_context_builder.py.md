@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
@@ -14,6 +14,12 @@ get_message_info 增 voice 分支：raw["rtc_voice"] 存在时 send_tool_name="s
 **语义变了**：这个值现在**选择注入哪份通讯协议**（私聊「默认回复」vs 群聊沉默纪律），
 并决定 `step_3` 是否在模型没调表达工具时替 agent 投递回复。详见
 `channel_prompts.py.md` / `step_3_agent_loop.py.md` 同日条目。
+
+> **2026-08-07 更正**：上面「并决定 step_3 是否…替 agent 投递回复」这半句当时
+> **对 NarraMessenger 是假的**。`_build_and_run_agent_streaming`（`STREAMING_ENABLED`
+> 是默认路径）自己手搓 `trigger_extra_data`，信封没进去，私聊恒被判成群聊、兜底不跑
+> ——而这条路径「无回复 + 无错误」的终局恰好就是房间不动的死寂，正是兜底要消灭的
+> 东西。现已改为调 `ChannelTriggerBase.build_trigger_extra_data`。
 
 ## 2026-07-20 — roster-on-demand now via `narra_cli`
 

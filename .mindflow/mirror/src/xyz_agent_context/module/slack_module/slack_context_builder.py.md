@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_context_builder.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
 
 ## Why it exists

@@ -1,8 +1,52 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — `build_trigger_extra_data`：四个手搓构造点收成一个（review 收口）
+
+昨天的信封只加在 `_build_and_run_agent` 一处，而 `trigger_extra_data` 这个 dict
+在仓库里有**四个**构造点：本文件两处（单条消息 / silent batch）、
+`LarkTrigger._build_and_run_agent`（完整覆盖基类方法）、
+`MatrixTrigger._build_and_run_agent_streaming`（`STREAMING_ENABLED` 是默认路径）。
+于是 Lark p2p、NarraMessenger 私聊、silent batch 三条链路的 `channel_room_type`
+恒为空，`step_3` 把它们全判成群聊，**1:1 兜底在这些渠道上是死代码**——和「信封挂错
+对象」是同一个缺陷类，第二和第三个副本。
+
+新增 `build_trigger_extra_data(channel_tag, retrieval_anchor, trigger_id,
+builder=None, attachments=None, **extra)`：公共键 + 信封 + attachments 一处组装，
+`**extra` 收各路径差异项（Lark 的 `source_message_id`、Matrix 的 `rtc_voice`、
+batch 的 `batch_messages`），空值丢弃。四个构造点全部改为调它。**这才是让「下一个
+信封键」不可能再漏渠道的做法**——不是在四个地方各补一行。
+
+`builder=None` 时不产出信封（silent batch 没有 context builder），降级为「不是私聊」
+= 不兜底，正确：那种 run 本就 `silent=True`、不回答任何人。`turn_envelope()` 抛错
+也只降级、不打死入站消息。
+
+测试 `tests/channel/test_trigger_envelope_every_channel.py` 除了钉行为，还有一条
+**grep 级守卫**：全仓扫 `"channel_tag": channel_tag.to_dict()` 字面量，除本文件外
+出现即失败。行为测试抓不到「新渠道又手搓一份」，只有这种守卫能。
+
+## 2026-08-07 — `platform_written_reply` / `resolve_agent_response`：平台代写的回复不再被记成沉默
+
+`step_3` 的私聊兜底投递成功后会合成一帧带 `PLATFORM_REPLY_TEXT_KEY` 的 tool_call，
+`run_collector` 把它折回 `result.raw_items`。但 trigger 侧的 `extract_output` 是**另一条
+独立抽取路径**，各渠道只认自己那套参数形状：微信读 `arguments["text"]` → 空；
+Lark 要求 `command` 里含 `+messages-send` → 空；slack/telegram/discord 同构。全部落到
+`CHANNEL_SILENT_SENTINEL`。
+
+而这个返回值就是 `ChannelInboxWriter` 写进 `bus_messages` 的 agent_response。所以
+**真发出去了、记录成「(stayed silent)」**。对微信不只是记录难看：
+`WeChatContextBuilder.get_conversation_history` 明确从 `bus_messages` 读回最近轮次，
+**下一轮的 Conversation History 里 bot 那句就是「(stayed silent)」**——和 handler 层
+修掉的「占位符污染上下文」是同一个故障，只是发生在另一层。
+
+收口方式与 handler 层同构：新增 `platform_written_reply(result)` 与
+`resolve_agent_response(result, message, credential)`，后者**先认平台回复、再落到
+渠道的 `extract_output`**；两处基类调用点与 Lark 的两处调用点都改走它。
+**六个渠道的 `extract_output` 一个都没动**——逐个渠道教它认这个键，正是本次改动在
+handler 层已经拒绝过的做法。
 
 ## 2026-08-06 (二次) — 轮次信封带上 room_type 与渠道投递参数
 

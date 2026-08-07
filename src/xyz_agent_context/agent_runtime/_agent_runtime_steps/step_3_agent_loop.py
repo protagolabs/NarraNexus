@@ -29,6 +29,21 @@ from xyz_agent_context.schema import (
     EXECUTOR_INFRA_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
+
+# Top-level on purpose. These three channel modules depend on stdlib +
+# loguru only and never import agent_runtime, so there is no cycle to dodge
+# (channel_trigger_base depends on this layer, not the other way round, and
+# it already uses a lazy import for that direction). They were function-local
+# in six places, including inside the step generator body where the import
+# ran once per turn.
+from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
+from xyz_agent_context.channel.channel_sender_registry import (
+    ChannelSenderRegistry,
+)
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
 from xyz_agent_context.agent_framework.llm.failure import (
@@ -286,7 +301,7 @@ _NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
 
 def _has_organic_reply(
     agent_loop_response: list,
-    working_source: str = "chat",
+    working_source: str,
 ) -> bool:
     """True if the agent already sent a real user reply this turn.
 
@@ -306,13 +321,17 @@ def _has_organic_reply(
       ``send_message_to_user_directly`` only, which meant a WeChat turn
       that correctly called ``wechat_send`` read as "no reply" — turning
       the fallback below into a second, helper-written message on every
-      successful turn. Default stays ``"chat"`` so existing call sites
-      keep their exact behaviour.
-    """
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
+      successful turn.
 
+    ``working_source`` is REQUIRED — there is deliberately no default. A
+    ``"chat"`` default silently reintroduced the drift this function
+    exists to remove: the severity call site below kept it, so an IM turn
+    that had already replied via ``wechat_send`` / ``lark_cli`` and then
+    hit an executor-infra failure read as "never spoke" and was recorded
+    as a hard ``fatal`` (had_fatal_error) instead of
+    ``recovered_after_reply`` — a delivered conversation filed as a failed
+    turn, with a "retry" badge in front of the user.
+    """
     handler = MessageSourceRegistry.get(working_source)
     for r in agent_loop_response:
         if not isinstance(r, ProgressMessage) or not r.details:
@@ -392,10 +411,6 @@ def _should_run_helper_llm_fallback(
         # separates a real channel (lark / wechat / telegram …) from
         # `callback` / `a2a` / `skill_study`, which have no room and no
         # human recipient, so "group room" would be a nonsense reason.
-        from xyz_agent_context.channel.message_source_handler import (
-            MessageSourceRegistry,
-        )
-
         handler = MessageSourceRegistry.get(working_source)
         is_channel = (
             bool(getattr(handler, "dedicated_trigger", False))
@@ -480,15 +495,40 @@ def _fallback_skip_decision(
     return None, None, None
 
 
+NO_REPLY_NEEDED_SENTINEL = "<<<NO_REPLY_NEEDED>>>"
+"""What the helper emits when the turn genuinely warranted silence.
+
+Only the IM DM fallback honours it (see `_FALLBACK_IM_DM_EXTRA`). The DM
+Communication Protocol keeps one narrow carve-out — the incoming message is
+pure acknowledgment ("好的" / "谢谢" / "got it" / "👍") with nothing to add —
+and without an exit the platform would answer every one of those anyway,
+making the protocol's own exemption unreachable in production: the decision
+to run this fallback looks only at whether a reply tool was called, and a
+model that correctly stayed silent called none. Prompt and behaviour have to
+agree.
+"""
+
+
+_FALLBACK_IM_DM_EXTRA = (
+    "\n\nThis is a 1:1 IM conversation, so one more rule overrides the "
+    "others when it applies: if the person's latest message is PURE "
+    "ACKNOWLEDGMENT with nothing left to act on — \"好的\", \"谢谢\", "
+    "\"收到\", \"got it\", \"thanks\", \"👍\" — and there is genuinely "
+    f"nothing to add, reply with exactly {NO_REPLY_NEEDED_SENTINEL} and "
+    "nothing else. That is the ONLY case for it. A greeting, a question, a "
+    "request, or small talk all still get a real answer."
+)
+
+
 _FALLBACK_NO_REPLY_INSTRUCTIONS = (
-    "You are the agent's voice. The agent finished thinking but didn't "
-    "call send_message_to_user_directly, so its reasoning was never "
-    "spoken to the user. Produce the single message it should have sent."
+    "You are the agent's voice. The agent finished thinking but never "
+    "called its reply tool, so its reasoning was never spoken to the "
+    "user. Produce the single message it should have sent."
     "\n\nRules:\n"
     "- Reply in the user's language (match `<current_user_message>`).\n"
     "- Address the user directly, in first person as the agent.\n"
-    "- Do NOT mention tools, send_message_to_user_directly, helper_llm, "
-    "this fallback path, or any internal state.\n"
+    "- Do NOT mention tools, reply tools, helper_llm, this fallback path, "
+    "or any internal state.\n"
     # The 2026-07-29 report: the agent's reasoning was pure intent ("let me
     # try the image again"), the fallback voiced it, and the user was left
     # waiting for a document nothing was producing. The turn ENDS when this
@@ -538,11 +578,12 @@ def _fallback_instructions_for_mode(mode: str) -> str:
     (no promises about work that isn't happening — see the no_reply rules) is
     worth pinning in tests without constructing a stream.
     """
-    return (
-        _FALLBACK_AFTER_ERROR_INSTRUCTIONS
-        if mode == "after_error"
-        else _FALLBACK_NO_REPLY_INSTRUCTIONS
-    )
+    if mode == "after_error":
+        return _FALLBACK_AFTER_ERROR_INSTRUCTIONS
+    if mode == "no_reply_im_dm":
+        # Same no-reply text, plus the one exit the DM protocol promises.
+        return _FALLBACK_NO_REPLY_INSTRUCTIONS + _FALLBACK_IM_DM_EXTRA
+    return _FALLBACK_NO_REPLY_INSTRUCTIONS
 
 
 def _build_helper_user_input(
@@ -767,10 +808,6 @@ async def _stream_fallback_recovery(
         # The frame is emitted ONLY after the channel confirms the send.
         # Recording "replied" for a message that never left the process is
         # the same class of lie as the discarded plain text we are fixing.
-        from xyz_agent_context.channel.message_source_handler import (
-            PLATFORM_REPLY_TEXT_KEY,
-        )
-
         text = ""
         try:
             chunks: list[str] = []
@@ -798,6 +835,19 @@ async def _stream_fallback_recovery(
             text = "".join(chunks).strip()
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[FALLBACK-IM] helper_llm stream failed: {e}")
+
+        # The DM protocol's one silence carve-out, honoured. Without this
+        # exit the platform would answer even a bare "谢谢", because the
+        # decision to get here only asks whether a reply tool was called —
+        # and a model that correctly stayed silent called none. Compared
+        # after stripping so a stray newline doesn't turn the sentinel into
+        # a delivered message.
+        if text.strip() == NO_REPLY_NEEDED_SENTINEL:
+            logger.info(
+                "[FALLBACK-IM] helper judged the turn needs no reply "
+                "(pure acknowledgment); staying silent"
+            )
+            text = ""
 
         if not text:
             logger.warning(
@@ -922,10 +972,6 @@ def _im_reply_tool_name(working_source: str) -> str:
     distinction). Falls back to a synthetic name so the frame is still
     self-describing if a channel ever registers only the owner tool.
     """
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
-
     handler = MessageSourceRegistry.get(working_source)
     for name in handler.user_reply_tool_names:  # noqa: SIM110 — first non-owner wins
         if "send_message_to_user_directly" not in name:
@@ -955,10 +1001,6 @@ async def _deliver_im_fallback_reply(
     logs + skips the synthetic frame so we never persist "replied" for a
     message that never left the building.
     """
-    from xyz_agent_context.channel.channel_sender_registry import (
-        ChannelSenderRegistry,
-    )
-
     channel = (channel_tag or {}).get("channel", "") or working_source
     target_id = (channel_tag or {}).get("room_id", "") or ""
     if not target_id:
@@ -1430,7 +1472,7 @@ async def step_3_agent_loop(
         # agent runs, so this is virtually always "fatal" for them.)
         severity = (
             "recovered_after_reply"
-            if _has_organic_reply(agent_loop_response)
+            if _has_organic_reply(agent_loop_response, ctx.working_source or "")
             else "fatal"
         )
         err = ErrorMessage(
@@ -1447,8 +1489,6 @@ async def step_3_agent_loop(
         # ChannelContextBuilderBase.turn_envelope). Absent envelope =
         # not an IM turn = no DM fallback, which is the safe default for
         # chat / job / bus.
-        from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
-
         # NOTE: `context` (the ContextRuntime OUTPUT), not `ctx`. ContextData
         # is built fresh inside this step and hangs off the output — `ctx`
         # has no `ctx_data` attribute, so passing it here silently produced

@@ -94,11 +94,14 @@ class TestOrganicReplyIsChannelAware:
         registry lookup must be keyed by the turn's working_source."""
         assert _has_organic_reply([_wechat_send()], working_source="lark") is False
 
-    def test_default_working_source_preserves_the_old_contract(self):
-        """Existing call sites pass no working_source; they must keep
-        chat semantics."""
-        assert _has_organic_reply([_direct_notify()]) is True
-        assert _has_organic_reply([_wechat_send()]) is False
+    def test_working_source_is_required(self):
+        """No default on purpose (binding rule #2). A `"chat"` default is
+        what let the severity call site keep the drift this function exists
+        to remove: an IM turn that had replied via wechat_send then hit an
+        executor-infra failure read as "never spoke" and was recorded as a
+        hard fatal instead of recovered_after_reply."""
+        with pytest.raises(TypeError):
+            _has_organic_reply([_direct_notify()])  # type: ignore[call-arg]
 
 
 # ---------- 2. the decision ------------------------------------------

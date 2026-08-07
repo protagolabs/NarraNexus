@@ -1665,19 +1665,23 @@ class MatrixTrigger(ChannelTriggerBase):
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": anchor,
-            "trigger_id": (
+        # Through the base builder. This streaming path is the DEFAULT
+        # (STREAMING_ENABLED), and hand-rolling the dict here is how
+        # NarraMessenger missed the 2026-08-06 turn envelope: DMs read as
+        # group rooms, so the 1:1 no-reply fallback never ran — and this
+        # path's terminal case for "no reply + no error" is precisely the
+        # NO-OP silence that fallback exists to remove.
+        extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=anchor,
+            trigger_id=(
                 f"{self.channel_name}_{message.message_id}"
                 if message.message_id
                 else f"{self.channel_name}_unknown"
             ),
-        }
-        if attachments:
-            extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            builder=builder,
+            attachments=attachments,
+        )
 
         # F28 voice turn: the one-shot fast profile rides this run only;
         # rtc_voice reaches modules via extra_data (expressive surface
