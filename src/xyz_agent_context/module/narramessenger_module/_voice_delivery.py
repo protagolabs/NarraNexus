@@ -124,16 +124,37 @@ class VoiceDeliveryBridge:
         """Authoritative full text of a completed speak call.
 
         Corrects the delta view (or substitutes for it entirely when arg
-        deltas were unavailable). Replaces the open segment's raw text;
-        a call_id change closes the previous segment first — same rule as
-        the delta path, or the no-delta path would keep only the LAST
-        speak call and silently drop every earlier one.
+        deltas were unavailable). Same-segment vs new-segment:
+
+        - Explicit ids, when BOTH sides have one, are authoritative in
+          both directions: same id -> correct in place (even if the text
+          is disjoint), different id -> new segment. NOTE: today this
+          branch is defensive only — run_collector does not propagate
+          tool_call_id into PROGRESS, so the real event always carries an
+          empty string (dev probe 2026-08-07) and the prefix judge below
+          is the SOLE guard for the no-delta multi-call path.
+        - Otherwise: forward prefix on the RAW text. The authoritative
+          text of the SAME call is a superset of (or equal to) its
+          accumulated deltas BY CONSTRUCTION on raw — never compare after
+          sanitize_for_tts, which deletes paired structure markers and
+          breaks the prefix relation exactly when a delta is cut inside a
+          markdown link / inline code / URL (the inputs sanitize exists
+          for). No reverse branch: a shorter disjoint text is a NEW
+          segment — replacing a longer finished segment with a shorter
+          one would silently lose spoken content, which is worse than
+          duplicating it.
         """
         if self._closed:
             return
-        if call_id != self._current_call:
+        if call_id and self._current_call:
+            same_segment = call_id == self._current_call
+        else:
+            same_segment = not self._current_raw or text.startswith(
+                self._current_raw
+            )
+        if not same_segment:
             self._close_segment()
-        self._current_call = call_id
+        self._current_call = call_id or self._current_call
         self._current_raw = text
 
     # ── lifecycle ───────────────────────────────────────────────────────
