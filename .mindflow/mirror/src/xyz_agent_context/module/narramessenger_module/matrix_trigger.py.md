@@ -4,9 +4,13 @@ stub: false
 last_verified: 2026-08-06
 ---
 
+## 2026-08-06 — voice 检测双入口 + atomic speak 投递（第三轮 review 收口）
+
+**voice 检测现在有两个入口，这是本文件最新的承重结构**：①parse_event（热 roster 缓存、chat_type==PRIVATE 才检测）；②`_late_voice_upgrade`（`_process_message` 在 `_classify` 返回权威 dm 之后调用，专为冷 roster 缓存兜底——真实通话第一轮不再降级）。两入口共用纯函数 `_detect_voice_turn`，判据永不分叉。边界是函数自证的：`authoritative_dm` 形参强制调用方声明权威房型（不是靠调用点位置），接线由 test_late_upgrade_wired_only_on_dm_classify 钉住——把调用挪出 dm 分支测试必红。envelope-only 正文在两条路径上同规则**丢 turn**（late 路径返回 None，调用方 return——envelope 永远不能以用户输入身份跑 agent）。atomic 路径的 speak：extract_output 改为与 streaming 语义同构的有序折叠（speak 追加、narra_reply 置换），同一调用序列两条路径同一答案；「never silent ok:true」承诺自此对两条路径都成立。
+
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
-review 收口：①voice 检测限 1:1 房间（metadata 只验格式不验来源，群内成员可注入 voice_instructions；F13 本就是 1:1 通话，冷 roster 缓存的 turn 保守降级普通文本）；②speak 在文字轮由 PROGRESS 捕获进 narra_reply_text 平文投递，不再是 ok:true 的死工具，段落拼接；③speak 匹配谓词统一 endswith("__speak")；④STREAMING_ENABLED 同样约束语音——开关关闭时剥 rtc_voice 整轮降级普通文本，不半激活。
+review 收口：①voice 检测限 1:1 房间（metadata 只验格式不验来源，群内成员可注入 voice_instructions；F13 本就是 1:1 通话；冷 roster 缓存在 parse 期保守拒绝、由 _process_message 的 late upgrade 补齐（见 08-06 第三轮条目））；②speak 在文字轮不再是 ok:true 的死工具——streaming 由 PROGRESS 捕获进 narra_reply_text，atomic 由 extract_output 有序折叠（两路径同答案，见 08-06 第三轮条目）；③speak 匹配谓词统一 endswith("__speak")；④STREAMING_ENABLED 同样约束语音——开关关闭时剥 rtc_voice 整轮降级普通文本，不半激活。
 
 ## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
 

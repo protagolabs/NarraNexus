@@ -114,7 +114,7 @@ from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
-def _detect_voice_turn(body: str, source: Any) -> Optional[tuple]:
+def _detect_voice_turn(body: str, source: Any) -> Optional[tuple[str, dict]]:
     """Pure detection shared by parse_event and the late (post-classify)
     upgrade: ``(transcript, rtc_voice_dict)`` for a valid RTC voice event,
     else None. The transcript may be empty (valid metadata, envelope-only
@@ -1392,8 +1392,13 @@ class MatrixTrigger(ChannelTriggerBase):
             # _classify just did the authoritative lookup; re-run the same
             # pure detection so a cold cache only costs time, not
             # correctness. Group rooms never reach this branch, so the
-            # 1:1-only injection boundary is unchanged.
-            message = self._late_voice_upgrade(message)
+            # 1:1-only injection boundary is unchanged. None = valid
+            # metadata with an envelope-only body → drop the turn, same
+            # rule as parse_event (review #21).
+            upgraded = self._late_voice_upgrade(message, authoritative_dm=True)
+            if upgraded is None:
+                return
+            message = upgraded
 
         # Silent path: memory-only, no reply / tool / model. Owner
         # policy override — do not call authorize-event. See
@@ -1492,16 +1497,25 @@ class MatrixTrigger(ChannelTriggerBase):
             credential, message, sender_name, attachments=attachments
         )
 
-    def _late_voice_upgrade(self, message: ParsedMessage) -> ParsedMessage:
+    def _late_voice_upgrade(
+        self, message: ParsedMessage, *, authoritative_dm: bool
+    ) -> Optional[ParsedMessage]:
         """Re-run voice detection after _classify confirmed a 1:1 room.
 
         parse_event's PRIVATE gate is conservative on a cold roster cache
         (unknown member count parses as GROUP); this recovers the voice
         register for authoritative DMs. Inert on plain messages and
         idempotent on already-stamped ones.
+
+        ``authoritative_dm`` must be the CALLER'S declaration that
+        _classify returned "dm" — the 1:1 injection boundary is asserted
+        here, not by call-site position alone (review #23). Returns None
+        for a metadata-valid but envelope-only body: the turn is DROPPED,
+        same rule as parse_event — the envelope must never run the agent
+        as user content (review #21).
         """
         raw = message.raw or {}
-        if raw.get("rtc_voice"):
+        if not authoritative_dm or raw.get("rtc_voice"):
             return message
         detected = _detect_voice_turn(
             message.content, getattr(raw.get("_nio_event"), "source", None)
@@ -1510,7 +1524,11 @@ class MatrixTrigger(ChannelTriggerBase):
             return message
         transcript, rtc_voice = detected
         if not transcript.strip():
-            return message
+            logger.info(
+                f"[matrix:{getattr(message, 'chat_id', '?')}] late voice "
+                f"turn with empty transcript dropped"
+            )
+            return None
         upgraded_raw = dict(raw)
         upgraded_raw["rtc_voice"] = rtc_voice
         logger.info(
@@ -1945,8 +1963,14 @@ class MatrixTrigger(ChannelTriggerBase):
         as "nothing sent" (the 2026-07-03 bug this replaced).
         """
         raw_items = getattr(result, "raw_items", None) or []
-        narra_reply_text = ""
-        speak_segments: list[str] = []
+        # Ordered fold mirroring the STREAMING capture semantics exactly
+        # (review #22): narra_reply REPLACES the accumulator (last-writer,
+        # like state.narra_reply_text = text), speak APPENDS a segment
+        # (review #16 — no bridge runs on the atomic path, so joining the
+        # segments into the plain delivery is what keeps speak from being
+        # a dead ok:true tool when the STREAMING_ENABLED switch is off).
+        # Same call sequence must yield the same answer on both paths.
+        accumulated = ""
         for raw in raw_items:
             if not isinstance(raw, dict):
                 continue
@@ -1970,18 +1994,11 @@ class MatrixTrigger(ChannelTriggerBase):
             if not (isinstance(text, str) and text.strip()):
                 continue
             if is_reply:
-                # LAST-writer wins, same as the streaming capture.
-                narra_reply_text = text
+                accumulated = text
             else:
-                # speak on the atomic path (review #16): no bridge runs
-                # here, so joining the segments into the plain delivery is
-                # what keeps speak from being a dead ok:true tool when the
-                # STREAMING_ENABLED kill switch is off.
-                speak_segments.append(text)
-        if narra_reply_text:
-            return narra_reply_text
-        if speak_segments:
-            return " ".join(speak_segments)
+                accumulated = f"{accumulated} {text}".strip() if accumulated else text
+        if accumulated:
+            return accumulated
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""
@@ -2465,9 +2482,11 @@ class MatrixTrigger(ChannelTriggerBase):
             # sync backend round trip for the fast-mode decision), so a
             # group member could otherwise inject voice_instructions into
             # the reply register. F13 RTC calls are Agent-Human 1:1 by
-            # product shape, so gating on PRIVATE loses nothing. Caveat:
-            # an unknown member count parses as GROUP (conservative), so
-            # a cold roster cache degrades that turn to plain text.
+            # product shape, so gating on PRIVATE loses nothing. A cold
+            # roster cache (unknown member count) parses as GROUP and is
+            # conservatively refused HERE; _process_message recovers it
+            # after _classify's authoritative dm verdict — see
+            # _late_voice_upgrade. The argument chain closes there.
             detected = (
                 _detect_voice_turn(
                     body, getattr(raw.get("_nio_event"), "source", None)

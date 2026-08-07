@@ -18,7 +18,10 @@ Locks:
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from nio import RoomMessageText
 
@@ -172,11 +175,67 @@ def test_late_voice_upgrade_recovers_cold_roster_cache():
     msg = trigger.parse_event(raw)
     assert "rtc_voice" not in msg.raw
 
-    upgraded = trigger._late_voice_upgrade(msg)
+    upgraded = trigger._late_voice_upgrade(msg, authoritative_dm=True)
     assert upgraded.content == TRANSCRIPT
     assert upgraded.raw["rtc_voice"]["rtc_session_id"] == "rtc-s1"
 
     # Idempotent on already-upgraded and inert on plain messages.
-    assert trigger._late_voice_upgrade(upgraded) is upgraded
+    assert trigger._late_voice_upgrade(upgraded, authoritative_dm=True) is upgraded
     plain = _parse(_voice_event(meta=None, body="hello"))
-    assert trigger._late_voice_upgrade(plain) is plain
+    assert trigger._late_voice_upgrade(plain, authoritative_dm=True) is plain
+
+    # The boundary is self-asserting (review #23): without the caller
+    # DECLARING an authoritative dm verdict, no upgrade happens.
+    assert (
+        trigger._late_voice_upgrade(msg, authoritative_dm=False) is msg
+    )
+
+
+def test_late_upgrade_drops_envelope_only_turn_like_parse_does():
+    """Review finding #21: metadata-valid but envelope-only body must be
+    DROPPED on the late path too — never run the agent with the envelope
+    as user content (the exact promotion split_narra_system_prompt
+    exists to prevent)."""
+    trigger = MatrixTrigger()
+    raw = trigger._wrap_event(
+        event=_voice_event(body=ENVELOPE), room_id="!fresh2:h", credential=_cred()
+    )
+    msg = trigger.parse_event(raw)  # cold cache -> plain text, not dropped
+    assert msg is not None and "rtc_voice" not in msg.raw
+    assert trigger._late_voice_upgrade(msg, authoritative_dm=True) is None
+
+
+@pytest.mark.asyncio
+async def test_late_upgrade_wired_only_on_dm_classify(monkeypatch):
+    """Review finding #24: the dm-only wiring must be falsifiable — moving
+    the _late_voice_upgrade call out of the dm branch must break a test,
+    or the 1:1 injection boundary silently reopens."""
+    import pytest as _pytest
+    from unittest.mock import AsyncMock, MagicMock
+
+    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+
+    for target, expect_called in (("dm", True), ("group_mention", False)):
+        trigger = MatrixTrigger()
+        spy = MagicMock(side_effect=lambda m, **kw: m)
+        monkeypatch.setattr(trigger, "_late_voice_upgrade", spy, raising=False)
+        monkeypatch.setattr(trigger, "_is_mentioning_us", lambda *a, **k: True, raising=False)
+        monkeypatch.setattr(trigger, "_classify", AsyncMock(return_value=target), raising=False)
+        monkeypatch.setattr(
+            trigger,
+            "_authorize_event",
+            AsyncMock(return_value=SimpleNamespace(allow=True, notice_send=False, notice_text="")),
+            raising=False,
+        )
+        monkeypatch.setattr(ChannelTriggerBase, "_process_message", AsyncMock())
+        msg = _parse(_voice_event())
+        # Pre-classify gates: an active client must exist and the message
+        # must not be an echo — stub both so the run reaches classify.
+        monkeypatch.setattr(trigger, "_subscriber_key", lambda c: "k", raising=False)
+        monkeypatch.setattr(trigger, "_clients", {"k": object()}, raising=False)
+        monkeypatch.setattr(trigger, "is_echo", AsyncMock(return_value=False), raising=False)
+        try:
+            await trigger._process_message(_cred(), msg)
+        except Exception as e:  # noqa: BLE001 — wiring assertion is what matters
+            _pytest.fail(f"_process_message raised for target={target}: {e}")
+        assert spy.called is expect_called, f"target={target}"

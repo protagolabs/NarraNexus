@@ -196,3 +196,28 @@ def test_atomic_extract_output_captures_speak_segments():
         _tool("mcp__narramessenger_module__narra_reply", "the real answer"),
     ])
     assert trigger.extract_output(result2, None, None) == "the real answer"
+
+
+def test_atomic_and_streaming_agree_on_mixed_tool_order():
+    """Review finding #22: the two paths must give the same answer for the
+    same call sequence — ordered fold with speak appending and narra_reply
+    replacing (streaming's actual semantics)."""
+    trigger = MatrixTrigger()
+
+    def _tool(name, text):
+        return {"item": {"type": "tool_call_item", "tool_name": name,
+                         "arguments": {"text": text}}}
+
+    # narra_reply first, speak after -> concatenation (streaming behavior).
+    result = SimpleNamespace(raw_items=[
+        _tool("mcp__narramessenger_module__narra_reply", "the answer."),
+        _tool("mcp__narramessenger_module__speak", "one more thing."),
+    ])
+    assert trigger.extract_output(result, None, None) == "the answer. one more thing."
+
+    # speak first, narra_reply after -> narra_reply replaces (last writer).
+    result2 = SimpleNamespace(raw_items=[
+        _tool("mcp__narramessenger_module__speak", "spoken"),
+        _tool("mcp__narramessenger_module__narra_reply", "the real answer"),
+    ])
+    assert trigger.extract_output(result2, None, None) == "the real answer"
