@@ -103,7 +103,9 @@ def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
     return member_agent_ids[0]
 
 
-async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> dict:
+async def _wipe_team_data(
+    db, team, *, clear_chat: bool, clear_files: bool, clear_artifacts: bool = False
+) -> dict:
     """Clear a team's group-chat history and/or its shared files.
 
     The team counterpart to ``wipe_agent_data``: it clears the collaboration
@@ -113,7 +115,18 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
 
     - clear_chat: delete ``bus_messages`` (and their ``bus_message_failures``)
       for the team room channel (``created_by='team_<id>'``).
-    - clear_files: delete the on-disk ``_shared/teams/{team_id}`` dir.
+    - clear_files: delete the on-disk ``_shared/teams/{team_id}`` dir AND its
+      ``team_files`` index rows. Deliberately does NOT touch artifacts: a team
+      artifact registered the ordinary way points into the PRODUCER's own
+      workspace (``_resolve_entry`` keeps that as the first allowed root), so
+      its content survives this and deleting the row would destroy a pointer
+      to a file that still exists. The few artifacts that did live in the
+      shared folder become broken pointers — a state ``ArtifactService.heal``
+      already recovers from, and a far better outcome than silently dropping
+      the ones that were fine.
+    - clear_artifacts: delete this team's ``instance_artifacts`` rows and their
+      attribution history. Used when the TEAM itself goes away, where the rows
+      become unreachable by every query path rather than merely stale.
 
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
@@ -145,23 +158,8 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
     if clear_files:
         # The index has to go with the bytes. A row that outlives its file is
         # worse than no row: the panel still lists it and the user only finds
-        # out when the download fails. Team artifacts point into the very tree
-        # being deleted, so they follow — with their attribution rows, which
-        # would otherwise accumulate as orphans nothing can ever read.
-        # Private artifacts and other teams are untouched: the filter is this
-        # team, not this owner.
-        async with db.transaction():
-            arts = await db.execute(
-                "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
-                (team.team_id,), fetch=True,
-            )
-            ids = [r["artifact_id"] for r in arts or []]
-            for aid in ids:
-                await db.delete("instance_artifact_history", {"artifact_id": aid})
-            result["artifacts"] = await db.delete(
-                "instance_artifacts", {"team_id": team.team_id}
-            )
-            result["file_rows"] = await db.delete("team_files", {"team_id": team.team_id})
+        # out when the download fails.
+        result["file_rows"] = await db.delete("team_files", {"team_id": team.team_id})
 
         d = team_shared_dir(team.owner_user_id, team.team_id)
         try:
@@ -171,6 +169,21 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
         except Exception as e:  # noqa: BLE001 — best-effort; never fail the wipe
             result["errors"].append(f"files: {e}")
             logger.warning(f"[team wipe] failed to delete shared dir {d}: {e}")
+
+    if clear_artifacts:
+        # Attribution rows first: an orphaned history row points at an
+        # artifact_id nothing can resolve. Filtered by THIS team, so private
+        # work and other teams the same owner has are untouched.
+        async with db.transaction():
+            arts = await db.execute(
+                "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
+                (team.team_id,), fetch=True,
+            )
+            for row in arts or []:
+                await db.delete("instance_artifact_history", {"artifact_id": row["artifact_id"]})
+            result["artifacts"] = await db.delete(
+                "instance_artifacts", {"team_id": team.team_id}
+            )
 
     logger.info(
         f"[team wipe] team={team.team_id} chat={clear_chat} files={clear_files} "
@@ -587,6 +600,15 @@ async def delete_team(team_id: str, request: Request):
     if team.owner_user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    # Take the workspace with it. Once the team row is gone its artifacts are
+    # unreachable by EVERY query path — the private surfaces exclude them
+    # (team_id IS NULL), list_by_team needs a team that no longer exists, and
+    # list_for_agent_context joins team_members, which the next line empties.
+    # Rows nothing can ever read again are precisely the orphans the acceptance
+    # criterion is about; leaving them is not "harmless clutter".
+    await _wipe_team_data(
+        db, team, clear_chat=True, clear_files=True, clear_artifacts=True
+    )
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
     return TeamOperationResponse(success=True, message="Team deleted")
@@ -597,7 +619,7 @@ async def clear_team_data(
     team_id: str,
     request: Request,
     chat: bool = Query(True, description="Delete the team room's group-chat messages"),
-    files: bool = Query(True, description="Delete the team's shared files (_shared/teams/{id})"),
+    files: bool = Query(True, description="Delete the team's shared files and their index (artifacts are kept)"),
 ):
     """Clear a team's collaboration data (chat and/or shared files), keeping the
     team, its members, and the bus channel. Owner-only. The team counterpart to

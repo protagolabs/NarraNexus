@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-07
+last_verified: 2026-08-08
 stub: false
 ---
+
+## 2026-08-08 (review 修正) — 三个独立 scope，且 delete_team 带走工作台
+
+**撤回一处过度删除**：初版让 `clear_files` 连团队 artifact 一起删，理由写的是「团队 artifact
+指向的正是被删的那棵树」——**这在最常见情况下不成立**。`_resolve_entry` 把生产者自己的
+workspace 保留为**第一个**允许根，团队目录只是追加的第二个，所以按常规方式注册的团队 artifact
+指向的是生产者 workspace，内容根本没被删。删它们的行等于销毁指向仍存在文件的指针。
+
+现在 `clear_files` 只删共享目录 + `team_files` 索引。确实住在共享目录里的那些会变成**破损指针**
+——这是 [[artifact_service.py]] 的 `heal` 已能恢复的状态，远好过把本来没事的那些一起丢掉。
+
+**`delete_team` 现在先全清再删 team**。团队一旦消失，它的 artifact 对**所有查询路径都不可达**：
+私聊面用 `team_id IS NULL` 排除、`list_by_team` 需要已不存在的 team、并集查询 join 的
+`team_members` 下一行就被清空。**读不到的行才是验收 #7 说的孤儿**，不是「无害垃圾」。
+
+新增 `clear_artifacts` scope 承载这件事；两个既有开关语义不变，前端对话框无需改动。
+
 ## 2026-08-07 — chat messages 透出 msg_type
 
 `"system_stop"` 标记 owner 停止留痕,前端据此渲染成系统行而不是"这个 agent

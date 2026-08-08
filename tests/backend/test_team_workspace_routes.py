@@ -75,34 +75,25 @@ async def test_clearing_files_also_clears_the_index(db_client, monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_clearing_files_also_clears_team_artifacts_and_their_history(
-    db_client, monkeypatch, tmp_path
-):
-    """A team artifact points into the shared tree that just got deleted, so
-    it has to go with it — and its attribution rows with it, or the history
-    table accumulates orphans nothing will ever read."""
+async def test_clearing_files_removes_only_this_teams_index(db_client, monkeypatch, tmp_path):
+    """Scope is the team, never the owner: another team's index and any
+    private work belong to neither this folder nor this switch."""
     from xyz_agent_context.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
 
-    await _seed_artifact(db_client, "art_team", team_id=TID)
-    await _seed_artifact(db_client, "art_other_team", team_id=OTHER_TID)
+    await _seed_file(db_client, "f1", team_id=TID)
+    await _seed_file(db_client, "keep", team_id=OTHER_TID)
     await _seed_artifact(db_client, "art_private", team_id=None)
-    for aid in ("art_team", "art_other_team", "art_private"):
-        await db_client.insert("instance_artifact_history", {
-            "artifact_id": aid, "agent_id": "agent_a", "file_path": "p", "action": "created",
-        })
 
     team = Team(team_id=TID, owner_user_id=OWNER, name="T")
     await _wipe_team_data(db_client, team, clear_chat=False, clear_files=True)
 
+    files = {r["file_id"] for r in
+             await db_client.execute("SELECT * FROM team_files", fetch=True)}
+    assert files == {"keep"}
     left = {r["artifact_id"] for r in
             await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)}
-    assert left == {"art_other_team", "art_private"}, (
-        "only THIS team's artifacts go; private work and other teams are untouched"
-    )
-    hist = {r["artifact_id"] for r in
-            await db_client.execute("SELECT * FROM instance_artifact_history", fetch=True)}
-    assert "art_team" not in hist, "attribution rows must not outlive their artifact"
+    assert left == {"art_private"}
 
 
 @pytest.mark.asyncio
@@ -224,3 +215,86 @@ async def test_rows_without_a_turn_are_skipped(db_client):
     await _seed_history(db_client, "art_1", event_id=None)
 
     assert await _team_artifact_turns(db_client, TID) == {}
+
+
+# ── each switch does what its name says ───────────────────────────────────
+#
+# The first version had `clear_files` delete the team's artifacts too, on the
+# stated grounds that "team artifacts point into the very tree being deleted".
+# That is false in the common case: `_resolve_entry` keeps the producer's own
+# workspace as the FIRST allowed root, so a team artifact registered the
+# ordinary way points there and survives the folder being removed. Deleting
+# those rows destroyed pointers to files that still exist.
+#
+# Artifacts that DID live in the shared folder become broken pointers, which
+# is a state this codebase already recovers from (ArtifactService.heal) — a
+# far better outcome than silently dropping the ones that were fine.
+
+
+@pytest.mark.asyncio
+async def test_clearing_files_leaves_team_artifacts_alone(db_client, monkeypatch, tmp_path):
+    """Content living in the producer's workspace is untouched by removing the
+    shared folder, so its artifact row must survive too."""
+    from xyz_agent_context.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+
+    await _seed_artifact(db_client, "art_team", team_id=TID)
+    await _seed_file(db_client, "f1", team_id=TID)
+
+    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
+    await _wipe_team_data(db_client, team, clear_chat=False, clear_files=True)
+
+    left = {r["artifact_id"] for r in
+            await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)}
+    assert left == {"art_team"}, "clearing FILES must not delete artifacts"
+    assert await db_client.execute("SELECT * FROM team_files", fetch=True) == []
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_team_takes_its_workspace_with_it(db_client, monkeypatch, tmp_path):
+    """Once the team is gone its artifacts are unreachable by EVERY query path:
+    the private surfaces exclude them (team_id IS NULL), list_by_team needs a
+    team that no longer exists, and the union joins team_members which the
+    delete just emptied. Rows that nothing can ever read are the orphan case
+    acceptance #7 is about."""
+    from xyz_agent_context.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+
+    await _seed_artifact(db_client, "art_team", team_id=TID)
+    await _seed_artifact(db_client, "art_other", team_id=OTHER_TID)
+    await _seed_artifact(db_client, "art_private", team_id=None)
+    await _seed_history(db_client, "art_team", event_id="evt_a")
+    await _seed_file(db_client, "f1", team_id=TID)
+    await _seed_file(db_client, "keep", team_id=OTHER_TID)
+
+    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
+    await _wipe_team_data(
+        db_client, team, clear_chat=True, clear_files=True, clear_artifacts=True
+    )
+
+    left = {r["artifact_id"] for r in
+            await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)}
+    assert left == {"art_other", "art_private"}
+    hist = await db_client.execute("SELECT * FROM instance_artifact_history", fetch=True)
+    assert hist == []
+    files = {r["file_id"] for r in
+             await db_client.execute("SELECT * FROM team_files", fetch=True)}
+    assert files == {"keep"}
+
+
+@pytest.mark.asyncio
+async def test_clearing_artifacts_alone_keeps_the_files(db_client, monkeypatch, tmp_path):
+    """The scopes are independent in both directions."""
+    from xyz_agent_context.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+
+    await _seed_artifact(db_client, "art_team", team_id=TID)
+    await _seed_file(db_client, "f1", team_id=TID)
+
+    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
+    await _wipe_team_data(
+        db_client, team, clear_chat=False, clear_files=False, clear_artifacts=True
+    )
+
+    assert await db_client.execute("SELECT * FROM instance_artifacts", fetch=True) == []
+    assert len(await db_client.execute("SELECT * FROM team_files", fetch=True)) == 1
