@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-07-31
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — `Narrative.searchable_text()`：BM25 文本面的唯一定义
+
+原来有两份拷贝：`retrieval.load_pool`（`" ".join`）和 `crud._index_narrative`
+（`"\n".join`）。当前分词器按空白切，所以两者等价——**只差一次分词器改动就是真
+bug**，而路由和 `remember` 会就「这条 narrative 讲什么」给出不同答案，且所有测试
+照常绿。
+
+放在模型上而不是抽成 `_narrative_impl` 里的公共函数，是因为 `retrieval` 已经
+import `crud`，反向 import 会成环。
+
+（原本 `retrieval._searchable_text` 的 docstring 写着「the one definition」，但那
+一刻第二份拷贝还活着——手册「Claims in docs are code too」讲的就是这种：写下
+only / always / never 之前先 grep 反例。）
+
+## 2026-08-07 — RoutingAudit / RoutingCandidate（E1）
+
+路由决策的载体。`RoutingCandidate.text_hash` 指向 narrative **被打分那一刻**的文本，
+不是它现在的文本——`name / current_summary / topic_keywords` 被 [[updater.py]] 几乎
+每轮全量重写且不留历史，事后回读 `narratives` 表重建的池子是一个从未存在过的池子。
+
+`RoutingAudit.candidates` 刻意装**整个池子**而不是 top-K：`bm25_rank` 的 IDF 和
+avgdl 在候选集自身上算，裁过的池子重放出来是另一组数。详见
+[[narrative_routing_audit_repository.py]]。
+
+`NarrativeSelectionResult` 上新增的 `audit` / `audit_snapshots` 是**临时字段**，只在
+retrieval tier 和 `NarrativeService.select` 之间传递，不随任何东西落库。挂在结果对象上
+而不是另开返回值，是为了让调用点没法忘记它。
+
 
 ## 2026-07-31 — TriggerType 与 WorkingSource 1:1 对齐
 

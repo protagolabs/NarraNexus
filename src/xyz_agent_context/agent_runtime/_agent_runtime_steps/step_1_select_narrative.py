@@ -48,6 +48,21 @@ def _is_user_chat(ctx) -> bool:
         return True
 
 
+def _trigger_label(ctx) -> str:
+    """The surface that started this run, for the routing audit.
+
+    Recorded because the two dominant surfaces route under different rules:
+    on dev (2026-08-07) chat is 69% of turns and message_bus 30%, and only
+    the human-facing ones move the session anchor (see `_is_user_chat`). An
+    audit that mixed them would average two different behaviours into one
+    meaningless rate.
+    """
+    src = getattr(ctx, "working_source", None)
+    if src is None:
+        return ""
+    return src.value if hasattr(src, "value") else str(src)
+
+
 async def _run_with_cancellation(coro, cancellation: CancellationToken):
     """
     Run a coroutine that can be interrupted by a CancellationToken.
@@ -234,6 +249,7 @@ async def step_1_select_narrative(
                 awareness=ctx.awareness,
                 is_user_chat=_is_user_chat(ctx),
                 retrieval_anchor=ctx.trigger_extra_data.get("retrieval_anchor"),
+                trigger=_trigger_label(ctx),
             )
             if ctx.cancellation:
                 selection_result = await _run_with_cancellation(fallback_coro, ctx.cancellation)
@@ -253,6 +269,7 @@ async def step_1_select_narrative(
             awareness=ctx.awareness,
             is_user_chat=_is_user_chat(ctx),
             retrieval_anchor=ctx.trigger_extra_data.get("retrieval_anchor"),
+            trigger=_trigger_label(ctx),
         )
         if ctx.cancellation:
             selection_result = await _run_with_cancellation(select_coro, ctx.cancellation)

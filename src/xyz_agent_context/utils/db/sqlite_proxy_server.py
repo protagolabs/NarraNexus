@@ -63,6 +63,10 @@ class GetByIdsRequest(BaseModel):
     table: str
     id_field: str
     ids: List[str]
+    # Optional projection. Must be carried across the HTTP boundary, not just
+    # accepted client-side: dropping it here would silently return SELECT * to
+    # the desktop / run.sh path while the caller believes it narrowed the read.
+    fields: Optional[List[str]] = None
 
 
 class InsertRequest(BaseModel):
@@ -359,7 +363,7 @@ async def get_one(req: GetOneRequest):
 async def get_by_ids(req: GetByIdsRequest):
     backend = _get_backend()
     try:
-        rows = await backend.get_by_ids(req.table, req.id_field, req.ids)
+        rows = await backend.get_by_ids(req.table, req.id_field, req.ids, fields=req.fields)
         return ProxyResponse(
             success=True,
             data=[_serialize_row(r) if r else None for r in rows],
