@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — options 透传 `extra_readable_roots`
+
+一行透传：把调用方声明的额外可读根放进 TurnOptions payload。适配器不解释其含义
+（协作区的概念在平台侧，见 [[step_3_agent_loop.py]]）。
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 

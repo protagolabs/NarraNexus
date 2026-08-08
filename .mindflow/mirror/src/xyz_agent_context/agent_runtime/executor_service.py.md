@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — 从 body 取出 `extra_readable_roots` 交给 driver
+
+与 [[remote_driver.py]] 对称的另一端。白名单 body 的两端必须成对改，否则字段在网络边界
+被静默丢弃。
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 

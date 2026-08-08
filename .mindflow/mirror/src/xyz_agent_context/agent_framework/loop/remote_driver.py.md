@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — 云端路径透传 `extra_readable_roots`
+
+`build_agent_loop_request` 的 body 是**白名单**，不透传任意 kwarg——漏了这一行就会变成
+「本地能读共享目录、云端读不到」的两模式分裂（铁律 #7）。见 [[executor_protocol.py]]。
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
