@@ -265,6 +265,45 @@ async def test_recent_pushes_limit_and_ordering_into_sql(db_client):
     assert rows[0]["id"] > rows[1]["id"], "rows are not newest-first"
 
 
+async def test_unknown_existence_skips_the_writes_instead_of_hammering_the_index(db_client):
+    """A failed existence check must not be read as "nothing is stored".
+
+    Treating the two as the same makes the writer insert the WHOLE pool, every
+    row colliding with the unique index and every failure swallowed one level
+    down: one warning plus ~100 doomed writes, on `select()`'s synchronous path,
+    once per turn, indefinitely. Losing one turn's snapshots costs a replay one
+    turn's text; the alternative taxes every conversation.
+    """
+    repo = NarrativeRoutingAuditRepository(db_client)
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+
+    async def _blind(*a, **k):
+        raise RuntimeError("existence check is down")
+
+    inserted: list = []
+    real_insert = db_client.insert
+
+    async def spy_insert(table, data, *a, **k):
+        inserted.append(table)
+        return await real_insert(table, data, *a, **k)
+
+    db_client.get_by_ids = _blind
+    db_client.insert = spy_insert
+    try:
+        await repo.record(audit, snapshots)
+    finally:
+        db_client.insert = real_insert
+
+    snapshot_writes = [t for t in inserted if t == "narrative_text_snapshots"]
+    assert not snapshot_writes, (
+        f"{len(snapshot_writes)} snapshot inserts were attempted after the "
+        f"existence check failed — every one of them collides with the unique "
+        f"index, and this runs on the per-turn synchronous path"
+    )
+    # The decision itself must still be recorded; only the text is skipped.
+    assert "narrative_routing_audit" in inserted
+
+
 async def test_record_never_raises(db_client):
     """The observer must not break the observed (audit is advisory)."""
     repo = NarrativeRoutingAuditRepository(db_client)

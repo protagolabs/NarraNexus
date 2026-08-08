@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from loguru import logger
 
@@ -131,6 +131,11 @@ class NarrativeRoutingAuditRepository:
         """
         hashes = list(snapshots.keys())
         known = await self._known_hashes(hashes)
+        if known is None:
+            # Could not determine what exists. Writing blind would mean ~100
+            # inserts all colliding with the unique index; a replay missing one
+            # turn's text is the cheaper failure.
+            return
         for h in hashes:
             if h in known:
                 continue
@@ -139,7 +144,7 @@ class NarrativeRoutingAuditRepository:
             except Exception as e:  # noqa: BLE001 — lost race or oversized text
                 logger.debug(f"[narrative.audit] snapshot {h[:12]} not stored: {e}")
 
-    async def _known_hashes(self, hashes: Iterable[str]) -> set:
+    async def _known_hashes(self, hashes: Iterable[str]) -> Optional[Set[str]]:
         """Which of these hashes are already stored — keys only.
 
         Deliberately NOT `load_snapshots(...).keys()`: that is `SELECT *`, so it
@@ -148,6 +153,14 @@ class NarrativeRoutingAuditRepository:
         `select()`, i.e. billed to every user message, and re-shipping the text
         `load_pool` just read from `narratives` in the same turn. With a
         100-narrative pool and long summaries that is hundreds of KB a turn.
+
+        Returns None for "could not find out", which is NOT the same as the
+        empty set. Conflating them makes the caller believe nothing is stored
+        and insert the entire pool, every row colliding with the unique index
+        and every failure swallowed one level down — a warning followed by ~100
+        doomed writes, on the synchronous path, once per turn, forever. Failing
+        the check costs one turn's snapshots; mistaking it for "empty" quietly
+        taxes every conversation.
         """
         wanted = list(dict.fromkeys(h for h in hashes if h))
         if not wanted:
@@ -157,8 +170,11 @@ class NarrativeRoutingAuditRepository:
                 SNAPSHOT_TABLE, "text_hash", wanted, fields=["text_hash"]
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"[narrative.audit] snapshot existence check failed: {e}")
-            return set()
+            logger.warning(
+                f"[narrative.audit] snapshot existence check failed, skipping this "
+                f"turn's snapshot writes: {e}"
+            )
+            return None
         return {r["text_hash"] for r in rows if r}
 
     # ── read ────────────────────────────────────────────────────────────

@@ -39,3 +39,8 @@ Trade-off worth naming: `_await_txn_turn` blocks inside the HTTP handler, holdin
 **SQL translation happens at the proxy, not only at the client.** `SQLiteProxyBackend` on the client side already translates SQL before sending it. The proxy also translates on `/execute`. This means raw SQL sent directly to the proxy (e.g., via `curl`) will be translated, which is the intended behavior but can be confusing when debugging.
 
 **New-contributor trap.** The proxy's Pydantic request models (`GetRequest`, `InsertRequest`, etc.) mirror the `DatabaseBackend` method signatures but are not the same objects. Changes to `DatabaseBackend`'s method signatures must be reflected in both `db_backend_sqlite_proxy.py` (client side) and `sqlite_proxy_server.py` (server side) simultaneously.
+
+## 2026-08-07 — `GetByIdsRequest.fields` + 转发
+
+投影要跨过 HTTP 边界。在这里丢掉它，客户端会以为自己收窄了查询，实际拿回整行——
+比崩溃更难发现。见 [[db_backend_sqlite_proxy.py]]。

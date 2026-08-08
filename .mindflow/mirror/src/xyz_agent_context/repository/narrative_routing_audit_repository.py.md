@@ -3,6 +3,19 @@ code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.p
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 存在性检查失败 ≠ 一条都不存在
+
+`_known_hashes` 失败时返回 `None`（哨兵），不是空集合。把两者混为一谈，写入方会
+以为库里什么都没有，于是对整池 ~100 条逐条 insert，每条撞 `text_hash` 唯一索引失
+败，再被下一层的 per-row except 以 debug 级别吞掉——净效果是一次 warning + 100 次
+注定失败的写，落在 `select()` 的**同步路径**上，每个非连续轮次付一遍。
+
+现在 `_store_snapshots` 见到 `None` 直接整段跳过：少一轮快照，重放时少一条文本；
+比每轮 100 次废写便宜得多。日志措辞也改成实际发生的事（"skipping this turn's
+snapshot writes"）。
+
+这正是 [[db_backend_sqlite.py]] 那条注记的翻版——advisory except 会把整批静默吞掉。
+
 ## 2026-08-07 — review 收口：存在性检查不再把全池正文拉回来
 
 三处，全部来自 PR #256 的 review：
