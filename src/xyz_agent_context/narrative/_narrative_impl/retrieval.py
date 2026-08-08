@@ -403,7 +403,7 @@ class NarrativeRetrieval:
         for nid, narrative in participants.items():
             if nid in seen:
                 continue
-            text = cls._searchable_text(narrative)
+            text = narrative.searchable_text()
             h = text_hash(text)
             snapshots[h] = text
             audit.candidates.append(RoutingCandidate(
@@ -433,28 +433,9 @@ class NarrativeRetrieval:
         """
         narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
         return [
-            (n.id, self._searchable_text(n), n.is_special == "default")
+            (n.id, n.searchable_text(), n.is_special == "default")
             for n in narratives
         ]
-
-    @staticmethod
-    def _searchable_text(narrative: Narrative) -> str:
-        """The one definition of what BM25 sees for a narrative.
-
-        Kept in a single place because `crud._index_narrative` projects the
-        SAME four fields into the unified memory index — routing and `remember`
-        must search identical text or the two disagree about what a narrative
-        is about.
-        """
-        info = narrative.narrative_info
-        return " ".join(
-            p for p in (
-                getattr(info, "name", ""),
-                getattr(info, "current_summary", ""),
-                getattr(info, "description", ""),
-                " ".join(narrative.topic_keywords or []),
-            ) if p
-        )
 
     @staticmethod
     def rank_pool(

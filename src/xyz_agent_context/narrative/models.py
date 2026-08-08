@@ -212,6 +212,33 @@ class Narrative(BaseModel):
     # ===== Special Markers =====
     is_special: str = "other"  # Special marker field, default value is "other"
 
+    def searchable_text(self) -> str:
+        """The text that represents this narrative to search — the ONE definition.
+
+        Two callers must agree on it or the system contradicts itself about what
+        a narrative is about:
+          - `_narrative_impl/retrieval.load_pool` — the per-turn BM25 routing pool
+          - `_narrative_impl/crud._index_narrative` — the projection into the
+            unified memory index that `remember` searches
+        Both rank with the same `bm25_rank`, so a drift between them would make
+        recall and routing disagree while every test still passed. They had
+        already drifted in form (`" ".join` vs `"\\n".join`) before this was
+        pulled up here — equivalent only because the tokenizer splits on
+        whitespace, i.e. one tokenizer change away from being a real bug.
+
+        It lives on the model because retrieval imports crud; a shared helper in
+        either of them would be a circular import.
+        """
+        info = self.narrative_info
+        return " ".join(
+            p for p in (
+                getattr(info, "name", "") or "",
+                getattr(info, "current_summary", "") or "",
+                getattr(info, "description", "") or "",
+                " ".join(self.topic_keywords or []),
+            ) if p
+        )
+
 
 # =============================================================================
 # Session Related Models

@@ -136,10 +136,17 @@ async def test_snapshots_are_content_addressed_and_deduped(db_client):
     repo = NarrativeRoutingAuditRepository(db_client)
     audit, snapshots = _audit_from_pool(_POOL, _QUERY)
 
+    async def snapshot_count() -> int:
+        # Counted here rather than on the repository: production never needs a
+        # COUNT, and keeping it out leaves the repository with zero hand-written
+        # SQL (every real access goes through the dialect-safe client helpers).
+        rows = await db_client.execute("SELECT COUNT(*) AS n FROM narrative_text_snapshots")
+        return int(rows[0]["n"]) if rows else 0
+
     await repo.record(audit, snapshots)
-    after_first = await repo.snapshot_count()
+    after_first = await snapshot_count()
     await repo.record(audit, snapshots)
-    after_second = await repo.snapshot_count()
+    after_second = await snapshot_count()
 
     assert after_first == len(_POOL)
     assert after_second == after_first, (
@@ -193,6 +200,71 @@ def test_record_pool_captures_participants_not_in_the_bm25_pool():
     assert not by_id["nar_a"].is_participant
 
 
+async def test_existence_check_does_not_fetch_the_snapshot_text(db_client):
+    """The write path must ask for keys, not payload.
+
+    `_store_snapshots` only needs "which hashes exist". Resolving that through
+    `load_snapshots` (SELECT *) would ship every pool member's MEDIUMTEXT back
+    on each non-continuous turn just to discard it — on `select()`'s synchronous
+    path, so billed to every user message, and re-shipping the text `load_pool`
+    read from `narratives` in the same turn.
+    """
+    repo = NarrativeRoutingAuditRepository(db_client)
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+    seen: list = []
+
+    real = db_client.get_by_ids
+
+    async def spy(table, id_field, ids, **kw):
+        seen.append((table, kw.get("fields")))
+        return await real(table, id_field, ids, **kw)
+
+    db_client.get_by_ids = spy
+    try:
+        await repo.record(audit, snapshots)
+    finally:
+        db_client.get_by_ids = real
+
+    snapshot_reads = [f for t, f in seen if t == "narrative_text_snapshots"]
+    assert snapshot_reads, "the write path never checked which hashes exist"
+    assert all(f == ["text_hash"] for f in snapshot_reads), (
+        f"existence check pulled a wide projection {snapshot_reads} — that is "
+        f"the whole pool's text over the wire, per turn, to be thrown away"
+    )
+
+
+async def test_recent_pushes_limit_and_ordering_into_sql(db_client):
+    """Never read the whole table and slice in Python.
+
+    One row per turn, never deleted, each carrying `candidates_json` — an agent
+    with tens of thousands of turns would pull hundreds of MB to return 50 rows.
+    """
+    repo = NarrativeRoutingAuditRepository(db_client)
+    audit, snapshots = _audit_from_pool(_POOL, _QUERY)
+    for _ in range(3):
+        await repo.record(audit, snapshots)
+
+    captured: dict = {}
+    real = db_client.get
+
+    async def spy(table, filters=None, **kw):
+        captured.update(table=table, **kw)
+        return await real(table, filters, **kw)
+
+    db_client.get = spy
+    try:
+        rows = await repo.recent(agent_id="agent_test", limit=2)
+    finally:
+        db_client.get = real
+
+    assert captured.get("limit") == 2, f"limit not pushed into SQL: {captured}"
+    assert (captured.get("order_by") or "").lower().startswith("id desc"), (
+        f"ordering not pushed into SQL: {captured}"
+    )
+    assert len(rows) == 2
+    assert rows[0]["id"] > rows[1]["id"], "rows are not newest-first"
+
+
 async def test_record_never_raises(db_client):
     """The observer must not break the observed (audit is advisory)."""
     repo = NarrativeRoutingAuditRepository(db_client)
@@ -206,6 +278,9 @@ async def test_record_never_raises(db_client):
             raise RuntimeError("db is down")
 
         async def get(self, *a, **k):
+            raise RuntimeError("db is down")
+
+        async def get_by_ids(self, *a, **k):
             raise RuntimeError("db is down")
 
     repo._db = _Broken()

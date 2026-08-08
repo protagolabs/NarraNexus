@@ -3,6 +3,20 @@ code_file: src/xyz_agent_context/narrative/models.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — `Narrative.searchable_text()`：BM25 文本面的唯一定义
+
+原来有两份拷贝：`retrieval.load_pool`（`" ".join`）和 `crud._index_narrative`
+（`"\n".join`）。当前分词器按空白切，所以两者等价——**只差一次分词器改动就是真
+bug**，而路由和 `remember` 会就「这条 narrative 讲什么」给出不同答案，且所有测试
+照常绿。
+
+放在模型上而不是抽成 `_narrative_impl` 里的公共函数，是因为 `retrieval` 已经
+import `crud`，反向 import 会成环。
+
+（原本 `retrieval._searchable_text` 的 docstring 写着「the one definition」，但那
+一刻第二份拷贝还活着——手册「Claims in docs are code too」讲的就是这种：写下
+only / always / never 之前先 grep 反例。）
+
 ## 2026-08-07 — RoutingAudit / RoutingCandidate（E1）
 
 路由决策的载体。`RoutingCandidate.text_hash` 指向 narrative **被打分那一刻**的文本，

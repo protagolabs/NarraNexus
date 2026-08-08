@@ -3,6 +3,12 @@ code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
+
+`_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。
+详见 [[models.py]]：这个定义必须和 `crud._index_narrative` 严格同一份，否则路由
+和 `remember` 会不一致。
+
 ## 2026-08-07 — 池子拆出 `load_pool` / `rank_pool`，为的是审计能精确重放
 
 `keyword_search` 内部原来一口气做完「读 narrative → 拼文本 → BM25」。现在拆成

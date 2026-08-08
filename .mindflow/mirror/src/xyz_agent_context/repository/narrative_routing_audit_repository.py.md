@@ -3,6 +3,26 @@ code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.p
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — review 收口：存在性检查不再把全池正文拉回来
+
+三处，全部来自 PR #256 的 review：
+
+- **`_known_hashes` 取代 `load_snapshots(...).keys()`**。写路径只要「哪些 hash 已
+  存在」，而 `load_snapshots` 走 `get_by_ids` = `SELECT *`，于是每个非连续轮次都
+  把整池的 `text`（MEDIUMTEXT）拉回来再全部丢掉——而且是在 `select()` 的**同步
+  路径**上，每条用户消息都要付，内容还正是同一轮里 `load_pool` 刚从 `narratives`
+  读过的那份。100 条池子 + 长摘要 = 单轮几百 KB。为此给 `get_by_ids` 加了 `fields`
+  参数（client + 两个后端一起，全项目共享），没有手写 `IN (...)` 原始 SQL。
+  `load_snapshots` 保留给重放读路径专用。
+- **`recent()` 把 limit / order_by 下推到 SQL**。原来照抄 `service_audit` 的写法：
+  全表读回来再在 Python 里排序切片。那张表的 `detail` 是小字段；这张每行带
+  `candidates_json`（~100 候选 × id+sha256+分数）且只增不删，几万轮的 agent 会为了
+  50 行把几百 MB 拉进内存。趁还没有下游调用点定型。
+- **删掉 `snapshot_count()`**。它只服务测试，却是本文件唯一一条手写 SQL——会把这个
+  仓库卷进「手写 SQL 必须有 MySQL 覆盖」的强制区，为的还是一条生产永不执行的查询。
+  计数搬进测试，生产访问全部走 `insert` / `get` / `get_by_ids` 这些双方言安全的
+  client helper。
+
 # narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
 
 ## 为什么存在

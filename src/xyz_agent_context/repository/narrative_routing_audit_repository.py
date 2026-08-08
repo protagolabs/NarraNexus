@@ -130,7 +130,7 @@ class NarrativeRoutingAuditRepository:
         per-row rather than failing the batch.
         """
         hashes = list(snapshots.keys())
-        known = set((await self.load_snapshots(hashes)).keys())
+        known = await self._known_hashes(hashes)
         for h in hashes:
             if h in known:
                 continue
@@ -139,9 +139,35 @@ class NarrativeRoutingAuditRepository:
             except Exception as e:  # noqa: BLE001 — lost race or oversized text
                 logger.debug(f"[narrative.audit] snapshot {h[:12]} not stored: {e}")
 
+    async def _known_hashes(self, hashes: Iterable[str]) -> set:
+        """Which of these hashes are already stored — keys only.
+
+        Deliberately NOT `load_snapshots(...).keys()`: that is `SELECT *`, so it
+        would drag the whole pool's MEDIUMTEXT back over the wire on every
+        non-continuous turn purely to throw it away — on the synchronous path of
+        `select()`, i.e. billed to every user message, and re-shipping the text
+        `load_pool` just read from `narratives` in the same turn. With a
+        100-narrative pool and long summaries that is hundreds of KB a turn.
+        """
+        wanted = list(dict.fromkeys(h for h in hashes if h))
+        if not wanted:
+            return set()
+        try:
+            rows = await self._db.get_by_ids(
+                SNAPSHOT_TABLE, "text_hash", wanted, fields=["text_hash"]
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[narrative.audit] snapshot existence check failed: {e}")
+            return set()
+        return {r["text_hash"] for r in rows if r}
+
     # ── read ────────────────────────────────────────────────────────────
     async def load_snapshots(self, hashes: Iterable[str]) -> Dict[str, str]:
-        """Resolve text_hash -> text. Missing hashes are simply absent."""
+        """Resolve text_hash -> text. Missing hashes are simply absent.
+
+        The replay read path — it wants the text. Writers checking existence
+        must use `_known_hashes` instead.
+        """
         wanted = list(dict.fromkeys(h for h in hashes if h))
         if not wanted:
             return {}
@@ -163,20 +189,28 @@ class NarrativeRoutingAuditRepository:
         selection_method: Optional[str] = None,
         limit: int = 50,
     ) -> List[dict]:
-        """Recent audit rows, newest first, with ``candidates`` decoded."""
+        """Recent audit rows, newest first, with ``candidates`` decoded.
+
+        Ordering and the limit are pushed into SQL, not applied in Python after
+        a full-table read. This table takes a row per turn, never deletes, and
+        each row carries `candidates_json` (~100 candidates of id + sha256 +
+        score) plus `query_text` — an agent with tens of thousands of turns
+        would otherwise pull hundreds of MB into the process to return 50 rows.
+        """
         try:
             filters: Dict[str, Any] = {}
             if agent_id:
                 filters["agent_id"] = agent_id
             if selection_method:
                 filters["selection_method"] = selection_method
-            rows = await self._db.get(AUDIT_TABLE, filters)
+            rows = await self._db.get(
+                AUDIT_TABLE, filters, limit=limit, order_by="id DESC"
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[narrative.audit] recent() failed: {e}")
             return []
-        rows.sort(key=lambda r: r.get("id", 0), reverse=True)
         out = []
-        for r in rows[:limit]:
+        for r in rows:
             r = dict(r)
             try:
                 r["candidates"] = json.loads(r.get("candidates_json") or "[]")
@@ -185,11 +219,9 @@ class NarrativeRoutingAuditRepository:
             out.append(r)
         return out
 
-    async def snapshot_count(self) -> int:
-        """Row count of the snapshot store — used by tests to prove dedup."""
-        try:
-            rows = await self._db.execute(f"SELECT COUNT(*) AS n FROM {SNAPSHOT_TABLE}")
-            return int(rows[0]["n"]) if rows else 0
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[narrative.audit] snapshot_count failed: {e}")
-            return 0
+    # No snapshot_count() here. It existed only to let a test prove dedup, and
+    # it was this file's single piece of hand-written SQL — which would have
+    # dragged the repository into the "hand-written SQL needs MySQL coverage"
+    # obligation for a query production never runs. The count lives in the test
+    # now, and every production DB access here goes through the dialect-safe
+    # client helpers (insert / get / get_by_ids).
