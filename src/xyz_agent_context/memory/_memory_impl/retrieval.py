@@ -23,27 +23,29 @@ import math
 import re
 import time
 from datetime import datetime
-from typing import Callable, Dict, Iterable, List, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import regex as _regex  # aliased: `regex` is also a grep_filter parameter name
 from loguru import logger
 
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
 
 # ReDoS guards for the regex grep path (the pattern is agent/LLM-supplied and
-# untrusted). A per-record match timeout bounds any single catastrophic-
-# backtracking evaluation; a per-CALL wall-clock budget caps one grep_filter
-# scan (one kind's candidate set). NOTE the aggregate: coordinator.grep_memory
-# calls grep_filter once PER memory kind (all_kinds(), ~6-7), so a single
-# grep_memory request's worst case is ~num_kinds × this budget of CPU, and each
-# grep_filter runs synchronously on the caller's loop (the kinds are separated
-# by DB awaits that yield). Bounded, never an unbounded hang — a big improvement
-# over the old uninterruptible stdlib-re path — but if the shared-API loop stall
-# ever matters, offloading grep_filter to run_in_executor is the follow-up (see
-# reference/self_notebook/todo). These are safety bounds on a SEARCH primitive,
-# NOT an agent-loop ceiling (铁律 #14/#15 govern agent_loop, not a bounded search).
+# untrusted). Two bounds:
+#   - a per-record match timeout, so any single catastrophic-backtracking
+#     evaluation is interrupted;
+#   - a per-REQUEST wall-clock deadline, computed ONCE in coordinator.grep_memory
+#     and threaded down through engine.grep into grep_filter, so a whole
+#     grep_memory request (which scans several memory kinds) shares ONE budget
+#     rather than budget × num_kinds.
+# Additionally, engine.grep runs the regex scan via run_in_executor so this
+# CPU-bound work does NOT block the shared API event loop (the `regex` package
+# releases the GIL while matching, so the offload is real). These are safety
+# bounds on a SEARCH primitive, NOT an agent-loop ceiling (铁律 #14/#15 govern
+# agent_loop, not a bounded search over a fixed candidate set).
 _GREP_PER_MATCH_TIMEOUT_S = 0.25
-_GREP_TOTAL_BUDGET_S = 2.0
+_GREP_REQUEST_BUDGET_S = 2.0
 
 # Tokenizer: ASCII alphanumeric runs (words) PLUS individual CJK characters.
 # NarraNexus content is heavily Chinese, where there are no spaces between
@@ -138,24 +140,28 @@ def grep_filter(
     *,
     regex: bool = False,
     ignore_case: bool = True,
-) -> List[MemoryRecord]:
+    deadline: Optional[float] = None,
+) -> Tuple[List[MemoryRecord], bool]:
     """Exact substring (default) or regex match over `content_text`.
     Complements BM25: finds the literal token (an id, URL, exact phrase) that
     tokenized ranking can miss. Invalid regex falls back to substring.
 
+    Returns ``(hits, truncated)``. ``truncated`` is True when the scan gave up
+    early — the deadline passed or a record's match timed out — so the caller can
+    tell "these are all the matches" apart from "we stopped looking" (a memory
+    recall primitive must not let the LLM read a bounded-scan giveup as "I don't
+    remember"). It is a CPU-bound sync function; engine.grep offloads the regex
+    path via run_in_executor so it never blocks the shared event loop.
+
     The regex path uses the `regex` package with a per-match ``timeout=``, NOT
     stdlib ``re``: the pattern is agent/LLM-supplied and untrusted, and stdlib
     re is UNINTERRUPTIBLE — a catastrophic-backtracking pattern (`(a|aa)+$`-class)
-    would pin a CPU core and, once grep is served over HTTP, wedge the shared
-    API loop for every user. `regex` resists many ReDoS patterns by construction
-    AND honours a timeout that raises TimeoutError, so a record that times out is
-    skipped (treated as a non-match) and a wall-clock budget caps THIS call's
-    scan (one kind's candidates — the tool scans several kinds, each a separate
-    bounded call; see the constants' note on the per-request aggregate). Invalid
-    pattern → substring fallback (unchanged)."""
+    would pin a CPU core and, once grep is served over HTTP, wedge the shared API
+    loop for every user. A record that times out is skipped (and flags
+    truncation). ``deadline`` (a ``time.monotonic()`` value) is the shared
+    per-REQUEST budget threaded from coordinator.grep_memory; if None a default
+    per-call budget is used. Invalid pattern → substring fallback (unchanged)."""
     if regex:
-        import regex as _regex
-
         rflags = _regex.IGNORECASE if ignore_case else 0
         try:
             rx = _regex.compile(pattern, rflags)
@@ -163,23 +169,25 @@ def grep_filter(
             pass  # fall through to substring
         else:
             out: List[MemoryRecord] = []
-            deadline = time.monotonic() + _GREP_TOTAL_BUDGET_S
+            truncated = False
+            dl = deadline if deadline is not None else time.monotonic() + _GREP_REQUEST_BUDGET_S
             for r in records:
-                if time.monotonic() > deadline:
-                    logger.debug(
-                        "grep_filter: regex scan hit the {}s budget; results truncated",
-                        _GREP_TOTAL_BUDGET_S,
-                    )
+                if time.monotonic() > dl:
+                    logger.warning("grep_filter: regex scan hit the budget; results truncated")
+                    truncated = True
                     break
                 try:
                     if rx.search(r.content_text or "", timeout=_GREP_PER_MATCH_TIMEOUT_S):
                         out.append(r)
                 except TimeoutError:
-                    logger.debug("grep_filter: regex timed out on one record; skipped")
+                    # A timed-out record is a POTENTIAL miss, not a known non-match.
+                    logger.warning("grep_filter: regex timed out on one record; treated as truncation")
+                    truncated = True
                     continue
-            return out
+            return out, truncated
     needle = pattern.lower() if ignore_case else pattern
-    return [r for r in records if needle in ((r.content_text or "").lower() if ignore_case else (r.content_text or ""))]
+    hits = [r for r in records if needle in ((r.content_text or "").lower() if ignore_case else (r.content_text or ""))]
+    return hits, False
 
 
 # ── RRF fusion ─────────────────────────────────────────────────────────────

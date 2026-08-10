@@ -2,16 +2,21 @@
 @file_name: general_memory.py
 @author:
 @date: 2026-08-10
-@description: General-memory endpoints for the MCP data-access seam (PR-2).
+@description: General-memory endpoints for the MCP data-access seam.
 
 Backend counterparts of the GeneralMemoryModule MCP tools (remember /
 grep_memory / memory_retain) so the Http path of AgentDataStore can serve
-them without db credentials in the mcp container. Implemented in this PR.
+them without db credentials in the mcp container.
 
 Endpoints (mounted under /api/agents by agents/core.py):
-  GET  /{agent_id}/memory/remember  ?query=&limit=15
-  GET  /{agent_id}/memory/grep      ?pattern=&regex=false&limit=30
+  GET  /{agent_id}/memory/remember  ?query=&limit=15        (query 1-512, limit 1-100)
+  GET  /{agent_id}/memory/grep      ?pattern=&regex=false&limit=30  (pattern 1-256, limit 1-200)
   POST /{agent_id}/memory/retain    {content, source}
+
+grep now serves regex (it used to refuse it): the engine bounds the untrusted
+pattern with a per-match timeout + a per-request budget and offloads the scan
+off the event loop (see retrieval.grep_filter / engine.grep). Added 2026-08-10
+with the grep seam migration.
 
 Each mirrors the matching MCP tool in
 ``_general_memory_mcp_tools.py`` byte-for-byte on call shape (same
@@ -96,8 +101,9 @@ async def grep_memory(
     try:
         db = await get_db_client()
         coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-        hits = await coord.grep_memory(pattern, regex=regex, limit=limit)
-        return {"success": True, "pattern": pattern, "matches": format_memory_hits(hits)}
+        hits, truncated = await coord.grep_memory(pattern, regex=regex, limit=limit)
+        return {"success": True, "pattern": pattern,
+                "matches": format_memory_hits(hits), "truncated": truncated}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[memory.grep_memory] failed for agent {agent_id}: {e}")
         return {"success": False, "error": str(e), "matches": []}

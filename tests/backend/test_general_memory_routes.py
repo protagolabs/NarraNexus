@@ -63,7 +63,7 @@ class _StubCoordinator:
         return [_StubHit("observation", f"fact about {query}")]
 
     async def grep_memory(self, pattern, *, regex=False, limit=30, **kwargs):
-        return [_StubHit("chat", f"line containing {pattern}")]
+        return ([_StubHit("chat", f"line containing {pattern}")], False)
 
 
 @pytest.fixture

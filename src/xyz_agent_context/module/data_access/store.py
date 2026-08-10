@@ -352,8 +352,9 @@ class DirectStore:
         try:
             db = await self._db()
             coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-            hits = await coord.grep_memory(pattern, regex=regex, limit=limit)
-            return {"success": True, "pattern": pattern, "matches": format_memory_hits(hits)}
+            hits, truncated = await coord.grep_memory(pattern, regex=regex, limit=limit)
+            return {"success": True, "pattern": pattern,
+                    "matches": format_memory_hits(hits), "truncated": truncated}
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[memory.grep_memory] failed: {e}")
             return {"success": False, "error": str(e), "matches": []}

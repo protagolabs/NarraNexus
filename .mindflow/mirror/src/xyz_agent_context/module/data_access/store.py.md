@@ -6,7 +6,7 @@ last_verified: 2026-08-10
 
 ## 2026-08-10 (PR-11) — grep_memory 迁入 seam（memory 收尾）
 
-Protocol+DirectStore+HttpStore 加 `grep_memory(agent_id, pattern, regex, limit) -> dict`。DirectStore 复刻 remember（MemoryCoordinator/MemoryEngine，方言安全）；HttpStore GET 现有路由 `/memory/grep`（regex 序列化成小写供 FastAPI bool 解析）。grep 有**自己**的输入契约：`_grep_reject`(pattern 1-256) + `_clamp_grep_limit`(1-200)，**不同于** remember 的 512/100——两 store 都跑保 parity。失败键 `matches`。ReDoS 安全在 [[retrieval]] grep_filter（regex 包+timeout），故 HTTP 侧不再拒 regex。**三工具全迁完 → general_memory mcp 弃 db 凭据**。
+Protocol+DirectStore+HttpStore 加 `grep_memory(agent_id, pattern, regex, limit) -> dict`。DirectStore 复刻 remember（MemoryCoordinator/MemoryEngine，方言安全）；HttpStore GET 现有路由 `/memory/grep`（regex 序列化成小写供 FastAPI bool 解析）。grep 有**自己**的输入契约：`_grep_reject`(pattern 1-256) + `_clamp_grep_limit`(1-200)，**不同于** remember 的 512/100——两 store 都跑保 parity。失败键 `matches`。ReDoS 安全在 [[retrieval]] grep_filter（regex 包+timeout），故 HTTP 侧不再拒 regex。**三工具全迁完 → general_memory mcp 弃 db 凭据**。 DirectStore/route 现返回 `{...,"truncated":bool}`（[[coordinator]] 的截断信号透出）。
 
 ## 2026-08-10 (PR-10) — get_chat_history 迁入 seam
 

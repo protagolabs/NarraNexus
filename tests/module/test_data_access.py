@@ -274,7 +274,7 @@ class _Hit:
         return h
 
 
-def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True, grep_hits=None):
+def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True, grep_hits=None, grep_truncated=False):
     """DirectStore with MemoryCoordinator/MemoryEngine stubbed. The stub records
     the ``limit`` it actually received in ``store._seen`` so a test can assert
     DirectStore clamped it the same way HttpStore does."""
@@ -297,7 +297,7 @@ def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True, gr
         async def grep_memory(self, pattern, regex, limit):
             store._seen["grep_limit"] = limit  # type: ignore[attr-defined]
             store._seen["grep_regex"] = regex  # type: ignore[attr-defined]
-            return grep_hits or []
+            return (grep_hits or [], grep_truncated)
 
     class FakeEngine:
         def __init__(self, db, agent_id):
@@ -341,7 +341,7 @@ def _memory_http(monkeypatch, remember_body=None, retain_body=None, seen=None, g
                 p = request.url.params.get("pattern")
                 return httpx.Response(200, json={
                     "success": True, "pattern": p,
-                    "matches": format_memory_hits(grep_body),
+                    "matches": format_memory_hits(grep_body), "truncated": False,
                 })
             return httpx.Response(200, json=grep_body)
         return httpx.Response(404)
@@ -1617,6 +1617,7 @@ def test_grep_memory_parity(monkeypatch):
             {"kind": "job", "memory": "grep me", "when": None, "tags": [],
              "source": {"kind": "job", "id": "job_9"}},
         ],
+        "truncated": False,
     }
     d = _memory_direct(monkeypatch, grep_hits=hits)
     assert asyncio.run(d.grep_memory("agent_a", "order-123", False, 30)) == expected
@@ -1662,3 +1663,12 @@ def test_grep_memory_http_transport_failure_degrades_in_band(monkeypatch):
     h = HttpStore("http://backend:8000")
     out = asyncio.run(h.grep_memory("agent_a", "x", False, 30))
     assert out["success"] is False and out["matches"] == []
+
+
+def test_grep_memory_truncated_flag_propagates(monkeypatch):
+    # When the engine reports a bounded-scan giveup (deadline/timeout), the seam
+    # must surface truncated=True so the LLM doesn't read a partial result as a
+    # complete "no match". Non-vacuous — without threading the flag it'd be False.
+    d = _memory_direct(monkeypatch, grep_hits=[], grep_truncated=True)
+    out = asyncio.run(d.grep_memory("agent_a", "x", True, 30))
+    assert out["success"] is True and out["truncated"] is True

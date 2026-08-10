@@ -4,16 +4,24 @@ last_verified: 2026-08-10
 stub: false
 ---
 
-## 2026-08-10 (PR-11) — grep_filter regex 路径改 ReDoS-safe 引擎
+## 2026-08-10 (PR-11) — grep_filter regex 路径改 ReDoS-safe 引擎（管线 blocked 修：offload + per-request 预算 + 截断信号）
 
-`grep_filter` 的 `regex=True` 分支从 stdlib `re` 换成 **`regex` 包**（新增直接依赖）：pattern 是
-agent/LLM 自报、不可信，stdlib `re` **不可中断**——一个灾难性回溯 pattern（`(a|aa)+$` 类）会钉死一个核，
-且 grep 一旦上 HTTP 会 wedge 共享 API loop。`regex` 包既天然抗多数 ReDoS，又支持 `timeout=` 抛
-`TimeoutError`：超时的 record 当作不匹配跳过，另加 wall-clock 预算封顶**单次 grep_filter 调用**（一个 kind 的候选集，`_GREP_PER_MATCH_TIMEOUT_S`
-0.25s / `_GREP_TOTAL_BUDGET_S` 2.0s）、超预算 log 截断（不静默）。**注意聚合**：coordinator.grep_memory 每个 memory kind（all_kinds() ~6-7）调一次 grep_filter，且 grep_filter 同步跑在 caller loop 上（kind 之间有 DB await 让出），故单次 grep_memory 请求最坏 ~num_kinds×2.0s CPU——有界、绝非 hang（远胜旧的不可中断 stdlib re），但若在意共享 loop stall，把 grep_filter 挪 run_in_executor 是 follow-up（todo）。非法 pattern 仍回退子串。
-这是**搜索原语**的安全界，非 agent-loop 上限（铁律 #14/#15 不适用）。解锁 grep_memory 上 seam（HTTP 侧
-不再拒 regex）→ general_memory mcp 容器可弃 db 凭据、RCE 收益兑现。实测见 tests/memory/test_grep_redos.py。
+`grep_filter` 的 `regex=True` 分支从 stdlib `re` 换成 **`regex` 包**（模块顶部 `import regex as _regex`，
+别名因 `regex` 也是参数名；新增直接依赖）：pattern 是 agent/LLM 自报、不可信，stdlib `re` **不可中断**——
+灾难性回溯 pattern 会钉死核，grep 上 HTTP 会 wedge 共享 API loop。`regex` 天然抗多数 ReDoS + `timeout=`
+抛 `TimeoutError`（超时 record 跳过）。
 
+**三个承重点（初版被管线判 Critical/Important 后补齐）**：
+1. **offload**：CPU-bound 扫描不在共享事件循环上跑——[[engine]] `grep` 用 `run_in_executor` 把 grep_filter
+   丢线程池（`regex` 匹配期释放 GIL，真 offload）。否则单进程 uvicorn 上一次同步扫描会卡住所有 HTTP+WS 流。
+2. **per-request 预算**：`_GREP_REQUEST_BUDGET_S`(2.0s，原名误导性的 `_GREP_TOTAL_BUDGET_S` 已改名)。
+   deadline 由 [[coordinator]] `grep_memory` **算一次**、经 engine.grep 传进来，全请求（跨 ~6 个 kind）共享
+   一份预算，而非 budget×num_kinds。`_GREP_PER_MATCH_TIMEOUT_S`(0.25s) 是单条 record 上限。
+3. **截断信号**：返回 `(hits, truncated)`。预算耗尽 break / 单条超时 continue 都置 `truncated=True` 并
+   `logger.warning`（不是 debug——云端默认级别看不见 debug=等于没告警）。一路透到 tool/route 的
+   `{"success":true, ..., "truncated":true}`，让 LLM 不把"扫到一半放弃"读成"我不记得"（错误负例比慢更糟）。
+非法 pattern 仍回退子串（返回 `(hits, False)`）。安全界属**搜索原语**、非 agent-loop 上限（铁律 #14/#15 不适用）。
+解锁 grep_memory 上 seam → general_memory mcp 容器弃 db 凭据。实测 tests/memory/test_grep_redos.py。
 
 ## 2026-06-08 — recall relevance gate + CJK stopwords
 

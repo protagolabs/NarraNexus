@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-11) — grep_memory 每请求一份预算 + 返回 (hits, truncated)
+
+`grep_memory` 现算**一次** deadline(`_GREP_REQUEST_BUDGET_S`) 逐 kind 传给 [[engine]] grep——全请求跨 ~6 kind 共享一份 CPU 预算，而非 budget×num_kinds（管线 Critical：单进程共享 loop 上可被反复触发的可用性 DoS）。返回 `(hits, truncated)`：任一 kind 截断或预算耗尽（跳过剩余 kind）即 truncated=True，透给调用方别把部分结果当完整。
+
+
 ## 2026-08-10 (PR-3) — `format_memory_hits` 落户此处，成为唯一渲染器
 
 新增模块级 `format_memory_hits(hits) -> list[dict]`（就在 `MemoryHit` 旁，
