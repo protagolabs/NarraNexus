@@ -49,7 +49,10 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
             "Search your memory for an EXACT string or regex pattern (like grep). "
             "Use this when you need a precise token you saw before — an id, URL, "
             "order number, file path, exact name spelling — that semantic recall "
-            "might miss. Set regex=true to use a regular expression."
+            "might miss. Set regex=true to use a regular expression. "
+            "If the response has truncated=true, the search hit its time budget "
+            "and the result may be INCOMPLETE — narrow the pattern and retry "
+            "before concluding that nothing matched."
         )
     )
     async def grep_memory(agent_id: str, pattern: str, regex: bool = False, limit: int = 30) -> dict:

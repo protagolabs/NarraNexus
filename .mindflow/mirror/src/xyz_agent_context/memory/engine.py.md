@@ -8,6 +8,8 @@ stub: false
 
 `grep` 的 regex 路径用 `run_in_executor` 把 CPU-bound 的 [[retrieval]] grep_filter 丢出事件循环（`regex` 匹配释放 GIL，真 offload），避免单进程 uvicorn 上阻塞共享 loop；子串路径便宜、仍 inline。加 `deadline` 参（[[coordinator]] 传的 per-request 预算）、返回 `(hits, truncated)` 透出截断信号。
 
+**用专用有界池 `_GREP_EXECUTOR`（max_workers=2）而非默认共享池**（管线 Important）：regex 匹配释放 GIL，若用无上限的默认池，N 个并发 regex grep 会吃满所有核 + 霸占 office_watch 等共用的默认池——封顶 2 线程后超额请求在 await 上排队，最坏是 grep 变慢而非全局降速。**勿改回 None**。
+
 
 ## 2026-07-03 — explicit db to the dedup tie-break LLM call (Phase 0 / module H)
 
