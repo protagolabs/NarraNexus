@@ -4,6 +4,13 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
+
+`resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
+wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
+只是签名与 docstring 不再谎称"永远返回 str"。
+
+
 ## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
 
 共享目录那句补上：**要给团队看的东西也写这里**（报告、页面、准备注册成 artifact 的数据文件）。
