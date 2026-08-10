@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-07-21
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — 三个界面，三种答案（team 维度落地）
+
+artifact 有了 `team_id` 后，「列出 artifact」不再是一个问题而是三个，且**失败方向相反**：
+
+| 方法 | 面向 | 语义 | 泄漏方向 |
+|---|---|---|---|
+| `list_by_session` / `list_pinned` | 私聊面板 | `team_id IS NULL`，纯私有 | 漏加过滤 → 团队产出出现在一对一会话里 |
+| `list_by_team` | 团队面板 | 该 team 全部，**不按 agent 过滤** | 越界 → 一个 team 看到另一个的 |
+| `list_for_agent_context` | agent prompt | 私有 ∪ **所属全部 team** | **反向泄漏**：查窄了不报错、只是 agent 永远不知道队友的产出存在，接力静默失效 |
+
+反向泄漏是这里最危险的一种：它 fail-closed、看起来无害，却让共享工作台形同虚设。两个方向
+都必须有测试（`tests/repository/test_artifact_repository_team_scope.py`）。
+
+**成员关系子查询写在 Repository 内、不交给调用方**：并集必须按 `team_members` 取，不能按
+owner user 取——一个 user 拥有多个 team，按 user 取等于把每个 team 的产出发给该 user 的
+所有 agent。放在这里是为了让调用方**没有机会传错**。
+
+`list_by_user`（Settings 管理表）**有意不加 team 过滤**：那是「我拥有的一切」的管理视图，
+团队 artifact 同属该 user，收窄反而会藏掉用户需要负责的东西。
+
+## 2026-08-07 — list_pinned：按 updated_at 倒序 + 可选 limit
+
+`list_pinned` 从 `find()` 改为裸 SQL，加 `ORDER BY updated_at DESC` 与可选 `limit`。
+排序不是装饰：更新路径是「重新注册同一个 artifact」，会刷新 `updated_at`，因此
+「最新」正好等于「agent 当前在迭代的东西」，取头部即工作集。
+
+**limit 缺省必须是 None（全量）**：[[profiles.py]] 的 bootstrap 去重扫的就是这个列表，
+一旦默认截断，profile artifact 会被判定为不存在而重复创建。截断只能是调用方显式要求。
+唯一的截断调用方见 [[common_tools_module.py]]。
+
 
 ## 2026-07-21 — update_title() added
 

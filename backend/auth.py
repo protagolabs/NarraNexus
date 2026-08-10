@@ -179,6 +179,53 @@ def _is_cloud_mode() -> bool:
 
 
 # =============================================================================
+# NarraNexus service identity (blueprint Q6 — mcp→backend trust path)
+# =============================================================================
+#
+# Cloud-mode requests whose Authorization bearer is the nx-agent positional
+# record (the executor→mcp identity channel, forwarded verbatim by the mcp
+# container's HttpStore). Verification is asymmetric: the broker signed the
+# identity_token field (last in BEARER_FIELDS) with its Ed25519 PRIVATE key;
+# we hold only the PUBLIC key, so a
+# compromised backend/mcp cannot mint identities. Consumed by auth_middleware
+# right before the user-JWT decode; see the block comment there for the
+# no-fail-open rationale.
+
+
+def _is_nx_service_bearer(auth_header: str) -> bool:
+    from xyz_agent_context.module import BEARER_AGENT_PREFIX
+
+    return auth_header.startswith(f"Bearer {BEARER_AGENT_PREFIX}")
+
+
+def _verify_nx_service_bearer(request: "Request"):
+    """The proven service identity, or None (invalid/absent/unverifiable).
+
+    Verification itself is the shared identity/verify.py algorithm — this
+    wrapper only owns backend's degradation policy (fail CLOSED, unlike the
+    mcp middleware: an nx-agent bearer reaching backend is always a service
+    call and must prove itself, so a missing public key rejects too) and the
+    per-reason logging (0806 discipline: every reject must be diagnosable
+    from server logs).
+    """
+    from xyz_agent_context.module.identity.tokens import load_public_key_pem
+    from xyz_agent_context.module.identity.verify import verify_caller_identity
+
+    public_key = load_public_key_pem()
+    if public_key is None:
+        logger.warning(
+            "[nx-service-auth] no identity public key provisioned "
+            "(NX_IDENTITY_PUBLIC_KEY_FILE) — rejecting service call"
+        )
+        return None
+    identity, reason = verify_caller_identity(request.headers, public_key)
+    if identity is None:
+        logger.warning(f"[nx-service-auth] {reason}")
+        return None
+    return identity
+
+
+# =============================================================================
 # JWT Token
 # =============================================================================
 
@@ -538,6 +585,33 @@ async def auth_middleware(request: Request, call_next):
             TOKEN_MISSING, "Authentication required",
             path=path, method=request.method,
         )
+
+    # ---- NarraNexus service identity (blueprint Q6) -----------------------
+    # The mcp container's HttpStore forwards the executor→mcp identity
+    # headers verbatim; the bearer is the nx-agent positional record whose
+    # identity_token field (last in BEARER_FIELDS) is a broker/local-signed
+    # Ed25519 identity token. Verify it
+    # with the identity PUBLIC key and trust its sub as the effective user —
+    # routes still owner-check the target agent_id. Parallel to the manyfold
+    # gateway-token bypass above, but NEVER fail-open: an nx-agent bearer
+    # reaching backend is always a service call and must prove itself (no
+    # key provisioned = still 401). Early return also skips the provider/
+    # quota resolver below on purpose — these are repository operations, not
+    # LLM spends (same reason SAFE_HTTP_METHODS skip it).
+    if _is_nx_service_bearer(auth_header):
+        identity = _verify_nx_service_bearer(request)
+        if identity is None:
+            return auth_error_response(
+                TOKEN_INVALID, "Invalid NarraNexus service identity",
+                path=path, method=request.method,
+            )
+        request.state.user_id = identity.user_id
+        request.state.role = "user"
+        request.state.nx_service_authed = True
+        from xyz_agent_context.agent_framework.api_config import set_current_user_id
+
+        set_current_user_id(identity.user_id)
+        return await call_next(request)
 
     token = auth_header[7:]
     try:

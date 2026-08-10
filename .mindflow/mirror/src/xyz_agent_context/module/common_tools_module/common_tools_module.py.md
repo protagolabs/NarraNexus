@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 跨 workspace 的条目渲染绝对路径
+
+状态块此前只剥离**本 agent 自己**的 workspace 前缀，不匹配就原样输出 base 相对路径。
+队友的团队 artifact 两个前缀都不匹配，于是 agent 拿到一个**相对路径**——而相对路径会按自己
+workspace 解析（NexusPower 的 confinement 层刻意如此 rebase），指向一个不存在的文件。
+
+后果直接打在验收 #3 上：「看得见清单」成立，但「接力更新」的第一步（读到队友当前内容）
+在渲染层就断了。
+
+现在：自己 workspace → 短相对形式（工具直接可用）；**其他一律绝对**。块尾指令同步说明这一类
+是跨 workspace 的，否则 agent 会把每一条都当相对路径读。
+
+## 2026-08-07 — artifact 状态块改用并集查询
+
+`_render_artifact_state_block` 从 `list_pinned`（纯私有）改为 `list_for_agent_context`
+（私有 ∪ 所属全部 team）。这个块正是 agent **得知队友产出存在**的唯一途径——继续只列自己的
+行，接力更新就会静默失效（不报错、agent 只是再也不提那个 artifact）。上限 20 不变，跨两半
+统一按 `updated_at` 倒序。跨 team 边界由 [[artifact_repository.py]] 的成员子查询保证。
+
+## 2026-08-07 — artifact 状态块设上限（ARTIFACT_STATE_BLOCK_LIMIT=20）
+
+`_render_artifact_state_block` 此前列出**全部** pinned artifact、无上限无排序，而
+artifact 没有数量配额 → 注册得越多，system prompt 每轮越长，无限增长，且为早已不碰
+的条目持续付费。现在取 `list_pinned(limit=20)`（按 updated_at 倒序）。
+
+截断是安全的：该块是便利视图而非事实来源，全量始终可经 artifact 工具取回；配合倒序
+后还能自我修正——正在迭代的会因重新注册刷新时间戳而留在列表，掉出去的是真正冷的。
+
+上限值放在模块常量而非 artifact 领域层：约束来自 **prompt 预算**，属于本模块的关切。
+
 
 ## 2026-07-28 — R4b：两个附录搬进 get_turn_context
 

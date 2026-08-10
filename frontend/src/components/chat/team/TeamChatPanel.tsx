@@ -28,7 +28,9 @@ import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { useTeamsStore, useConfigStore } from '@/stores';
+import { TeamWorkspacePanel } from './TeamWorkspacePanel';
+import type { Artifact, TeamFile } from '@/types/artifact';
+import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
@@ -119,6 +121,17 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
+
+  // Workspace data lives HERE, not in the panel: a chip under a message and
+  // the panel's own list must agree on what is open, so one component owns the
+  // state — and it has to be the one both of them are inside.
+  const [wsArtifacts, setWsArtifacts] = useState<Artifact[]>([]);
+  const [wsFiles, setWsFiles] = useState<TeamFile[]>([]);
+  const [wsTurns, setWsTurns] = useState<Record<string, string[]>>({});
+  const [wsLoading, setWsLoading] = useState(false);
+  const [wsError, setWsError] = useState<string | null>(null);
+  const [wsSelected, setWsSelected] = useState<string | null>(null);
+  const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
@@ -365,6 +378,37 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     }
   };
 
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      setWsLoading(true);
+      try {
+        const [a, f, turns] = await Promise.all([
+          api.listTeamArtifacts(teamId),
+          api.listTeamFiles(teamId),
+          api.listTeamArtifactTurns(teamId),
+        ]);
+        if (!alive) return;
+        setWsArtifacts(a);
+        setWsFiles(f);
+        setWsTurns(turns);
+        setWsError(null);
+      } catch (e) {
+        if (alive) setWsError(e instanceof Error ? e.message : 'Failed to load workspace');
+      } finally {
+        if (alive) setWsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // Keyed on message count: a turn that registered something has just landed
+    // in the transcript, so this is the cheapest honest signal that the
+    // workspace may have changed. That signal misses one case — a wipe of the
+    // team's files, which empties this panel while leaving the transcript
+    // exactly as it was — so the store's explicit tick covers it.
+  }, [teamId, messages.length, workspaceRefreshTick]);
+
   if (!team) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-tertiary)]">
@@ -376,7 +420,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const accent = team.team.color || 'var(--color-silicon)';
 
   return (
-    <div className="flex h-full flex-col min-h-0">
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full flex-1 flex-col min-h-0">
       {/* Member bar — team identity + the roster of agents in this room. */}
       <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
@@ -576,6 +621,30 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                               an event_id (legacy rows degrade to no button). */}
                           {!mine && m.event_id && (
                             <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                          )}
+                          {/* What THIS turn produced. Joined on event_id, which
+                              both the transcript and the artifact history
+                              carry — not on timestamps, which would mis-attribute
+                              the ordinary cases (two artifacts in one turn, two
+                              agents replying at once). */}
+                          {m.event_id && (wsTurns[m.event_id] ?? []).length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {(wsTurns[m.event_id] ?? []).map((aid) => {
+                                const art = wsArtifacts.find((x) => x.artifact_id === aid);
+                                return (
+                                  <button
+                                    key={aid}
+                                    type="button"
+                                    onClick={() => setWsSelected(aid)}
+                                    title="Open in the team workspace"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono border border-[var(--nm-hairline)] text-[var(--text-tertiary)] hover:text-[var(--nm-ink)] max-w-full"
+                                  >
+                                    <span className="truncate">{art?.title ?? aid}</span>
+                                    <span className="opacity-50">↗</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                         {/* Meta row outside the bubble, aligned to its side. */}
@@ -891,6 +960,19 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           </Button>
         </DialogFooter>
       </Dialog>
+      </div>
+      {/* The team's output. Sits beside the transcript rather than behind a
+          route, because "what did we make" is a question asked WHILE reading
+          the conversation. Keyed off message count so a turn that registers an
+          artifact surfaces it without the user reloading. */}
+      <TeamWorkspacePanel
+        artifacts={wsArtifacts}
+        files={wsFiles}
+        loading={wsLoading}
+        error={wsError}
+        selectedId={wsSelected}
+        onSelect={setWsSelected}
+      />
     </div>
   );
 }

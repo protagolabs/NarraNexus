@@ -70,6 +70,39 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
+def _dispatch_identity_token(ensured, user_id) -> str | None:
+    """The identity token to stamp into this turn's MCP headers, or None.
+
+    Blueprint P1: cloud = the broker minted one at ensure() time (fresh per
+    run, ExecutorEnsureResult.identity_token); local = this process
+    self-signs — but ONLY when NX_MCP_AUTH_MODE != off, so a default local
+    run performs no keygen and no filesystem writes (iron rule #7).
+
+    In cloud the broker is the ONLY signer — a broker without a signing key
+    (or predating the field) means NOTHING is stamped, never a local
+    self-sign: the mcp verifier holds the deploy-mounted public key, so a
+    process-local ephemeral signature could not verify anyway, and stamping
+    one would pollute the audit window's central measurement ("which callers
+    are still tokenless?") with `invalid` noise — and under enforce it would
+    401 every tool call (PR #260 review, Important #1).
+    """
+    if ensured is not None and ensured.identity_token:
+        return ensured.identity_token
+    if not user_id:
+        return None
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+    if ensured is not None or is_cloud_mode():
+        return None
+    from xyz_agent_context.module.identity.mcp_auth import auth_mode
+
+    if auth_mode() == "off":
+        return None
+    from xyz_agent_context.module.identity.tokens import get_local_issuer
+
+    return get_local_issuer().token_for(user_id)
+
+
 def _framework_override_viable(
     framework: str, *, claude: Any = None, codex: Any = None
 ) -> bool:
@@ -1163,7 +1196,12 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.1: Initialize ContextRuntime -------------
-    context_runtime = ContextRuntime(ctx.agent_id, ctx.user_id, db_client)
+    context_runtime = ContextRuntime(
+        ctx.agent_id, ctx.user_id, db_client,
+        # Step 0 already created the event row; passing it here is what
+        # lets tools stamp attribution with the turn that called them.
+        event_id=getattr(ctx.event, "id", None),
+    )
     substeps.append("[3.1] ✓ ContextRuntime initialization complete")
     logger.debug("ContextRuntime initialized")
 
@@ -1239,6 +1277,24 @@ async def step_3_agent_loop(
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
+    # What this turn may reach outside its own workspace: the bus attachment
+    # dir (user-wide by design — the bus stages one copy per owner and every
+    # same-user recipient reads that path) plus the shared folder of the ONE
+    # team this turn belongs to.
+    #
+    # Narrowed after review: the first version granted the whole per-user
+    # `_shared` tree on every turn, which handed every team the owner has to
+    # every turn, including one-to-one chats belonging to no team. That is the
+    # owner-vs-membership mistake the rest of this feature deliberately avoids
+    # (see `_resolve_entry` and `list_for_agent_context`), and it is not
+    # read-only: the confinement layers inspect `file_path` and shell paths,
+    # so the grant covers Write, Edit and rm.
+    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+    _turn_extra = ctx.trigger_extra_data or {}
+    extra_accessible_roots = turn_accessible_roots(
+        ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path
+    )
+
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}
     if context.ctx_data and context.ctx_data.extra_data:
@@ -1302,6 +1358,7 @@ async def step_3_agent_loop(
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
             turn_profile=ctx.turn_profile,
+            extra_accessible_roots=extra_accessible_roots,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no
@@ -1330,6 +1387,16 @@ async def step_3_agent_loop(
             # otherwise the first connection races the cold start, fails, and
             # the run drops into the fallback path instead of running the agent.
             await wait_until_ready(executor_url)
+        # Identity token (blueprint P1): stamped at dispatch time because the
+        # cloud token only exists once ensure() has answered. Mutates the same
+        # mcp_servers dict TurnInput already references — the documented
+        # pass-by-reference contract (turn_input.py: "step_3 merges into
+        # mcp_servers before the call and drivers must see the merged dict").
+        identity_token = _dispatch_identity_token(ensured, ctx.user_id)
+        if identity_token and ctx.mcp_servers:
+            from xyz_agent_context.module import stamp_identity_token
+
+            stamp_identity_token(ctx.mcp_servers, identity_token)
         driver = get_agent_loop_driver(
             framework=framework_name,
             executor_url=executor_url,

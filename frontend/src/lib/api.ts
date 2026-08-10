@@ -3,6 +3,7 @@
  * Uses relative paths in dev (Vite proxy) and configurable base URL in production
  */
 
+import type { Artifact, TeamFile } from '@/types/artifact';
 import type {
   MigrationFramework,
   MigrationDetectResponse,
@@ -1762,6 +1763,39 @@ class ApiClient {
 
   async listTeams(): Promise<TeamListResponse> {
     return this.request<TeamListResponse>('/api/teams');
+  }
+
+  /**
+   * A team's artifacts, newest first — the workspace panel's Artifacts tab.
+   *
+   * Not scoped to one agent: the panel shows the TEAM's output whoever made
+   * it, and each row carries agent_id so the UI can attribute it.
+   */
+  async listTeamArtifacts(teamId: string): Promise<Artifact[]> {
+    return this.request<Artifact[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifacts`,
+    );
+  }
+
+  /**
+   * Which artifacts each turn in this room produced (event_id → artifact ids).
+   *
+   * The transcript already carries each reply's event_id, so this is a real
+   * join key. Matching by timestamp was never viable: one turn can register
+   * two artifacts and two agents can answer at once, so proximity would pin
+   * the wrong work to the wrong message.
+   */
+  async listTeamArtifactTurns(teamId: string): Promise<Record<string, string[]>> {
+    return this.request<Record<string, string[]>>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifact-turns`,
+    );
+  }
+
+  /** Files shared into the team folder, newest first — the Files tab. */
+  async listTeamFiles(teamId: string): Promise<TeamFile[]> {
+    return this.request<TeamFile[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/files`,
+    );
   }
 
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {

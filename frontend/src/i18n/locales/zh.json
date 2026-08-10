@@ -1231,7 +1231,7 @@
       "optChat": "群聊记录",
       "optChatDesc": "删除该团队群聊里的所有消息。",
       "optFiles": "共享文件",
-      "optFilesDesc": "删除分享到该团队的文件（通过 bus_share_to_team）。",
+      "optFilesDesc": "删除分享到该团队的文件，以及该团队的 artifacts —— 团队 artifact 就存放在这个文件夹里，内容会一并删除。",
       "keepNote": "团队、成员，以及每个智能体自己的数据都会保留。",
       "cancel": "取消",
       "confirm": "清理"

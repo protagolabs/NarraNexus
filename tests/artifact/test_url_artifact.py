@@ -244,3 +244,53 @@ async def test_set_embed_mode_rejects_non_url_artifact(env):
         await env["service"].set_embed_mode(
             agent_id="agent_x", artifact_id=html.artifact_id, mode="stream",
         )
+
+
+# ── raw serving of an entry at a team root ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_team_root_entry_does_not_serve_its_siblings(db_client, monkeypatch, tmp_path):
+    """A view token is a capability for ONE artifact.
+
+    The single-file guard refuses sibling sub-paths when the entry sits at a
+    workspace root, precisely so a token cannot walk the agent's other files.
+    Requiring team artifacts to live in the team folder put an entry at a root
+    that guard did not know about, so a token for one team artifact would serve
+    anything else in the team folder — including files shared for other
+    purposes — over a JWT-bypass route.
+    """
+    from datetime import datetime, timezone
+
+    from xyz_agent_context.artifact import ArtifactService
+    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+    from xyz_agent_context.schema.artifact_schema import Artifact
+    from xyz_agent_context.settings import settings as sa
+    from xyz_agent_context.utils.workspace_paths import team_shared_dir
+
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+    shared = team_shared_dir("user_1", "team_1", str(tmp_path))
+    shared.mkdir(parents=True, exist_ok=True)
+    (shared / "entry.md").write_text("mine\n")
+    (shared / "someone_elses.md").write_text("not part of this artifact\n")
+
+    now = datetime.now(timezone.utc)
+    rel = str((shared / "entry.md").relative_to(tmp_path))
+    await ArtifactRepository(db_client).create(Artifact(
+        artifact_id="art_teamroot", agent_id="agent_a", user_id="user_1",
+        session_id=None, title="T", kind="text/markdown", pinned=True,
+        team_id="team_1", file_path=rel, size_bytes=5,
+        created_at=now, updated_at=now,
+    ))
+
+    svc = ArtifactService(db_client)
+    entry = await svc.resolve_raw_file(
+        agent_id="agent_a", artifact_id="art_teamroot", file_path=""
+    )
+    assert entry.path.endswith("entry.md")
+
+    with pytest.raises(Exception):
+        await svc.resolve_raw_file(
+            agent_id="agent_a", artifact_id="art_teamroot",
+            file_path="someone_elses.md",
+        )

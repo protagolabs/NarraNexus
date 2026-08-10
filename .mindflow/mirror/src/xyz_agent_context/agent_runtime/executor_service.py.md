@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — 从 body 取出 `extra_readable_roots` 交给 driver
+
+与 [[remote_driver.py]] 对称的另一端。白名单 body 的两端必须成对改，否则字段在网络边界
+被静默丢弃。
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 

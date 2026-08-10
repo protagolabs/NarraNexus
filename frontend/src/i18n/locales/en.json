@@ -1231,7 +1231,7 @@
       "optChat": "Group chat history",
       "optChatDesc": "Delete all messages in this team's chat room.",
       "optFiles": "Shared files",
-      "optFilesDesc": "Delete files shared into this team (via bus_share_to_team).",
+      "optFilesDesc": "Delete files shared into this team, AND the team's artifacts — team artifacts live in this folder, so their content goes with it.",
       "keepNote": "The team, members, and each agent's own data are preserved.",
       "cancel": "Cancel",
       "confirm": "Clear"

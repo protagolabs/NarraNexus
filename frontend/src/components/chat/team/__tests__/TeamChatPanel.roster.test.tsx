@@ -32,6 +32,7 @@ vi.mock('@/stores', () => ({
   useTeamsStore: (select: (s: unknown) => unknown) => select({ teams: TEAMS }),
   useConfigStore: (select: (s: unknown) => unknown) =>
     select({ agents: AGENTS, displayName: 'Bin', userId: 'usr_1' }),
+  useChatStore: (select: (s: unknown) => unknown) => select({ workspaceRefreshTick: 0 }),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => ({
