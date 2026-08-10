@@ -157,19 +157,7 @@ done
 # every tmux pane (esp. Backend) via ENV_CMD so resolve_surface() is explicit.
 NARRA_SURFACE="${NARRA_SURFACE:-local}"
 
-# Forward analytics env (PostHog) set in the parent shell into each tmux pane.
-# tmux panes do not reliably inherit ad-hoc exports (esp. when a tmux server is
-# already running), so the backend would otherwise miss POSTHOG_API_KEY and
-# fall back to NullSink. Only forwarded when set — absent → no telemetry.
-ANALYTICS_ENV=""
-for var in POSTHOG_API_KEY POSTHOG_HOST NARRA_ANALYTICS_ENABLED; do
-  value="${!var-}"
-  if [ -n "$value" ]; then
-    ANALYTICS_ENV+="export $var='$value'; "
-  fi
-done
-
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"

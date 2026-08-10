@@ -17,9 +17,8 @@ facts cannot be spoofed through the route.
 
 Single source of truth for every funnel event name and shared property key.
 Without this file, event names would be inline string literals scattered across
-routes, services, and tests. A typo or inconsistent capitalisation would create
-a split event in the PostHog dashboard that is invisible until someone notices
-the funnel numbers are wrong.
+routes, services, and tests. A typo or inconsistent capitalisation would split
+one business fact across multiple database values and corrupt funnel totals.
 
 Keeping all names here means renaming an event is a one-file change, grep is
 trivial, and new capture sites discover the full event vocabulary without
@@ -28,7 +27,7 @@ reading every route.
 ## Upstream / downstream
 
 - **Consumed by**: any route or service that calls `analytics.track()` with an
-  event name constant, and tests that assert `FakeSink.events` contains the
+  event name constant, and tests that assert the persisted fact contains the
   expected event name.
 - **No runtime dependencies**: this file is pure constants — no imports beyond
   `__future__`.

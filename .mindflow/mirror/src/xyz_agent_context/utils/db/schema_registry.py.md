@@ -6,7 +6,7 @@ stub: false
 ## 2026-08-10 — product facts + exact provider source
 
 Added append-only `product_analytics_events`, indexed by event/user/run/failure
-time. Existing PostHog data is not migrated. `cost_records` gained
+time. No external telemetry history is migrated. `cost_records` gained
 `provider_card_source`; the older resolver branch is always `user` now and
 cannot distinguish `netmind_free` from another user-owned provider.
 

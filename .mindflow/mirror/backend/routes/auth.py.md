@@ -10,6 +10,12 @@ The new-NetMind-user branch now awaits and keyword-calls analytics. Positional
 calls to keyword-only async functions previously raised and were swallowed, so
 cloud signup facts never existed. Setup actions are tagged frontend-originated.
 
+## 2026-08-10 — identity telemetry removed
+
+Signup paths persist only the `signed_up` first-party fact. The former
+`identify_user` calls and vendor-oriented privacy comments are gone; no user
+identity or trait leaves the configured NarraNexus database.
+
 ## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
 
 原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +
@@ -247,7 +253,7 @@ PR #24 review hardening. All three analytics endpoints (`GET/PUT
   any authenticated user could read or flip another user's privacy
   preference. Now impossible by shape — the request can't name a target.
 - The funnel endpoint previously forwarded an arbitrary client `properties`
-  dict to PostHog, letting a client override the server-derived `surface`
+  dict to the analytics layer, letting a client override the server-derived `surface`
   (dict.setdefault doesn't protect present keys) or inject junk. The
   setup_* events carry no payload by design, so client properties are no
   longer accepted at all.

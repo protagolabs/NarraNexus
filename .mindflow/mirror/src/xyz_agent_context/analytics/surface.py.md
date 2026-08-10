@@ -10,8 +10,8 @@ stub: false
 
 Determines which surface (launcher context) the current backend process is
 serving — `local`, `desktop`, or `cloud`. This identity is stamped on every
-analytics event as `PROP_SURFACE` so the PostHog dashboard can segment funnel
-metrics by how users run NarraNexus.
+first-party event as `PROP_SURFACE` so database queries can segment usage by
+how users run NarraNexus.
 
 The value is resolved once at module import time and exposed as the
 module-level constant `SURFACE`. All callers import this constant; no one calls
@@ -20,8 +20,7 @@ module-level constant `SURFACE`. All callers import this constant; no one calls
 ## Upstream / downstream
 
 - **Consumed by**:
-  - `analytics/__init__.py` — reads `SURFACE` to gate the PostHog sink (cloud
-    → NullSink this phase) and to stamp `surface` onto every event
+  - `analytics/__init__.py` — stamps `surface` onto every persisted event
   - `analytics/events.py` — defines `PROP_SURFACE` which capture sites pair
     with this value
 - **Depends on**: `os.environ` only — no DB, no network, no other module.
@@ -59,4 +58,4 @@ process-lifetime property, not a per-request one.
   already imported and `SURFACE` is already frozen.
 - If `NARRA_SURFACE` is set to any value not in `{"local", "desktop", "cloud"}`
   the fallback is `"local"`. This is intentional — typos in the env var should
-  not produce an unknown surface value in the analytics dashboard.
+  not produce an unknown surface value in the product facts.

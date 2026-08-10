@@ -24,7 +24,7 @@ from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
     EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
     EVENT_SETUP_COMPLETED, PROP_METHOD, PROP_SOURCE,
@@ -517,9 +517,6 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if is_new:
         try:
-            await identify_user(
-                user_id=user.user_id, traits={"signup_method": "netmind"}
-            )
             await track(
                 user_id=user.user_id,
                 event=EVENT_SIGNED_UP,
@@ -1509,13 +1506,6 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
-        # Only non-identifying traits — the distinct_id is hashed and we
-        # deliberately do NOT ship display_name, so no real names reach
-        # PostHog.
-        await identify_user(
-            user_id=request.user_id,
-            traits={"role": "individual"},
-        )
         await track(
             user_id=request.user_id,
             event=EVENT_SIGNED_UP,
@@ -1781,9 +1771,9 @@ async def track_funnel_event(request: FunnelEventRequest, http_request: Request)
     body — so events can't be spoofed onto another user. Only whitelisted
     setup_* events are accepted, and no client-supplied properties are
     forwarded: the setup_* events carry no payload by design, so accepting a
-    properties dict would only let a client inject arbitrary data (or
-    override the server-derived `surface`) into PostHog. track() applies
-    opt-out, distinct_id hashing, and the surface label, and never raises.
+    properties dict would only let a client inject arbitrary data or override
+    the server-derived `surface` in the first-party fact table. track() applies
+    opt-out and the surface label, and never raises.
     """
     uid = _require_request_user(http_request)
     if request.event not in _ALLOWED_FUNNEL_EVENTS:

@@ -968,7 +968,7 @@
       "privacyHeading": "隐私",
       "privacyIntro": "控制 NarraNexus 收集哪些数据以改进产品。",
       "analyticsTitle": "产品分析",
-      "analyticsDesc": "允许 NarraNexus 收集匿名使用数据以改进产品。绝不收集任何对话内容。",
+      "analyticsDesc": "允许 NarraNexus 保存产品使用元数据用于分析。本地或桌面模式下，数据只保留在本机，绝不会发送到外部分析服务。绝不收集任何对话内容。",
       "desktopHeading": "桌面",
       "desktopIntro": "控制 NarraNexus 与这台电脑交互方式的设置。仅在桌面应用中可用。",
       "lockedUseTitle": "Locked Use — 保持电脑唤醒",

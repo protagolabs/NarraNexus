@@ -784,7 +784,7 @@
       "privacyHeading": "개인정보",
       "privacyIntro": "제품 개선을 위해 NarraNexus가 수집하는 데이터를 제어하세요.",
       "analyticsTitle": "제품 분석",
-      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다.",
+      "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 로컬 또는 데스크톱 모드에서는 이 기기에만 보관되며 외부 분석 서비스로 전송되지 않습니다. 대화 내용은 절대 수집되지 않습니다.",
       "desktopHeading": "데스크톱",
       "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
       "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",

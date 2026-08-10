@@ -6,9 +6,8 @@ truth, avoids string drift across capture sites).
 """
 from __future__ import annotations
 
-# Product events persisted in the first-party database. PostHog is not a
-# reporting source for these metrics; the vendor sink remains an optional
-# secondary destination for local/desktop installations.
+# Product events are persisted only in the first-party database for the
+# current surface. No vendor telemetry sink receives them.
 EVENT_SIGNED_UP = "signed_up"
 EVENT_SETUP_ENTERED = "setup_entered"
 EVENT_SETUP_SKIPPED = "setup_skipped"

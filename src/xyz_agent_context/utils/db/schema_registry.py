@@ -664,9 +664,9 @@ _register(
 )
 
 # 16b. product_analytics_events
-# First-party product facts queried by narranexus-data. This intentionally does
-# not depend on PostHog: cloud analytics remains useful even when the vendor
-# sink is disabled, empty, delayed, or replaced.
+# First-party product facts queried by narranexus-data. Local and desktop
+# surfaces keep the same facts in their local SQLite database; no external
+# telemetry sink receives them.
 _register(
     TableDef(
         name="product_analytics_events",

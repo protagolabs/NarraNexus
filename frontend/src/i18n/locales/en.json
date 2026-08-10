@@ -968,7 +968,7 @@
       "privacyHeading": "Privacy",
       "privacyIntro": "Control what data NarraNexus collects to improve the product.",
       "analyticsTitle": "Product analytics",
-      "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected.",
+      "analyticsDesc": "Store product usage metadata for analysis. In local or desktop mode it stays on this device and is never sent to an external analytics service. Conversation content is never collected.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
       "lockedUseTitle": "Locked Use — keep the computer awake",
