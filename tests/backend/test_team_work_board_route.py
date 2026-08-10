@@ -164,3 +164,53 @@ async def test_a_team_without_a_lead_reports_patrol_off(db_client, monkeypatch):
     r = _client(db_client, monkeypatch).get("/api/teams/t1/work-items")
 
     assert r.json()["patrol_enabled"] is False
+
+
+# ── clear team data ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_clearing_chat_leaves_the_board_alone(db_client, monkeypatch):
+    """The two answer different questions.
+
+    Chat is what was said; the board is what is still owed. Someone clearing a
+    noisy transcript almost never means "and forget what we agreed to do".
+    """
+    repo = await _seed(db_client)
+    item = await repo.create_item(team_id="t1", channel_id="ch", title="OCR",
+                                  created_by="agent_lead")
+
+    r = _client(db_client, monkeypatch).delete(
+        "/api/teams/t1/data?chat=true&files=false"
+    )
+
+    assert r.status_code == 200
+    assert r.json()["work_items"] == 0
+    assert await repo.get(item.item_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_the_board_can_be_cleared_on_its_own(db_client, monkeypatch):
+    """And the reverse: abandoning the work should not require wiping history."""
+    repo = await _seed(db_client)
+    item = await repo.create_item(team_id="t1", channel_id="ch", title="OCR",
+                                  created_by="agent_lead")
+
+    r = _client(db_client, monkeypatch).delete(
+        "/api/teams/t1/data?chat=false&files=false&board=true"
+    )
+
+    assert r.status_code == 200
+    assert r.json()["work_items"] == 1
+    assert await repo.get(item.item_id) is None
+
+
+@pytest.mark.asyncio
+async def test_no_scope_at_all_is_rejected(db_client, monkeypatch):
+    await _seed(db_client)
+
+    r = _client(db_client, monkeypatch).delete(
+        "/api/teams/t1/data?chat=false&files=false&board=false"
+    )
+
+    assert r.status_code == 400

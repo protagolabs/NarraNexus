@@ -249,6 +249,36 @@ class ExportSelection:
         self.include_skill_secrets = include_skill_secrets
 
 
+async def _export_work_items(db, team_id: str) -> list:
+    """The team's unfinished work board, id-free where ids would not survive.
+
+    ``root_run_id`` is deliberately DROPPED: it names a run in the SOURCE
+    environment, and carrying it over would let a cascade stop in the target
+    match items it never produced. The recipient's board simply starts with no
+    tree association, which is the honest state.
+
+    ``assignee_id`` is kept and remapped by the importer along with every other
+    agent id; an assignee outside the bundle closure is cleared there.
+    """
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    try:
+        rows = await db.get("team_work_items", {"team_id": team_id})
+    except Exception:  # noqa: BLE001 — a missing board is not an export failure
+        return []
+    keep = (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
+    return [
+        {
+            "title": r["title"],
+            "assignee_id": r.get("assignee_id"),
+            "status": r["status"],
+            "created_by": r.get("created_by") or "",
+        }
+        for r in rows or []
+        if r.get("status") in keep
+    ]
+
+
 async def build_bundle(
     user_id: str,
     selection: ExportSelection,
@@ -927,6 +957,14 @@ async def build_bundle(
                     "color": team_row.get("color"),
                     "source": "bundle",
                     "intro_md": selection.team_intro_md or team_row.get("intro_md") or "",
+                    # The work board travels with the team: it IS the team's
+                    # outstanding work, and a bundle that restored the room but
+                    # not what it owes would look like a finished team.
+                    #
+                    # Only unfinished items ship. `done`/`cancelled` are history
+                    # and belong with the chat log; `paused` DOES ship (it is a
+                    # real pending decision the recipient inherits).
+                    "work_items": await _export_work_items(db, selection.team_id),
                 }
 
         # Roll up info_counters into one human-readable info line per kind

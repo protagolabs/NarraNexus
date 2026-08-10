@@ -3,6 +3,17 @@ code_file: backend/routes/teams.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — Clear team data 增加 board 作用域
+
+`_wipe_team_data` 增加 `clear_board`,端点增加 `board` 查询参数。
+
+**独立作用域,不并进 `clear_chat`**:两者回答不同的问题 —— 聊天是「说过什么」,
+板子是「还欠什么」。清掉一段吵闹的对话记录的人,几乎不会同时是想「顺便忘掉我们
+说好要做的事」的人;反过来,放弃这批工作也不该要求先擦掉历史。
+
+`board` 默认 **False**:已有调用方请求清聊天时,并没有请求丢掉团队欠账 ——
+默认打开会悄悄扩大它们的爆炸半径。
+
 ## 2026-08-10 — 工作板端点(只读 + 恢复)
 
 `GET /work-items`、`POST /work-items/{id}/resume`、`PUT /patrol`。

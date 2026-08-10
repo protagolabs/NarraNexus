@@ -109,7 +109,15 @@ def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
     return member_agent_ids[0]
 
 
-async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clear_artifacts: bool = False) -> dict:
+async def _wipe_team_data(
+    db,
+    team,
+    *,
+    clear_chat: bool,
+    clear_files: bool,
+    clear_artifacts: bool = False,
+    clear_board: bool = False,
+) -> dict:
     """Clear a team's group-chat history and/or its shared files.
 
     The team counterpart to ``wipe_agent_data``: it clears the collaboration
@@ -136,6 +144,13 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
       attribution history WITHOUT touching the folder. Used when the TEAM
       itself goes away, and available on its own for dropping the tabs while
       keeping the files.
+    - clear_board: delete the team's work items.
+
+    The board is a SEPARATE scope rather than part of ``clear_chat``, because
+    the two answer different questions: the chat is what was said, the board is
+    what is still owed. A user clearing a noisy transcript usually still wants
+    to know what the team is on the hook for — and a user abandoning the work
+    should not have to wipe the history to do it.
 
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
@@ -146,6 +161,7 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
         "files_removed": False,
         "file_rows": 0,
         "artifacts": 0,
+        "work_items": 0,
         "errors": [],
     }
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
@@ -167,6 +183,11 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
                 )
                 result["chat_failures"] = failures if isinstance(failures, int) else 0
                 result["chat_messages"] = await db.delete("bus_messages", {"channel_id": cid})
+
+    if clear_board:
+        result["work_items"] = await db.delete(
+            "team_work_items", {"team_id": team.team_id}
+        )
 
     if clear_files:
         # The index has to go with the bytes. A row that outlives its file is
@@ -625,7 +646,13 @@ async def delete_team(team_id: str, request: Request):
     # list_for_agent_context joins team_members, which the next line empties.
     # Rows nothing can ever read again are precisely the orphans the acceptance
     # criterion is about; leaving them is not "harmless clutter".
-    await _wipe_team_data(db, team, clear_chat=True, clear_files=True, clear_artifacts=True)
+    # The board goes too: its rows key on a team_id that is about to stop
+    # existing, so nothing could ever read them again — the same orphan the
+    # artifact sweep above is about.
+    await _wipe_team_data(
+        db, team, clear_chat=True, clear_files=True,
+        clear_artifacts=True, clear_board=True,
+    )
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
     return TeamOperationResponse(success=True, message="Team deleted")
@@ -640,12 +667,21 @@ async def clear_team_data(
         True,
         description="Delete the team's shared files AND its artifacts — team artifacts live in this folder, so removing it destroys their content",
     ),
+    board: bool = Query(
+        False,
+        description=(
+            "Delete the team's work items. Off by default: an existing caller "
+            "asking to clear chat did not ask to drop what the team still owes."
+        ),
+    ),
 ):
     """Clear a team's collaboration data (chat and/or shared files), keeping the
     team, its members, and the bus channel. Owner-only. The team counterpart to
     the per-agent ``DELETE /{agent_id}/history``."""
-    if not chat and not files:
-        raise HTTPException(status_code=400, detail="Select at least one scope: chat and/or files")
+    if not chat and not files and not board:
+        raise HTTPException(
+            status_code=400, detail="Select at least one scope: chat, files and/or board"
+        )
 
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
@@ -655,7 +691,9 @@ async def clear_team_data(
     if team.owner_user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files)
+    result = await _wipe_team_data(
+        db, team, clear_chat=chat, clear_files=files, clear_board=board
+    )
     return {"success": True, **result}
 
 

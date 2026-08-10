@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-07-15
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 工作板随 team 一起导出
+
+`_export_work_items`。板子**就是**这个团队欠着的东西,只还原房间不还原欠账,
+迁移过去的团队看起来就像已经全部做完了。
+
+只导未完成项:`done`/`cancelled` 属于历史(跟聊天记录一起走),而 **`paused`
+要导** —— 那是接收方继承的一个真实待决事项。
+
+**`root_run_id` 刻意不导出**:它指的是**源环境**里的一个 run。带过去会让目标
+环境的一次级联停止匹配到它从未产生的工作项 —— 一次悄悄 park 掉别人工作的停止。
+接收方的板子就以「无树关联」开始,这是诚实的状态。
+
+`assignee_id` 保留为源 id,由 importer 与其它 agent id 一起重映射。
 
 ## 2026-07-15 — mcp_hints 安全不变式：headers 绝不出境
 
