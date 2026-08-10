@@ -19,13 +19,19 @@ wrapper calls.
   byte-identical (iron rule #7); local enforcement is a deployment choice.
 - **audit** — verify + log + record denials, never reject. The measurement
   phase: unauthenticated POSTs are AGGREGATED per **(declared caller,
-  method, path)** and flushed once per 60s window as one WARNING line + one
-  sampled `mcp_auth_tokenless` audit row — the enforce-flip decision reads
-  SQL, not grep (round-2 #1; incident lesson #4/#5). The declared-caller key
-  is round-3 #1: tokenless ≠ identity-less — an old-broker executor is
-  exactly "bearer present, field #7 missing", so the self-declared user_id
-  IS the onboarding worklist (unverified by design: it feeds a worklist, not
-  an authz decision; no declaration → "anonymous"). Two documented
+  method, path, port)** and flushed once per 60s window as one WARNING line
+  + one sampled `mcp_auth_tokenless` audit row — the enforce-flip decision
+  reads SQL, not grep (round-2 #1; incident lesson #4/#5). The
+  declared-caller key is round-3 #1: tokenless ≠ identity-less — an
+  old-broker executor is exactly "bearer present, field #7 missing", so the
+  self-declared user_id IS the onboarding worklist (unverified by design: it
+  feeds a worklist, not an authz decision; no declaration OR a placeholder
+  string → "anonymous", reusing `_mcp_identity` 的读取器与占位符语义)。
+  **调用方可控 + audit 不拒 = 双向硬上限**（round-4 #1）:值长 64 截断、窗口
+  基数 256 封顶,超出折进 `<overflow>` 桶(总数与二值信号不丢,只是不再逐个
+  点名)。detail 落库是结构化 entries(caller/method/path/port/n)而非拼接
+  串——自述值可含任意字符,SQL 拆串会错位;port 标明是哪个 module server
+  (一个进程 front 全部端口)。Two documented
   approximations: handshake POSTs on /mcp are counted (label says
   "unauthenticated POST(s)"), and a final sub-window's counts can go
   unreported (flush rides the next call; the first call always flushes).
