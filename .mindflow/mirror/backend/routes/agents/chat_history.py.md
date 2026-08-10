@@ -4,6 +4,11 @@ last_verified: 2026-08-05
 stub: false
 ---
 
+## 2026-08-10 (PR-10) — 新增 seam 孪生端点 POST /{agent_id}/chat-history/by-instance
+
+get_chat_history 工具的 byte-parity Http 孪生：owner-gated，调共享 [[_chat_reads]] `fetch_chat_history`（与 DirectStore 同源），返工具原 dict。区别于本文件的 GET /{agent_id}/chat-history（前端 narratives+events 视图，另一形状）。
+
+
 ## 2026-08-05 — `_drop_phantom_event_twins()`：旧副本行的读侧兜底
 
 新增模块级纯函数，`get_chat_history` 在排序之后、`event_limit` 截断**之前**

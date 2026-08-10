@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-10) — get_chat_history 迁入 seam
+
+Protocol+DirectStore+HttpStore 加 `get_chat_history(agent_id, instance_id, limit) -> dict`。DirectStore 调 [[chat_module]] 包导出的 `fetch_chat_history`（de-raw+instance-scope，闭 IDOR）；孪生路由 [[chat_history]] `POST /chat-history/by-instance` 调同一函数。instance_id 走 body 非 path（无需 _seg）；失败降级用工具 dict 形状（instance_id/total_messages/messages）。 DirectStore 外层 try 只守 `_db()`（懒建 MySQL 池会抛）→ 保 never-raises 不变式，与孪生路由包 get_db_client 同因（管线 fix-first 补）。
+
 ## 2026-08-10 (PR-9) — update_agent_profile 迁入 seam
 
 Protocol + DirectStore + HttpStore 加 `update_agent_profile(agent_id, new_name, new_description) -> str`。

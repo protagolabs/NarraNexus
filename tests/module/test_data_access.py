@@ -1450,3 +1450,138 @@ def test_update_agent_profile_http_non_json_degrades(monkeypatch):
     h = HttpStore("http://backend:8000")
     out = asyncio.run(h.update_agent_profile(AGENT, "X", None))
     assert out == "Error: profile backend returned a non-JSON response"
+
+
+# --------------------------------------------------------------------------- get_chat_history
+
+
+class _FakeChatDb:
+    """Fake db for fetch_chat_history: get_one dispatches by table. `instances`
+    maps instance_id -> owning agent_id; `memories` maps instance_id -> memory
+    JSON string (or a non-JSON string to exercise the parse-error path)."""
+    def __init__(self, instances: dict, memories: dict):
+        self._inst = instances
+        self._mem = memories
+
+    async def get_one(self, table, filters):
+        iid = filters["instance_id"]
+        if table == "module_instances":
+            aid = self._inst.get(iid)
+            return {"instance_id": iid, "agent_id": aid} if aid is not None else None
+        if table == "instance_json_format_memory_chat":
+            if iid not in self._mem:
+                return None
+            return {"instance_id": iid, "memory": self._mem[iid]}
+        return None
+
+
+def _chat_memory(*msgs):
+    import json as _json
+    return _json.dumps({"messages": list(msgs)})
+
+
+def test_get_chat_history_parity(monkeypatch):
+    from xyz_agent_context.module.chat_module import fetch_chat_history
+
+    db = _FakeChatDb(
+        {"chat_1": AGENT},
+        {"chat_1": _chat_memory(
+            {"role": "user", "content": "hi", "meta_data": {"timestamp": "t1", "event_id": "e1"}},
+            {"role": "assistant", "content": "hello"},
+        )},
+    )
+    expected = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 20))
+    assert expected["success"] is True and expected["total_messages"] == 2
+    assert expected["messages"][0]["timestamp"] == "t1" and expected["messages"][0]["event_id"] == "e1"
+
+    d = _basic_direct(monkeypatch, db)
+    assert asyncio.run(d.get_chat_history(AGENT, "chat_1", 20)) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.get_chat_history(AGENT, "chat_1", 20)) == expected
+
+
+def test_get_chat_history_foreign_instance_is_empty_no_oracle(monkeypatch):
+    # chat_1 belongs to other_agent; AGENT asking for it must get EMPTY history,
+    # indistinguishable from an own instance with no messages — closes the IDOR.
+    # Non-vacuous: without the instance-scope check fetch would return the secret.
+    from xyz_agent_context.module.chat_module import fetch_chat_history
+
+    db = _FakeChatDb(
+        {"chat_1": "other_agent"},
+        {"chat_1": _chat_memory({"role": "user", "content": "SECRET"})},
+    )
+    out = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 20))
+    assert out["success"] is True and out["total_messages"] == 0 and out["messages"] == []
+    assert "SECRET" not in str(out)
+    # parity: DirectStore and the (echoing) route agree on the same empty shape
+    d = _basic_direct(monkeypatch, db)
+    assert asyncio.run(d.get_chat_history(AGENT, "chat_1", 20)) == out
+
+
+def test_get_chat_history_unknown_instance_is_empty(monkeypatch):
+    from xyz_agent_context.module.chat_module import fetch_chat_history
+    db = _FakeChatDb({}, {})
+    out = asyncio.run(fetch_chat_history(db, AGENT, "chat_ghost", 20))
+    assert out["success"] is True and out["messages"] == []
+
+
+def test_get_chat_history_limit_tail_and_all(monkeypatch):
+    from xyz_agent_context.module.chat_module import fetch_chat_history
+    msgs = [{"role": "user", "content": str(i)} for i in range(10)]
+    db = _FakeChatDb({"chat_1": AGENT}, {"chat_1": _chat_memory(*msgs)})
+    out5 = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 5))
+    assert out5["total_messages"] == 10 and len(out5["messages"]) == 5
+    assert [m["content"] for m in out5["messages"]] == ["5", "6", "7", "8", "9"]
+    out_all = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", -1))
+    assert len(out_all["messages"]) == 10
+    out_zero = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 0))
+    assert len(out_zero["messages"]) == 10  # limit<=0 means "all"
+
+
+def test_get_chat_history_bad_json_is_a_format_error(monkeypatch):
+    from xyz_agent_context.module.chat_module import fetch_chat_history
+    db = _FakeChatDb({"chat_1": AGENT}, {"chat_1": "{not valid json"})
+    out = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 20))
+    assert out["success"] is False and "format error" in out["error"]
+
+
+def test_get_chat_history_http_forwards_to_the_right_route(monkeypatch):
+    import json as _json
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.raw_path.decode("ascii"), _json.loads(request.content)))
+        return httpx.Response(200, json={"success": True, "instance_id": "chat_1",
+                                         "total_messages": 0, "messages": []})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.get_chat_history(AGENT, "chat_1", 7))
+    assert seen[0][0] == "POST"
+    assert seen[0][1] == f"/api/agents/{AGENT}/chat-history/by-instance"
+    assert seen[0][2] == {"instance_id": "chat_1", "limit": 7}
+
+
+def test_get_chat_history_http_unreachable_degrades(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+    _patch_http(monkeypatch, boom)
+    h = HttpStore("http://backend:8000")
+    out = asyncio.run(h.get_chat_history(AGENT, "chat_1", 20))
+    assert out["success"] is False and out["messages"] == [] and out["instance_id"] == "chat_1"
+
+
+def test_get_chat_history_direct_db_failure_returns_dict_not_raise(monkeypatch):
+    # DirectStore.get_chat_history must keep the "never raises" invariant: if
+    # _db() (lazy MySQL pool build) raises, it returns the tool's failure dict,
+    # matching what HttpStore/route degrade to. Non-vacuous — without the outer
+    # try this raises RuntimeError instead of returning a dict.
+    d = DirectStore()
+
+    async def boom():
+        raise RuntimeError("pool build failed")
+
+    d._db = boom  # type: ignore[method-assign]
+    out = asyncio.run(d.get_chat_history(AGENT, "chat_1", 20))
+    assert out["success"] is False and out["messages"] == [] and out["total_messages"] == 0
+    assert out["instance_id"] == "chat_1" and "pool build failed" in out["error"]

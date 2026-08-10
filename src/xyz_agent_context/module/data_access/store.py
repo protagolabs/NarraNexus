@@ -129,6 +129,8 @@ class AgentDataStore(Protocol):
 
     async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict: ...
 
+    async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -608,6 +610,22 @@ class DirectStore:
             logger.warning(f"[job.job_update] failed: {e}")
             return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
 
+    async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
+        # fetch_chat_history is self-contained (instance-scoped, de-rawed, returns
+        # the tool's dict, never raises) — the backend twin route calls the SAME
+        # function, so Direct and Http are byte-identical. The outer try only
+        # guards _db() (lazy MySQL pool build can raise) so DirectStore keeps the
+        # "never raises, only returns a dict" invariant — the twin route wraps
+        # get_db_client() for the same reason.
+        from xyz_agent_context.module.chat_module import fetch_chat_history
+
+        try:
+            return await fetch_chat_history(await self._db(), agent_id, instance_id, limit)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[chat.get_chat_history] failed: {e}")
+            return {"success": False, "instance_id": instance_id, "error": str(e),
+                    "total_messages": 0, "messages": []}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -878,6 +896,17 @@ class HttpStore:
             json=fields,
             failure_extra={"job_id": job_id},
         ))
+
+    async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
+        # The route returns the EXACT dict fetch_chat_history produces, so a 2xx
+        # body is returned verbatim. Transport degradations fall back to the
+        # tool's own failure shape (never an exception). instance_id travels in
+        # the body, not the path, so no percent-encoding is needed.
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/chat-history/by-instance",
+            json={"instance_id": instance_id, "limit": limit},
+            failure_extra={"instance_id": instance_id, "total_messages": 0, "messages": []},
+        )
 
     async def _send(self, method: str, path: str, **kw):
         """Transport layer shared by every Http method: one AsyncClient + one
