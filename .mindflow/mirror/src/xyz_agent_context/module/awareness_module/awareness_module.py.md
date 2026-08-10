@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
 last_verified: 2026-08-05
 ---
 
+## 2026-08-10 — update_awareness routes through AgentDataStore
+
+`update_awareness` MCP tool no longer touches the db directly; it calls
+`get_agent_data_store().update_awareness(agent_id, new_awareness)` (module/
+data_access). DirectStore keeps the exact prior behaviour; HttpStore (when
+NARRANEXUS_BACKEND_URL is set) routes it through the backend API so mcp needs
+no db creds. Blueprint P0 — behaviour-preserving.
+
+
 ## 2026-08-05 — review 修两处：记忆截断丢内容、description 在 MySQL 上假报错
 
 1. **`merge_identity_change_note` 会吃掉 section 之后的内容**（这正是它
