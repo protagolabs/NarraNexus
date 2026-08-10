@@ -27,6 +27,7 @@ from backend.routes.agents.llm_config import router as llm_config_router
 from backend.routes.agents.circuit_breaker import router as circuit_breaker_router
 from backend.routes.agents.general_memory import router as general_memory_router
 from backend.routes.agents.narrative import router as narrative_router
+from backend.routes.agents.jobs import router as jobs_router
 
 
 router = APIRouter()
@@ -42,4 +43,5 @@ router.include_router(bus_failures_router)
 router.include_router(llm_config_router)
 router.include_router(general_memory_router)
 router.include_router(narrative_router)
+router.include_router(jobs_router)
 router.include_router(circuit_breaker_router)

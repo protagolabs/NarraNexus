@@ -1041,3 +1041,175 @@ def test_view_narrative_skips_memoryless_chat_instance(monkeypatch):
     out = asyncio.run(d.view_narrative(AGENT, "nar_1"))
     assert out["success"] is True
     assert out["message_count"] == 1  # chat_no_mem skipped, not a NoneType crash
+
+
+# ---------------------------------------------------------------------------
+# job reads (PR-8): job_retrieval_by_id / _semantic / _by_keywords
+# ---------------------------------------------------------------------------
+
+
+class _V:  # tiny .value holder for job_type / status
+    def __init__(self, v):
+        self.value = v
+
+
+class _FakeJob:
+    def __init__(self, job_id="job_1", agent_id=AGENT, description="D"):
+        self.job_id = job_id
+        self.agent_id = agent_id
+        self.user_id = "u1"
+        self.instance_id = "job_inst"
+        self.title = "T"
+        self.description = description
+        self.payload = {}
+        self.job_type = _V("one_off")
+        self.trigger_config = None
+        self.status = _V("active")
+        self.notification_method = "none"
+        self.next_run_at_local = None
+        self.next_run_tz = "UTC"
+        self.last_run_at_local = None
+        self.last_run_tz = "UTC"
+        self.related_entity_id = None
+        self.narrative_id = None
+        self.iteration_count = 0
+        self.process = "proc"
+        self.last_error = None
+        self.created_at = None
+        self.updated_at = None
+
+
+def _patch_job_repo(monkeypatch, *, job=None, search_hits=None, keyword_hits=None):
+    class _FakeJobRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+        async def search_keyword(self, agent_id, query, user_id, status, limit):
+            return search_hits or []
+
+        async def search_by_keywords(self, agent_id, keywords, user_id, status, limit):
+            return keyword_hits or []
+
+    monkeypatch.setattr("xyz_agent_context.module.job_module._job_reads.JobRepository", _FakeJobRepo)
+
+
+def test_job_by_id_parity(monkeypatch):
+    from xyz_agent_context.module.job_module import fetch_job_by_id
+
+    job = _FakeJob()
+    _patch_job_repo(monkeypatch, job=job)
+    db = object()
+    expected = asyncio.run(fetch_job_by_id(db, AGENT, "job_1"))
+    assert expected["success"] is True and expected["job"]["job_id"] == "job_1"
+    assert expected["job"]["process"] == "proc"  # by_id-only extra field
+
+    d = _basic_direct(monkeypatch, db)
+    dr = asyncio.run(d.job_retrieval_by_id(AGENT, "job_1"))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_retrieval_by_id(AGENT, "job_1")) == expected == dr
+
+
+def test_job_by_id_cross_agent_is_access_denied(monkeypatch):
+    job = _FakeJob(agent_id="other_agent")
+    _patch_job_repo(monkeypatch, job=job)
+    d = _basic_direct(monkeypatch, object())
+    out = asyncio.run(d.job_retrieval_by_id(AGENT, "job_1"))
+    assert out == {"success": False, "error": "Access denied: Job belongs to a different agent"}
+
+
+def test_job_by_id_not_found(monkeypatch):
+    _patch_job_repo(monkeypatch, job=None)
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_retrieval_by_id(AGENT, "job_x")) == {"success": False, "error": "Job not found: job_x"}
+
+
+def test_job_semantic_parity_and_limit_clamp(monkeypatch):
+    from xyz_agent_context.module.job_module import search_jobs_semantic
+
+    job = _FakeJob()
+    _patch_job_repo(monkeypatch, search_hits=[(job, 0.9)])
+    db = object()
+    expected = asyncio.run(search_jobs_semantic(db, AGENT, "news", None, None, 100))
+    assert expected["success"] is True
+    assert expected["jobs"][0]["similarity_score"] == 0.9
+
+    d = _basic_direct(monkeypatch, db)
+    # limit=500 must clamp to 100 (route le=100) on both paths
+    dr = asyncio.run(d.job_retrieval_semantic(AGENT, "news", None, None, 500))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_retrieval_semantic(AGENT, "news", None, None, 500)) == expected == dr
+
+
+def test_job_semantic_invalid_status_parity(monkeypatch):
+    _patch_job_repo(monkeypatch, search_hits=[])
+    expected = {"success": False, "error": "Invalid status: bogus. Valid values: pending, active, running, completed, failed"}
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_retrieval_semantic(AGENT, "q", None, "bogus", 10)) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_retrieval_semantic(AGENT, "q", None, "bogus", 10)) == expected
+
+
+def test_job_by_keywords_parity_and_truncation(monkeypatch):
+    from xyz_agent_context.module.job_module import search_jobs_by_keywords
+
+    long_desc = "x" * 250
+    job = _FakeJob(description=long_desc)
+    _patch_job_repo(monkeypatch, keyword_hits=[job])
+    db = object()
+    expected = asyncio.run(search_jobs_by_keywords(db, AGENT, ["news"], None, None, 20))
+    assert expected["jobs"][0]["description"].endswith("...")  # >200 truncated
+    assert len(expected["jobs"][0]["description"]) == 203
+
+    d = _basic_direct(monkeypatch, db)
+    dr = asyncio.run(d.job_retrieval_by_keywords(AGENT, ["news"], None, None, 20))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_retrieval_by_keywords(AGENT, ["news"], None, None, 20)) == expected == dr
+
+
+def test_job_http_forwards_to_the_right_routes(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"success": True})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.job_retrieval_by_id(AGENT, "job_1"))
+    asyncio.run(h.job_retrieval_semantic(AGENT, "news", "u2", "active", 5))
+    asyncio.run(h.job_retrieval_by_keywords(AGENT, ["a", "b"], None, None, 7))
+    assert seen[0] == ("GET", f"/api/agents/{AGENT}/jobs/job_1", None)
+    assert seen[1] == ("POST", f"/api/agents/{AGENT}/jobs/search-semantic",
+                       {"query": "news", "user_id": "u2", "status": "active", "limit": 5})
+    assert seen[2] == ("POST", f"/api/agents/{AGENT}/jobs/search-keywords",
+                       {"keywords": ["a", "b"], "user_id": None, "status": None, "limit": 7})
+
+
+def test_job_search_input_bounds_rejected_identically_on_both(monkeypatch):
+    # Empty/over-long query and empty keywords must be rejected the SAME on both
+    # stores — the route enforces them as 422, so DirectStore must pre-reject too
+    # (else a local search succeeds on an input the cloud path 422s on).
+    _patch_job_repo(monkeypatch, search_hits=[], keyword_hits=[])
+    d = _basic_direct(monkeypatch, object())
+    h = _social_http(monkeypatch, route_body={"success": True})
+
+    empty_q = {"success": False, "error": "query is empty"}
+    assert asyncio.run(d.job_retrieval_semantic(AGENT, "", None, None, 10)) == empty_q
+    assert asyncio.run(h.job_retrieval_semantic(AGENT, "", None, None, 10)) == empty_q  # rejected pre-send
+
+    long_q = {"success": False, "error": "query too long (max 512 chars)"}
+    assert asyncio.run(d.job_retrieval_semantic(AGENT, "a" * 513, None, None, 10)) == long_q
+    assert asyncio.run(h.job_retrieval_semantic(AGENT, "a" * 513, None, None, 10)) == long_q
+
+    empty_kw = {"success": False, "error": "keywords is empty"}
+    assert asyncio.run(d.job_retrieval_by_keywords(AGENT, [], None, None, 20)) == empty_kw
+    assert asyncio.run(h.job_retrieval_by_keywords(AGENT, [], None, None, 20)) == empty_kw

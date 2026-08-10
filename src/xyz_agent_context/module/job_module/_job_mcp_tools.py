@@ -236,47 +236,14 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 status="active"
             )
         """
-        try:
-            status_enum = None
-            if status:
-                try:
-                    status_enum = JobStatus(status.lower())
-                except ValueError:
-                    return {
-                        "success": False,
-                        "error": f"Invalid status: {status}. Valid values: pending, active, running, completed, failed"
-                    }
+        # Routes through the seam. setup_mcp_llm_context is gone: search_keyword
+        # is BM25 (vectors retired), so the call only added a db read + a raise
+        # path. Status validation lives in the shared helper (parity).
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            await setup_mcp_llm_context(agent_id)
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-
-            # Vectors retired: BM25 keyword search over jobs replaces the
-            # embedding cosine path (unified-memory refactor).
-            results = await repo.search_keyword(
-                agent_id=agent_id,
-                query=query,
-                user_id=user_id,
-                status=status_enum,
-                limit=limit
-            )
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            jobs_data = [
-                {**job_to_llm_dict(job), "similarity_score": round(score, 4)}
-                for job, score in results
-            ]
-
-            return {
-                "success": True,
-                "query": query,
-                "total_results": len(jobs_data),
-                "jobs": jobs_data,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_semantic: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_semantic(
+            agent_id, query, user_id, status, limit
+        )
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_by_id
@@ -305,32 +272,11 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 job_id="job_abc123"
             )
         """
-        try:
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-            job = await repo.get_job(job_id)
+        # Routes through the AgentDataStore seam (DirectStore local / HttpStore
+        # cloud, via job_module's shared read helpers). Agent-scoping preserved.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            if not job:
-                return {"success": False, "error": f"Job not found: {job_id}"}
-
-            if job.agent_id != agent_id:
-                return {"success": False, "error": "Access denied: Job belongs to a different agent"}
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            return {
-                "success": True,
-                "job": {
-                    **job_to_llm_dict(job),
-                    "process": job.process,
-                    "last_error": job.last_error,
-                    "created_at": job.created_at.isoformat() if job.created_at else None,
-                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-                },
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_by_id: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_by_id(agent_id, job_id)
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_by_keywords
@@ -366,42 +312,12 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 status="active"
             )
         """
-        try:
-            status_enum = None
-            if status:
-                try:
-                    status_enum = JobStatus(status.lower())
-                except ValueError:
-                    return {"success": False, "error": f"Invalid status: {status}"}
+        # Routes through the seam (see the other job reads).
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-            jobs = await repo.search_by_keywords(
-                agent_id=agent_id,
-                keywords=keywords,
-                user_id=user_id,
-                status=status_enum,
-                limit=limit
-            )
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            jobs_data = []
-            for job in jobs:
-                entry = job_to_llm_dict(job)
-                if len(entry["description"] or "") > 200:
-                    entry["description"] = entry["description"][:200] + "..."
-                jobs_data.append(entry)
-
-            return {
-                "success": True,
-                "keywords": keywords,
-                "total_results": len(jobs_data),
-                "jobs": jobs_data,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_by_keywords: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_by_keywords(
+            agent_id, keywords, user_id, status, limit
+        )
 
     # -----------------------------------------------------------------
     # Tool: job_update (Feature 2.2.2)

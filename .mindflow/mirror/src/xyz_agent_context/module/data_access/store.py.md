@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-8) — job 读 by_id/semantic/by_keywords 迁入 seam
+
+三个读方法委托给 [[job_module]] 包导出的 `fetch_job_by_id`/`search_jobs_semantic`/
+`search_jobs_by_keywords`（[[_job_reads]]，走 JobRepository 方言安全、自兜底不抛），
+backend [[jobs]] 孪生路由调同一批 → byte-parity。DirectStore 外层 try 只兜 `_db()`。
+HttpStore GET `/jobs/{id}`、POST `/jobs/search-semantic|search-keywords`；失败键 `error`
+与 _parse_dict 降级键一致、无需 remap。limit 两 store 都 `_clamp_limit`(≤100) 对齐路由
+`Field(le=100)`。invalid-status 文案由共享 helper 产出（两路一致）。**输入契约**：`_job_query_reject`(query 1-512)/`_job_keywords_reject`(keywords≥1) 镜像路由 Field，两 store 发车前都跑（否则空/超长 query、空 keywords 本地 success、云端 422 分叉——同 memory/social 的 `_*_reject`）。
+
 ## 2026-08-10 (PR-7) — basic_info view_narrative/view_event/switch_narrative 迁入 seam
 
 三个读方法委托给 [[basic_info_module/_narrative_reads]] 的 `fetch_narrative_view`/
