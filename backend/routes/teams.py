@@ -18,6 +18,7 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
+from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -42,7 +43,15 @@ from xyz_agent_context.repository.team_workspace_repository import (
     TeamFileRepository,
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.repository.team_bulletin_repository import TeamBulletinRepository
 from xyz_agent_context.schema.team_schema import (
+    BULLETIN_MAX_ENTRIES,
+    BULLETIN_MAX_ENTRY_CHARS,
+    BULLETIN_MAX_TOTAL_CHARS,
+    BULLETIN_SOURCE_USER,
+    BULLETIN_TIER_CURRENT_TASK,
+    BULLETIN_TIER_LONG_TERM,
+    BulletinUsage,
     CreateTeamRequest,
     UpdateTeamRequest,
     AddMemberRequest,
@@ -108,7 +117,15 @@ def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
     return member_agent_ids[0]
 
 
-async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clear_artifacts: bool = False) -> dict:
+async def _wipe_team_data(
+    db,
+    team,
+    *,
+    clear_chat: bool,
+    clear_files: bool,
+    clear_artifacts: bool = False,
+    clear_bulletin: bool = False,
+) -> dict:
     """Clear a team's group-chat history and/or its shared files.
 
     The team counterpart to ``wipe_agent_data``: it clears the collaboration
@@ -135,6 +152,11 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
       attribution history WITHOUT touching the folder. Used when the TEAM
       itself goes away, and available on its own for dropping the tabs while
       keeping the files.
+    - clear_bulletin: delete the team's standing rules and its auto-summary.
+      Deliberately its OWN scope and not folded into ``clear_chat``: the
+      bulletin exists precisely because it is not chat, so wiping the
+      transcript must not take the rules with it — that would recreate the
+      "say it again" loop the bulletin was built to end.
 
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
@@ -145,6 +167,7 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
         "files_removed": False,
         "file_rows": 0,
         "artifacts": 0,
+        "bulletin_entries": 0,
         "errors": [],
     }
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
@@ -197,6 +220,9 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clea
             )
             await ArtifactHistoryRepository(db).delete_for_artifacts([row["artifact_id"] for row in arts or []])
             result["artifacts"] = await db.delete("instance_artifacts", {"team_id": team.team_id})
+
+    if clear_bulletin:
+        result["bulletin_entries"] = await TeamBulletinRepository(db).delete_for_team(team.team_id)
 
     logger.info(
         f"[team wipe] team={team.team_id} chat={clear_chat} files={clear_files} "
@@ -623,8 +649,16 @@ async def delete_team(team_id: str, request: Request):
     # (team_id IS NULL), list_by_team needs a team that no longer exists, and
     # list_for_agent_context joins team_members, which the next line empties.
     # Rows nothing can ever read again are precisely the orphans the acceptance
-    # criterion is about; leaving them is not "harmless clutter".
-    await _wipe_team_data(db, team, clear_chat=True, clear_files=True, clear_artifacts=True)
+    # criterion is about; leaving them is not "harmless clutter". The bulletin
+    # is in the same position: its only reader is this team's turn builder.
+    await _wipe_team_data(
+        db,
+        team,
+        clear_chat=True,
+        clear_files=True,
+        clear_artifacts=True,
+        clear_bulletin=True,
+    )
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
     return TeamOperationResponse(success=True, message="Team deleted")
@@ -639,12 +673,16 @@ async def clear_team_data(
         True,
         description="Delete the team's shared files AND its artifacts — team artifacts live in this folder, so removing it destroys their content",
     ),
+    bulletin: bool = Query(
+        False,
+        description="Delete the team's bulletin — its standing rules and auto-summary",
+    ),
 ):
     """Clear a team's collaboration data (chat and/or shared files), keeping the
     team, its members, and the bus channel. Owner-only. The team counterpart to
     the per-agent ``DELETE /{agent_id}/history``."""
-    if not chat and not files:
-        raise HTTPException(status_code=400, detail="Select at least one scope: chat and/or files")
+    if not chat and not files and not bulletin:
+        raise HTTPException(status_code=400, detail="Select at least one scope: chat, files and/or bulletin")
 
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
@@ -654,7 +692,7 @@ async def clear_team_data(
     if team.owner_user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files)
+    result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files, clear_bulletin=bulletin)
     return {"success": True, **result}
 
 
@@ -670,6 +708,266 @@ async def _team_files(db, team_id: str) -> list[dict]:
     """A team's shared files, newest first. Thin wrapper so the route reads
     naturally and the test can call it without an HTTP client."""
     return await TeamFileRepository(db).list_by_team(team_id)
+
+
+# --- Team bulletin ---------------------------------------------------------
+#
+# The standing rules every member loads on every team turn. Everything here
+# reaches every prompt, which is why the budget below is enforced rather than
+# advisory: an unbounded bulletin is an unbounded prompt on the hottest path
+# the team feature has.
+
+
+class BulletinLimitExceeded(Exception):
+    """A write that would breach the bulletin's budget.
+
+    Carries the reason as its message so the caller — the REST route for the
+    user, the MCP tool for an agent — can hand the same explanation to a very
+    different reader without re-deriving it.
+    """
+
+
+async def check_bulletin_budget(repo: TeamBulletinRepository, team_id: str) -> BulletinUsage:
+    """Current usage of the shared entry budget (summary excluded).
+
+    Exposed so the UI can grey out "add" BEFORE the user types a rule, rather
+    than rejecting it after they have written it.
+    """
+    return await repo.usage(team_id)
+
+
+async def add_bulletin_entry(
+    repo: TeamBulletinRepository,
+    *,
+    team_id: str,
+    content: str,
+    source: str,
+    author_id: Optional[str],
+    tier: str = BULLETIN_TIER_LONG_TERM,
+):
+    """Add one bulletin entry, or refuse and say why.
+
+    REFUSE, never trim. A silently shortened rule is worse than a rejected
+    one: the user is told nothing and goes on believing the whole rule is in
+    force, and the half that survived may invert the meaning of the half that
+    did not ("never share X with Y" cut at "never share X"). Every refusal
+    names the limit it hit, because "too long" without a number leaves the
+    user guessing how much to cut.
+
+    The budget is shared between the user and the agents. The prompt does not
+    care who wrote a line, so neither does the ceiling — otherwise an agent
+    could mint itself room the user cannot.
+    """
+    text = (content or "").strip()
+    if not text:
+        raise BulletinLimitExceeded("A bulletin entry cannot be empty.")
+    if len(text) > BULLETIN_MAX_ENTRY_CHARS:
+        raise BulletinLimitExceeded(
+            f"That entry is {len(text)} characters; the limit is "
+            f"{BULLETIN_MAX_ENTRY_CHARS}. Shorten it to the rule itself."
+        )
+
+    usage = await repo.usage(team_id)
+    if usage.entry_count >= BULLETIN_MAX_ENTRIES:
+        raise BulletinLimitExceeded(
+            f"The bulletin already holds {usage.entry_count} entries "
+            f"(limit {BULLETIN_MAX_ENTRIES}). Remove one before adding another."
+        )
+    if usage.total_chars + len(text) > BULLETIN_MAX_TOTAL_CHARS:
+        raise BulletinLimitExceeded(
+            f"The bulletin would reach {usage.total_chars + len(text)} characters "
+            f"(limit {BULLETIN_MAX_TOTAL_CHARS}). Shorten or remove an entry first."
+        )
+
+    return await repo.add(team_id=team_id, content=text, source=source, author_id=author_id, tier=tier)
+
+
+# Marks a bulletin change in the transcript. Same shape as the stop notice
+# (``runs.py``): the frontend renders it from an i18n key because the database
+# cannot know the reader's language, and ``content`` carries an English
+# fallback for consumers that only read text.
+BULLETIN_NOTICE_MSG_TYPE = "system_bulletin"
+
+
+async def _post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -> None:
+    """Leave a trace in the room when the bulletin changes.
+
+    The bulletin governs every reply from now on, so a silent change means
+    members start behaving differently with nothing in the transcript to
+    explain why — the same reasoning that made a stopped run post a notice.
+
+    NO MENTIONS, deliberately. A mention would wake every member the instant a
+    rule is written, and a rule written BY an agent would then wake the agents
+    that might write another — the write→wake→write loop. The notice is for
+    the humans reading the room; the agents pick the rules up on their next
+    turn regardless, which is the entire point of the bulletin.
+
+    Best-effort: a bulletin write that succeeded must not report failure
+    because its announcement did not land.
+    """
+    try:
+        team = await TeamRepository(db).get_team(team_id)
+        if not team:
+            return
+        members = await TeamMemberRepository(db).list_members_by_team(team_id)
+        bus = LocalMessageBus(backend=db._backend)
+        channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
+        await bus.send_message(
+            from_agent=actor or f"{USER_SENDER_PREFIX}{team.owner_user_id}",
+            to_channel=channel_id,
+            content=f"Team bulletin {action}.",
+            msg_type=BULLETIN_NOTICE_MSG_TYPE,
+            mentions=None,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[team-bulletin] could not post notice for {team_id}: {e}")
+
+
+class CreateBulletinEntryRequest(BaseModel):
+    content: str
+    tier: str = BULLETIN_TIER_LONG_TERM
+
+
+class UpdateBulletinEntryRequest(BaseModel):
+    content: str
+
+
+@router.get("/{team_id}/bulletin")
+async def list_team_bulletin(team_id: str, request: Request):
+    """The team's bulletin plus its current budget usage.
+
+    Usage rides along with the list so the panel can grey out "add" BEFORE the
+    user types a rule, instead of rejecting it once written.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    repo = TeamBulletinRepository(db)
+    entries = await repo.list_for_team(team_id)
+    usage = await check_bulletin_budget(repo, team_id)
+    return {
+        "entries": [format_for_api(e.model_dump()) for e in entries],
+        "usage": usage.model_dump(),
+        "limits": {
+            "max_entries": BULLETIN_MAX_ENTRIES,
+            "max_entry_chars": BULLETIN_MAX_ENTRY_CHARS,
+            "max_total_chars": BULLETIN_MAX_TOTAL_CHARS,
+        },
+    }
+
+
+@router.post("/{team_id}/bulletin")
+async def create_team_bulletin_entry(team_id: str, payload: CreateBulletinEntryRequest, request: Request):
+    """Add a rule. Over-budget is a 400 that names the limit — never a trim."""
+    db, _team = await _require_team_owner(request, team_id)
+    user_id = await _user_id_for_request(request)
+    tier = BULLETIN_TIER_CURRENT_TASK if payload.tier == BULLETIN_TIER_CURRENT_TASK else BULLETIN_TIER_LONG_TERM
+    try:
+        entry = await add_bulletin_entry(
+            TeamBulletinRepository(db),
+            team_id=team_id,
+            content=payload.content,
+            source=BULLETIN_SOURCE_USER,
+            author_id=user_id,
+            tier=tier,
+        )
+    except BulletinLimitExceeded as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True, "entry": format_for_api(entry.model_dump())}
+
+
+@router.patch("/{team_id}/bulletin/{entry_id}")
+async def update_team_bulletin_entry(
+    team_id: str, entry_id: str, payload: UpdateBulletinEntryRequest, request: Request
+):
+    """Edit any entry — the owner's authority covers agent-written rules and
+    the auto-summary alike. An agent editing its own goes through the tool."""
+    db, _team = await _require_team_owner(request, team_id)
+    try:
+        entry = await edit_bulletin_entry(
+            TeamBulletinRepository(db),
+            team_id=team_id,
+            entry_id=entry_id,
+            content=payload.content,
+        )
+    except BulletinLimitExceeded as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Bulletin entry not found")
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True}
+
+
+@router.delete("/{team_id}/bulletin/{entry_id}")
+async def delete_team_bulletin_entry(team_id: str, entry_id: str, request: Request):
+    """Remove one entry. The owner may remove anything, including what an agent
+    wrote and the auto-summary — that is the escape hatch that makes agent
+    write access safe to grant."""
+    db, _team = await _require_team_owner(request, team_id)
+    repo = TeamBulletinRepository(db)
+    entry = await repo.get(entry_id)
+    if entry is None or entry.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Bulletin entry not found")
+    await repo.delete(entry_id)
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True}
+
+
+@router.delete("/{team_id}/bulletin")
+async def clear_team_bulletin_tier(
+    team_id: str,
+    request: Request,
+    tier: str = Query(
+        BULLETIN_TIER_CURRENT_TASK,
+        description="Which tier to clear; the auto-summary belongs to no tier and survives",
+    ),
+):
+    """Clear one tier in a single action — the "this task is done" button.
+
+    Deliberately tier-scoped rather than a blanket clear: the standing rules
+    are the part the user least wants to retype, and they are what the whole
+    feature exists to stop retyping.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    if tier not in (BULLETIN_TIER_CURRENT_TASK, BULLETIN_TIER_LONG_TERM):
+        raise HTTPException(status_code=400, detail="Unknown bulletin tier")
+    removed = await TeamBulletinRepository(db).delete_tier(team_id, tier)
+    if removed:
+        await _post_bulletin_notice(db, team_id, "cleared")
+    return {"success": True, "removed": removed}
+
+
+async def edit_bulletin_entry(repo: TeamBulletinRepository, *, team_id: str, entry_id: str, content: str):
+    """Replace one entry's text, or refuse and say why.
+
+    The projected total SUBTRACTS the text being replaced. Counting the new
+    text against a total that still includes the old one would refuse the very
+    edit that relieves the budget: a user at the ceiling would be told to free
+    space by doing exactly what they were just blocked from doing.
+
+    Returns the entry as it now reads.
+    """
+    entry = await repo.get(entry_id)
+    # Scoped to the team, not just the id: an entry_id belonging to another of
+    # the owner's teams must not be reachable through this one's path.
+    if entry is None or entry.team_id != team_id:
+        return None
+
+    text = (content or "").strip()
+    if not text:
+        raise BulletinLimitExceeded("A bulletin entry cannot be empty.")
+    if len(text) > BULLETIN_MAX_ENTRY_CHARS:
+        raise BulletinLimitExceeded(f"That entry is {len(text)} characters; the limit is {BULLETIN_MAX_ENTRY_CHARS}.")
+
+    usage = await repo.usage(team_id)
+    projected = usage.total_chars - len(entry.content) + len(text)
+    if projected > BULLETIN_MAX_TOTAL_CHARS:
+        raise BulletinLimitExceeded(
+            f"The bulletin would reach {projected} characters (limit {BULLETIN_MAX_TOTAL_CHARS}). Shorten it further."
+        )
+
+    await repo.update_content(entry_id, text)
+    entry.content = text
+    return entry
 
 
 async def _require_team_owner(request: Request, team_id: str):
