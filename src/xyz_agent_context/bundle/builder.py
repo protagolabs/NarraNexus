@@ -28,6 +28,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
+from xyz_agent_context.bundle.team_bulletin_transfer import (
+    collect_bulletin_for_export,
+)
+
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
@@ -927,6 +931,14 @@ async def build_bundle(
                     "color": team_row.get("color"),
                     "source": "bundle",
                     "intro_md": selection.team_intro_md or team_row.get("intro_md") or "",
+                    # The team's standing rules travel with it: a bundle is how
+                    # a team is handed over, and without them the recipient gets
+                    # a team that has forgotten how it works. The auto-summary
+                    # and author ids are dropped in the collector — see
+                    # team_bulletin_transfer for why each is wrong over there.
+                    "bulletin": await collect_bulletin_for_export(
+                        db, selection.team_id
+                    ),
                 }
 
         # Roll up info_counters into one human-readable info line per kind

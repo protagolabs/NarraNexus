@@ -32,6 +32,10 @@ from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
+from xyz_agent_context.bundle.team_bulletin_transfer import (
+    write_imported_bulletin,
+)
+
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
@@ -689,6 +693,11 @@ async def _confirm_inner(
             "source": "bundle",
             "intro_md": intro,
         })
+        # The rules land under the NEW team id, with the ceilings re-applied:
+        # a bundle is untrusted input and may have been hand-edited.
+        written_summary["bulletin_entries"] = await write_imported_bulletin(
+            db, new_tid, team.get("bulletin") or []
+        )
         new_team_id = new_tid
         written_summary["team_created"] = True
         written_summary["team_id"] = new_tid
