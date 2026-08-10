@@ -25,7 +25,7 @@ from loguru import logger
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._wechat_credential_manager import WeChatCredentialManager
-from .wechat_sdk_client import send_text_once
+from .wechat_outbound import send_wechat_text
 
 
 async def _get_manager() -> WeChatCredentialManager:
@@ -59,8 +59,12 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
             return {"ok": False, "error": "no_credential",
                     "hint": "no WeChat account bound; bind one from the Channels panel"}
 
-        ok = await send_text_once(
-            cred.bot_token, cred.base_url, to_user_id, context_token, text
+        ok = await send_wechat_text(
+            agent_id=agent_id,
+            credential=cred,
+            to_user_id=to_user_id,
+            context_token=context_token,
+            text=text,
         )
         return {"ok": ok} if ok else {"ok": False, "error": "send_failed"}
 

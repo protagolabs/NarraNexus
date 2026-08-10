@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/managed_channel_ingress.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — before_run 补 #254 turn envelope
+
+`_stamp_turn_envelope`:native turn 的信封由 context builder 产出
+(经 `build_trigger_extra_data`),managed turn 没有 builder ——
+不补的话 step_3 把每个 managed 1:1 DM 读成 group room,无回复兜底
+在整个托管面是死代码(与 #254 修的原生缺陷同类)。room_type 从
+wire `chat_type` 推(仅 "group" 算群;DM 是 "private" 或缺省);
+reply kwargs 走 trigger 的 `managed_reply_kwargs` seam,无 trigger
+→ 不写(step_3 按 room_id 单独投递)。best-effort,永不破 turn。
 
 ## 2026-08-04 — silent_ingest 只调缝(review)
 

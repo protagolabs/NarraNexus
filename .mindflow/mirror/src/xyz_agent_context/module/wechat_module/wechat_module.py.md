@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — send_to_agent 改走 wechat_outbound 路由
+
+直接 `send_text_once` 调用换成 [[wechat_outbound.py]] 的
+`send_wechat_text`(managed → 平台 channel-send;否则直连不变)。
+send_to_agent 是 ChannelSenderRegistry 注册的 sender —— step_3 的
+DM 无回复兜底(#254)和 contact_agent 都从这里出站,必须与 MCP
+工具同一路由决策,否则托管模式下兜底与工具双轨分裂。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

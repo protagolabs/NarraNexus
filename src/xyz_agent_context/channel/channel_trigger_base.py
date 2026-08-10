@@ -1853,6 +1853,20 @@ class ChannelTriggerBase(ABC):
         """
         return None
 
+    def managed_reply_kwargs(self, trigger_extra_data: dict) -> dict:
+        """Channel-specific delivery kwargs for a MANAGED turn's envelope.
+
+        Native turns get ``channel_reply_kwargs`` from the context
+        builder's ``reply_kwargs()``; managed turns never run a builder,
+        so the ingress coordinator asks the trigger instead (it knows its
+        channel's addressing, the coordinator stays channel-agnostic).
+        Default: empty — step_3's fallback then delivers with the
+        channel_tag's ``room_id`` alone, which is right for room-addressed
+        channels (matrix/telegram); token-addressed channels override
+        (wechat needs the inbound ``reply_token``).
+        """
+        return {}
+
     async def _send_error_fallback(
         self,
         credential: Any,

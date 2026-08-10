@@ -508,6 +508,9 @@ class _FakeTrigger:
     async def managed_after_run(self, **kw):
         self.after_calls.append(kw)
 
+    def managed_reply_kwargs(self, trigger_extra_data):
+        return {"context_token": trigger_extra_data.get("reply_token", "")}
+
 
 async def test_coordinator_routes_before_and_after(monkeypatch):
     trig = _FakeTrigger()
@@ -536,6 +539,63 @@ async def test_coordinator_routes_before_and_after(monkeypatch):
         error_text="",
     )
     assert trig.after_calls[0]["reply_text"] == "ok"
+
+
+async def test_before_run_stamps_turn_envelope_for_dm(monkeypatch):
+    """Managed turns never run a context builder, so before_run must stamp
+    the #254 envelope itself — without it step_3 reads every managed DM as
+    a group room and the no-reply fallback is dead code (the exact defect
+    class #254 fixed on the native paths)."""
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    ted = _tagged_extra(reply_token="tok-55")  # no chat_type = DM
+    await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=ted,
+        db=object(),
+    )
+    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
+
+    assert ted["channel_room_type"] == ROOM_TYPE_DIRECT
+    assert ted["channel_reply_kwargs"] == {"context_token": "tok-55"}
+
+
+async def test_before_run_stamps_group_room_type(monkeypatch):
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    ted = _tagged_extra(chat_type="group")
+    await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=ted,
+        db=object(),
+    )
+    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_GROUP
+
+    assert ted["channel_room_type"] == ROOM_TYPE_GROUP
+
+
+def test_wechat_trigger_managed_reply_kwargs_carries_reply_token():
+    from xyz_agent_context.module.wechat_module.wechat_trigger import WeChatTrigger
+
+    trigger = WeChatTrigger.__new__(WeChatTrigger)
+    assert trigger.managed_reply_kwargs({"reply_token": "ctx-1"}) == {
+        "context_token": "ctx-1"
+    }
+    assert trigger.managed_reply_kwargs({}) == {"context_token": ""}
+
+
+def test_base_managed_reply_kwargs_defaults_empty():
+    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+
+    # Unbound call — the ABC can't be instantiated bare, and the default
+    # implementation reads nothing off self.
+    assert ChannelTriggerBase.managed_reply_kwargs(object(), {"reply_token": "x"}) == {}
 
 
 async def test_coordinator_deny_propagates(monkeypatch):

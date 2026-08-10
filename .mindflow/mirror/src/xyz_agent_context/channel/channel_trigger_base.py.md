@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 — managed_reply_kwargs seam(managed turn 的信封第二半)
+
+新 seam:managed turn 不跑 context builder,#254 信封的
+`channel_reply_kwargs` 由 ingress coordinator 向 trigger 索取
+(trigger 懂自己渠道的寻址,coordinator 保持渠道无关)。基类缺省
+`{}` —— step_3 兜底只用 channel_tag.room_id 投递,对房间寻址渠道
+(matrix/telegram)天然正确;token 寻址渠道覆写(wechat 用
+`reply_token`)。native 路径不受影响(builder 的 reply_kwargs 照旧)。
+
 ## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
 
 `resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
