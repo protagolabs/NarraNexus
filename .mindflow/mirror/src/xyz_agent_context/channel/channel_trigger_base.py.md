@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
+
+`resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
+wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
+只是签名与 docstring 不再谎称"永远返回 str"。
+
 
 ## 2026-08-07 (二次) — 两处小收口
 

@@ -362,7 +362,7 @@ _OWNER_CACHE_MAX = 4096
 _owner_cache: dict[str, tuple[str, float]] = {}
 
 
-async def _resolve_owner_cached(db, agent_id: str) -> str:
+async def _resolve_owner_cached(db, agent_id: str) -> Optional[str]:
     now = time.monotonic()
     cached = _owner_cache.get(agent_id)
     if cached is not None and cached[1] > now:
@@ -370,12 +370,11 @@ async def _resolve_owner_cached(db, agent_id: str) -> str:
     from xyz_agent_context.repository import AgentRepository
 
     owner = await AgentRepository(db).resolve_owner(agent_id)
-    # Cache POSITIVE resolutions only. resolve_owner returns "" for three
-    # very different things — empty id, unknown agent, AND a failed db query
-    # — and "" makes the policy fail open, so caching it would pin an
-    # "unknown → allow" verdict for 60s off one MySQL hiccup, invisibly (no
-    # owner = no mcp_auth_denied row either). Unknown agents re-query every
-    # call, which is fine: they are never the hot path.
+    # Cache POSITIVE resolutions only. "" (unknown agent) and None (failed
+    # lookup — the PR #258 split) both make the policy fail open, so caching
+    # either would pin an "unknown → allow" verdict for 60s off one MySQL
+    # hiccup, invisibly (no owner = no mcp_auth_denied row either). Unknown
+    # agents re-query every call, which is fine: they are never the hot path.
     if owner:
         if len(_owner_cache) >= _OWNER_CACHE_MAX:
             # Bounded: drop expired entries; if everything is somehow live,

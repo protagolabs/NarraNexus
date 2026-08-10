@@ -82,8 +82,8 @@ wrapper calls.
   (`_resolve_owner_cached`) so the hot tool-call path doesn't add one MySQL
   point-read per call; short TTL keeps it self-correcting, not a second
   source of truth. **Positive resolutions only** (round-2 review #2):
-  `resolve_owner` returns `""` for unknown-agent AND failed-query alike, and
-  `""` fails open — caching it would pin an invisible "allow" for 60s off one
+  `""` (unknown agent) and `None` (failed lookup — the #258 split) both fail
+  open, and caching either would pin an invisible "allow" for 60s off one
   MySQL hiccup. Bounded (drop-expired then clear at 4096) so a weeks-long mcp
   process cannot leak.
 - `check_agent_ownership` gates cheapest-first (agent_id shape → cloud →

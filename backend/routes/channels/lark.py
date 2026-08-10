@@ -32,6 +32,12 @@ from xyz_agent_context.module.lark_module._lark_service import (
 )
 from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
 
+
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
+
 router = APIRouter()
 _cli = LarkCLIClient()
 
@@ -75,24 +81,6 @@ async def _get_db():
     """Get database client via factory (same pattern as other routes)."""
     from xyz_agent_context.utils.db.db_factory import get_db_client
     return await get_db_client()
-
-
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Verify that the caller owns the agent. Returns error message or None.
-
-    In local mode (no JWT), ownership is not enforced.
-    In cloud mode, the agent's created_by must match the JWT user_id.
-    """
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None  # Local mode — no auth enforcement
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
 
 
 # =========================================================================
