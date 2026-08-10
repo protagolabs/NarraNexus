@@ -3,6 +3,29 @@ code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
+
+`_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。
+判定逻辑全在 [[patrol]],这里只负责调度与发言。
+
+- **与消息派发同一道闸**:同一个 per-agent 锁 + 同一个 semaphore,并登记
+  `_in_flight` —— 正在回话的 lead 不会被再叫醒来巡查,巡查也逃不出 worker 上限,
+  卡住的巡查还能像普通轮次一样在心跳里被看见。
+- **静默是常态**:模型没话说就什么都不发。每十分钟播报一次「一切正常」正是这个
+  房间一路在删的常驻噪音(折叠 console、赖着不走的活动气泡)。
+- **游标在 finally 里推**:崩掉的巡查也占用了它那一格,立刻重试会把一个坏掉的
+  team 变成热循环。
+- **以房间身份落墙**(`team_<id>` + `msg_type=patrol`),不是以 lead 的身份:
+  这既是它能被 `_team_cascade_depth` 跳过的原因,读起来也诚实 —— 这是平台在
+  盘点,不是 lead 在聊天。
+
+## 2026-08-10 — `_team_cascade_depth` 跳过巡查行
+
+拍板口径 (a)。不跳过的话豁免会自我拆台:巡查开口的那个房间**正因为流程断了**
+才处在深度上限上,它自己那一行会把后续所有催办 @ 顶出可用区间。
+
+用户消息仍然清零(计数器原本的用途没变),查询相应多取一列 `msg_type`。
+
 ## 2026-08-07 (三次) — lead 知道自己是 lead;工作板随 prompt 注入
 
 `_build_team_prompt` 增加 `lead_agent_id` / `work_items`,`_team_board()` 负责

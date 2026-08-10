@@ -42,6 +42,7 @@ from xyz_agent_context.message_bus.local_bus import (
     LocalMessageBus,
     _as_utc,
 )
+from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
@@ -384,8 +385,17 @@ class MessageBusTrigger:
         candidates = await self._agents_with_pending()
         self._cycles += 1
         self._last_candidates = len(candidates)
+
+        # The patrol lane. A second candidate source on the same cycle: teams
+        # whose board has unfinished work and whose lead is due for a sweep.
+        # Runs through the same semaphore and the same per-agent lock as
+        # message dispatch, so a patrol can never double-run a lead that is
+        # already busy — and an empty board yields no candidates at all, which
+        # is the feature's whole cost guarantee.
+        dispatched_patrols = await self._dispatch_patrols()
+
         if not candidates:
-            return 0
+            return dispatched_patrols
 
         dispatched = 0
         for agent_id in candidates:
@@ -400,7 +410,58 @@ class MessageBusTrigger:
         if dispatched:
             self._dispatched_total += dispatched
             self._last_dispatch_at = datetime.now(timezone.utc).isoformat()
-        return dispatched
+        return dispatched + dispatched_patrols
+
+    async def _dispatch_patrols(self) -> int:
+        """Wake the leads whose boards are due for a sweep. Returns how many.
+
+        Failures are swallowed: the patrol lane is an addition to the poll
+        cycle, and a bad sweep must never cost the room its ordinary message
+        delivery.
+        """
+        try:
+            from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            due = await teams_due_for_patrol(await get_db_client())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[patrol] candidate sweep failed: {e}")
+            return 0
+
+        count = 0
+        for team_id, lead_agent_id, channel_id in due:
+            # Its own turn is still going — a patrol would just queue behind the
+            # per-agent lock, and skipping is cheaper than holding a slot.
+            if lead_agent_id in self._in_flight:
+                continue
+            self._dispatch_patrol(team_id, lead_agent_id, channel_id)
+            count += 1
+        return count
+
+    def _dispatch_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
+        """Spawn one patrol sweep, gated exactly like a message dispatch.
+
+        Same per-agent lock and same semaphore as ``_process_agent``: a lead
+        that is already answering somebody must not be woken a second time to
+        patrol, and patrols must not escape the worker cap. Registering in
+        ``_in_flight`` is what makes the next cycle skip this lead — and what
+        makes a stuck patrol visible in the heartbeat like any other turn.
+        """
+
+        async def _guarded() -> None:
+            lock = self._agent_locks.setdefault(lead_agent_id, asyncio.Lock())
+            async with lock, self._semaphore:
+                await self._run_patrol(team_id, lead_agent_id, channel_id)
+
+        task = asyncio.create_task(_guarded())
+        self._in_flight[lead_agent_id] = _InFlight(
+            task=task, started_at=time.monotonic()
+        )
+        # Never a bare create_task: an exception in a fire-and-forget task is
+        # only reported during GC (incident lesson #2).
+        task.add_done_callback(
+            lambda t, a=lead_agent_id: self._on_dispatch_done(a, t)
+        )
 
     def _should_process_message(
         self, msg: BusMessage, agent_id: str, channel_type: str, channel_owner: str,
@@ -1018,6 +1079,91 @@ class MessageBusTrigger:
                 out[m.agent_id] = row.get("agent_name") or m.agent_id
         return out
 
+    async def _run_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
+        """One patrol sweep: look at the board, chase what is stuck, or say nothing.
+
+        This is the periodic activation the team room otherwise has no way to
+        produce. Every member — the lead included — only wakes when @mentioned,
+        so a flow advances only while each hop remembers to pass the baton, and
+        a hop that forgets kills the chain with nobody structurally able to
+        notice. The sweep is what notices.
+
+        Silence is the NORMAL outcome. A patrol that announced "all good" every
+        ten minutes would be exactly the standing noise this room's design keeps
+        removing (the folded console, the lingering activity bubble). It speaks
+        only when the model produced something to say, and even then only within
+        the DB-backed speech cap.
+
+        The cursor moves however this ends, crash included: a failed patrol
+        still consumed its slot, and retrying it at once turns one broken team
+        into a hot loop.
+        """
+        from xyz_agent_context.message_bus.patrol import (
+            detect_stalled_items,
+            mark_patrolled,
+            may_patrol_speak,
+            note_patrol_spoke,
+        )
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        try:
+            # Facts first, and the platform's own: "is this stalled" is derived
+            # from activity data, never from the model's read of the room
+            # (iron rule #15). The lead's judgement starts after this line.
+            stalled = await detect_stalled_items(db, team_id)
+            member_map = await self._team_member_names(channel_id)
+            team_owner = await self._get_agent_owner(lead_agent_id)
+            history = await self._bus.get_recent_messages(
+                channel_id, limit=TEAM_HISTORY_LIMIT
+            )
+            lead, work_items = await self._team_board(team_id)
+            prompt = self._build_team_prompt(
+                lead_agent_id, history, member_map,
+                owner_user_id=team_owner, team_id=team_id,
+                trigger_messages=[],
+                lead_agent_id=lead or lead_agent_id,
+                work_items=work_items,
+                patrol_stalled=[
+                    {
+                        "title": i.title,
+                        "assignee": member_map.get(i.assignee_id or "", i.assignee_id or ""),
+                        "item_id": i.item_id,
+                    }
+                    for i in stalled
+                ],
+            )
+            response_text, _ = await self._invoke_runtime(
+                agent_id=lead_agent_id,
+                sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                prompt=prompt,
+                channel_id=channel_id,
+                retrieval_anchor="team patrol",
+                include_monologue=True,
+                team_room=True,
+            )
+            text = (response_text or "").strip()
+            if not text:
+                return  # nothing wrong, nothing said
+            if not await may_patrol_speak(db, team_id):
+                logger.info(f"[patrol] speech cap reached for {team_id}; staying quiet")
+                return
+            # Posted under the ROOM's marker, not the lead's id: that is what
+            # keeps the line out of the agent-hop count, and it reads honestly
+            # — this is the platform taking stock, not the lead chatting.
+            await self._bus.send_message(
+                from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                to_channel=channel_id,
+                content=text,
+                mentions=self._extract_team_mentions(text, member_map) or None,
+                msg_type=PATROL_MSG_TYPE,
+            )
+            await note_patrol_spoke(db, team_id)
+        except Exception as e:  # noqa: BLE001 — a bad sweep never breaks the poller
+            logger.warning(f"[patrol] sweep failed for {team_id}: {e}")
+        finally:
+            await mark_patrolled(db, team_id)
+
     async def _team_board(self, team_id: str) -> tuple[str, List[dict]]:
         """``(lead_agent_id, unfinished work items)`` for a team room's prompt.
 
@@ -1064,6 +1210,7 @@ class MessageBusTrigger:
         trigger_messages: Optional[List[BusMessage]] = None,
         lead_agent_id: str = "",
         work_items: Optional[List[dict]] = None,
+        patrol_stalled: Optional[List[dict]] = None,
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1125,6 +1272,38 @@ class MessageBusTrigger:
                 )
         else:
             lines.append("- (no open work items)")
+
+        if patrol_stalled is not None:
+            # A patrol sweep, not a reply to anyone. Nobody addressed this
+            # agent — the platform woke it because work is outstanding.
+            lines += [
+                "",
+                "[Patrol] Nobody messaged you. The platform woke you because "
+                "this team has unfinished work and you are its Leader.",
+            ]
+            if patrol_stalled:
+                lines.append(
+                    "These items are STALLED — their owner is idle or has gone "
+                    "silent. This is measured from real activity data, not a "
+                    "guess, so treat it as fact:"
+                )
+                for s in patrol_stalled:
+                    lines.append(f"- {s.get('title')} ({s.get('assignee')})")
+                lines += [
+                    "Chase them: @mention the owner and ask where it stands. "
+                    "DO NOT reassign the work to someone else — 'idle with "
+                    "unfinished work' is not 'never coming back', and two "
+                    "agents on one deliverable is worse than a late one.",
+                    "If something has clearly been delivered but the board "
+                    "still says otherwise, close it with work_complete_item.",
+                ]
+            else:
+                lines.append(
+                    "Nothing is stalled. If there is genuinely nothing worth "
+                    "saying, say NOTHING — reply with empty text. A routine "
+                    "'all good' every few minutes is noise in a room the user "
+                    "is trying to read."
+                )
 
         if lead_agent_id and lead_agent_id == agent_id:
             lines += [
@@ -1227,7 +1406,7 @@ class MessageBusTrigger:
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
         rows = await self._bus._db.execute(
-            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+            f"SELECT from_agent, msg_type FROM bus_messages WHERE channel_id = {ph} "
             f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
             (channel_id,),
         )
@@ -1235,6 +1414,14 @@ class MessageBusTrigger:
         for r in rows or []:
             if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
                 break
+            # A patrol line is the PLATFORM taking stock, not an agent taking a
+            # turn: it neither counts toward the cap nor breaks the run of agent
+            # messages (owner decision 2026-08-07, option a). Without this the
+            # exemption would be self-defeating — patrol speaks into a room that
+            # is already at the cap precisely because the flow broke, so its own
+            # line would push every later chase @ out of reach.
+            if str(r.get("msg_type") or "") == PATROL_MSG_TYPE:
+                continue
             depth += 1
         return depth
 
