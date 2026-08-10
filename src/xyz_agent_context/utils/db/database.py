@@ -591,7 +591,8 @@ class AsyncDatabaseClient:
         filters: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
-        order_by: Optional[str] = None
+        order_by: Optional[str] = None,
+        fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Query data
@@ -602,15 +603,26 @@ class AsyncDatabaseClient:
             limit: Result limit
             offset: Result offset
             order_by: Sort order
+            fields: Column projection (None = ``SELECT *``). Every backend
+                already accepted this; the facade dropped it, which forced
+                full-row reads on tables with MEDIUMTEXT columns.
 
         Returns:
             List of query results
         """
         if self._backend:
-            return await self._backend.get(table, filters, limit, offset, order_by)
+            return await self._backend.get(
+                table, filters, limit, offset, order_by, fields
+            )
 
         safe_table = validate_identifier(table)
-        query = f"SELECT * FROM `{safe_table}`"
+        if fields:
+            columns = ", ".join(
+                f"`{validate_identifier(f)}`" for f in fields
+            )
+        else:
+            columns = "*"
+        query = f"SELECT {columns} FROM `{safe_table}`"
         params = []
 
         if filters:
