@@ -53,24 +53,46 @@ def _parse_info(raw: Any) -> Dict[str, Any]:
     return {}
 
 
-async def _narrative_chat_history(db, narrative_id: str, limit: int = 200) -> List[Dict[str, Any]]:
-    """Full chat history of a narrative from its ChatModule instances.
+# Distinct bounds — same value today, unrelated meanings (review: a shared
+# literal invites changing one and breaking the other):
+_MAX_NARRATIVE_LINKS = 500      # link ROWS fetched (a narrative links many
+                                # non-chat instances too, so this is set well
+                                # above the chat-instance cap below)
+_MAX_CHAT_INSTANCES = 100       # ChatModule instances actually fanned out to
+_MAX_MESSAGES = 200             # messages returned (most recent)
 
-    Same data + shape as
+
+async def _narrative_chat_history(
+    db, narrative_id: str, limit: int = _MAX_MESSAGES
+) -> tuple[List[Dict[str, Any]], bool]:
+    """Recent chat history of a narrative from its ChatModule instances.
+
+    Returns ``(messages, truncated)`` — truncated is True when the
+    chat-instance cap was hit, so the caller can surface that a tail is
+    missing rather than silently dropping it. Same data + shape as
     ``basic_info_module._basic_info_mcp_tools._narrative_chat_history``, but
     reimplemented on ``AsyncDatabaseClient`` helpers instead of raw SQL —
-    routes must not hand-write SQL (unlike the in-process MCP tool, which
-    has direct db credentials the Http path deliberately doesn't expose).
+    routes must not hand-write SQL (unlike the in-process MCP tool, which has
+    direct db credentials the Http path deliberately doesn't expose).
     """
+    # Newest links first, THEN filter to chat instances: the links table
+    # carries non-chat instances too (aware_/social_/...), so truncating the
+    # raw fetch before the prefix filter would silently drop chat history when
+    # the newest _MAX_NARRATIVE_LINKS rows are mostly non-chat. order_by is
+    # explicit — a LIMIT without ORDER BY returns engine-arbitrary rows.
     links = await db.get(
-        "instance_narrative_links", filters={"narrative_id": narrative_id}, limit=200
+        "instance_narrative_links",
+        filters={"narrative_id": narrative_id},
+        limit=_MAX_NARRATIVE_LINKS,
+        order_by="created_at DESC",
     )
-    inst_ids = [row.get("instance_id") for row in (links or [])]
-    # Bounded fan-out with ONE query (BaseRepository exists to kill N+1): the
-    # MCP twin ran in the module process where a fat narrative only slowed its
-    # own agent, but on the shared API process a per-instance loop is a slow
-    # request for everyone. 100 chat instances is far beyond any real narrative.
-    inst_ids = [i for i in inst_ids if i and i.startswith("chat_")][:100]
+    chat_ids = [
+        row.get("instance_id")
+        for row in (links or [])
+        if (row.get("instance_id") or "").startswith("chat_")
+    ]
+    truncated = len(chat_ids) > _MAX_CHAT_INSTANCES
+    inst_ids = chat_ids[:_MAX_CHAT_INSTANCES]
 
     messages: List[Dict[str, Any]] = []
     mrows = await db.get_by_ids(
@@ -87,7 +109,7 @@ async def _narrative_chat_history(db, narrative_id: str, limit: int = 200) -> Li
                 "event_id": meta.get("event_id"),
             })
     messages.sort(key=lambda x: x.get("time", ""))
-    return messages[-limit:]
+    return messages[-limit:], truncated
 
 
 class NarrativeViewResponse(BaseModel):
@@ -99,6 +121,9 @@ class NarrativeViewResponse(BaseModel):
     keywords: Optional[List[str]] = None
     message_count: Optional[int] = None
     messages: Optional[List[Dict[str, Any]]] = None
+    # True when the chat-instance fan-out cap was hit and an older tail of the
+    # history is not included (review #1: never drop history silently).
+    truncated: bool = False
     error: Optional[str] = None
 
 
@@ -139,7 +164,7 @@ async def view_narrative(agent_id: str, narrative_id: str, request: Request):
         info = _parse_info(row.get("narrative_info"))
         kws = row.get("topic_keywords")
         keywords = kws if isinstance(kws, list) else (_parse_info(kws) or [])
-        history = await _narrative_chat_history(db, narrative_id)
+        history, history_truncated = await _narrative_chat_history(db, narrative_id)
         logger.info(f"[NarrativeRoute] view_narrative({narrative_id}) -> {len(history)} messages")
         return NarrativeViewResponse(
             success=True,
@@ -150,6 +175,7 @@ async def view_narrative(agent_id: str, narrative_id: str, request: Request):
             keywords=keywords if isinstance(keywords, list) else [],
             message_count=len(history),
             messages=history,
+            truncated=history_truncated,
         )
     except Exception as e:  # noqa: BLE001
         logger.exception(f"view_narrative failed: {e}")

@@ -40,7 +40,7 @@ class _FakeDb:
             return self._chat_memory.get(filters.get("instance_id"))
         raise AssertionError(f"unexpected get_one table: {table}")
 
-    async def get(self, table, filters, limit=None):
+    async def get(self, table, filters, limit=None, offset=None, order_by=None):
         if table == "instance_narrative_links":
             rows = self._links.get(filters.get("narrative_id"), [])
             return rows[:limit] if limit else rows

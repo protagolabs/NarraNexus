@@ -419,11 +419,13 @@ async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request)
 async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -> dict:
     """
     Create a new agent owned by the caller — same operation as the
-    `create_agent` MCP tool: new agent row, workspace dir + Bootstrap.md, and
-    an AwarenessModule instance seeded with `body.awareness`. `agent_id` in
-    the path is the CREATOR (must be owned by the caller); the new agent
-    inherits the creator's `created_by`, i.e. it lands in the same user's
-    account, not the creator agent's.
+    `create_agent` MCP tool, via the shared `provision_new_agent` seam: agent
+    row + default module instances + peer-discovery registration + bootstrap
+    profile + default-skill install + awareness seed. `agent_id` in the path
+    is the CREATOR (must be owned by the caller); the new agent inherits the
+    creator's `created_by`, i.e. it lands in the same user's account, not the
+    creator agent's. Any non-fatal provisioning warning (a half-provisioned
+    agent) is surfaced in the response so ops can see it (incident lesson #5).
     """
     await assert_owned(request, agent_id)
 
@@ -445,7 +447,7 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         # the same `provision_new_agent`, so they can't drift from each
         # other again (and this route no longer risks missing a step like
         # default-skill install the way the MCP tool's old copy did).
-        await provision_new_agent(
+        result = await provision_new_agent(
             db_client,
             agent_id=new_agent_id,
             user_id=owner_user_id,
@@ -455,7 +457,7 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         )
         logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
 
-        return {
+        response = {
             "success": True,
             "message": (
                 f"Agent '{body.agent_name}' created successfully (ID: {new_agent_id}). "
@@ -466,6 +468,12 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
             "new_agent_id": new_agent_id,
             "agent_name": body.agent_name,
         }
+        # A half-provisioned agent is an ops-relevant fact (incident lesson
+        # #5): surface any non-fatal provisioning warning instead of dropping
+        # the seam's collected list.
+        if result.warnings:
+            response["warnings"] = result.warnings
+        return response
 
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")

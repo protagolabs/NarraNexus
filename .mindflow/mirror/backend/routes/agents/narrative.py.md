@@ -4,6 +4,20 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (round-3 review #1) — 链接上界修正 + truncated 标记
+
+`_narrative_chat_history` 的 chat 扇出 N+1 修复(get_by_ids 循环→单次 get_by_ids)
+之后,链接侧上界有两个坑,本次修:
+- **过滤在截断之后**:`instance_narrative_links` 挂 aware_/social_/… 多类实例,
+  原来先 `limit=200` 再过滤 chat_ 会在前 200 行多为非 chat 时**静默丢**聊天段。
+  改为 `_MAX_NARRATIVE_LINKS=500` 抓行、过滤 chat_、再 `[:_MAX_CHAT_INSTANCES=100]`;
+  命中上限时返回 `truncated=True`,不再无声截断。
+- **无 ORDER BY**:LIMIT 不定序取的是引擎心情。加 `order_by="created_at DESC"`
+  取最近的链接。
+- 三个同值 `200` 字面量(链接行/消息/扇出)抽成语义各异的 `UPPER_SNAKE` 常量。
+数据访问仍只走 `db.get`/`get_by_ids`(无裸 SQL)。
+
+
 ## 2026-08-10 (pre-open review) — user_id 只信认证身份 + 扇出上界
 
 - create 的 user_id 不再来自 body:assert_owned 只证明 agent 归属,
@@ -23,7 +37,7 @@ BasicInfoModule 的三个 narrative MCP 工具（`view_narrative` / `switch_narr
 在 MCP server 进程里跑原生 SQL。PR-2 的目标是给 AgentDataStore 一条 Http 路径
 （HttpStore），让 mcp 容器不再需要数据库凭据；这个文件就是那三个工具的 Http
 对应端点，数据操作和返回 shape 尽量与原工具对齐，但**不用原生 SQL**——路由侧
-一律走 `AsyncDatabaseClient` 的 `get_one`/`get` helper 或 service/repository
+一律走 `AsyncDatabaseClient` 的 `get_by_ids`/`get` helper 或 service/repository
 层，这条线的裸 SQL 只允许留在 agent 进程内部（数据库凭据本就在那）。
 
 ## 上下游关系
@@ -71,7 +85,7 @@ id 存在但不是你的"。
 `SELECT memory FROM instance_json_format_memory_chat ...`）。这里没有直接
 import 复用它，而是用同样的过滤逻辑（`instance_id` 前缀 `chat_`、按
 `meta_data.timestamp` 排序、`limit` 取最新 N 条）重新实现在
-`db.get(...)` / `db.get_one(...)` 之上——两处逻辑保持同步是手工纪律，不是自动
+`db.get(...)` / `db.get_by_ids(...)` 之上——两处逻辑保持同步是手工纪律，不是自动
 的；改一边记得看看另一边要不要跟。
 
 ## Gotcha / 边界情况

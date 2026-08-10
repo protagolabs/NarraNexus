@@ -25,8 +25,9 @@ user-existence validation up front, team assignment (#43) after
 provisioning, and building CreateAgentResponse from a re-fetched row.
 
 Sequence (mirrors auth.py's create_agent route as of 2026-08-10):
-  0. AgentRepository.add_agent — insert the `agents` row (best-effort;
-     never raises — an existing row means the caller retried)
+  0. AgentRepository.add_agent — insert the `agents` row. NOT best-effort:
+     a failed insert (duplicate id, DB down) means there is no agent to
+     provision, so it propagates and aborts the whole call
   1. InstanceFactory.create_agent_level_instances — Awareness/Social/
      BasicInfo/MessageBus/Lark/HomeAssistant instances
   2. sync_agent_discovery — peer-discovery registration
