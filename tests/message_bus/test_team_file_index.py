@@ -161,3 +161,33 @@ async def test_other_teams_are_not_deduped_against(env):
     assert len(rows) == 2
     assert {r["team_id"] for r in rows} == {TEAM, "team_2"}
     assert other is not None
+
+
+@pytest.mark.asyncio
+async def test_a_racing_duplicate_share_still_returns_the_existing_row(env, monkeypatch):
+    """The dedup probe is check-then-act with no lock, and the index is UNIQUE.
+    Two concurrent shares of the same bytes both miss the probe; the second
+    insert hits the constraint.
+
+    Swallowing that leaves the file on disk with NO row — invisible in the
+    panel and to bus_list_team_files, which is the one outcome the index
+    exists to prevent. On collision the write path must re-read the winner and
+    return it as the "same content re-shared" case, which is the semantics
+    this feature already claims.
+    """
+    from xyz_agent_context.message_bus import _bus_attachment_impl as impl
+
+    first = await _share(env, "report.md", "v1\n")
+
+    # Force the probe to miss, reproducing the race deterministically.
+    async def _blind(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(impl, "_find_duplicate", _blind)
+    second = await _share(env, "report.md", "v1\n")
+
+    assert second is not None, "a losing racer must not return None"
+    assert second["file_id"] == first["file_id"], (
+        "the loser must adopt the winner's row rather than vanish"
+    )
+    assert len(await _rows(env)) == 1

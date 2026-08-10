@@ -38,7 +38,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 
 from loguru import logger
 
@@ -282,8 +282,22 @@ def _content_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path):
-    """The existing row for this exact file, or None.
+class _DedupProbe(NamedTuple):
+    """Outcome of the duplicate lookup.
+
+    A named pair rather than the previous dict-or-str-or-None: the caller had
+    to `isinstance` its way back to the meaning, and the digest being a bare
+    `str` in one branch made it easy to read as "no match" by accident.
+    """
+
+    row: Optional[dict]
+    #: The source's digest when it was computed — reused so the insert path
+    #: never hashes the same file twice.
+    digest: Optional[str]
+
+
+async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path) -> _DedupProbe:
+    """The existing row for this exact file, plus the digest if one was taken.
 
     Two-stage on purpose. Hashing reads the whole file, so it runs only after
     a cheap indexed lookup on (team, name, size) finds a candidate — a
@@ -291,18 +305,16 @@ async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path):
     a duplicate: those are two different files that happen to share a name,
     and folding one onto the other would silently destroy a share.
     """
-    candidates = await db.execute(
-        "SELECT * FROM team_files WHERE team_id = %s AND original_name = %s "
-        "AND size_bytes = %s",
-        params=(team_id, name, size), fetch=True,
-    )
+    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+
+    candidates = await TeamFileRepository(db).find_by_name_and_size(team_id, name, size)
     if not candidates:
-        return None
+        return _DedupProbe(None, None)
     digest = await asyncio.to_thread(_content_hash, src)
     for row in candidates:
         if row.get("content_hash") == digest:
-            return row
-    return digest  # no match; hand the caller the digest it already paid for
+            return _DedupProbe(row, digest)
+    return _DedupProbe(None, digest)
 
 
 async def stage_path_into_team(
@@ -341,19 +353,27 @@ async def stage_path_into_team(
     size = src.stat().st_size
     digest = None
     try:
-        found = await _find_duplicate(db, team_id, name, size, src)
-        if isinstance(found, dict):
-            # Byte-identical re-share: hand back the row that already exists.
-            return {
-                "file_id": found["file_id"],
-                "original_name": found["original_name"],
-                "mime_type": found.get("mime_type"),
-                "size_bytes": int(found.get("size_bytes") or 0),
-                "category": found.get("category"),
-                "rel_path": found["rel_path"],
-                "path": str((_base_root(base) / found["rel_path"]).resolve()),
-            }
-        digest = found  # str when a name/size collision existed, else None
+        probe = await _find_duplicate(db, team_id, name, size, src)
+        digest = probe.digest
+        if probe.row is not None:
+            reused = (_base_root(base) / probe.row["rel_path"]).resolve()
+            # Only reuse a row whose file is still there. `_wipe_team_data`
+            # removes the folder without touching rows it does not own, and a
+            # row pointing at nothing would hand the agent a dead path while
+            # reporting success.
+            if reused.is_file():
+                return {
+                    "file_id": probe.row["file_id"],
+                    "original_name": probe.row["original_name"],
+                    "mime_type": probe.row.get("mime_type"),
+                    "size_bytes": int(probe.row.get("size_bytes") or 0),
+                    "category": probe.row.get("category"),
+                    "rel_path": probe.row["rel_path"],
+                    "path": str(reused),
+                }
+            logger.info(
+                f"[team files] indexed row for {name!r} lost its file; re-staging"
+            )
     except Exception as e:  # noqa: BLE001 — dedup is an optimisation, not a gate
         logger.warning(f"[team files] dedup lookup failed for {name!r}: {e}")
 
@@ -363,8 +383,11 @@ async def stage_path_into_team(
 
     if digest is None:
         digest = await asyncio.to_thread(_content_hash, src)
+
+    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+
     try:
-        await db.insert("team_files", {
+        await TeamFileRepository(db).add({
             "file_id": staged["file_id"],
             "team_id": team_id,
             "owner_user_id": owner_user_id,
@@ -377,6 +400,31 @@ async def stage_path_into_team(
             "content_hash": digest,
         })
     except Exception as e:  # noqa: BLE001 — see docstring
+        # Losing a race is the expected shape of this failure, not a bug: the
+        # probe above is check-then-act with no lock, so two concurrent shares
+        # of identical bytes both miss it and the second one hits the UNIQUE
+        # index. Swallowing that would leave the file on disk with NO row —
+        # invisible in the panel and to bus_list_team_files, exactly what the
+        # index exists to prevent. Adopt the winner's row instead; the caller
+        # gets the same answer a sequential duplicate share would have given.
+        winner = None
+        try:
+            winner = await TeamFileRepository(db).find_exact(
+                team_id, staged["original_name"], digest
+            )
+        except Exception:  # noqa: BLE001 — recovery must not mask the original
+            winner = None
+        if winner:
+            logger.debug(f"[team files] adopted concurrent row for {name!r}")
+            return {
+                "file_id": winner["file_id"],
+                "original_name": winner["original_name"],
+                "mime_type": winner.get("mime_type"),
+                "size_bytes": int(winner.get("size_bytes") or 0),
+                "category": winner.get("category"),
+                "rel_path": winner["rel_path"],
+                "path": str((_base_root(base) / winner["rel_path"]).resolve()),
+            }
         logger.warning(f"[team files] index row not written for {name!r}: {e}")
     return staged
 

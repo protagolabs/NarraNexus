@@ -241,7 +241,7 @@ class CommonToolsModule(XYZBaseModule):
            this block plus the Read marker on the user message — is kept
            as-is; with the relocation flag on both live on the message side.)
         2. *Registered artifacts* the agent has live RIGHT NOW — pulled
-           fresh from `ArtifactRepository.list_pinned(agent_id)` so the
+           fresh from `ArtifactRepository.list_for_agent_context(agent_id)` so the
            agent always sees the current set (id, kind, title, workspace
            path) and can decide whether to re-register an existing one
            vs. create a new one. This is the data-gathering surface for
@@ -301,7 +301,8 @@ class CommonToolsModule(XYZBaseModule):
     async def _render_artifact_state_block(self) -> str:
         """Build the 'Your registered artifacts' appendix for this turn.
 
-        Lists every pinned (agent-scoped) artifact this agent owns. Each
+        Lists what this agent should be aware of: its own pinned artifacts
+        plus those of every team it belongs to. Each
         line is `art_id [kind] "title" → workspace/relative/path`. Paths
         are made workspace-relative (the `{agent_id}_{user_id}/` prefix
         is stripped from the DB-stored path) because that's the form the
@@ -324,7 +325,7 @@ class CommonToolsModule(XYZBaseModule):
                 self.agent_id, limit=ARTIFACT_STATE_BLOCK_LIMIT
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"artifact-state block: list_pinned failed: {e}")
+            logger.warning(f"artifact-state block: list_for_agent_context failed: {e}")
             return ""
 
         header = "#### Your registered artifacts (live)"
@@ -355,10 +356,25 @@ class CommonToolsModule(XYZBaseModule):
         lines = [header]
         for a in artifacts:
             rel = a.file_path
+            # Own workspace → short relative form, which is what the agent's
+            # tools take. Anything else → ABSOLUTE.
+            #
+            # A teammate's team artifact matches neither prefix, and printing
+            # the bare base-relative path would be worse than useless: a
+            # relative path resolves against the READER's own workspace (the
+            # confinement layer rebases relative paths there deliberately), so
+            # the agent would open a file that does not exist. Same for an
+            # entry registered out of the shared folder, which sits outside
+            # every agent workspace by design. "Sees the list" would hold while
+            # the first step of picking the work up silently failed.
+            outside_own_workspace = True
             for prefix in workspace_prefixes:
                 if rel.startswith(prefix):
                     rel = rel[len(prefix):]
+                    outside_own_workspace = False
                     break
+            if outside_own_workspace:
+                rel = os.path.join(base, a.file_path)
             # For URL tabs, point the agent at the readable text snapshot so it
             # can SEE the page content — but ONLY when the snapshot exists on
             # disk (URL tabs opened before this feature have no content.md, so
@@ -379,8 +395,12 @@ class CommonToolsModule(XYZBaseModule):
                 )
         lines.append("")
         lines.append(
-            "To update what the user sees: edit the workspace file(s) in "
-            "place, then call `register_artifact` again with "
+            "Paths above are relative to your workspace unless they start "
+            "with `/` — an absolute one belongs to a teammate or to your "
+            "team's shared folder, so open it exactly as written rather than "
+            "treating it as relative to your own files.\n"
+            "To update what the user sees: edit the file(s) in place, then "
+            "call `register_artifact` again with "
             "`target_artifact_id=<that artifact's id>` — the re-registration "
             "call itself is the refresh signal the frontend listens for. "
             "To change the title or repoint at a different entry file, pass "

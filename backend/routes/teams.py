@@ -159,7 +159,10 @@ async def _wipe_team_data(
         # The index has to go with the bytes. A row that outlives its file is
         # worse than no row: the panel still lists it and the user only finds
         # out when the download fails.
-        result["file_rows"] = await db.delete("team_files", {"team_id": team.team_id})
+        from xyz_agent_context.repository.team_workspace_repository import (
+            TeamFileRepository,
+        )
+        result["file_rows"] = await TeamFileRepository(db).delete_by_team(team.team_id)
 
         d = team_shared_dir(team.owner_user_id, team.team_id)
         try:
@@ -179,8 +182,12 @@ async def _wipe_team_data(
                 "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
                 (team.team_id,), fetch=True,
             )
-            for row in arts or []:
-                await db.delete("instance_artifact_history", {"artifact_id": row["artifact_id"]})
+            from xyz_agent_context.repository.team_workspace_repository import (
+                ArtifactHistoryRepository,
+            )
+            await ArtifactHistoryRepository(db).delete_for_artifacts(
+                [row["artifact_id"] for row in arts or []]
+            )
             result["artifacts"] = await db.delete(
                 "instance_artifacts", {"team_id": team.team_id}
             )
@@ -648,16 +655,11 @@ async def clear_team_data(
 
 
 async def _team_files(db, team_id: str) -> list[dict]:
-    """A team's shared files, newest first.
+    """A team's shared files, newest first. Thin wrapper so the route reads
+    naturally and the test can call it without an HTTP client."""
+    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 
-    Split out from the route so the ordering and the team filter can be tested
-    without standing up an HTTP client.
-    """
-    rows = await db.execute(
-        "SELECT * FROM team_files WHERE team_id = %s ORDER BY id DESC",
-        (team_id,), fetch=True,
-    )
-    return list(rows or [])
+    return await TeamFileRepository(db).list_by_team(team_id)
 
 
 async def _require_team_owner(request: Request, team_id: str):
@@ -689,28 +691,16 @@ async def _team_artifact_turns(db, team_id: str) -> dict[str, list[str]]:
     """Map each turn to the team artifacts it created or updated.
 
     Powers the chip under a team message: the transcript already carries each
-    reply's `event_id`, so a real key joins the two sides. Timestamps were
+    reply's ``event_id``, so a real key joins the two sides. Timestamps were
     never an option — one turn can register two artifacts, and two agents can
     answer in the same room at once, so proximity would attribute the wrong
     work to the wrong message.
-
-    UPDATING turns are included deliberately: re-registration is how a
-    teammate picks work up, which makes that turn exactly the one worth
-    surfacing. Rows with no event_id (legacy, or a caller with no event in
-    scope) are skipped rather than grouped under a placeholder.
     """
-    rows = await db.execute(
-        "SELECT DISTINCT h.event_id AS event_id, h.artifact_id AS artifact_id "
-        "FROM instance_artifact_history h "
-        "JOIN instance_artifacts a ON a.artifact_id = h.artifact_id "
-        "WHERE a.team_id = %s AND h.event_id IS NOT NULL "
-        "ORDER BY h.artifact_id",
-        (team_id,), fetch=True,
+    from xyz_agent_context.repository.team_workspace_repository import (
+        ArtifactHistoryRepository,
     )
-    out: dict[str, list[str]] = {}
-    for r in rows or []:
-        out.setdefault(r["event_id"], []).append(r["artifact_id"])
-    return out
+
+    return await ArtifactHistoryRepository(db).turns_for_team(team_id)
 
 
 @router.get("/{team_id}/artifact-turns")

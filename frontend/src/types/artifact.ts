@@ -81,7 +81,12 @@ export interface Artifact {
 }
 
 
-/** One file shared into a team's folder (GET /api/teams/{id}/files). */
+/**
+ * One file shared into a team's folder (GET /api/teams/{id}/files).
+ *
+ * Mirrors a chosen wire shape, not the table: `id`, `owner_user_id` and
+ * `content_hash` stay server-side.
+ */
 export interface TeamFile {
   file_id: string;
   /** Human-facing name. The on-disk name is the file_id, so this is the only
@@ -93,5 +98,7 @@ export interface TeamFile {
   category: string | null;
   /** Which agent shared it — the team panel attributes every row. */
   shared_by_agent_id: string;
+  /** Offset-aware ISO. Without the offset `Date.parse` reads it as local time
+   *  and a file shared moments ago renders hours old. */
   created_at: string;
 }

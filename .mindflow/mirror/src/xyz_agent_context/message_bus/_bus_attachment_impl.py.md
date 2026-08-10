@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_attachment_impl.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 去重竞态回读；探测返回改为具名元组
+
+**竞态**：去重探测是 check-then-act 且无锁，而索引是 UNIQUE。两个并发的同内容分享都会 miss，
+第二次 insert 撞约束。原来被 blanket except 吞掉 → **文件上了盘但没有任何行**，在面板和
+`bus_list_team_files` 里永远不存在——这恰恰是该索引要防的那一件事。现在撞约束时**回读赢家那一行
+并按「同内容重分享」返回**，调用方得到与顺序执行时相同的答案。
+
+**探测返回值**从 `dict | str | None` 三态改为具名元组 `_DedupProbe(row, digest)`：调用方原本要
+`isinstance` 才能还原语义，而 digest 在某一分支是裸 `str`，很容易被误读成「没匹配」。
+
+**复用前确认文件仍在**：`_wipe_team_data` 会删目录却不动不属于它的行，指向空处的行会让 agent
+拿到一条死路径却报成功。
 
 ## 2026-08-07 — 团队共享文件落库 + 内容哈希去重
 

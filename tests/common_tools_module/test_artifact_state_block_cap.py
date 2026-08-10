@@ -18,6 +18,7 @@ off.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -143,3 +144,91 @@ async def test_block_hides_a_team_the_agent_does_not_belong_to(env, db_client):
 
     block = await env["mod"]._render_artifact_state_block()
     assert "art_foreign" not in block
+
+
+# ── paths the agent can actually act on ───────────────────────────────────
+#
+# The block strips the CALLING agent's own workspace prefix and renders the
+# remainder, which the trailing instruction and the agent's tools both read as
+# a workspace-relative path. For a teammate's team artifact neither prefix
+# matches, so the base-relative path was printed verbatim — and a relative path
+# resolves against the reader's OWN workspace (NexusPower's confinement layer
+# rebases relative paths there by design), producing a file that does not
+# exist. "See the list" worked; the first step of picking the work up did not.
+
+
+@pytest.mark.asyncio
+async def test_a_teammates_artifact_gets_an_absolute_path(env, db_client):
+    """Cross-workspace entries must render absolutely: there is no relative
+    form of "inside another agent's workspace" that this agent can open."""
+    await db_client.insert("team_members", {"team_id": "team_1", "agent_id": "agent_x"})
+    now = datetime.now(timezone.utc)
+    mate_rel = agent_workspace_relpath("agent_other", "user_y")
+    await env["repo"].create(Artifact(
+        artifact_id="art_mate", agent_id="agent_other", user_id="user_y",
+        session_id=None, title="Mate report", kind="text/markdown", pinned=True,
+        team_id="team_1", file_path=f"{mate_rel}/report.md",
+        size_bytes=1, created_at=now, updated_at=now,
+    ))
+
+    block = await env["mod"]._render_artifact_state_block()
+
+    from xyz_agent_context.settings import settings as sa
+    expected = os.path.join(os.path.realpath(sa.base_working_path), mate_rel, "report.md")
+    assert expected in block, (
+        "a teammate's artifact must be named by a path this agent can open"
+    )
+    assert f"`{mate_rel}/report.md`" not in block, (
+        "the bare base-relative form would resolve against the reader's own "
+        "workspace and miss"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_artifact_in_the_team_folder_gets_an_absolute_path(env, db_client):
+    """Same for entries registered straight out of the shared folder: they sit
+    outside every agent workspace by design."""
+    await db_client.insert("team_members", {"team_id": "team_1", "agent_id": "agent_x"})
+    now = datetime.now(timezone.utc)
+    await env["repo"].create(Artifact(
+        artifact_id="art_shared", agent_id="agent_other", user_id="user_y",
+        session_id=None, title="Shared", kind="text/markdown", pinned=True,
+        team_id="team_1", file_path="user_y/_shared/teams/team_1/plan.md",
+        size_bytes=1, created_at=now, updated_at=now,
+    ))
+
+    block = await env["mod"]._render_artifact_state_block()
+
+    from xyz_agent_context.settings import settings as sa
+    expected = os.path.join(
+        os.path.realpath(sa.base_working_path), "user_y/_shared/teams/team_1/plan.md"
+    )
+    assert expected in block
+
+
+@pytest.mark.asyncio
+async def test_own_artifacts_stay_workspace_relative(env):
+    """The common case is unchanged: the agent's own files keep the short
+    relative form its tools take without ceremony."""
+    await _seed(env["repo"], "art_mine", age_minutes=1)
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "`art_mine.md`" in block
+    assert WS_REL not in block, "own entries must not become absolute"
+
+
+@pytest.mark.asyncio
+async def test_the_instruction_explains_the_absolute_form(env, db_client):
+    """Rendering an absolute path is only half the fix: the agent also has to
+    be told these exist, or it will keep reading every entry as relative."""
+    await db_client.insert("team_members", {"team_id": "team_1", "agent_id": "agent_x"})
+    now = datetime.now(timezone.utc)
+    await env["repo"].create(Artifact(
+        artifact_id="art_mate", agent_id="agent_other", user_id="user_y",
+        session_id=None, title="Mate", kind="text/markdown", pinned=True,
+        team_id="team_1", file_path=f"{agent_workspace_relpath('agent_other', 'user_y')}/r.md",
+        size_bytes=1, created_at=now, updated_at=now,
+    ))
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "absolute" in block.lower()

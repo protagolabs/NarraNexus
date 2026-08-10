@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 跨 workspace 的条目渲染绝对路径
+
+状态块此前只剥离**本 agent 自己**的 workspace 前缀，不匹配就原样输出 base 相对路径。
+队友的团队 artifact 两个前缀都不匹配，于是 agent 拿到一个**相对路径**——而相对路径会按自己
+workspace 解析（NexusPower 的 confinement 层刻意如此 rebase），指向一个不存在的文件。
+
+后果直接打在验收 #3 上：「看得见清单」成立，但「接力更新」的第一步（读到队友当前内容）
+在渲染层就断了。
+
+现在：自己 workspace → 短相对形式（工具直接可用）；**其他一律绝对**。块尾指令同步说明这一类
+是跨 workspace 的，否则 agent 会把每一条都当相对路径读。
 
 ## 2026-08-07 — artifact 状态块改用并集查询
 

@@ -298,3 +298,43 @@ async def test_clearing_artifacts_alone_keeps_the_files(db_client, monkeypatch, 
 
     assert await db_client.execute("SELECT * FROM instance_artifacts", fetch=True) == []
     assert len(await db_client.execute("SELECT * FROM team_files", fetch=True)) == 1
+
+
+# ── timestamps must carry a timezone ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_file_timestamps_are_offset_aware(db_client):
+    """`_team_files` returned raw DB rows, so `created_at` reached the browser
+    as a naive string ('2026-08-07 12:34:56' from datetime('now'), UTC but
+    unmarked). Per the ES spec a date-time with no offset is read as LOCAL
+    time, so `Date.parse` in the panel showed a file shared moments ago as
+    "8h ago" for a UTC+8 user. The artifacts half never had this because it
+    goes through the Artifact model, whose parse_dt attaches UTC.
+    """
+    from backend.routes.teams import _team_files
+
+    await _seed_file(db_client, "f1", team_id=TID)
+    rows = await _team_files(db_client, TID)
+
+    stamp = rows[0]["created_at"]
+    assert isinstance(stamp, str), "serialised for the wire"
+    assert stamp.endswith("+00:00") or stamp.endswith("Z"), (
+        f"timestamp must name its offset, got {stamp!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_file_rows_do_not_leak_internal_columns(db_client):
+    """`SELECT *` put id / owner_user_id / content_hash into the API shape.
+    Owner-only, so not a disclosure — but the wire shape should be chosen, not
+    inherited from the table."""
+    from backend.routes.teams import _team_files
+
+    await _seed_file(db_client, "f1", team_id=TID)
+    row = (await _team_files(db_client, TID))[0]
+
+    assert set(row) == {
+        "file_id", "original_name", "rel_path", "mime_type", "category",
+        "size_bytes", "shared_by_agent_id", "created_at",
+    }

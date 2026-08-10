@@ -198,15 +198,19 @@ async def _record_history(
     cases (two artifacts in one turn, concurrent turns). None when the caller
     had no event in scope, which degrades the record without failing anything.
     """
+    from xyz_agent_context.repository.team_workspace_repository import (
+        ArtifactHistoryRepository,
+    )
+
     try:
-        await repo._db.insert("instance_artifact_history", {
-            "artifact_id": artifact_id,
-            "agent_id": agent_id,
-            "file_path": file_path,
-            "size_bytes": size_bytes,
-            "action": action,
-            "event_id": event_id,
-        })
+        # Through the repository, not `repo._db`: reaching into another
+        # layer's private handle from `_*_impl/` is exactly the coupling the
+        # repository seam exists to prevent, and it put a third copy of this
+        # table's SQL in a third module.
+        await ArtifactHistoryRepository(repo._db).append(
+            artifact_id=artifact_id, agent_id=agent_id, file_path=file_path,
+            size_bytes=size_bytes, action=action, event_id=event_id,
+        )
     except Exception as e:  # noqa: BLE001 — bookkeeping is never flow control
         logger.warning(f"artifact history not recorded for {artifact_id}: {e}")
 

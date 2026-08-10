@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-08
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — `_team_files` 钉死 wire shape + 时间戳带时区
+
+`SELECT *` 把 `id` / `owner_user_id` / `content_hash` 带进了 API 形状（owner-only，不构成泄露，
+但形状应当是**选定的**而非从表继承）。现在显式列字段。
+
+`created_at` 归一为 **offset-aware** ISO。原值是 UTC 但**无标记**（SQLite 的
+`datetime('now')` 给 `'2026-08-07 12:34:56'`，MySQL 给 naive datetime）——按 ES 规范，不带
+offset 的 date-time 被当作**本地时间**解析，于是 UTC+8 用户刚分享的文件显示成「8h ago」。
+artifacts 那半边没这个问题，因为它走 `Artifact` 模型、`parse_dt` 会补 UTC。
 
 ## 2026-08-08 (review 修正) — 三个独立 scope，且 delete_team 带走工作台
 
