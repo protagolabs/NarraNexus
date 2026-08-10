@@ -16,3 +16,12 @@ HttpStore. One env var = no scattered `if is_cloud` in tools (rule #9/#20).
 to the backend on the Http path; empty with no ambient request. Until P2 flips
 cloud over by SETTING the env var, every caller gets DirectStore — so landing
 this is behaviour-preserving everywhere.
+
+## Deployment-order contract (pre-review I3)
+
+Setting `NARRANEXUS_BACKEND_URL` is only valid AFTER the identity chain is
+provisioned (broker signing key + backend `NX_IDENTITY_PUBLIC_KEY_FILE`):
+backend's nx-agent service path fails CLOSED, so flipping the env first turns
+every Http call into a 401 the store surfaces as an in-band error string.
+Flip the env LAST. The header forward is a strict whitelist (x-narranexus-* +
+authorization) — cookies / x-forwarded-* never cross (test-pinned).

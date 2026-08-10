@@ -15,11 +15,19 @@ The switch is a single env var so there is no scattered `if is_cloud` in tools
 (rule #9/#20). ``identity_headers`` forwards the caller identity to the backend
 on the Http path (populated from the live MCP request via
 ``current_identity_headers``); DirectStore ignores it.
+
+Deployment-order contract: setting NARRANEXUS_BACKEND_URL is only valid AFTER
+the identity chain is provisioned (broker signing key + NX_IDENTITY_PUBLIC_KEY_FILE
+on backend) — backend's nx-agent service path fails CLOSED, so an HttpStore
+call without a verifiable identity token is a 401 that the store surfaces as
+an in-band "Error: ..." string. Flip the env last.
 """
 from __future__ import annotations
 
 import os
 from typing import Optional
+
+from loguru import logger
 
 from xyz_agent_context.module.data_access.store import (
     AgentDataStore,
@@ -38,17 +46,19 @@ def current_identity_headers() -> dict:
     """
     try:
         from xyz_agent_context.module._mcp_identity import _ambient_headers
-
-        raw = _ambient_headers() or {}
-        # forward only the NarraNexus identity headers + the borrowed bearer
-        keep = {}
-        for k, v in raw.items():
-            lk = k.lower()
-            if lk.startswith("x-narranexus-") or lk == "authorization":
-                keep[k] = v
-        return keep
-    except Exception:  # noqa: BLE001 — no ambient context / import issue -> none
+    except ImportError as e:  # pragma: no cover — packaging-order edge only
+        logger.debug(f"[data-access] identity module unavailable: {e}")
         return {}
+
+    raw = _ambient_headers() or {}
+    # Forward ONLY the NarraNexus identity headers + the borrowed bearer —
+    # never cookies, x-forwarded-*, or anything else the transport attached.
+    keep = {}
+    for k, v in raw.items():
+        lk = k.lower()
+        if lk.startswith("x-narranexus-") or lk == "authorization":
+            keep[k] = v
+    return keep
 
 
 def get_agent_data_store(identity_headers: Optional[dict] = None) -> AgentDataStore:

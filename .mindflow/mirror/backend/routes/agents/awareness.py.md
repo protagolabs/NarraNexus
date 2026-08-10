@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/agents/awareness.py
-last_verified: 2026-04-10
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — PUT 增加 `create_missing` 开关（MCP 数据访问 seam 的 parity 半边）
+
+自动建实例是**前端**契约(默认不变);MCP seam 的 HttpStore 传
+`create_missing=false`:agent_id 是 LLM 自由填写的工具参数,直连路径下未知
+id 是报错,Http 化后不能反而变成"给任意 id 凭空造实例"。关不建时按本路由
+的失败形状返回 200+success:false,error 文案与 DirectStore 的
+no-instance 消息逐字对齐(parity 测试钉住)。`_ensure_awareness_instance`
+拆出 `_find_awareness_instance` 供只查不建。
 
 # agents/awareness.py — Agent Awareness 读写路由
 
