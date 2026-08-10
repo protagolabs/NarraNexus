@@ -66,34 +66,9 @@ async def _get_db():
 
 
 async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Returns error message string when caller doesn't own the agent.
-
-    Local mode (no JWT) skips enforcement; cloud mode requires the
-    agent's ``created_by`` match the JWT user_id.
-
-    Security posture note: when this process runs without the auth
-    middleware that populates ``request.state.user_id`` (the local-mode
-    case), every Slack route is effectively unauthenticated — any HTTP
-    caller that can reach the backend port can bind / unbind / test any
-    bot. This is the intentional trade-off for developer ergonomics:
-    no real Docker bind exposes 8000 to the network by default. Do NOT
-    add sensitive operations behind this helper assuming auth — they
-    won't have any in local mode. The Telegram, Lark, and (future)
-    other IM-channel routes mirror this exact contract; keep them in
-    lockstep when changing.
-    """
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
-
-
+    """Owner check — delegates to the canonical backend helper (backend/routes/_ownership.py)."""
+    from backend.routes._ownership import check_owned
+    return await check_owned(request, agent_id)
 # =========================================================================
 # Endpoints
 # =========================================================================

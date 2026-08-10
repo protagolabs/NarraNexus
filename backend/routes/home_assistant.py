@@ -55,22 +55,16 @@ def _mask(token: str) -> str:
 async def _require_agent_owner(request: Request, db, agent_id: str) -> None:
     """Authorize: the caller must OWN this agent, not just be authenticated.
 
-    `resolve_current_user_id` only answers "who are you". The agent_id is
-    attacker-controlled input, so we must verify it belongs to the current user
-    or a cross-tenant IDOR opens up (read/overwrite others' HA bindings, or make
-    the backend ping a victim's home with their stored token). Mirrors
-    `backend/routes/channels/lark.py::_verify_agent_ownership`.
-
-    Local mode (no JWT identity) does not enforce ownership.
+    The agent_id is attacker-controlled input, so we must verify it belongs to
+    the current user or a cross-tenant IDOR opens up (read/overwrite others' HA
+    bindings, or make the backend ping a victim's home with their stored token).
+    Delegates to the canonical backend helper (backend/routes/_ownership.py);
+    the `db` param is kept for the existing call sites (the helper resolves its
+    own client). Local mode (no JWT identity) does not enforce ownership.
     """
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        return  # local mode
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
-    if agent.get("created_by") != user_id:
-        raise HTTPException(status_code=403, detail="Permission denied: you do not own this agent.")
+    del db  # helper resolves its own db client
+    from backend.routes._ownership import assert_owned
+    await assert_owned(request, agent_id)
 
 
 @router.get("/binding")

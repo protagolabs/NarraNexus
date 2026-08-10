@@ -68,22 +68,9 @@ async def _get_db():
 
 
 async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    # Local-mode caveat: in environments without the auth middleware,
-    # request.state.user_id is unset and EVERY route below is effectively
-    # unauthenticated. Mirror of slack.py's _verify_agent_ownership — see
-    # that docstring for the full posture note.
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
-
-
+    """Owner check — delegates to the canonical backend helper (backend/routes/_ownership.py)."""
+    from backend.routes._ownership import check_owned
+    return await check_owned(request, agent_id)
 # =========================================================================
 # Endpoints
 # =========================================================================
