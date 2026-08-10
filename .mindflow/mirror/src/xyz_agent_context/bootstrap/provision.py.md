@@ -21,7 +21,9 @@ add_agent → InstanceFactory.create_agent_level_instances → sync_agent_discov
 → apply_bootstrap(profile) → SkillMarketplaceService.install_defaults
 (fire-and-forget; the step review #3 named as missing from the MCP copy) →
 seed caller-supplied awareness onto the factory-built AwarenessModule instance.
-Each step is best-effort (try/except) mirroring auth.py's semantics; the agent
+Each step past add_agent folds its failure into a warnings list rather than
+raising — EXCEPT peer-discovery (step 2), which is deliberately bare so it
+bubbles to the caller's own try (auth.py's historical behaviour). The agent
 row exists either way and per-turn hooks re-sync.
 
 ## Convergence

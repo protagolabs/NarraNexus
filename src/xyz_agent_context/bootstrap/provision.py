@@ -56,10 +56,12 @@ class ProvisionResult:
 
     `bootstrap_active` mirrors auth.py's historical semantics: True only
     when the bootstrap profile rendered a Bootstrap.md AND that file still
-    exists on disk right after `apply_bootstrap` ran. Every step here past
-    the initial `add_agent` insert is best-effort and never raises — a
-    failure is logged and folded into `warnings`, not surfaced as an
-    exception, so a partially-provisioned agent is still a created agent.
+    exists on disk right after `apply_bootstrap` ran. Every step past the
+    initial `add_agent` insert is best-effort and folds its failure into
+    `warnings` rather than raising — EXCEPT peer-discovery (step 2), which is
+    deliberately bare so its failure bubbles to the caller's own try (matching
+    auth.py's historical behaviour). A partially-provisioned agent is still a
+    created agent.
     """
 
     agent_id: str
@@ -82,7 +84,7 @@ async def provision_new_agent(
     module instances, register it for peer discovery, run its first-run
     bootstrap flow, install its default skills, and (optionally) seed an
     initial awareness text. See the module docstring for the full sequence
-    and why `backend/routes/auth.py` does not call this yet.
+    and how all three call sites converge on it.
 
     Args:
         db: Database client
