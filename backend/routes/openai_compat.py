@@ -623,6 +623,10 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
         managed_ingress = get_managed_channel_ingress()
+        # Wall-clock anchor for the managed_ingress_processed audit row —
+        # covers gate + conversion + the full run, i.e. the platform-side
+        # view of "how long did this inbound take end to end".
+        managed_t0 = time.monotonic()
         allowed, receipt = await managed_ingress.before_run(
             working_source=working_source,
             agent_id=agent_id,
@@ -910,6 +914,12 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         db=db,
                         reply_text="\n".join(reply_parts),
                         error_text=last_error_msg or "",
+                        audit_details={
+                            "route": "normal",
+                            "duration_ms": int(
+                                (time.monotonic() - managed_t0) * 1000
+                            ),
+                        },
                     )
 
         return StreamingResponse(
@@ -984,6 +994,10 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 db=db,
                 reply_text="\n".join(parts),
                 error_text=error_msg or "",
+                audit_details={
+                    "route": "normal",
+                    "duration_ms": int((time.monotonic() - managed_t0) * 1000),
+                },
             )
 
     if error_msg:

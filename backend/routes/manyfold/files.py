@@ -381,37 +381,48 @@ async def write_file(
     so the caller can reference it on the wire.
     """
     _require_manyfold_auth(request)
-    workspace, _user_id = await _resolve_workspace_root(agent_id)
-    root = workspace.resolve(strict=False)
-    target = _safe_resolve(workspace, path)
-    if target == root:
-        raise HTTPException(
-            status_code=400,
-            detail="path must name a file inside the workspace, not the root",
-        )
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > _MAX_WRITE_BYTES:
+    # Auth passed → every outcome from here down gets an audit row. The
+    # 2026-08-05 staging diagnosis had to infer write outcomes from the
+    # PLATFORM's code because this gateway kept no account of the ingest
+    # leg (lesson #5: a missing DB row is reliable evidence, a missing
+    # log line is not).
+    try:
+        workspace, _user_id = await _resolve_workspace_root(agent_id)
+        root = workspace.resolve(strict=False)
+        target = _safe_resolve(workspace, path)
+        if target == root:
             raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
-                ),
+                status_code=400,
+                detail="path must name a file inside the workspace, not the root",
             )
-        chunks.append(chunk)
-    body = b"".join(chunks)
-    if target.exists() and target.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"path is a directory: {path!r}",
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > _MAX_WRITE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
+                    ),
+                )
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        if target.exists() and target.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=f"path is a directory: {path!r}",
+            )
+        if target.exists() and not overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"file exists and overwrite=false: {path!r}",
+            )
+    except HTTPException as e:
+        await _audit_files_write(
+            agent_id, path=path, ok=False, error=f"{e.status_code}: {e.detail}"
         )
-    if target.exists() and not overwrite:
-        raise HTTPException(
-            status_code=409,
-            detail=f"file exists and overwrite=false: {path!r}",
-        )
+        raise
 
     def _write() -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -422,4 +433,36 @@ async def write_file(
     logger.info(
         f"[manyfold-files:{agent_id}] wrote {len(body)} bytes to {rel!r}"
     )
+    await _audit_files_write(agent_id, path=rel, ok=True, size=len(body))
     return {"ok": True, "path": rel, "size": len(body)}
+
+
+async def _audit_files_write(
+    agent_id: str, *, path: str, ok: bool, size: int = 0, error: str = ""
+) -> None:
+    """Best-effort audit row for one write attempt. Never raises — losing
+    an audit row must not fail (or double-fail) the write itself."""
+    try:
+        from xyz_agent_context.channel.channel_audit_events import (
+            EVENT_MANYFOLD_FILES_WRITE,
+        )
+        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+            ChannelTriggerAuditRepository,
+        )
+
+        db = await get_db_client()
+        await ChannelTriggerAuditRepository("manyfold", db).append(
+            EVENT_MANYFOLD_FILES_WRITE,
+            agent_id=agent_id,
+            details={
+                "path": path[:512],
+                "ok": ok,
+                "size": size,
+                "error": error[:200],
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — audit is a side-channel
+        logger.warning(
+            f"[manyfold-files:{agent_id}] write audit failed "
+            f"({type(e).__name__}: {e})"
+        )

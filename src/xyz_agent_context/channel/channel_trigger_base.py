@@ -2022,6 +2022,17 @@ class ChannelTriggerBase(ABC):
         self._managed_bind(db)
         return True, ""
 
+    async def managed_audit(
+        self, db: Any, event_type: str, **kwargs: Any
+    ) -> None:
+        """Audit write for the ingress COORDINATOR's own lifecycle points
+        (deny / silent / attachment conversion). The coordinator can't use
+        ``_audit`` directly — the repo only exists after ``_managed_bind``
+        — and widening ``_audit`` itself would blur who owns the binding.
+        Best-effort like every audit write."""
+        self._managed_bind(db)
+        await self._audit(event_type, **kwargs)
+
     async def managed_after_run(
         self,
         *,
@@ -2030,11 +2041,17 @@ class ChannelTriggerBase(ABC):
         db: Any,
         reply_text: str,
         error_text: str = "",
+        audit_details: Optional[dict] = None,
     ) -> None:
         """Post-run bookkeeping for a managed inbound: error fallback when
         the run failed before any reply, then the native inbox write and a
         minimal audit row. Best-effort throughout — this runs after the
-        reply stream closed and must never raise."""
+        reply stream closed and must never raise.
+
+        ``audit_details`` carries turn facts only the completions endpoint
+        knows (route, duration) into the ``managed_ingress_processed``
+        row — merged under the caller's keys so this method's own
+        ``replied`` / ``error`` stay authoritative."""
         self._managed_bind(db)
         replied = bool((reply_text or "").strip())
         if error_text and not replied:
@@ -2068,16 +2085,16 @@ class ChannelTriggerBase(ABC):
                 f"{type(self).__name__}: managed inbox write failed "
                 f"({type(e).__name__}: {e})"
             )
+        details = dict(audit_details or {})
+        details["replied"] = replied
+        details["error"] = (error_text or "")[:200]
         await self._audit(
             "managed_ingress_processed",
             agent_id=agent_id,
             message_id=message.message_id,
             chat_id=message.chat_id,
             sender_id=message.sender_id,
-            details={
-                "replied": replied,
-                "error": (error_text or "")[:200],
-            },
+            details=details,
         )
 
     async def managed_silent_ingest(

@@ -31,6 +31,11 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_MANAGED_ATTACHMENTS,
+    EVENT_MANAGED_INGRESS_DENIED,
+    EVENT_MANAGED_INGRESS_SILENT,
+)
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
 from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
 from xyz_agent_context.schema.hook_schema import WorkingSource
@@ -145,9 +150,31 @@ class ManagedChannelIngress:
         message = synthesize_managed_message(trigger_extra_data, user_input)
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:
-            return await trigger.managed_before_run(
+            allow, receipt = await trigger.managed_before_run(
                 agent_id=agent_id, message=message, db=db, is_mention=is_mention
             )
+            if not allow:
+                # A denied inbound produces NO run and NO processed row —
+                # without its own event, "the bot ignored me" on a managed
+                # channel is unanswerable from the DB (lesson #5). Own
+                # try: an audit failure inside the outer except would
+                # read as "gate failed" and turn this DENY into an ALLOW.
+                try:
+                    await trigger.managed_audit(
+                        db,
+                        EVENT_MANAGED_INGRESS_DENIED,
+                        agent_id=agent_id,
+                        message_id=message.message_id,
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={"reason": (receipt or "")[:200]},
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"managed ingress: deny audit failed "
+                        f"({type(e).__name__}: {e})"
+                    )
+            return allow, receipt
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"managed ingress before_run failed for {channel} "
@@ -274,6 +301,27 @@ class ManagedChannelIngress:
                 )
         if converted:
             trigger_extra_data["attachments"] = converted
+        # One row per attachment-bearing inbound, whatever the outcome:
+        # declared vs converted is the whole diagnosis for "the agent
+        # never saw my file" (the converter itself never raises, so a
+        # silent shortfall is otherwise invisible outside process logs).
+        trigger = self._trigger(working_source.value)
+        if trigger is not None:
+            try:
+                await trigger.managed_audit(
+                    db,
+                    EVENT_MANAGED_ATTACHMENTS,
+                    agent_id=agent_id,
+                    message_id=str(
+                        trigger_extra_data.get("source_message_id", "") or ""
+                    ),
+                    details={"declared": len(refs), "converted": len(converted)},
+                )
+            except Exception as e:  # noqa: BLE001 — audit is a side-channel
+                logger.warning(
+                    f"managed ingress: attachments audit failed "
+                    f"({type(e).__name__}: {e})"
+                )
 
     async def silent_ingest(
         self,
@@ -310,12 +358,33 @@ class ManagedChannelIngress:
                 attachments = [
                     Attachment(**d) for d in converted if isinstance(d, dict)
                 ]
-            return await trigger.managed_silent_ingest(
+            receipt = await trigger.managed_silent_ingest(
                 agent_id=agent_id,
                 message=message,
                 db=db,
                 attachments=attachments,
             )
+            # Audit is a side-channel: its failure must not convert a
+            # successful ingest into a "dropped" receipt.
+            try:
+                await trigger.managed_audit(
+                    db,
+                    EVENT_MANAGED_INGRESS_SILENT,
+                    agent_id=agent_id,
+                    message_id=message.message_id,
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "attachments": len(attachments) if attachments else 0,
+                        "receipt": (receipt or "")[:120],
+                    },
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"managed ingress: silent audit failed "
+                    f"({type(e).__name__}: {e})"
+                )
+            return receipt
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"managed ingress silent_ingest failed for {channel} "
@@ -333,9 +402,12 @@ class ManagedChannelIngress:
         db: Any,
         reply_text: str,
         error_text: str = "",
+        audit_details: Optional[dict] = None,
     ) -> None:
         """Run the channel's post-run bookkeeping (inbox / audit / error
-        fallback). Best-effort; never raises."""
+        fallback). Best-effort; never raises. ``audit_details`` is the
+        completions endpoint's turn facts (route / duration) for the
+        ``managed_ingress_processed`` row."""
         trigger = self._trigger(working_source.value)
         if trigger is None:
             return
@@ -347,6 +419,7 @@ class ManagedChannelIngress:
                 db=db,
                 reply_text=reply_text,
                 error_text=error_text,
+                audit_details=audit_details,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

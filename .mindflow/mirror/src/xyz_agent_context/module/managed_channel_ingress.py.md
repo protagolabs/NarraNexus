@@ -4,6 +4,18 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B)
+
+三个写入点:before_run 拒绝 → `managed_ingress_denied`(带 reason;
+**独立 try**——审计失败若落进外层 except 会把 DENY 翻成 ALLOW);
+silent_ingest 成功 → `managed_ingress_silent`(附件数+receipt;同样
+独立 try,审计失败不得把成功摄取报成 dropped);convert_attachments
+→ `managed_attachments_converted`(**declared vs converted**——转换
+器 never-raise,缺口以前只在进程日志)。after_run 增加
+`audit_details` 透传。设计取舍:复用 `channel_trigger_audit` 表而非
+新建 `instance_managed_ingress_audit`(todo §B 原案)——现表已有
+JSON details/保留期/查询助手,平行审计系统违背铁律 #8。
+
 ## 2026-08-10 — before_run 补 #254 turn envelope
 
 `_stamp_turn_envelope`:native turn 的信封由 context builder 产出

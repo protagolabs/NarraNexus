@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/manyfold/files.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — write 端点每次尝试落审计行(batch-2 §B)
+
+`_audit_files_write`(never-raise 旁路)→ `channel_trigger_audit`,
+channel="manyfold",event=`manyfold_files_write`,details
+{path, ok, size, error}。成功与 HTTPException(403 逃逸/409/413/400)
+都记;鉴权失败不记(未认证噪声,且无 agent 归属)。动机:2026-08-05
+staging 排障时"平台写没写进来"只能靠读平台代码推断——自己的门要有
+自己的账(教训 #5)。
 
 ## 2026-08-04 — write 端点:流式限量 + overwrite 默认 False(review)
 
