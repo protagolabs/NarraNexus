@@ -36,7 +36,15 @@ router = APIRouter()
 
 class ProfileUpdateBody(BaseModel):
     """Body for POST .../profile/update — the update_agent_profile tool's args
-    (both optional; only passed ones change)."""
+    (both optional; only passed ones change).
+
+    Deliberately NO ``Field(max_length=AGENT_TEXT_MAX_LENGTH)`` here: the length
+    cap is enforced in the shared update_agent_profile_from_args, which returns
+    a readable "Error: … too long" STRING (HTTP 200). A route-level Field would
+    422 BEFORE the shared fn runs, so HttpStore would see "…rejected (422)"
+    while DirectStore returns the fn's string — breaking the byte-parity this
+    seam exists for. Enforcing in the one shared fn keeps both paths identical,
+    and an over-long value is still rejected (never written) on both."""
     new_name: Optional[str] = None
     new_description: Optional[str] = None
 

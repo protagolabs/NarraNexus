@@ -18,3 +18,7 @@ stub: false
 不走「结构化响应 + HttpStore 重建常量」那套，而是把工具串**原样**放进 `{"message": <str>}`
 信封，[[store]] HttpStore 拆信封原样返回。handler 对已处理结果恒 200；get_db_client 失败兜成
 `{"message": "Error: ..."}`。挂载在 [[core]]。
+
+## 长度上限故意不放路由 body
+
+`ProfileUpdateBody` **不加** `Field(max_length=AGENT_TEXT_MAX_LENGTH)`：上限在共享 [[_awareness_writes]] `update_agent_profile_from_args` 里 enforce、返回可读的 "Error: … too long" 串(HTTP 200)。若在路由 body 加 Field 会 422 抢在 fn 前 → HttpStore 收 "rejected (422)" 而 DirectStore 返 fn 串 → 破 byte-parity。单点 enforce 两条路径逐字节同，过长值仍被拒(绝不落库)。

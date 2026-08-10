@@ -39,6 +39,16 @@ input bounds is mirrored HERE (`_clamp_limit`, `_remember_reject`,
 local caller can never succeed on an input the cloud caller would 422 on. The routes
 keep their own pydantic Field bounds regardless — they are a public HTTP
 surface reachable without going through HttpStore.
+
+The str-return methods are the deliberate exception to "routes keep Field
+bounds": `update_agent_profile` enforces its one input bound (the
+AGENT_TEXT_MAX_LENGTH name/description cap) INSIDE the shared
+update_agent_profile_from_args that both DirectStore and the route call, and the
+route body carries NO Field bound on purpose. A route-level 422 would degrade to
+a DIFFERENT string on the HttpStore side ("rejected (422)") than DirectStore's fn
+string — there is no `_parse_dict` to fold a 422 back into the tool's shape for a
+str return — so the one shared fn is the only place a str-return bound can live
+without breaking parity (see profile.py's ProfileUpdateBody note).
 """
 from __future__ import annotations
 

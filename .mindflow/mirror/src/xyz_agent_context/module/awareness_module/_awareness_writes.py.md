@@ -24,4 +24,5 @@ _record_identity_change）也一并搬来——它们只被这个 writer 用；�
   db.get，无裸 SQL。**MATCHED-vs-CHANGED rowcount 陷阱**（update_agent 返回 cursor.rowcount=
   SQLite matched / MySQL changed）在写之前被 name/description 两处**等值短路**化解：重复存同值
   返回 "No changes needed"，两方言一致，而不是云上假报 "did not apply"。**别动这两个短路**。
+- **长度上限**：name/description 都绑 `AGENT_TEXT_MAX_LENGTH`(255，读模型 `Agent` Field + MySQL VARCHAR(255) 同源)。>255 写会让 agent 行读不出来(get_agent→pydantic ValidationError，NetMindAI-Open#71)且方言分叉(sqlite TEXT 收/MySQL 1406)。检查放**共享 fn**里 → Direct/Http 逐字节同拒(store parity invariant)；路由 body 故意不加 `Field(max_length)`(见 [[profile]]：会 422 抢在 fn 前、破 byte-parity)。
 - 未迁：update_awareness 另在 seam（早前 PR）；本文件只管 profile。

@@ -39,6 +39,7 @@ from xyz_agent_context.repository import (
     InstanceAwarenessRepository,
     InstanceRepository,
 )
+from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 # Where a rename records itself inside the Awareness profile. The profile is
 # injected verbatim into the system prompt every turn, so this is the one place
@@ -174,8 +175,11 @@ async def update_agent_profile_from_args(
 
     Returns the SAME status string the update_agent_profile MCP tool has always
     produced — DirectStore and the backend twin route both call this, so the
-    two paths are byte-identical. Never raises: every outcome is a string the
-    model reads.
+    two paths are byte-identical. Every HANDLED outcome is a string the model
+    reads; the repository calls (get_agent / update_agent) can still raise on a
+    real db error (db down, a MySQL 1406) — DirectStore lets that propagate
+    (as the old tool did), while the Http path degrades it to an "Error: …(500)"
+    string, a real parity seam on unhandled db failures only.
     """
     if new_name is None and new_description is None:
         return (
@@ -198,6 +202,15 @@ async def update_agent_profile_from_args(
         wanted = new_name.strip()
         if not wanted:
             return "Error: new_name cannot be empty"
+        # Bind to the SAME cap the read model enforces (Agent.agent_name
+        # Field(max_length=AGENT_TEXT_MAX_LENGTH)) and the MySQL column
+        # (VARCHAR(255)). Without it a >255 write succeeds on sqlite (TEXT) but
+        # makes the row UNREADABLE (get_agent → Agent(...) ValidationError, the
+        # NetMindAI-Open#71 bug) and diverges on MySQL (1406 / silent truncate).
+        # Checked HERE — the one shared fn both stores call — so Direct and Http
+        # reject identically (rule #6 / the store parity invariant).
+        if len(wanted) > AGENT_TEXT_MAX_LENGTH:
+            return f"Error: new_name is too long (max {AGENT_TEXT_MAX_LENGTH} characters)"
         if wanted != old_name:
             updates["agent_name"] = wanted
             renamed_from = old_name
@@ -220,6 +233,14 @@ async def update_agent_profile_from_args(
 
     if new_description is not None:
         wanted_desc = new_description.strip()
+        # Same AGENT_TEXT_MAX_LENGTH cap the name branch and the read model
+        # enforce — an over-long description would make the agent row unreadable
+        # (see the name branch).
+        if len(wanted_desc) > AGENT_TEXT_MAX_LENGTH:
+            return (
+                f"Error: new_description is too long "
+                f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
+            )
         # Same equality short-circuit the name branch does, and for a sharper
         # reason: update_agent returns cursor.rowcount, which counts CHANGED
         # rows on MySQL (dev/prod) but MATCHED rows on SQLite. Re-saving an

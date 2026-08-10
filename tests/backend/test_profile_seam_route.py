@@ -33,7 +33,7 @@ async def client(monkeypatch):
     db = await AsyncDatabaseClient.create_with_backend(backend_db)
 
     await db.insert("agents", {
-        "agent_id": "agent_mine", "agent_name": "凑企鹅", "created_by": OWNER_ID,
+        "agent_id": "agent_mine", "agent_name": "Pengu", "created_by": OWNER_ID,
         "agent_description": "", "is_public": 0,
     })
     await db.insert("module_instances", {
@@ -42,7 +42,7 @@ async def client(monkeypatch):
     })
     await db.insert("instance_awareness", {
         "instance_id": "aware_mine",
-        "awareness": "# Agent Awareness Profile\n\n## Role\n- I am 凑企鹅\n",
+        "awareness": "# Agent Awareness Profile\n\n## Role\n- I am Pengu\n",
     })
 
     async def _db():
@@ -76,7 +76,7 @@ def test_profile_update_non_owner_is_denied(client):
 
 
 def test_profile_update_rename_returns_the_tool_string(client):
-    r = client.post("/api/agents/agent_mine/profile/update", headers=OWNER, json={"new_name": "咕咕嘎嘎"})
+    r = client.post("/api/agents/agent_mine/profile/update", headers=OWNER, json={"new_name": "Quacker"})
     assert r.status_code == 200
     msg = r.json()["message"]
     assert msg.startswith("Profile updated successfully")
@@ -103,3 +103,15 @@ def test_profile_update_resaving_same_description_is_no_op_not_error(client):
                         json={"new_description": "a helpful reviewer"})
     assert again.status_code == 200
     assert again.json()["message"].startswith("No changes needed")
+
+
+def test_profile_update_over_length_name_is_rejected_not_written(client):
+    # Bind to AGENT_TEXT_MAX_LENGTH (255): a >255 name must be rejected with a
+    # readable string, never written. Non-vacuous — without the shared-fn length
+    # check, sqlite (TEXT) would accept it and the assertion would see
+    # "Profile updated successfully"; on MySQL the same write would 1406 / make
+    # the row unreadable (NetMindAI-Open#71).
+    r = client.post("/api/agents/agent_mine/profile/update", headers=OWNER,
+                    json={"new_name": "x" * 256})
+    assert r.status_code == 200
+    assert r.json()["message"].startswith("Error: new_name is too long")

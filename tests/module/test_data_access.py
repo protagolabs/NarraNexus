@@ -1439,3 +1439,14 @@ def test_update_agent_profile_http_no_message_key_is_an_error_string(monkeypatch
     h = HttpStore("http://backend:8000")
     out = asyncio.run(h.update_agent_profile(AGENT, "X", None))
     assert isinstance(out, str) and out.startswith("Error:")
+
+
+def test_update_agent_profile_http_non_json_degrades(monkeypatch):
+    # A 2xx body that isn't JSON must degrade to a string, never raise.
+    def handler(request):
+        return httpx.Response(200, text="not json at all")
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    out = asyncio.run(h.update_agent_profile(AGENT, "X", None))
+    assert out == "Error: profile backend returned a non-JSON response"
