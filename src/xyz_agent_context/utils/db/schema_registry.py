@@ -1616,6 +1616,13 @@ _register(
             Column("author_id", "TEXT", "VARCHAR(64)"),
             # 'long_term' | 'current_task' — the second is cleared per task.
             Column("tier", "TEXT", "VARCHAR(16)", nullable=False, default="'long_term'"),
+            # Only ever set on the auto_summary row: the ``created_at`` of the
+            # newest message that summary covers, so the worker can ask "how
+            # much has happened since" without a counter to keep in sync.
+            # A dedicated nullable column rather than reusing author_id — that
+            # column already means "who wrote this", and a second meaning
+            # depending on `source` is what makes a schema unreadable later.
+            Column("watermark_at", "TEXT", "DATETIME(6)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

@@ -81,3 +81,17 @@ def test_the_summary_slot_is_reachable_by_an_indexed_lookup():
     """`get_summary` filters (team_id, source) on every summary write and on
     every prompt build."""
     assert ["team_id", "source"] in _index_columns()
+
+
+def test_the_summary_watermark_is_its_own_column():
+    """How much has happened since the last summary is tracked in a dedicated
+    nullable column, not folded into `author_id`.
+
+    `author_id` already answers "who wrote this". A second meaning that depends
+    on `source` is exactly what makes a schema unreadable later — and the first
+    draft of the worker did precisely that before this was pinned.
+    """
+    col = _cols().get("watermark_at")
+    assert col is not None, "team_bulletin_entries.watermark_at missing"
+    assert col.sqlite_type and col.mysql_type
+    assert col.nullable is not False, "only the summary row carries a watermark"

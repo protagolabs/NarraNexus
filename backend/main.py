@@ -238,6 +238,18 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Team bulletin — keep each team's progress summary fresh so a member
+    # joining a long task does not have to reconstruct it from scrollback.
+    # Same opportunistic contract as the memory worker: per-team isolation, a
+    # failure keeps the previous summary, and nothing ever waits on it
+    # (iron rule #14).
+    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+
+    team_summary_worker = TeamSummaryWorker(db)
+    await team_summary_worker.start()
+    app.state.team_summary_worker = team_summary_worker
+    logger.info("Team summary worker started")
+
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
@@ -350,6 +362,12 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()
+    # Stopped BEFORE the db client closes: its poll loop holds that client, and
+    # a pass landing mid-teardown would log a confusing connection error on
+    # every clean shutdown.
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        await summary_worker.stop()
     await close_db_client()
     logger.info("Database connections closed")
 
@@ -481,12 +499,8 @@ app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.
-app.include_router(
-    marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
-)
-app.include_router(
-    marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
-)
+app.include_router(marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"])
+app.include_router(marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"])
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
