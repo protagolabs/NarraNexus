@@ -1367,3 +1367,75 @@ def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
     assert updates["next_run_time"] is not None              # computed with the NEW type, not one_off→None
     assert updates["next_run_at_local"] is not None
     assert updates["next_run_tz"] == "UTC"
+
+
+# --------------------------------------------------------------------------- update_agent_profile
+
+
+def test_update_agent_profile_direct_delegates_to_shared_fn(monkeypatch):
+    # DirectStore forwards to update_agent_profile_from_args and returns its
+    # string verbatim (the shared fn's rename-transaction logic is covered
+    # exhaustively in test_agent_profile_tool.py; here we pin the delegation).
+    seen = {}
+
+    async def fake_fn(db, agent_id, *, new_name, new_description):
+        seen["args"] = (agent_id, new_name, new_description)
+        return "Profile updated successfully (agent_name)."
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.awareness_module.update_agent_profile_from_args", fake_fn
+    )
+    d = _basic_direct(monkeypatch, object())
+    out = asyncio.run(d.update_agent_profile(AGENT, "New", None))
+    assert out == "Profile updated successfully (agent_name)."
+    assert seen["args"] == (AGENT, "New", None)
+
+
+def test_update_agent_profile_http_forwards_and_returns_message(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.raw_path.decode("ascii"), _json.loads(request.content)))
+        return httpx.Response(200, json={"message": "Profile updated successfully (agent_description)."})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    out = asyncio.run(h.update_agent_profile(AGENT, None, "a helpful reviewer"))
+    assert out == "Profile updated successfully (agent_description)."
+    assert seen[0][0] == "POST"
+    assert seen[0][1] == f"/api/agents/{AGENT}/profile/update"
+    assert seen[0][2] == {"new_name": None, "new_description": "a helpful reviewer"}
+
+
+def test_update_agent_profile_http_unreachable_degrades(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    h = HttpStore("http://backend:8000")
+    assert asyncio.run(h.update_agent_profile(AGENT, "X", None)) == "Error: profile backend unreachable"
+
+
+def test_update_agent_profile_http_rejection_degrades(monkeypatch):
+    # A >=400 comes from BEFORE the handler (the handler always answers 200) —
+    # e.g. the identity gate. Must be an in-band string, never an exception.
+    def reject(request):
+        return httpx.Response(401, text="nope")
+
+    _patch_http(monkeypatch, reject)
+    h = HttpStore("http://backend:8000")
+    assert asyncio.run(h.update_agent_profile(AGENT, "X", None)) == "Error: profile backend rejected the call (401)"
+
+
+def test_update_agent_profile_http_no_message_key_is_an_error_string(monkeypatch):
+    # A 2xx body missing "message" must degrade to a string, never surface a dict
+    # (DirectStore only ever returns strings — parity).
+    def handler(request):
+        return httpx.Response(200, json={"unexpected": True})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    out = asyncio.run(h.update_agent_profile(AGENT, "X", None))
+    assert isinstance(out, str) and out.startswith("Error:")

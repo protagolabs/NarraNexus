@@ -68,6 +68,10 @@ class AgentDataStore(Protocol):
 
     async def update_awareness(self, agent_id: str, awareness: str) -> str: ...
 
+    async def update_agent_profile(
+        self, agent_id: str, new_name: Optional[str], new_description: Optional[str]
+    ) -> str: ...
+
     async def remember(self, agent_id: str, query: str, limit: int) -> dict: ...
 
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict: ...
@@ -264,6 +268,21 @@ class DirectStore:
             return _no_instance_msg(agent_id)
         await InstanceAwarenessRepository(db).upsert(instance_id, awareness)
         return _AWARENESS_OK
+
+    async def update_agent_profile(
+        self, agent_id: str, new_name: Optional[str], new_description: Optional[str]
+    ) -> str:
+        # The whole rename transaction (name/description + identity-note
+        # correction + same-owner clash note + discovery refresh) is the shared
+        # update_agent_profile_from_args; the backend twin route calls the SAME
+        # function, so the two paths return byte-identical strings.
+        from xyz_agent_context.module.awareness_module import (
+            update_agent_profile_from_args,
+        )
+        return await update_agent_profile_from_args(
+            await self._db(), agent_id,
+            new_name=new_name, new_description=new_description,
+        )
 
     async def remember(self, agent_id: str, query: str, limit: int) -> dict:
         # MemoryCoordinator/MemoryEngine go through the repository layer — no
@@ -626,6 +645,37 @@ class HttpStore:
             error = str(body.get("error") or "unknown backend error")
             return error if error.startswith("Error:") else f"Error: {error}"
         return _AWARENESS_OK
+
+    async def update_agent_profile(
+        self, agent_id: str, new_name: Optional[str], new_description: Optional[str]
+    ) -> str:
+        # update_agent_profile returns a DYNAMIC status string (which fields
+        # changed + any same-owner clash note), not a fixed constant like
+        # awareness — so the route hands back {"message": <the exact tool
+        # string>} and we return it verbatim (parity with DirectStore, which
+        # returns the shared fn's string). Transport failures degrade to an
+        # "Error: ..." string; the direct path only ever returns strings, so we
+        # must never surface a dict or raise.
+        r = await self._send(
+            "POST",
+            f"/api/agents/{agent_id}/profile/update",
+            json={"new_name": new_name, "new_description": new_description},
+        )
+        if r is None:
+            return "Error: profile backend unreachable"
+        if r.status_code >= 400:
+            logger.warning(
+                f"[data-access] profile backend rejected the call: {r.status_code}"
+            )
+            return f"Error: profile backend rejected the call ({r.status_code})"
+        try:
+            body = r.json() or {}
+        except ValueError:
+            return "Error: profile backend returned a non-JSON response"
+        message = body.get("message")
+        if not isinstance(message, str):
+            return "Error: profile backend returned no message"
+        return message
 
     async def remember(self, agent_id: str, query: str, limit: int) -> dict:
         # The backend route returns the EXACT dict shape the tool produces

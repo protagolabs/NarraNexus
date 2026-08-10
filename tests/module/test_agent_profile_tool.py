@@ -27,8 +27,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.awareness_module.awareness_module import (
-    AwarenessModule,
+from xyz_agent_context.module.awareness_module.awareness_module import AwarenessModule
+# The identity-note helpers moved to the shared _awareness_writes when
+# update_agent_profile was routed through the AgentDataStore seam; import from
+# the package surface (which re-exports them).
+from xyz_agent_context.module.awareness_module import (
     IDENTITY_CHANGE_SECTION,
     MAX_IDENTITY_CHANGE_ENTRIES,
     build_identity_change_note,
@@ -149,11 +152,15 @@ async def db(monkeypatch):
     await auto_migrate(backend)
     client = await AsyncDatabaseClient.create_with_backend(backend)
 
-    # The MCP tools open their own connection; point it at this one.
+    # The MCP tools open their own connection; point it at this one. The tool
+    # now delegates to the AgentDataStore seam, whose DirectStore resolves the
+    # db via XYZBaseModule.get_mcp_db_client (the base classmethod) — so patch it
+    # on the base, which also covers the AwarenessModule-inherited call.
     async def _client():
         return client
 
-    monkeypatch.setattr(AwarenessModule, "get_mcp_db_client", _client)
+    from xyz_agent_context.module.base import XYZBaseModule
+    monkeypatch.setattr(XYZBaseModule, "get_mcp_db_client", _client)
     try:
         yield client
     finally:

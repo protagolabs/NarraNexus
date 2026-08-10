@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
-last_verified: 2026-08-05
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — update_agent_profile routes through AgentDataStore
+
+`update_agent_profile` MCP 工具不再直连 db：改为
+`get_agent_data_store().update_agent_profile(agent_id, new_name, new_description)`
+（[[store]]）。改名事务整套逻辑 + 身份笔记 build/merge + 两个 DB 助手
+（_same_owner_name_holder / _record_identity_change）**移到** [[_awareness_writes]]
+`update_agent_profile_from_args`，DirectStore（本地不变）与 backend 孪生路由 [[profile]]
+（云，无 db 凭据）都调它 → byte-parity。返回 str（动态状态串，见 _awareness_writes）。
+MATCHED/CHANGED 等值短路随逻辑一起搬走、语义不变。下方历史条目记录的仍是该事务的设计初衷。
+
 
 ## 2026-08-10 — update_awareness routes through AgentDataStore
 
