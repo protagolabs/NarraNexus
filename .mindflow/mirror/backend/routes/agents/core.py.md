@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents/core.py
-last_verified: 2026-07-13
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — 挂载 general_memory / narrative 子路由（MCP seam PR-2）
+
+`include_router(general_memory_router)` + `include_router(narrative_router)`,
+把 [[general_memory]] 与 [[narrative]] 的端点挂进 `/api/agents`——MCP 数据访问
+seam 的 backend 半边(remember/grep/retain 与 view/switch/create)。纯聚合注册,
+逻辑在各子路由文件。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
