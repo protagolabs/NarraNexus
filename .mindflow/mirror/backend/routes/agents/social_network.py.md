@@ -10,8 +10,8 @@ stub: false
 `_resolve_social_instance_id` 的"无实例"文案改用 [[social_network_module]] 的共享
 `social_instance_not_found_msg`（措辞不变），使 route 与 DirectStore 逐字同源；
 route 侧失败仍走 `_normalize_write_result`(message→error)，HttpStore 端做精确逆
-还原成工具 `message` 形状（见 [[store]]）。GET 端点里那份同样字符串是既有重复、
-本 PR 未收（记 todo）。
+还原成工具 `message` 形状（见 [[store]]）。GET 端点里原本重复的那份同样字符串
+本 PR 也一并收编到共享 `social_instance_not_found_msg`（route 内已零字面量）。
 
 ## 2026-08-10 (round-2/3) — 四个写端点全部委托,不再有手工同步复制
 

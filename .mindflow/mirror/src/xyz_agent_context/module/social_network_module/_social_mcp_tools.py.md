@@ -10,7 +10,11 @@ last_verified: 2026-08-10
 留 tool 层逻辑：extract 保 `updates` 的 str→dict JSON 解析 + `setup_mcp_llm_context`
 （残留，方法本身不用 LLM，为 parity 保留）。`_get_instance_and_module` /
 `setup_mcp_llm_context` 仍被未迁的读工具（search/contact/stats）与 create_agent 使用。
-失败键仍是工具的 `message`（seam 两侧统一到它）。
+失败键仍是工具的 `message`（seam 两侧统一到它）。extract 的
+`setup_mcp_llm_context` **已删**（预审二轮）：其方法纯 repository 不用 LLM，而该
+setup 读 `agents` 表 + 会 raise LLMConfigNotConfigured，留着违背 seam 的「云端零
+db、in-band 不抛异常」。`_get_instance_and_module`/`setup_mcp_llm_context` 仍被
+search（读工具）使用。
 
 ## 2026-08-10 — merge/delete/create_agent 闭包改调共享 seam(去复制)
 

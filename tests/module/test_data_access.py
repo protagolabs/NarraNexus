@@ -613,3 +613,63 @@ def test_social_id_bounds_rejected_identically_on_both(monkeypatch):
     long_err = {"success": False, "message": "entity id too long (max 128 chars)"}
     assert asyncio.run(d.merge_entities(AGENT, long_id, "t", True)) == long_err
     assert asyncio.run(h.merge_entities(AGENT, long_id, "t", True)) == long_err
+
+
+def test_social_http_forwards_to_the_right_route_and_body(monkeypatch):
+    # The cloud-only side: assert HttpStore POSTs to the correct endpoint with
+    # the correct body. Catches a wrong path (/delete_entity vs the real
+    # /delete-entity), a source/target swap, or a dropped keep_target_name/
+    # update_mode — none of which the DirectStore forwarding test can reach.
+    # One handler records every request (patching httpx per-call would chain the
+    # MockTransport subclasses and the wrong one would win).
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.url.path, body))
+        return httpx.Response(200, json={"success": True, "message": "ok"})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+
+    asyncio.run(h.merge_entities(AGENT, "src1", "tgt1", False))
+    asyncio.run(h.delete_entity(AGENT, "ent9"))
+    asyncio.run(h.extract_entity_info(AGENT, "ent9", {"entity_name": "Z"}, "replace"))
+
+    assert seen[0][0].endswith("/social-network/merge")
+    assert seen[0][1] == {
+        "source_entity_id": "src1", "target_entity_id": "tgt1", "keep_target_name": False,
+    }
+    assert seen[1][0].endswith("/social-network/delete-entity")
+    assert seen[1][1] == {"entity_id": "ent9"}
+    assert seen[2][0].endswith("/social-network/extract")
+    assert seen[2][1] == {
+        "entity_id": "ent9", "updates": {"entity_name": "Z"}, "update_mode": "replace",
+    }
+
+
+def test_social_direct_db_failure_stays_in_band(monkeypatch):
+    # DirectStore invariant (module docstring): only ever return a dict. A local
+    # db failure during instance resolution must degrade to the tool's message
+    # shape, NOT escape as an exception — else the same fault is a message dict
+    # on HttpStore ("backend unreachable") but a raised error on Direct.
+    class BoomRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_by_agent(self, agent_id, module_class):
+            raise RuntimeError("db locked")
+
+    monkeypatch.setattr("xyz_agent_context.repository.InstanceRepository", BoomRepo)
+    store = DirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.delete_entity(AGENT, "ent9"))
+    assert out["success"] is False
+    assert "message" in out and "error" not in out
+    assert "db locked" in out["message"]

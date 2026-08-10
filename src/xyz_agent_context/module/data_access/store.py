@@ -34,10 +34,10 @@ factory.py; a 422 is surfaced as an actionable "invalid arguments" message).
 
 Parity is enforced, not hoped for: the normalizable half of each route's
 input bounds is mirrored HERE (`_clamp_limit`, `_remember_reject`,
-`_retain_reject`) and applied by BOTH stores, so a local caller can never
-succeed on an input the cloud caller would 422 on. The routes keep their own
-pydantic Field bounds regardless — they are a public HTTP surface reachable
-without going through HttpStore.
+`_retain_reject`, `_social_id_reject`) and applied by BOTH stores, so a local
+caller can never succeed on an input the cloud caller would 422 on. The routes
+keep their own pydantic Field bounds regardless — they are a public HTTP
+surface reachable without going through HttpStore.
 """
 from __future__ import annotations
 
@@ -224,67 +224,88 @@ class DirectStore:
         """Resolve the agent's SocialNetworkModule instance and build a temp
         module bound to it — the same (instance lookup + module construction)
         the MCP tool's ``_get_instance_and_module`` does, and the same the
-        backend social write routes do. Returns (module, instance_id), or
-        (None, None) when the agent has no such instance. SocialNetworkModule
-        is imported lazily (the tool passes it in as ``module_class`` to dodge
-        a circular import at module load; a lazy import here does the same)."""
-        from xyz_agent_context.repository import InstanceRepository
-        from xyz_agent_context.module.social_network_module import SocialNetworkModule
+        backend social write routes do.
 
-        db = await self._db()
-        instances = await InstanceRepository(db).get_by_agent(
-            agent_id=agent_id, module_class="SocialNetworkModule"
+        Returns (module, instance_id, None) on success, or (None, None,
+        failure_dict) where failure_dict is the seam's own ``message``-shaped
+        dict — for a missing instance OR any db/resolution error — so a caller
+        never sees an exception escape (the DirectStore invariant, module
+        docstring: only ever return a dict; the memory methods keep it the same
+        way). SocialNetworkModule is imported lazily (the tool passes it in as
+        ``module_class`` to dodge a circular import at module load; a lazy
+        import here does the same)."""
+        from xyz_agent_context.repository import InstanceRepository
+        from xyz_agent_context.module.social_network_module import (
+            SocialNetworkModule,
+            social_instance_not_found_msg,
         )
-        if not instances:
-            return None, None
-        instance_id = instances[0].instance_id
-        return SocialNetworkModule(agent_id=agent_id, database_client=db, instance_id=instance_id), instance_id
+
+        try:
+            db = await self._db()
+            instances = await InstanceRepository(db).get_by_agent(
+                agent_id=agent_id, module_class="SocialNetworkModule"
+            )
+            if not instances:
+                return None, None, {"success": False, "message": social_instance_not_found_msg(agent_id)}
+            instance_id = instances[0].instance_id
+            module = SocialNetworkModule(agent_id=agent_id, database_client=db, instance_id=instance_id)
+            return module, instance_id, None
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social] instance resolution failed for {agent_id}: {e}")
+            return None, None, {"success": False, "message": f"Error: {e}"}
 
     async def extract_entity_info(
         self, agent_id: str, entity_id: str, updates: dict, update_mode: str
     ) -> dict:
         # Mirrors the extract_entity_info tool's post-parse body: resolve the
-        # instance, then delegate to the module's pure-repository merge (no LLM
-        # — the tool's setup_mcp_llm_context call is vestigial and stays in the
-        # tool). Failures keep the tool's ``message`` shape.
-        from xyz_agent_context.module.social_network_module import social_instance_not_found_msg
-
+        # instance, then delegate to the module's pure-repository merge. Every
+        # exit is an in-band ``message``-shaped dict — the module method catches
+        # its own errors, and _social_module + this try/except catch resolution
+        # / call failures, so DirectStore never raises (parity with HttpStore).
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        module, instance_id = await self._social_module(agent_id)
-        if module is None:
-            return {"success": False, "message": social_instance_not_found_msg(agent_id)}
-        return await module.extract_and_update_entity_info(
-            entity_id=entity_id, instance_id=instance_id, updates=updates, update_mode=update_mode
-        )
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.extract_and_update_entity_info(
+                entity_id=entity_id, instance_id=instance_id, updates=updates, update_mode=update_mode
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.extract_entity_info] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
 
     async def merge_entities(
         self, agent_id: str, source_entity_id: str, target_entity_id: str, keep_target_name: bool
     ) -> dict:
-        from xyz_agent_context.module.social_network_module import social_instance_not_found_msg
-
         reject = _social_id_reject(source_entity_id, target_entity_id)
         if reject is not None:
             return reject
-        module, instance_id = await self._social_module(agent_id)
-        if module is None:
-            return {"success": False, "message": social_instance_not_found_msg(agent_id)}
-        return await module.merge_entities(
-            source_entity_id=source_entity_id, target_entity_id=target_entity_id,
-            instance_id=instance_id, keep_target_name=keep_target_name,
-        )
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.merge_entities(
+                source_entity_id=source_entity_id, target_entity_id=target_entity_id,
+                instance_id=instance_id, keep_target_name=keep_target_name,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.merge_entities] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
 
     async def delete_entity(self, agent_id: str, entity_id: str) -> dict:
-        from xyz_agent_context.module.social_network_module import social_instance_not_found_msg
-
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        module, instance_id = await self._social_module(agent_id)
-        if module is None:
-            return {"success": False, "message": social_instance_not_found_msg(agent_id)}
-        return await module.delete_entity(entity_id=entity_id, instance_id=instance_id)
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.delete_entity(entity_id=entity_id, instance_id=instance_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.delete_entity] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
 
 
 class HttpStore:
@@ -447,7 +468,7 @@ class HttpStore:
             logger.warning(f"[data-access] backend rejected arguments {path}: 422")
             return {
                 "success": False,
-                "error": "invalid arguments (query 1-512 chars, limit 1-100, content <=64KB, source <=512 chars)",
+                "error": "invalid arguments (an argument is out of the route's allowed range)",
                 **failure_extra,
             }
         # Any other non-2xx is a transport/middleware rejection (the handlers

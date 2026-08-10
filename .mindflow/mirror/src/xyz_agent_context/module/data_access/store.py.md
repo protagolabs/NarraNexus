@@ -17,6 +17,12 @@ byte-parity 写路由（`/social-network/{extract,merge,delete-entity}`）。
 写方法**只用 `message` 失败**（实测）。实例缺失文案走 [[social_network_module]]
 新增的共享 `social_instance_not_found_msg`（route+DirectStore 同源，杜绝漂移）。
 方法全走 repository（SocialNetworkRepository），**无裸 SQL、双方言安全**。
+**DirectStore 不抛异常**（管线预审二轮 Important）：`_social_module` 把实例解析
+包 try/except、三方法调用处也各有 try/except，本地 db/解析故障返回
+`{success:False, message:"Error: ..."}` 而非抛错——否则同一故障 HttpStore 是
+message dict、Direct 抛错，parity 破。extract 工具里的 `setup_mcp_llm_context`
+**已删**（预审二轮 Important）：它读 `agents` 表 + 会 raise LLMConfigNotConfigured，
+而 extract 方法纯 repository 不用 LLM——留着既给 mcp 加 db 依赖又是异常破口。
 **输入契约**：`_social_id_reject` 镜像路由的 entity-id `Field(1..128)` 边界，两个
 store 发请求/查库前都跑（同 memory 的 `_*_reject` 模式），否则空 id 本地会建空实体
 返回 success、云端 422 分叉；**严格按 Field 长度语义、不 strip**（路由 min_length

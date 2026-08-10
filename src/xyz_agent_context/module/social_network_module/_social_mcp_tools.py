@@ -153,11 +153,13 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 "entity_id": entity_id
             }
 
-        # setup_mcp_llm_context stays here (kept for behaviour parity); the data
-        # write itself routes through the AgentDataStore seam: DirectStore
-        # locally (same instance-resolve + module call as before), HttpStore in
-        # cloud (no db creds). Both return the identical dict — see data_access.
-        await setup_mcp_llm_context(agent_id)
+        # The write routes through the AgentDataStore seam: DirectStore locally
+        # (same instance-resolve + module call as before), HttpStore in cloud
+        # (no db creds). The old setup_mcp_llm_context call is gone:
+        # extract_and_update_entity_info is pure repository (no LLM), and that
+        # setup read the `agents` table (an extra mcp db dependency the seam is
+        # meant to shed) and could raise LLMConfigNotConfigured — both broke the
+        # seam's "in-band dict, no db in cloud" promise for this path.
         from xyz_agent_context.module.data_access import get_agent_data_store
 
         return await get_agent_data_store().extract_entity_info(
