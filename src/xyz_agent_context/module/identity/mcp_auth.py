@@ -104,12 +104,55 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
     return identity
 
 
-def _verify_headers(headers, public_key: bytes) -> tuple[Optional[VerifiedIdentity], str]:
-    """The shared header-level verification (identity/verify.py) — kept as a
-    thin alias so the middleware body reads naturally."""
-    from xyz_agent_context.module.identity.verify import verify_caller_identity
+# ---------------------------------------------------------------------------
+# Tokenless measurement — audit mode's entire purpose
+# ---------------------------------------------------------------------------
+#
+# A tool-call POST arriving with NO token is the one fact the audit window
+# exists to count (which callers must be onboarded before enforce can flip).
+# Logging each one would flood; logging none reads as "everyone has a token"
+# even when NOBODY does (incident lesson #4: no signal is not a signal).
+# So: aggregate per (method, path), flush one WARNING line + one sampled
+# instance_executor_audit row per window — the flip decision reads SQL, not
+# grep (incident lesson #5). Enforce mode needs none of this: its tokenless
+# POSTs are individually rejected and logged at the door.
+_TOKENLESS_FLUSH_SECONDS = 60.0
+_tokenless_counts: dict[tuple[str, str], int] = {}
+_tokenless_flush_deadline: float = 0.0
 
-    return verify_caller_identity(headers, public_key)
+
+async def _note_tokenless(method: str, path: str) -> None:
+    global _tokenless_flush_deadline
+    import time
+
+    key = (method, path)
+    _tokenless_counts[key] = _tokenless_counts.get(key, 0) + 1
+    now = time.monotonic()
+    if now < _tokenless_flush_deadline:
+        return
+    _tokenless_flush_deadline = now + _TOKENLESS_FLUSH_SECONDS
+    counts = dict(_tokenless_counts)
+    _tokenless_counts.clear()
+    total = sum(counts.values())
+    detail = {f"{m} {p}": n for (m, p), n in sorted(counts.items())}
+    logger.warning(
+        f"[mcp-auth] audit: {total} tokenless tool-call POST(s) this window — "
+        + ", ".join(f"{k} ×{n}" for k, n in detail.items())
+    )
+    try:
+        from xyz_agent_context.repository.executor_audit_repository import (
+            ExecutorAuditRepository,
+        )
+        from xyz_agent_context.schema.executor_audit import EVENT_MCP_AUTH_TOKENLESS
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        await ExecutorAuditRepository(db).record(
+            event_type=EVENT_MCP_AUTH_TOKENLESS,
+            detail={"total": total, "counts": detail},
+        )
+    except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+        logger.debug(f"[mcp-auth] tokenless audit row not written: {e}")
 
 
 class IdentityAuthMiddleware:
@@ -148,13 +191,24 @@ class IdentityAuthMiddleware:
             return
 
         headers = _ScopeHeaders(scope)
-        identity, reason = _verify_headers(headers, public_key)
+        from xyz_agent_context.module.identity.verify import verify_caller_identity
+
+        identity, reason = verify_caller_identity(headers, public_key)
         path = scope.get("path", "")
         method = scope.get("method", "")
 
         if identity is None and reason != "no-token":
             # Bad proof — log in every mode (audit's whole job).
             logger.warning(f"[mcp-auth] {mode}: {reason} method={method} path={path}")
+        elif (
+            mode == "audit"
+            and identity is None
+            and method == "POST"
+            and path not in _EXEMPT_PATHS
+        ):
+            # reason == "no-token": the measurement the audit window exists
+            # for. Aggregated — see _note_tokenless.
+            await _note_tokenless(method, path)
 
         if (
             mode == "enforce"
@@ -219,6 +273,7 @@ async def _reject(send, reason: str) -> None:
 # than a second source of truth — the point is only to keep the hot tool-call
 # path from adding one MySQL point-read per call.
 _OWNER_CACHE_TTL_SECONDS = 60.0
+_OWNER_CACHE_MAX = 4096
 _owner_cache: dict[str, tuple[str, float]] = {}
 
 
@@ -232,7 +287,22 @@ async def _resolve_owner_cached(db, agent_id: str) -> str:
     from xyz_agent_context.repository import AgentRepository
 
     owner = await AgentRepository(db).resolve_owner(agent_id)
-    _owner_cache[agent_id] = (owner, now + _OWNER_CACHE_TTL_SECONDS)
+    # Cache POSITIVE resolutions only. resolve_owner returns "" for three
+    # very different things — empty id, unknown agent, AND a failed db query
+    # — and "" makes the policy fail open, so caching it would pin an
+    # "unknown → allow" verdict for 60s off one MySQL hiccup, invisibly (no
+    # owner = no mcp_auth_denied row either). Unknown agents re-query every
+    # call, which is fine: they are never the hot path.
+    if owner:
+        if len(_owner_cache) >= _OWNER_CACHE_MAX:
+            # Bounded: drop expired entries; if everything is somehow live,
+            # reset — correctness never depends on this cache.
+            expired = [k for k, (_, dl) in _owner_cache.items() if dl <= now]
+            for k in expired:
+                del _owner_cache[k]
+            if len(_owner_cache) >= _OWNER_CACHE_MAX:
+                _owner_cache.clear()
+        _owner_cache[agent_id] = (owner, now + _OWNER_CACHE_TTL_SECONDS)
     return owner
 
 
@@ -246,8 +316,10 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     (incident lesson #5 — the DB row is the measurement that gates the
     audit→enforce flip).
     """
-    ident = verified_caller_for_tool_call()
-    if ident is None or not isinstance(agent_id, str) or not agent_id:
+    # Cheapest gates first: with the default (off) / local mode, a tool call
+    # must cost literally nothing extra here — verified_caller_for_tool_call
+    # does a stat() + an Ed25519 verify and runs only once these pass.
+    if not isinstance(agent_id, str) or not agent_id:
         return None
     from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
@@ -255,6 +327,9 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
         return None
     mode = auth_mode()
     if mode == "off":
+        return None
+    ident = verified_caller_for_tool_call()
+    if ident is None:
         return None
     from xyz_agent_context.repository.executor_audit_repository import (
         ExecutorAuditRepository,

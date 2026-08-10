@@ -4,11 +4,14 @@ last_verified: 2026-08-10
 stub: false
 ---
 
-## 2026-08-10 — 新增 event_type `mcp_auth_denied`（MCP caller auth）
+## 2026-08-10 — 新增 event_type `mcp_auth_denied` + `mcp_auth_tokenless`（MCP caller auth）
 
-验签身份对不属于自己的 agent_id 发起工具调用时写入（OwnerScopedPolicy，
-[[identity/mcp_auth]]）。audit 与 enforce 模式**都写**——audit 期的行数就是
-决定切 enforce 的度量（incident lesson #5）。同样无需迁移。
+`mcp_auth_denied`：验签身份对不属于自己的 agent_id 发起工具调用时写入
+（OwnerScopedPolicy，[[identity/mcp_auth]]）。audit 与 enforce 模式**都写**。
+`mcp_auth_tokenless`：audit 模式下无 token 的工具调用 POST，按 60s 窗口聚合
+采样写入（detail 含 per (method,path) 计数）——「零行」才能读作「全员持证」，
+安静的日志读不出这个结论（incident lesson #4/#5）。两者共同构成切 enforce
+的度量。同样无需迁移。
 
 ## 2026-07-22 — 新增 event_type `executor_unreachable`
 

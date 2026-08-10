@@ -589,3 +589,86 @@ def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypat
     # THE assertion this test exists for: the proof was readable inside the
     # tool body, per message, through the real transport's task topology.
     assert seen["verified_user"] == "usr_1"
+
+
+# ---------------------------------------------------------------------------
+# round-2 review: audit MUST measure tokenless calls; owner cache must not
+# pin failure sentinels
+# ---------------------------------------------------------------------------
+
+
+def test_audit_measures_tokenless_posts(tmp_path, monkeypatch):
+    """Review round 2 #1: audit's whole purpose is answering 'which callers
+    still arrive tokenless' — a tokenless POST must leave a log line AND a
+    sampled mcp_auth_tokenless audit row, not silence."""
+    from loguru import logger as _logger
+
+    from xyz_agent_context.module.identity import mcp_auth
+
+    _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+    )
+    monkeypatch.setattr(
+        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    # fresh window so the first note flushes immediately
+    mcp_auth._tokenless_counts.clear()
+    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+
+    lines: list[str] = []
+    sink_id = _logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        assert TestClient(_app()).post("/messages/").status_code == 200  # allowed
+    finally:
+        _logger.remove(sink_id)
+
+    assert any("tokenless" in line for line in lines)
+    assert rows and rows[0]["event_type"] == "mcp_auth_tokenless"
+    assert rows[0]["detail"]["total"] == 1
+    assert rows[0]["detail"]["counts"] == {"POST /messages/": 1}
+
+
+def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
+    """Review round 2 #2: resolve_owner's '' covers unknown AND query failure,
+    and '' means fail-open — a transient db error must not pin 'allow' for
+    60s. Only positive resolutions are cached."""
+    import asyncio
+
+    from xyz_agent_context.module.identity import mcp_auth
+
+    answers = ["", "usr_owner"]  # first call fails/unknown, second recovers
+    calls = {"n": 0}
+
+    class FlakyRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            calls["n"] += 1
+            return answers.pop(0) if answers else "usr_owner"
+
+    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FlakyRepo)
+    mcp_auth._owner_cache.clear()
+
+    assert asyncio.run(mcp_auth._resolve_owner_cached(object(), "agent_x")) == ""
+    # NOT cached: the very next call re-queries and sees the real owner.
+    assert asyncio.run(mcp_auth._resolve_owner_cached(object(), "agent_x")) == "usr_owner"
+    # Positive result IS cached: a third call does not hit the repo again.
+    assert asyncio.run(mcp_auth._resolve_owner_cached(object(), "agent_x")) == "usr_owner"
+    assert calls["n"] == 2

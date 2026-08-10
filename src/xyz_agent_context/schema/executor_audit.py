@@ -41,6 +41,11 @@ EVENT_EXECUTOR_UNREACHABLE = "executor_unreachable"
 # enforce mode — the audit-phase row count is the measurement that gates the
 # enforce flip.
 EVENT_MCP_AUTH_DENIED = "mcp_auth_denied"
+# Tool-call POSTs that arrived with NO identity token, aggregated per flush
+# window in audit mode (module/identity/mcp_auth.py). THE gating measurement
+# for the enforce flip: zero rows means "everyone carries a token", while a
+# quiet log alone could just mean nobody was looking (incident lesson #4/#5).
+EVENT_MCP_AUTH_TOKENLESS = "mcp_auth_tokenless"
 
 # Literal union of the closed set — used for type hints where strict validation
 # is wanted (e.g. in tests). The repository accepts plain str so new event_types
@@ -57,6 +62,7 @@ ExecutorEventType = Literal[
     "admit_granted",
     "executor_unreachable",
     "mcp_auth_denied",
+    "mcp_auth_tokenless",
 ]
 
 

@@ -18,8 +18,12 @@ wrapper calls.
 - **off** (default) — full no-op. This is what keeps a local `bash run.sh`
   byte-identical (iron rule #7); local enforcement is a deployment choice.
 - **audit** — verify + log + record denials, never reject. The measurement
-  phase: its logs answer "which callers still arrive tokenless?" before
-  enforce can be flipped (item3 灰度 discipline).
+  phase: tokenless tool-call POSTs are AGGREGATED per (method, path) and
+  flushed once per 60s window as one WARNING line + one sampled
+  `mcp_auth_tokenless` audit row — the enforce-flip decision reads SQL, not
+  grep (round-2 review #1: per-call logs would flood, and silence would read
+  as "everyone has a token" even when nobody does — incident lesson #4/#5).
+  Enforce needs no counter: its tokenless POSTs are individually 401'd+logged.
 - **enforce** — tokenless/invalid POSTs are 401'd at the door; cross-owner
   tool calls get an in-band error value. GETs (SSE handshake) and
   /health(z) stay open — tool calls are POSTs on both transports.
@@ -53,7 +57,14 @@ wrapper calls.
 - `resolve_owner` goes through a 60s-TTL in-process cache
   (`_resolve_owner_cached`) so the hot tool-call path doesn't add one MySQL
   point-read per call; short TTL keeps it self-correcting, not a second
-  source of truth.
+  source of truth. **Positive resolutions only** (round-2 review #2):
+  `resolve_owner` returns `""` for unknown-agent AND failed-query alike, and
+  `""` fails open — caching it would pin an invisible "allow" for 60s off one
+  MySQL hiccup. Bounded (drop-expired then clear at 4096) so a weeks-long mcp
+  process cannot leak.
+- `check_agent_ownership` gates cheapest-first (agent_id shape → cloud →
+  mode → THEN the stat+verify of `verified_caller_for_tool_call`) so the
+  default off/local path costs nothing extra per tool call.
 - `check_agent_ownership` only ever TIGHTENS a proven identity: no identity /
   local mode / unknown agent (`resolve_owner` → "") all allow, so the
   fail-open baseline of `_mcp_identity` survives intact. Denials write
