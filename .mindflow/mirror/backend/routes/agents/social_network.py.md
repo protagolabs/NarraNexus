@@ -65,7 +65,7 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
 - **被谁用**：`backend/routes/agents/core.py` 聚合；前端社交网络面板；写端点面向前端管理操作/脚本调用（不经过 agent 的 MCP 工具调用）
 - **依赖谁**：
   - `InstanceRepository` — 查询 `SocialNetworkModule` 实例 ID
-  - `SocialNetworkRepository` — 语义搜索（`semantic_search`）、关键词搜索（`keyword_search`）、写端点里的 `get_entity`/`update_entity_info`/`delete_entity`
+  - `SocialNetworkRepository` — 读端点的语义搜索（`semantic_search`）、关键词搜索（`keyword_search`）、单实体查询（`get_entity`）；写端点的实体改删逻辑已下沉到 `SocialNetworkModule.merge_entities`/`.delete_entity`，路由不再直接调 repo 的写方法
   - `SocialNetworkModule.extract_and_update_entity_info` — `extract` 端点直接委托给它，保证与 agent 工具路径语义一致
   - `SocialNetworkModule.merge_entities` / `.delete_entity` — `merge` /
     `delete-entity` 端点委托的真方法(与 MCP 工具同源)
