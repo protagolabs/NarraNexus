@@ -456,3 +456,160 @@ def test_retain_http_401_degrades_in_band(monkeypatch):
     out = asyncio.run(store.memory_retain("agent_a", "fact", ""))
     assert out["success"] is False
     assert "401" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# social writes (PR-4): extract / merge / delete parity
+# ---------------------------------------------------------------------------
+
+
+class _Inst:
+    def __init__(self, instance_id):
+        self.instance_id = instance_id
+
+
+def _social_direct(monkeypatch, *, has_instance=True, method_result=None):
+    """DirectStore with InstanceRepository + SocialNetworkModule stubbed. The
+    fake module's write methods all return ``method_result`` so a test pins the
+    exact dict DirectStore forwards."""
+    store = DirectStore()
+    store._calls = {}  # type: ignore[attr-defined]
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+
+    class FakeInstanceRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_by_agent(self, agent_id, module_class):
+            return [_Inst("social_1")] if has_instance else []
+
+    class FakeSocial:
+        def __init__(self, agent_id, database_client, instance_id):
+            pass
+
+        async def extract_and_update_entity_info(self, **kw):
+            store._calls["method"] = ("extract", kw)  # type: ignore[attr-defined]
+            return method_result
+
+        async def merge_entities(self, **kw):
+            store._calls["method"] = ("merge", kw)  # type: ignore[attr-defined]
+            return method_result
+
+        async def delete_entity(self, **kw):
+            store._calls["method"] = ("delete", kw)  # type: ignore[attr-defined]
+            return method_result
+
+    monkeypatch.setattr("xyz_agent_context.repository.InstanceRepository", FakeInstanceRepo)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.social_network_module.SocialNetworkModule", FakeSocial
+    )
+    return store
+
+
+def _social_http(monkeypatch, route_body, status=200):
+    """HttpStore whose backend echoes a social write route's response shape
+    (failures under the route family's ``error`` key, per _normalize_write_result)."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=route_body)
+
+    _patch_http(monkeypatch, handler)
+    return HttpStore("http://backend:8000")
+
+
+def test_social_extract_success_parity(monkeypatch):
+    ok = {"success": True, "message": "Entity info updated successfully"}
+    d = _social_direct(monkeypatch, method_result=ok)
+    dr = asyncio.run(d.extract_entity_info(AGENT, "user_x", {"entity_name": "X"}, "merge"))
+    assert dr == ok
+    # The route leaves a success body untouched (_normalize_write_result only
+    # rewrites failures), and so does HttpStore's _social_write_message.
+    h = _social_http(monkeypatch, route_body=ok)
+    hr = asyncio.run(h.extract_entity_info(AGENT, "user_x", {"entity_name": "X"}, "merge"))
+    assert hr == ok == dr
+
+
+def test_social_no_instance_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import social_instance_not_found_msg
+
+    expected = {"success": False, "message": social_instance_not_found_msg(AGENT)}
+    d = _social_direct(monkeypatch, has_instance=False)
+    dr = asyncio.run(d.delete_entity(AGENT, "user_x"))
+    assert dr == expected
+    # The backend route returns the SAME string (shared social_instance_not_
+    # found_msg) but under the family's `error` key; HttpStore restores the
+    # tool's `message` key -> byte-identical to DirectStore. This is the whole
+    # point of aligning the route wording onto the shared source.
+    route_body = {"success": False, "error": social_instance_not_found_msg(AGENT)}
+    h = _social_http(monkeypatch, route_body=route_body)
+    hr = asyncio.run(h.delete_entity(AGENT, "user_x"))
+    assert hr == expected == dr
+
+
+def test_social_merge_method_failure_parity(monkeypatch):
+    fail = {"success": False, "message": "Source entity not found: s1"}
+    d = _social_direct(monkeypatch, method_result=fail)
+    dr = asyncio.run(d.merge_entities(AGENT, "s1", "t1", True))
+    assert dr == fail
+    # Route normalized the method's `message` failure to `error`; HttpStore's
+    # _social_write_message is the exact inverse.
+    h = _social_http(monkeypatch, route_body={"success": False, "error": "Source entity not found: s1"})
+    hr = asyncio.run(h.merge_entities(AGENT, "s1", "t1", True))
+    assert hr == fail == dr
+
+
+def test_social_http_unreachable_is_message_keyed(monkeypatch):
+    # Transport degradation must use the social tool's `message` failure key,
+    # not `_parse_dict`'s default `error`, so the agent sees a uniform shape.
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.extract_entity_info(AGENT, "user_x", {}, "merge"))
+    assert out["success"] is False
+    assert "message" in out and "error" not in out
+    assert "unreachable" in out["message"]
+
+
+def test_social_direct_forwards_args_to_the_right_method(monkeypatch):
+    # FakeSocial records (method_name, kwargs); assert DirectStore forwards each
+    # tool's params to the CORRECT method with the right keys — a swap
+    # (source/target), a dropped update_mode/keep_target_name, or extract calling
+    # merge would all be caught here.
+    d = _social_direct(monkeypatch, method_result={"success": True, "message": "ok"})
+    asyncio.run(d.merge_entities(AGENT, "src1", "tgt1", False))
+    assert d._calls["method"] == (
+        "merge",
+        {"source_entity_id": "src1", "target_entity_id": "tgt1",
+         "instance_id": "social_1", "keep_target_name": False},
+    )
+
+    d2 = _social_direct(monkeypatch, method_result={"success": True, "message": "ok"})
+    asyncio.run(d2.extract_entity_info(AGENT, "ent9", {"entity_name": "Z"}, "replace"))
+    assert d2._calls["method"] == (
+        "extract",
+        {"entity_id": "ent9", "instance_id": "social_1",
+         "updates": {"entity_name": "Z"}, "update_mode": "replace"},
+    )
+
+
+def test_social_id_bounds_rejected_identically_on_both(monkeypatch):
+    # The route enforces entity-id Field(min_length=1, max_length=128) as a 422;
+    # both stores must mirror it so a local caller can't extract an empty-id
+    # entity the cloud caller would 422 on (store.py parity invariant).
+    d = _social_direct(monkeypatch, method_result={"success": True, "message": "x"})
+    h = _social_http(monkeypatch, route_body={"success": True, "message": "x"})
+    empty = {"success": False, "message": "entity id is empty"}
+    assert asyncio.run(d.extract_entity_info(AGENT, "", {}, "merge")) == empty
+    assert asyncio.run(h.extract_entity_info(AGENT, "", {}, "merge")) == empty  # rejected pre-send
+    # DirectStore short-circuited before touching the module method.
+    assert d._calls == {}
+
+    long_id = "a" * 129
+    long_err = {"success": False, "message": "entity id too long (max 128 chars)"}
+    assert asyncio.run(d.merge_entities(AGENT, long_id, "t", True)) == long_err
+    assert asyncio.run(h.merge_entities(AGENT, long_id, "t", True)) == long_err

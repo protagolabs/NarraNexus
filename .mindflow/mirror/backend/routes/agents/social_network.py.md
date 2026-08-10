@@ -4,6 +4,15 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-4) — 写端点成为 HttpStore 孪生 + 实例文案改共享源
+
+三个写端点（extract/merge/delete）现是 AgentDataStore seam 的 HttpStore 目标。
+`_resolve_social_instance_id` 的"无实例"文案改用 [[social_network_module]] 的共享
+`social_instance_not_found_msg`（措辞不变），使 route 与 DirectStore 逐字同源；
+route 侧失败仍走 `_normalize_write_result`(message→error)，HttpStore 端做精确逆
+还原成工具 `message` 形状（见 [[store]]）。GET 端点里那份同样字符串是既有重复、
+本 PR 未收（记 todo）。
+
 ## 2026-08-10 (round-2/3) — 四个写端点全部委托,不再有手工同步复制
 
 round-2 把此前逐字复制的业务逻辑全部提炼成可 import 的委托目标,下方

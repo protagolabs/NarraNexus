@@ -58,6 +58,16 @@ from xyz_agent_context.module.social_network_module._entity_updater import (
 )
 
 
+def social_instance_not_found_msg(agent_id: str) -> str:
+    """The one canonical "agent has no SocialNetworkModule instance" message.
+
+    Shared so the AgentDataStore seam's DirectStore and the backend
+    `/social-network/*` write routes (the HttpStore path) return byte-identical
+    text — otherwise the two migration paths would diverge on this edge case.
+    Wording matches this file's sibling GET-route errors ("... for agent: X")."""
+    return f"No SocialNetworkModule instance found for agent: {agent_id}"
+
+
 class SocialNetworkModule(XYZBaseModule):
     """
     Social Network Module
