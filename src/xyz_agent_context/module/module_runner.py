@@ -595,8 +595,11 @@ class ModuleRunner:
         """
         import uvicorn
         from starlette.applications import Starlette
+        from starlette.middleware import Middleware
 
         from mcp.server.transport_security import TransportSecuritySettings
+
+        from xyz_agent_context.module.identity.mcp_auth import IdentityAuthMiddleware
 
         mcp_server.settings.host = "0.0.0.0"
         mcp_server.settings.port = port
@@ -617,6 +620,10 @@ class ModuleRunner:
         wrapped = Starlette(
             routes=list(sse_app.router.routes) + list(streamable_app.router.routes),
             lifespan=streamable_app.router.lifespan_context,
+            # Caller-identity auth for every module server, both transports,
+            # ONE choke point (identity/mcp_auth.py). NX_MCP_AUTH_MODE=off —
+            # the default — keeps this a strict no-op.
+            middleware=[Middleware(IdentityAuthMiddleware)],
         )
 
         config = uvicorn.Config(

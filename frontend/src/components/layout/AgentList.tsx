@@ -134,7 +134,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh } = useChatStore();
+  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh, requestWorkspaceRefresh } =
+    useChatStore();
   const agentSessions = useChatStore((s) => s.agentSessions);
   const teams = useTeamsStore((s) => s.teams);
   const teamsLoaded = useTeamsStore((s) => s.loaded);
@@ -474,6 +475,10 @@ export function AgentList({ collapsed }: AgentListProps) {
       const res = await api.clearTeamData(clearTeamTarget.team_id, scopes);
       if (res.success) {
         if (scopes.chat) requestHistoryRefresh();
+        // The files scope also takes the team's artifacts with it (they live
+        // in that folder), and an open workspace panel would otherwise keep
+        // listing both until the next message arrives.
+        if (scopes.files) requestWorkspaceRefresh();
       } else {
         await alert({
           title: t('layout.agentList.deleteFailedTitle'),

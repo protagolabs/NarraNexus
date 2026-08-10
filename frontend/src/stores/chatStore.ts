@@ -112,6 +112,15 @@ interface ChatState {
   // and would otherwise keep showing stale messages until an agent switch).
   historyRefreshTick: number;
 
+  // The same idea for the team workspace panel. It is a SEPARATE tick rather
+  // than a reuse of the one above because the two wipes are independently
+  // selectable: clearing only a team's files leaves the transcript untouched,
+  // and the workspace loader keys on message count, so nothing about the chat
+  // changes to tell it the files are gone. Firing the history tick for a
+  // file-only wipe would also make every ChatPanel refetch history it knows is
+  // current.
+  workspaceRefreshTick: number;
+
   // Notification state
   completedAgentIds: string[];
   toastQueue: ToastItem[];
@@ -146,6 +155,8 @@ interface ChatState {
   clearAll: () => void;
   /** Force any mounted ChatPanel to reload its server history. */
   requestHistoryRefresh: () => void;
+  /** Force any mounted team workspace panel to reload artifacts and files. */
+  requestWorkspaceRefresh: () => void;
 
   // Notification actions
   dismissToast: (agentId: string) => void;
@@ -212,6 +223,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
     agentSessions: {},
     activeAgentId: '',
     historyRefreshTick: 0,
+    workspaceRefreshTick: 0,
     completedAgentIds: [],
     toastQueue: [],
 
@@ -897,6 +909,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
     // Force mounted ChatPanel(s) to reload server history (post-wipe refresh).
     requestHistoryRefresh: () => {
       set((state) => ({ historyRefreshTick: state.historyRefreshTick + 1 }));
+    },
+
+    // Same, for the team workspace panel (post-wipe refresh of files/artifacts).
+    requestWorkspaceRefresh: () => {
+      set((state) => ({ workspaceRefreshTick: state.workspaceRefreshTick + 1 }));
     },
 
     // Notification actions

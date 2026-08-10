@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/tooling.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — ToolContext.extra_readable_roots
+
+本回合除 workspace 外还可读的绝对根。框架**不解释**其含义（不知道什么是 `_shared`、
+什么是 team），只由平台决定授予什么——协作区按设计位于任何单个 agent workspace 之外。
+缺省空元组 = 纯 workspace 收敛，放宽永远是 opt-in。消费者见 [[policy.py]]。
+
 
 ## 2026-07-31 — ToolCall.truncated
 

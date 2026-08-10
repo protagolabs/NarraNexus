@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-08-01
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — wrapped app 佩戴 IdentityAuthMiddleware（MCP caller auth）
+
+`_build_mcp_server` 合并两套 transport 的那个 Starlette app 是**唯一咽喉**,
+中间件挂在这里就覆盖全部模块、全部 transport,零 per-module 步骤。行为由
+`NX_MCP_AUTH_MODE` 决定(默认 off = 严格 no-op),见 [[identity/mcp_auth]]。
+守卫测试:`test_build_mcp_server_installs_identity_auth_middleware`。
 
 ## 2026-08-01 — 两个部署点改走 build_instrumented_mcp_server
 

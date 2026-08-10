@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
+
+共享目录那句补上：**要给团队看的东西也写这里**（报告、页面、准备注册成 artifact 的数据文件）。
+自己 workspace 是私有的，留在那儿的工作队友打不开也接不下去。
+
 ## 2026-08-07 (二次) — 取消分支不设 `_hop_done`
 
 rebase 时与 dev 的 `[bus-timing]` 埋点相遇。`_hop_done` 只在完整跑完一跳时
@@ -46,6 +52,27 @@ runtime 于是自己造一个外界无法触发的 no-op token —— 这就是 
 **方法体内** import,不在模块顶层 —— `agent_runtime` 会拉进 `module`,后者
 又 import 回本包,顶层 import 直接循环(`get_agent_runtime_client` 一直
 留在 `_invoke_runtime` 里就是同一个原因)。
+
+## 2026-08-07 (二次) — team_id 经显式参数下传，不靠闭包
+
+初版把 `"bus_team_id": team_id if is_team else ""` 直接写进 `_invoke_runtime` 的
+`trigger_extra_data`，但那两个名字属于**调用方** `_handle_channel_batch` 的作用域 →
+`NameError`，且 `_invoke_runtime` 是每个 bus turn 必经路径（等于团队回合全崩）。
+
+现改为 `_invoke_runtime(..., team_id: str = "")` 显式参数，由调用方传
+`team_id if is_team else ""`。
+
+**该错误当时没被发现的原因值得记**：改了 `message_bus_trigger.py` 却只跑了
+`tests/module/` 和 `tests/context_runtime/`。**改了哪个模块就跑哪个模块的测试**，
+不能只跑「感觉相关」的那几个。
+
+## 2026-08-07 — trigger_extra_data 新增 bus_team_id
+
+team turn 的 `team_id` 本来就在 `is_team` 分支里算好了（用于 team prompt），只是没往下游
+传。现在发布到 `trigger_extra_data`，供 [[context_runtime.py]] 注入 MCP 身份 header，让工具
+从**服务端**而非模型参数得知本回合属于哪个 team。非 team 回合为 `""`。
+
+不折叠进 `bus_errand_channel`：后者只在 errand continuation 时 stamp，多数 team turn 为空。
 
 ## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
 

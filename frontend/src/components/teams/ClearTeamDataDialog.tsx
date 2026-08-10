@@ -3,7 +3,8 @@
  * @description: Multi-select confirmation dialog for clearing a team's data.
  *
  * Team counterpart to ClearAgentDataDialog. Lets the owner tick "chat" (the
- * team group-chat history) and/or "files" (the team's shared files) and
+ * team group-chat history) and/or "files" (the team's shared folder — which
+ * holds the team's artifacts too, so ticking it removes those tabs as well) and
  * confirm. Maps to DELETE /api/teams/{id}/data?chat=&files= (api.clearTeamData).
  * The team, its members and the bus channel are always preserved; the confirm
  * button is danger-styled and disabled until at least one scope is selected.

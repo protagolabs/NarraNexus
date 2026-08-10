@@ -114,6 +114,31 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 # NULL as "not part of the tree being stopped".
 ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 
+# The team whose room this turn is running in, when it is one. Server-side
+# because a tool cannot ask the MODEL whether it is in a team: `agent_id` is
+# already a model-filled parameter, so a private-chat turn could claim a team
+# and write into that team's workspace. Same reasoning as the agent id above.
+#
+# NOT derivable from ERRAND_CHANNEL: that one is populated only when the turn
+# continues the agent's OWN errand (message_bus_trigger stamps it
+# conditionally), so it is empty on most team turns and would read as "not a
+# team turn" — the failure would be silent and intermittent.
+TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
+
+# The events-row id of the turn making the call — this codebase's turn handle
+# (same meaning as bus_messages.event_id). Attribution needs to record WHICH
+# turn changed an artifact, and the tool cannot ask the model for that without
+# accepting a guess. Available because the event row is created in Step 0,
+# before context_runtime builds the MCP spec in Step 3.
+EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
+
+# The PROOF for everything above: a short-lived Ed25519 JWT signed by the
+# platform (cloud: the executor broker at ensure() time; local: the
+# agent-runtime process), bound to the turn owner's user_id. The facts before
+# it are self-declared conveniences; this one is verifiable — see
+# module/identity/ for signing/verification and the enforcement policy.
+IDENTITY_TOKEN_HEADER = "X-NarraNexus-Identity-Token"
+
 # Everything above ALSO rides the borrowed bearer, because codex forwards
 # nothing else. Shipping a fact only on an explicit header was a real hole
 # (PR #229 review): a codex-side asker always wrote NULL turn source, and the
@@ -121,7 +146,7 @@ ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 # flips a FOLLOW-UP question back to Owner Relay and reproduces the P1. Iron
 # rule #15 forbids treating a first-class adapter as a corner.
 #
-#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>
+#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>~<team_id>~<event_id>~<identity_token>
 #
 # Contract — pin it, do not improvise:
 #   * fields are POSITIONAL and their order is frozen; ``BEARER_FIELDS`` names
@@ -155,6 +180,22 @@ BEARER_FIELDS = (
     # nothing would go red. That is why `test_every_field_count_parses`
     # asserts position by position, not just the total.
     "root_run_id",
+    # Appended 2026-08-07 (team workspace), written in parallel with
+    # `root_run_id` and resolved by the same rule it documents above: that one
+    # reached dev first, so #6 is already on the wire and the team lands at #7.
+    # Taking #6 here would make an in-flight bearer decode a team id as a run
+    # id — and the cascade stop selects a whole trigger tree by that value.
+    "team_id",
+    "event_id",
+    # Appended 2026-08-10 (MCP caller auth, blueprint P1), and resolved by the
+    # SAME first-to-dev rule a third time: this field was written at #7 in
+    # parallel with team_id/event_id, which reached dev first — so it lands at
+    # #9. The signed Ed25519 identity token proving the turn owner (see
+    # module/identity/tokens.py); it rides the bearer because codex forwards
+    # NOTHING else, and JWT's charset ([A-Za-z0-9_.-]) contains no "~", so it
+    # is field-safe. Verified by identity/mcp_auth.py; every field before it
+    # stays self-declared and fail-open exactly as documented above.
+    "identity_token",
 )
 
 # Values a model supplies when it is guessing instead of reading its prompt.
@@ -234,6 +275,9 @@ class BearerIdentity(NamedTuple):
     errand_channel: Optional[str] = None
     user_id: Optional[str] = None
     root_run_id: Optional[str] = None
+    team_id: Optional[str] = None
+    event_id: Optional[str] = None
+    identity_token: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -256,6 +300,18 @@ def _parse_bearer(auth: str) -> BearerIdentity:
     values = [(v or "").strip() or None for v in raw[: len(BEARER_FIELDS)]]
     values += [None] * (len(BEARER_FIELDS) - len(values))
     return BearerIdentity(*values)
+
+
+def parse_bearer_identity(auth: str) -> BearerIdentity:
+    """Public face of the bearer record parser.
+
+    The nx-agent bearer is a cross-process contract (executor→mcp→backend),
+    so consumers OUTSIDE this package — backend/auth.py's service path,
+    identity/mcp_auth.py's verifier — parse it through this name via
+    ``module/__init__``. The underscore parser stays the in-package
+    workhorse; both are the same single implementation.
+    """
+    return _parse_bearer(auth)
 
 
 def _ambient_headers():
@@ -325,6 +381,50 @@ def caller_user_id_from_request() -> Optional[str]:
             return candidate
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller user: {e}")
+    return None
+
+
+def caller_team_id_from_request() -> Optional[str]:
+    """The team whose room this turn runs in, or None outside a team.
+
+    There is deliberately no ``resolve_*`` counterpart taking a model-supplied
+    fallback: the whole point is that a tool must not be able to learn "I am in
+    a team" from the model. None means private, and a turn that cannot prove a
+    team IS private — the safe direction, since the alternative is writing into
+    a team workspace on a model's say-so.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, TEAM_ID_HEADER)
+        if injected:
+            return injected
+        # Codex path: everything rides the borrowed bearer.
+        return _bearer(headers).team_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller team: {e}")
+    return None
+
+
+def caller_event_id_from_request() -> Optional[str]:
+    """The events-row id of the calling turn, or None.
+
+    None is normal: plenty of callers have no event in scope. Absence degrades
+    attribution (the history row simply records no turn) and must never fail a
+    registration — losing the agent's work to protect a log line would be the
+    wrong trade.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, EVENT_ID_HEADER)
+        if injected:
+            return injected
+        return _bearer(headers).event_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller event: {e}")
     return None
 
 
@@ -519,6 +619,16 @@ def _wrap_fn(fn: Callable) -> Callable:
                 kwargs = {**kwargs, "agent_id": injected}
         return args, kwargs
 
+    def _resolved_agent_id(args: tuple, kwargs: dict) -> Any:
+        """The agent_id the tool is about to run with, or None when absent."""
+        if "agent_id" in kwargs:
+            return kwargs["agent_id"]
+        names = list(sig.parameters)
+        idx = names.index("agent_id") if "agent_id" in names else -1
+        if 0 <= idx < len(args):
+            return args[idx]
+        return None
+
     def _still_placeholder(args: tuple, kwargs: dict) -> Any:
         """The resolved agent_id if it is still a guess, else None.
 
@@ -527,16 +637,31 @@ def _wrap_fn(fn: Callable) -> Callable:
         lookup fail on "agent_current" — is what turns the incident's dead
         end into something the model can correct on its next tool call.
         """
-        if "agent_id" in kwargs:
-            value = kwargs["agent_id"]
-        else:
-            names = list(sig.parameters)
-            idx = names.index("agent_id") if "agent_id" in names else -1
-            if 0 <= idx < len(args):
-                value = args[idx]
-            else:
-                return None
+        value = _resolved_agent_id(args, kwargs)
+        if value is None and "agent_id" not in kwargs:
+            return None
         return value if is_placeholder_agent_id(value) else None
+
+    async def _ownership_denial(args: tuple, kwargs: dict) -> Optional[str]:
+        """OwnerScopedPolicy (identity/mcp_auth.py) over the resolved id.
+
+        A denial is an in-band error VALUE in the tool's own shape, never an
+        exception — same discipline as the placeholder guard. Policy errors
+        (db down, import failure) allow: identity is never flow control, and
+        the middleware layer has already logged the caller.
+        """
+        agent_id = _resolved_agent_id(args, kwargs)
+        if agent_id is None:
+            return None
+        try:
+            from xyz_agent_context.module.identity.mcp_auth import (
+                check_agent_ownership,
+            )
+
+            return await check_agent_ownership(agent_id)
+        except Exception as e:  # noqa: BLE001 — never break the tool on policy
+            logger.warning(f"[mcp-identity] ownership policy errored, allowing: {e}")
+            return None
 
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
@@ -545,12 +670,20 @@ def _wrap_fn(fn: Callable) -> Callable:
             unresolved = _still_placeholder(args, kwargs)
             if unresolved is not None:
                 return _guard(unresolved)
+            denial = await _ownership_denial(args, kwargs)
+            if denial is not None:
+                return {"success": False, "error": denial} if returns_dict else denial
             return await fn(*args, **kwargs)
 
         wrapper: Callable = async_wrapper
     else:
         @functools.wraps(fn)
         def sync_wrapper(*args, **kwargs):
+            # NO ownership policy here — it awaits, and a sync frame cannot.
+            # This is safe ONLY while no sync tool declares agent_id, an
+            # invariant pinned by test_every_agent_id_tool_is_async
+            # (tests/module/identity/test_mcp_auth.py). Adding a sync
+            # agent_id tool turns that test red before this gap can ship.
             args, kwargs = _resolved_kwargs(args, kwargs)
             unresolved = _still_placeholder(args, kwargs)
             if unresolved is not None:
@@ -592,6 +725,9 @@ def agent_id_headers(
     errand_channel: str | None = None,
     user_id: str | None = None,
     root_run_id: str | None = None,
+    team_id: str | None = None,
+    event_id: str | None = None,
+    identity_token: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -613,6 +749,9 @@ def agent_id_headers(
         errand_channel or "",
         user_id or "",
         root_run_id or "",
+        team_id or "",
+        event_id or "",
+        identity_token or "",
     ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
@@ -628,10 +767,56 @@ def agent_id_headers(
         (ERRAND_CHANNEL_HEADER, errand_channel),
         (USER_ID_HEADER, user_id),
         (ROOT_RUN_ID_HEADER, root_run_id),
+        (TEAM_ID_HEADER, team_id),
+        (EVENT_ID_HEADER, event_id),
+        (IDENTITY_TOKEN_HEADER, identity_token),
     ):
         if value:
             headers[header] = str(value)
     return headers
+
+
+def stamp_identity_token(mcp_servers: dict, token: str) -> None:
+    """Append the signed identity token to every server spec's built headers.
+
+    Stamped at DISPATCH time (step_3), not at spec build (context_runtime):
+    the cloud token is minted by the broker and only exists once ensure()
+    has answered — the spec's headers were already built by then. Mutates
+    ``mcp_servers`` in place, re-emitting each header set through
+    :func:`agent_id_headers` — the ONE bearer builder; a second hand-rolled
+    record here is exactly the drift the ``BEARER_FIELDS`` contract forbids.
+
+    Specs without headers, and Authorization values that are not our
+    ``nx-agent:`` record (a user's real bearer for some external MCP), are
+    left strictly alone.
+    """
+    for spec in mcp_servers.values():
+        headers = spec.get("headers")
+        if not headers:
+            continue
+        ident = _parse_bearer(headers.get("Authorization", ""))
+        if not ident.agent_id:
+            continue
+        spec["headers"] = {
+            **headers,
+            **agent_id_headers(
+                ident.agent_id,
+                turn_source=ident.turn_source,
+                errand_peer=ident.errand_peer,
+                errand_channel=ident.errand_channel,
+                user_id=ident.user_id,
+                root_run_id=ident.root_run_id,
+                # EVERY parsed field must ride the rebuild. Dropping one here
+                # erases it from the bearer — and codex forwards nothing else,
+                # so e.g. a missing team_id would silently demote every team
+                # turn to private on that adapter (PR #260 round-6 review #2).
+                # The count-matches-contract test below is the tripwire for
+                # the next appended field.
+                team_id=ident.team_id,
+                event_id=ident.event_id,
+                identity_token=token,
+            ),
+        }
 
 
 def caller_turn_source() -> Optional[str]:
@@ -703,6 +888,7 @@ __all__ = [
     "BEARER_FIELD_SEP",
     "BEARER_FIELDS",
     "BearerIdentity",
+    "IDENTITY_TOKEN_HEADER",
     "TURN_SOURCE_HEADER",
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
@@ -720,7 +906,13 @@ __all__ = [
     "install_caller_identity",
     "is_placeholder_agent_id",
     "is_placeholder_user_id",
+    "parse_bearer_identity",
     "placeholder_agent_id_error",
     "resolve_caller_agent_id",
     "resolve_caller_user_id",
+    "stamp_identity_token",
+    "TEAM_ID_HEADER",
+    "EVENT_ID_HEADER",
+    "caller_team_id_from_request",
+    "caller_event_id_from_request",
 ]
