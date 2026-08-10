@@ -6,9 +6,11 @@ last_verified: 2026-04-21
 
 ## 2026-08-10 — 本地 `_event_time_str` 拷贝移除
 
-改为从 utils/db/dialect_time import 公有 `event_time_str`(留同名
-别名,行为不变)。归一逻辑曾三处拷贝(本仓库、channel 通用仓库、
-诊断路由),review 点名后收口。
+改为从 utils/db/dialect_time import 公有 `event_time_str`(调用点
+直接改名,**无别名**——铁律 #2)。归一逻辑曾三处拷贝(本仓库、
+channel 通用仓库、诊断路由),review 点名后收口。同批把 `recent()`
+的全表拉取+Python 排序改 SQL order/limit、`count_by_type` 加列投影
+(details 为 MEDIUMTEXT,活跃 Lark bot 的 30 天窗轻易数万行)。
 
 ## Why it exists
 

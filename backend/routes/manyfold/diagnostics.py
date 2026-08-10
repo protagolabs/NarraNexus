@@ -42,6 +42,7 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -54,6 +55,14 @@ from xyz_agent_context.repository.channel_trigger_audit_repository import (
 from xyz_agent_context.repository.event_repository import EventRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.db.dialect_time import event_time_str
+from backend.routes.admin.logs import (
+    _filter_by_level,
+    _list_files,
+    _log_root,
+    _resolve_log_path,
+    _resolve_service_dir,
+    _tail_lines,
+)
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -208,16 +217,16 @@ def _since_floor(since: str) -> str:
     offset; the stored strings' own `+00:00` suffix sorts above any
     fraction-less floor prefix, so prefix comparison stays correct.
     Unparseable input is a 400, not a silent empty result."""
-    from datetime import datetime, timezone
-
     raw = since.strip().replace(" ", "T").replace("Z", "+00:00")
     try:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
+        # from None: the ValueError adds nothing over the message and
+        # would double the traceback in request logs.
         raise HTTPException(
             status_code=400,
             detail=f"since must be ISO datetime, got {since!r}",
-        )
+        ) from None
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
     return parsed.isoformat(sep=" ")
@@ -349,8 +358,6 @@ async def agent_event_full(agent_id: str, event_id: str, request: Request):
 async def logs_services(request: Request):
     """Which service logs exist in this sandbox, with their dates."""
     _require_manyfold_auth(request)
-    from backend.routes.admin.logs import _list_files, _log_root
-
     root = _log_root()
     services: dict[str, Any] = {}
     if root.is_dir():
@@ -377,13 +384,6 @@ async def logs_tail(
     a plain substring match, not a regex (no ReDoS surface).
     """
     _require_manyfold_auth(request)
-    from backend.routes.admin.logs import (
-        _filter_by_level,
-        _resolve_log_path,
-        _resolve_service_dir,
-        _tail_lines,
-    )
-
     lines = max(1, min(lines, _MAX_TAIL_LINES))
     service_dir = _resolve_service_dir(service)
     path = _resolve_log_path(service_dir, service, date)

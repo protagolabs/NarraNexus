@@ -36,8 +36,6 @@ from loguru import logger
 from xyz_agent_context.utils.db.dialect_time import event_time_str
 
 
-_event_time_str = event_time_str
-
 
 # --- Event type constants ---------------------------------------------------
 # Kept as module-level constants (not an Enum) so callers can grep for them
@@ -117,10 +115,12 @@ class LarkTriggerAuditRepository:
             filters["event_type"] = event_type
         if agent_id:
             filters["agent_id"] = agent_id
-        rows = await self._db.get(self.TABLE, filters)
-        # Newest first — rely on event_time ordering without dialect quirks
-        rows.sort(key=lambda r: _event_time_str(r.get("event_time")), reverse=True)
-        return rows[:limit]
+        # Order + limit ride SQL — the previous full-pull-then-sort
+        # materialized the whole retention window (details is MEDIUMTEXT)
+        # per call.
+        return await self._db.get(
+            self.TABLE, filters, limit=limit, order_by="event_time DESC"
+        )
 
     async def count_by_type(self, since_hours: int = 1) -> dict[str, int]:
         """
@@ -134,10 +134,12 @@ class LarkTriggerAuditRepository:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(hours=since_hours)
         ).isoformat(sep=" ")
-        rows = await self._db.get(self.TABLE, {})
+        rows = await self._db.get(
+            self.TABLE, {}, fields=["event_type", "event_time"]
+        )
         counts: dict[str, int] = {}
         for r in rows:
-            if _event_time_str(r.get("event_time")) < cutoff:
+            if event_time_str(r.get("event_time")) < cutoff:
                 continue
             et = r.get("event_type", "")
             counts[et] = counts.get(et, 0) + 1
@@ -159,7 +161,7 @@ class LarkTriggerAuditRepository:
             rows = await self._db.get(self.TABLE, {})
             to_delete = [
                 r["id"] for r in rows
-                if _event_time_str(r.get("event_time")) < cutoff
+                if event_time_str(r.get("event_time")) < cutoff
             ]
             for row_id in to_delete:
                 await self._db.delete(self.TABLE, {"id": row_id})

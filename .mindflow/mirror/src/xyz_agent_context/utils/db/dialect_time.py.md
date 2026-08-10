@@ -16,6 +16,5 @@ sqlite 驱动对 DATETIME 列返回 `datetime` 对象,mysql 返回字符串—�
 
 ## 消费方
 
-channel_trigger_audit_repository、lark_trigger_audit_repository
-(各留 `_event_time_str = event_time_str` 兼容别名)、
-backend/routes/manyfold/diagnostics。
+channel_trigger_audit_repository、lark_trigger_audit_repository、
+backend/routes/manyfold/diagnostics——全部直接使用公名,无别名。

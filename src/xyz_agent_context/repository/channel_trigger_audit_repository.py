@@ -53,10 +53,6 @@ from xyz_agent_context.channel.channel_audit_events import (
 )
 
 
-# Normalization moved to utils/db/dialect_time.py — it was copy-pasted
-# here and in the Lark repo, and a route module had begun importing the
-# private name across packages.
-_event_time_str = event_time_str
 
 
 class ChannelTriggerAuditRepository:
@@ -167,10 +163,17 @@ class ChannelTriggerAuditRepository:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(hours=since_hours)
         ).isoformat(sep=" ")
-        rows = await self._db.get(self.TABLE, {"channel": self._channel})
+        # Projection keeps this a cheap scan: unprojected it dragged the
+        # channel's whole retention window INCLUDING the MEDIUMTEXT
+        # details column, just to count.
+        rows = await self._db.get(
+            self.TABLE,
+            {"channel": self._channel},
+            fields=["event_type", "event_time"],
+        )
         counts: dict[str, int] = {}
         for r in rows:
-            if _event_time_str(r.get("event_time")) < cutoff:
+            if event_time_str(r.get("event_time")) < cutoff:
                 continue
             et = r.get("event_type", "")
             counts[et] = counts.get(et, 0) + 1
@@ -190,7 +193,7 @@ class ChannelTriggerAuditRepository:
             rows = await self._db.get(self.TABLE, {"channel": self._channel})
             to_delete = [
                 r["id"] for r in rows
-                if _event_time_str(r.get("event_time")) < cutoff
+                if event_time_str(r.get("event_time")) < cutoff
             ]
             for row_id in to_delete:
                 await self._db.delete(self.TABLE, {"id": row_id})
