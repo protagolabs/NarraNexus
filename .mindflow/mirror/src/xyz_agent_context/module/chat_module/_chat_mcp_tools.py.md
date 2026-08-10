@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
+
+工具改为 `get_agent_data_store().get_chat_history(agent_id, instance_id, limit)`，实现下沉到
+[[_chat_reads]] `fetch_chat_history`（DirectStore/孪生路由同源）。**三处随迁变化**：
+1) 工具签名加 `agent_id`（LLM 传，同 send_message_to_user_directly），闭掉旧的「任意 instance_id
+   读别人会话」IDOR；prompts 示例同步加 agent_id。
+2) 旧的 `information_schema` MySQL 专用存在性检查 + 裸 SQL 删除（de-raw，双方言安全）——下方
+   2026-04-10 Gotcha 里「SQLite 会报错」「直接查表是技术债」两条**已解决**，留作历史。
+3) `create_chat_mcp_server` 去掉 `get_db_client_fn` 参数（get_chat_history 走 seam 自解析 db、
+   send_message 不碰 db，该参数已死）；调用方 [[chat_module]] create_mcp_server 同步改。
+
 
 # _chat_mcp_tools.py — ChatModule MCP 工具定义
 
@@ -15,8 +27,8 @@ last_verified: 2026-04-10
 
 ## 上下游关系
 
-- **被谁用**：`ChatModule.create_mcp_server()` 调用 `create_chat_mcp_server(port, ChatModule.get_mcp_db_client)` 创建 FastMCP 实例；`ModuleRunner` 把返回的 mcp 对象部署为服务器
-- **依赖谁**：`get_db_client_fn` 注入（`ChatModule.get_mcp_db_client` 类方法）；直接查询表 `instance_json_format_memory_chat`（没有通过 Repository 层，原因见下）
+- **被谁用**：`ChatModule.create_mcp_server()` 调用 `create_chat_mcp_server(port)` 创建 FastMCP 实例；`ModuleRunner` 把返回的 mcp 对象部署为服务器
+- **依赖谁**：get_chat_history 走 [[store]] AgentDataStore seam（DirectStore 自解析 db）；实现在 [[_chat_reads]]（`db.get_one`，已 de-raw，不再直查裸表）
 
 ## `agent_id` 如何传入
 

@@ -3,6 +3,11 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-08-05
 ---
 
+## 2026-08-10 (PR-10) — create_mcp_server 调用简化
+
+`create_mcp_server` 改调 `create_chat_mcp_server(self.port)`（去掉 `ChatModule.get_mcp_db_client` 实参）——get_chat_history 迁 seam 后工厂不再需要 db-client 函数。见 [[_chat_mcp_tools]]。
+
+
 ## 2026-08-05 — 删掉两个死的 `agent_messages` 家族 import
 
 `AgentMessageRepository` 和 `MessageSourceType` 在本文件里从未被使用，删除。
