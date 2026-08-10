@@ -305,7 +305,28 @@ async def register_artifact(
 
     if target_artifact_id is not None:
         existing = await repo.get_by_id(target_artifact_id)
-        if existing is None:
+        # Reachability, not just existence. Until this check the branch looked
+        # the artifact up by id and validated only its KIND, so any agent that
+        # guessed an `art_` id could repoint someone else's artifact at its own
+        # file. Ids are eight hex chars; guessing was never the hard part.
+        #
+        # What "reachable" means differs by scope, and mirrors exactly what the
+        # read surfaces already enforce:
+        #   * a TEAM artifact belongs to the team, so any turn in THAT team may
+        #     update it — picking up a teammate's work is the whole point, and
+        #     agent identity is deliberately not the test;
+        #   * a PRIVATE artifact belongs to its producer, so only that agent
+        #     may update it.
+        # A team turn therefore cannot reach a private artifact, and a private
+        # turn cannot reach a team's — otherwise `scope="private"`, which is
+        # supposed to only NARROW, would become a way to pull an artifact out
+        # of the team that owns it.
+        #
+        # 404-shaped (ArtifactNotFound), like the HTTP routes: a distinct
+        # "forbidden" would confirm which ids exist to anyone probing.
+        if existing is None or existing.team_id != team_id:
+            raise ArtifactNotFound("artifact not found — omit target_artifact_id to register a new one")
+        if team_id is None and existing.agent_id != agent_id:
             raise ArtifactNotFound("artifact not found — omit target_artifact_id to register a new one")
         if existing.kind != kind:
             raise ArtifactKindMismatch(

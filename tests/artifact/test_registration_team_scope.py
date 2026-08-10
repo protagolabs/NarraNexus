@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 from xyz_agent_context.artifact import ArtifactService
-from xyz_agent_context.artifact import ArtifactPathEscape
+from xyz_agent_context.artifact import ArtifactNotFound, ArtifactPathEscape
 from xyz_agent_context.artifact._artifact_impl.registration import workspace_root
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
@@ -384,3 +384,118 @@ async def test_a_missing_turn_handle_still_records_the_change(env):
     rows = await _history(env["db"], res.artifact_id)
     assert len(rows) == 1
     assert rows[0]["event_id"] is None
+
+
+# ── re-registration must respect who owns the target ──────────────────────
+#
+# The target branch used to look up the artifact by id and check only its
+# KIND. Two consequences, one pre-existing and one introduced by teams:
+#
+#   * any agent that guessed an `art_xxxxxxxx` could repoint someone else's
+#     artifact at its own file — no agent, user or team check at all;
+#   * the server-side team fact was dropped on this path, so re-registering
+#     in a team turn left the artifact wherever it already was, silently
+#     contradicting the "team comes from the server" rule the create path
+#     enforces.
+
+
+@pytest.mark.asyncio
+async def test_cannot_repoint_another_agents_private_artifact(env):
+    """The pre-existing hole. `art_` ids are 8 hex chars, so guessing is not
+    the hard part — nothing was checking."""
+    victim_ws = Path(workspace_root("agent_victim", USER))
+    victim_ws.mkdir(parents=True, exist_ok=True)
+    (victim_ws / "theirs.md").write_text("theirs\n")
+    victim = await env["svc"].register(
+        agent_id="agent_victim", user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(victim_ws / "theirs.md"), title="Theirs", description=None,
+        target_artifact_id=None,
+    )
+    attacker_ws = Path(workspace_root("agent_attacker", USER))
+    attacker_ws.mkdir(parents=True, exist_ok=True)
+    (attacker_ws / "mine.md").write_text("mine\n")
+
+    with pytest.raises(ArtifactNotFound):
+        await env["svc"].register(
+            agent_id="agent_attacker", user_id=USER, session_id=None,
+            kind="text/markdown", entry_path=str(attacker_ws / "mine.md"),
+            title="Hijacked", description=None,
+            target_artifact_id=victim.artifact_id,
+        )
+
+    still = await env["repo"].get_by_id(victim.artifact_id)
+    assert still.agent_id == "agent_victim"
+    assert still.title == "Theirs", "the pointer must not have moved"
+
+
+@pytest.mark.asyncio
+async def test_a_teammate_may_update_a_team_artifact(env):
+    """The case that must keep working: picking up a teammate's work is the
+    entire point of a shared workspace, so the check is team membership of the
+    ARTIFACT, not agent identity."""
+    made = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    mate_ws = Path(workspace_root("agent_b", USER))
+    mate_ws.mkdir(parents=True, exist_ok=True)
+    (mate_ws / "edit.md").write_text("theirs\n")
+
+    await env["svc"].register(
+        agent_id="agent_b", user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(mate_ws / "edit.md"), title="T2", description=None,
+        target_artifact_id=made.artifact_id, team_id=TEAM,
+    )
+    got = await env["repo"].get_by_id(made.artifact_id)
+    assert got.title == "T2"
+    assert got.team_id == TEAM, "ownership must not drift on update"
+
+
+@pytest.mark.asyncio
+async def test_a_turn_in_another_team_cannot_touch_it(env):
+    """Being in SOME team is not being in THIS one."""
+    made = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    with pytest.raises(ArtifactNotFound):
+        await env["svc"].register(
+            agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+            entry_path=str(env["ws"] / "own.md"), title="Hijacked", description=None,
+            target_artifact_id=made.artifact_id, team_id="team_other",
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_private_turn_cannot_update_a_team_artifact(env):
+    """`scope="private"` narrows the turn; it must not become a way to reach a
+    team artifact and quietly pull it out of the team."""
+    made = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    with pytest.raises(ArtifactNotFound):
+        await env["svc"].register(
+            agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+            entry_path=str(env["ws"] / "own.md"), title="Pulled out", description=None,
+            target_artifact_id=made.artifact_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_own_private_artifact_still_updates_in_place(env):
+    """The ordinary iterate-on-my-own-artifact path stays untouched."""
+    made = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="v1", description=None,
+        target_artifact_id=None,
+    )
+    await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="v2", description=None,
+        target_artifact_id=made.artifact_id,
+    )
+    assert (await env["repo"].get_by_id(made.artifact_id)).title == "v2"

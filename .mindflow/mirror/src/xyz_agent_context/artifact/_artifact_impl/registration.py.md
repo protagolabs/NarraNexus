@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — target 分支补归属校验（含一个既有漏洞）
+
+`target_artifact_id` 分支此前 `get_by_id` 之后**只校验 kind**，不校验 agent / user / team。
+两个后果，一个是既有漏洞、一个是 team 功能引入的：
+
+- **既有**：任何 agent 猜到一个 `art_` id 就能把别人的 artifact 指针改到自己的文件上。
+  id 是 8 位 hex——猜从来不是难点，是**根本没人在查**。
+- **本 PR 引入**：这条路径完全丢弃了服务端的 team 事实，于是团队回合里对私有 artifact
+  传 target 会「成功」，但它永远不出现在团队面板里，agent 拿不到任何信号。
+
+现在校验的是**可达性**，规则与读侧三界面完全一致：
+- **团队 artifact** 属于团队 → 该团队的**任何**回合都可更新（接力是共享工作台的全部意义，
+  agent 身份**刻意不是**判据）
+- **私有 artifact** 属于产出者 → 只有它自己能更新
+
+因此团队回合够不到私有 artifact，私有回合也够不到团队的——否则 `scope="private"`
+（本应只能**收窄**）就成了把 artifact 从所属团队里**拽出来**的手段。
+
+拒绝一律用 `ArtifactNotFound`（404 形状），与 HTTP 路由一致：单独的 "forbidden" 会向探测者
+确认哪些 id 存在。
 
 ## 2026-08-07 (三次) — 归因行写入 turn 句柄
 
