@@ -123,19 +123,20 @@ def _resolve_entry(
 ) -> tuple[str, str]:
     """Resolve and validate the entry file path.
 
-    `entry_path` may be absolute or relative to the agent workspace. The
-    resolved file must be an existing regular file, inside the agent workspace
-    — or, on a team turn, inside THAT team's shared folder.
+    `entry_path` may be absolute or relative to the agent workspace. Where the
+    resolved file must live depends on who the artifact is for:
 
-    Why the second root: the shared folder is deliberately a SIBLING of every
-    agent workspace so no single agent owns it, which meant a file placed
-    there could never be registered as an artifact. A shared folder whose
-    contents cannot become the team's visible output is only half a feature.
+    * PRIVATE (no team) — inside the agent's own workspace, as before.
+    * TEAM — inside THAT team's shared folder, and nowhere else. Not merely
+      allowed there: required. A teammate's turn can only reach its own
+      workspace, the bus attachment dir and this team's folder, so an entry
+      left in the producer's workspace is unreadable to the very people the
+      artifact is for — on NexusPower it is denied outright, while claude and
+      codex quietly succeed.
 
-    The widening is scoped to the team the turn actually belongs to — a
-    sibling team's folder stays out of bounds — and `team_id` reaches here
-    from the server-side identity headers, never from a tool argument, so a
-    private turn cannot name a team to reach its files.
+    `team_id` reaches here from the server-side identity headers, never from a
+    tool argument, so a private turn cannot name a team to reach its files, and
+    a sibling team's folder stays out of bounds either way.
 
     Returns:
         (abs_entry, artifact_root) — both realpath-resolved absolute paths.
@@ -156,12 +157,35 @@ def _resolve_entry(
     raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
     abs_entry = os.path.realpath(raw)
 
-    allowed_roots = [workspace]
     if team_id:
+        # A TEAM artifact must live in the team's shared folder — not merely
+        # be allowed to.
+        #
+        # The reason is reachability, not tidiness. A teammate opening this
+        # work has exactly three roots granted to its turn (see
+        # `turn_accessible_roots`): its own workspace, the bus attachment dir,
+        # and this team's folder. A file left in the PRODUCER's workspace is in
+        # none of them, so NexusPower denies the read while claude and codex,
+        # which run no confinement layer, succeed — the three-frameworks-two-
+        # behaviours state this feature exists to remove, and a silent defeat
+        # of the whole point of a shared workspace.
+        #
+        # Pointer semantics are untouched: this never copies or moves. The
+        # entry simply has to already be somewhere the team can read, and the
+        # agent can put it there (the grant covers writes), so the error below
+        # is one move and a retry away from success.
         from xyz_agent_context.utils.workspace_paths import team_shared_dir
-        allowed_roots.append(os.path.realpath(str(team_shared_dir(user_id, team_id))))
 
-    if not any(abs_entry.startswith(root + os.sep) for root in allowed_roots):
+        team_root = os.path.realpath(str(team_shared_dir(user_id, team_id)))
+        if not abs_entry.startswith(team_root + os.sep):
+            raise ArtifactPathEscape(
+                f"a team artifact must live in your team's shared folder so "
+                f"your teammates can open it. Write the file(s) under "
+                f"{team_root} and register the entry from there. (Files in "
+                f"your own workspace are private to you — your teammates' "
+                f"tools cannot reach them.)"
+            )
+    elif not abs_entry.startswith(workspace + os.sep):
         raise ArtifactPathEscape(
             "entry_path is outside your agent workspace. Write the artifact "
             "files inside your workspace first, then register the entry file."

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
+
+共享目录那句补上：**要给团队看的东西也写这里**（报告、页面、准备注册成 artifact 的数据文件）。
+自己 workspace 是私有的，留在那儿的工作队友打不开也接不下去。
+
 ## 2026-08-07 (二次) — 取消分支不设 `_hop_done`
 
 rebase 时与 dev 的 `[bus-timing]` 埋点相遇。`_hop_done` 只在完整跑完一跳时

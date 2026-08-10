@@ -4,6 +4,22 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (方案 B) — 团队 artifact **必须**住在团队目录
+
+此前是「workspace **或** 团队目录都允许」。现在按归属分岔：私有 → 自己 workspace；
+**团队 → 只能是那个 team 的共享目录**。
+
+**理由是可达性，不是整洁。**队友的回合只被授予三个根（[[workspace_paths.py]] 的
+`turn_accessible_roots`）：自己的 workspace、bus 附件目录、本回合 team 的目录。留在**生产者
+workspace** 里的文件三者皆不在——NexusPower 直接 DENY，而 claude/codex 无此层却能读。这正是
+本功能要消灭的「三框架两种行为」，并且会**静默**击穿验收 #3（队友接力）。
+
+指针语义未变：仍然不复制不移动。只是 entry 必须**已经**在团队读得到的地方，而 agent 有权写
+那里（授予覆盖写），所以错误信息点名目录、一次移动即可重试成功。
+
+配套：工具描述与 team prompt 都改成「团队里要写进共享目录」，否则 agent 按旧习惯写自己
+workspace 会直接撞上这条拒绝。
+
 ## 2026-08-10 (review 修正) — target 分支补归属校验（含一个既有漏洞）
 
 `target_artifact_id` 分支此前 `get_by_id` 之后**只校验 kind**，不校验 agent / user / team。

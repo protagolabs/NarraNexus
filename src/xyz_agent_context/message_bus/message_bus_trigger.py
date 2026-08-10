@@ -1058,7 +1058,11 @@ class MessageBusTrigger:
                 f"bus_share_to_team) are visible to every teammate; open them "
                 f"with the Read tool. To find out what is already in there, "
                 f"call bus_list_team_files(team_id=\"{team_id}\") rather than "
-                f"guessing a path or asking someone to repeat one."
+                f"guessing a path or asking someone to repeat one. "
+                f"WRITE ANYTHING THE TEAM SHOULD SEE HERE TOO — reports, "
+                f"pages, data files you intend to register as artifacts. Your "
+                f"own workspace is private to you, so work left there is work "
+                f"your teammates cannot open or continue."
             )
 
         def _sender(msg: BusMessage) -> str:

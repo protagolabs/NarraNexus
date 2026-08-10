@@ -636,3 +636,44 @@ def test_the_grant_covers_writes_not_just_reads(engine, workspace, tmp_path):
         pctx,
     )
     assert write.allowed, "the grant is not read-only, and the name now says so"
+
+
+def test_a_team_artifacts_home_is_readable_by_a_teammate(engine, workspace, tmp_path):
+    """The end of the chain N3 was about.
+
+    A team artifact is required to live in the team folder, and a teammate's
+    turn is granted exactly that folder. Those two rules only mean something
+    together: this asserts the file a teammate is pointed at is one its own
+    confinement layer admits — on NexusPower, which is the framework where the
+    previous arrangement failed while claude and codex quietly succeeded.
+    """
+    shared = tmp_path.parent / "n3_shared"
+    team_folder = shared / "teams" / "team_1"
+    team_folder.mkdir(parents=True, exist_ok=True)
+    (team_folder / "report.md").write_text("ours")
+
+    # A DIFFERENT agent's turn in the same team: its own workspace plus what
+    # turn_accessible_roots grants.
+    ctx = ToolContext(
+        agent_id="agent_teammate",
+        workspace=str(workspace),
+        extra_accessible_roots=(str(shared / "bus_files"), str(team_folder)),
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    read = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(team_folder / "report.md")}),
+        pctx,
+    )
+    assert read.allowed, read.reason
+
+    # And the producer's private workspace stays unreachable, which is why the
+    # artifact had to move rather than the grant widen.
+    producer_ws = tmp_path.parent / "n3_producer_ws"
+    producer_ws.mkdir(exist_ok=True)
+    (producer_ws / "private.md").write_text("mine")
+    denied = engine.check(
+        ToolCall(id="2", name="read_file", args={"path": str(producer_ws / "private.md")}),
+        pctx,
+    )
+    assert not denied.allowed

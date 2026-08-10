@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B) — 工具描述点明团队里往哪写
+
+新增一段：**团队房间里把文件写进团队共享目录再注册**，不要写自己 workspace——后者对队友的工具
+不可达，从那里注册的 artifact 没人能接着做。并说明从自己 workspace 注册团队 artifact 会被拒、
+错误里带目录路径。规则本身见 [[registration.py]]。
 
 ## 2026-08-07 — scope 参数：team 由服务端定，模型只有否决权
 

@@ -73,7 +73,7 @@ async def env(db_client, monkeypatch, tmp_path):
 async def test_team_turn_registers_into_the_team(env):
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
     got = await env["repo"].get_by_id(res.artifact_id)
@@ -149,7 +149,7 @@ async def _history(db, artifact_id):
 async def test_first_registration_is_recorded_as_created(env):
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
     rows = await _history(env["db"], res.artifact_id)
@@ -164,16 +164,15 @@ async def test_teammate_update_is_attributed_to_the_teammate(env):
     without a row nothing records that a DIFFERENT agent changed it."""
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
-    mate_ws = Path(workspace_root("agent_b", USER))
-    mate_ws.mkdir(parents=True, exist_ok=True)
-    (mate_ws / "edit.md").write_text("theirs\n")
-
+    # The teammate also writes into the TEAM folder — that is the rule, and it
+    # is what makes the update readable by everyone else in the team.
+    (env["shared"] / "edit.md").write_text("theirs\n")
     await env["svc"].register(
         agent_id="agent_b", user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(mate_ws / "edit.md"), title="T2", description=None,
+        entry_path=str(env["shared"] / "edit.md"), title="T2", description=None,
         target_artifact_id=res.artifact_id, team_id=TEAM,
     )
 
@@ -286,16 +285,23 @@ async def test_scope_did_not_widen_the_tools_strict_schema_exposure():
 async def test_same_file_in_both_scopes_makes_two_artifacts(env):
     """Agent-scoped dedup keys on (agent_id, file_path). Without the scope in
     that key, the second registration silently returns the FIRST artifact and
-    the requested scope is discarded."""
-    entry = str(env["ws"] / "own.md")
+    the requested scope is discarded.
+
+    The two entries are different files now: a team artifact must live in the
+    team folder and a private one in the agent's workspace, so one path cannot
+    serve both scopes any more. The dedup key still has to carry the scope —
+    same agent, same content, two homes.
+    """
+    (env["shared"] / "own.md").write_text("mine\n")
     private = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=entry, title="R", description=None, target_artifact_id=None,
+        entry_path=str(env["ws"] / "own.md"), title="R", description=None,
+        target_artifact_id=None,
     )
     team = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=entry, title="R", description=None, target_artifact_id=None,
-        team_id=TEAM,
+        entry_path=str(env["shared"] / "own.md"), title="R", description=None,
+        target_artifact_id=None, team_id=TEAM,
     )
 
     assert private.artifact_id != team.artifact_id, (
@@ -309,15 +315,16 @@ async def test_same_file_in_both_scopes_makes_two_artifacts(env):
 async def test_private_call_never_returns_a_team_artifact(env):
     """The leak direction the probe actually hit: a private-chat registration
     handed back an artifact owned by a team."""
-    entry = str(env["ws"] / "own.md")
+    (env["shared"] / "own.md").write_text("mine\n")
     team = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=entry, title="R", description=None, target_artifact_id=None,
-        team_id=TEAM,
+        entry_path=str(env["shared"] / "own.md"), title="R", description=None,
+        target_artifact_id=None, team_id=TEAM,
     )
     private = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=entry, title="R", description=None, target_artifact_id=None,
+        entry_path=str(env["ws"] / "own.md"), title="R", description=None,
+        target_artifact_id=None,
     )
 
     assert private.artifact_id != team.artifact_id
@@ -329,7 +336,7 @@ async def test_dedup_still_works_within_one_scope(env):
     """The guard that made dedup exist stays intact: re-registering the same
     file in the SAME scope must still reuse the row, not mint a duplicate tab
     (prod 2026-06-30: two pinned 'Welcome' tabs on one agent)."""
-    entry = str(env["ws"] / "own.md")
+    entry = str(env["shared"] / "team.md")
     first = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
         entry_path=entry, title="R", description=None, target_artifact_id=None,
@@ -356,15 +363,13 @@ async def test_history_records_the_turn_that_made_the_change(env):
     """
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM, event_id="evt_first",
     )
-    mate_ws = Path(workspace_root("agent_b", USER))
-    mate_ws.mkdir(parents=True, exist_ok=True)
-    (mate_ws / "edit.md").write_text("theirs\n")
+    (env["shared"] / "edit.md").write_text("theirs\n")
     await env["svc"].register(
         agent_id="agent_b", user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(mate_ws / "edit.md"), title="T2", description=None,
+        entry_path=str(env["shared"] / "edit.md"), title="T2", description=None,
         target_artifact_id=res.artifact_id, team_id=TEAM, event_id="evt_second",
     )
 
@@ -435,16 +440,13 @@ async def test_a_teammate_may_update_a_team_artifact(env):
     ARTIFACT, not agent identity."""
     made = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
-    mate_ws = Path(workspace_root("agent_b", USER))
-    mate_ws.mkdir(parents=True, exist_ok=True)
-    (mate_ws / "edit.md").write_text("theirs\n")
-
+    (env["shared"] / "edit.md").write_text("theirs\n")
     await env["svc"].register(
         agent_id="agent_b", user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(mate_ws / "edit.md"), title="T2", description=None,
+        entry_path=str(env["shared"] / "edit.md"), title="T2", description=None,
         target_artifact_id=made.artifact_id, team_id=TEAM,
     )
     got = await env["repo"].get_by_id(made.artifact_id)
@@ -454,16 +456,26 @@ async def test_a_teammate_may_update_a_team_artifact(env):
 
 @pytest.mark.asyncio
 async def test_a_turn_in_another_team_cannot_touch_it(env):
-    """Being in SOME team is not being in THIS one."""
+    """Being in SOME team is not being in THIS one.
+
+    The entry is a real file in team_other's own folder, so the path guard is
+    satisfied and the refusal comes from the OWNERSHIP guard — which is the one
+    under test here. (Feeding it an unreachable path would pass for the wrong
+    reason.)
+    """
     made = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
+    other = team_shared_dir(USER, "team_other")
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "theirs.md").write_text("theirs\n")
+
     with pytest.raises(ArtifactNotFound):
         await env["svc"].register(
             agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-            entry_path=str(env["ws"] / "own.md"), title="Hijacked", description=None,
+            entry_path=str(other / "theirs.md"), title="Hijacked", description=None,
             target_artifact_id=made.artifact_id, team_id="team_other",
         )
 
@@ -474,7 +486,7 @@ async def test_a_private_turn_cannot_update_a_team_artifact(env):
     team artifact and quietly pull it out of the team."""
     made = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
-        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
         target_artifact_id=None, team_id=TEAM,
     )
     with pytest.raises(ArtifactNotFound):
@@ -499,3 +511,93 @@ async def test_own_private_artifact_still_updates_in_place(env):
         target_artifact_id=made.artifact_id,
     )
     assert (await env["repo"].get_by_id(made.artifact_id)).title == "v2"
+
+
+# ── team output lives in the team folder ──────────────────────────────────
+#
+# The reason is not tidiness, it is reachability. A teammate opening the work
+# has exactly three roots granted to its turn: its own workspace, the bus
+# attachment dir, and THIS team's folder (turn_accessible_roots). A file left
+# in the producer's workspace is in none of them, so NexusPower denies the
+# read — while claude and codex, which run no confinement layer, succeed. That
+# is the three-frameworks-two-behaviours state this feature exists to remove,
+# and it silently defeats acceptance #3 (a teammate picking the work up).
+#
+# Pointer semantics are kept: registration still never copies or moves. The
+# entry simply has to already be somewhere the team can read.
+
+
+@pytest.mark.asyncio
+async def test_a_team_turn_must_register_from_the_team_folder(env):
+    """Own-workspace entries are refused on a team turn, with a message that
+    names the folder — the agent can write there (the grant covers writes), so
+    the fix is one move and a retry, which the tool contract supports."""
+    with pytest.raises(ArtifactPathEscape) as e:
+        await env["svc"].register(
+            agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+            entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+            target_artifact_id=None, team_id=TEAM,
+        )
+    msg = str(e.value)
+    assert str(env["shared"]) in msg, "the error must name where to put it"
+    assert "team" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_team_artifact_registers_from_the_team_folder(env):
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    got = await env["repo"].get_by_id(res.artifact_id)
+    assert got.team_id == TEAM
+    assert str(env["shared"].name) in got.file_path or "teams" in got.file_path
+
+
+@pytest.mark.asyncio
+async def test_the_registered_path_is_readable_by_a_teammates_turn(env):
+    """The point of the whole rule: what lands in the row must sit under a root
+    that turn_accessible_roots grants to ANY member of this team."""
+    from xyz_agent_context.settings import settings as sa
+    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["shared"] / "team.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    stored = await env["repo"].get_by_id(res.artifact_id)
+    absolute = Path(sa.base_working_path) / stored.file_path
+
+    # A DIFFERENT agent's turn in the same team.
+    roots = turn_accessible_roots(USER, team_id=TEAM, base=sa.base_working_path)
+    assert any(str(absolute).startswith(r + "/") for r in roots), (
+        f"{absolute} is not under any root granted to a teammate: {roots}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_private_registration_is_unaffected(env):
+    """scope=private has no team, so the ordinary workspace rule applies and
+    the agent keeps writing where it always did."""
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["ws"] / "own.md"), title="T", description=None,
+        target_artifact_id=None,
+    )
+    assert (await env["repo"].get_by_id(res.artifact_id)).team_id is None
+
+
+@pytest.mark.asyncio
+async def test_another_teams_folder_is_still_refused(env):
+    other = team_shared_dir(USER, "team_other")
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "secret.md").write_text("theirs\n")
+
+    with pytest.raises(ArtifactPathEscape):
+        await env["svc"].register(
+            agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+            entry_path=str(other / "secret.md"), title="T", description=None,
+            target_artifact_id=None, team_id=TEAM,
+        )
