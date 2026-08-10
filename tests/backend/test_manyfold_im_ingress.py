@@ -1510,6 +1510,30 @@ async def test_files_write_audits_success_and_escape(files_app, monkeypatch):
     assert rows[-1][1]["error"].startswith("403")
 
 
+async def test_files_write_audits_infra_failure(files_app, monkeypatch):
+    """OSError on the disk write itself must still leave a row — the
+    infrastructure-failure case is exactly what 'did the platform write
+    get in?' needs to stay answerable for."""
+    app, _ = files_app
+    rows = []
+
+    async def fake_audit(agent_id, **kw):
+        rows.append((agent_id, kw))
+
+    monkeypatch.setattr(files_mod, "_audit_files_write", fake_audit)
+
+    async def boom_thread(fn, *a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(files_mod.asyncio, "to_thread", boom_thread)
+    # ASGITransport surfaces app exceptions instead of rendering a 500;
+    # the audit row must exist by the time the exception escapes.
+    with pytest.raises(OSError):
+        await _post_write(app, "a/b.txt", b"x")
+    assert rows and rows[-1][1]["ok"] is False
+    assert rows[-1][1]["error"].startswith("OSError")
+
+
 async def test_files_write_audit_helper_never_raises(monkeypatch):
     async def boom():
         raise RuntimeError("db down")

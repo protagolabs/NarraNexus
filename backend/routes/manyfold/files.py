@@ -418,18 +418,25 @@ async def write_file(
                 status_code=409,
                 detail=f"file exists and overwrite=false: {path!r}",
             )
+        def _write() -> None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+
+        await asyncio.to_thread(_write)
+        rel = str(target.relative_to(root))
     except HTTPException as e:
         await _audit_files_write(
             agent_id, path=path, ok=False, error=f"{e.status_code}: {e.detail}"
         )
         raise
-
-    def _write() -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(body)
-
-    await asyncio.to_thread(_write)
-    rel = str(target.relative_to(root))
+    except Exception as e:
+        # Infrastructure failures (OSError on the disk write, an
+        # unexpected workspace-resolution error) are exactly the cases
+        # "did the platform write get in?" must stay answerable for.
+        await _audit_files_write(
+            agent_id, path=path, ok=False, error=f"{type(e).__name__}: {e}"
+        )
+        raise
     logger.info(
         f"[manyfold-files:{agent_id}] wrote {len(body)} bytes to {rel!r}"
     )
