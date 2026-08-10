@@ -3,7 +3,8 @@
 @author:
 @date: 2026-08-10
 @description: Network log sink — the PUSH half of the observability
-design (todo §C 决策 2).
+design (pull half = the manyfold diagnostics endpoints; the two share
+no machinery on purpose).
 
 ``setup_logging`` registers this as one more loguru sink when the
 deployer's env opts in; the file sink stays the source of truth and this
@@ -27,6 +28,16 @@ Delivery contract — never interfere with the process being observed:
   timeout — the file sink still has every line; gaps are pulled via the
   diagnostics endpoints. Failures report via ``sys.stderr`` (never
   through loguru: a failing ship must not emit into itself).
+- ``_BREAKER_THRESHOLD`` consecutive failures OPEN a circuit for
+  ``_BREAKER_COOLDOWN_S``: records are dropped at the door instead of
+  buffered. Without it a dead collector turns the sink into a memory
+  leak — loguru's enqueue queue is unbounded while the drain rate is
+  floored at timeout×batch, so a busy full-level process outruns it
+  and RSS climbs; "don't interfere with the observed process" includes
+  its memory. After the cooldown one probe batch is allowed through.
+- ``atexit`` flushes the tail on clean exit — final shutdown (scale-
+  down, replaced container) otherwise loses the last interval forever
+  (startup backfill only helps when the SAME service starts again).
 - On registration, the tail of today's existing log file is shipped
   once with ``"backfill": true`` — the crash-tail catch-up, so lines
   written just before an unclean restart still reach the collector.
@@ -58,6 +69,8 @@ _FLUSH_INTERVAL_S = 3.0
 _SEND_TIMEOUT_S = 2.0
 _BACKFILL_LINES = 200
 _AUDIT_LEVEL_NO = 25
+_BREAKER_THRESHOLD = 5
+_BREAKER_COOLDOWN_S = 60.0
 
 
 def ship_mode() -> str:
@@ -99,6 +112,13 @@ class ShipSink:
         self._send_lock = threading.Lock()
         self._last_flush = time.monotonic()
         self._fail_streak = 0
+        # Circuit breaker: monotonic deadline until which records are
+        # dropped at the door (0 = closed).
+        self._cooldown_until = 0.0
+        self._dropped_in_cooldown = 0
+        import atexit
+
+        atexit.register(self.flush)
         # Periodic flusher so a quiet process still delivers its tail.
         # Daemon: never blocks interpreter shutdown.
         self._timer = threading.Thread(
@@ -110,6 +130,9 @@ class ShipSink:
 
     def __call__(self, message: Any) -> None:
         try:
+            if self._breaker_open():
+                self._dropped_in_cooldown += 1
+                return
             record = message.record
             entry = {
                 "ts": record["time"].isoformat(),
@@ -176,8 +199,39 @@ class ShipSink:
         except Exception as e:  # noqa: BLE001 — drop the batch, file sink has it
             self._note_failure(f"{type(e).__name__}: {e}")
 
+    def _breaker_open(self) -> bool:
+        if self._cooldown_until <= 0:
+            return False
+        if time.monotonic() < self._cooldown_until:
+            return True
+        # Cooldown elapsed: half-open — let traffic through; the next
+        # failure re-opens, the next success closes fully.
+        self._cooldown_until = 0.0
+        if self._dropped_in_cooldown:
+            sys.stderr.write(
+                f"[diag-ship] breaker half-open after cooldown; "
+                f"{self._dropped_in_cooldown} records dropped while open "
+                f"(file log intact)\n"
+            )
+            self._dropped_in_cooldown = 0
+        return False
+
     def _note_failure(self, reason: str) -> None:
         self._fail_streak += 1
+        if self._fail_streak >= _BREAKER_THRESHOLD:
+            self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
+            with self._lock:
+                dropped = len(self._buf)
+                self._buf.clear()
+            self._dropped_in_cooldown += dropped
+            sys.stderr.write(
+                f"[diag-ship] breaker OPEN after {self._fail_streak} "
+                f"consecutive failures ({reason}); dropping records for "
+                f"{_BREAKER_COOLDOWN_S:.0f}s (file log intact; recover via "
+                f"diagnostics pull)\n"
+            )
+            self._fail_streak = 0
+            return
         # First failure and every 50th after: enough signal to notice a
         # dead collector without scrolling stderr off a cliff.
         if self._fail_streak == 1 or self._fail_streak % 50 == 0:
@@ -237,6 +291,12 @@ class ShipSink:
             sys.stderr.write(f"[diag-ship] backfill failed: {e}\n")
 
 
-def ship_sink_level(mode: str) -> Any:
-    """Loguru minimum level for the ship sink: meta = AUDIT-and-up."""
-    return _AUDIT_LEVEL_NO if mode == "meta" else "INFO"
+def ship_sink_level(mode: str, resolved_level: str = "INFO") -> Any:
+    """Loguru minimum level for the ship sink.
+
+    meta = AUDIT-and-up. full = whatever the FILE sink runs at — the
+    documented contract is "full ships what the file sink sees", and
+    hardcoding INFO here broke exactly the case that matters most:
+    NEXUS_LOG_LEVEL=DEBUG turned on for an incident showed DEBUG in the
+    local file but never at the collector."""
+    return _AUDIT_LEVEL_NO if mode == "meta" else resolved_level

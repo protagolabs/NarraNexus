@@ -270,7 +270,7 @@ def setup_logging(
             sink = ShipSink(service_name, config)
             logger.add(
                 sink,
-                level=ship_sink_level(config["mode"]),
+                level=ship_sink_level(config["mode"], resolved_level),
                 enqueue=True,
                 backtrace=False,
                 diagnose=False,

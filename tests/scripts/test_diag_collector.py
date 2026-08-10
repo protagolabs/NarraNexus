@@ -12,7 +12,7 @@ import importlib.util
 import json
 import os
 import time
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -71,7 +71,7 @@ async def test_ingest_writes_partitioned_jsonl(env):
         / "manyfold-staging"
         / "rt_x"
         / "backend"
-        / f"{date.today():%Y-%m-%d}.jsonl"
+        / f"{datetime.now(timezone.utc).date():%Y-%m-%d}.jsonl"
     )
     assert target.is_file()
     rows = [json.loads(ln) for ln in target.read_text().splitlines()]
@@ -146,3 +146,25 @@ async def test_truncated_gzip_is_400_not_500(env):
     truncated = gzip.compress(_lines("x").encode())[:-5]  # EOFError path
     resp = await _post(truncated)
     assert resp.status_code == 400
+
+
+async def test_no_token_fails_closed_by_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("DIAG_COLLECT_TOKEN", raising=False)
+    monkeypatch.delenv("DIAG_COLLECT_ALLOW_ANONYMOUS", raising=False)
+    resp = await _post(gzip.compress(_lines("x").encode()), token=None)
+    assert resp.status_code == 401
+
+
+async def test_anonymous_requires_explicit_opt_in(monkeypatch, tmp_path):
+    monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("DIAG_COLLECT_TOKEN", raising=False)
+    monkeypatch.setenv("DIAG_COLLECT_ALLOW_ANONYMOUS", "1")
+    resp = await _post(gzip.compress(_lines("x").encode()), token=None)
+    assert resp.status_code == 200
+
+
+async def test_wire_size_cap_precedes_buffering(env, monkeypatch):
+    monkeypatch.setattr(collector, "_MAX_WIRE_BYTES", 1024)
+    resp = await _post(b"0" * 10_000, gzipped=False)
+    assert resp.status_code == 413

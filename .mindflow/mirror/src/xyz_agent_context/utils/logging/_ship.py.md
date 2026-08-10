@@ -8,10 +8,11 @@ last_verified: 2026-08-10
 
 ## 为什么存在
 
-todo §C 决策 2:部署方 env 决定外发级别
-(`NEXUS_DIAG_SHIP=off|meta|full` + URL/TOKEN),`setup_logging` 末位
-注册;文件 sink 永远是本源,这里只运副本到收集器
+部署方 env 决定外发级别(`NEXUS_DIAG_SHIP=off|meta|full` +
+URL/TOKEN;env 旋钮清单见 `.env.example`),`setup_logging` 末位注册;
+文件 sink 永远是本源,这里只运副本到收集器
 ([[../../../../scripts/diag_collector/collector.py|collector]])。
+pull 半边 = manyfold 诊断端点,两者刻意零共享机制。
 
 ## 设计决策
 
@@ -20,7 +21,14 @@ todo §C 决策 2:部署方 env 决定外发级别
   发送失败**丢批**(文件本源在,缺口走诊断 pull),失败经 `sys.stderr`
   报告——坏掉的 ship 绝不能经 loguru 发声(自递归);
 - **级别在 loguru 分发层执行**:meta = 注册时 level=25(AUDIT 及以上,
-  含审计镜像行与告警),full = INFO 起;被滤记录零成本;
+  含审计镜像行与告警);full = **跟随文件 sink 的 resolved_level**——
+  排障开 DEBUG 时远端必须同步可见,硬编码 INFO 恰好在最需要的场景
+  失效(review 修);被滤记录零成本;
+- **熔断**(review 修):连续 5 次失败 OPEN 60s——期间记录在门口
+  直接丢、不入缓冲。否则收集器挂掉时无界 enqueue 队列 + 2s×200 条
+  的排空地板 = 反噬被观测进程的内存;半开探测一批,成败定开合;
+- **atexit flush**(review 修):正常退出补发尾批——最终停服(缩容/
+  替换)时 backfill 永远不会跑,没有 atexit 那批就是永久丢失;
 - **身份两层**:每条记录平铺信封字段(env/runtime_id/host/service +
   run_id/event_id extras);sprite 单 runtime,信封即用户归属;
 - **崩溃尾巴补发**:注册时把当日既有文件末 200 行按 `backfill: true`

@@ -34,13 +34,14 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import hmac
 import io
 import json
 import os
 import re
 import time
 import zlib
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -60,6 +61,10 @@ app = FastAPI(title="narranexus-diag-collector", lifespan=_lifespan)
 
 _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9_\-.]")
 _MAX_BODY_BYTES = 32 * 1024 * 1024  # decompressed
+# Wire-size cap enforced WHILE reading the request — request.body()
+# would buffer an arbitrarily large plaintext POST before any check
+# ran (the gzip-bomb guard bounds amplification, not raw size).
+_MAX_WIRE_BYTES = 8 * 1024 * 1024
 
 
 def _bounded_decompress(raw: bytes) -> bytes:
@@ -98,9 +103,18 @@ def _retention_days() -> int:
 def _require_auth(request: Request) -> None:
     token = os.environ.get("DIAG_COLLECT_TOKEN", "").strip()
     if not token:
-        return
+        # Fail CLOSED: an unset token must be an explicit decision, not
+        # the accident of a missing env line. main() refuses to start in
+        # this state; this guard covers embedded/test deployments too.
+        if os.environ.get("DIAG_COLLECT_ALLOW_ANONYMOUS", "") == "1":
+            return
+        raise HTTPException(
+            status_code=401,
+            detail="collector has no DIAG_COLLECT_TOKEN configured",
+        )
     header = request.headers.get("authorization", "")
-    if header != f"Bearer {token}":
+    # Constant-time comparison — a static bearer is still a credential.
+    if not hmac.compare_digest(header, f"Bearer {token}"):
         raise HTTPException(status_code=401, detail="bad token")
 
 
@@ -115,7 +129,14 @@ def _segment(value: str) -> str:
 @app.post("/v1/ingest")
 async def ingest(request: Request):
     _require_auth(request)
-    raw = await request.body()
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WIRE_BYTES:
+            raise HTTPException(status_code=413, detail="request too large")
+        chunks.append(chunk)
+    raw = b"".join(chunks)
     if request.headers.get("content-encoding", "").lower() == "gzip":
         raw = _bounded_decompress(raw)
     elif len(raw) > _MAX_BODY_BYTES:
@@ -123,6 +144,9 @@ async def ingest(request: Request):
 
     accepted = 0
     files: dict[Path, list[str]] = {}
+    # Partition by UTC date — records carry UTC ts, and a local-date
+    # filename would disagree with its own contents around midnight.
+    day = datetime.now(timezone.utc).date()
     for line in raw.decode("utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
@@ -136,7 +160,7 @@ async def ingest(request: Request):
             / _segment(record.get("env", ""))
             / _segment(record.get("runtime_id", ""))
             / _segment(record.get("service", ""))
-            / f"{date.today():%Y-%m-%d}.jsonl"
+            / f"{day:%Y-%m-%d}.jsonl"
         )
         record["received_at"] = datetime.now(timezone.utc).isoformat()
         files.setdefault(target, []).append(
@@ -144,10 +168,17 @@ async def ingest(request: Request):
         )
         accepted += 1
 
-    for target, lines in files.items():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as fh:
-            fh.write("\n".join(lines) + "\n")
+    def _write_all() -> None:
+        for target, lines in files.items():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+
+    # Disk writes off the event loop (same stance as _retention_loop) —
+    # a large batch inline would stall every other sender's POST past
+    # their 2s send timeout, which on the sender side means dropped
+    # batches.
+    await asyncio.to_thread(_write_all)
 
     return {"ok": True, "accepted": accepted}
 
@@ -185,6 +216,15 @@ async def _retention_loop() -> None:
 def main() -> None:
     import uvicorn
 
+    if (
+        not os.environ.get("DIAG_COLLECT_TOKEN", "").strip()
+        and os.environ.get("DIAG_COLLECT_ALLOW_ANONYMOUS", "") != "1"
+    ):
+        raise SystemExit(
+            "refusing to start without DIAG_COLLECT_TOKEN "
+            "(set DIAG_COLLECT_ALLOW_ANONYMOUS=1 to run open on a "
+            "private network — that must be a typed decision)"
+        )
     port = int(os.environ.get("DIAG_COLLECT_PORT", "9880"))
     uvicorn.run(app, host="0.0.0.0", port=port)
 

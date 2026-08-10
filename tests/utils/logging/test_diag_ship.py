@@ -101,6 +101,12 @@ class TestConfigGating:
 
     def test_meta_level_is_audit_and_up(self):
         assert _ship.ship_sink_level("meta") == 25
+        assert _ship.ship_sink_level("meta", "DEBUG") == 25
+
+    def test_full_level_follows_file_sink(self):
+        # "full ships what the file sink sees" — DEBUG turned on for an
+        # incident must reach the collector, not just the local file.
+        assert _ship.ship_sink_level("full", "DEBUG") == "DEBUG"
         assert _ship.ship_sink_level("full") == "INFO"
 
 
@@ -215,3 +221,46 @@ class TestAuditMirrorLine:
         assert "event=managed_ingress_denied" in msg
         assert "agent=a1" in msg
         assert lines[0]["level"].name in ("AUDIT", "INFO")
+
+
+class TestCircuitBreaker:
+    def test_opens_after_threshold_and_drops_at_the_door(self, monkeypatch):
+        """A dead collector must not turn the sink into a memory leak:
+        after the threshold the breaker drops records without buffering
+        or send attempts."""
+        def _boom(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("dead", request=request)
+
+        transport = httpx.MockTransport(_boom)
+        calls = {"n": 0}
+
+        class _CountingTransport(httpx.BaseTransport):
+            def handle_request(self, request):
+                calls["n"] += 1
+                return transport.handle_request(request)
+
+        monkeypatch.setattr(_ship, "_transport_for_tests", _CountingTransport())
+        sink = _ship.ShipSink("backend", _config())
+        for _ in range(_ship._BREAKER_THRESHOLD):
+            sink(_message("x"))
+            sink.flush()
+        assert calls["n"] == _ship._BREAKER_THRESHOLD
+        assert sink._cooldown_until > 0  # breaker open
+
+        # While open: records dropped at the door, no buffering, no sends.
+        sink(_message("dropped"))
+        sink.flush()
+        assert calls["n"] == _ship._BREAKER_THRESHOLD
+        assert sink._buf == []
+        assert sink._dropped_in_cooldown >= 1
+
+    def test_half_open_after_cooldown_resumes(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        sink._cooldown_until = 1.0  # already elapsed on the monotonic clock
+        sink._dropped_in_cooldown = 3
+        sink(_message("after cooldown"))
+        sink.flush()
+        assert len(rec.requests) == 1
+        assert sink._cooldown_until == 0.0

@@ -21,8 +21,16 @@ SSH/pem 无关**——pem 仍是人登录看文件用的。
 每日 sweep。路径段白名单清洗(`_segment`):分隔符不可能存活,空段
 落 "unknown"——目录结构由不可信的发送端元数据决定,清洗是硬要求。
 
-## 契约
+## 契约与加固(2026-08-10 review 两轮)
 
-`POST /v1/ingest`(gzip 或明文 ndjson;坏行跳过不沉批;解压后 32MB
-上限)→ `{ok, accepted}`;`GET /healthz`。部署:容器 + caddy 一条
-反代路由(ops 步骤,在 NarraNexus-deploy 侧)。
+`POST /v1/ingest`(gzip 或明文 ndjson;坏行跳过不沉批)→
+`{ok, accepted}`;`GET /healthz`。防线从外到内:**流式读请求体,
+线上 8MB 边读边封顶**(`request.body()` 会先全量缓冲,5GB 明文可在
+任何检查前 OOM)→ gzip **解压过程中** 32MB 封顶(防炸弹)→ 截断/
+损坏流 400(EOFError/zlib.error 不是 OSError)。写盘走
+`asyncio.to_thread`(大批内联会卡事件循环,把其他 sender 拖过 2s
+超时 = 发送端丢批)。鉴权:`hmac.compare_digest`;**无 token 拒绝
+启动/请求**,`DIAG_COLLECT_ALLOW_ANONYMOUS=1` 才许裸奔——"开着门"
+必须是打过字的决定。分区按 **UTC 日期**(记录自带 UTC ts,本地日期
+文件名会在跨零点时与内容自相矛盾)。部署:容器 + caddy 一条反代
+路由(ops 步骤,在 NarraNexus-deploy 侧)。
