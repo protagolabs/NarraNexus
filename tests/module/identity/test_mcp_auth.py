@@ -652,7 +652,10 @@ def test_audit_measures_tokenless_posts(tmp_path, monkeypatch):
     assert any("unauthenticated" in line for line in lines)
     assert rows and rows[0]["event_type"] == "mcp_auth_tokenless"
     assert rows[0]["detail"]["total"] == 1
-    assert rows[0]["detail"]["counts"] == {"anonymous POST /messages/": 1}
+    (entry,) = rows[0]["detail"]["counts"]
+    assert entry["caller"] == "anonymous"
+    assert entry["method"] == "POST" and entry["path"] == "/messages/"
+    assert entry["n"] == 1 and "port" in entry
 
 
 def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
@@ -720,4 +723,79 @@ def test_tokenless_measurement_names_the_declared_caller(tmp_path, monkeypatch):
     headers = agent_id_headers(AGENT, user_id="usr_legacy")
     r = TestClient(_app()).post("/messages/", headers=headers)
     assert r.status_code == 200
-    assert rows and rows[0]["detail"]["counts"] == {"usr_legacy POST /messages/": 1}
+    (entry,) = rows[0]["detail"]["counts"]
+    assert entry["caller"] == "usr_legacy" and entry["n"] == 1
+
+
+def _audit_capture(tmp_path, monkeypatch):
+    """audit mode + stubbed audit sink; returns the rows list."""
+    from xyz_agent_context.module.identity import mcp_auth
+
+    _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+    )
+    monkeypatch.setattr(
+        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+    return rows
+
+
+def test_bearer_only_caller_is_named_too(tmp_path, monkeypatch):
+    """Round-4 minor #2: the codex shape — everything rides the bearer, no
+    explicit X-NarraNexus-* headers — must still name the declared caller."""
+    rows = _audit_capture(tmp_path, monkeypatch)
+    headers = {"Authorization": f"Bearer nx-agent:{AGENT}~chat~~~usr_bearer_only"}
+    assert TestClient(_app()).post("/messages/", headers=headers).status_code == 200
+    (entry,) = rows[0]["detail"]["counts"]
+    assert entry["caller"] == "usr_bearer_only"
+
+
+def test_placeholder_declared_user_reads_as_anonymous(tmp_path, monkeypatch):
+    rows = _audit_capture(tmp_path, monkeypatch)
+    headers = agent_id_headers(AGENT, user_id="current_user")
+    assert TestClient(_app()).post("/messages/", headers=headers).status_code == 200
+    (entry,) = rows[0]["detail"]["counts"]
+    assert entry["caller"] == "anonymous"
+
+
+def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
+    """Round-4 review #1: the declared value is attacker-controlled and audit
+    rejects nothing — both dimensions must be hard-capped."""
+    import asyncio
+
+    from xyz_agent_context.module.identity import mcp_auth
+
+    class _H(dict):
+        def get(self, k, default=None):
+            return super().get(k.lower(), default)
+
+    huge = "u" * 10000
+    capped = mcp_auth._declared_caller(_H({"x-narranexus-user-id": huge}))
+    assert len(capped) == mcp_auth._DECLARED_MAX_LEN
+
+    # Cardinality: fill the dict past the cap inside one window; extras land
+    # in the overflow bucket, the total survives.
+    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", float("inf"))
+    mcp_auth._tokenless_counts.clear()
+    for i in range(mcp_auth._TOKENLESS_KEYS_MAX + 50):
+        asyncio.run(mcp_auth._note_tokenless(f"usr_{i}", "POST", "/mcp", 7801))
+    assert len(mcp_auth._tokenless_counts) == mcp_auth._TOKENLESS_KEYS_MAX + 1
+    overflow = mcp_auth._tokenless_counts[("<overflow>", "POST", "/mcp", 7801)]
+    assert overflow == 50
+    assert sum(mcp_auth._tokenless_counts.values()) == mcp_auth._TOKENLESS_KEYS_MAX + 50

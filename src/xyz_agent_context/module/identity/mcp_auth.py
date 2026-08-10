@@ -129,7 +129,15 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
 # Enforce mode needs none of this: its unauthenticated POSTs are
 # individually rejected and logged at the door.
 _TOKENLESS_FLUSH_SECONDS = 60.0
-_tokenless_counts: dict[tuple[str, str, str], int] = {}
+# The declared caller is ATTACKER-CONTROLLED input and audit mode by
+# definition rejects nothing (round-4 review #1) — so both dimensions of the
+# aggregation are hard-capped: value length (a real user_id is usr_ + hex;
+# 64 is generous) and key cardinality (same reasoning as _OWNER_CACHE_MAX —
+# past 256 distinct callers the worklist question is already answered; the
+# overflow bucket keeps the total and the binary signal exact).
+_DECLARED_MAX_LEN = 64
+_TOKENLESS_KEYS_MAX = 256
+_tokenless_counts: dict[tuple[str, str, str, int], int] = {}
 _tokenless_flush_deadline: float = 0.0
 
 
@@ -139,28 +147,30 @@ def _declared_caller(headers) -> str:
     Old-broker executors are exactly the "bearer present, field #7 missing"
     shape, so the declared user_id is the actionable aggregation key —
     unverified, which is fine: this feeds an onboarding worklist, not an
-    authorization decision.
+    authorization decision. Reuses _mcp_identity's own readers (in-package
+    private use is the round-1 boundary), which also filters placeholder
+    strings — a model-guessed "current_user" listed as a real name would
+    only pollute the worklist, so it reads as anonymous.
     """
     from xyz_agent_context.module._mcp_identity import (
         USER_ID_HEADER,
-        parse_bearer_identity,
+        _bearer,
+        _explicit_header,
+        is_placeholder_user_id,
     )
 
-    explicit = (
-        headers.get(USER_ID_HEADER.lower()) or headers.get(USER_ID_HEADER) or ""
-    ).strip()
-    if explicit:
-        return explicit
-    bearer = parse_bearer_identity(
-        headers.get("authorization") or headers.get("Authorization") or ""
-    )
-    return bearer.user_id or "anonymous"
+    declared = _explicit_header(headers, USER_ID_HEADER) or _bearer(headers).user_id
+    if not declared or is_placeholder_user_id(declared):
+        return "anonymous"
+    return declared[:_DECLARED_MAX_LEN]
 
 
-async def _note_tokenless(declared_user: str, method: str, path: str) -> None:
+async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
     global _tokenless_flush_deadline
 
-    key = (declared_user, method, path)
+    key = (declared_user, method, path, port)
+    if key not in _tokenless_counts and len(_tokenless_counts) >= _TOKENLESS_KEYS_MAX:
+        key = ("<overflow>", method, path, port)
     _tokenless_counts[key] = _tokenless_counts.get(key, 0) + 1
     now = time.monotonic()
     if now < _tokenless_flush_deadline:
@@ -169,10 +179,20 @@ async def _note_tokenless(declared_user: str, method: str, path: str) -> None:
     counts = dict(_tokenless_counts)
     _tokenless_counts.clear()
     total = sum(counts.values())
-    detail = {f"{u} {m} {p}": n for (u, m, p), n in sorted(counts.items())}
+    # Structured entries, not a joined string: the declared value may contain
+    # anything (spaces included), and the flip decision queries this with SQL
+    # — ambiguity in the serialization would corrupt the worklist. The port
+    # names WHICH module server was called (one process fronts them all).
+    entries = [
+        {"caller": u, "method": m, "path": p, "port": pt, "n": n}
+        for (u, m, p, pt), n in sorted(counts.items())
+    ]
     logger.warning(
         f"[mcp-auth] audit: {total} unauthenticated POST(s) this window — "
-        + ", ".join(f"{k} ×{n}" for k, n in detail.items())
+        + ", ".join(
+            f"{e['caller']} | {e['method']} {e['path']} :{e['port']} ×{e['n']}"
+            for e in entries
+        )
     )
     try:
         from xyz_agent_context.repository.executor_audit_repository import (
@@ -184,7 +204,7 @@ async def _note_tokenless(declared_user: str, method: str, path: str) -> None:
         db = await get_db_client()
         await ExecutorAuditRepository(db).record(
             event_type=EVENT_MCP_AUTH_TOKENLESS,
-            detail={"total": total, "counts": detail},
+            detail={"total": total, "counts": entries},
         )
     except Exception as e:  # noqa: BLE001 — the observer must not break the observed
         logger.debug(f"[mcp-auth] tokenless audit row not written: {e}")
@@ -244,7 +264,8 @@ class IdentityAuthMiddleware:
         elif mode == "audit" and unauthed_post:
             # reason == "no-token": the measurement the audit window exists
             # for, keyed by the self-declared caller. See _note_tokenless.
-            await _note_tokenless(_declared_caller(headers), method, path)
+            server_port = (scope.get("server") or ("", 0))[1] or 0
+            await _note_tokenless(_declared_caller(headers), method, path, server_port)
 
         if mode == "enforce" and unauthed_post:
             if reason == "no-token":
