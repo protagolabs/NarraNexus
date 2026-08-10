@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from contextvars import ContextVar
 from typing import Any, Optional
 
@@ -108,24 +109,58 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
 # Tokenless measurement — audit mode's entire purpose
 # ---------------------------------------------------------------------------
 #
-# A tool-call POST arriving with NO token is the one fact the audit window
-# exists to count (which callers must be onboarded before enforce can flip).
-# Logging each one would flood; logging none reads as "everyone has a token"
-# even when NOBODY does (incident lesson #4: no signal is not a signal).
-# So: aggregate per (method, path), flush one WARNING line + one sampled
-# instance_executor_audit row per window — the flip decision reads SQL, not
-# grep (incident lesson #5). Enforce mode needs none of this: its tokenless
-# POSTs are individually rejected and logged at the door.
+# An unauthenticated POST is the one fact the audit window exists to count
+# (which callers must be onboarded before enforce can flip). Logging each one
+# would flood; logging none reads as "everyone has a token" even when NOBODY
+# does (incident lesson #4: no signal is not a signal). So: aggregate per
+# (declared caller, method, path) — tokenless is not identity-less, the old
+# bearer channel still carries the SELF-DECLARED user_id, which is exactly
+# who to go onboard — and flush one WARNING line + one sampled
+# instance_executor_audit row per window, so the flip decision reads SQL,
+# not grep (incident lesson #5). Two deliberate approximations, both safe
+# for the binary "anyone still unauthenticated?" question:
+#   * handshake POSTs (initialize/initialized ride the same /mcp path) are
+#     counted too — the label says "unauthenticated POST(s)", and filtering
+#     would mean parsing request bodies here;
+#   * the tail window flushes on the NEXT unauthenticated call (the first
+#     call always flushes immediately, deadline starts at 0) — a final
+#     sub-window's counts can go unreported, never the fact that calls
+#     existed.
+# Enforce mode needs none of this: its unauthenticated POSTs are
+# individually rejected and logged at the door.
 _TOKENLESS_FLUSH_SECONDS = 60.0
-_tokenless_counts: dict[tuple[str, str], int] = {}
+_tokenless_counts: dict[tuple[str, str, str], int] = {}
 _tokenless_flush_deadline: float = 0.0
 
 
-async def _note_tokenless(method: str, path: str) -> None:
-    global _tokenless_flush_deadline
-    import time
+def _declared_caller(headers) -> str:
+    """The SELF-DECLARED user behind an unauthenticated call, or "anonymous".
 
-    key = (method, path)
+    Old-broker executors are exactly the "bearer present, field #7 missing"
+    shape, so the declared user_id is the actionable aggregation key —
+    unverified, which is fine: this feeds an onboarding worklist, not an
+    authorization decision.
+    """
+    from xyz_agent_context.module._mcp_identity import (
+        USER_ID_HEADER,
+        parse_bearer_identity,
+    )
+
+    explicit = (
+        headers.get(USER_ID_HEADER.lower()) or headers.get(USER_ID_HEADER) or ""
+    ).strip()
+    if explicit:
+        return explicit
+    bearer = parse_bearer_identity(
+        headers.get("authorization") or headers.get("Authorization") or ""
+    )
+    return bearer.user_id or "anonymous"
+
+
+async def _note_tokenless(declared_user: str, method: str, path: str) -> None:
+    global _tokenless_flush_deadline
+
+    key = (declared_user, method, path)
     _tokenless_counts[key] = _tokenless_counts.get(key, 0) + 1
     now = time.monotonic()
     if now < _tokenless_flush_deadline:
@@ -134,9 +169,9 @@ async def _note_tokenless(method: str, path: str) -> None:
     counts = dict(_tokenless_counts)
     _tokenless_counts.clear()
     total = sum(counts.values())
-    detail = {f"{m} {p}": n for (m, p), n in sorted(counts.items())}
+    detail = {f"{u} {m} {p}": n for (u, m, p), n in sorted(counts.items())}
     logger.warning(
-        f"[mcp-auth] audit: {total} tokenless tool-call POST(s) this window — "
+        f"[mcp-auth] audit: {total} unauthenticated POST(s) this window — "
         + ", ".join(f"{k} ×{n}" for k, n in detail.items())
     )
     try:
@@ -197,25 +232,21 @@ class IdentityAuthMiddleware:
         path = scope.get("path", "")
         method = scope.get("method", "")
 
+        # One predicate for both mode branches, so a future exemption change
+        # cannot drift them apart (round-3 review, minor #3).
+        unauthed_post = (
+            identity is None and method == "POST" and path not in _EXEMPT_PATHS
+        )
+
         if identity is None and reason != "no-token":
             # Bad proof — log in every mode (audit's whole job).
             logger.warning(f"[mcp-auth] {mode}: {reason} method={method} path={path}")
-        elif (
-            mode == "audit"
-            and identity is None
-            and method == "POST"
-            and path not in _EXEMPT_PATHS
-        ):
+        elif mode == "audit" and unauthed_post:
             # reason == "no-token": the measurement the audit window exists
-            # for. Aggregated — see _note_tokenless.
-            await _note_tokenless(method, path)
+            # for, keyed by the self-declared caller. See _note_tokenless.
+            await _note_tokenless(_declared_caller(headers), method, path)
 
-        if (
-            mode == "enforce"
-            and identity is None
-            and method == "POST"
-            and path not in _EXEMPT_PATHS
-        ):
+        if mode == "enforce" and unauthed_post:
             if reason == "no-token":
                 logger.warning(f"[mcp-auth] enforce: no token method={method} path={path}")
             await _reject(send, reason)
@@ -278,8 +309,6 @@ _owner_cache: dict[str, tuple[str, float]] = {}
 
 
 async def _resolve_owner_cached(db, agent_id: str) -> str:
-    import time
-
     now = time.monotonic()
     cached = _owner_cache.get(agent_id)
     if cached is not None and cached[1] > now:

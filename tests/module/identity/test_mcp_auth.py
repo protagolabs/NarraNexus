@@ -35,6 +35,17 @@ from xyz_agent_context.module.identity.tokens import ISSUER_LOCAL, sign_identity
 AGENT = "agent_39b2b72b823b"
 
 
+@pytest.fixture(autouse=True)
+def _clean_module_state():
+    """The module keeps process-global aggregation/cache dicts; leaking them
+    between tests is a classic ordering hazard (round-3 review, minor #5)."""
+    from xyz_agent_context.module.identity import mcp_auth
+
+    yield
+    mcp_auth._owner_cache.clear()
+    mcp_auth._tokenless_counts.clear()
+
+
 def _keypair() -> tuple[bytes, bytes]:
     priv = ed25519.Ed25519PrivateKey.generate()
     priv_pem = priv.private_bytes(
@@ -638,10 +649,10 @@ def test_audit_measures_tokenless_posts(tmp_path, monkeypatch):
     finally:
         _logger.remove(sink_id)
 
-    assert any("tokenless" in line for line in lines)
+    assert any("unauthenticated" in line for line in lines)
     assert rows and rows[0]["event_type"] == "mcp_auth_tokenless"
     assert rows[0]["detail"]["total"] == 1
-    assert rows[0]["detail"]["counts"] == {"POST /messages/": 1}
+    assert rows[0]["detail"]["counts"] == {"anonymous POST /messages/": 1}
 
 
 def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
@@ -672,3 +683,41 @@ def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
     # Positive result IS cached: a third call does not hit the repo again.
     assert asyncio.run(mcp_auth._resolve_owner_cached(object(), "agent_x")) == "usr_owner"
     assert calls["n"] == 2
+
+
+def test_tokenless_measurement_names_the_declared_caller(tmp_path, monkeypatch):
+    """Round-3 review #1: the audit worklist must answer WHO to onboard. An
+    old-broker executor is exactly 'bearer present, field #7 missing' — its
+    self-declared user_id keys the aggregation."""
+    from xyz_agent_context.module.identity import mcp_auth
+
+    _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+    )
+    monkeypatch.setattr(
+        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    mcp_auth._tokenless_counts.clear()
+    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+
+    # tokenless but NOT identity-less: the pre-#260 header shape.
+    headers = agent_id_headers(AGENT, user_id="usr_legacy")
+    r = TestClient(_app()).post("/messages/", headers=headers)
+    assert r.status_code == 200
+    assert rows and rows[0]["detail"]["counts"] == {"usr_legacy POST /messages/": 1}

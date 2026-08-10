@@ -18,12 +18,19 @@ wrapper calls.
 - **off** (default) — full no-op. This is what keeps a local `bash run.sh`
   byte-identical (iron rule #7); local enforcement is a deployment choice.
 - **audit** — verify + log + record denials, never reject. The measurement
-  phase: tokenless tool-call POSTs are AGGREGATED per (method, path) and
-  flushed once per 60s window as one WARNING line + one sampled
-  `mcp_auth_tokenless` audit row — the enforce-flip decision reads SQL, not
-  grep (round-2 review #1: per-call logs would flood, and silence would read
-  as "everyone has a token" even when nobody does — incident lesson #4/#5).
-  Enforce needs no counter: its tokenless POSTs are individually 401'd+logged.
+  phase: unauthenticated POSTs are AGGREGATED per **(declared caller,
+  method, path)** and flushed once per 60s window as one WARNING line + one
+  sampled `mcp_auth_tokenless` audit row — the enforce-flip decision reads
+  SQL, not grep (round-2 #1; incident lesson #4/#5). The declared-caller key
+  is round-3 #1: tokenless ≠ identity-less — an old-broker executor is
+  exactly "bearer present, field #7 missing", so the self-declared user_id
+  IS the onboarding worklist (unverified by design: it feeds a worklist, not
+  an authz decision; no declaration → "anonymous"). Two documented
+  approximations: handshake POSTs on /mcp are counted (label says
+  "unauthenticated POST(s)"), and a final sub-window's counts can go
+  unreported (flush rides the next call; the first call always flushes).
+  Enforce needs no counter: its unauthenticated POSTs are individually
+  401'd+logged.
 - **enforce** — tokenless/invalid POSTs are 401'd at the door; cross-owner
   tool calls get an in-band error value. GETs (SSE handshake) and
   /health(z) stay open — tool calls are POSTs on both transports.
