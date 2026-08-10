@@ -4,6 +4,15 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10(review 修)— env 委托 + 全败还原批次
+
+`_webhook_env` 改为委托 integrations/manyfold_outbound 的
+`manyfold_runtime_env()`(三元组唯一解析点);`_flush_pending` 全败
+后 `_pending_kinds.update(kinds)` 还原整批——否则重试窗口(~31s)内
+被并批吸收的 kinds 随注定失败的批次一起消失,比无重试时代更糟
+(那时它们会留在 _pending_kinds 等下一个 task)。notify 是"pull
+everything"语义,晚到重发无害。
+
 ## 2026-08-10 — A1 `agent_managed_reply` 显式下发 + A3 notify 退避重试
 
 channels inventory 每行 `config` 后处理注入

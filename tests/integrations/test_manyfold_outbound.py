@@ -2,7 +2,7 @@
 @file_name: test_manyfold_outbound.py
 @author:
 @date: 2026-08-10
-@description: Tests for utils/manyfold_outbound.py — the managed-reply
+@description: Tests for integrations/manyfold_outbound.py — the managed-reply
 declaration set and the platform channel-send client.
 
 Covers: env-driven provider declaration, channel-send URL derivation
@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 
-from xyz_agent_context.utils import manyfold_outbound as mo
+from xyz_agent_context.integrations import manyfold_outbound as mo
 
 
 @pytest.fixture(autouse=True)
@@ -152,14 +152,14 @@ class TestChannelSend:
         rec = _Recorder(lambda req: _ok_response())
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
 
-        ok = await mo.channel_send(
+        outcome = await mo.channel_send(
             agent_id="agent_x1",
             provider="wechat",
             room_id="wx_user_9",
             text="hello",
             source_message_id="m-77",
         )
-        assert ok is True
+        assert outcome == "delivered"
         assert len(rec.requests) == 1
         req = rec.requests[0]
         assert str(req.url).endswith("/channel-send")
@@ -190,7 +190,7 @@ class TestChannelSend:
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is True
+        ) == "delivered"
 
     @pytest.mark.asyncio
     async def test_queued_counts_as_success(self, monkeypatch):
@@ -199,7 +199,7 @@ class TestChannelSend:
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is True
+        ) == "delivered"
 
     @pytest.mark.asyncio
     async def test_failed_status_is_false(self, monkeypatch):
@@ -208,7 +208,7 @@ class TestChannelSend:
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is False
+        ) == "failed"
 
     @pytest.mark.asyncio
     async def test_non_2xx_is_false_not_raise(self, monkeypatch):
@@ -217,7 +217,7 @@ class TestChannelSend:
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is False
+        ) == "failed"
 
     @pytest.mark.asyncio
     async def test_network_error_is_false_not_raise(self, monkeypatch):
@@ -230,10 +230,45 @@ class TestChannelSend:
         monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is False
+        ) == "failed"
 
     @pytest.mark.asyncio
-    async def test_unresolvable_env_is_false_without_request(self):
+    async def test_unresolvable_env_is_unavailable_without_request(self):
+        # No delivery request ever leaves the sandbox → "unavailable", the
+        # outcome that permits the caller's safe direct fallback.
         assert await mo.channel_send(
             agent_id="a", provider="wechat", room_id="r", text="t"
-        ) is False
+        ) == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_endpoint_missing_404_is_unavailable(self, monkeypatch):
+        # Platform hasn't deployed channel-send (or the URL derivation is
+        # wrong): the platform never received a delivery request, so the
+        # caller may fall back direct without double-send risk.
+        _set_manyfold_env(monkeypatch)
+        rec = _Recorder(lambda req: httpx.Response(404, text="Not Found"))
+        monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
+        assert await mo.channel_send(
+            agent_id="a", provider="wechat", room_id="r", text="t"
+        ) == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_405_is_unavailable(self, monkeypatch):
+        _set_manyfold_env(monkeypatch)
+        rec = _Recorder(lambda req: httpx.Response(405, text="Method Not Allowed"))
+        monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
+        assert await mo.channel_send(
+            agent_id="a", provider="wechat", room_id="r", text="t"
+        ) == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_403_policy_refusal_is_failed_not_unavailable(self, monkeypatch):
+        # 403 = the platform's target-binding guard (room without inbound
+        # history). It must map to "failed": a direct fallback here would
+        # bypass the guard with sandbox credentials.
+        _set_manyfold_env(monkeypatch)
+        rec = _Recorder(lambda req: httpx.Response(403, json={"message": "no inbound"}))
+        monkeypatch.setattr(mo, "_transport_for_tests", rec.transport())
+        assert await mo.channel_send(
+            agent_id="a", provider="wechat", room_id="r", text="t"
+        ) == "failed"

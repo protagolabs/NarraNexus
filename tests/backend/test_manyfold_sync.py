@@ -356,6 +356,24 @@ async def test_notify_retries_then_succeeds(webhook_env):
 
 
 @pytest.mark.asyncio
+async def test_notify_total_failure_restores_kinds_for_next_flush(webhook_env):
+    # All attempts fail → the batch (incl. anything absorbed during the
+    # retry window) goes back into _pending_kinds, so the NEXT config
+    # write resends it instead of the kinds dying with the doomed batch.
+    _FakeAsyncClient.fail = True
+    mod.notify_manyfold_config_changed({"jobs"})
+    await asyncio.sleep(0.7)
+    assert mod._pending_kinds >= {"jobs"}
+    # Next write picks the restored kinds up alongside its own.
+    _FakeAsyncClient.fail = False
+    _FakeAsyncClient.posts = []
+    mod.notify_manyfold_config_changed({"channels"})
+    await asyncio.sleep(0.7)
+    assert len(_FakeAsyncClient.posts) == 1
+    assert _FakeAsyncClient.posts[0]["json"]["kinds"] == ["channels", "jobs"]
+
+
+@pytest.mark.asyncio
 async def test_notify_retry_merges_kinds_arriving_between_attempts(
     webhook_env, monkeypatch
 ):

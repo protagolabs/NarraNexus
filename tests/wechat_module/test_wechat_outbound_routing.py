@@ -59,7 +59,7 @@ class TestRouter:
     @pytest.mark.asyncio
     async def test_managed_path_routes_channel_send(self, monkeypatch):
         direct = AsyncMock()
-        managed = AsyncMock(return_value=True)
+        managed = AsyncMock(return_value="delivered")
         monkeypatch.setattr(wechat_outbound, "send_text_once", direct)
         monkeypatch.setattr(wechat_outbound, "channel_send", managed)
         monkeypatch.setattr(
@@ -90,7 +90,7 @@ class TestRouter:
         managed mode means the platform owns delivery; a sandbox-side direct
         send would race the platform's own retry (double message)."""
         direct = AsyncMock()
-        managed = AsyncMock(return_value=False)
+        managed = AsyncMock(return_value="failed")
         monkeypatch.setattr(wechat_outbound, "send_text_once", direct)
         monkeypatch.setattr(wechat_outbound, "channel_send", managed)
         monkeypatch.setattr(
@@ -106,6 +106,33 @@ class TestRouter:
         )
         assert ok is False
         direct.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unavailable_platform_falls_back_to_direct(self, monkeypatch):
+        """Endpoint missing (#511 not deployed / bad URL derivation) means
+        the platform never received a delivery request — direct fallback
+        cannot double-send, and without it every reply would be silently
+        swallowed while the flag says managed."""
+        direct = AsyncMock(return_value=True)
+        managed = AsyncMock(return_value="unavailable")
+        monkeypatch.setattr(wechat_outbound, "send_text_once", direct)
+        monkeypatch.setattr(wechat_outbound, "channel_send", managed)
+        monkeypatch.setattr(
+            wechat_outbound, "managed_channel_send_active", lambda p: True
+        )
+
+        ok = await wechat_outbound.send_wechat_text(
+            agent_id="agent_w1",
+            credential=_cred(),
+            to_user_id="wx_peer",
+            context_token="ctx-4",
+            text="hi",
+        )
+        assert ok is True
+        managed.assert_awaited_once()
+        direct.assert_awaited_once_with(
+            "bot-tok", "https://ilink.example.com", "wx_peer", "ctx-4", "hi"
+        )
 
 
 class TestCallSitesDelegate:

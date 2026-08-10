@@ -41,7 +41,10 @@ from loguru import logger
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.manyfold_outbound import managed_reply_declared
+from xyz_agent_context.integrations.manyfold_outbound import (
+    managed_reply_declared,
+    manyfold_runtime_env,
+)
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -394,12 +397,12 @@ _flush_task: Optional[asyncio.Task] = None
 
 
 def _webhook_env() -> Optional[tuple[str, str, str]]:
-    url = os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", "").strip()
-    token = os.environ.get("MANYFOLD_SYNC_WEBHOOK_TOKEN", "").strip()
-    runtime_id = os.environ.get("MANYFOLD_RUNTIME_ID", "").strip()
-    if url and token and runtime_id:
-        return url, token, runtime_id
-    return None
+    """Delegates to the single manyfold env parse (integrations layer) so
+    the notify leg and the channel-send leg cannot skew on env semantics."""
+    env = manyfold_runtime_env()
+    if env is None:
+        return None
+    return env.webhook_url, env.token, env.runtime_id
 
 
 def _classify_config_path(path: str) -> Optional[str]:
@@ -466,6 +469,12 @@ async def _flush_pending(env: tuple[str, str, str]) -> None:
                 f"Manyfold config-change webhook attempt {attempt + 1} failed "
                 f"({type(e).__name__}: {e})"
             )
+    # Every attempt failed: put the batch back so the NEXT config write's
+    # flush resends it. Without this, kinds absorbed during the retry
+    # window die with the doomed batch — worse than the pre-retry code,
+    # where they survived in _pending_kinds for the next task. Notify is
+    # "pull everything", so a later resend of stale kinds is harmless.
+    _pending_kinds.update(kinds)
     if last_error is not None:
         raise last_error
 

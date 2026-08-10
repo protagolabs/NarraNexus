@@ -1,10 +1,22 @@
 ---
-code_file: src/xyz_agent_context/utils/manyfold_outbound.py
+code_file: src/xyz_agent_context/integrations/manyfold_outbound.py
 stub: false
 last_verified: 2026-08-10
 ---
 
 # manyfold_outbound.py — managed-reply 声明 + 平台 channel-send 客户端
+
+## 2026-08-10(review 修)— 迁入 integrations/;env 单一解析;三态结果
+
+1. 从 utils/ 迁到 integrations/(与 feedback_client、free_tier/
+   wallet_client 同居):外部平台 wire 契约不是通用工具;
+2. 新 `manyfold_runtime_env()` = 三元组唯一解析点,notify 的
+   `_webhook_env` 改为委托——两条出站腿的 env 语义不可能再走偏;
+3. `channel_send` 返回三态 `ChannelSendOutcome`:
+   `delivered` / `failed`(403 策略拒绝、5xx、超时——请求可能已达
+   平台,**不许**直连兜底:403 兜底=用沙盒凭据绕过目标绑定,超时
+   兜底=与平台重试竞态双发)/ `unavailable`(404/405 端点缺失、
+   env 不可解析——平台**从未收到**投递请求,直连兜底安全)。
 
 ## 为什么存在
 

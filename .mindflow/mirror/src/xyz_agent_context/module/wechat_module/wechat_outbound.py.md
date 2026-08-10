@@ -22,7 +22,11 @@ managed → 平台 channel-send(不需要 context_token,平台按 room_id
 
 ## 设计决策
 
-- 平台发送失败**不回退直连重试**:managed 语义 = 平台拥有投递,
-  沙盒侧直连补发会与平台自身的重试竞态成双发;
+- 三态结果映射(2026-08-10 review 修):`delivered` → 成功;
+  `failed` → False **不回退直连**(managed 语义 = 平台拥有投递,
+  沙盒侧补发与平台重试竞态成双发;403 是平台目标绑定拒绝,直连
+  兜底等于绕过它);`unavailable`(端点缺失/env 不可解析)→
+  **回退直连**——平台从未收到投递请求,不可能双发,否则 #511 未
+  部署时所有回复静默丢失;
 - 路由放模块层而非 `send_text_once` 内部:SDK client 是纯传输层,
   不得知晓 manyfold 语义(分层同 [[wechat_sdk_client.py]])。

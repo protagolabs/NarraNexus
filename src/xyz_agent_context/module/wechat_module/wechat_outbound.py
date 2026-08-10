@@ -29,7 +29,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from xyz_agent_context.utils.manyfold_outbound import (
+from loguru import logger
+
+from xyz_agent_context.integrations.manyfold_outbound import (
     channel_send,
     managed_channel_send_active,
 )
@@ -45,13 +47,30 @@ async def send_wechat_text(
     context_token: str,
     text: str,
 ) -> bool:
-    """Send one WeChat text, routed managed-vs-direct. Never raises."""
+    """Send one WeChat text, routed managed-vs-direct. Never raises.
+
+    Outcome mapping is the whole point of the three-way return:
+    ``delivered`` → done; ``failed`` → False, NO direct retry (the
+    platform received the request — 403 is its target-binding refusal
+    and must not be bypassed with sandbox credentials, and a timed-out
+    request may still be processed, so a resend races into a double
+    message); ``unavailable`` → the platform never received a delivery
+    request (endpoint missing / env unresolvable), so the direct path
+    cannot double-send and keeps replies flowing until the platform leg
+    exists.
+    """
     if managed_channel_send_active("wechat"):
-        return await channel_send(
+        outcome = await channel_send(
             agent_id=agent_id,
             provider="wechat",
             room_id=to_user_id,
             text=text,
+        )
+        if outcome != "unavailable":
+            return outcome == "delivered"
+        logger.error(
+            "[wechat-outbound] managed declared but platform channel-send "
+            "unavailable — falling back to direct iLink for this send"
         )
     return await send_text_once(
         credential.bot_token, credential.base_url, to_user_id, context_token, text

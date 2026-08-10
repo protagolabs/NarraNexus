@@ -4,6 +4,14 @@
 @date: 2026-08-10
 @description: Managed-reply declaration + Manyfold channel-send client.
 
+Lives in integrations/ with the other external-platform clients
+(feedback_client, free_tier/wallet_client): it speaks a foreign wire
+contract (bearer auth, camelCase DTO), which is platform semantics, not
+a generic utility. ``manyfold_runtime_env()`` is additionally the single
+parse of the manyfold runtime triple — the notify webhook
+(backend/routes/manyfold/sync.py) delegates here so the two outbound
+legs can never diverge on env semantics.
+
 Two related facts live here, shared by the channels inventory
 (backend/routes/manyfold/sync.py, which EMITS the declaration to the
 platform) and the channel modules' outbound wrappers (which ROUTE sends
@@ -31,7 +39,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from loguru import logger
@@ -63,6 +71,31 @@ def managed_reply_declared(provider: str) -> bool:
 
 
 @dataclass(frozen=True)
+class ManyfoldRuntimeEnv:
+    """The manyfold runtime identity triple. All-or-nothing: a partial
+    set reads as "not a manyfold surface" for every consumer."""
+
+    webhook_url: str
+    token: str
+    runtime_id: str
+
+
+def manyfold_runtime_env() -> Optional[ManyfoldRuntimeEnv]:
+    """Single parse of the manyfold runtime env.
+
+    Both outbound legs — the notify webhook and channel-send — resolve
+    through here, so a rename / fallback / validation change lands on
+    both at once instead of silently skewing one of them.
+    """
+    url = os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", "").strip()
+    token = os.environ.get("MANYFOLD_SYNC_WEBHOOK_TOKEN", "").strip()
+    runtime_id = os.environ.get("MANYFOLD_RUNTIME_ID", "").strip()
+    if not (url and token and runtime_id):
+        return None
+    return ManyfoldRuntimeEnv(webhook_url=url, token=token, runtime_id=runtime_id)
+
+
+@dataclass(frozen=True)
 class ChannelSendEnv:
     url: str
     token: str
@@ -79,18 +112,20 @@ def channel_send_env() -> Optional[ChannelSendEnv]:
     ``/notify`` is refused rather than guessed at — the caller falls back
     to the direct provider send, which is the safe degradation.
     """
-    token = os.environ.get("MANYFOLD_SYNC_WEBHOOK_TOKEN", "").strip()
-    runtime_id = os.environ.get("MANYFOLD_RUNTIME_ID", "").strip()
-    if not token or not runtime_id:
+    env = manyfold_runtime_env()
+    if env is None:
+        # Explicit channel-send URL still needs token + runtime_id; a
+        # partial triple stays "not a manyfold surface".
         return None
     explicit = os.environ.get("MANYFOLD_CHANNEL_SEND_URL", "").strip()
     if explicit:
-        return ChannelSendEnv(url=explicit, token=token, runtime_id=runtime_id)
-    webhook = os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", "").strip()
-    derived = re.sub(r"/notify/?$", "/channel-send", webhook)
-    if not webhook or derived == webhook:
+        return ChannelSendEnv(
+            url=explicit, token=env.token, runtime_id=env.runtime_id
+        )
+    derived = re.sub(r"/notify/?$", "/channel-send", env.webhook_url)
+    if derived == env.webhook_url:
         return None
-    return ChannelSendEnv(url=derived, token=token, runtime_id=runtime_id)
+    return ChannelSendEnv(url=derived, token=env.token, runtime_id=env.runtime_id)
 
 
 def managed_channel_send_active(provider: str) -> bool:
@@ -104,6 +139,22 @@ def managed_channel_send_active(provider: str) -> bool:
     return managed_reply_declared(provider) and channel_send_env() is not None
 
 
+# The three-way outcome exists for one caller decision: may the channel
+# module fall back to its direct provider send?
+# - "delivered": platform accepted (status sent/queued) — done.
+# - "unavailable": the platform NEVER RECEIVED a delivery request (endpoint
+#   missing: 404/405, or env unresolvable) — direct fallback cannot double-
+#   send, so it is safe. Covers "we flipped managed before the platform
+#   shipped/deployed channel-send", which would otherwise swallow every
+#   reply silently.
+# - "failed": a delivery request reached (or may have reached) the platform
+#   — 403 policy refusal, 5xx, timeouts, network errors. NO fallback: 403
+#   is the target-binding guard (direct send would bypass it with sandbox
+#   credentials), and for timeouts the platform may have processed the
+#   request — a direct resend races its retry into a double message.
+ChannelSendOutcome = Literal["delivered", "failed", "unavailable"]
+
+
 async def channel_send(
     *,
     agent_id: str,
@@ -112,13 +163,13 @@ async def channel_send(
     text: str,
     source_message_id: Optional[str] = None,
     attachments: Optional[list[str]] = None,
-) -> bool:
+) -> ChannelSendOutcome:
     """POST one outbound message to the platform's channel-send endpoint.
 
-    ``status`` ``sent``/``queued`` both count as success — queued means the
-    platform accepted the message and owns retrying the provider leg.
-    Everything else (``failed``, non-2xx, network error, unresolvable env)
-    is ``False``; never raises.
+    ``status`` ``sent``/``queued`` both count as delivered — queued means
+    the platform accepted the message and owns retrying the provider leg.
+    Never raises; see ``ChannelSendOutcome`` for the semantics of the
+    other two outcomes.
 
     ``attachments`` are workspace-relative paths (the platform reads them
     back out of the agent workspace, mirroring its inbound ingest layout).
@@ -127,9 +178,9 @@ async def channel_send(
     if env is None:
         logger.warning(
             f"[manyfold-outbound] channel-send env unresolvable; "
-            f"provider={provider} agent={agent_id} — send dropped"
+            f"provider={provider} agent={agent_id}"
         )
-        return False
+        return "unavailable"
     body: dict[str, object] = {
         "runtimeId": env.runtime_id,
         "agentId": agent_id,
@@ -156,23 +207,33 @@ async def channel_send(
                 json=body,
                 headers={"Authorization": f"Bearer {env.token}"},
             )
+        if resp.status_code in (404, 405):
+            # Route doesn't exist on the platform (channel-send not
+            # deployed / URL derivation wrong): nothing was delivered,
+            # nothing will be — tell the caller the platform leg is absent.
+            logger.error(
+                f"[manyfold-outbound] channel-send endpoint missing "
+                f"(HTTP {resp.status_code}) at {env.url} — platform leg "
+                f"unavailable; provider={provider} agent={agent_id}"
+            )
+            return "unavailable"
         if not (200 <= resp.status_code < 300):
             logger.warning(
                 f"[manyfold-outbound] channel-send HTTP {resp.status_code} "
                 f"provider={provider} agent={agent_id}: {resp.text[:300]}"
             )
-            return False
+            return "failed"
         status = str(resp.json().get("status", ""))
         if status in ("sent", "queued"):
-            return True
+            return "delivered"
         logger.warning(
             f"[manyfold-outbound] channel-send status={status!r} "
             f"provider={provider} agent={agent_id}"
         )
-        return False
-    except Exception as e:  # noqa: BLE001 — one error surface: False, logged
+        return "failed"
+    except Exception as e:  # noqa: BLE001 — one error surface, logged
         logger.warning(
             f"[manyfold-outbound] channel-send failed "
             f"({type(e).__name__}: {e}) provider={provider} agent={agent_id}"
         )
-        return False
+        return "failed"
