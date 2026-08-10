@@ -264,3 +264,79 @@ class TestCircuitBreaker:
         sink.flush()
         assert len(rec.requests) == 1
         assert sink._cooldown_until == 0.0
+
+
+class TestBreakerHalfOpen:
+    def test_probe_failure_reopens_immediately(self, monkeypatch):
+        """Half-open means ONE failed probe re-opens — not re-earning the
+        threshold (the doc-only version wasted 5 batches × 2s timeout per
+        cooldown cycle against a long-dead collector)."""
+        def _boom(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("dead", request=request)
+
+        calls = {"n": 0}
+
+        class _Counting(httpx.BaseTransport):
+            def handle_request(self, request):
+                calls["n"] += 1
+                raise httpx.ConnectError("dead", request=request)
+
+        monkeypatch.setattr(_ship, "_transport_for_tests", _Counting())
+        sink = _ship.ShipSink("backend", _config())
+        sink._cooldown_until = 1.0  # elapsed → next record enters half-open
+        sink(_message("probe"))
+        sink.flush()
+        assert calls["n"] == 1
+        assert sink._cooldown_until > 1.0  # re-opened by ONE failure
+        assert sink._half_open is False
+
+    def test_probe_success_closes_fully(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        sink._cooldown_until = 1.0
+        sink(_message("probe"))
+        sink.flush()
+        assert len(rec.requests) == 1
+        assert sink._cooldown_until == 0.0
+        assert sink._half_open is False
+
+
+class TestPermanentRejection:
+    def test_4xx_drops_without_breaker_accounting(self, monkeypatch):
+        """413 means 'this batch is unacceptable', not 'collector down' —
+        it must never open the breaker."""
+        rec = _Recorder(status=413)
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        for _ in range(_ship._BREAKER_THRESHOLD * 2):
+            sink(_message("big"))
+            sink.flush()
+        assert sink._fail_streak == 0
+        assert sink._cooldown_until == 0.0  # breaker never opened
+        assert len(rec.requests) == _ship._BREAKER_THRESHOLD * 2
+
+
+class TestByteBatching:
+    def test_flushes_on_serialized_bytes(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        monkeypatch.setattr(_ship, "_BATCH_MAX_BYTES", 1000)
+        sink = _ship.ShipSink("backend", _config())
+        sink(_message("x" * 600))
+        assert rec.requests == []  # under the byte cap, buffered
+        sink(_message("y" * 600))
+        assert len(rec.requests) == 1  # byte cap crossed → flushed early
+        assert len(rec.batches()[0]) == 2
+
+
+class TestAtexitSweep:
+    def test_module_level_handler_flushes_live_sinks(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        sink(_message("tail line"))
+        assert rec.requests == []
+        _ship._flush_all_at_exit()
+        assert len(rec.requests) == 1
+        assert rec.batches()[0][0]["message"] == "tail line"

@@ -14,7 +14,8 @@ ships a copy to the collector (scripts/diag_collector). Levels:
                         hosted deployments ship nothing, ever.
   NEXUS_DIAG_SHIP=meta  — AUDIT (25) and up: structured lifecycle
                         events + warnings/errors, no INFO bodies.
-  NEXUS_DIAG_SHIP=full  — everything the file sink sees.
+  NEXUS_DIAG_SHIP=full  — everything the file sink sees, at the file
+                        sink's resolved level.
 
 The ship level is enforced at loguru dispatch (the sink is registered
 WITH that minimum level), so filtered records cost nothing.
@@ -23,21 +24,28 @@ Delivery contract — never interfere with the process being observed:
 - ``enqueue=True`` gives this sink its own queue + worker thread; the
   emitting coroutine never waits on the network, and a slow collector
   cannot back up the FILE sink (separate queue).
-- Batches flush at ``_BATCH_MAX`` records or ``_FLUSH_INTERVAL_S``
-  seconds, gzip-compressed. Send failures DROP the batch after a short
-  timeout — the file sink still has every line; gaps are pulled via the
-  diagnostics endpoints. Failures report via ``sys.stderr`` (never
-  through loguru: a failing ship must not emit into itself).
-- ``_BREAKER_THRESHOLD`` consecutive failures OPEN a circuit for
-  ``_BREAKER_COOLDOWN_S``: records are dropped at the door instead of
-  buffered. Without it a dead collector turns the sink into a memory
-  leak — loguru's enqueue queue is unbounded while the drain rate is
-  floored at timeout×batch, so a busy full-level process outruns it
-  and RSS climbs; "don't interfere with the observed process" includes
-  its memory. After the cooldown one probe batch is allowed through.
-- ``atexit`` flushes the tail on clean exit — final shutdown (scale-
-  down, replaced container) otherwise loses the last interval forever
-  (startup backfill only helps when the SAME service starts again).
+- Batches flush at ``_BATCH_MAX`` records, ``_BATCH_MAX_BYTES``
+  serialized bytes (half the collector's 8MB wire cap, gzip headroom —
+  count-only batching can exceed a byte-capped receiver), or
+  ``_FLUSH_INTERVAL_S`` seconds. Send failures DROP the batch after a
+  short timeout — the file sink still has every line; gaps are pulled
+  via the diagnostics endpoints. Failures report via ``sys.stderr``
+  (never through loguru: a failing ship must not emit into itself).
+- Circuit breaker: ``_BREAKER_THRESHOLD`` consecutive TRANSIENT
+  failures OPEN it for ``_BREAKER_COOLDOWN_S`` — records drop at the
+  door instead of buffering (a dead collector must not become a memory
+  leak: the enqueue queue is unbounded while the drain rate is floored
+  at timeout×batch). After the cooldown the breaker goes HALF-OPEN:
+  traffic is admitted for one probe batch, whose failure re-opens
+  IMMEDIATELY (no re-earning the threshold) and whose success closes
+  fully. Permanent rejections (4xx: over-size, auth misconfig) drop
+  the batch WITHOUT feeding the breaker — "this batch is unacceptable"
+  is not "the collector is down".
+- ONE module-level ``atexit`` handler flushes every live sink on clean
+  exit (final shutdown otherwise loses the last interval forever;
+  startup backfill only helps when the SAME service starts again).
+  Sinks are tracked in a ``WeakSet`` — per-instance atexit handlers
+  would pin every sink ever constructed and stack serial timeouts.
 - On registration, the tail of today's existing log file is shipped
   once with ``"backfill": true`` — the crash-tail catch-up, so lines
   written just before an unclean restart still reach the collector.
@@ -49,6 +57,7 @@ makes every line attributable without per-line agent binding.
 """
 from __future__ import annotations
 
+import atexit
 import gzip
 import json
 import os
@@ -56,6 +65,7 @@ import socket
 import sys
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Any, Optional
 
@@ -65,12 +75,26 @@ import httpx
 _transport_for_tests: Optional[httpx.BaseTransport] = None
 
 _BATCH_MAX = 200
+_BATCH_MAX_BYTES = 4 * 1024 * 1024
 _FLUSH_INTERVAL_S = 3.0
 _SEND_TIMEOUT_S = 2.0
 _BACKFILL_LINES = 200
 _AUDIT_LEVEL_NO = 25
 _BREAKER_THRESHOLD = 5
 _BREAKER_COOLDOWN_S = 60.0
+
+_LIVE_SINKS: "weakref.WeakSet[ShipSink]" = weakref.WeakSet()
+
+
+def _flush_all_at_exit() -> None:
+    for sink in list(_LIVE_SINKS):
+        try:
+            sink.flush()
+        except Exception:  # noqa: BLE001 — exiting; nothing left to report to
+            pass
+
+
+atexit.register(_flush_all_at_exit)
 
 
 def ship_mode() -> str:
@@ -104,21 +128,23 @@ class ShipSink:
         self._service = service
         self._config = config
         self._host = socket.gethostname()
-        self._buf: list[dict] = []
+        # Buffer holds SERIALIZED lines: the byte-based flush condition
+        # then costs nothing extra (each record serializes exactly once).
+        self._buf: list[str] = []
+        self._buf_bytes = 0
         self._lock = threading.Lock()
         # Serializes _send: both the enqueue worker (size-triggered flush)
-        # and the timer thread can reach it; without this the fail-streak
+        # and the timer thread can reach it; without this the breaker
         # accounting races and two batches can interleave on the wire.
         self._send_lock = threading.Lock()
         self._last_flush = time.monotonic()
         self._fail_streak = 0
-        # Circuit breaker: monotonic deadline until which records are
-        # dropped at the door (0 = closed).
+        # Breaker state: OPEN while now < _cooldown_until; HALF-OPEN once
+        # the cooldown elapsed, until a probe batch settles it.
         self._cooldown_until = 0.0
+        self._half_open = False
         self._dropped_in_cooldown = 0
-        import atexit
-
-        atexit.register(self.flush)
+        _LIVE_SINKS.add(self)
         # Periodic flusher so a quiet process still delivers its tail.
         # Daemon: never blocks interpreter shutdown.
         self._timer = threading.Thread(
@@ -146,14 +172,18 @@ class ShipSink:
                 "logger": f"{record['name']}:{record['function']}:{record['line']}",
                 "message": record["message"],
             }
-            self._push(entry)
+            self._push(json.dumps(entry, ensure_ascii=False))
         except Exception as e:  # noqa: BLE001 — a broken ship must stay silent
             sys.stderr.write(f"[diag-ship] record build failed: {e}\n")
 
-    def _push(self, entry: dict) -> None:
+    def _push(self, line: str) -> None:
         with self._lock:
-            self._buf.append(entry)
-            should_flush = len(self._buf) >= _BATCH_MAX
+            self._buf.append(line)
+            self._buf_bytes += len(line)
+            should_flush = (
+                len(self._buf) >= _BATCH_MAX
+                or self._buf_bytes >= _BATCH_MAX_BYTES
+            )
         if should_flush:
             self.flush()
 
@@ -163,20 +193,63 @@ class ShipSink:
             if time.monotonic() - self._last_flush >= _FLUSH_INTERVAL_S:
                 self.flush()
 
+    # -- circuit breaker ---------------------------------------------------
+
+    def _breaker_open(self) -> bool:
+        if self._cooldown_until <= 0:
+            return False
+        if time.monotonic() < self._cooldown_until:
+            return True
+        # Cooldown elapsed → HALF-OPEN: admit traffic; the next probe
+        # batch settles it (failure re-opens immediately, success closes).
+        self._cooldown_until = 0.0
+        self._half_open = True
+        if self._dropped_in_cooldown:
+            sys.stderr.write(
+                f"[diag-ship] breaker half-open after cooldown; "
+                f"{self._dropped_in_cooldown} records dropped while open "
+                f"(file log intact)\n"
+            )
+            self._dropped_in_cooldown = 0
+        return False
+
+    def _open_breaker(self, reason: str) -> None:
+        self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
+        self._half_open = False
+        self._fail_streak = 0
+        with self._lock:
+            dropped = len(self._buf)
+            self._buf.clear()
+            self._buf_bytes = 0
+        self._dropped_in_cooldown += dropped
+        sys.stderr.write(
+            f"[diag-ship] breaker OPEN ({reason}); dropping records for "
+            f"{_BREAKER_COOLDOWN_S:.0f}s (file log intact; recover via "
+            f"diagnostics pull)\n"
+        )
+
     # -- delivery ----------------------------------------------------------
 
     def flush(self) -> None:
+        # With the breaker open the door is already starving the buffer;
+        # anything still here (e.g. the atexit sweep racing a fresh OPEN)
+        # must not spend a timeout on a known-dead collector.
+        if self._cooldown_until > 0 and time.monotonic() < self._cooldown_until:
+            with self._lock:
+                self._dropped_in_cooldown += len(self._buf)
+                self._buf.clear()
+                self._buf_bytes = 0
+            return
         with self._lock:
             if not self._buf:
                 return
             batch, self._buf = self._buf, []
+            self._buf_bytes = 0
             self._last_flush = time.monotonic()
         self._send(batch)
 
-    def _send(self, batch: list[dict]) -> None:
-        body = gzip.compress(
-            "\n".join(json.dumps(e, ensure_ascii=False) for e in batch).encode()
-        )
+    def _send(self, lines: list[str]) -> None:
+        body = gzip.compress("\n".join(lines).encode())
         headers = {
             "Content-Type": "application/x-ndjson",
             "Content-Encoding": "gzip",
@@ -194,43 +267,31 @@ class ShipSink:
                 resp = client.post(self._config["url"], content=body, headers=headers)
             if 200 <= resp.status_code < 300:
                 self._fail_streak = 0
+                self._half_open = False
                 return
-            self._note_failure(f"HTTP {resp.status_code}")
+            if 400 <= resp.status_code < 500:
+                # Permanent rejection (413 over-size, 401 misconfig):
+                # "this batch is unacceptable" is not "the collector is
+                # down" — drop it, say so, do NOT feed the breaker.
+                sys.stderr.write(
+                    f"[diag-ship] batch rejected (HTTP {resp.status_code}); "
+                    f"dropped without breaker accounting\n"
+                )
+                return
+            self._note_transient_failure(f"HTTP {resp.status_code}")
         except Exception as e:  # noqa: BLE001 — drop the batch, file sink has it
-            self._note_failure(f"{type(e).__name__}: {e}")
+            self._note_transient_failure(f"{type(e).__name__}: {e}")
 
-    def _breaker_open(self) -> bool:
-        if self._cooldown_until <= 0:
-            return False
-        if time.monotonic() < self._cooldown_until:
-            return True
-        # Cooldown elapsed: half-open — let traffic through; the next
-        # failure re-opens, the next success closes fully.
-        self._cooldown_until = 0.0
-        if self._dropped_in_cooldown:
-            sys.stderr.write(
-                f"[diag-ship] breaker half-open after cooldown; "
-                f"{self._dropped_in_cooldown} records dropped while open "
-                f"(file log intact)\n"
-            )
-            self._dropped_in_cooldown = 0
-        return False
-
-    def _note_failure(self, reason: str) -> None:
+    def _note_transient_failure(self, reason: str) -> None:
+        if self._half_open:
+            # The probe failed — straight back to OPEN.
+            self._open_breaker(f"probe failed: {reason}")
+            return
         self._fail_streak += 1
         if self._fail_streak >= _BREAKER_THRESHOLD:
-            self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
-            with self._lock:
-                dropped = len(self._buf)
-                self._buf.clear()
-            self._dropped_in_cooldown += dropped
-            sys.stderr.write(
-                f"[diag-ship] breaker OPEN after {self._fail_streak} "
-                f"consecutive failures ({reason}); dropping records for "
-                f"{_BREAKER_COOLDOWN_S:.0f}s (file log intact; recover via "
-                f"diagnostics pull)\n"
+            self._open_breaker(
+                f"{self._fail_streak} consecutive failures ({reason})"
             )
-            self._fail_streak = 0
             return
         # First failure and every 50th after: enough signal to notice a
         # dead collector without scrolling stderr off a cliff.
@@ -271,19 +332,22 @@ class ShipSink:
             if not lines:
                 return
             batch = [
-                {
-                    "ts": "",
-                    "level": "BACKFILL",
-                    "service": self._service,
-                    "env": self._config["env"],
-                    "runtime_id": self._config["runtime_id"],
-                    "host": self._host,
-                    "run_id": "",
-                    "event_id": "",
-                    "logger": "",
-                    "message": line,
-                    "backfill": True,
-                }
+                json.dumps(
+                    {
+                        "ts": "",
+                        "level": "BACKFILL",
+                        "service": self._service,
+                        "env": self._config["env"],
+                        "runtime_id": self._config["runtime_id"],
+                        "host": self._host,
+                        "run_id": "",
+                        "event_id": "",
+                        "logger": "",
+                        "message": line,
+                        "backfill": True,
+                    },
+                    ensure_ascii=False,
+                )
                 for line in lines
             ]
             self._send(batch)

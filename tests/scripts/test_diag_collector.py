@@ -168,3 +168,16 @@ async def test_wire_size_cap_precedes_buffering(env, monkeypatch):
     monkeypatch.setattr(collector, "_MAX_WIRE_BYTES", 1024)
     resp = await _post(b"0" * 10_000, gzipped=False)
     assert resp.status_code == 413
+
+
+async def test_non_ascii_auth_header_is_401_not_500(env):
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.post(
+            "/v1/ingest",
+            content=b"{}",
+            # bytes value: httpx's own header validation would refuse the
+            # non-ASCII str before it ever reached the server
+            headers={"Authorization": "Bearer café-token".encode("latin-1")},
+        )
+    assert resp.status_code == 401

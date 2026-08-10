@@ -29,8 +29,11 @@ SSH/pem 无关**——pem 仍是人登录看文件用的。
 任何检查前 OOM)→ gzip **解压过程中** 32MB 封顶(防炸弹)→ 截断/
 损坏流 400(EOFError/zlib.error 不是 OSError)。写盘走
 `asyncio.to_thread`(大批内联会卡事件循环,把其他 sender 拖过 2s
-超时 = 发送端丢批)。鉴权:`hmac.compare_digest`;**无 token 拒绝
-启动/请求**,`DIAG_COLLECT_ALLOW_ANONYMOUS=1` 才许裸奔——"开着门"
-必须是打过字的决定。分区按 **UTC 日期**(记录自带 UTC ts,本地日期
+超时 = 发送端丢批)。鉴权:`hmac.compare_digest` **按 bytes 比**(str 版对 latin-1 头里
+>127 字节抛 TypeError,坏 token 变 500);**无 token 拒绝启动/请求**,
+`DIAG_COLLECT_ALLOW_ANONYMOUS=1` 才许裸奔——"开着门"必须是打过字
+的决定(Tier-1 docstring 的 Env 清单第二轮才跟上这个语义,并补上了
+逃生阀条目;明文路径的 32MB 二次封顶已删——线上 8MB 先行,恒假
+分支属铁律 #2 的"以防万一旧路径")。分区按 **UTC 日期**(记录自带 UTC ts,本地日期
 文件名会在跨零点时与内容自相矛盾)。部署:容器 + caddy 一条反代
 路由(ops 步骤,在 NarraNexus-deploy 侧)。

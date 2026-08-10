@@ -21,9 +21,11 @@ Retention: files older than DIAG_COLLECT_RETENTION_DAYS (default 30)
 are deleted by a daily sweep (startup + every 24h).
 
 Env:
-    DIAG_COLLECT_TOKEN            bearer the senders must present
-                                  (empty = accept unauthenticated —
-                                  only sane behind a private network)
+    DIAG_COLLECT_TOKEN            REQUIRED bearer — without it the
+                                  service refuses to start and every
+                                  request 401s
+    DIAG_COLLECT_ALLOW_ANONYMOUS  set to 1 to run open anyway (private
+                                  network only; must be a typed decision)
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
     DIAG_COLLECT_PORT             default 9880
@@ -113,8 +115,13 @@ def _require_auth(request: Request) -> None:
             detail="collector has no DIAG_COLLECT_TOKEN configured",
         )
     header = request.headers.get("authorization", "")
-    # Constant-time comparison — a static bearer is still a credential.
-    if not hmac.compare_digest(header, f"Bearer {token}"):
+    # Constant-time comparison, over BYTES: compare_digest raises
+    # TypeError on non-ASCII str (headers decode as latin-1, so any
+    # >127 byte in the header would turn a bad token into a 500).
+    if not hmac.compare_digest(
+        header.encode("utf-8", errors="replace"),
+        f"Bearer {token}".encode(),
+    ):
         raise HTTPException(status_code=401, detail="bad token")
 
 
@@ -138,9 +145,10 @@ async def ingest(request: Request):
         chunks.append(chunk)
     raw = b"".join(chunks)
     if request.headers.get("content-encoding", "").lower() == "gzip":
+        # (plaintext needs no second cap: the wire cap above already
+        # bounds it below _MAX_BODY_BYTES — a dead branch here would be
+        # a kept-just-in-case path, rule #2)
         raw = _bounded_decompress(raw)
-    elif len(raw) > _MAX_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="batch too large")
 
     accepted = 0
     files: dict[Path, list[str]] = {}
