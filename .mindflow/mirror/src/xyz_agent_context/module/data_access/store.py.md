@@ -10,7 +10,9 @@ last_verified: 2026-08-10
 `search_jobs_by_keywords`（[[_job_reads]]，走 JobRepository 方言安全、自兜底不抛），
 backend [[jobs]] 孪生路由调同一批 → byte-parity。DirectStore 外层 try 只兜 `_db()`。
 HttpStore GET `/jobs/{id}`、POST `/jobs/search-semantic|search-keywords`；失败键 `error`
-与 _parse_dict 降级键一致、无需 remap。limit 两 store 都 `_clamp_limit`(≤100) 对齐路由
+与 _parse_dict 降级键一致、无需 remap。HttpStore 的 URL 路径段（narrative_id/
+event_id/job_id 等 LLM 供给）用 `_seg`(quote safe="") 编码，防 `/`/`..` 改写请求目标
+（否则 Direct 报 not found、Http 报 404，parity 缝）。limit 两 store 都 `_clamp_limit`(≤100) 对齐路由
 `Field(le=100)`。invalid-status 文案由共享 helper 产出（两路一致）。**输入契约**：`_job_query_reject`(query 1-512)/`_job_keywords_reject`(keywords≥1) 镜像路由 Field，两 store 发车前都跑（否则空/超长 query、空 keywords 本地 success、云端 422 分叉——同 memory/social 的 `_*_reject`）。
 
 ## 2026-08-10 (PR-7) — basic_info view_narrative/view_event/switch_narrative 迁入 seam

@@ -13,10 +13,21 @@ EXACT dict the seam's DirectStore returns — both call the shared, dialect-safe
 in-process paths are byte-identical.
 
 Distinct from ``backend/routes/jobs.py`` (the frontend-facing job API under
-``/jobs`` with response_model shapes and no owner gate): these live under
+``/jobs`` with response_model shapes): these live under
 ``/api/agents/{agent_id}/jobs`` and are owner-gated like the other seam routes.
 Searches are POST (their args — keyword lists, filters — travel in the body);
 by-id is a GET.
+
+user_id scoping — DELIBERATELY different from ``backend/routes/jobs.py``:
+these search endpoints accept an OPTIONAL ``user_id`` from the caller (default
+None = all users' jobs under the agent), because their caller is the agent
+itself (via the identity-forwarded seam) querying its OWN agent's jobs — and
+this exactly preserves the MCP tool's signature (``user_id: Optional[str]``), so
+DirectStore and HttpStore stay byte-identical. ``backend/routes/jobs.py`` makes
+the OPPOSITE choice (user_id forced to the authenticated caller) on purpose:
+that surface is a user's browser dashboard, where one user must not read another
+user's jobs. Both are correct for their actor; ``assert_owned`` gates these to
+the agent's owner, who already has this access through their own agent.
 """
 from __future__ import annotations
 

@@ -43,8 +43,18 @@ surface reachable without going through HttpStore.
 from __future__ import annotations
 
 from typing import Optional, Protocol
+from urllib.parse import quote
 
 from loguru import logger
+
+
+def _seg(value: str) -> str:
+    """Percent-encode an id used as a URL PATH SEGMENT. LLM-supplied ids
+    (narrative_id / event_id / job_id) may contain ``/`` ``?`` ``#`` ``..`` —
+    without encoding they would retarget the request (httpx dot-segment
+    normalization) and make the Http path diverge from DirectStore (which just
+    reports 'not found'). ``safe=""`` encodes everything, including slashes."""
+    return quote(str(value), safe="")
 
 
 class AgentDataStore(Protocol):
@@ -725,17 +735,17 @@ class HttpStore:
     # straight through.
     async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/narratives/{narrative_id}", params={}, failure_extra={},
+            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}", params={}, failure_extra={},
         )
 
     async def view_event(self, agent_id: str, event_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/events/{event_id}", params={}, failure_extra={},
+            f"/api/agents/{agent_id}/events/{_seg(event_id)}", params={}, failure_extra={},
         )
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._post_dict(
-            f"/api/agents/{agent_id}/narratives/{narrative_id}/switch", json={}, failure_extra={},
+            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}/switch", json={}, failure_extra={},
         )
 
     # Job reads: the routes return the tool dict shape verbatim (success/error
@@ -743,7 +753,7 @@ class HttpStore:
     # pass straight through and no remap is needed. limit clamped to the route
     # bound so an over-limit never becomes a 422.
     async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict:
-        return await self._get_dict(f"/api/agents/{agent_id}/jobs/{job_id}", params={}, failure_extra={})
+        return await self._get_dict(f"/api/agents/{agent_id}/jobs/{_seg(job_id)}", params={}, failure_extra={})
 
     async def job_retrieval_semantic(
         self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int

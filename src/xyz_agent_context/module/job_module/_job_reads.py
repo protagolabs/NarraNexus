@@ -44,7 +44,7 @@ async def fetch_job_by_id(db, agent_id: str, job_id: str) -> dict:
             },
         }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[job.fetch_job_by_id] failed: {e}")
+        logger.exception(f"[job.fetch_job_by_id] failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -59,10 +59,8 @@ async def search_jobs_semantic(
             try:
                 status_enum = JobStatus(status.lower())
             except ValueError:
-                return {
-                    "success": False,
-                    "error": f"Invalid status: {status}. Valid values: pending, active, running, completed, failed",
-                }
+                valid = ", ".join(s.value for s in JobStatus)
+                return {"success": False, "error": f"Invalid status: {status}. Valid values: {valid}"}
         results = await JobRepository(db).search_keyword(
             agent_id=agent_id, query=query, user_id=user_id, status=status_enum, limit=limit,
         )
@@ -72,7 +70,7 @@ async def search_jobs_semantic(
         ]
         return {"success": True, "query": query, "total_results": len(jobs_data), "jobs": jobs_data}
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[job.search_jobs_semantic] failed: {e}")
+        logger.exception(f"[job.search_jobs_semantic] failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -98,5 +96,5 @@ async def search_jobs_by_keywords(
             jobs_data.append(entry)
         return {"success": True, "keywords": keywords, "total_results": len(jobs_data), "jobs": jobs_data}
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[job.search_jobs_by_keywords] failed: {e}")
+        logger.exception(f"[job.search_jobs_by_keywords] failed: {e}")
         return {"success": False, "error": str(e)}

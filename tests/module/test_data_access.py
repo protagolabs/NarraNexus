@@ -1147,7 +1147,9 @@ def test_job_semantic_parity_and_limit_clamp(monkeypatch):
 
 def test_job_semantic_invalid_status_parity(monkeypatch):
     _patch_job_repo(monkeypatch, search_hits=[])
-    expected = {"success": False, "error": "Invalid status: bogus. Valid values: pending, active, running, completed, failed"}
+    from xyz_agent_context.schema.job_schema import JobStatus
+    _valid = ", ".join(sv.value for sv in JobStatus)
+    expected = {"success": False, "error": f"Invalid status: bogus. Valid values: {_valid}"}
     d = _basic_direct(monkeypatch, object())
     assert asyncio.run(d.job_retrieval_semantic(AGENT, "q", None, "bogus", 10)) == expected
     h = _social_http(monkeypatch, route_body=expected)
