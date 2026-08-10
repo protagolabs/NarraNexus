@@ -184,7 +184,7 @@ OWNER_HEADERS = {"x-test-user": "u1"}
         ("/api/agents/agent_theirs/social-network/delete-entity", {"entity_id": "e1"}),
         (
             "/api/agents/agent_theirs/social-network/create-agent",
-            {"agent_name": "Scout", "awareness": "I am Scout"},
+            {"new_agent_id": "agent_x", "agent_name": "Scout", "awareness": "I am Scout"},
         ),
     ],
 )
@@ -365,19 +365,51 @@ def test_create_agent_success_delegates_to_provisioning_seam(client, monkeypatch
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
         headers=OWNER_HEADERS,
-        json={"agent_name": "Scout", "awareness": "I am Scout, a research helper."},
+        json={"new_agent_id": "agent_minted99", "agent_name": "Scout", "awareness": "I am Scout, a research helper."},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is True
     assert body["agent_name"] == "Scout"
-    assert body["new_agent_id"].startswith("agent_")
+    # The route provisions the CALLER-minted id (parity), not one it generates.
+    assert body["new_agent_id"] == "agent_minted99"
 
     assert len(calls) == 1
     assert calls[0]["user_id"] == "u1"
     assert calls[0]["agent_name"] == "Scout"
     assert calls[0]["awareness"] == "I am Scout, a research helper."
-    assert calls[0]["agent_id"] == body["new_agent_id"]
+    assert calls[0]["agent_id"] == "agent_minted99"
+
+
+def test_create_agent_surfaces_provisioning_warnings(client, monkeypatch):
+    caller = _FakeAgent("agent_mine", created_by="u1", agent_name="Owner Agent")
+    fake_agent_repo = _FakeAgentRepository(None, {"agent_mine": caller})
+    monkeypatch.setattr(sn_routes, "AgentRepository", lambda db: fake_agent_repo)
+
+    async def _fake_provision(db, **kwargs):
+        res = _FakeProvisionResult()
+        res.warnings = ["instance_factory: boom"]
+        return res
+
+    monkeypatch.setattr(sn_routes, "provision_new_agent", _fake_provision)
+    r = client.post(
+        "/api/agents/agent_mine/social-network/create-agent",
+        headers=OWNER_HEADERS,
+        json={"new_agent_id": "agent_w", "agent_name": "Scout", "awareness": "aw"},
+    )
+    assert r.status_code == 200
+    assert r.json()["warnings"] == ["instance_factory: boom"]
+
+
+def test_create_agent_requires_new_agent_id(client):
+    # new_agent_id is now a required body field (the caller mints it for parity);
+    # omitting it must fail validation, not fall back to a route-generated id.
+    r = client.post(
+        "/api/agents/agent_mine/social-network/create-agent",
+        headers=OWNER_HEADERS,
+        json={"agent_name": "Scout", "awareness": "aw"},
+    )
+    assert r.status_code == 422
 
 
 def test_create_agent_without_resolvable_owner_returns_family_style_error(client, monkeypatch):
@@ -393,7 +425,7 @@ def test_create_agent_without_resolvable_owner_returns_family_style_error(client
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
         headers=OWNER_HEADERS,
-        json={"agent_name": "Scout", "awareness": "I am Scout."},
+        json={"new_agent_id": "agent_x", "agent_name": "Scout", "awareness": "I am Scout."},
     )
     body = r.json()
     assert body["success"] is False

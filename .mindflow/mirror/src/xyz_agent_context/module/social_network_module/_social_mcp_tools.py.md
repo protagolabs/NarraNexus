@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-6) — create_agent 迁走 seam，社交模块全部迁完
+
+最后一个工具。工具只保留「铸造 `new_agent_id`（uuid4）」这一步，其余（owner 解析 +
+provision + 结果整形）下沉到 [[data_access/store]]。id 作为入参传进去保证 Direct/Http
+同 id → parity。**全部迁完后**：`create_social_network_mcp_server` 的 `get_db_client_fn`
+形参也删了（连同 PR-5 删的 `module_class`），函数现在只收 `port`——所有工具数据访问
+都走 seam，MCP server 构造零 db 依赖。
+
 ## 2026-08-10 (PR-5) — search/contact/stats 三读工具改走 seam + 清死代码
 
 3 个读工具改为 `get_agent_data_store().search_social_network/get_contact_info/
@@ -62,8 +70,8 @@ contain those words"——Agent 看到这条提示后会自然把 query 重写�
 
 ## 上下游关系
 
-- **被谁用**：`SocialNetworkModule.create_mcp_server()` 调用 `create_social_network_mcp_server(port, get_mcp_db_client)` 返回 FastMCP 实例；`ModuleRunner` 部署该实例
-- **依赖谁**：数据访问全部经 [[data_access/store]] 的 AgentDataStore seam（`get_agent_data_store()`）——本地 DirectStore 直连 repository、云端 HttpStore 调 backend `/social-network/*` 路由。工具层自己不再持有 `InstanceRepository` 或 `SocialNetworkModule` 类引用；仅 `create_agent` 仍用注入的 `get_db_client_fn` 做 owner 查找。
+- **被谁用**：`SocialNetworkModule.create_mcp_server()` 调用 `create_social_network_mcp_server(port)` 返回 FastMCP 实例；`ModuleRunner` 部署该实例
+- **依赖谁**：数据访问**全部**经 [[data_access/store]] 的 AgentDataStore seam（`get_agent_data_store()`）——本地 DirectStore 直连 repository、云端 HttpStore 调 backend `/social-network/*` 路由。工具层自己不再持有 `InstanceRepository`/`SocialNetworkModule` 类引用，也不再需要 db 客户端注入（create_agent 的 owner 查找已随 PR-6 下沉到 seam）。
 
 ## `agent_id` 如何传入
 
@@ -79,7 +87,7 @@ contain those words"——Agent 看到这条提示后会自然把 query 重写�
 
 ## Gotcha / 边界情况
 
-- **实例解析已下沉到 seam**：数据操作工具不再自己查实例/构造 Module；`create_social_network_mcp_server` 曾用来打破循环导入的 `module_class` 参数在 PR-5 后已删除。仅 `create_agent` 还需注入的 `get_db_client_fn` 做 owner 查找。
+- **实例解析已下沉到 seam**：数据操作工具不再自己查实例/构造 Module。`create_social_network_mcp_server` 的两个旧参数都已删除——`module_class`（曾用来打破循环导入，PR-5）和 `get_db_client_fn`（create_agent 的 owner 查找 PR-6 下沉到 seam），签名现在只剩 `port`，MCP server 构造零 db 依赖。
 
 ## 新人易踩的坑
 

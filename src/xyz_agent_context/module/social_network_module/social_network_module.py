@@ -92,6 +92,34 @@ def format_stats_result(sort_by: str, stats: list) -> dict:
     return {"success": True, "sort_by": sort_by, "count": len(stats), "results": stats}
 
 
+# create_agent shares its response wording between the seam's DirectStore and the
+# /social-network/create-agent route so both return byte-identical output for the
+# same (agent_name, new_agent_id) — the new agent id is MINTED BY THE TOOL and
+# threaded through as an input (not generated independently on each path), which
+# is what makes create-with-a-random-id parity-able at all.
+CREATE_AGENT_NO_OWNER_MSG = "Cannot determine your owner (created_by). Aborting."
+
+
+def format_create_agent_success(agent_name: str, new_agent_id: str, warnings: list | None = None) -> dict:
+    """Build the create_agent success dict. Any non-fatal provisioning warning
+    (a half-provisioned agent, incident lesson #5) is surfaced when present —
+    both the tool path and the route now do this, so they don't diverge."""
+    out: dict = {
+        "success": True,
+        "message": (
+            f"Agent '{agent_name}' created successfully (ID: {new_agent_id}). "
+            f"The user can now switch to this agent in the frontend. "
+            f"If further configuration is needed (skills, jobs, etc.), "
+            f"tell the user to interact with the new agent directly."
+        ),
+        "new_agent_id": new_agent_id,
+        "agent_name": agent_name,
+    }
+    if warnings:
+        out["warnings"] = warnings
+    return out
+
+
 class SocialNetworkModule(XYZBaseModule):
     """
     Social Network Module
@@ -671,9 +699,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         Tool definitions have been extracted to _social_mcp_tools.py.
         """
-        return create_social_network_mcp_server(
-            self.port, SocialNetworkModule.get_mcp_db_client
-        )
+        return create_social_network_mcp_server(self.port)
 
     # ============================================================================= Helper Methods
 

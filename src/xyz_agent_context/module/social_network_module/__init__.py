@@ -9,6 +9,8 @@ from .social_network_module import (
     social_instance_not_found_msg,
     format_contact_result,
     format_stats_result,
+    format_create_agent_success,
+    CREATE_AGENT_NO_OWNER_MSG,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "social_instance_not_found_msg",
     "format_contact_result",
     "format_stats_result",
+    "format_create_agent_success",
+    "CREATE_AGENT_NO_OWNER_MSG",
 ]

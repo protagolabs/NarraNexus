@@ -24,7 +24,6 @@ non-agent-triggered path to the same data.
 
 import json
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
 from loguru import logger
@@ -43,6 +42,8 @@ from xyz_agent_context.module.social_network_module import (
     social_instance_not_found_msg,
     format_contact_result,
     format_stats_result,
+    format_create_agent_success,
+    CREATE_AGENT_NO_OWNER_MSG,
 )
 from xyz_agent_context.schema import (
     SocialNetworkEntityInfo,
@@ -290,7 +291,14 @@ class DeleteEntityBody(BaseModel):
 
 class CreateAgentBody(BaseModel):
     """Body for POST .../create-agent — mirrors the `create_agent` MCP tool's
-    params minus `agent_id` (the creator, taken from the path instead)."""
+    params minus `agent_id` (the creator, taken from the path instead).
+
+    `new_agent_id` is MINTED BY THE CALLER (the MCP tool) and passed in, so the
+    seam's DirectStore and this route provision the SAME id and return
+    byte-identical output — the route no longer generates its own. It is
+    owner-gated and a duplicate id fails safely inside provision_new_agent, so
+    accepting it from the caller carries no cross-tenant risk."""
+    new_agent_id: str = Field(min_length=1, max_length=64)
     agent_name: str = Field(min_length=1, max_length=128)
     awareness: str = Field(default="", max_length=65536)
     agent_description: str = Field(default="", max_length=2000)
@@ -529,19 +537,17 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         agent_repo = AgentRepository(db_client)
         caller = await agent_repo.get_agent(agent_id)
         if not caller or not caller.created_by:
-            return {"success": False, "error": "Cannot determine your owner (created_by). Aborting."}
+            return {"success": False, "error": CREATE_AGENT_NO_OWNER_MSG}
 
         owner_user_id = caller.created_by
-        new_agent_id = f"agent_{uuid4().hex[:12]}"
+        new_agent_id = body.new_agent_id  # minted by the caller (parity — see body doc)
 
         # Canonical provisioning seam (pre-open review #3): agent row +
         # default module instances + peer-discovery registration + bootstrap
         # profile + default-skill install + awareness seed, all in one call.
-        # This used to be a hand-maintained copy of auth.py's create_agent
-        # sequence; now both this route and the MCP `create_agent` tool call
-        # the same `provision_new_agent`, so they can't drift from each
-        # other again (and this route no longer risks missing a step like
-        # default-skill install the way the MCP tool's old copy did).
+        # Both this route and the MCP `create_agent` tool go through the same
+        # `provision_new_agent` (via the AgentDataStore seam's DirectStore) and
+        # the shared `format_create_agent_success`, so they can't drift.
         result = await provision_new_agent(
             db_client,
             agent_id=new_agent_id,
@@ -551,26 +557,9 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
             awareness=body.awareness,
         )
         logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
-
-        response = {
-            "success": True,
-            "message": (
-                f"Agent '{body.agent_name}' created successfully (ID: {new_agent_id}). "
-                f"The user can now switch to this agent in the frontend. "
-                f"If further configuration is needed (skills, jobs, etc.), "
-                f"tell the user to interact with the new agent directly."
-            ),
-            "new_agent_id": new_agent_id,
-            "agent_name": body.agent_name,
-        }
-        # A half-provisioned agent is an ops-relevant fact (incident lesson
-        # #5): surface any non-fatal provisioning warning instead of dropping
-        # the seam's collected list.
-        if result.warnings:
-            response["warnings"] = result.warnings
-        return response
+        return format_create_agent_success(body.agent_name, new_agent_id, result.warnings)
 
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Error: {e}"}
 

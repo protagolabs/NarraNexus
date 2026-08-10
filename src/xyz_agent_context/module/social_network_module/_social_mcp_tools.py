@@ -19,21 +19,19 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 
-def create_social_network_mcp_server(port: int, get_db_client_fn) -> FastMCP:
+def create_social_network_mcp_server(port: int) -> FastMCP:
     """
     Create a SocialNetworkModule MCP Server instance
 
     Args:
         port: MCP Server port
-        get_db_client_fn: Async function to get database connection (still used
-            by the create_agent tool for the owner lookup)
 
     Returns:
         FastMCP instance with all tools configured
 
-    Note: the data-touching tools no longer need a SocialNetworkModule class
-    reference — they resolve their own module through the AgentDataStore seam
-    (module/data_access), so the old ``module_class`` parameter is gone.
+    Note: every tool now routes its data access through the AgentDataStore seam
+    (module/data_access) — none reaches the db directly — so the old
+    ``get_db_client_fn`` and ``module_class`` parameters are both gone.
     """
     mcp = FastMCP("social_network_module")
     mcp.settings.port = port
@@ -411,54 +409,18 @@ def create_social_network_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         Returns:
             Operation result with the new agent's ID.
         """
-        try:
-            from uuid import uuid4
+        # Mint the new agent's id HERE (the single entry) and thread it through
+        # the seam, so DirectStore (local) and HttpStore→route (cloud) provision
+        # the SAME id and return byte-identical output. Owner resolution +
+        # provisioning happen inside the store (DirectStore / the create-agent
+        # route). See module/data_access.
+        from uuid import uuid4
 
-            db = await get_db_client_fn()
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            # Resolve the creator's user_id (the owner of the calling agent)
-            from xyz_agent_context.repository import AgentRepository
-            agent_repo = AgentRepository(db)
-            caller = await agent_repo.get_agent(agent_id)
-            if not caller or not caller.created_by:
-                return {"success": False, "message": "Cannot determine your owner (created_by). Aborting."}
-
-            owner_user_id = caller.created_by
-            new_agent_id = f"agent_{uuid4().hex[:12]}"
-
-            # Canonical provisioning seam (pre-open review #3): this used to
-            # be a half-copy of auth.py's create_agent sequence that skipped
-            # InstanceFactory / peer-discovery sync / bootstrap profile /
-            # default-skill install entirely (only agent row + Bootstrap.md +
-            # a hand-rolled AwarenessModule instance) — producing agents
-            # invisible to peer discovery and with none of their default
-            # skills. Now calls the same `provision_new_agent` the HTTP
-            # create-agent route uses.
-            from xyz_agent_context.bootstrap.provision import provision_new_agent
-            await provision_new_agent(
-                db,
-                agent_id=new_agent_id,
-                user_id=owner_user_id,
-                agent_name=agent_name,
-                agent_description=agent_description or f"Agent created by {caller.agent_name or agent_id}",
-                awareness=awareness,
-            )
-            logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {owner_user_id}")
-
-            return {
-                "success": True,
-                "message": (
-                    f"Agent '{agent_name}' created successfully (ID: {new_agent_id}). "
-                    f"The user can now switch to this agent in the frontend. "
-                    f"If further configuration is needed (skills, jobs, etc.), "
-                    f"tell the user to interact with the new agent directly."
-                ),
-                "new_agent_id": new_agent_id,
-                "agent_name": agent_name,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error creating agent: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        new_agent_id = f"agent_{uuid4().hex[:12]}"
+        return await get_agent_data_store().create_agent(
+            agent_id, new_agent_id, agent_name, awareness, agent_description
+        )
 
     return mcp

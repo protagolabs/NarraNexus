@@ -4,6 +4,15 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-6) — create-agent 路由接受调用方铸造的 new_agent_id
+
+`CreateAgentBody` 加 `new_agent_id` 字段：路由不再自己 `uuid4` 生成，而是 provision
+调用方（MCP 工具经 seam）传入的 id——使 DirectStore 与本路由用同一 id、输出逐字相同。
+owner-gated + 重复 id 在 provision_new_agent 内安全失败，接收客户端 id 无跨租户风险。
+成功 dict / 无 owner 文案改用共享 `format_create_agent_success` / `CREATE_AGENT_NO_OWNER_MSG`
+（与 DirectStore 同源）；异常改 `f"Error: {e}"` 与工具对齐（HttpStore 逆映射成 message）。
+`uuid4` import 删除。
+
 ## 2026-08-10 (PR-5) — 新增 3 个读 seam-孪生端点（POST /recall /contact /stats）
 
 READ MCP 工具（search/get_contact_info/get_agent_social_stats）的 byte-parity
