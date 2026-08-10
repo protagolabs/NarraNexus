@@ -296,9 +296,13 @@ class CreateAgentBody(BaseModel):
     `new_agent_id` is MINTED BY THE CALLER (the MCP tool) and passed in, so the
     seam's DirectStore and this route provision the SAME id and return
     byte-identical output — the route no longer generates its own. It is
-    owner-gated and a duplicate id fails safely inside provision_new_agent, so
-    accepting it from the caller carries no cross-tenant risk."""
-    new_agent_id: str = Field(min_length=1, max_length=64)
+    CONSTRAINED to the tool's minted form `agent_<12 hex>` by the pattern below:
+    the id becomes a filesystem path segment (agent_workspace_path builds
+    base/{user_id}/{agent_id}), so an unconstrained value like
+    "../other_user/agent" would traverse into another tenant's workspace — the
+    pattern makes that impossible, and provision_new_agent re-checks it as a
+    defense-in-depth backstop for every call site."""
+    new_agent_id: str = Field(min_length=1, max_length=64, pattern=r"^agent_[0-9a-f]{12}$")
     agent_name: str = Field(min_length=1, max_length=128)
     awareness: str = Field(default="", max_length=65536)
     agent_description: str = Field(default="", max_length=2000)

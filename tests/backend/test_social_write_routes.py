@@ -184,7 +184,7 @@ OWNER_HEADERS = {"x-test-user": "u1"}
         ("/api/agents/agent_theirs/social-network/delete-entity", {"entity_id": "e1"}),
         (
             "/api/agents/agent_theirs/social-network/create-agent",
-            {"new_agent_id": "agent_x", "agent_name": "Scout", "awareness": "I am Scout"},
+            {"new_agent_id": "agent_0123456789ab", "agent_name": "Scout", "awareness": "I am Scout"},
         ),
     ],
 )
@@ -365,20 +365,20 @@ def test_create_agent_success_delegates_to_provisioning_seam(client, monkeypatch
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
         headers=OWNER_HEADERS,
-        json={"new_agent_id": "agent_minted99", "agent_name": "Scout", "awareness": "I am Scout, a research helper."},
+        json={"new_agent_id": "agent_0123456789ab", "agent_name": "Scout", "awareness": "I am Scout, a research helper."},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is True
     assert body["agent_name"] == "Scout"
     # The route provisions the CALLER-minted id (parity), not one it generates.
-    assert body["new_agent_id"] == "agent_minted99"
+    assert body["new_agent_id"] == "agent_0123456789ab"
 
     assert len(calls) == 1
     assert calls[0]["user_id"] == "u1"
     assert calls[0]["agent_name"] == "Scout"
     assert calls[0]["awareness"] == "I am Scout, a research helper."
-    assert calls[0]["agent_id"] == "agent_minted99"
+    assert calls[0]["agent_id"] == "agent_0123456789ab"
 
 
 def test_create_agent_surfaces_provisioning_warnings(client, monkeypatch):
@@ -395,7 +395,7 @@ def test_create_agent_surfaces_provisioning_warnings(client, monkeypatch):
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
         headers=OWNER_HEADERS,
-        json={"new_agent_id": "agent_w", "agent_name": "Scout", "awareness": "aw"},
+        json={"new_agent_id": "agent_0123456789ab", "agent_name": "Scout", "awareness": "aw"},
     )
     assert r.status_code == 200
     assert r.json()["warnings"] == ["instance_factory: boom"]
@@ -425,7 +425,7 @@ def test_create_agent_without_resolvable_owner_returns_family_style_error(client
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
         headers=OWNER_HEADERS,
-        json={"new_agent_id": "agent_x", "agent_name": "Scout", "awareness": "I am Scout."},
+        json={"new_agent_id": "agent_0123456789ab", "agent_name": "Scout", "awareness": "I am Scout."},
     )
     body = r.json()
     assert body["success"] is False
@@ -501,3 +501,15 @@ def test_read_route_non_owner_is_denied(client):
     )
     assert r.status_code == 403
     assert "Permission denied" in r.json()["detail"]
+
+
+
+def test_create_agent_rejects_path_traversal_id(client):
+    # A caller-minted new_agent_id becomes a workspace path segment; the pattern
+    # must reject "../.." so it can't traverse into another tenant's directory.
+    r = client.post(
+        "/api/agents/agent_mine/social-network/create-agent",
+        headers=OWNER_HEADERS,
+        json={"new_agent_id": "../u2/agent_x", "agent_name": "Scout", "awareness": "aw"},
+    )
+    assert r.status_code == 422

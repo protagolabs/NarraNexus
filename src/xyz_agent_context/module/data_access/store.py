@@ -413,6 +413,9 @@ class DirectStore:
                 agent_description=agent_description or f"Agent created by {caller.agent_name or creator_agent_id}",
                 awareness=awareness,
             )
+            # Match the route's create log so local-mode 'who created which agent
+            # when' is not silent (the route logs this too).
+            logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {caller.created_by}")
             return format_create_agent_success(agent_name, new_agent_id, result.warnings)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[social.create_agent] failed: {e}")

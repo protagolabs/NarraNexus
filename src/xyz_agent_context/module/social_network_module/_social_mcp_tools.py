@@ -15,7 +15,6 @@ Tools:
 
 from typing import Optional, Any
 
-from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 
