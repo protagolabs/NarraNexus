@@ -33,16 +33,10 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 
-def _event_time_str(value: Any) -> str:
-    """Normalise an event_time cell to a sortable ISO string.
 
-    sqlite backend yields a ``datetime`` object while mysql tends to
-    yield a string; comparisons must be type-uniform.
-    """
-    if isinstance(value, datetime):
-        return value.isoformat(sep=" ")
-    return str(value or "")
+_event_time_str = event_time_str
 
 
 # --- Event type constants ---------------------------------------------------

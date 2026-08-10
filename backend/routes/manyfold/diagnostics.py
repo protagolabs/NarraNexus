@@ -23,11 +23,12 @@ Two generations live here:
      content only per-id (heavy + sensitive ⇒ explicit pull)
    - ``…/diagnostics/logs/services|tail``    — service-log tail. NOT
      agent-scoped: logs are process-level. The access boundary is the
-     RUNTIME, not the user: the gateway token is an operator credential
-     (platform + NarraNexus support), and its holder can already read
-     every agent's workspace in this runtime through the files API —
-     including the multi-Manyfold-user runtimes that
-     manyfold/agents.py + backend/auth.py explicitly support. Process
+     RUNTIME, not the user: the gateway token is a RUNTIME-level
+     credential — and not an operator secret: manyfoldFragmentAuth.ts
+     hands it to the browser of every end user arriving from Manyfold.
+     Any such holder can already read every agent's workspace in this
+     runtime through the files API (including the multi-Manyfold-user
+     runtimes manyfold/agents.py + backend/auth.py support), so process
      logs expose no audience broader than that existing surface.
 
 Registered only when ENABLE_MANYFOLD_API=1. Requires the Manyfold gateway
@@ -48,9 +49,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
-    _event_time_str,
+    ChannelTriggerAuditRepository,
 )
+from xyz_agent_context.repository.event_repository import EventRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -190,14 +193,34 @@ def _clamp_limit(limit: int) -> int:
 
 
 def _norm_time(value: Any) -> str:
-    """Comparable form for a DATETIME cell OR a caller's `since` value.
+    """Comparable space-form string for a DATETIME cell (one shared home
+    for the sqlite-datetime-vs-mysql-string asymmetry: utils/db)."""
+    return event_time_str(value).replace("T", " ")
 
-    Delegates to the audit repository's normalizer (one home for the
-    sqlite-datetime-vs-mysql-string asymmetry, rule #8), then folds the
-    ISO 'T' separator to the space form this codebase stores — without
-    it, a `since=2026-08-10T09:00:00` silently filters out EVERY
-    space-form row and the endpoint returns empty with no error."""
-    return _event_time_str(value).replace("T", " ")
+
+def _since_floor(since: str) -> str:
+    """Parse a caller's `since` into the comparable floor string.
+
+    Real parsing, not separator folding: full ISO permits timezone
+    designators, and a lexicographic compare of `…09:00:00Z` against a
+    stored `…09:00:00.5+00:00` sorts the WRONG way at the boundary
+    second ('Z' > '.'). Aware inputs convert to UTC and drop the
+    offset; the stored strings' own `+00:00` suffix sorts above any
+    fraction-less floor prefix, so prefix comparison stays correct.
+    Unparseable input is a 400, not a silent empty result."""
+    from datetime import datetime, timezone
+
+    raw = since.strip().replace(" ", "T").replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"since must be ISO datetime, got {since!r}",
+        )
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed.isoformat(sep=" ")
 
 
 @router.get("/manyfold/agents/{agent_id}/diagnostics/ingress")
@@ -217,21 +240,14 @@ async def agent_ingress_audit(
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
-    filters: dict[str, Any] = {"agent_id": agent_id}
-    if event_type:
-        filters["event_type"] = event_type
-    # Order + limit live in SQL. `since` filters the already-bounded
-    # page in Python (newest-first means the page IS the newest slice of
-    # the window) — the DB stores mixed shapes across dialects, so the
-    # comparison needs _norm_time on both sides either way.
-    rows = await db.get(
-        "channel_trigger_audit",
-        filters,
-        limit=_clamp_limit(limit),
-        order_by="event_time DESC",
+    # Query shape (projection/order/limit) is the repository's business;
+    # `since` filters the already-bounded page here (newest-first means
+    # the page IS the newest slice of the window).
+    rows = await ChannelTriggerAuditRepository.recent_for_agent(
+        db, agent_id, event_type=event_type, limit=_clamp_limit(limit)
     )
     if since:
-        floor = _norm_time(since)
+        floor = _since_floor(since)
         rows = [r for r in rows if _norm_time(r.get("event_time")) >= floor]
     out = []
     for r in rows:
@@ -271,32 +287,11 @@ async def agent_events_summary(
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
-    # Column projection + SQL-side order/limit are load-bearing, not
-    # style: the un-projected row set of a weeks-old agent carries every
-    # MEDIUMTEXT event_log it ever produced (rule #14 makes multi-hour
-    # runs first-class — those logs reach tens of MB EACH), and a
-    # diagnostic endpoint must never be the thing that OOMs the
-    # container it is diagnosing.
-    rows = await db.get(
-        "events",
-        {"agent_id": agent_id},
-        limit=_clamp_limit(limit),
-        order_by="started_at DESC",
-        fields=[
-            "event_id",
-            "trigger",
-            "trigger_source",
-            "state",
-            "started_at",
-            "finished_at",
-            "tool_call_count",
-            "current_stage",
-            "error_message",
-            "narrative_id",
-        ],
+    rows = await EventRepository(db).diagnostic_summaries(
+        agent_id, limit=_clamp_limit(limit)
     )
     if since:
-        floor = _norm_time(since)
+        floor = _since_floor(since)
         rows = [r for r in rows if _norm_time(r.get("started_at")) >= floor]
     out = [
         {
@@ -329,7 +324,7 @@ async def agent_event_full(agent_id: str, event_id: str, request: Request):
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
-    row = await db.get_one("events", {"agent_id": agent_id, "event_id": event_id})
+    row = await EventRepository(db).diagnostic_full(agent_id, event_id)
     if not row:
         raise HTTPException(status_code=404, detail="no such event for this agent")
     return {

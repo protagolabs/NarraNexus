@@ -168,6 +168,41 @@ async def test_since_accepts_iso_t_form_against_real_write_path(
     assert resp.json()["data"] == []
 
 
+async def test_since_z_form_boundary_second(diag_app, db_client):
+    """`…T09:00:00Z` must include rows AT 09:00:00.x — the old
+    lexicographic fold left the 'Z' in place and 'Z' > '.' pushed
+    boundary-second rows below the floor."""
+    await db_client.insert(
+        "channel_trigger_audit",
+        {
+            "channel": "wechat",
+            "event_time": "2026-08-10 09:00:00.500000+00:00",
+            "event_type": "managed_ingress_processed",
+            "message_id": "m1",
+            "agent_id": "a1",
+            "app_id": "",
+            "chat_id": "c",
+            "sender_id": "s",
+            "details": "{}",
+        },
+    )
+    resp = await _get(
+        diag_app,
+        "/manyfold/agents/a1/diagnostics/ingress",
+        since="2026-08-10T09:00:00Z",
+    )
+    assert len(resp.json()["data"]) == 1
+
+
+async def test_bad_since_is_400_not_silent_empty(diag_app, db_client):
+    resp = await _get(
+        diag_app,
+        "/manyfold/agents/a1/diagnostics/ingress",
+        since="not-a-date",
+    )
+    assert resp.status_code == 400
+
+
 async def test_summary_error_message_is_redacted(diag_app, db_client):
     await db_client.insert(
         "events",

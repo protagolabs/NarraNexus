@@ -32,6 +32,7 @@ from typing import Any, Optional
 from loguru import logger
 
 # Re-export the canonical constants so callers don't need a second import.
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,
@@ -52,16 +53,10 @@ from xyz_agent_context.channel.channel_audit_events import (
 )
 
 
-def _event_time_str(value: Any) -> str:
-    """
-    Normalise an event_time cell to a sortable ISO string.
-
-    sqlite returns ``datetime`` objects; mysql returns strings.
-    Comparisons must be type-uniform.
-    """
-    if isinstance(value, datetime):
-        return value.isoformat(sep=" ")
-    return str(value or "")
+# Normalization moved to utils/db/dialect_time.py — it was copy-pasted
+# here and in the Lark repo, and a route module had begun importing the
+# private name across packages.
+_event_time_str = event_time_str
 
 
 class ChannelTriggerAuditRepository:
@@ -124,15 +119,42 @@ class ChannelTriggerAuditRepository:
         event_type: Optional[str] = None,
         agent_id: Optional[str] = None,
     ) -> list[dict]:
-        """Newest-first slice of THIS channel's log, optionally filtered."""
+        """Newest-first slice of THIS channel's log, optionally filtered.
+
+        Order + limit ride SQL — the previous full-pull-then-sort
+        materialized the channel's whole retention window per call."""
         filters: dict[str, Any] = {"channel": self._channel}
         if event_type:
             filters["event_type"] = event_type
         if agent_id:
             filters["agent_id"] = agent_id
-        rows = await self._db.get(self.TABLE, filters)
-        rows.sort(key=lambda r: _event_time_str(r.get("event_time")), reverse=True)
-        return rows[:limit]
+        return await self._db.get(
+            self.TABLE, filters, limit=limit, order_by="event_time DESC"
+        )
+
+    @staticmethod
+    async def recent_for_agent(
+        db,
+        agent_id: str,
+        *,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Newest-first slice for one agent ACROSS channels.
+
+        Static because instances are channel-scoped by construction and
+        this query deliberately is not (an agent's trail spans its IM
+        channel rows plus the "manyfold" files-write rows). Serves the
+        diagnostics pull endpoint."""
+        filters: dict[str, Any] = {"agent_id": agent_id}
+        if event_type:
+            filters["event_type"] = event_type
+        return await db.get(
+            ChannelTriggerAuditRepository.TABLE,
+            filters,
+            limit=limit,
+            order_by="event_time DESC",
+        )
 
     async def count_by_type(self, since_hours: int = 1) -> dict[str, int]:
         """

@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-04-21
 ---
 
+## 2026-08-10 — 本地 `_event_time_str` 拷贝移除
+
+改为从 utils/db/dialect_time import 公有 `event_time_str`(留同名
+别名,行为不变)。归一逻辑曾三处拷贝(本仓库、channel 通用仓库、
+诊断路由),review 点名后收口。
+
 ## Why it exists
 
 The Lark trigger runs in its own container and production users often

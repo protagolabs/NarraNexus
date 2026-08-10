@@ -4,6 +4,13 @@ last_verified: 2026-04-10
 stub: false
 ---
 
+## 2026-08-10 — 诊断投影方法(manyfold pull 通道)
+
+`diagnostic_summaries`(DIAG_SUMMARY_FIELDS 投影 + SQL order/limit;
+**刻意返回 raw dict**——Event 实体反序列化的正是投影要排除的重 JSON
+列)与 `diagnostic_full`(agent_id AND event_id 双键,越权读作不存在)。
+查询形状归仓库,路由层不再手搓(review 第二轮)。
+
 # event_repository.py
 
 ## Why it exists
