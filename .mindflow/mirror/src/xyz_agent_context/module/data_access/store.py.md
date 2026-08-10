@@ -4,6 +4,21 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-3) — general_memory 的 remember / memory_retain 迁入 seam
+
+第二个走 seam 的模块(继 awareness)。两个工具改为
+`get_agent_data_store().remember/memory_retain`;DirectStore 复刻原工具体
+(MemoryCoordinator/MemoryEngine,**全走 repository 层无裸 SQL——双方言安全**,
+这也是它先于 chat 迁移的原因:chat 的 get_chat_history 是 information_schema
++反引号的 MySQL-only 裸 SQL,迁移要先脱裸 SQL),HttpStore 调
+`/api/agents/{id}/memory/remember|retain`。backend 路由返回与工具**逐字同
+shape** 的 dict(同 `_format`),Http 2xx 直接透传 body;非 2xx/不可达降级为
+工具自身失败 dict(never 异常)。`_format_memory_hits` 是第三份 lockstep 拷贝
+(工具 `_format` / 路由 `_format` / 此处),三者必须一致才 parity。
+**grep_memory 暂不迁**:HTTP 侧因 ReDoS 拒 regex(PR-2),严格 parity 需先落
+timeout-safe regex 引擎(已记 todo),故 grep 仍走 DirectStore 直连。
+
+
 ## Why it exists
 
 The data-access seam MCP tools depend on instead of touching repositories/db

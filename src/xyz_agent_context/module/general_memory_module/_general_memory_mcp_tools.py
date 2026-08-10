@@ -17,12 +17,7 @@ from typing import Any, Dict, List
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.memory import (
-    MemoryCoordinator,
-    MemoryEngine,
-    MemoryRecord,
-    SCOPE_AGENT,
-)
+from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine
 from xyz_agent_context.module.base import XYZBaseModule
 
 
@@ -61,14 +56,12 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
         )
     )
     async def remember(agent_id: str, query: str, limit: int = 15) -> dict:
-        try:
-            db = await XYZBaseModule.get_mcp_db_client()
-            coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-            hits = await coord.remember(query, limit=limit)
-            return {"success": True, "query": query, "memories": _format(hits)}
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[memory.remember] failed: {e}")
-            return {"success": False, "error": str(e), "memories": []}
+        # Routes through the AgentDataStore seam: DirectStore locally (same
+        # MemoryCoordinator call as before), HttpStore in cloud (no db creds
+        # in mcp). Both return the identical dict — see module/data_access.
+        from xyz_agent_context.module.data_access import get_agent_data_store
+
+        return await get_agent_data_store().remember(agent_id, query, limit)
 
     @mcp.tool(
         description=(
@@ -99,22 +92,10 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
         )
     )
     async def memory_retain(agent_id: str, content: str, source: str = "") -> dict:
-        try:
-            if not content or not content.strip():
-                return {"success": False, "error": "content is empty"}
-            db = await XYZBaseModule.get_mcp_db_client()
-            engine = MemoryEngine(db, agent_id)
-            tags = ["imported"] if source else []
-            rec = await engine.retain(MemoryRecord(
-                agent_id=agent_id, scope_type=SCOPE_AGENT, kind="observation",
-                subtype="world", content_text=content.strip(),
-                tags=tags, proof_count=1,
-                source_ref={"kind": "import", "id": source} if source else None,
-            ))
-            return {"success": True, "record_id": rec.record_id}
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[memory.memory_retain] failed: {e}")
-            return {"success": False, "error": str(e)}
+        # Routes through the AgentDataStore seam (see remember above).
+        from xyz_agent_context.module.data_access import get_agent_data_store
+
+        return await get_agent_data_store().memory_retain(agent_id, content, source)
 
     logger.info(
         f"GeneralMemory MCP: remember + grep_memory + memory_retain registered on port {port}"

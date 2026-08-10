@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/general_memory_module/_general_memory_mcp_tools.py
-last_verified: 2026-07-21
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (PR-3) — remember / memory_retain 走 AgentDataStore seam
+
+两个工具改为 `get_agent_data_store().remember/memory_retain`,数据访问移到
+[[data_access/store]]:本地 DirectStore 复刻原 MemoryCoordinator/MemoryEngine
+调用(行为不变),云端 HttpStore 调 backend 路由(mcp 零 db 凭据)。`grep_memory`
+**仍直连**——HTTP 侧因 ReDoS 拒 regex,严格 parity 待 timeout-safe 引擎(todo)。
+本文件 `_format` 保留(grep 还在用),与 store/route 的同名拷贝三方 lockstep。
+
 
 ## 2026-07-21 — added `memory_retain` (explicit write)
 

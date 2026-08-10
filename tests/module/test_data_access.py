@@ -251,3 +251,124 @@ def test_http_store_sends_identity_headers(monkeypatch):
     )
     asyncio.run(store.update_awareness(AGENT, "x"))
     assert seen["auth"] == "Bearer nx-agent:a~chat"
+
+
+# ---------------------------------------------------------------------------
+# general_memory migration (PR-3): remember + memory_retain parity
+# ---------------------------------------------------------------------------
+
+
+class _Hit:
+    """Minimal memory hit matching what _format_memory_hits reads."""
+
+    @staticmethod
+    def make(kind, text, tags=None, source_ref=None):
+        h = _Hit()
+        h.kind = kind
+        rec = type("R", (), {})()
+        rec.content_text = text
+        rec.created_at = None
+        rec.tags = tags or []
+        rec.source_ref = source_ref
+        h.record = rec
+        return h
+
+
+def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True):
+    """DirectStore with MemoryCoordinator/MemoryEngine stubbed."""
+    store = DirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+
+    class FakeCoord:
+        def __init__(self, engine):
+            pass
+
+        async def remember(self, query, limit):
+            return hits or []
+
+    class FakeEngine:
+        def __init__(self, db, agent_id):
+            pass
+
+        async def retain(self, record):
+            if not retain_ok:
+                raise RuntimeError("db down")
+            return type("Rec", (), {"record_id": record_id})()
+
+    monkeypatch.setattr("xyz_agent_context.memory.MemoryCoordinator", FakeCoord)
+    monkeypatch.setattr("xyz_agent_context.memory.MemoryEngine", FakeEngine)
+    return store
+
+
+def _memory_http(monkeypatch, remember_body=None, retain_body=None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/memory/remember"):
+            return httpx.Response(200, json=remember_body)
+        if request.url.path.endswith("/memory/retain"):
+            return httpx.Response(200, json=retain_body)
+        return httpx.Response(404)
+
+    _patch_http(monkeypatch, handler)
+    return HttpStore("http://backend:8000")
+
+
+def test_remember_parity(monkeypatch):
+    hits = [_Hit.make("observation", "the sky is blue", tags=["fact"])]
+    expected = {
+        "success": True, "query": "sky",
+        "memories": [{"kind": "observation", "memory": "the sky is blue",
+                      "when": None, "tags": ["fact"]}],
+    }
+    direct = _memory_direct(monkeypatch, hits=hits)
+    d = asyncio.run(direct.remember("agent_a", "sky", 15))
+    assert d == expected
+
+    http = _memory_http(monkeypatch, remember_body=expected)
+    h = asyncio.run(http.remember("agent_a", "sky", 15))
+    assert h == expected == d
+
+
+def test_retain_parity(monkeypatch):
+    direct = _memory_direct(monkeypatch, record_id="mem_42")
+    d = asyncio.run(direct.memory_retain("agent_a", "remember this", "MEMORY.md"))
+    assert d == {"success": True, "record_id": "mem_42"}
+
+    http = _memory_http(monkeypatch, retain_body={"success": True, "record_id": "mem_42"})
+    h = asyncio.run(http.memory_retain("agent_a", "remember this", "MEMORY.md"))
+    assert h == d
+
+
+def test_retain_empty_content_is_rejected_on_both(monkeypatch):
+    direct = _memory_direct(monkeypatch)
+    http = _memory_http(monkeypatch)
+    err = {"success": False, "error": "content is empty"}
+    assert asyncio.run(direct.memory_retain("agent_a", "   ", "")) == err
+    # HttpStore rejects before any request (no fake needed for the empty path).
+    assert asyncio.run(http.memory_retain("agent_a", "", "")) == err
+
+
+def test_remember_http_transport_failure_degrades_in_band(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.remember("agent_a", "x", 15))
+    assert out["success"] is False
+    assert "unreachable" in out["error"]
+    assert out["memories"] == []  # tool's own failure shape
+
+
+def test_retain_http_401_degrades_in_band(monkeypatch):
+    def gate(request):
+        return httpx.Response(401, text="identity required")
+
+    _patch_http(monkeypatch, gate)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.memory_retain("agent_a", "fact", ""))
+    assert out["success"] is False
+    assert "401" in out["error"]

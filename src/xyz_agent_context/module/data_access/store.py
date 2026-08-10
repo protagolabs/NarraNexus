@@ -31,7 +31,7 @@ before provisioning the identity keys — see factory.py).
 """
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 from loguru import logger
 
@@ -41,6 +41,10 @@ class AgentDataStore(Protocol):
 
     async def update_awareness(self, agent_id: str, awareness: str) -> str: ...
 
+    async def remember(self, agent_id: str, query: str, limit: int) -> dict: ...
+
+    async def memory_retain(self, agent_id: str, content: str, source: str) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -49,6 +53,25 @@ _AWARENESS_OK = "Awareness updated successfully"
 
 def _no_instance_msg(agent_id: str) -> str:
     return f"Error: No AwarenessModule instance found for agent_id={agent_id}"
+
+
+def _format_memory_hits(hits: List[Any]) -> List[Dict[str, Any]]:
+    """Render memory hits — text + provenance. Kept byte-for-byte identical to
+    ``_general_memory_mcp_tools._format`` AND ``routes/agents/general_memory._format``
+    (the three must agree so Direct and Http return the same dict — parity)."""
+    out: List[Dict[str, Any]] = []
+    for h in hits:
+        r = h.record
+        item: Dict[str, Any] = {
+            "kind": h.kind,
+            "memory": r.content_text,
+            "when": (r.created_at.isoformat() if r.created_at else None),
+            "tags": r.tags,
+        }
+        if r.source_ref:
+            item["source"] = r.source_ref
+        out.append(item)
+    return out
 
 
 class DirectStore:
@@ -78,6 +101,41 @@ class DirectStore:
             return _no_instance_msg(agent_id)
         await InstanceAwarenessRepository(db).upsert(instance_id, awareness)
         return _AWARENESS_OK
+
+    async def remember(self, agent_id: str, query: str, limit: int) -> dict:
+        # MemoryCoordinator/MemoryEngine go through the repository layer — no
+        # raw SQL, dialect-safe on both SQLite and MySQL (unlike chat's
+        # information_schema/backtick query, which is why this migrates first).
+        from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine
+
+        try:
+            db = await self._db()
+            coord = MemoryCoordinator(MemoryEngine(db, agent_id))
+            hits = await coord.remember(query, limit=limit)
+            return {"success": True, "query": query, "memories": _format_memory_hits(hits)}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[memory.remember] failed: {e}")
+            return {"success": False, "error": str(e), "memories": []}
+
+    async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:
+        from xyz_agent_context.memory import MemoryEngine, MemoryRecord, SCOPE_AGENT
+
+        try:
+            if not content or not content.strip():
+                return {"success": False, "error": "content is empty"}
+            db = await self._db()
+            engine = MemoryEngine(db, agent_id)
+            tags = ["imported"] if source else []
+            rec = await engine.retain(MemoryRecord(
+                agent_id=agent_id, scope_type=SCOPE_AGENT, kind="observation",
+                subtype="world", content_text=content.strip(),
+                tags=tags, proof_count=1,
+                source_ref={"kind": "import", "id": source} if source else None,
+            ))
+            return {"success": True, "record_id": rec.record_id}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[memory.memory_retain] failed: {e}")
+            return {"success": False, "error": str(e)}
 
 
 class HttpStore:
@@ -130,3 +188,63 @@ class HttpStore:
             error = str(body.get("error") or "unknown backend error")
             return error if error.startswith("Error:") else f"Error: {error}"
         return _AWARENESS_OK
+
+    async def remember(self, agent_id: str, query: str, limit: int) -> dict:
+        # The backend route returns the EXACT dict shape the tool produces
+        # (same _format, same {success, query, memories} keys), so on 2xx the
+        # body is returned verbatim. Transport-layer failures degrade to the
+        # tool's own failure shape — never an exception (DirectStore doesn't
+        # raise either).
+        return await self._get_dict(
+            f"/api/agents/{agent_id}/memory/remember",
+            params={"query": query, "limit": limit},
+            failure_extra={"memories": []},
+        )
+
+    async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:
+        if not content or not content.strip():
+            return {"success": False, "error": "content is empty"}
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/memory/retain",
+            json={"content": content, "source": source},
+            failure_extra={},
+        )
+
+    async def _get_dict(self, path: str, *, params: dict, failure_extra: dict) -> dict:
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base, headers=self._headers, timeout=20.0
+            ) as c:
+                r = await c.get(path, params=params)
+        except httpx.HTTPError as e:
+            logger.warning(f"[data-access] backend unreachable {path}: {e}")
+            return {"success": False, "error": f"backend unreachable ({type(e).__name__})", **failure_extra}
+        return self._parse_dict(r, path, failure_extra)
+
+    async def _post_dict(self, path: str, *, json: dict, failure_extra: dict) -> dict:
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base, headers=self._headers, timeout=20.0
+            ) as c:
+                r = await c.post(path, json=json)
+        except httpx.HTTPError as e:
+            logger.warning(f"[data-access] backend unreachable {path}: {e}")
+            return {"success": False, "error": f"backend unreachable ({type(e).__name__})", **failure_extra}
+        return self._parse_dict(r, path, failure_extra)
+
+    @staticmethod
+    def _parse_dict(r, path: str, failure_extra: dict) -> dict:
+        # A non-2xx is a transport/middleware rejection (the routes always
+        # answer 200; e.g. the Q6 identity 401). Surface it as the tool's own
+        # failure dict, never an exception.
+        if r.status_code >= 400:
+            logger.warning(f"[data-access] backend rejected {path}: {r.status_code}")
+            return {"success": False, "error": f"backend rejected the call ({r.status_code})", **failure_extra}
+        try:
+            return r.json() or {"success": False, "error": "empty response", **failure_extra}
+        except ValueError:
+            return {"success": False, "error": "non-JSON response", **failure_extra}
