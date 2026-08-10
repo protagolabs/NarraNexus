@@ -34,16 +34,33 @@ factory.py; a 422 is surfaced as an actionable "invalid arguments" message).
 
 Parity is enforced, not hoped for: the normalizable half of each route's
 input bounds is mirrored HERE (`_clamp_limit`, `_remember_reject`,
-`_retain_reject`, `_social_id_reject`) and applied by BOTH stores, so a local
-caller can never succeed on an input the cloud caller would 422 on. The routes
+`_retain_reject`, `_social_id_reject`, `_social_search_reject`,
+`_job_query_reject`, `_job_keywords_reject`) and applied by BOTH stores, so a
+local caller can never succeed on an input the cloud caller would 422 on. The routes
 keep their own pydantic Field bounds regardless — they are a public HTTP
 surface reachable without going through HttpStore.
 """
 from __future__ import annotations
 
 from typing import Optional, Protocol
+from urllib.parse import quote
 
 from loguru import logger
+
+
+def _seg(value: str) -> str:
+    """Percent-encode an id used as a URL PATH SEGMENT. LLM-supplied ids
+    (narrative_id / event_id / job_id) may contain ``?`` ``#`` ``..`` — without
+    encoding those would retarget the request (httpx dot-segment normalization)
+    and hit a DIFFERENT resource. Encoding keeps them inside one path segment so
+    the route matches its handler and returns DirectStore's same 'not found'.
+
+    ``/`` is the residual case: ``%2F`` is percent-decoded at the ASGI layer, so
+    ``.../jobs/a%2Fb`` still route-misses to a 404 (HttpStore degrades to
+    'backend rejected (404)') while DirectStore says 'not found: a/b' — a known
+    parity seam, but a safe one (404, not a cross-resource retarget). ``safe=""``
+    encodes everything including slashes."""
+    return quote(str(value), safe="")
 
 
 class AgentDataStore(Protocol):
@@ -85,6 +102,16 @@ class AgentDataStore(Protocol):
     async def view_event(self, agent_id: str, event_id: str) -> dict: ...
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict: ...
+
+    async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict: ...
+
+    async def job_retrieval_semantic(
+        self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict: ...
+
+    async def job_retrieval_by_keywords(
+        self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict: ...
 
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
@@ -157,6 +184,25 @@ def _social_search_reject(search_keyword: str) -> Optional[dict]:
         return {"success": False, "message": "search_keyword is empty", "results": []}
     if len(search_keyword) > _QUERY_MAX:
         return {"success": False, "message": f"search_keyword too long (max {_QUERY_MAX} chars)", "results": []}
+    return None
+
+
+def _job_query_reject(query: str) -> Optional[dict]:
+    """Mirror the /jobs/search-semantic route's query Field(1..512) so both
+    stores reject identically (else empty/over-long query is a local success but
+    a cloud 422). Length-only, NOT strip-based — same reasoning as the social
+    helpers. Job reads fail with the ``error`` key."""
+    if len(query) < 1:
+        return {"success": False, "error": "query is empty"}
+    if len(query) > _QUERY_MAX:
+        return {"success": False, "error": f"query too long (max {_QUERY_MAX} chars)"}
+    return None
+
+
+def _job_keywords_reject(keywords: list) -> Optional[dict]:
+    """Mirror the /jobs/search-keywords route's keywords Field(min_length=1)."""
+    if not keywords or len(keywords) < 1:
+        return {"success": False, "error": "keywords is empty"}
     return None
 
 
@@ -465,6 +511,52 @@ class DirectStore:
             logger.warning(f"[basic_info.switch_narrative] failed: {e}")
             return {"success": False, "error": str(e)}
 
+    # Job reads. The fetch/search helpers are dialect-safe (JobRepository) and
+    # self-contained (return a dict, never raise); the job routes call the SAME
+    # helpers, so Direct and Http are byte-identical. limit is clamped in both
+    # stores to the route's le=100 bound (parity). The outer try only guards
+    # _db() so DirectStore still never raises.
+    async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict:
+        from xyz_agent_context.module.job_module import fetch_job_by_id
+
+        try:
+            return await fetch_job_by_id(await self._db(), agent_id, job_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_retrieval_by_id] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def job_retrieval_semantic(
+        self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict:
+        from xyz_agent_context.module.job_module import search_jobs_semantic
+
+        reject = _job_query_reject(query)
+        if reject is not None:
+            return reject
+        try:
+            return await search_jobs_semantic(
+                await self._db(), agent_id, query, user_id, status, _clamp_limit(limit),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_retrieval_semantic] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def job_retrieval_by_keywords(
+        self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict:
+        from xyz_agent_context.module.job_module import search_jobs_by_keywords
+
+        reject = _job_keywords_reject(keywords)
+        if reject is not None:
+            return reject
+        try:
+            return await search_jobs_by_keywords(
+                await self._db(), agent_id, keywords, user_id, status, _clamp_limit(limit),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_retrieval_by_keywords] failed: {e}")
+            return {"success": False, "error": str(e)}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -649,17 +741,48 @@ class HttpStore:
     # straight through.
     async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/narratives/{narrative_id}", params={}, failure_extra={},
+            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}", params={}, failure_extra={},
         )
 
     async def view_event(self, agent_id: str, event_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/events/{event_id}", params={}, failure_extra={},
+            f"/api/agents/{agent_id}/events/{_seg(event_id)}", params={}, failure_extra={},
         )
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._post_dict(
-            f"/api/agents/{agent_id}/narratives/{narrative_id}/switch", json={}, failure_extra={},
+            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}/switch", json={}, failure_extra={},
+        )
+
+    # Job reads: the routes return the tool dict shape verbatim (success/error
+    # keys — same as the tools and _parse_dict's degradation key), so 2xx bodies
+    # pass straight through and no remap is needed. limit clamped to the route
+    # bound so an over-limit never becomes a 422.
+    async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict:
+        return await self._get_dict(f"/api/agents/{agent_id}/jobs/{_seg(job_id)}", params={}, failure_extra={})
+
+    async def job_retrieval_semantic(
+        self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict:
+        reject = _job_query_reject(query)
+        if reject is not None:
+            return reject
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/jobs/search-semantic",
+            json={"query": query, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
+            failure_extra={},
+        )
+
+    async def job_retrieval_by_keywords(
+        self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
+    ) -> dict:
+        reject = _job_keywords_reject(keywords)
+        if reject is not None:
+            return reject
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/jobs/search-keywords",
+            json={"keywords": keywords, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
+            failure_extra={},
         )
 
     async def _send(self, method: str, path: str, **kw):

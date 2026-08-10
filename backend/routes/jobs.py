@@ -43,6 +43,11 @@ from backend.routes._ownership import assert_owned
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import JobRepository
+from xyz_agent_context.module.job_module import (
+    # aliased: the route handlers below share these names
+    search_jobs_semantic as _shared_search_semantic,
+    search_jobs_by_keywords as _shared_search_keywords,
+)
 from xyz_agent_context.schema import (
     JobStatus,
     JobType,
@@ -660,53 +665,32 @@ async def search_jobs_semantic(
     limit: int = Query(10, ge=1, le=100, description="Max number of results"),
 ):
     """
-    Search jobs by relevance to a natural-language query — mirrors the
-    `job_retrieval_semantic` MCP tool
-    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L193).
+    Search jobs by relevance to a natural-language query — the frontend-facing
+    twin of the `job_retrieval_semantic` MCP tool. Both this route and the
+    MCP-tool/seam path now call the ONE shared implementation
+    (`xyz_agent_context.module.job_module.search_jobs_semantic`), so the job read
+    semantics can't drift between the browser API and the agent path.
 
-    Despite the name, this is BM25 keyword ranking, not vector cosine
-    similarity — vectors were retired from job search (unified-memory
-    refactor); the MCP tool kept its name for LLM-facing continuity and this
-    route mirrors that same underlying call.
+    Despite the name, this is BM25 keyword ranking, not vector cosine similarity
+    — vectors were retired from job search; the tool kept its name for
+    LLM-facing continuity.
     """
     await assert_owned(request, agent_id)
 
-    # Same user-scoping decision as list_jobs above: the caller's own
-    # identity is the filter — an "optional user_id" query param let any
-    # client read anyone's jobs, and these endpoints must not reintroduce
-    # what that fix removed (jobs are per-user records under the agent).
+    # Same user-scoping decision as list_jobs above: the caller's own identity
+    # is the filter — an "optional user_id" query param let any client read
+    # anyone's jobs, and these endpoints must not reintroduce what that fix
+    # removed (jobs are per-user records under the agent). This is deliberately
+    # STRICTER than the agent-path seam route (agents/jobs.py), which trusts the
+    # agent to pass a user_id (it queries its OWN agent's jobs).
     user_id = await resolve_current_user_id(request)
-
     try:
-        status_enum = None
-        if status:
-            try:
-                status_enum = JobStatus(status.lower())
-            except ValueError:
-                return JobSemanticSearchResponse(
-                    success=False,
-                    error=f"Invalid status: {status}. Valid values: pending, active, running, completed, failed",
-                )
-
         db_client = await get_db_client()
-        repo = JobRepository(db_client)
-        results = await repo.search_keyword(
-            agent_id=agent_id, query=query, user_id=user_id, status=status_enum, limit=limit
-        )
-
-        from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-        jobs_data = [
-            {**job_to_llm_dict(job), "similarity_score": round(score, 4)}
-            for job, score in results
-        ]
-
-        return JobSemanticSearchResponse(
-            success=True, query=query, total_results=len(jobs_data), jobs=jobs_data
-        )
-
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in semantic job search: {e}")
         return JobSemanticSearchResponse(success=False, error=str(e))
+    result = await _shared_search_semantic(db_client, agent_id, query, user_id, status, limit)
+    return JobSemanticSearchResponse(**result)
 
 
 @router.get("/search/keywords", response_model=JobKeywordSearchResponse)
@@ -718,43 +702,20 @@ async def search_jobs_by_keywords(
     limit: int = Query(20, ge=1, le=100, description="Max number of results"),
 ):
     """
-    Search jobs by keyword matching — mirrors the `job_retrieval_by_keywords`
-    MCP tool (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L339).
+    Search jobs by keyword matching — the frontend-facing twin of the
+    `job_retrieval_by_keywords` MCP tool. Shares the ONE implementation
+    (`xyz_agent_context.module.job_module.search_jobs_by_keywords`) with the
+    agent path — see search_jobs_semantic above for the user-scoping rationale.
     """
     await assert_owned(request, agent_id)
 
-    # Same user-scoping decision as list_jobs above: the caller's own
-    # identity is the filter — an "optional user_id" query param let any
-    # client read anyone's jobs, and these endpoints must not reintroduce
-    # what that fix removed (jobs are per-user records under the agent).
+    # Caller's own identity is the filter (stricter than the agent-path seam
+    # route — see search_jobs_semantic above).
     user_id = await resolve_current_user_id(request)
-
     try:
-        status_enum = None
-        if status:
-            try:
-                status_enum = JobStatus(status.lower())
-            except ValueError:
-                return JobKeywordSearchResponse(success=False, error=f"Invalid status: {status}")
-
         db_client = await get_db_client()
-        repo = JobRepository(db_client)
-        jobs = await repo.search_by_keywords(
-            agent_id=agent_id, keywords=keywords, user_id=user_id, status=status_enum, limit=limit
-        )
-
-        from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-        jobs_data = []
-        for job in jobs:
-            entry = job_to_llm_dict(job)
-            if len(entry["description"] or "") > 200:
-                entry["description"] = entry["description"][:200] + "..."
-            jobs_data.append(entry)
-
-        return JobKeywordSearchResponse(
-            success=True, keywords=keywords, total_results=len(jobs_data), jobs=jobs_data
-        )
-
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in keyword job search: {e}")
         return JobKeywordSearchResponse(success=False, error=str(e))
+    result = await _shared_search_keywords(db_client, agent_id, keywords, user_id, status, limit)
+    return JobKeywordSearchResponse(**result)

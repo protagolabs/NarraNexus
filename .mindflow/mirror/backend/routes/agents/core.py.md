@@ -3,6 +3,10 @@ code_file: backend/routes/agents/core.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 (PR-8) — 挂载 jobs_router（job 读 seam 孪生，agent-scoped）
+
+新增 [[jobs]] 路由聚合到 `/api/agents`，与 narrative/general_memory 等 seam 路由并列。
+
 
 ## 2026-08-10 — 挂载 general_memory / narrative 子路由（MCP seam PR-2）
 
