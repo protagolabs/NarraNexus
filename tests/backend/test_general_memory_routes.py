@@ -234,3 +234,34 @@ def test_retain_underlying_failure_returns_success_false(client, monkeypatch):
     body = r.json()
     assert body["success"] is False
     assert "write failed" in body["error"]
+
+
+def test_grep_regex_mode_is_refused_over_http(client):
+    """Pre-open review C1: attacker-controlled regex compiled on the shared
+    API event loop is a self-service DoS ((a+)+$-class backtracking measured
+    >30s on one record). The HTTP twin refuses regex mode outright; the MCP
+    tool keeps it because it runs in the per-module process."""
+    r = client.get(
+        "/api/agents/agent_mine/memory/grep",
+        params={"pattern": "(a+)+$", "regex": "true"},
+        headers={"x-test-user": "u1"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is False
+    assert "regex mode is not available" in body["error"]
+
+
+def test_grep_pattern_and_limit_are_bounded(client):
+    r = client.get(
+        "/api/agents/agent_mine/memory/grep",
+        params={"pattern": "x" * 300},
+        headers={"x-test-user": "u1"},
+    )
+    assert r.status_code == 422  # pattern max_length=256
+    r = client.get(
+        "/api/agents/agent_mine/memory/grep",
+        params={"pattern": "x", "limit": 9999},
+        headers={"x-test-user": "u1"},
+    )
+    assert r.status_code == 422  # limit le=200

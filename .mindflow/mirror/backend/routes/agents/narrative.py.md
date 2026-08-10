@@ -4,6 +4,16 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (pre-open review) — user_id 只信认证身份 + 扇出上界
+
+- create 的 user_id 不再来自 body:assert_owned 只证明 agent 归属,
+  body 里的 user_id 可把行归到任意用户名下——改由
+  `resolve_current_user_id` 派生(本端点的写分支是本 PR 净新增,没有
+  「忠实复刻」豁免)。
+- `_narrative_chat_history` 的 chat 实例扇出截断到 100(共享 API 进程
+  上无界 N+1 = 所有人的慢请求;MCP 孪生在模块进程里只慢自己)。
+- title ≤300 / description ≤2000 上界。
+
 # agents/narrative.py — Narrative endpoints for the MCP data-access seam (PR-2)
 
 ## 为什么存在

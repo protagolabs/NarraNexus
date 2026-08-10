@@ -4,6 +4,16 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (pre-open review) — regex 模式在 HTTP 层被拒 + 全参数上界
+
+C1:引擎用 stdlib re 同步编译调用方 pattern,(a+)+$ 类灾难回溯实测单条
+40 字符记录 >30s——发布在共享 API 进程上等于自服务 DoS(MCP 孪生跑在
+per-module 进程里只伤它自己的 agent,所以保留 regex)。HTTP 端点对
+regex=true 直接返回 success:false 说明文案;PR-3 把 grep 迁 HttpStore 前
+必须先换 timeout 引擎(regex 包/re2),否则 parity 缺口保持记录状态。
+所有 query/body 参数加 Field/Query 上界(pattern≤256,query≤512,
+limit≤100/200,content≤64KB)——本家族既有惯例(me.py/feedback.py)。
+
 # agents/general_memory.py — HTTP twin of the GeneralMemory MCP tools
 
 ## 为什么存在

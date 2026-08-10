@@ -32,8 +32,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
 from xyz_agent_context.narrative import NarrativeService
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -63,7 +64,11 @@ async def _narrative_chat_history(db, narrative_id: str, limit: int = 200) -> Li
     """
     links = await db.get("instance_narrative_links", filters={"narrative_id": narrative_id})
     inst_ids = [row.get("instance_id") for row in (links or [])]
-    inst_ids = [i for i in inst_ids if i and i.startswith("chat_")]
+    # Fan-out bound: each chat instance costs one get_one; the MCP twin runs
+    # in the module process where a fat narrative only slows its own agent,
+    # but on the shared API process an unbounded loop is a slow request for
+    # everyone. 100 chat instances is far beyond any observed narrative.
+    inst_ids = [i for i in inst_ids if i and i.startswith("chat_")][:100]
 
     messages: List[Dict[str, Any]] = []
     for iid in inst_ids:
@@ -103,9 +108,12 @@ class NarrativeSwitchResponse(BaseModel):
 
 
 class CreateNarrativeRequest(BaseModel):
-    user_id: str
-    title: str
-    description: str = ""
+    # No user_id field: the narrative's owner is the AUTHENTICATED caller
+    # (resolve_current_user_id), never a body-supplied id — assert_owned only
+    # proves agent ownership, and a trusted-body user_id would let an owner
+    # attribute rows to arbitrary users (pre-open review #6).
+    title: str = Field(min_length=1, max_length=300)
+    description: str = Field(default="", max_length=2000)
 
 
 class NarrativeCreateResponse(BaseModel):
@@ -182,12 +190,13 @@ async def create_narrative(agent_id: str, body: CreateNarrativeRequest, request:
     await assert_owned(request, agent_id)
     if not (body.title or "").strip():
         return NarrativeCreateResponse(success=False, error="title is required")
+    user_id = await resolve_current_user_id(request)
     try:
         db = await get_db_client()
         service = NarrativeService(agent_id=agent_id, database_client=db)
         narrative = await service.create_narrative(
             agent_id=agent_id,
-            user_id=body.user_id,
+            user_id=user_id,
             title=body.title,
             description=body.description,
         )

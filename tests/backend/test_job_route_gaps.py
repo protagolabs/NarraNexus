@@ -130,7 +130,7 @@ def test_update_job_rejects_job_owned_by_different_agent(client, monkeypatch):
     )
     body = r.json()
     assert body["success"] is False
-    assert "does not belong to agent" in body["message"]
+    assert "not found" in body["message"]
 
 
 def test_update_job_no_fields_to_update(client, monkeypatch):
@@ -254,7 +254,7 @@ def test_pause_job_rejects_job_owned_by_different_agent(client, monkeypatch):
     r = client.put("/api/jobs/job1/pause", headers={"x-test-user": "u1"}, json={"agent_id": "agent_mine"})
     body = r.json()
     assert body["success"] is False
-    assert "does not belong to agent" in body["message"]
+    assert "not found" in body["message"]
 
 
 def test_pause_job_success(client, monkeypatch):

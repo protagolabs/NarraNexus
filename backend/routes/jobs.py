@@ -516,7 +516,7 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
             return JobUpdateResponse(
                 success=False,
                 job_id=job_id,
-                message=f"Job {job_id} does not belong to agent {body.agent_id}",
+                message=f"Job {job_id} not found",
             )
 
         updates: dict = {}
@@ -626,7 +626,7 @@ async def pause_job(job_id: str, request: Request, body: JobPauseBody):
             return JobPauseResponse(success=False, job_id=job_id, message=f"Job {job_id} not found")
         if job.agent_id != body.agent_id:
             return JobPauseResponse(
-                success=False, job_id=job_id, message=f"Job {job_id} does not belong to agent {body.agent_id}"
+                success=False, job_id=job_id, message=f"Job {job_id} not found"
             )
 
         updated_rows = await job_repo.pause_job(job_id)
@@ -647,10 +647,9 @@ async def pause_job(job_id: str, request: Request, body: JobPauseBody):
 async def search_jobs_semantic(
     request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    query: str = Query(..., description="Natural language search query"),
-    user_id: Optional[str] = Query(None, description="Optional filter by user ID"),
+    query: str = Query(..., min_length=1, max_length=512, description="Natural language search query"),
     status: Optional[str] = Query(None, description="Optional status filter"),
-    limit: int = Query(10, description="Max number of results"),
+    limit: int = Query(10, ge=1, le=100, description="Max number of results"),
 ):
     """
     Search jobs by relevance to a natural-language query — mirrors the
@@ -663,6 +662,12 @@ async def search_jobs_semantic(
     route mirrors that same underlying call.
     """
     await assert_owned(request, agent_id)
+
+    # Same user-scoping decision as list_jobs above: the caller's own
+    # identity is the filter — an "optional user_id" query param let any
+    # client read anyone's jobs, and these endpoints must not reintroduce
+    # what that fix removed (jobs are per-user records under the agent).
+    user_id = await resolve_current_user_id(request)
 
     try:
         status_enum = None
@@ -700,16 +705,21 @@ async def search_jobs_semantic(
 async def search_jobs_by_keywords(
     request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    keywords: List[str] = Query(..., description="Keywords to search for (matches if ANY keyword found)"),
-    user_id: Optional[str] = Query(None, description="Optional filter by user ID"),
+    keywords: List[str] = Query(..., min_length=1, max_length=20, description="Keywords to search for (matches if ANY keyword found)"),
     status: Optional[str] = Query(None, description="Optional status filter"),
-    limit: int = Query(20, description="Max number of results"),
+    limit: int = Query(20, ge=1, le=100, description="Max number of results"),
 ):
     """
     Search jobs by keyword matching — mirrors the `job_retrieval_by_keywords`
     MCP tool (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L339).
     """
     await assert_owned(request, agent_id)
+
+    # Same user-scoping decision as list_jobs above: the caller's own
+    # identity is the filter — an "optional user_id" query param let any
+    # client read anyone's jobs, and these endpoints must not reintroduce
+    # what that fix removed (jobs are per-user records under the agent).
+    user_id = await resolve_current_user_id(request)
 
     try:
         status_enum = None

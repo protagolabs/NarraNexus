@@ -9,7 +9,7 @@ Follows the `test_channel_routes_owner_gate.py` fixture shape: one TestClient
 per test, monkeypatching `backend.routes._ownership` for the ownership
 decision and the route module's own collaborators (InstanceRepository,
 SocialNetworkRepository, SocialNetworkModule, AgentRepository,
-InstanceAwarenessRepository, agent_workspace_path) for the data operations —
+InstanceAwarenessRepository) for the data operations —
 these routes replicate `_social_mcp_tools.py`'s tool bodies, not the DB
 itself, so the tests pin behavior at that boundary.
 """
@@ -162,7 +162,6 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
     monkeypatch.setattr(sn_routes, "InstanceRepository", _FakeInstanceRepository)
     # Never touch the real filesystem base path for create-agent.
-    monkeypatch.setattr(sn_routes, "agent_workspace_path", lambda *a, **kw: tmp_path)
 
     app = FastAPI()
 

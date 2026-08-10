@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -40,8 +40,10 @@ router = APIRouter()
 
 
 class MemoryRetainBody(BaseModel):
-    content: str
-    source: str = ""
+    # 64KB cap: the MCP twin takes model-generated content; over HTTP the
+    # field is caller-controlled and this family bounds every free-text input.
+    content: str = Field(min_length=1, max_length=65536)
+    source: str = Field(default="", max_length=512)
 
 
 def _format(hits: List[Any]) -> List[Dict[str, Any]]:
@@ -67,7 +69,12 @@ def _format(hits: List[Any]) -> List[Dict[str, Any]]:
 
 
 @router.get("/{agent_id}/memory/remember")
-async def remember(request: Request, agent_id: str, query: str, limit: int = 15) -> dict:
+async def remember(
+    request: Request,
+    agent_id: str,
+    query: str = Query(min_length=1, max_length=512),
+    limit: int = Query(15, ge=1, le=100),
+) -> dict:
     """Cross-kind ranked recall by meaning. Mirrors the ``remember`` MCP tool."""
     await assert_owned(request, agent_id)
     try:
@@ -82,14 +89,36 @@ async def remember(request: Request, agent_id: str, query: str, limit: int = 15)
 
 @router.get("/{agent_id}/memory/grep")
 async def grep_memory(
-    request: Request, agent_id: str, pattern: str, regex: bool = False, limit: int = 30
+    request: Request,
+    agent_id: str,
+    pattern: str = Query(min_length=1, max_length=256),
+    regex: bool = False,
+    limit: int = Query(30, ge=1, le=200),
 ) -> dict:
-    """Exact/regex search over memory content. Mirrors the ``grep_memory`` MCP tool."""
+    """Substring search over memory content. Mirrors the ``grep_memory`` MCP
+    tool — EXCEPT regex mode, which is refused here: the engine compiles the
+    caller's pattern with the stdlib re and runs it synchronously, and a
+    catastrophic-backtracking pattern ((a+)+$-class, empirically >30s on one
+    40-char record) would wedge the shared API event loop for every user. The
+    MCP twin keeps regex because it runs in the per-module process driven by
+    the agent's own LLM; publishing it on the shared API is what turns it
+    into a self-service DoS. Migrating grep's Http path (PR-3) must first
+    swap in a timeout-capable engine (the `regex` package / re2) — recorded
+    in the mirror md."""
     await assert_owned(request, agent_id)
+    if regex:
+        return {
+            "success": False,
+            "error": (
+                "regex mode is not available over HTTP; use a plain substring "
+                "pattern"
+            ),
+            "matches": [],
+        }
     try:
         db = await get_db_client()
         coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-        hits = await coord.grep_memory(pattern, regex=regex, limit=limit)
+        hits = await coord.grep_memory(pattern, regex=False, limit=limit)
         return {"success": True, "pattern": pattern, "matches": _format(hits)}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[memory.grep_memory] failed for agent {agent_id}: {e}")

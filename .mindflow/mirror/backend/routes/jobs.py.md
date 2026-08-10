@@ -4,6 +4,19 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (pre-open review) — search 收归调用者身份 + 中立错误文案
+
+- 两个 search 端点删掉 "optional user_id" query 参数,强制
+  `resolve_current_user_id`——与同文件 list_jobs 早已写明的决定一致
+  (可选 user_id 让任何客户端翻别人 job,且 job_to_llm_dict 连 payload
+  一起返回);一文件两套答案是漂移。
+- update/pause 的 "does not belong to agent" 与 "not found" 合并为同一
+  中立文案,堵跨租户 job_id 存在性预言机(narrative 路由同法)。
+- 失败键:update/pause 沿 jobs 家族 response_model 用 `message`,search
+  用 `error`——per-family 约定,HttpStore 端按端点 response model 解析
+  (awareness 先例),不设全局单一 shape。
+- keywords ≤20 个、query ≤512、limit 1..100 上界补齐。
+
 ## 2026-08-10 — MCP data-access seam: update/pause/search-semantic/search-keywords (PR-2)
 
 Added four endpoints that are the backend half of the MCP data-access seam —

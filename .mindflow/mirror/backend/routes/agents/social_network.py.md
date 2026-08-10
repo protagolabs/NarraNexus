@@ -4,6 +4,17 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (pre-open review) — create-agent 走 canonical 三步供给
+
+原实现复刻的 MCP 工具本身就是 auth.py 创建路径的不完整副本:缺
+InstanceFactory.create_agent_level_instances(社交/基础/总线实例)、
+sync_agent_discovery(同伴发现目录)、apply_bootstrap(profile 渲染的
+Bootstrap.md+greeting+删除规则)——造出的 agent 对同主其他 agent 不可见
+(正是 "ask agent X came back empty" P1)。路由现执行与 auth.py 相同的
+三步,awareness 文本 seed 到工厂建出的实例上。**MCP 工具的副本仍是坏的**
+(模块进程能 import 同一批 xyz 原语,可同法修)+ auth.py 提炼单一
+provisioning seam,均记 reference/self_notebook/todo/ 后续项。
+
 ## 2026-08-10 — write endpoints added (PR-2 · MCP data-access seam, backend half)
 
 Added four POST endpoints (`extract` / `merge` / `delete-entity` / `create-agent`) that give an HTTP caller the same data-mutation power as the four write tools in `_social_mcp_tools.py` (`extract_entity_info`, `merge_entities`, `delete_entity`, `create_agent`). This is the non-agent-triggered path to the same social-network data — e.g. a frontend "merge duplicate contacts" button, or an admin cleanup script, without routing through an agent's own tool-call loop.

@@ -33,7 +33,6 @@ from pydantic import BaseModel
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.utils.workspace_paths import agent_workspace_path
 from xyz_agent_context.repository import (
     SocialNetworkRepository,
     InstanceRepository,
@@ -49,8 +48,6 @@ from xyz_agent_context.schema import (
     SocialNetworkSearchResponse,
 )
 from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
-from xyz_agent_context.settings import settings
-from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
 
 # Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
 # controlled path input — without the owner check any caller could extract/
@@ -521,28 +518,64 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         )
         logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
 
-        # 2. Create workspace directory + Bootstrap.md
-        workspace_path = str(agent_workspace_path(new_agent_id, owner_user_id, base=settings.base_working_path))
-        os.makedirs(workspace_path, exist_ok=True)
+        # 2-4. Canonical provisioning — the SAME three steps auth.py's
+        # create-agent route runs (pre-open review #3: the MCP tool's copy
+        # skips them and produces half-provisioned agents — no social/basic-
+        # info/bus instances and invisible to peer discovery, the exact "ask
+        # agent X came back empty" failure). Best-effort like the canonical
+        # path: the agent row exists either way and the per-turn hooks
+        # re-sync.
         try:
-            bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
-            with open(bootstrap_file, "w", encoding="utf-8") as f:
-                f.write(BOOTSTRAP_MD_TEMPLATE)
-        except Exception as e:
-            logger.warning(f"Failed to write Bootstrap.md for {new_agent_id}: {e}")
+            from xyz_agent_context.module._module_impl.instance_factory import (
+                InstanceFactory,
+            )
+            await InstanceFactory(db_client).create_agent_level_instances(new_agent_id)
+        except Exception as inst_err:  # noqa: BLE001
+            logger.warning(f"Failed to create default instances for {new_agent_id}: {inst_err}")
 
-        # 3. Create awareness instance and set awareness text
-        instance_repo = InstanceRepository(db_client)
-        awareness_instance_id = f"aware_{uuid4().hex[:8]}"
-        new_instance = ModuleInstanceRecord(
-            instance_id=awareness_instance_id,
-            module_class="AwarenessModule",
-            agent_id=new_agent_id,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Agent self-awareness module instance",
+        from xyz_agent_context.message_bus.agent_discovery_sync import (
+            sync_agent_discovery,
         )
-        await instance_repo.create_instance(new_instance)
+        await sync_agent_discovery(db_client, new_agent_id)
+
+        try:
+            from xyz_agent_context.bootstrap.profiles import (
+                BootstrapContext,
+                apply_bootstrap,
+                get_profile,
+            )
+            await apply_bootstrap(
+                db_client,
+                agent_id=new_agent_id,
+                user_id=owner_user_id,
+                profile=get_profile("default"),
+                ctx=BootstrapContext(
+                    agent_id=new_agent_id,
+                    user_id=owner_user_id,
+                    agent_name=body.agent_name,
+                ),
+            )
+        except Exception as bootstrap_err:  # noqa: BLE001
+            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
+
+        # 5. Seed the requested awareness text onto the factory-created
+        # AwarenessModule instance (create it only if the factory could not).
+        instance_repo = InstanceRepository(db_client)
+        instances = await instance_repo.get_by_agent(
+            agent_id=new_agent_id, module_class="AwarenessModule"
+        )
+        if instances:
+            awareness_instance_id = instances[0].instance_id
+        else:
+            awareness_instance_id = f"aware_{uuid4().hex[:8]}"
+            await instance_repo.create_instance(ModuleInstanceRecord(
+                instance_id=awareness_instance_id,
+                module_class="AwarenessModule",
+                agent_id=new_agent_id,
+                is_public=True,
+                status=InstanceStatus.ACTIVE,
+                description="Agent self-awareness module instance",
+            ))
 
         awareness_repo = InstanceAwarenessRepository(db_client)
         await awareness_repo.upsert(awareness_instance_id, body.awareness)
