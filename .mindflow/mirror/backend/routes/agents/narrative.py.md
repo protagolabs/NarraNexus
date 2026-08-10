@@ -4,6 +4,19 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-7) — 读端点改调共享 fetch_*，成为 byte-parity seam 孪生
+
+view_narrative(GET)/switch_narrative(POST) 从 response_model 改为返回**裸 dict**，
+body 全部委托给 [[_narrative_reads]] 的 `fetch_narrative_view`/`check_narrative_switch`
+——DirectStore 调**同一批**函数，故两路逐字相同（旧 response_model 形状不是工具
+shape、无法 parity）。**新增 GET `/{agent_id}/events/{event_id}` → view_event**
+（`fetch_event_view`，原本没有 event 的 seam 孪生）。三个读端点整体包 try 兜住
+`get_db_client()` 获取失败（fetch_* 自身不抛）→ 200+`{success:False,error}`，与
+DirectStore 对齐。删了 `NarrativeViewResponse`/`NarrativeSwitchResponse` 模型与本地
+`_parse_info`/`_narrative_chat_history`/常量（提到 [[_narrative_reads]] 去重）。
+前端只用 chat_history 的 `/event-log/`，不碰本文件的 `/narratives/`，故 reshape 安全。
+create_narrative(POST) 仍用 NarrativeService 真建、保留 response_model，不动。
+
 ## 2026-08-10 (round-3 review #1) — 链接上界修正 + truncated 标记
 
 `_narrative_chat_history` 的 chat 扇出 N+1 修复(get_by_ids 循环→单次 get_by_ids)
@@ -33,31 +46,28 @@ chat + 之后一条 chat,断言历史不丢)与
   上无界 N+1 = 所有人的慢请求;MCP 孪生在模块进程里只慢自己)。
 - title ≤300 / description ≤2000 上界。
 
-# agents/narrative.py — Narrative endpoints for the MCP data-access seam (PR-2)
+# agents/narrative.py — Narrative/event endpoints for the MCP data-access seam
 
 ## 为什么存在
 
-BasicInfoModule 的三个 narrative MCP 工具（`view_narrative` / `switch_narrative`
-/ `create_narrative`，见 `_basic_info_mcp_tools.py`）目前直接拿数据库凭据、
-在 MCP server 进程里跑原生 SQL。PR-2 的目标是给 AgentDataStore 一条 Http 路径
-（HttpStore），让 mcp 容器不再需要数据库凭据；这个文件就是那三个工具的 Http
-对应端点，数据操作和返回 shape 尽量与原工具对齐，但**不用原生 SQL**——路由侧
-一律走 `AsyncDatabaseClient` 的 `get_by_ids`/`get` helper 或 service/repository
-层，这条线的裸 SQL 只允许留在 agent 进程内部（数据库凭据本就在那）。
+BasicInfoModule 的 narrative/event MCP 读工具（`view_narrative` / `view_event` /
+`switch_narrative`，见 `_basic_info_mcp_tools.py`）**已（PR-7）走 AgentDataStore
+seam**：本文件的读端点就是它们的 Http 孪生，HttpStore 调这里，mcp 容器不再需要 db
+凭据。读端点的 body **全部委托给 [[_narrative_reads]] 的 `fetch_narrative_view`/
+`fetch_event_view`/`check_narrative_switch`**——DirectStore 调**同一批**函数，所以
+两路返回逐字相同（parity=单一实现）。这些 helper 走 `AsyncDatabaseClient` 的
+`get_one`/`get`/`get_by_ids`，方言安全，无裸 SQL。`create_narrative` 端点是唯一
+的写，仍自己调 `NarrativeService`（见下）。
 
 ## 上下游关系
 
-- **被谁用**：`backend/routes/agents/core.py` 聚合挂载到 `/api/agents`；未来
-  HttpStore（PR-2 的 AgentDataStore Http 实现）会调用这三个端点，替代
-  `_basic_info_mcp_tools.py` 里对 db 的直接访问
+- **被谁用**：`backend/routes/agents/core.py` 挂到 `/api/agents`；HttpStore 调
+  `GET /narratives/{id}`、`GET /events/{id}`、`POST /narratives/{id}/switch`。
+  前端只用 chat_history 的 `/event-log/`，不碰本文件的 `/narratives/`。
 - **依赖谁**：
-  - `backend.routes._ownership.assert_owned` — 每个端点先做 owner 校验
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查
-    `narratives`、`instance_narrative_links`、`instance_json_format_memory_chat`
-    表（经 helper，非原生 SQL）
-  - `xyz_agent_context.narrative.NarrativeService.create_narrative` —
-    `POST /narratives` 的实际建表逻辑（同 `step_4_persist_results` 里
-    `create_narrative` 信号被消费时调的方法）
+  - `assert_owned` — 每个端点先做 owner 校验
+  - [[_narrative_reads]] — 三个读的实际实现（方言安全 + agent 归属过滤）
+  - `NarrativeService.create_narrative` — `POST /narratives` 的实际建表逻辑
 
 ## 设计决策
 
@@ -73,25 +83,19 @@ MCP 工具版本的 `create_narrative` 只是一个信号——它自己不写�
 调 `NarrativeService.create_narrative` 建表**并把真实 `narrative_id` 返回给
 调用方——如果也做成"只签收不建表"，调用方就永远拿不到 id，端点等于没用。
 
-**`view_narrative` / `switch_narrative` 额外校验 `agent_id` 归属**
+**`view_narrative` / `view_event` / `switch_narrative` 按 `agent_id` 归属过滤**
 
-原 MCP 工具只按 `narrative_id` 查，不核对 `agent_id`（因为它跑在已知
-agent 进程里，`narrative_id` 从对话上下文里来，天然属于当前 agent）。这两个
-Http 端点路径上带了 `agent_id`，多做了一步 `row["agent_id"] == agent_id`
-校验——`assert_owned` 只保证调用方拥有这个 agent，不保证 `narrative_id` 属于
-这个 agent；不加这一步就是一个跨 agent 探测 narrative 内容的口子。不匹配时
-返回和"narrative 不存在"完全相同的 `success=False` 错误文案，不额外泄露"这个
-id 存在但不是你的"。
+（实现在 [[_narrative_reads]]，route 与 DirectStore 共用。）旧裸 SQL 工具只按 id 查、
+不核对 `agent_id`，所以任何 agent 传别人的 narrative_id/event_id 就能读到别人的
+内容（跨租户读）。迁移后每个读都做 `row["agent_id"] == agent_id`；不匹配返回和
+"不存在"完全相同的 `success=False` 文案，不泄露"这个 id 存在但不是你的"。
 
-**`_narrative_chat_history` 用 helper 重写，不引用原函数**
+**chat 历史读经 [[_narrative_reads]] 的 `narrative_chat_history`（单一来源）**
 
-`_basic_info_mcp_tools._narrative_chat_history` 用两条原生 SQL
-（`SELECT instance_id FROM instance_narrative_links ...` /
-`SELECT memory FROM instance_json_format_memory_chat ...`）。这里没有直接
-import 复用它，而是用同样的过滤逻辑（`instance_id` 前缀 `chat_`、按
-`meta_data.timestamp` 排序、`limit` 取最新 N 条）重新实现在
-`db.get(...)` / `db.get_by_ids(...)` 之上——两处逻辑保持同步是手工纪律，不是自动
-的；改一边记得看看另一边要不要跟。
+`_narrative_chat_history` 曾同时存在于本 route 与工具（两份逻辑手工同步）。PR-7
+把它提到 [[_narrative_reads]]，route（经 fetch_narrative_view）与 seam 的 DirectStore
+共用同一份——不再有手工同步纪律。过滤逻辑不变：`chat_` 前缀实例、按
+`meta_data.timestamp` 排序、扇出触 100 上限时置 `truncated`（不静默丢历史）。
 
 ## Gotcha / 边界情况
 

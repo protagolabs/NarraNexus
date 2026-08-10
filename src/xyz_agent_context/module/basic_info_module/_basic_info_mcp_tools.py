@@ -27,13 +27,8 @@ so detection-from-the-tool-call is how they communicate (no shared state).
 """
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, List
-
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
-
-from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 # Tool names the runtime hook scans agent_loop_response for (keep in lockstep
@@ -106,46 +101,6 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         return {"ok": True, "message": "Feedback recorded. Continue helping the user."}
 
 
-def _parse_info(raw: Any) -> Dict[str, Any]:
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw) or {}
-        except Exception:
-            return {}
-    return {}
-
-
-async def _narrative_chat_history(db, narrative_id: str, limit: int = 200) -> List[Dict[str, Any]]:
-    """Pull the full chat history of a narrative from its ChatModule instances."""
-    rows = await db.execute(
-        "SELECT instance_id FROM instance_narrative_links WHERE narrative_id=%s",
-        params=(narrative_id,), fetch=True,
-    )
-    inst_ids = [dict(r).get("instance_id") for r in (rows or [])]
-    inst_ids = [i for i in inst_ids if i and i.startswith("chat_")]
-    messages: List[Dict[str, Any]] = []
-    for iid in inst_ids:
-        mrows = await db.execute(
-            "SELECT memory FROM instance_json_format_memory_chat WHERE instance_id=%s",
-            params=(iid,), fetch=True,
-        )
-        if not mrows:
-            continue
-        mem = _parse_info(dict(mrows[0]).get("memory"))
-        for m in mem.get("messages", []):
-            meta = m.get("meta_data", {}) or {}
-            messages.append({
-                "time": str(meta.get("timestamp", ""))[:19],
-                "role": m.get("role"),
-                "content": (m.get("content") or "")[:2000],
-                "event_id": meta.get("event_id"),
-            })
-    messages.sort(key=lambda x: x.get("time", ""))
-    return messages[-limit:]
-
-
 def _register_narrative_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(
@@ -162,31 +117,12 @@ def _register_narrative_tools(mcp: FastMCP) -> None:
         ),
     )
     async def view_narrative(agent_id: str, narrative_id: str) -> dict:
-        try:
-            db = await get_db_client()
-            rows = await db.execute(
-                "SELECT narrative_info, topic_keywords FROM narratives WHERE narrative_id=%s",
-                params=(narrative_id,), fetch=True,
-            )
-            if not rows:
-                return {"error": f"narrative {narrative_id} not found"}
-            d = dict(rows[0])
-            info = _parse_info(d.get("narrative_info"))
-            kws = d.get("topic_keywords")
-            history = await _narrative_chat_history(db, narrative_id)
-            logger.info(f"[NarrativeTool] view_narrative({narrative_id}) -> {len(history)} messages")
-            return {
-                "narrative_id": narrative_id,
-                "name": info.get("name"),
-                "description": info.get("description"),
-                "summary": info.get("current_summary"),
-                "keywords": kws if isinstance(kws, list) else _parse_info(kws) or kws,
-                "message_count": len(history),
-                "messages": history,
-            }
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[NarrativeTool] view_narrative failed: {e}")
-            return {"error": str(e)}
+        # Routes through the AgentDataStore seam (DirectStore locally / HttpStore
+        # in cloud). The old raw MySQL is gone — the read is now dialect-safe and
+        # scoped to this agent (the tool used to return ANY agent's narrative).
+        from xyz_agent_context.module.data_access import get_agent_data_store
+
+        return await get_agent_data_store().view_narrative(agent_id, narrative_id)
 
     @mcp.tool(
         name="view_event",
@@ -198,33 +134,11 @@ def _register_narrative_tools(mcp: FastMCP) -> None:
         ),
     )
     async def view_event(agent_id: str, event_id: str) -> dict:
-        try:
-            db = await get_db_client()
-            rows = await db.execute(
-                "SELECT `trigger`, trigger_source, env_context, final_output, event_log, created_at, narrative_id "
-                "FROM events WHERE event_id=%s",
-                params=(event_id,), fetch=True,
-            )
-            if not rows:
-                return {"error": f"event {event_id} not found"}
-            d = dict(rows[0])
-            log_raw = d.get("event_log")
-            if isinstance(log_raw, (bytes, bytearray)):
-                log_raw = log_raw.decode("utf-8", errors="replace")
-            logger.info(f"[NarrativeTool] view_event({event_id})")
-            return {
-                "event_id": event_id,
-                "narrative_id": d.get("narrative_id"),
-                "trigger": d.get("trigger"),
-                "trigger_source": d.get("trigger_source"),
-                "time": str(d.get("created_at", ""))[:19],
-                "input": _parse_info(d.get("env_context")).get("input"),
-                "final_output": (d.get("final_output") or "")[:8000],
-                "event_log": (log_raw or "")[:20000],
-            }
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[NarrativeTool] view_event failed: {e}")
-            return {"error": str(e)}
+        # Routes through the seam (see view_narrative). The raw `trigger`
+        # backtick MySQL is gone; the read is dialect-safe and agent-scoped.
+        from xyz_agent_context.module.data_access import get_agent_data_store
+
+        return await get_agent_data_store().view_event(agent_id, event_id)
 
     @mcp.tool(
         name=SWITCH_NARRATIVE_TOOL,
@@ -240,23 +154,12 @@ def _register_narrative_tools(mcp: FastMCP) -> None:
         ),
     )
     async def switch_narrative(agent_id: str, narrative_id: str) -> dict:
-        try:
-            db = await get_db_client()
-            rows = await db.execute(
-                "SELECT 1 FROM narratives WHERE narrative_id=%s",
-                params=(narrative_id,), fetch=True,
-            )
-            if not rows:
-                return {"ok": False, "error": f"narrative {narrative_id} not found"}
-            logger.info(f"[NarrativeTool] switch_narrative -> {narrative_id} (agent={agent_id})")
-            return {
-                "ok": True,
-                "narrative_id": narrative_id,
-                "message": "This turn will be attributed to this narrative.",
-            }
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[NarrativeTool] switch_narrative failed: {e}")
-            return {"ok": False, "error": str(e)}
+        # Routes through the seam (see view_narrative). Now agent-scoped: the old
+        # raw SQL validated existence but not ownership. The result key is
+        # `success` (aligned with the other seam tools), not the old `ok`.
+        from xyz_agent_context.module.data_access import get_agent_data_store
+
+        return await get_agent_data_store().switch_narrative(agent_id, narrative_id)
 
     @mcp.tool(
         name=CREATE_NARRATIVE_TOOL,
