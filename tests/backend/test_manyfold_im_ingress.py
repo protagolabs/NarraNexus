@@ -499,7 +499,9 @@ class _FakeTrigger:
     def __init__(self):
         self.before_calls = []
         self.after_calls = []
+        self.audit_calls = []
         self.allow = (True, "")
+        self.silent_receipt = "(silent ok)"
 
     async def managed_before_run(self, **kw):
         self.before_calls.append(kw)
@@ -507,6 +509,12 @@ class _FakeTrigger:
 
     async def managed_after_run(self, **kw):
         self.after_calls.append(kw)
+
+    async def managed_silent_ingest(self, **kw):
+        return self.silent_receipt
+
+    async def managed_audit(self, db, event_type, **kw):
+        self.audit_calls.append((event_type, kw))
 
     def managed_reply_kwargs(self, trigger_extra_data):
         return {"context_token": trigger_extra_data.get("reply_token", "")}
@@ -912,6 +920,10 @@ async def test_endpoint_schedules_after_run_with_reply(compat_app, monkeypatch):
     assert call["reply_text"] == "hey"
     assert call["error_text"] == ""
     assert fake.before_calls[0]["working_source"] is WorkingSource.LARK
+    # Turn facts for the managed_ingress_processed audit row.
+    details = call["audit_details"]
+    assert details["route"] == "normal"
+    assert isinstance(details["duration_ms"], int) and details["duration_ms"] >= 0
 
 
 async def test_endpoint_plain_turn_skips_managed_gate(compat_app, monkeypatch):
@@ -1317,3 +1329,351 @@ async def test_base_managed_silent_ingest_drives_native_batch(monkeypatch):
         agent_id="a1", message=msg, db=object()
     )
     assert "dropped" in receipt2
+
+
+# ---------------------------------------------------------------------------
+# Stage B (batch 2) — managed ingress audit trail
+# ---------------------------------------------------------------------------
+
+
+class _AuditRecorder:
+    """Stands in for ChannelTriggerAuditRepository at the coordinator's
+    direct-write seam (the coordinator deliberately does NOT audit through
+    the trigger: two deny paths fire precisely because the trigger is
+    unavailable)."""
+
+    rows: list = []
+
+    def __init__(self, channel, db):
+        self._channel = channel
+
+    async def append(self, event_type, **kw):
+        _AuditRecorder.rows.append((self._channel, event_type, kw))
+
+
+@pytest.fixture
+def audit_rows(monkeypatch):
+    monkeypatch.setattr(
+        ingress_mod, "ChannelTriggerAuditRepository", _AuditRecorder
+    )
+    _AuditRecorder.rows = []
+    return _AuditRecorder.rows
+
+
+async def test_before_run_deny_writes_denied_audit(monkeypatch, audit_rows):
+    trig = _FakeTrigger()
+    trig.allow = (False, "not authorized")
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    channel, event, kw = audit_rows[0]
+    assert (channel, event) == ("lark", "managed_ingress_denied")
+    assert kw["agent_id"] == "a1"
+    assert kw["message_id"] == "m1"
+    assert kw["chat_id"] == "wx9" and kw["sender_id"] == "wx9"
+    assert kw["details"]["reason"] == "not authorized"
+
+
+async def test_before_run_allow_writes_no_audit(monkeypatch, audit_rows):
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    await ingress.before_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    # The allowed path's row is managed_ingress_processed, written by
+    # managed_after_run — no duplicate event here.
+    assert audit_rows == []
+
+
+async def test_deny_without_trigger_still_audits(monkeypatch, audit_rows):
+    """Trigger not loadable fails the WHOLE channel — misreading that as
+    'the platform never called us' points diagnosis exactly backwards,
+    so this deny must leave a row even with no trigger to write through."""
+    monkeypatch.delitem(
+        ingress_mod.CHANNEL_TRIGGER_MAP, "narramessenger", raising=False
+    )
+    ingress = ingress_mod.ManagedChannelIngress()
+    allow, receipt = await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow is False
+    channel, event, kw = audit_rows[0]
+    assert (channel, event) == ("narramessenger", "managed_ingress_denied")
+    assert "not loadable" in kw["details"]["reason"]
+
+
+async def test_gate_crash_fail_closed_deny_audits(monkeypatch, audit_rows):
+    trig = _FakeTrigger()
+
+    async def boom(**kw):
+        raise RuntimeError("authorize backend down")
+
+    trig.managed_before_run = boom
+    monkeypatch.setitem(
+        ingress_mod.CHANNEL_TRIGGER_MAP, "narramessenger", lambda: trig
+    )
+    ingress = ingress_mod.ManagedChannelIngress()
+    allow, _ = await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert allow is False
+    channel, event, kw = audit_rows[0]
+    assert event == "managed_ingress_denied"
+    assert "RuntimeError" in kw["details"]["reason"]
+
+
+async def test_silent_ingest_writes_silent_audit(monkeypatch, audit_rows):
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    receipt = await ingress.silent_ingest(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+    )
+    assert receipt == "(silent ok)"
+    channel, event, kw = audit_rows[0]
+    assert event == "managed_ingress_silent"
+    assert kw["details"]["attachments"] == 0
+    assert "(silent ok)" in kw["details"]["receipt"]
+
+
+def _fake_workspace_env(monkeypatch, tmp_path):
+    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import xyz_agent_context.utils.attachment_storage as storage_mod
+    import xyz_agent_context.utils.workspace_paths as wsp_mod
+
+    workspace = tmp_path / "agent_x_u1"
+    (workspace / "chat-attachments/s1/u").mkdir(parents=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+    (workspace / "chat-attachments/s1/u/cat.png").write_bytes(png)
+
+    class _FakeRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            return "u1"
+
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _FakeRepo)
+    monkeypatch.setattr(
+        wsp_mod, "resolve_existing_workspace", lambda a, u, base=None: workspace
+    )
+    monkeypatch.setattr(storage_mod, "get_workspace_path", lambda a, u: workspace)
+    return workspace, png
+
+
+async def test_convert_attachments_audits_declared_vs_converted(
+    monkeypatch, tmp_path, audit_rows
+):
+    """declared vs converted is the whole diagnosis for 'the agent never
+    saw my file' — the converter never raises, so without this row a
+    shortfall is invisible outside process logs."""
+    _, png = _fake_workspace_env(monkeypatch, tmp_path)
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [
+        {"name": "cat.png", "mime": "image/png", "size": len(png),
+         "path": "chat-attachments/s1/u/cat.png"},
+        {"name": "gone.png", "mime": "image/png", "size": 9,
+         "path": "chat-attachments/s1/u/missing.png"},
+    ]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK,
+        agent_id="agent_x",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    channel, event, kw = audit_rows[0]
+    assert event == "managed_attachments_converted"
+    assert kw["details"] == {"declared": 2, "converted": 1}
+    # Same identity derivation as the ParsedMessage — no drift.
+    assert kw["message_id"] == "m1"
+    assert kw["chat_id"] == "wx9" and kw["sender_id"] == "wx9"
+
+
+async def test_attachments_resolution_failure_still_audits(
+    monkeypatch, audit_rows
+):
+    """Workspace resolution failing loses ALL declared attachments — the
+    exact case this row exists for."""
+    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+
+    class _BoomRepo2:
+        def __init__(self, db):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _BoomRepo2)
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [
+        {"name": "a", "mime": "x", "size": 1, "path": "p"}
+    ]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK,
+        agent_id="agent_x",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    channel, event, kw = audit_rows[0]
+    assert event == "managed_attachments_converted"
+    assert kw["details"]["declared"] == 1
+    assert kw["details"]["converted"] == 0
+    assert kw["details"]["error"].startswith("workspace_resolution")
+
+
+async def test_coordinator_after_run_threads_audit_details(monkeypatch):
+    trig = _FakeTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "lark", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+    await ingress.after_run(
+        working_source=WorkingSource.LARK,
+        agent_id="a1",
+        user_input="m",
+        trigger_extra_data=_tagged_extra(),
+        db=object(),
+        reply_text="ok",
+        error_text="",
+        audit_details={"route": "normal", "duration_ms": 42},
+    )
+    assert trig.after_calls[0]["audit_details"] == {
+        "route": "normal",
+        "duration_ms": 42,
+    }
+
+
+async def test_base_managed_after_run_merges_audit_details(monkeypatch):
+    trig = _DummyTrigger()
+    calls = {}
+
+    async def fake_inbox_write(**kw):
+        calls["inbox"] = kw
+
+    async def fake_audit(event_type, **kw):
+        calls["audit"] = (event_type, kw)
+
+    monkeypatch.setattr(trig._inbox_writer, "write", fake_inbox_write)
+    monkeypatch.setattr(trig, "_audit", fake_audit)
+
+    msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
+    await trig.managed_after_run(
+        agent_id="a1",
+        message=msg,
+        db=object(),
+        reply_text="done",
+        audit_details={"route": "normal", "duration_ms": 7, "replied": "spoof"},
+    )
+    event, kw = calls["audit"]
+    assert event == "managed_ingress_processed"
+    details = kw["details"]
+    assert details["route"] == "normal"
+    assert details["duration_ms"] == 7
+    # This method's own facts stay authoritative over caller keys.
+    assert details["replied"] is True
+    assert details["error"] == ""
+
+
+async def test_files_write_audits_success_and_escape(files_app, monkeypatch):
+    app, _ = files_app
+    rows = []
+
+    async def fake_audit(agent_id, **kw):
+        rows.append((agent_id, kw))
+
+    monkeypatch.setattr(files_mod, "_audit_files_write", fake_audit)
+
+    resp = await _post_write(app, "chat-attachments/s2/u/a.txt", b"hello")
+    assert resp.status_code == 200
+    assert rows[-1][1]["ok"] is True and rows[-1][1]["size"] == 5
+
+    resp = await _post_write(app, "../evil.txt", b"x")
+    assert resp.status_code == 403
+    assert rows[-1][1]["ok"] is False
+    assert rows[-1][1]["error"].startswith("403")
+
+
+async def test_files_write_audits_infra_failure(files_app, monkeypatch):
+    """OSError on the disk write itself must still leave a row — the
+    infrastructure-failure case is exactly what 'did the platform write
+    get in?' needs to stay answerable for."""
+    app, _ = files_app
+    rows = []
+
+    async def fake_audit(agent_id, **kw):
+        rows.append((agent_id, kw))
+
+    monkeypatch.setattr(files_mod, "_audit_files_write", fake_audit)
+
+    async def boom_thread(fn, *a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(files_mod.asyncio, "to_thread", boom_thread)
+    # ASGITransport surfaces app exceptions instead of rendering a 500;
+    # the audit row must exist by the time the exception escapes.
+    with pytest.raises(OSError):
+        await _post_write(app, "a/b.txt", b"x")
+    assert rows and rows[-1][1]["ok"] is False
+    assert rows[-1][1]["error"].startswith("OSError")
+
+
+async def test_files_write_audit_helper_never_raises(monkeypatch):
+    async def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(files_mod, "get_db_client", boom)
+    # Must swallow: losing an audit row must not fail the write itself.
+    await files_mod._audit_files_write("agent_x", path="p", ok=True, size=1)
+
+
+async def test_files_write_audit_cleanup_runs_once_per_day(monkeypatch):
+    """channel='manyfold' has no trigger cleanup tick — the write-path
+    sweep is its ONLY retention driver, throttled to one run per
+    process-day."""
+    appended = []
+    cleaned = []
+
+    class _Repo:
+        def __init__(self, channel, db):
+            pass
+
+        async def append(self, event_type, **kw):
+            appended.append(event_type)
+
+        async def cleanup_older_than_days(self, days):
+            cleaned.append(days)
+            return 0
+
+    import xyz_agent_context.repository.channel_trigger_audit_repository as repo_mod
+
+    async def fake_db():
+        return object()
+
+    monkeypatch.setattr(files_mod, "get_db_client", fake_db)
+    monkeypatch.setattr(repo_mod, "ChannelTriggerAuditRepository", _Repo)
+    monkeypatch.setattr(files_mod, "_audit_cleanup_next", 0.0)
+
+    await files_mod._audit_files_write("a", path="p1", ok=True, size=1)
+    await files_mod._audit_files_write("a", path="p2", ok=True, size=1)
+    assert len(appended) == 2
+    assert cleaned == [files_mod._AUDIT_RETENTION_DAYS]  # once, not twice
