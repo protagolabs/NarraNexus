@@ -108,9 +108,7 @@ def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
     return member_agent_ids[0]
 
 
-async def _wipe_team_data(
-    db, team, *, clear_chat: bool, clear_files: bool, clear_artifacts: bool = False
-) -> dict:
+async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool, clear_artifacts: bool = False) -> dict:
     """Clear a team's group-chat history and/or its shared files.
 
     The team counterpart to ``wipe_agent_data``: it clears the collaboration
@@ -128,11 +126,11 @@ async def _wipe_team_data(
       An earlier version of this docstring argued the opposite, on the grounds
       that a team artifact pointed into the producer's own workspace and
       survived; that was true then and is false now. Deleting the folder now
-      destroys every team artifact's content, so leaving the rows would list
-      artifacts whose files are gone, and ``ArtifactService.heal`` cannot get
-      them back: it never passes ``team_id`` (so its re-registration hits the
-      ownership check) and its "pointer still valid" shortcut only looks inside
-      the agent workspace.
+      destroys every team artifact's content, so leaving the rows behind would
+      list artifacts whose files are gone. ``ArtifactService.heal`` does not
+      rescue them either — not because it is team-blind (it is not; it scopes
+      itself to the team folder), but because it only ever RECONNECTS a pointer
+      to a file that still exists, and this deletes the files themselves.
     - clear_artifacts: delete this team's ``instance_artifacts`` rows and their
       attribution history WITHOUT touching the folder. Used when the TEAM
       itself goes away, and available on its own for dropping the tabs while
@@ -142,8 +140,12 @@ async def _wipe_team_data(
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
     """
     result = {
-        "chat_messages": 0, "chat_failures": 0, "files_removed": False,
-        "file_rows": 0, "artifacts": 0, "errors": [],
+        "chat_messages": 0,
+        "chat_failures": 0,
+        "files_removed": False,
+        "file_rows": 0,
+        "artifacts": 0,
+        "errors": [],
     }
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
 
@@ -190,14 +192,11 @@ async def _wipe_team_data(
         async with db.transaction():
             arts = await db.execute(
                 "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
-                (team.team_id,), fetch=True,
+                (team.team_id,),
+                fetch=True,
             )
-            await ArtifactHistoryRepository(db).delete_for_artifacts(
-                [row["artifact_id"] for row in arts or []]
-            )
-            result["artifacts"] = await db.delete(
-                "instance_artifacts", {"team_id": team.team_id}
-            )
+            await ArtifactHistoryRepository(db).delete_for_artifacts([row["artifact_id"] for row in arts or []])
+            result["artifacts"] = await db.delete("instance_artifacts", {"team_id": team.team_id})
 
     logger.info(
         f"[team wipe] team={team.team_id} chat={clear_chat} files={clear_files} "
@@ -206,7 +205,9 @@ async def _wipe_team_data(
     return result
 
 
-async def _get_or_create_team_room(db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]) -> str:
+async def _get_or_create_team_room(
+    db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]
+) -> str:
     """Find (or create) the team's group-chat channel and sync its members to
     the team's current agents. Returns the channel_id."""
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team_id}"
@@ -350,9 +351,7 @@ async def upload_team_chat_attachment(
             detail=f"File exceeds the maximum upload size of {max_bytes // (1024 * 1024)} MB",
         )
 
-    mime_type = sniff_mime_type(
-        raw_bytes, filename=file.filename or "", client_type=file.content_type
-    )
+    mime_type = sniff_mime_type(raw_bytes, filename=file.filename or "", client_type=file.content_type)
     att = await store_bytes_into_bus(
         user_id=user_id,
         raw_bytes=raw_bytes,
@@ -417,22 +416,24 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
     out = []
     for m in messages:
         is_user = m.from_agent.startswith(USER_SENDER_PREFIX)
-        out.append({
-            "message_id": m.message_id,
-            "from_agent": m.from_agent,
-            "author_name": (user_name or "You") if is_user else name_by_agent.get(m.from_agent, m.from_agent),
-            "is_user": is_user,
-            "content": m.content,
-            "attachments": m.attachments,
-            # "text"/"multimodal" for ordinary messages; "system_stop" marks the
-            # stop notice, which the frontend renders as a system line (from an
-            # i18n key) rather than as this agent speaking.
-            "msg_type": m.msg_type,
-            # Turn that produced this reply (None for user messages / legacy
-            # rows) — powers the per-message reasoning disclosure.
-            "event_id": m.event_id,
-            "created_at": format_for_api(m.created_at),
-        })
+        out.append(
+            {
+                "message_id": m.message_id,
+                "from_agent": m.from_agent,
+                "author_name": (user_name or "You") if is_user else name_by_agent.get(m.from_agent, m.from_agent),
+                "is_user": is_user,
+                "content": m.content,
+                "attachments": m.attachments,
+                # "text"/"multimodal" for ordinary messages; "system_stop" marks the
+                # stop notice, which the frontend renders as a system line (from an
+                # i18n key) rather than as this agent speaking.
+                "msg_type": m.msg_type,
+                # Turn that produced this reply (None for user messages / legacy
+                # rows) — powers the per-message reasoning disclosure.
+                "event_id": m.event_id,
+                "created_at": format_for_api(m.created_at),
+            }
+        )
 
     activity = await _member_activity(db, bus, channel_id, members)
 
@@ -465,10 +466,7 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
     """
     from xyz_agent_context.message_bus import activity as bus_activity
 
-    act_rows = {
-        r["agent_id"]: r
-        for r in await bus_activity.get_channel_activity(db, channel_id)
-    }
+    act_rows = {r["agent_id"]: r for r in await bus_activity.get_channel_activity(db, channel_id)}
     try:
         pending = await bus.get_room_pending_summary(channel_id, members)
     except Exception as e:  # noqa: BLE001 — best-effort indicator, never fail the GET
@@ -492,37 +490,43 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
 
         entry: dict = {"agent_id": aid, "status": status}
         if status in ("running", "stalled"):
-            entry.update({
-                "phase": row.get("phase"),
-                "tool_count": row.get("tool_count") or 0,
-                "started_at": format_for_api(row.get("started_at")),
-                # The last heartbeat. For `stalled` this is what the UI counts
-                # "no signal for N minutes" from.
-                "last_signal_at": format_for_api(row.get("updated_at")),
-                "steps": steps,
-                # The current turn's events-row id, once note_event_id() has
-                # bound it — lets the frontend fetch the full event_log via
-                # the existing event-log endpoint.
-                "event_id": row.get("event_id"),
-            })
+            entry.update(
+                {
+                    "phase": row.get("phase"),
+                    "tool_count": row.get("tool_count") or 0,
+                    "started_at": format_for_api(row.get("started_at")),
+                    # The last heartbeat. For `stalled` this is what the UI counts
+                    # "no signal for N minutes" from.
+                    "last_signal_at": format_for_api(row.get("updated_at")),
+                    "steps": steps,
+                    # The current turn's events-row id, once note_event_id() has
+                    # bound it — lets the frontend fetch the full event_log via
+                    # the existing event-log endpoint.
+                    "event_id": row.get("event_id"),
+                }
+            )
         elif status == "queued":
-            entry.update({
-                "queued_count": waiting["count"],
-                "queued_since": format_for_api(waiting["oldest_at"]),
-            })
+            entry.update(
+                {
+                    "queued_count": waiting["count"],
+                    "queued_since": format_for_api(waiting["oldest_at"]),
+                }
+            )
             if row is not None:
                 entry["event_id"] = row.get("event_id")
         elif row is not None and steps["items"]:
             # Idle, but we still hold the trace of the turn it just finished.
-            entry.update({
-                # started_at→finished_at is where the roster's "ran Ns" comes
-                # from; omitting the start made every finished turn read "0s".
-                "started_at": format_for_api(row.get("started_at")),
-                "finished_at": format_for_api(row.get("updated_at")),
-                "steps": steps,
-                "tool_count": row.get("tool_count") or 0,
-                "event_id": row.get("event_id"),
-            })
+            entry.update(
+                {
+                    # started_at→finished_at is where the roster's "ran Ns" comes
+                    # from; omitting the start made every finished turn read "0s".
+                    "started_at": format_for_api(row.get("started_at")),
+                    "finished_at": format_for_api(row.get("updated_at")),
+                    "steps": steps,
+                    "tool_count": row.get("tool_count") or 0,
+                    "event_id": row.get("event_id"),
+                }
+            )
         out.append(entry)
     return out
 
@@ -620,9 +624,7 @@ async def delete_team(team_id: str, request: Request):
     # list_for_agent_context joins team_members, which the next line empties.
     # Rows nothing can ever read again are precisely the orphans the acceptance
     # criterion is about; leaving them is not "harmless clutter".
-    await _wipe_team_data(
-        db, team, clear_chat=True, clear_files=True, clear_artifacts=True
-    )
+    await _wipe_team_data(db, team, clear_chat=True, clear_files=True, clear_artifacts=True)
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
     return TeamOperationResponse(success=True, message="Team deleted")
@@ -633,7 +635,10 @@ async def clear_team_data(
     team_id: str,
     request: Request,
     chat: bool = Query(True, description="Delete the team room's group-chat messages"),
-    files: bool = Query(True, description="Delete the team's shared files and their index (artifacts are kept)"),
+    files: bool = Query(
+        True,
+        description="Delete the team's shared files AND its artifacts — team artifacts live in this folder, so removing it destroys their content",
+    ),
 ):
     """Clear a team's collaboration data (chat and/or shared files), keeping the
     team, its members, and the bus channel. Owner-only. The team counterpart to

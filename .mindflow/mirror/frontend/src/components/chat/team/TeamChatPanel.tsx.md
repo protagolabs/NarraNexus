@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
 ## 2026-08-07 — 停止留痕渲染成系统行
@@ -147,3 +147,12 @@ timeline, an **activity bubble** per active member — running shows a spinner +
 (思考中 / 调用 <tool> / 回复中) + elapsed; queued shows the "…" dots. A 1s ticker advances
 elapsed between the 3s polls. Replaces the old dumb `thinking` "…" bubbles. i18n
 `chat.team.activity.*`.
+
+## 2026-08-10 — the workspace loader has a second trigger
+
+It keys on `messages.length`, on the reasoning that a turn which registered
+something has just landed in the transcript — cheap and honest for the case it
+was written for. It misses exactly one: a wipe of the team's FILES, which
+empties the panel while leaving the transcript unchanged, so the panel went on
+listing rows the server had deleted and every one of them 410'd on click.
+`workspaceRefreshTick` from [[chatStore.ts]] covers it.

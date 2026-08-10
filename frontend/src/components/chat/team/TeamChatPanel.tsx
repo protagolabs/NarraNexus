@@ -30,7 +30,7 @@ import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
-import { useTeamsStore, useConfigStore } from '@/stores';
+import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
@@ -131,6 +131,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [wsLoading, setWsLoading] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsSelected, setWsSelected] = useState<string | null>(null);
+  const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
@@ -403,8 +404,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     };
     // Keyed on message count: a turn that registered something has just landed
     // in the transcript, so this is the cheapest honest signal that the
-    // workspace may have changed.
-  }, [teamId, messages.length]);
+    // workspace may have changed. That signal misses one case — a wipe of the
+    // team's files, which empties this panel while leaving the transcript
+    // exactly as it was — so the store's explicit tick covers it.
+  }, [teamId, messages.length, workspaceRefreshTick]);
 
   if (!team) {
     return (

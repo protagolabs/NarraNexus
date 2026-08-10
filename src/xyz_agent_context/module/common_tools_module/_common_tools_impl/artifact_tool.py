@@ -81,9 +81,9 @@ def register(mcp: FastMCP) -> None:
             "level and register just fine; sibling assets simply won't be "
             "served for an entry at the top level.\n"
             "\n"
-            "WHICH top level depends on who the artifact is for, and the next "
-            "paragraph is the rule: your own workspace for a private "
-            "artifact, the team shared folder for a team one. A multi-file "
+            "WHICH top level depends on who the artifact is for: your own "
+            "workspace for a private artifact, the team shared folder for a "
+            "team one. A multi-file "
             "TEAM artifact therefore goes in a subdirectory of the TEAM "
             "folder.\n"
             "\n"
@@ -102,16 +102,16 @@ def register(mcp: FastMCP) -> None:
             "title — a short, human-readable tab title.\n"
             "target_artifact_id — pass to update an existing tab in place "
             "(kind must match); omit to create a new tab.\n"
-            "scope — leave as \"auto\". In a team room your artifact goes to "
+            'scope — leave as "auto". In a team room your artifact goes to '
             "the TEAM workspace, where the whole team (people and teammate "
             "agents) can see it and build on it; in a one-to-one chat it "
-            "stays private. Pass \"private\" only for a scratch draft you do "
+            'stays private. Pass "private" only for a scratch draft you do '
             "NOT want your team to see.\n"
             "\n"
             "IN A TEAM ROOM, WRITE THE FILES INTO THE TEAM SHARED FOLDER "
             "(its path is in your team prompt) and register the entry from "
             "there — not into your own workspace. Your workspace is private "
-            "to you: your teammates\' tools cannot open anything inside it, "
+            "to you: your teammates' tools cannot open anything inside it, "
             "so an artifact registered from there is one nobody else can "
             "build on. Registering a team artifact from your own workspace is "
             "refused, and the error names the folder to use.\n"
@@ -195,7 +195,7 @@ def register(mcp: FastMCP) -> None:
             logger.exception(f"register_artifact failed unexpectedly: {e}")
             return {
                 "error": f"register_artifact failed unexpectedly: {e}. "
-                         f"This is likely transient — you can call the tool again.",
+                f"This is likely transient — you can call the tool again.",
                 "code": 500,
             }
 
@@ -245,7 +245,6 @@ def register(mcp: FastMCP) -> None:
         except Exception as e:  # noqa: BLE001
             logger.exception(f"open_url failed unexpectedly: {e}")
             return {
-                "error": f"open_url failed unexpectedly: {e}. "
-                         f"This is likely transient — you can call the tool again.",
+                "error": f"open_url failed unexpectedly: {e}. This is likely transient — you can call the tool again.",
                 "code": 500,
             }
