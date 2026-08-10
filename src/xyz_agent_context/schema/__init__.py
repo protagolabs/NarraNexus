@@ -61,6 +61,7 @@ from .runtime_message import (
 from .job_schema import (
     JobType,
     JobStatus,
+    JobUpdateFields,
     JobModel,
     TriggerConfig,
 )
@@ -345,6 +346,7 @@ __all__ = [
     # Job Schema
     "JobType",
     "JobStatus",
+    "JobUpdateFields",
     "JobModel",
     "TriggerConfig",
 

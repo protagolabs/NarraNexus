@@ -8,8 +8,15 @@ stub: false
 调共享 [[_job_writes]] `update_job_from_args`（与 DirectStore、前端 jobs PUT 同源）。
 owner-gated；包 try 兜 get_db_client() → 200+{success:False,job_id,message}。
 
+**PR-8b r2（管线 fix-first 修）**：`JobUpdateSeamBody` 不再手抄 9 字段，改 derive 自
+[[job_schema]] 的共享 `JobUpdateFields`（字段清单单点声明，与前端 `JobUpdateBody` 同源），
+并加 `model_config=ConfigDict(extra="forbid")`。forbid 是承重的：这是 HttpStore 写路径，
+将来给 `update_job_from_args`+工具加字段却漏改本 body 时，必须以 **422 响亮失败**（HttpStore
+`_parse_dict` 翻成 "invalid arguments"），而不是 pydantic 默认 `ignore` 静默丢字段——
+静默丢=云上不写、本地 DirectStore 却写=正是 seam byte-parity 要防的本地/云分叉。
 
-# agents/jobs.py — job 读 seam 孪生端点（agent-scoped, owner-gated）
+
+# agents/jobs.py — job 读+写 seam 孪生端点（agent-scoped, owner-gated）
 
 ## 为什么存在（PR-8）
 

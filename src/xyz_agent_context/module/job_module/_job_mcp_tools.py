@@ -23,7 +23,6 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, TypeAdapter, WithJsonSchema
 
-from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
 

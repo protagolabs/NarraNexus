@@ -2,15 +2,15 @@
 @file_name: jobs.py
 @author:
 @date: 2026-08-10
-@description: Job READ endpoints for the MCP data-access seam (agent-scoped,
-owner-gated).
+@description: Job READ + UPDATE endpoints for the MCP data-access seam
+(agent-scoped, owner-gated).
 
-Byte-parity Http twins of the JobModule read tools (job_retrieval_by_id /
-_semantic / _by_keywords) so the HttpStore path of AgentDataStore can serve
-them without db credentials in the mcp container. Each endpoint returns the
-EXACT dict the seam's DirectStore returns — both call the shared, dialect-safe
-``xyz_agent_context.module.job_module`` read helpers — so the Http and
-in-process paths are byte-identical.
+Byte-parity Http twins of the JobModule tools (job_retrieval_by_id / _semantic
+/ _by_keywords reads, and job_update writes) so the HttpStore path of
+AgentDataStore can serve them without db credentials in the mcp container. Each
+endpoint returns the EXACT dict the seam's DirectStore returns — both call the
+shared, dialect-safe ``xyz_agent_context.module.job_module`` helpers — so the
+Http and in-process paths are byte-identical.
 
 Distinct from ``backend/routes/jobs.py`` (the frontend-facing job API under
 ``/jobs`` with response_model shapes): these live under
@@ -35,7 +35,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Request
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.routes._ownership import assert_owned
 from xyz_agent_context.module.job_module import (
@@ -44,23 +44,24 @@ from xyz_agent_context.module.job_module import (
     search_jobs_by_keywords,
     update_job_from_args,
 )
+from xyz_agent_context.schema import JobUpdateFields
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 
 
-class JobUpdateSeamBody(BaseModel):
-    """Body for POST .../jobs/{job_id}/update — mirrors the job_update tool's
-    fields (all optional; only passed ones change)."""
-    title: Optional[str] = None
-    description: Optional[str] = None
-    payload: Optional[str] = None
-    guidance_text: Optional[str] = None
-    trigger_config: Optional[dict] = None
-    job_type: Optional[str] = None
-    next_run_time: Optional[str] = None
-    status: Optional[str] = None
-    related_entity_id: Optional[str] = None
+class JobUpdateSeamBody(JobUpdateFields):
+    """Body for POST .../jobs/{job_id}/update — the job_update tool's mutable
+    fields, inherited from the shared JobUpdateFields (declared once, same list
+    as the frontend JobUpdateBody).
+
+    ``extra="forbid"`` is load-bearing: this is the HttpStore write path, so a
+    field added to update_job_from_args + the MCP tool but forgotten HERE must
+    fail LOUDLY (422 → HttpStore._parse_dict surfaces "invalid arguments")
+    rather than be silently dropped while DirectStore applies it — that silent
+    local/cloud divergence is exactly what the seam's byte-parity exists to
+    prevent."""
+    model_config = ConfigDict(extra="forbid")
 
 
 class JobSemanticSearchBody(BaseModel):

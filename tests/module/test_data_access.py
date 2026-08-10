@@ -539,7 +539,7 @@ def test_social_extract_success_parity(monkeypatch):
     dr = asyncio.run(d.extract_entity_info(AGENT, "user_x", {"entity_name": "X"}, "merge"))
     assert dr == ok
     # The route leaves a success body untouched (_normalize_write_result only
-    # rewrites failures), and so does HttpStore's _social_write_message.
+    # rewrites failures), and so does HttpStore's _write_message_key.
     h = _social_http(monkeypatch, route_body=ok)
     hr = asyncio.run(h.extract_entity_info(AGENT, "user_x", {"entity_name": "X"}, "merge"))
     assert hr == ok == dr
@@ -568,7 +568,7 @@ def test_social_merge_method_failure_parity(monkeypatch):
     dr = asyncio.run(d.merge_entities(AGENT, "s1", "t1", True))
     assert dr == fail
     # Route normalized the method's `message` failure to `error`; HttpStore's
-    # _social_write_message is the exact inverse.
+    # _write_message_key is the exact inverse.
     h = _social_http(monkeypatch, route_body={"success": False, "error": "Source entity not found: s1"})
     hr = asyncio.run(h.merge_entities(AGENT, "s1", "t1", True))
     assert hr == fail == dr
@@ -1252,7 +1252,12 @@ def _upd_fields(**kw):
     return base
 
 
-def _patch_job_writes(monkeypatch, *, job=None, update_result=None):
+def _patch_job_writes(monkeypatch, *, job=None, update_result=None, capture=None):
+    """Fake the two DB collaborators of update_job_from_args. Pass a `capture`
+    dict to record the `updates` the shared build-updates logic hands to
+    JobInstanceService.update_job (for asserting WHAT it computed, not just the
+    return shape); pass `update_result` to pin the returned dict, else a default
+    success dict derived from `updates` is returned."""
     class _FakeJobRepo:
         def __init__(self, db):
             pass
@@ -1265,7 +1270,12 @@ def _patch_job_writes(monkeypatch, *, job=None, update_result=None):
             pass
 
         async def update_job(self, job_id, updates, agent_id):
-            return update_result
+            if capture is not None:
+                capture["updates"] = updates
+            if update_result is not None:
+                return update_result
+            return {"success": True, "job_id": job_id,
+                    "updated_fields": list(updates.keys()), "message": "Updated"}
 
     monkeypatch.setattr("xyz_agent_context.module.job_module._job_writes.JobRepository", _FakeJobRepo)
     monkeypatch.setattr("xyz_agent_context.module.job_module.job_service.JobInstanceService", _FakeService)
@@ -1312,6 +1322,8 @@ def test_job_update_no_fields_parity(monkeypatch):
     expected = {"success": False, "job_id": "job_1", "message": "No fields to update"}
     d = _basic_direct(monkeypatch, object())
     assert asyncio.run(d.job_update(AGENT, "job_1", _upd_fields())) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_update(AGENT, "job_1", _upd_fields())) == expected
 
 
 def test_job_update_http_forwards_to_the_right_route(monkeypatch):
@@ -1332,33 +1344,6 @@ def test_job_update_http_forwards_to_the_right_route(monkeypatch):
     assert seen[0][2] == fields
 
 
-def _patch_job_writes_capture(monkeypatch, *, job):
-    """Like _patch_job_writes but captures the `updates` dict the shared fn
-    hands to JobInstanceService.update_job — so a test can assert on what the
-    build-updates logic actually computed (not just the final return shape)."""
-    captured: dict = {}
-
-    class _FakeJobRepo:
-        def __init__(self, db):
-            pass
-
-        async def get_job(self, job_id):
-            return job if (job and job.job_id == job_id) else None
-
-    class _FakeService:
-        def __init__(self, db):
-            pass
-
-        async def update_job(self, job_id, updates, agent_id):
-            captured["updates"] = updates
-            return {"success": True, "job_id": job_id,
-                    "updated_fields": list(updates.keys()), "message": "Updated"}
-
-    monkeypatch.setattr("xyz_agent_context.module.job_module._job_writes.JobRepository", _FakeJobRepo)
-    monkeypatch.setattr("xyz_agent_context.module.job_module.job_service.JobInstanceService", _FakeService)
-    return captured
-
-
 def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
     # The load-bearing invariant this whole refactor protects: `effective_type`
     # must be resolved BEFORE compute_next_run. A one_off job switched to
@@ -1370,7 +1355,8 @@ def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
     from xyz_agent_context.schema import JobType
 
     job = _FakeJob()  # job_type == one_off, trigger_config is None
-    captured = _patch_job_writes_capture(monkeypatch, job=job)
+    captured: dict = {}
+    _patch_job_writes(monkeypatch, job=job, capture=captured)
 
     fields = _upd_fields(job_type="scheduled", trigger_config={"cron": "0 8 * * *", "timezone": "UTC"})
     out = asyncio.run(update_job_from_args(object(), AGENT, "job_1", **fields))

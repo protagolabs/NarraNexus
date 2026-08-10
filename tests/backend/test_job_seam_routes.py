@@ -199,3 +199,29 @@ def test_job_update_cross_agent_is_not_found(client, monkeypatch):
     r = client.post("/api/agents/agent_mine/jobs/job_theirs/update", headers=OWNER, json={"title": "New"})
     assert r.status_code == 200
     assert r.json() == {"success": False, "job_id": "job_theirs", "message": "Job job_theirs not found"}
+
+
+def test_job_update_seam_body_forbids_unknown_fields(client, monkeypatch):
+    # The seam write body is extra="forbid": a field that drifts (added to the
+    # shared fn + MCP tool but not to the field contract) must 422 LOUDLY here,
+    # not be silently dropped on the HttpStore path while DirectStore applies it.
+    # Without extra="forbid" pydantic's default ignore would make this a 200.
+    job = _FakeJob("job_mine", "agent_mine")
+    _patch_update(monkeypatch, job=job, result={"success": True, "job_id": "job_mine",
+                                                 "updated_fields": ["title"], "message": "Updated"})
+    r = client.post("/api/agents/agent_mine/jobs/job_mine/update", headers=OWNER,
+                    json={"title": "New", "totally_new_field": "x"})
+    assert r.status_code == 422
+
+
+def test_job_update_seam_body_accepts_the_known_fields(client, monkeypatch):
+    # Guard the other side: every legitimate field must pass the forbid gate.
+    job = _FakeJob("job_mine", "agent_mine")
+    _patch_update(monkeypatch, job=job, result={"success": True, "job_id": "job_mine",
+                                                 "updated_fields": [], "message": "Updated"})
+    r = client.post("/api/agents/agent_mine/jobs/job_mine/update", headers=OWNER, json={
+        "title": "t", "description": "d", "payload": "p", "guidance_text": "g",
+        "trigger_config": {"cron": "0 8 * * *", "timezone": "UTC"}, "job_type": "scheduled",
+        "next_run_time": None, "status": "paused", "related_entity_id": "nar_1",
+    })
+    assert r.status_code == 200

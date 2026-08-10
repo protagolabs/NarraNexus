@@ -51,7 +51,7 @@ from xyz_agent_context.module.job_module import (
 )
 from xyz_agent_context.schema import (
     JobStatus,
-    JobType,
+    JobUpdateFields,
     JobResponse,
     JobListResponse,
     JobDetailResponse,
@@ -67,18 +67,11 @@ class CancelJobResponse(BaseModel):
     error: Optional[str] = None
 
 
-class JobUpdateBody(BaseModel):
-    """Update request — mirrors job_update MCP tool args. Only passed fields change."""
+class JobUpdateBody(JobUpdateFields):
+    """Frontend update request. Inherits the 9 mutable fields from the shared
+    JobUpdateFields (declared once) and adds agent_id for ownership scoping —
+    the ONLY difference from the seam route's body."""
     agent_id: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    payload: Optional[str] = None
-    guidance_text: Optional[str] = None
-    trigger_config: Optional[dict] = None
-    job_type: Optional[str] = None
-    next_run_time: Optional[str] = None
-    status: Optional[str] = None
-    related_entity_id: Optional[str] = None
 
 
 class JobUpdateResponse(BaseModel):
@@ -500,8 +493,8 @@ async def create_job_complex(request: CreateJobComplexRequest):
 @router.put("/{job_id}", response_model=JobUpdateResponse)
 async def update_job(job_id: str, request: Request, body: JobUpdateBody):
     """
-    Update Job fields — mirrors the `job_update` MCP tool
-    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L410).
+    Update Job fields — mirrors the `job_update` MCP tool, sharing the
+    `xyz_agent_context.module.job_module.update_job_from_args` implementation.
     Only passed fields change.
     """
     await assert_owned(request, body.agent_id)
@@ -516,12 +509,13 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
     except Exception as e:  # noqa: BLE001 — update_job_from_args never raises
         logger.exception(f"Error in job update: {e}")
         return JobUpdateResponse(success=False, job_id=job_id, message=f"Error: {e}")
+    # Forward the mutable fields by unpacking the shared JobUpdateFields set
+    # (everything on the body except agent_id) — so a field added to
+    # JobUpdateFields flows through here automatically instead of being silently
+    # dropped on the browser path, finishing the "declare the field list once"
+    # story the seam route already gets via **body.model_dump().
     result = await update_job_from_args(
-        db_client, body.agent_id, job_id,
-        title=body.title, description=body.description, payload=body.payload,
-        guidance_text=body.guidance_text, trigger_config=body.trigger_config,
-        job_type=body.job_type, next_run_time=body.next_run_time,
-        status=body.status, related_entity_id=body.related_entity_id,
+        db_client, body.agent_id, job_id, **body.model_dump(exclude={"agent_id"}),
     )
     return JobUpdateResponse(**result)
 
@@ -530,7 +524,7 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
 async def pause_job(job_id: str, request: Request, body: JobPauseBody):
     """
     Pause a Job — mirrors the `job_pause` MCP tool
-    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L553).
+    (xyz_agent_context.module.job_module._job_mcp_tools job_pause).
 
     Unconditional: sets status to PAUSED regardless of the current status (no
     precondition check). This differs from the dashboard route's
