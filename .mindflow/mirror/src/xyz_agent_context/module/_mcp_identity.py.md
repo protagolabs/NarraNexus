@@ -19,6 +19,14 @@ Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自
   绝不手搓第二个 bearer;非 nx-agent 的真 bearer 原样不动。
 - 契约测试:parametrize 扩到 7、逐位钉 `BEARER_FIELDS[6]`,新增 stamp 往返
   与"外来 bearer 不重写"用例。
+- `_wrap_fn` 的 **async** 分支在占位符守卫之后接 OwnerScopedPolicy
+  (`identity/mcp_auth.check_agent_ownership`,lazy import 避循环):验签身份
+  不拥有 resolved agent_id → enforce 下返回工具自身 shape 的错误值(复用
+  `returns_dict` 判形),audit 下放行只记账;policy 自身异常一律放行
+  (identity is never flow control)。**只包 async**:93/93 个声明 agent_id
+  的工具全是 coroutine,且有测试
+  (`test_every_agent_id_tool_is_async`)钉死该不变式 —— 新增 sync 工具声明
+  agent_id 会直接红。
 
 ## 2026-08-07 (二次) — root_run_id 落在第 6 位,不是第 5 位
 

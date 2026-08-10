@@ -207,3 +207,183 @@ def test_build_mcp_server_installs_identity_auth_middleware():
     server = ModuleRunner._build_mcp_server(FastMCP("probe_module"), "probe_module", 7999)
     installed = [m.cls for m in server.config.app.user_middleware]
     assert IdentityAuthMiddleware in installed
+
+
+# ---------------------------------------------------------------------------
+# OwnerScopedPolicy at the tool layer (_wrap_fn integration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _policy_env(monkeypatch):
+    """Cloud mode + a verified caller + stubbed owner lookup and audit sink."""
+    from xyz_agent_context.module.identity import mcp_auth
+    from xyz_agent_context.module.identity.tokens import VerifiedIdentity
+
+    recorded: list[dict] = []
+    owners = {"agent_of_usr1": "usr_1", "agent_of_usr2": "usr_2", "agent_unknown": ""}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+
+    async def fake_get_db_client():
+        return object()
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+    )
+
+    class FakeAgentRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            return owners.get(agent_id, "")
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            recorded.append(kw)
+
+    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
+    monkeypatch.setattr(
+        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+
+    token = mcp_auth._verified_var.set(
+        VerifiedIdentity(user_id="usr_1", issuer="narranexus-local", expires_at=2**33)
+    )
+    yield recorded
+    mcp_auth._verified_var.reset(token)
+
+
+def _policy_server():
+    from mcp.server.fastmcp import FastMCP
+
+    from xyz_agent_context.module._mcp_identity import install_caller_identity
+
+    mcp = FastMCP("policy_module")
+    ran: dict = {}
+
+    @mcp.tool()
+    async def dict_tool(agent_id: str) -> dict:
+        ran["agent_id"] = agent_id
+        return {"ok": True}
+
+    @mcp.tool()
+    async def text_tool(agent_id: str) -> str:
+        ran["text_agent_id"] = agent_id
+        return "ok"
+
+    install_caller_identity(mcp)
+    fns = {t.name: t.fn for t in mcp._tool_manager.list_tools()}
+    return fns, ran
+
+
+@pytest.mark.asyncio
+async def test_enforce_denies_cross_owner_call(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_of_usr2")
+    assert out["success"] is False
+    assert "does not own" in out["error"]
+    assert ran == {}  # tool body never ran
+    assert _policy_env and _policy_env[0]["event_type"] == "mcp_auth_denied"
+    assert _policy_env[0]["user_id"] == "usr_1"
+
+
+@pytest.mark.asyncio
+async def test_enforce_denial_matches_text_tool_shape(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    fns, ran = _policy_server()
+    out = await fns["text_tool"](agent_id="agent_of_usr2")
+    assert isinstance(out, str) and "does not own" in out
+    assert ran == {}
+
+
+@pytest.mark.asyncio
+async def test_enforce_allows_own_agent(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_of_usr1")
+    assert out == {"ok": True}
+    assert ran["agent_id"] == "agent_of_usr1"
+    assert _policy_env == []
+
+
+@pytest.mark.asyncio
+async def test_audit_records_but_allows_cross_owner_call(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_of_usr2")
+    assert out == {"ok": True}  # measured, not policed
+    assert ran["agent_id"] == "agent_of_usr2"
+    assert _policy_env and _policy_env[0]["detail"]["mode"] == "audit"
+
+
+@pytest.mark.asyncio
+async def test_unknown_agent_is_allowed(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_unknown")
+    assert out == {"ok": True}  # resolve_owner "" → the tool fails naturally
+    assert _policy_env == []
+
+
+@pytest.mark.asyncio
+async def test_no_verified_identity_keeps_baseline(monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_of_usr2")
+    assert out == {"ok": True}  # no proof presented → fail-open baseline intact
+
+
+@pytest.mark.asyncio
+async def test_local_mode_is_single_tenant_noop(_policy_env, monkeypatch):
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: False
+    )
+    fns, ran = _policy_server()
+    out = await fns["dict_tool"](agent_id="agent_of_usr2")
+    assert out == {"ok": True}
+    assert _policy_env == []
+
+
+def test_every_agent_id_tool_is_async():
+    """The ownership policy awaits — it only guards the async wrapper. This
+    invariant makes that complete coverage: a sync tool declaring agent_id
+    would silently bypass the policy."""
+    import inspect
+
+    from xyz_agent_context.module import MODULE_MAP
+
+    offenders = []
+    for name, cls in MODULE_MAP.items():
+        try:
+            m = cls(agent_id="probe", user_id="probe", database_client=None)
+            mcp = m.create_mcp_server()
+        except Exception:
+            continue
+        if mcp is None:
+            continue
+        for tool in mcp._tool_manager.list_tools():
+            fn = getattr(tool, "fn", None)
+            if fn is None:
+                continue
+            try:
+                params = inspect.signature(fn).parameters
+            except (TypeError, ValueError):
+                continue
+            if "agent_id" in params and not inspect.iscoroutinefunction(fn):
+                offenders.append(f"{name}.{tool.name}")
+    assert offenders == [], (
+        f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
+    )

@@ -534,6 +534,16 @@ def _wrap_fn(fn: Callable) -> Callable:
                 kwargs = {**kwargs, "agent_id": injected}
         return args, kwargs
 
+    def _resolved_agent_id(args: tuple, kwargs: dict) -> Any:
+        """The agent_id the tool is about to run with, or None when absent."""
+        if "agent_id" in kwargs:
+            return kwargs["agent_id"]
+        names = list(sig.parameters)
+        idx = names.index("agent_id") if "agent_id" in names else -1
+        if 0 <= idx < len(args):
+            return args[idx]
+        return None
+
     def _still_placeholder(args: tuple, kwargs: dict) -> Any:
         """The resolved agent_id if it is still a guess, else None.
 
@@ -542,16 +552,31 @@ def _wrap_fn(fn: Callable) -> Callable:
         lookup fail on "agent_current" — is what turns the incident's dead
         end into something the model can correct on its next tool call.
         """
-        if "agent_id" in kwargs:
-            value = kwargs["agent_id"]
-        else:
-            names = list(sig.parameters)
-            idx = names.index("agent_id") if "agent_id" in names else -1
-            if 0 <= idx < len(args):
-                value = args[idx]
-            else:
-                return None
+        value = _resolved_agent_id(args, kwargs)
+        if value is None and "agent_id" not in kwargs:
+            return None
         return value if is_placeholder_agent_id(value) else None
+
+    async def _ownership_denial(args: tuple, kwargs: dict) -> Optional[str]:
+        """OwnerScopedPolicy (identity/mcp_auth.py) over the resolved id.
+
+        A denial is an in-band error VALUE in the tool's own shape, never an
+        exception — same discipline as the placeholder guard. Policy errors
+        (db down, import failure) allow: identity is never flow control, and
+        the middleware layer has already logged the caller.
+        """
+        agent_id = _resolved_agent_id(args, kwargs)
+        if agent_id is None:
+            return None
+        try:
+            from xyz_agent_context.module.identity.mcp_auth import (
+                check_agent_ownership,
+            )
+
+            return await check_agent_ownership(agent_id)
+        except Exception as e:  # noqa: BLE001 — never break the tool on policy
+            logger.warning(f"[mcp-identity] ownership policy errored, allowing: {e}")
+            return None
 
     if inspect.iscoroutinefunction(fn):
         @functools.wraps(fn)
@@ -560,6 +585,9 @@ def _wrap_fn(fn: Callable) -> Callable:
             unresolved = _still_placeholder(args, kwargs)
             if unresolved is not None:
                 return _guard(unresolved)
+            denial = await _ownership_denial(args, kwargs)
+            if denial is not None:
+                return {"success": False, "error": denial} if returns_dict else denial
             return await fn(*args, **kwargs)
 
         wrapper: Callable = async_wrapper
