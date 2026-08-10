@@ -10,8 +10,11 @@ last_verified: 2026-08-10
 
 1. 从 utils/ 迁到 integrations/(与 feedback_client、free_tier/
    wallet_client 同居):外部平台 wire 契约不是通用工具;
-2. 新 `manyfold_runtime_env()` = 三元组唯一解析点,notify 的
-   `_webhook_env` 改为委托——两条出站腿的 env 语义不可能再走偏;
+2. 新 `manyfold_runtime_env()` = **身份对(token + runtime_id)的唯一
+   解析点**,notify 的 `_webhook_env` 改为委托;`webhook_url` 的必要
+   性**属于各 leg**:notify 腿没有它拒绝(空 URL 不可 POST),
+   channel-send 腿持显式 URL 时不需要它。共享的是解析,不是三元组
+   全有的判定——那个判定曾把逃生口 gate 在它要逃离的东西上;
 3. `channel_send` 返回三态 `ChannelSendOutcome`:
    `delivered` / `failed`(403 策略拒绝、5xx、超时——请求可能已达
    平台,**不许**直连兜底:403 兜底=用沙盒凭据绕过目标绑定,超时
@@ -43,7 +46,9 @@ provider 腿)。**请求不带收件人、不带凭据**——目标绑定由平
 
 - 声明 = env `NEXUS_MANAGED_REPLY_PROVIDERS`(逗号列表,缺省空 =
   全 false):灰度是配置变更而非代码变更;
-- URL 解析:`MANYFOLD_CHANNEL_SEND_URL` 显式覆盖优先,否则从
+- URL 解析:`MANYFOLD_CHANNEL_SEND_URL` 显式覆盖优先——且**无任何
+  webhook URL 时也生效**(它存在的理由就是"派生不可能/换 host",
+  用 webhook 去 gate 它等于取消它;仅要求身份对);否则从
   `MANYFOLD_SYNC_WEBHOOK_URL` 尾段 `/notify` → `/channel-send` 派生
   (同一平台 controller 的兄弟路由);派生不出 → 拒绝 managed 路由
   而不是瞎猜,调用方回退直连,是安全退化;

@@ -7,7 +7,9 @@ stub: false
 ## 2026-08-10(review 修)— env 委托 + 全败还原批次
 
 `_webhook_env` 改为委托 integrations/manyfold_outbound 的
-`manyfold_runtime_env()`(三元组唯一解析点);`_flush_pending` 全败
+`manyfold_runtime_env()`(身份对唯一解析点),并**自带**
+`webhook_url` 非空这道 notify 腿专属的门(净行为不变:仍三者齐全
+才发);`_flush_pending` 全败
 后 `_pending_kinds.update(kinds)` 还原整批——否则重试窗口(~31s)内
 被并批吸收的 kinds 随注定失败的批次一起消失,比无重试时代更糟
 (那时它们会留在 _pending_kinds 等下一个 task)。notify 是"pull
