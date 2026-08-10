@@ -29,6 +29,13 @@ class Team(BaseModel):
     intro_md: Optional[str] = None
     # Agent that answers a team-chat message with no @mention (None = earliest member).
     lead_agent_id: Optional[str] = None
+    # Leader patrol. Read-only here on purpose: `patrol.py` and the patrol
+    # toggle own these columns, and routing them through the team CRUD's
+    # _entity_to_row would let an unrelated team edit reset the cursor.
+    # None on patrol_enabled = undecided, which reads as ON for a team that
+    # HAS a lead (setting a lead IS the act of saying "this one is responsible").
+    patrol_enabled: Optional[bool] = None
+    last_patrol_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

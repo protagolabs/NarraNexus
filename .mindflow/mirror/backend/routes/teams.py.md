@@ -3,7 +3,19 @@ code_file: backend/routes/teams.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 工作板端点(只读 + 恢复)
 
+`GET /work-items`、`POST /work-items/{id}/resume`、`PUT /patrol`。
+
+**刻意没有创建/删除**:板子由 lead 通过 MCP 工具维护,一块用户还能手改的板子
+会和 lead 被问责的那块漂移。用户这一侧的动作只有两个:看,以及把停止 park 掉
+的项**恢复**。
+
+与 agent 侧列表的关键差别:**这里返回 `paused`**。那是停止留下的状态,而决定
+要不要恢复的是用户 —— 像 agent 侧那样隐藏它,会让被停的任务看起来像被删了。
+
+`Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
+`_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
 ## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
 
 **同一条规则改了两次，第二次才是重点。**

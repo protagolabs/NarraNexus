@@ -18,6 +18,7 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
+from typing import List, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -818,3 +819,141 @@ async def remove_member(team_id: str, agent_id: str, request: Request):
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Member not found in team")
     return TeamOperationResponse(success=True, message="Member removed")
+
+
+# ---------------------------------------------------------------------------
+# Work board
+#
+# Read-and-resume only. Agents maintain the board through MCP tools; the user's
+# side of it is seeing what is outstanding and un-parking what a stop parked.
+# Deliberately no create/delete here: a board the user edits by hand and a board
+# the lead maintains would drift, and the lead is the one held responsible.
+# ---------------------------------------------------------------------------
+
+
+class WorkItemView(BaseModel):
+    item_id: str
+    title: str
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    status: str
+    created_at: Optional[str] = None
+
+
+class WorkBoardResponse(BaseModel):
+    success: bool
+    items: List[WorkItemView]
+    #: When the lead last swept the board. None = never patrolled yet.
+    last_patrol_at: Optional[str] = None
+    patrol_enabled: bool = True
+
+
+class PatrolToggleRequest(BaseModel):
+    enabled: bool
+
+
+async def _owned_team(db, team_id: str, user_id: str):
+    team = await TeamRepository(db).get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.owner_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return team
+
+
+@router.get("/{team_id}/work-items", response_model=WorkBoardResponse)
+async def get_work_board(team_id: str, request: Request):
+    """The team's board, INCLUDING parked items.
+
+    Unlike the agent-facing tool (which lists only what still needs doing), the
+    user's view has to show `paused` too — that is the state a stop leaves
+    behind, and it is the user who decides whether to resume it. Hiding it
+    would make a stopped task look deleted.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    team = await _owned_team(db, team_id, user_id)
+
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    rows = await db.get("team_work_items", {"team_id": team_id})
+    visible = [
+        r for r in rows or []
+        if r.get("status") in (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
+    ]
+    # list_members_by_team returns agent_ids, not rows (see the callers above).
+    member_ids = list(await TeamMemberRepository(db).list_members_by_team(team_id))
+    agent_rows = await db.get_by_ids("agents", "agent_id", member_ids) if member_ids else []
+    name_by_agent = {
+        r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in agent_rows if r
+    }
+    items = [
+        WorkItemView(
+            item_id=r["item_id"],
+            title=r["title"],
+            assignee_id=r.get("assignee_id"),
+            assignee_name=name_by_agent.get(r.get("assignee_id") or ""),
+            status=r["status"],
+            created_at=format_for_api(r.get("created_at")),
+        )
+        for r in sorted(visible, key=lambda r: str(r.get("created_at") or ""))
+    ]
+    return WorkBoardResponse(
+        success=True,
+        items=items,
+        last_patrol_at=format_for_api(getattr(team, "last_patrol_at", None)),
+        patrol_enabled=_patrol_enabled(team),
+    )
+
+
+def _patrol_enabled(team) -> bool:
+    """NULL reads as ON for a team that has a lead — setting a lead IS the act
+    of saying "this one is responsible"."""
+    raw = getattr(team, "patrol_enabled", None)
+    if raw is None:
+        return bool(getattr(team, "lead_agent_id", None))
+    return bool(raw)
+
+
+@router.post("/{team_id}/work-items/{item_id}/resume", response_model=TeamOperationResponse)
+async def resume_work_item(team_id: str, item_id: str, request: Request):
+    """Un-park an item a stop parked.
+
+    The other half of the stop→pause decision: stopping means "stop running",
+    not "abandon the task", so resuming has to be an explicit user action
+    rather than something patrol infers.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    await _owned_team(db, team_id, user_id)
+
+    from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    repo = TeamWorkItemRepository(db)
+    item = await repo.get(item_id)
+    if not item or item.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Work item not found")
+    if item.status != WorkItemStatus.PAUSED:
+        # Not an error: the user clicked resume on something already live.
+        return TeamOperationResponse(success=True, message="Already active")
+    # Back to whoever had it, or to the unclaimed pool.
+    await repo.set_status(
+        item_id,
+        WorkItemStatus.IN_PROGRESS if item.assignee_id else WorkItemStatus.OPEN,
+    )
+    return TeamOperationResponse(success=True, message="Resumed")
+
+
+@router.put("/{team_id}/patrol", response_model=TeamOperationResponse)
+async def set_patrol_enabled(team_id: str, payload: PatrolToggleRequest, request: Request):
+    """Turn the lead's patrol on or off for this team.
+
+    Off keeps the board fully usable — it only stops the periodic sweep. A user
+    who wants to track work without an agent chasing people should be able to.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    await _owned_team(db, team_id, user_id)
+    await db.update("teams", {"team_id": team_id}, {"patrol_enabled": 1 if payload.enabled else 0})
+    return TeamOperationResponse(success=True, message="Updated")

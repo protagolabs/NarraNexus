@@ -149,7 +149,23 @@
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
       "leadTitle": "{{name}} · responde cuando no se menciona a nadie",
-      "stoppedNotice": "La tarea de {{name}} fue detenida por el propietario"
+      "stoppedNotice": "La tarea de {{name}} fue detenida por el propietario",
+      "patrolNotice": "Revisión del líder",
+      "board": {
+        "title": "Tablero de trabajo",
+        "unclaimed": "sin asignar",
+        "resume": "Reanudar esta tarea",
+        "patrolOff": "Revisión desactivada",
+        "patrolPending": "Aún sin revisar",
+        "patrolledJustNow": "Revisado ahora mismo",
+        "patrolledAgo": "Revisado hace {{ago}}",
+        "status": {
+          "open": "abierto",
+          "in_progress": "en curso",
+          "stalled": "estancado",
+          "paused": "en pausa"
+        }
+      }
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",

@@ -149,7 +149,23 @@
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
-      "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire"
+      "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire",
+      "patrolNotice": "Contrôle du responsable",
+      "board": {
+        "title": "Tableau de travail",
+        "unclaimed": "non attribué",
+        "resume": "Reprendre cette tâche",
+        "patrolOff": "Contrôle désactivé",
+        "patrolPending": "Pas encore contrôlé",
+        "patrolledJustNow": "Contrôlé à l'instant",
+        "patrolledAgo": "Contrôlé il y a {{ago}}",
+        "status": {
+          "open": "ouvert",
+          "in_progress": "en cours",
+          "stalled": "bloqué",
+          "paused": "en pause"
+        }
+      }
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
