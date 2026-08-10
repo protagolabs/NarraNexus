@@ -1,25 +1,42 @@
 ---
 code_file: backend/routes/agents/social_network.py
-last_verified: 2026-06-08
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — write endpoints added (PR-2 · MCP data-access seam, backend half)
+
+Added four POST endpoints (`extract` / `merge` / `delete-entity` / `create-agent`) that give an HTTP caller the same data-mutation power as the four write tools in `_social_mcp_tools.py` (`extract_entity_info`, `merge_entities`, `delete_entity`, `create_agent`). This is the non-agent-triggered path to the same social-network data — e.g. a frontend "merge duplicate contacts" button, or an admin cleanup script, without routing through an agent's own tool-call loop.
+
+Each endpoint calls `assert_owned(request, agent_id)` first (403 non-owner / 404 unknown agent / 503 on a failed ownership lookup — see `backend/routes/_ownership.py`). This is the first ownership check this file has ever had; the three pre-existing GET endpoints below remain unauthenticated reads.
+
+**Where the logic lives, and why it isn't imported:** `extract` delegates to `SocialNetworkModule.extract_and_update_entity_info` (a real, reusable module method) so its merge/replace/tag-dedup semantics can't drift from the agent-facing path. `merge` and `delete-entity` and `create-agent`, by contrast, are **duplicated** here — their MCP-tool implementations are closures defined inline inside `create_social_network_mcp_server()` in `_social_mcp_tools.py`, not standalone functions, so there was nothing importable to delegate to without refactoring that file (out of scope for this route addition). If either tool's body changes, this file's copy needs the same change by hand — there is no test or lint that catches drift between them.
+
+**Deliberate deviations from the MCP tool surface** (call these out if you're diffing behavior):
+- `extract`'s `updates` field is typed as a JSON object in the request body (FastAPI/Pydantic enforces this at the boundary). The MCP tool additionally accepts a JSON-*string* for `updates` and parses it — that's an LLM tool-calling quirk (some models emit a stringified object), not a data-semantics difference, so the HTTP route doesn't replicate it.
+- Failure payloads use this file's established `{"success": False, "error": ...}` shape (matching the three GET endpoints below), not the MCP tools' `{"success": False, "message": ...}` shape. `_normalize_write_result()` renames `message` → `error` on the way out of the `extract` call; `merge` / `delete-entity` / `create-agent` build their failure dicts with `error` directly since their logic is inlined here anyway.
+- The "no SocialNetworkModule instance" error text matches this file's GET endpoints ("... for agent: {agent_id}") rather than the MCP tool's phrasing ("... for agent_id={agent_id}") — same reasoning, family consistency over verbatim match.
+- `delete-entity` is POST, not HTTP DELETE, so the target `entity_id` can travel in a JSON body like the other three write endpoints (this route family doesn't use path/query params for write targets).
 
 ## 2026-06-08 — entity endpoints route through the repo
 
 Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`) plus an `_entity_to_info` helper, instead of touching `instance_social_entities`. Behaviour for callers is unchanged; only the storage source moved.
 
-# agents/social_network.py — 社交网络实体查询路由
+# agents/social_network.py — 社交网络实体路由（读 + 写）
 
 ## 为什么存在
 
-`SocialNetworkModule` 维护 Agent 认识的人/组织的档案，存储在 `instance_social_entities` 表。这个路由暴露三个只读接口：查询单个实体的详细信息、列出所有实体、关键词/语义搜索。这些接口服务于前端的社交网络面板，以及开发者调试社交记忆的需求。
+`SocialNetworkModule` 维护 Agent 认识的人/组织的档案，存储在 `instance_social_entities` 表。这个路由暴露三个只读接口（查询单个实体、列出所有实体、关键词/语义搜索）加四个写接口（extract/merge/delete-entity/create-agent）。只读接口服务于前端的社交网络面板和调试；写接口是 `_social_mcp_tools.py` 里同名 MCP 工具的 HTTP 镜像，给非 agent 调用方（前端按钮、管理脚本）一条不经过 agent 工具调用循环就能读写同一份社交网络数据的路径。
 
 ## 上下游关系
 
-- **被谁用**：`backend/routes/agents/core.py` 聚合；前端社交网络面板
+- **被谁用**：`backend/routes/agents/core.py` 聚合；前端社交网络面板；写端点面向前端管理操作/脚本调用（不经过 agent 的 MCP 工具调用）
 - **依赖谁**：
   - `InstanceRepository` — 查询 `SocialNetworkModule` 实例 ID
-  - `SocialNetworkRepository` — 语义搜索（`semantic_search`）和关键词搜索（`keyword_search`）
+  - `SocialNetworkRepository` — 语义搜索（`semantic_search`）、关键词搜索（`keyword_search`）、写端点里的 `get_entity`/`update_entity_info`/`delete_entity`
+  - `SocialNetworkModule.extract_and_update_entity_info` — `extract` 端点直接委托给它，保证与 agent 工具路径语义一致
+  - `AgentRepository` / `InstanceAwarenessRepository` / `xyz_agent_context.utils.workspace_paths.agent_workspace_path` / `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — `create-agent` 端点建新 agent 记录、workspace、awareness instance
+  - `backend.routes._ownership.assert_owned` — 四个写端点的授权门禁
   - （历史：语义搜索曾经由 agent_framework 的 embedding 工具生成 query 向量；该向量化子系统已整体移除）
   - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
 
