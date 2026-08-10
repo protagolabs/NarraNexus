@@ -84,6 +84,10 @@ class AgentDataStore(Protocol):
 
     async def remember(self, agent_id: str, query: str, limit: int) -> dict: ...
 
+    async def grep_memory(
+        self, agent_id: str, pattern: str, regex: bool, limit: int
+    ) -> dict: ...
+
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict: ...
 
     async def extract_entity_info(
@@ -161,6 +165,25 @@ def _remember_reject(query: str) -> Optional[dict]:
         return {"success": False, "error": "query is empty", "memories": []}
     if len(query) > _QUERY_MAX:
         return {"success": False, "error": f"query too long (max {_QUERY_MAX} chars)", "memories": []}
+    return None
+
+
+# grep has its OWN bounds (route Query: pattern 1-256, limit 1-200), different
+# from remember's (query 1-512, limit 1-100) — mirror them so Direct and Http
+# reject the same inputs. Failure key is `matches` (the grep tool's shape).
+_GREP_PATTERN_MAX = 256
+_GREP_LIMIT_MAX = 200
+
+
+def _clamp_grep_limit(limit: int) -> int:
+    return max(1, min(int(limit), _GREP_LIMIT_MAX))
+
+
+def _grep_reject(pattern: str) -> Optional[dict]:
+    if not pattern:
+        return {"success": False, "error": "pattern is empty", "matches": []}
+    if len(pattern) > _GREP_PATTERN_MAX:
+        return {"success": False, "error": f"pattern too long (max {_GREP_PATTERN_MAX} chars)", "matches": []}
     return None
 
 
@@ -315,6 +338,26 @@ class DirectStore:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[memory.remember] failed: {e}")
             return {"success": False, "error": str(e), "memories": []}
+
+    async def grep_memory(self, agent_id: str, pattern: str, regex: bool, limit: int) -> dict:
+        # Same MemoryCoordinator path as remember (repository layer, dialect-safe);
+        # the regex engine is ReDoS-guarded in retrieval.grep_filter, not here.
+        # Same input contract as the Http path (parity) — see _grep_reject.
+        from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, format_memory_hits
+
+        reject = _grep_reject(pattern)
+        if reject is not None:
+            return reject
+        limit = _clamp_grep_limit(limit)
+        try:
+            db = await self._db()
+            coord = MemoryCoordinator(MemoryEngine(db, agent_id))
+            hits, truncated = await coord.grep_memory(pattern, regex=regex, limit=limit)
+            return {"success": True, "pattern": pattern,
+                    "matches": format_memory_hits(hits), "truncated": truncated}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[memory.grep_memory] failed: {e}")
+            return {"success": False, "error": str(e), "matches": []}
 
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:
         from xyz_agent_context.memory import MemoryEngine, MemoryRecord, SCOPE_AGENT
@@ -720,6 +763,23 @@ class HttpStore:
             f"/api/agents/{agent_id}/memory/remember",
             params={"query": query, "limit": limit},
             failure_extra={"memories": []},
+        )
+
+    async def grep_memory(self, agent_id: str, pattern: str, regex: bool, limit: int) -> dict:
+        # The route returns the EXACT {success, pattern, matches} dict the tool
+        # produces (shared format_memory_hits), so a 2xx body is returned verbatim.
+        # Pre-apply grep's OWN input contract (pattern 1-256, limit clamp 200 —
+        # NOT remember's) so Direct and Http reject identically. Transport failures
+        # degrade to the tool's shape. `regex` is serialized lowercase so FastAPI's
+        # bool parser accepts it.
+        reject = _grep_reject(pattern)
+        if reject is not None:
+            return reject
+        limit = _clamp_grep_limit(limit)
+        return await self._get_dict(
+            f"/api/agents/{agent_id}/memory/grep",
+            params={"pattern": pattern, "regex": str(bool(regex)).lower(), "limit": limit},
+            failure_extra={"matches": []},
         )
 
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:

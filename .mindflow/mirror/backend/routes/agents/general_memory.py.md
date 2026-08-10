@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-11) — grep 路由现服务 regex
+
+删掉 `if regex: return refuse` 分支、regex 透传给 coord.grep_memory。原来拒 regex 是因 stdlib re 在共享 loop 上是 self-service DoS；现 [[retrieval]] grep_filter 用 `regex` 包+timeout，安全。路由仍保 Field 上限（pattern 1-256/limit 1-200）作直连 HTTP 调用方 backstop；seam 侧 [[store]] `_grep_reject`+clamp 两 store 镜像。 响应新增 `truncated` 键（[[coordinator]] 的截断信号透出：ReDoS 预算耗尽/单条超时=部分结果）；文件头重写（去掉过时 PR-2 引用、补两端点参数上界、说明 regex 现已服务）。
+
+
 ## 2026-08-10 (PR-3) — 渲染改用共享 `format_memory_hits`
 
 路由本地 `_format` 删除,改 import [[memory/coordinator]] 的

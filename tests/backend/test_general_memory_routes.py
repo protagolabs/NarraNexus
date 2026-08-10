@@ -63,7 +63,7 @@ class _StubCoordinator:
         return [_StubHit("observation", f"fact about {query}")]
 
     async def grep_memory(self, pattern, *, regex=False, limit=30, **kwargs):
-        return [_StubHit("chat", f"line containing {pattern}")]
+        return ([_StubHit("chat", f"line containing {pattern}")], False)
 
 
 @pytest.fixture
@@ -236,11 +236,13 @@ def test_retain_underlying_failure_returns_success_false(client, monkeypatch):
     assert "write failed" in body["error"]
 
 
-def test_grep_regex_mode_is_refused_over_http(client):
-    """Pre-open review C1: attacker-controlled regex compiled on the shared
-    API event loop is a self-service DoS ((a+)+$-class backtracking measured
-    >30s on one record). The HTTP twin refuses regex mode outright; the MCP
-    tool keeps it because it runs in the per-module process."""
+def test_grep_regex_mode_is_now_served(client):
+    """regex mode used to be REFUSED over HTTP (attacker-controlled pattern on
+    the shared loop = self-service DoS). It is now served because the engine
+    (retrieval.grep_filter) runs the untrusted pattern through the `regex`
+    package with a per-match timeout + total budget (see test_grep_redos.py for
+    the engine-level ReDoS proof). The route just passes regex through — no
+    refusal branch."""
     r = client.get(
         "/api/agents/agent_mine/memory/grep",
         params={"pattern": "(a+)+$", "regex": "true"},
@@ -248,8 +250,8 @@ def test_grep_regex_mode_is_refused_over_http(client):
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["success"] is False
-    assert "regex mode is not available" in body["error"]
+    assert body["success"] is True
+    assert "regex mode is not available" not in str(body)
 
 
 def test_grep_pattern_and_limit_are_bounded(client):

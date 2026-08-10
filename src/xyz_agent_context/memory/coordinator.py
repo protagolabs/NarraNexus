@@ -12,8 +12,9 @@ only orchestration + RRF fusion + a shared token budget.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from xyz_agent_context.memory.engine import MemoryEngine
 from xyz_agent_context.memory.record import MemoryRecord
@@ -107,14 +108,29 @@ class MemoryCoordinator:
         kinds: Optional[Sequence[str]] = None,
         regex: bool = False,
         limit: int = 50,
-    ) -> List[MemoryHit]:
+    ) -> Tuple[List[MemoryHit], bool]:
         """Cross-kind exact/regex search over content_text — the literal-match
-        complement to `remember`."""
+        complement to `remember`. Returns ``(hits, truncated)``; ``truncated`` is
+        True when the regex scan gave up early (budget spent or a record timed
+        out) so the caller doesn't present a partial result as complete."""
         kinds = list(kinds or all_kinds())
+        # ONE wall-clock budget for the whole request, shared across kinds — so a
+        # multi-kind regex grep can't accumulate budget × num_kinds of CPU. Only
+        # the regex path is bounded/offloaded (substring is cheap).
+        deadline = time.monotonic() + _retrieval._GREP_REQUEST_BUDGET_S if regex else None
         out: List[MemoryHit] = []
+        truncated = False
         for kind in kinds:
-            for rec in await self.engine.grep(kind, pattern, regex=regex):
+            recs, kind_truncated = await self.engine.grep(
+                kind, pattern, regex=regex, deadline=deadline,
+            )
+            truncated = truncated or kind_truncated
+            for rec in recs:
                 out.append(MemoryHit(record=rec, kind=kind))
                 if len(out) >= limit:
-                    return out
-        return out
+                    return out, truncated
+            if deadline is not None and time.monotonic() > deadline:
+                # Budget spent — the remaining kinds go unscanned, so this is partial.
+                truncated = True
+                break
+        return out, truncated

@@ -274,7 +274,7 @@ class _Hit:
         return h
 
 
-def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True):
+def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True, grep_hits=None, grep_truncated=False):
     """DirectStore with MemoryCoordinator/MemoryEngine stubbed. The stub records
     the ``limit`` it actually received in ``store._seen`` so a test can assert
     DirectStore clamped it the same way HttpStore does."""
@@ -294,6 +294,11 @@ def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True):
             store._seen["limit"] = limit  # type: ignore[attr-defined]
             return hits or []
 
+        async def grep_memory(self, pattern, regex, limit):
+            store._seen["grep_limit"] = limit  # type: ignore[attr-defined]
+            store._seen["grep_regex"] = regex  # type: ignore[attr-defined]
+            return (grep_hits or [], grep_truncated)
+
     class FakeEngine:
         def __init__(self, db, agent_id):
             pass
@@ -308,7 +313,7 @@ def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True):
     return store
 
 
-def _memory_http(monkeypatch, remember_body=None, retain_body=None, seen=None):
+def _memory_http(monkeypatch, remember_body=None, retain_body=None, seen=None, grep_body=None):
     """HttpStore whose backend echoes what the REAL routes return. When
     ``remember_body`` is a list of hits, the handler renders it through the
     same ``format_memory_hits`` the route calls — so a passing parity assertion
@@ -329,6 +334,16 @@ def _memory_http(monkeypatch, remember_body=None, retain_body=None, seen=None):
             return httpx.Response(200, json=remember_body)
         if request.url.path.endswith("/memory/retain"):
             return httpx.Response(200, json=retain_body)
+        if request.url.path.endswith("/memory/grep"):
+            if seen is not None:
+                seen["grep_regex"] = request.url.params.get("regex")
+            if isinstance(grep_body, list):
+                p = request.url.params.get("pattern")
+                return httpx.Response(200, json={
+                    "success": True, "pattern": p,
+                    "matches": format_memory_hits(grep_body), "truncated": False,
+                })
+            return httpx.Response(200, json=grep_body)
         return httpx.Response(404)
 
     _patch_http(monkeypatch, handler)
@@ -1585,3 +1600,75 @@ def test_get_chat_history_direct_db_failure_returns_dict_not_raise(monkeypatch):
     out = asyncio.run(d.get_chat_history(AGENT, "chat_1", 20))
     assert out["success"] is False and out["messages"] == [] and out["total_messages"] == 0
     assert out["instance_id"] == "chat_1" and "pool build failed" in out["error"]
+
+
+# --------------------------------------------------------------------------- grep_memory
+
+
+def test_grep_memory_parity(monkeypatch):
+    hits = [
+        _Hit.make("chat", "line with order-123", tags=["ref"]),
+        _Hit.make("job", "grep me", source_ref={"kind": "job", "id": "job_9"}),
+    ]
+    expected = {
+        "success": True, "pattern": "order-123",
+        "matches": [
+            {"kind": "chat", "memory": "line with order-123", "when": None, "tags": ["ref"]},
+            {"kind": "job", "memory": "grep me", "when": None, "tags": [],
+             "source": {"kind": "job", "id": "job_9"}},
+        ],
+        "truncated": False,
+    }
+    d = _memory_direct(monkeypatch, grep_hits=hits)
+    assert asyncio.run(d.grep_memory("agent_a", "order-123", False, 30)) == expected
+    h = _memory_http(monkeypatch, grep_body=hits)
+    assert asyncio.run(h.grep_memory("agent_a", "order-123", False, 30)) == expected
+
+
+def test_grep_memory_limit_clamped_to_200_on_both(monkeypatch):
+    d = _memory_direct(monkeypatch, grep_hits=[])
+    asyncio.run(d.grep_memory("agent_a", "x", False, 9999))
+    assert d._seen["grep_limit"] == 200  # grep's cap, NOT remember's 100
+
+    seen: dict = {}
+    h = _memory_http(monkeypatch, grep_body=[], seen=seen)
+    asyncio.run(h.grep_memory("agent_a", "x", False, 9999))
+    assert seen["limit"] == "200"
+
+
+def test_grep_memory_empty_and_overlong_pattern_rejected_on_both(monkeypatch):
+    empty = {"success": False, "error": "pattern is empty", "matches": []}
+    toolong = {"success": False, "error": "pattern too long (max 256 chars)", "matches": []}
+    d = _memory_direct(monkeypatch, grep_hits=[])
+    assert asyncio.run(d.grep_memory("agent_a", "", False, 30)) == empty
+    assert asyncio.run(d.grep_memory("agent_a", "x" * 257, False, 30)) == toolong
+    h = _memory_http(monkeypatch, grep_body=[])
+    # HttpStore pre-rejects locally (never hits the route), so it matches Direct.
+    assert asyncio.run(h.grep_memory("agent_a", "", False, 30)) == empty
+    assert asyncio.run(h.grep_memory("agent_a", "x" * 257, False, 30)) == toolong
+
+
+def test_grep_memory_regex_flag_forwarded_lowercase(monkeypatch):
+    seen: dict = {}
+    h = _memory_http(monkeypatch, grep_body=[], seen=seen)
+    asyncio.run(h.grep_memory("agent_a", "x", True, 30))
+    assert seen["grep_regex"] == "true"  # FastAPI bool parser wants lowercase
+
+
+def test_grep_memory_http_transport_failure_degrades_in_band(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    h = HttpStore("http://backend:8000")
+    out = asyncio.run(h.grep_memory("agent_a", "x", False, 30))
+    assert out["success"] is False and out["matches"] == []
+
+
+def test_grep_memory_truncated_flag_propagates(monkeypatch):
+    # When the engine reports a bounded-scan giveup (deadline/timeout), the seam
+    # must surface truncated=True so the LLM doesn't read a partial result as a
+    # complete "no match". Non-vacuous — without threading the flag it'd be False.
+    d = _memory_direct(monkeypatch, grep_hits=[], grep_truncated=True)
+    out = asyncio.run(d.grep_memory("agent_a", "x", True, 30))
+    assert out["success"] is True and out["truncated"] is True
