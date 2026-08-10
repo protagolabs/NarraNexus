@@ -37,6 +37,11 @@ from xyz_agent_context.message_bus.attachments import (
 )
 from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
+from xyz_agent_context.repository.team_workspace_repository import (
+    ArtifactHistoryRepository,
+    TeamFileRepository,
+)
+from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.team_schema import (
     CreateTeamRequest,
     UpdateTeamRequest,
@@ -159,9 +164,6 @@ async def _wipe_team_data(
         # The index has to go with the bytes. A row that outlives its file is
         # worse than no row: the panel still lists it and the user only finds
         # out when the download fails.
-        from xyz_agent_context.repository.team_workspace_repository import (
-            TeamFileRepository,
-        )
         result["file_rows"] = await TeamFileRepository(db).delete_by_team(team.team_id)
 
         d = team_shared_dir(team.owner_user_id, team.team_id)
@@ -181,9 +183,6 @@ async def _wipe_team_data(
             arts = await db.execute(
                 "SELECT artifact_id FROM instance_artifacts WHERE team_id = %s",
                 (team.team_id,), fetch=True,
-            )
-            from xyz_agent_context.repository.team_workspace_repository import (
-                ArtifactHistoryRepository,
             )
             await ArtifactHistoryRepository(db).delete_for_artifacts(
                 [row["artifact_id"] for row in arts or []]
@@ -657,8 +656,6 @@ async def clear_team_data(
 async def _team_files(db, team_id: str) -> list[dict]:
     """A team's shared files, newest first. Thin wrapper so the route reads
     naturally and the test can call it without an HTTP client."""
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
-
     return await TeamFileRepository(db).list_by_team(team_id)
 
 
@@ -682,8 +679,6 @@ async def list_team_artifacts(team_id: str, request: Request):
     it. `agent_id` rides on every row so the UI can attribute each one.
     """
     db, _team = await _require_team_owner(request, team_id)
-    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-
     return await ArtifactRepository(db).list_by_team(team_id)
 
 
@@ -696,10 +691,6 @@ async def _team_artifact_turns(db, team_id: str) -> dict[str, list[str]]:
     answer in the same room at once, so proximity would attribute the wrong
     work to the wrong message.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
-        ArtifactHistoryRepository,
-    )
-
     return await ArtifactHistoryRepository(db).turns_for_team(team_id)
 
 
@@ -723,8 +714,6 @@ async def _authorize_team_artifact(db, team_id: str, artifact_id: str):
     team is also not a way into the owner's private work: a NULL team_id fails
     the same comparison.
     """
-    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-
     art = await ArtifactRepository(db).get_by_id(artifact_id)
     if art is None or art.team_id != team_id:
         raise HTTPException(404, "artifact not found")
@@ -740,6 +729,16 @@ async def mint_team_view_token(team_id: str, artifact_id: str, request: Request)
     call is the gate. That is why the payload does not grow a team field — it
     keeps carrying the PRODUCER's agent_id, which is what the raw serving path
     resolves against, and nothing downstream has to learn about teams.
+
+    NOT CURRENTLY CALLED, and that is a decision rather than an oversight
+    (Owner, 2026-08-07). The panel renders through ArtifactRenderer, which
+    mints on the agent-scoped route using the artifact's own agent_id; that
+    route authorises on "does the JWT user own this agent", and every member of
+    a team is an agent of the team's single owner, so it already resolves. This
+    route states the accurate rule instead — the artifact belongs to THIS team,
+    so owning a team is not a way into the owner's private work — and does not
+    rest on teams-are-single-owner remaining true. `_authorize_team_artifact`
+    is covered by tests/backend/test_team_artifact_view_token.py.
     """
     db, _team = await _require_team_owner(request, team_id)
     art = await _authorize_team_artifact(db, team_id, artifact_id)

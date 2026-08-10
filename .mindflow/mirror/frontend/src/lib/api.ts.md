@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — `mintTeamArtifactViewToken` 客户端方法已移除
+
+上面 2026-08-07 那条介绍的**三个**方法里，第三个已删。它没有调用方：面板内联渲染走
+[[ArtifactRenderer.tsx]]，后者按 `artifact.agent_id`（**产出者**）走 agent 侧 view-token，
+而那条路由校验的是「JWT 用户是否拥有该 agent」——团队成员本就都是同一 owner 的 agent，
+所以队友的 artifact 用既有路由就能取到。
+
+**服务端路由 `POST /teams/{id}/artifacts/{id}/view-token` 保留**（Owner 决定）：它表达的
+「按 team 归属授权」语义更贴切，不依赖「团队皆同 owner」这个隐含前提。客户端这个空方法则是
+纯死代码，故删。
+
+（这条 md 的存在本身是个教训：删除也会让 intent 段落作废，而 CI 的 mirror 检查是
+`--diff-filter=AM` + 非阻塞的，删除方向它根本不报。）
 
 ## 2026-08-07 — 团队工作台三个端点
 

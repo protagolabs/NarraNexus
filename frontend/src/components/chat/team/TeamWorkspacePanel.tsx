@@ -99,8 +99,13 @@ export function TeamWorkspacePanel({
       const a = document.createElement('a');
       a.href = url;
       a.download = file.original_name;
+      // Attached, and the URL revoked on a later tick: Firefox aborts a large
+      // download when the object URL dies in the same task as the click, and
+      // a detached anchor is unreliable there too.
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Download failed');
     }

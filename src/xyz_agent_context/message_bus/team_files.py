@@ -65,10 +65,15 @@ async def list_team_files(
         if not membership:
             return {"success": False, "error": "you are not a member of this team"}
 
-        rows = await db.execute(
-            "SELECT * FROM team_files WHERE team_id = %s ORDER BY id DESC LIMIT %s",
-            (team_id, MAX_TEAM_FILES), fetch=True,
+        # Through the repository like every other reader of this table. The
+        # third hand-written copy was the whole reason that seam exists, and it
+        # was also the only `team_files` statement with a bound LIMIT — the one
+        # shape drivers disagree about — with no MySQL case of its own.
+        from xyz_agent_context.repository.team_workspace_repository import (
+            TeamFileRepository,
         )
+
+        rows = await TeamFileRepository(db).list_by_team(team_id, limit=MAX_TEAM_FILES)
         root = team_shared_dir(team["owner_user_id"], team_id, base).parent.parent.parent
         files = [
             {
@@ -77,11 +82,11 @@ async def list_team_files(
                 # prompt already tells agents to use. A listing the agent
                 # cannot act on would just be prose.
                 "path": str(root / r["rel_path"]),
-                "size_bytes": int(r.get("size_bytes") or 0),
-                "shared_by": r.get("shared_by_agent_id"),
-                "shared_at": str(r.get("created_at") or ""),
+                "size_bytes": int(r["size_bytes"]),
+                "shared_by": r["shared_by_agent_id"],
+                "shared_at": r["created_at"],
             }
-            for r in (rows or [])
+            for r in rows
         ]
         return {"success": True, "files": files}
     except Exception as e:  # noqa: BLE001 — tool surface returns structured errors

@@ -41,7 +41,9 @@ class TeamFileRepository:
         treats that as "someone else won the race" and adopts their row."""
         await self._db.insert("team_files", row)
 
-    async def list_by_team(self, team_id: str) -> List[Dict[str, Any]]:
+    async def list_by_team(
+        self, team_id: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """A team's files, newest first, in the shape the API returns.
 
         The wire shape is chosen here rather than inherited from the table:
@@ -53,10 +55,12 @@ class TeamFileRepository:
         without an offset is read as LOCAL time by ``Date.parse`` — a file
         shared moments ago rendered hours old for a non-UTC user.
         """
-        rows = await self._db.execute(
-            "SELECT * FROM team_files WHERE team_id = %s ORDER BY id DESC",
-            (team_id,), fetch=True,
-        )
+        sql = "SELECT * FROM team_files WHERE team_id = %s ORDER BY id DESC"
+        params: tuple = (team_id,)
+        if limit is not None:
+            sql += " LIMIT %s"
+            params = (team_id, int(limit))
+        rows = await self._db.execute(sql, params, fetch=True)
         return [
             {
                 "file_id": r["file_id"],
@@ -150,5 +154,12 @@ class ArtifactHistoryRepository:
         return out
 
     async def delete_for_artifacts(self, artifact_ids: List[str]) -> None:
-        for aid in artifact_ids:
-            await self._db.delete("instance_artifact_history", {"artifact_id": aid})
+        """One statement, not one per id. Bare `%s` placeholders so the raw SQL
+        stays portable across the sqlite and MySQL dialects."""
+        if not artifact_ids:
+            return
+        placeholders = ", ".join(["%s"] * len(artifact_ids))
+        await self._db.execute(
+            f"DELETE FROM instance_artifact_history WHERE artifact_id IN ({placeholders})",
+            tuple(artifact_ids), fetch=False,
+        )

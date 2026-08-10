@@ -235,17 +235,33 @@ async def test_team_files_listing_runs_on_mysql(mysql_client):
 @pytest.mark.asyncio
 async def test_dedup_probe_runs_on_mysql(mysql_client):
     """The (team, name, size) pre-filter — an indexed three-column lookup on
-    the write path, so a dialect slip here fails every share, not a read."""
-    from xyz_agent_context.message_bus import _bus_attachment_impl as impl
+    the write path, so a dialect slip here fails every share, not a read.
+
+    Calls the repository rather than re-typing its SQL here: a copied statement
+    drifts from the one that ships, and the previous version of this test ended
+    on `assert impl is not None`, which is true by construction.
+    """
+    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 
     await _seed_file(mysql_client, f"{_PREFIX}_h1", size=42, digest="hash_a")
-    rows = await mysql_client.execute(
-        "SELECT * FROM team_files WHERE team_id = %s AND original_name = %s "
-        "AND size_bytes = %s",
-        params=(TEAM, "report.md", 42), fetch=True,
+    rows = await TeamFileRepository(mysql_client).find_by_name_and_size(
+        TEAM, "report.md", 42
     )
     assert len(rows) == 1
-    assert impl is not None  # the probe above mirrors _find_duplicate's statement
+
+
+@pytest.mark.asyncio
+async def test_team_files_bound_limit_runs_on_mysql(mysql_client):
+    """The agent-facing listing caps with a BOUND LIMIT, and it is the only
+    team_files statement that does. Until now the bound-LIMIT evidence came
+    entirely from the artifact-side queries."""
+    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+
+    for i in range(3):
+        await _seed_file(mysql_client, f"{_PREFIX}_k{i}", name=f"k{i}.md", digest=f"hk{i}")
+
+    rows = await TeamFileRepository(mysql_client).list_by_team(TEAM, limit=2)
+    assert len(rows) == 2
 
 
 @pytest.mark.asyncio
