@@ -33,6 +33,7 @@ class _FakeDb:
         self._links = links or {}
         self._chat_memory = chat_memory or {}
         self.fanned_out_ids = None  # last ids handed to get_by_ids
+        self.links_order_by = "__unset__"  # order_by passed to the links query
 
     async def get_one(self, table, filters):
         if table == "narratives":
@@ -43,6 +44,7 @@ class _FakeDb:
 
     async def get(self, table, filters, limit=None, offset=None, order_by=None):
         if table == "instance_narrative_links":
+            self.links_order_by = order_by  # for the ordering assertion
             rows = list(self._links.get(filters.get("narrative_id"), []))
             # Honor order_by so the truncation-order fix is actually exercised:
             # created_at DESC = newest first (rows are seeded oldest-first).
@@ -349,8 +351,11 @@ def test_chat_history_survives_when_newest_links_are_non_chat(monkeypatch):
     filtered to chat_, so a narrative whose newest 200 links are non-chat
     (aware_/job_/…) lost ALL its chat history. The fix fetches 500 ordered by
     created_at DESC before filtering — the chat link must still come through."""
-    # 200 non-chat links (seeded oldest→newest) then one chat link (newest).
-    links = [{"instance_id": f"aware_{i}"} for i in range(200)]
+    # 599 non-chat links (seeded oldest→newest) then one chat link (newest).
+    # 600 > _MAX_NARRATIVE_LINKS(500): without order_by the query would take
+    # the OLDEST 500 (all aware_) and lose the chat entirely — so this pins
+    # BOTH the raised cap+filter-after AND the created_at DESC ordering.
+    links = [{"instance_id": f"aware_{i}"} for i in range(599)]
     links.append({"instance_id": "chat_real"})
     db = _FakeDb(
         narratives={"nar_mine": _nar_row()},
@@ -373,6 +378,7 @@ def test_chat_history_survives_when_newest_links_are_non_chat(monkeypatch):
     assert body["message_count"] == 1  # the chat history was NOT dropped
     assert body["messages"][0]["content"] == "hello"
     assert body["truncated"] is False
+    assert db.links_order_by == "created_at DESC"  # ordering is load-bearing here
 
 
 def test_over_cap_chat_instances_flag_truncated_and_fan_out_100(monkeypatch):
@@ -393,3 +399,7 @@ def test_over_cap_chat_instances_flag_truncated_and_fan_out_100(monkeypatch):
     assert r.status_code == 200
     assert r.json()["truncated"] is True
     assert len(db.fanned_out_ids) == 100  # capped, not all 130
+    # The NEWEST 100 (chat_129..chat_30), not an arbitrary 100 — pins the
+    # created_at DESC ordering, not just the cap.
+    assert db.fanned_out_ids[0] == "chat_129"
+    assert "chat_0" not in db.fanned_out_ids
