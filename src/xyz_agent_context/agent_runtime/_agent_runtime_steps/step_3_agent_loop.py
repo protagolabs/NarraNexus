@@ -70,6 +70,29 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
+def _dispatch_identity_token(ensured, user_id) -> str | None:
+    """The identity token to stamp into this turn's MCP headers, or None.
+
+    Blueprint P1: cloud = the broker minted one at ensure() time (fresh per
+    run, ExecutorEnsureResult.identity_token); local = this process
+    self-signs — but ONLY when NX_MCP_AUTH_MODE != off, so a default local
+    run performs no keygen and no filesystem writes (iron rule #7). A cloud
+    broker without a signing key returns no token and behaves like local:
+    nothing is stamped and the mcp side stays fail-open.
+    """
+    if ensured is not None and ensured.identity_token:
+        return ensured.identity_token
+    if not user_id:
+        return None
+    from xyz_agent_context.module.identity.mcp_auth import auth_mode
+
+    if auth_mode() == "off":
+        return None
+    from xyz_agent_context.module.identity.tokens import get_local_issuer
+
+    return get_local_issuer().token_for(user_id)
+
+
 def _framework_override_viable(
     framework: str, *, claude: Any = None, codex: Any = None
 ) -> bool:
@@ -1330,6 +1353,16 @@ async def step_3_agent_loop(
             # otherwise the first connection races the cold start, fails, and
             # the run drops into the fallback path instead of running the agent.
             await wait_until_ready(executor_url)
+        # Identity token (blueprint P1): stamped at dispatch time because the
+        # cloud token only exists once ensure() has answered. Mutates the same
+        # mcp_servers dict TurnInput already references — the documented
+        # pass-by-reference contract (turn_input.py: "step_3 merges into
+        # mcp_servers before the call and drivers must see the merged dict").
+        identity_token = _dispatch_identity_token(ensured, ctx.user_id)
+        if identity_token and ctx.mcp_servers:
+            from xyz_agent_context.module import stamp_identity_token
+
+            stamp_identity_token(ctx.mcp_servers, identity_token)
         driver = get_agent_loop_driver(
             framework=framework_name,
             executor_url=executor_url,

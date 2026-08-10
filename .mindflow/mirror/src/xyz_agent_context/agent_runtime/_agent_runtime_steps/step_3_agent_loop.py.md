@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — dispatch 时 stamp MCP 身份 token（蓝图 P1）
+
+`_dispatch_identity_token(ensured, user_id)`:云取 ensure() 返回的 broker 签名
+token(每 run 新鲜);本地在 `NX_MCP_AUTH_MODE != off` 时才让进程自签
+([[identity/tokens]] LocalEphemeralIssuer)——默认 off 时零 keygen 零文件写,
+铁律 #7。选中的 token 经 `stamp_identity_token` 原地写进 `ctx.mcp_servers`
+的 headers(bearer 第 7 位):放在 TurnInput 之后是**故意的**——turn_input.py
+文档明言 mcp_servers 按引用传递、"step_3 merges into mcp_servers before the
+call",本处沿用同一契约。云 token 只在 ensure 后存在,所以 stamp 不能提前到
+context_runtime 盖章处。测试:`test_step3_identity_stamp.py`。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
