@@ -685,8 +685,8 @@ _provider_source_ctx: ContextVar[Optional[str]] = ContextVar(
 _current_user_id_ctx: ContextVar[Optional[str]] = ContextVar(
     "current_user_id", default=None
 )
-_provider_card_sources_ctx: ContextVar[dict[str, str]] = ContextVar(
-    "provider_card_sources", default={}
+_provider_card_sources_ctx: ContextVar[Optional[dict[str, str]]] = ContextVar(
+    "provider_card_sources", default=None
 )
 
 
@@ -728,7 +728,7 @@ def set_provider_card_sources(sources: dict[str, str]) -> None:
 def get_provider_card_source(call_type: str) -> Optional[str]:
     """Return the exact card source responsible for a cost ledger row."""
     slot = "agent" if call_type == "agent_loop" else "helper_llm"
-    return _provider_card_sources_ctx.get().get(slot)
+    return (_provider_card_sources_ctx.get() or {}).get(slot)
 
 
 def set_current_user_id(uid: Optional[str]) -> None:

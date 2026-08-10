@@ -11,6 +11,9 @@ an idempotency ID per fact. Capture is fire-and-forget so measurement cannot
 delay login, chat, rendering, or checkout. Payloads contain only controlled
 identifiers and timings, never product content.
 
+Setup page actions use this same capture path; the older ApiClient funnel
+method and `/api/auth/funnel` route no longer form a second ingestion contract.
+
 Requests use Fetch `keepalive` because `/pay` records checkout-open immediately
 before replacing the page with Stripe; without it navigation can cancel the
 only conversion signal.

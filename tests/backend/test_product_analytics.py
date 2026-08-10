@@ -20,6 +20,11 @@ class _FakeDb:
 
     async def insert(self, table, row):
         assert table == "product_analytics_events"
+        if any(
+            item["analytics_event_id"] == row["analytics_event_id"]
+            for item in self.rows
+        ):
+            raise RuntimeError("UNIQUE constraint failed: analytics_event_id")
         self.rows.append(row)
 
 
@@ -82,6 +87,9 @@ async def test_frontend_route_derives_identity_and_rejects_unknown_event(monkeyp
     assert response == {"success": True}
     assert capture.await_args.kwargs["user_id"] == "user-1"
     assert capture.await_args.kwargs["properties"]["source"] == "frontend"
+    persisted_id = capture.await_args.kwargs["event_id"]
+    assert persisted_id.startswith("fe:")
+    assert persisted_id != "event-fixed-2"
 
     with pytest.raises(HTTPException) as exc:
         await route.capture_product_event(
@@ -89,6 +97,75 @@ async def test_frontend_route_derives_identity_and_rejects_unknown_event(monkeyp
             request,
         )
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_frontend_route_rate_limits_per_authenticated_user(monkeypatch):
+    from fastapi import HTTPException
+    from backend.routes import analytics as route
+    from backend.routes._rate_limiter import SlidingWindowRateLimiter
+
+    monkeypatch.setattr(route, "track", AsyncMock())
+    monkeypatch.setattr(
+        route, "resolve_current_user_id", AsyncMock(return_value="user-1")
+    )
+    monkeypatch.setattr(
+        route, "_event_limiter", SlidingWindowRateLimiter(limit=1, window_sec=60)
+    )
+    request = SimpleNamespace(state=SimpleNamespace(user_id="user-1"))
+    payload = route.ProductEventRequest(
+        event="reply_rendered", event_id="event-fixed-rate"
+    )
+
+    assert await route.capture_product_event(payload, request) == {"success": True}
+    with pytest.raises(HTTPException) as exc:
+        await route.capture_product_event(payload, request)
+    assert exc.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_track_never_raises_when_persistence_fails(monkeypatch):
+    import xyz_agent_context.analytics as analytics
+
+    monkeypatch.setattr(analytics, "_opted_out", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        analytics,
+        "_persist_product_event",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    await analytics.track(user_id="user-1", event="workspace_ready")
+
+
+@pytest.mark.asyncio
+async def test_websocket_capture_helpers_use_stable_stage_ids(monkeypatch):
+    from backend.routes import websocket as route
+
+    capture = AsyncMock()
+    monkeypatch.setattr(route, "track", capture)
+
+    await route._record_message_accepted(
+        user_id="user-1",
+        agent_id="agent-1",
+        trigger_source="chat",
+        session_id="session-1",
+    )
+    accepted = capture.await_args.kwargs
+    assert accepted["event"] == "message_accepted"
+    assert accepted["event_id"] == "message_accepted:session-1"
+    assert accepted["properties"]["session_id"] == "session-1"
+
+    await route._record_run_started(
+        user_id="user-1",
+        agent_id="agent-1",
+        run_id="run-1",
+        trigger_source="chat",
+        session_id="session-1",
+    )
+    started = capture.await_args.kwargs
+    assert started["event"] == "run_started"
+    assert started["event_id"] == "run_started:run-1"
+    assert started["properties"]["run_id"] == "run-1"
 
 
 def test_schema_registers_product_events_and_exact_provider_source():
@@ -101,6 +178,15 @@ def test_schema_registers_product_events_and_exact_provider_source():
     }
     cost = TABLES["cost_records"]
     assert "provider_card_source" in {column.name for column in cost.columns}
+    assert "idx_cost_provider_card_created" not in {
+        index.name for index in cost.indexes
+    }
+
+
+def test_analytics_route_bypasses_quota_resolver():
+    from backend.auth import QUOTA_BYPASS_PREFIXES
+
+    assert "/api/analytics" in QUOTA_BYPASS_PREFIXES
 
 
 def test_provider_card_source_is_selected_by_call_type():

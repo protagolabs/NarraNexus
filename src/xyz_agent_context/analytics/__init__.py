@@ -11,13 +11,14 @@ telemetry sink.
 """
 from __future__ import annotations
 
-import json
-import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from loguru import logger
 
 from xyz_agent_context.analytics.surface import SURFACE
+from xyz_agent_context.repository.product_analytics_repository import (
+    ProductAnalyticsRepository,
+)
 
 __all__ = ["track"]
 
@@ -36,8 +37,9 @@ async def _opted_out(user_id: str) -> bool:
 
 
 async def track(*, user_id: str, event: str,
-                properties: Optional[dict] = None,
-                event_id: Optional[str] = None) -> None:
+                properties: Optional[dict[str, Any]] = None,
+                event_id: Optional[str] = None,
+                occurred_at: Optional[str] = None) -> None:
     try:
         if not user_id:
             return
@@ -54,6 +56,7 @@ async def track(*, user_id: str, event: str,
             event=event,
             event_id=event_id,
             properties=props,
+            occurred_at=occurred_at,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[analytics] persist {event} failed: {e}")
@@ -61,47 +64,15 @@ async def track(*, user_id: str, event: str,
 
 async def _persist_product_event(*, user_id: str, event: str,
                                  event_id: Optional[str],
-                                 properties: dict) -> None:
-    """Persist the first-party event used by narranexus-data.
-
-    Known dimensions are duplicated into indexed columns; the JSON payload is
-    retained for low-volume diagnostics. Event bodies must never contain user
-    message text, credentials, email addresses, or other free-form PII.
-    """
+                                 properties: dict[str, Any],
+                                 occurred_at: Optional[str] = None) -> None:
+    """Delegate database persistence to the product analytics repository."""
     from xyz_agent_context.utils import get_db_client
-
-    analytics_event_id = event_id or str(uuid.uuid4())
-    db = await get_db_client()
-    if event_id and await db.get_one(
-        "product_analytics_events", {"analytics_event_id": analytics_event_id}
-    ):
-        return
-
-    def _string(key: str) -> Optional[str]:
-        value = properties.get(key)
-        return str(value) if value is not None and value != "" else None
-
-    latency = properties.get("latency_ms")
-    try:
-        latency_ms = int(latency) if latency is not None else None
-    except (TypeError, ValueError):
-        latency_ms = None
-
-    await db.insert("product_analytics_events", {
-        "analytics_event_id": analytics_event_id,
-        "event_name": event,
-        "user_id": user_id,
-        "source": _string("source") or "backend",
-        "surface": _string("surface"),
-        "session_id": _string("session_id"),
-        "run_id": _string("run_id"),
-        "agent_id": _string("agent_id"),
-        "trigger_source": _string("trigger_source"),
-        "provider_card_source": _string("provider_card_source"),
-        "failure_category": _string("failure_category"),
-        "failure_reason": _string("failure_reason"),
-        "latency_ms": latency_ms,
-        "properties_json": json.dumps(
-            properties, ensure_ascii=False, separators=(",", ":"), default=str
-        ),
-    })
+    repository = ProductAnalyticsRepository(await get_db_client())
+    await repository.record(
+        user_id=user_id,
+        event=event,
+        event_id=event_id,
+        properties=properties,
+        occurred_at=occurred_at,
+    )

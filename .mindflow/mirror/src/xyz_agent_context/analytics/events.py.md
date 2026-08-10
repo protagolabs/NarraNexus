@@ -34,20 +34,19 @@ reading every route.
 
 ## Design decisions
 
-**Lean 5-event funnel** (redesigned 2026-06-09):
+**Setup event ingestion**:
 
 | Constant | Event name | Fires when | Emitted by |
 |---|---|---|---|
 | `EVENT_SIGNED_UP` | `signed_up` | New user created | `auth.py create_user` (backend) |
-| `EVENT_SETUP_ENTERED` | `setup_entered` | Setup page mounted | Frontend via `POST /api/auth/funnel` |
-| `EVENT_SETUP_SKIPPED` | `setup_skipped` | "Done" clicked with 0 providers | Frontend via `POST /api/auth/funnel` |
-| `EVENT_SETUP_COMPLETED` | `setup_completed` | "Done" clicked with ≥1 provider | Frontend via `POST /api/auth/funnel` |
+| `EVENT_SETUP_ENTERED` | `setup_entered` | Setup page mounted | Frontend via `POST /api/analytics/events` |
+| `EVENT_SETUP_SKIPPED` | `setup_skipped` | "Done" clicked with 0 providers | Frontend via `POST /api/analytics/events` |
+| `EVENT_SETUP_COMPLETED` | `setup_completed` | "Done" clicked with ≥1 provider | Frontend via `POST /api/analytics/events` |
 | `EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED` | `message_round_trip_succeeded` | Full agent response delivered | Background run layer (backend) |
 
-The three setup events are pure UI actions with no backend signal; the frontend
-reports them via `POST /api/auth/funnel`. That endpoint whitelists only the
-`setup_*` constants defined here, so this file doubles as the access-control
-contract for that endpoint.
+The three setup events are pure UI actions with no backend signal. They share
+the authenticated browser ingestion endpoint, whose allowlist is exactly
+`FRONTEND_EVENTS`; backend-only event names cannot be submitted there.
 
 **Removed in 2026-06-09 redesign**: `EVENT_TERMINAL_ACCESSED`,
 `EVENT_LLM_SLOT_CONFIGURED`, `EVENT_AGENT_CREATED` and their matching property

@@ -2,6 +2,9 @@ import { getAuthHeaders } from './authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 export type ProductEventName =
+  | 'setup_entered'
+  | 'setup_skipped'
+  | 'setup_completed'
   | 'workspace_ready'
   | 'message_submitted'
   | 'reply_rendered'

@@ -6,17 +6,28 @@ never message content or other free-form user data.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
+from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import FRONTEND_EVENTS, PROP_SOURCE
 
 router = APIRouter()
 _EVENT_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{8,128}$")
+_event_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
+
+
+def _frontend_event_id(user_id: str, event: str, client_event_id: str) -> str:
+    """Keep browser idempotency keys outside every backend event namespace."""
+    digest = hashlib.sha256(
+        f"{user_id}:{event}:{client_event_id}".encode("utf-8")
+    ).hexdigest()
+    return f"fe:{digest}"
 
 
 class ProductEventRequest(BaseModel):
@@ -37,6 +48,8 @@ async def capture_product_event(payload: ProductEventRequest, request: Request):
         raise HTTPException(status_code=400, detail="Invalid event_id")
 
     user_id = await resolve_current_user_id(request)
+    if not _event_limiter.allow(user_id):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
     properties = {
         PROP_SOURCE: "frontend",
         "session_id": payload.session_id,
@@ -48,7 +61,7 @@ async def capture_product_event(payload: ProductEventRequest, request: Request):
     await track(
         user_id=user_id,
         event=payload.event,
-        event_id=payload.event_id,
+        event_id=_frontend_event_id(user_id, payload.event, payload.event_id),
         properties={key: value for key, value in properties.items() if value is not None},
     )
     return {"success": True}

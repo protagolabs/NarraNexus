@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe
@@ -63,7 +63,7 @@ Composes `OneKeyOnboard` (primary) and `ProviderSettings` (behind the Advanced d
 
 **Funnel instrumentation: fire-and-forget, never blocks navigation.**
 
-Three funnel events are reported from this page via `api.trackFunnelEvent()`:
+Three funnel events are reported via the shared `captureProductEvent()` path:
 
 - `setup_entered` — emitted once on mount via `useEffect([], [])`. Marks that
   the user reached setup.
@@ -73,8 +73,9 @@ Three funnel events are reported from this page via `api.trackFunnelEvent()`:
 - `setup_skipped` — emitted by `finishSetup` from the ghost "Skip for
   now" button (shown when `providerCount === 0`).
 
-All three calls use `.catch(() => {})` — the funnel must never block or error
-the user's navigation.
+Capture is internally fire-and-forget — the funnel never blocks or errors the
+user's navigation, while sharing session and idempotency semantics with the
+rest of the browser lifecycle.
 
 **"Skip for now" is visible only when `providerCount === 0`.** If providers are already configured (e.g., user navigated back to `/setup`), there is no skip option — only "Get Started". This prevents showing a skip button to users who have already done the setup.
 

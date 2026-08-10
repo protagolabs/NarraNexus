@@ -5,6 +5,7 @@
 """
 import pytest
 
+
 async def _async_return(v):
     return v
 

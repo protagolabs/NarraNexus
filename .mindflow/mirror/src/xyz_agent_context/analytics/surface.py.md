@@ -23,7 +23,8 @@ module-level constant `SURFACE`. All callers import this constant; no one calls
   - `analytics/__init__.py` — stamps `surface` onto every persisted event
   - `analytics/events.py` — defines `PROP_SURFACE` which capture sites pair
     with this value
-- **Depends on**: `os.environ` only — no DB, no network, no other module.
+- **Depends on**: `os.environ` and the pure-environment
+  `utils.deployment_mode` resolver — no DB or network.
 
 ## Design decisions
 
@@ -40,10 +41,12 @@ This is unforgeable (the process environment is set by the launcher before any
 request arrives) and never accidentally dropped (unlike a header that a proxy
 or client might omit).
 
-**Default to `"local"`**: an unset or invalid `NARRA_SURFACE` resolves to
-`"local"`. This is the safest default for development — local runs are far more
-common than the other surfaces and misconfiguration is immediately visible in
-event properties rather than silently mis-categorising traffic.
+**Fallback to canonical deployment mode with a warning**: an unset or invalid
+`NARRA_SURFACE` resolves through `NARRANEXUS_DEPLOYMENT_MODE` and its existing
+database-URL heuristic. This keeps direct-uvicorn cloud stacks correctly
+labelled even when they bypass `run.sh`; the warning makes a missing launcher
+contract observable. Desktop remains explicit because deployment mode only
+distinguishes cloud from local.
 
 **Resolved once, not per-call**: reading `os.environ` on every `track()` call
 would be harmless performance-wise, but resolving at import time makes the
@@ -56,6 +59,5 @@ process-lifetime property, not a per-request one.
 - In tests, patch `xyz_agent_context.analytics.surface.SURFACE` (the constant)
   not `os.environ["NARRA_SURFACE"]`. By the time the test runs, the module is
   already imported and `SURFACE` is already frozen.
-- If `NARRA_SURFACE` is set to any value not in `{"local", "desktop", "cloud"}`
-  the fallback is `"local"`. This is intentional — typos in the env var should
-  not produce an unknown surface value in the product facts.
+- If `NARRA_SURFACE` is invalid, it never becomes an unknown database value;
+  the process logs the bad value and uses canonical cloud/local inference.

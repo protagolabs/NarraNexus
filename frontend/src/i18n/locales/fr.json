@@ -785,7 +785,7 @@
       "privacyHeading": "Confidentialité",
       "privacyIntro": "Contrôlez les données que NarraNexus collecte pour améliorer le produit.",
       "analyticsTitle": "Analyses du produit",
-      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode local ou bureau, elles restent sur cet appareil et ne sont jamais envoyées à un service d'analyse externe. Aucun contenu de conversation n'est collecté.",
+      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
       "desktopHeading": "Bureau",
       "desktopIntro": "Paramètres contrôlant la manière dont NarraNexus interagit avec cet ordinateur. Disponible uniquement dans l'application de bureau.",
       "lockedUseTitle": "Locked Use — garder l'ordinateur éveillé",

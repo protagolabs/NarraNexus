@@ -658,7 +658,6 @@ _register(
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
             Index("idx_cost_records_user_id", ["user_id"]),
-            Index("idx_cost_provider_card_created", ["provider_card_source", "created_at"]),
         ],
     )
 )

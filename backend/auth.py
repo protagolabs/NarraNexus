@@ -395,6 +395,10 @@ QUOTA_BYPASS_PREFIXES = (
     # them. Billing calls carry no NarraNexus LLM cost (they proxy NetMind),
     # so bypass the quota gate.
     "/api/billing",
+    # First-party product facts are metadata-only and do not invoke an LLM.
+    # Quota-exhausted users must still be able to record upgrade and checkout
+    # actions; otherwise the payment funnel is biased exactly at the paywall.
+    "/api/analytics",
     # Notices are pure metadata (system notifications + mark-read) with no
     # LLM cost. The primary notice class is "your agent's provider is
     # broken / quota exhausted" — exactly the users the quota gate would

@@ -16,6 +16,14 @@ Signup paths persist only the `signed_up` first-party fact. The former
 `identify_user` calls and vendor-oriented privacy comments are gone; no user
 identity or trait leaves the configured NarraNexus database.
 
+## 2026-08-10 — setup events use the unified analytics route
+
+The legacy `POST /api/auth/funnel` endpoint and its duplicate allowlist were
+removed. Setup browser facts now use `POST /api/analytics/events`, gaining the
+same session ID, idempotency namespace, rate limit, and payload contract as all
+other frontend product events. Auth routes retain only the privacy setting and
+backend-owned signup fact.
+
 ## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
 
 原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +
@@ -241,48 +249,6 @@ active_run filter is unchanged.
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
-## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
-
-PR #24 review hardening. All three analytics endpoints (`GET/PUT
-/settings/analytics`, `POST /funnel`) now derive the user exclusively from
-`request.state.user_id` via the shared `_require_request_user()` helper
-(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
-`FunnelEventRequest` lost `properties`:
-
-- Opt-out previously trusted a client-supplied `user_id` (query/body), so
-  any authenticated user could read or flip another user's privacy
-  preference. Now impossible by shape — the request can't name a target.
-- The funnel endpoint previously forwarded an arbitrary client `properties`
-  dict to the analytics layer, letting a client override the server-derived `surface`
-  (dict.setdefault doesn't protect present keys) or inject junk. The
-  setup_* events carry no payload by design, so client properties are no
-  longer accepted at all.
-
-Frontend `api.ts` methods changed in the same commit (no user_id param, no
-properties param). Tests: `test_user_settings_routes.py` (per-user
-isolation + 401), `test_funnel_capture.py` (client properties ignored).
-
-## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
-
-Added `POST /api/auth/funnel` for the three pure-UI setup events
-(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
-backend signal, so the frontend reports them through this endpoint.
-
-Key design decisions:
-- **Identity from middleware only** (`request.state.user_id`, set by
-  `auth_middleware`). The body never carries identity — prevents a user from
-  spoofing events onto another user's funnel.
-- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
-  the three `setup_*` constants. Any other event name returns 400. This
-  prevents the endpoint from becoming a generic event firehose.
-- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
-  surface label exactly like every other funnel event. Never raises.
-- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
-  `properties: dict | None`.
-
-`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
-removed). The funnel no longer tracks agent creation.
-
 ## 2026-06-08 — analytics opt-out endpoints
 
 Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
@@ -300,13 +266,9 @@ Tests: `tests/backend/test_user_settings_routes.py`.
 
 ## 2026-06-08 — funnel: signed_up event
 
-`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
-success path. Additive instrumentation — best-effort, never raises.
-
-The `identify_user` traits deliberately carry only `role` — NOT
-`display_name`. The analytics layer hashes the distinct_id, so shipping the
-raw display name as a person trait would re-leak exactly the identity the
-hash is meant to hide. Keep identity-bearing fields out of traits.
+`create_user` records `track(EVENT_SIGNED_UP)` on the success path. The fact is
+best-effort, stays in the configured NarraNexus database, and never interrupts
+account creation.
 
 `create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
 was removed in the 2026-06-09 funnel redesign; create_agent is not a

@@ -21,8 +21,8 @@ machine.
 
 - **Consumed by**: routes and runtime services that record activation,
   messaging, failure, and payment facts.
-- **Depends on**: `analytics/surface.py`, `UserSettingsRepository`, and the
-  shared database client.
+- **Depends on**: `analytics/surface.py`, `UserSettingsRepository`,
+  `ProductAnalyticsRepository`, and the shared database client.
 - **Consumed downstream by**: `narranexus-data`, which has read-only access to
   the cloud RDS table. It cannot see local SQLite rows.
 
@@ -42,9 +42,9 @@ indexed columns. The compact JSON copy is retained for low-volume diagnosis,
 but capture sites must never send message text, credentials, email addresses,
 or other free-form PII.
 
-**Idempotent event IDs**: caller-supplied IDs are checked before insert and the
-database unique key is the final concurrency guard. Calls without a stable ID
-receive a UUID.
+**Idempotent event IDs**: persistence delegates to the repository's atomic
+insert-first deduplication. The first fact wins and concurrent replays cannot
+overwrite its dimensions. Calls without a stable ID receive a UUID.
 
 ## Gotchas
 
