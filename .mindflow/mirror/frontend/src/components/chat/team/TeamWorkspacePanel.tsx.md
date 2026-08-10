@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — Files 页可下载（验收 #5 的缺口）
+
+初版 Files 那半边每行是纯 `<div>`：名字/分享者/时间/大小，**没有任何下载入口**。
+Artifacts 那半边可点开内联渲染，Files 是死文本——验收 #5 的「可下载」当时被我打早了勾。
+
+**不能用 `<a href>`**：`GET /api/agent-inbox/attachments/raw` 是 JWT / X-User-Id 门禁的，
+浏览器导航两个都不带。复用既有的 `api.fetchBusAttachmentBlob`（[[useBusAttachmentBlobUrl.ts]]
+已在用同一条路），取到字节后走临时 object URL——**不新增第二条需要加固的下载路由**。
+
+端点本身天然安全：`resolve_shared_file_for_user` 按**调用者自己的 root** 解析，被篡改的
+path 最多够到调用者本就拥有的文件。
 
 ## 2026-08-07 (三次) — 改为纯展示组件，选中态由父级控制
 

@@ -22,6 +22,7 @@
 import { useState } from 'react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
+import { api } from '@/lib/api';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
@@ -69,6 +70,8 @@ export function TeamWorkspacePanel({
   onSelect,
 }: TeamWorkspacePanelProps) {
   const [tab, setTab] = useState<Tab>('artifacts');
+  // Download failures are the panel's own, not the parent's fetch error.
+  const [localError, setLocalError] = useState<string | null>(null);
 
   // Rendered in place rather than opened in a new tab: the panel exists so a
   // team's output can be read WHILE reading the conversation that produced it,
@@ -84,6 +87,24 @@ export function TeamWorkspacePanel({
   // No tab switching when a chip selects something: the preview is its own
   // region BELOW the list, so it shows regardless of which tab is active.
   // Forcing the tab would also yank the user out of Files mid-browse.
+
+  // A plain <a href> cannot work here: the endpoint is JWT/X-User-Id gated and
+  // a browser navigation attaches neither. Reuses the same authed fetch the
+  // bus-attachment hook already uses, then hands the bytes to a temporary
+  // object URL — no second download route to secure.
+  const download = async (file: TeamFile) => {
+    try {
+      const blob = await api.fetchBusAttachmentBlob(file.rel_path);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.original_name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : 'Download failed');
+    }
+  };
 
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
@@ -110,8 +131,10 @@ export function TeamWorkspacePanel({
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {error && (
-          <div className="px-3 py-2 text-[11px] text-[var(--nm-danger,#c0392b)]">{error}</div>
+        {(error || localError) && (
+          <div className="px-3 py-2 text-[11px] text-[var(--nm-danger,#c0392b)]">
+            {error || localError}
+          </div>
         )}
 
         {tab === 'artifacts' &&
@@ -148,16 +171,19 @@ export function TeamWorkspacePanel({
             />
           ) : (
             files.map((f) => (
-              <div
+              <button
                 key={f.file_id}
-                className="px-3 py-2 border-b border-[var(--nm-hairline)]"
+                type="button"
+                onClick={() => void download(f)}
+                title={`Download ${f.original_name}`}
+                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)]"
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{f.original_name}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
                   {f.shared_by_agent_id} · {formatWhen(f.created_at)}
                   {f.size_bytes ? ` · ${formatSize(f.size_bytes)}` : ''}
                 </div>
-              </div>
+              </button>
             ))
           ))}
       </div>
