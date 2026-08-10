@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/_wechat_mcp_tools.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — wechat_send 改走 wechat_outbound 路由
+
+发送后端从 `send_text_once` 换成 [[wechat_outbound.py]] 的
+`send_wechat_text`。**工具签名/描述一字未动**(`to_user_id` /
+`context_token` 参数保留)——managed 路由下 token 被忽略(平台按
+room 解析收件人),direct 路由语义不变;prompt 面零变化是平台
+第二轮回复对切换方式的明确要求(改造面收敛在工具后端一处)。
 
 ## 2026-07-10 — react_to_user_message tool (uniform, but unsupported)
 

@@ -29,7 +29,7 @@ from xyz_agent_context.schema import ContextData, ModuleConfig, WorkingSource
 
 from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManager
 from ._wechat_mcp_tools import register_wechat_mcp_tools
-from .wechat_sdk_client import send_text_once
+from .wechat_outbound import send_wechat_text
 
 # MCP port. 7833=NarraMessenger, 7834=Discord (moved there on dev to clear a
 # NarraMessenger clash), so WeChat takes 7835.
@@ -139,8 +139,12 @@ class WeChatModule(ChannelModuleBase):
         if not cred:
             return {"success": False, "error": "no WeChat credential bound"}
         context_token = kwargs.get("context_token", "") or ""
-        ok = await send_text_once(
-            cred.bot_token, cred.base_url, target_id, context_token, message
+        ok = await send_wechat_text(
+            agent_id=agent_id,
+            credential=cred,
+            to_user_id=target_id,
+            context_token=context_token,
+            text=message,
         )
         return {"success": True} if ok else {"success": False, "error": "send_failed"}
 

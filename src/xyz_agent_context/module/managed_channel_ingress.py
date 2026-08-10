@@ -122,9 +122,19 @@ class ManagedChannelIngress:
         trigger_extra_data: dict,
         db: Any,
     ) -> tuple[bool, str]:
-        """Run the channel's pre-run business gate. Returns (allow, receipt)."""
+        """Run the channel's pre-run business gate. Returns (allow, receipt).
+
+        Also stamps the #254 turn envelope (``channel_room_type`` +
+        ``channel_reply_kwargs``) onto ``trigger_extra_data``: native turns
+        get it from the context builder inside
+        ``ChannelTriggerBase.build_trigger_extra_data``, but managed turns
+        never run a context builder — without the stamp, step_3 reads every
+        managed 1:1 DM as a group room and the no-reply fallback is dead
+        code on the whole managed surface.
+        """
         channel = working_source.value
         trigger = self._trigger(channel)
+        self._stamp_turn_envelope(trigger, trigger_extra_data)
         if trigger is None:
             if working_source is WorkingSource.NARRAMESSENGER:
                 return False, (
@@ -147,6 +157,38 @@ class ManagedChannelIngress:
                 # The hook that failed IS the authorization gate: fail-closed.
                 return False, "narramessenger authorization failed"
             return True, ""
+
+    @staticmethod
+    def _stamp_turn_envelope(
+        trigger: Optional[ChannelTriggerBase], trigger_extra_data: dict
+    ) -> None:
+        """Synthesize the turn envelope for a managed turn. Never raises.
+
+        Room type comes from the wire ``chat_type`` (only ``"group"`` reads
+        as a group room — DMs arrive as ``"private"`` or with the field
+        absent). Reply kwargs are channel-specific and come from the
+        trigger's ``managed_reply_kwargs`` seam; no trigger → no kwargs,
+        which step_3 treats as "deliver with target_id only".
+        """
+        from xyz_agent_context.channel.channel_prompts import (
+            ROOM_TYPE_DIRECT,
+            ROOM_TYPE_GROUP,
+        )
+
+        is_group = trigger_extra_data.get("chat_type") == "group"
+        trigger_extra_data["channel_room_type"] = (
+            ROOM_TYPE_GROUP if is_group else ROOM_TYPE_DIRECT
+        )
+        if trigger is not None:
+            try:
+                trigger_extra_data["channel_reply_kwargs"] = (
+                    trigger.managed_reply_kwargs(trigger_extra_data)
+                )
+            except Exception as e:  # noqa: BLE001 — envelope is best-effort
+                logger.warning(
+                    f"managed ingress: managed_reply_kwargs failed "
+                    f"({type(e).__name__}: {e}); turn degrades to no-fallback"
+                )
 
     async def convert_attachments(
         self,
