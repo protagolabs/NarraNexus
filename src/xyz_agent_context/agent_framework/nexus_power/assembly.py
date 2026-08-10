@@ -204,7 +204,7 @@ async def run_turn_events(
         agent_id=opts.agent_id,
         workspace=workspace,
         extra_env=dict(opts.env),
-        extra_readable_roots=tuple(opts.extra_readable_roots),
+        extra_accessible_roots=tuple(opts.extra_accessible_roots),
     )
     ledger = TurnLedger(request.thread_id)
     profile = resolve_profile(opts.model, opts.provider)

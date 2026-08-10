@@ -111,7 +111,7 @@ def build_agent_loop_request(
     agent_id: str = "agent",
     expressive_tools: Optional[list[str]] = None,
     turn_profile: Optional[dict[str, Any]] = None,
-    extra_readable_roots: Optional[list[str]] = None,
+    extra_accessible_roots: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -146,7 +146,7 @@ def build_agent_loop_request(
         # absolutes; this is safe for the same reason `working_path` is: the
         # per-user Executor bind-mounts that same user subtree, so both sides
         # name it identically.
-        "extra_readable_roots": extra_readable_roots or [],
+        "extra_accessible_roots": extra_accessible_roots or [],
         "provider_configs": serialize_provider_configs(),
     }
     return body

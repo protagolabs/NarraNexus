@@ -98,6 +98,44 @@ def team_shared_dir(user_id: str, team_id: str, base: Optional[str] = None) -> P
     return user_shared_root(user_id, base) / _TEAMS_DIRNAME / team_id
 
 
+def turn_accessible_roots(
+    user_id: str, team_id: Optional[str] = None, base: Optional[str] = None
+) -> tuple[str, ...]:
+    """Absolute roots one turn may reach OUTSIDE its own agent workspace.
+
+    "Accessible", not "readable": the confinement layers that consume this
+    inspect `file_path` and shell paths too, so the same grant governs Write,
+    Edit and rm. Naming it after reading would understate it.
+
+    Two entries, and they are different in kind:
+
+    * ``bus_files`` — user-wide by design. The bus stages an attachment ONCE
+      into the owner's shared area and every same-user recipient reads that
+      one path; narrowing it per team would break message delivery, which
+      acceptance #6 covers explicitly.
+    * ``teams/{team_id}`` — ONLY the team this turn belongs to. One owner has
+      many teams, so granting the whole ``_shared`` tree (as the first version
+      did) handed every team's folder to every turn, including one-to-one
+      chats that belong to no team. That is the same owner-vs-membership
+      mistake `list_for_agent_context` documents as the cross-team leak.
+
+    The parent ``_shared`` is deliberately never returned: it would re-admit
+    every team through one entry.
+
+    Args:
+        user_id: Owner of the turn.
+        team_id: Team whose room the turn runs in; None/"" outside a team.
+        base: Workspace root override (tests).
+
+    Returns:
+        Absolute paths, always including the bus attachment dir.
+    """
+    roots = [str(bus_files_dir(user_id, base))]
+    if team_id:
+        roots.append(str(team_shared_dir(user_id, team_id, base)))
+    return tuple(roots)
+
+
 def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
     """All workspace-dir relpath forms, current layout first then legacy.
 

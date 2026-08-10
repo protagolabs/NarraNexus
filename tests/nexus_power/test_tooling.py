@@ -507,7 +507,7 @@ async def test_dispatcher_rejects_missing_required_args_before_routing(ctx, engi
 # folder (`_shared/teams/{team_id}`, a SIBLING of the agent workspace), but
 # both confinement layers denied it — prompt and framework contradicted each
 # other, and claude/codex (which have no such layer) behaved differently.
-# `extra_readable_roots` is the framework-generic escape hatch: the PLATFORM
+# `extra_accessible_roots` is the framework-generic escape hatch: the PLATFORM
 # decides which roots are additionally readable this turn; the framework
 # never learns what `_shared` means. Fail-closed is preserved — an empty
 # tuple (the default) reproduces the old behaviour exactly.
@@ -527,7 +527,7 @@ def ctx_with_shared(workspace, shared_root):
     return ToolContext(
         agent_id="a1",
         workspace=str(workspace),
-        extra_readable_roots=(str(shared_root),),
+        extra_accessible_roots=(str(shared_root),),
     )
 
 
@@ -578,3 +578,61 @@ def test_no_extra_roots_preserves_old_behaviour(engine, ctx, shared_root):
         _pctx(ctx),
     )
     assert not denied.allowed and "outside the workspace" in denied.reason
+
+
+def test_a_granted_root_does_not_admit_its_siblings(engine, workspace, tmp_path):
+    """Granting one team's folder must not admit the team next to it.
+
+    The narrow grant only holds if the layer compares against the granted path
+    itself and not its parent. Two sibling directories under a common root are
+    exactly the shape that would slip through a parent-based check — and the
+    common root here is `_shared`, which holds every team the owner has.
+    """
+    # OUTSIDE the workspace, mirroring the real layout: `_shared` is a sibling
+    # of each agent workspace, never inside one. Putting it under the workspace
+    # would make this test pass on workspace containment alone and prove
+    # nothing about the grant.
+    shared = tmp_path.parent / "i3_shared" / "teams"
+    mine = shared / "team_1"
+    theirs = shared / "team_2"
+    mine.mkdir(parents=True, exist_ok=True)
+    theirs.mkdir(parents=True, exist_ok=True)
+    (mine / "ours.md").write_text("ours")
+    (theirs / "secret.md").write_text("theirs")
+
+    ctx = ToolContext(
+        agent_id="a1", workspace=str(workspace), extra_accessible_roots=(str(mine),)
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    allowed = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(mine / "ours.md")}), pctx
+    )
+    assert allowed.allowed, allowed.reason
+
+    denied = engine.check(
+        ToolCall(id="2", name="read_file", args={"path": str(theirs / "secret.md")}), pctx
+    )
+    assert not denied.allowed, "a sibling team's folder must stay out of bounds"
+
+
+def test_the_grant_covers_writes_not_just_reads(engine, workspace, tmp_path):
+    """Pins the reason the field is called "accessible": `file_path` is in
+    `_PATH_ARG_NAMES`, so write tools are governed by the same list. A reader
+    who assumes read-only would under-estimate what a grant hands out."""
+    granted = tmp_path.parent / "i3_shared_w" / "teams" / "team_1"
+    granted.mkdir(parents=True, exist_ok=True)
+
+    ctx = ToolContext(
+        agent_id="a1", workspace=str(workspace), extra_accessible_roots=(str(granted),)
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    write = engine.check(
+        ToolCall(
+            id="1", name="write_file",
+            args={"path": str(granted / "new.md"), "content": "x"},
+        ),
+        pctx,
+    )
+    assert write.allowed, "the grant is not read-only, and the name now says so"

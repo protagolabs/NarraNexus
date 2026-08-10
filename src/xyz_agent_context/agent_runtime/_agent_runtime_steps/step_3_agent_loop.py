@@ -900,19 +900,23 @@ async def step_3_agent_loop(
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
-    # The per-user shared area (`{base}/{user_id}/_shared`) holds bus
-    # attachments and every team's shared folder. It is deliberately a
-    # SIBLING of each agent workspace so no single agent owns it — which
-    # also puts it outside NexusPower's workspace confinement, while the
-    # team prompt tells the agent to Read exactly those paths (and
-    # claude/codex, running no such layer, always could). Granting it here
-    # makes the three frameworks agree with the prompt.
+    # What this turn may reach outside its own workspace: the bus attachment
+    # dir (user-wide by design — the bus stages one copy per owner and every
+    # same-user recipient reads that path) plus the shared folder of the ONE
+    # team this turn belongs to.
     #
-    # Scope note: `_shared` is under THIS user's root, and the message bus
-    # forbids cross-user messaging, so this grants nothing across users —
-    # it is the same subtree the per-user Executor already bind-mounts.
-    from xyz_agent_context.utils.workspace_paths import user_shared_root
-    extra_readable_roots = (str(user_shared_root(ctx.user_id, base=working_path)),)
+    # Narrowed after review: the first version granted the whole per-user
+    # `_shared` tree on every turn, which handed every team the owner has to
+    # every turn, including one-to-one chats belonging to no team. That is the
+    # owner-vs-membership mistake the rest of this feature deliberately avoids
+    # (see `_resolve_entry` and `list_for_agent_context`), and it is not
+    # read-only: the confinement layers inspect `file_path` and shell paths,
+    # so the grant covers Write, Edit and rm.
+    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+    _turn_extra = ctx.trigger_extra_data or {}
+    extra_accessible_roots = turn_accessible_roots(
+        ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path
+    )
 
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}
@@ -977,7 +981,7 @@ async def step_3_agent_loop(
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
             turn_profile=ctx.turn_profile,
-            extra_readable_roots=extra_readable_roots,
+            extra_accessible_roots=extra_accessible_roots,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

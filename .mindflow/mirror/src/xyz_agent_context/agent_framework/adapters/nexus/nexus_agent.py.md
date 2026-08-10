@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
 
 ## 2026-08-07 — options 透传 `extra_readable_roots`
 

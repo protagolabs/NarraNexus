@@ -117,12 +117,14 @@ class ToolContext:
     agent_id: str
     workspace: str
     extra_env: dict[str, str] = field(default_factory=dict)
-    #: Absolute roots that are readable THIS TURN in addition to the
-    #: workspace. The framework never interprets them — the platform decides
-    #: what to grant (e.g. a team's shared folder, which lives outside any
-    #: single agent's workspace by design). Empty (the default) reproduces
-    #: pure workspace confinement, so the widening is always opt-in.
-    extra_readable_roots: tuple[str, ...] = ()
+    #: Absolute roots this turn may ACCESS in addition to the workspace.
+    #: Not "readable": the confinement layers inspect `file_path` and shell
+    #: paths, so the same grant governs Write, Edit and rm. The framework never
+    #: interprets them — the platform decides what to grant (e.g. one team's
+    #: shared folder, which lives outside any single agent's workspace by
+    #: design). Empty (the default) reproduces pure workspace confinement, so
+    #: the widening is always opt-in.
+    extra_accessible_roots: tuple[str, ...] = ()
 
 
 class PolicyVerdict(Enum):

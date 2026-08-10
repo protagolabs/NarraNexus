@@ -63,7 +63,7 @@ def _permitted_roots(ctx: PolicyContext) -> tuple[Path, ...]:
     than widened.
     """
     roots = [Path(ctx.tool_ctx.workspace).resolve()]
-    for raw in ctx.tool_ctx.extra_readable_roots:
+    for raw in ctx.tool_ctx.extra_accessible_roots:
         if not raw:
             continue
         try:

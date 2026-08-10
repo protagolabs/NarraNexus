@@ -258,7 +258,7 @@ class NexusAgent:
             # this agent's workspace by design; the caller decides which
             # roots this turn may additionally read. Absent → unchanged
             # workspace-only confinement.
-            "extra_readable_roots": tuple(kwargs.get("extra_readable_roots") or ()),
+            "extra_accessible_roots": tuple(kwargs.get("extra_accessible_roots") or ()),
             "model": model,
             "provider": protocol,
             "api_key": api_key,

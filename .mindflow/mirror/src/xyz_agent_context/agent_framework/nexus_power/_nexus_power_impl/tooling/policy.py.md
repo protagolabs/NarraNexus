@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/tooling/policy.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名，并补两条守卫
+
+`extra_readable_roots` → `extra_accessible_roots`。名字必须诚实：`_PATH_ARG_NAMES` 含
+`file_path`，`ShellConfinementLayer` 管 shell 路径，所以这份授予同时管**写和删**，
+不是只读。
+
+`tests/nexus_power/test_tooling.py` 补了两条：**兄弟 team 目录仍被拒**（证明比较的是被授予
+路径本身而非其父目录——共同父目录恰好是 `_shared`，装着该 owner 的所有 team），以及
+**授予覆盖写**（把名字的含义钉死）。
+
+写第一条时踩到一个陷阱值得记：把 `_shared` 建在 workspace **内部**会让测试凭 workspace 包含
+关系通过，**假绿**、什么也没证明。真实布局里 `_shared` 是 workspace 的 sibling，测试必须照此
+搭建。
 
 ## 2026-08-07 — extra_readable_roots：协作区放行（团队共享工作台前置）
 
