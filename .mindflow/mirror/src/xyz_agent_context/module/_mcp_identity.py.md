@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — bearer 追加第 7 段 identity_token(可验证身份,蓝图 P1)
+
+前 6 段全是**自声明**事实(fail-open 便利);第 7 段是**证明**:平台签的
+Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自签),
+绑 `sub=user_id`。签/验/策略都在 [[identity/tokens]] / [[identity/mcp_auth]],
+本模块只负责运载与解析 —— 分工:这里回答"调用者**说**自己是谁",identity/
+包回答"能不能**证明**"。
+
+- 上 bearer 是必然:codex 只转发 Authorization;JWT 字符集无 `~`,field-safe
+  (有测试钉住)。显式头 `X-NarraNexus-Identity-Token` 照旧双发。
+- 新增 `stamp_identity_token(mcp_servers, token)`:在 **dispatch 时**(step_3,
+  ensure 之后)往已建好的 headers 里补 token —— context_runtime 盖章时云 token
+  还不存在(broker 是签发方)。重发走 `agent_id_headers` 这唯一构造器,
+  绝不手搓第二个 bearer;非 nx-agent 的真 bearer 原样不动。
+- 契约测试:parametrize 扩到 7、逐位钉 `BEARER_FIELDS[6]`,新增 stamp 往返
+  与"外来 bearer 不重写"用例。
+
 ## 2026-08-07 (二次) — root_run_id 落在第 6 位,不是第 5 位
 
 `user_id`(dev)与 `root_run_id`(级联停止)是并行写的,**两者都曾落在

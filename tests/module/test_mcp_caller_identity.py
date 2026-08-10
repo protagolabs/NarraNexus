@@ -419,7 +419,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
     count — and each present field must land in its own slot.
@@ -443,12 +443,18 @@ def test_every_field_count_parses(count):
         caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 6, "arity changed — update _parse_bearer + this test"
+    assert len(BEARER_FIELDS) == 7, "arity changed — update _parse_bearer + this test"
     assert BEARER_FIELDS[4] == "user_id" and BEARER_FIELDS[5] == "root_run_id", (
         "field ORDER changed — the wire is positional; a swap silently "
         "decodes one fact as another"
     )
-    values = [REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1", "evt_root1"][:count]
+    assert BEARER_FIELDS[6] == "identity_token", (
+        "identity_token must stay at slot #7 — verifiers read it positionally"
+    )
+    values = [
+        REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1",
+        "evt_root1", "tok.abc",
+    ][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
         assert caller_turn_source() == (values[1] if count >= 2 else None)
@@ -457,6 +463,14 @@ def test_every_field_count_parses(count):
         assert channel == (values[3] if count >= 4 else None)
         assert caller_user_id_from_request() == (values[4] if count >= 5 else None)
         assert caller_root_run_id() == (values[5] if count >= 6 else None)
+        parsed = _parse_bearer_for_test(_bearer(*values))
+        assert parsed.identity_token == (values[6] if count >= 7 else None)
+
+
+def _parse_bearer_for_test(auth: str):
+    from xyz_agent_context.module._mcp_identity import _parse_bearer
+
+    return _parse_bearer(auth)
 
 
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
@@ -580,3 +594,65 @@ def test_no_errand_scope_emits_no_scope_headers_and_no_trailing_separators():
     assert headers["Authorization"] == f"Bearer {BEARER_AGENT_PREFIX}{REAL}~chat"
     with injected(headers):
         assert caller_errand_scope() == (None, None)
+
+# ---------------------------------------------------------------------------
+# identity_token (field #7) — carriage + dispatch-time stamping
+# ---------------------------------------------------------------------------
+
+
+def test_agent_id_headers_carries_identity_token():
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        agent_id_headers,
+    )
+
+    h = agent_id_headers(REAL, user_id="usr_1", identity_token="tok.abc")
+    assert h[IDENTITY_TOKEN_HEADER] == "tok.abc"
+    # codex only forwards the bearer — the token MUST ride it too.
+    assert h["Authorization"].endswith("~tok.abc")
+
+
+def test_agent_id_headers_without_token_is_unchanged():
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        agent_id_headers,
+    )
+
+    h = agent_id_headers(REAL, user_id="usr_1")
+    assert IDENTITY_TOKEN_HEADER not in h
+    assert not h["Authorization"].endswith("~")
+
+
+def test_stamp_identity_token_rebuilds_existing_headers():
+    from xyz_agent_context.module._mcp_identity import (
+        _parse_bearer,
+        agent_id_headers,
+        stamp_identity_token,
+    )
+
+    servers = {
+        "awareness": {
+            "url": "http://mcp:7801/sse",
+            "headers": agent_id_headers(REAL, turn_source="chat", user_id="usr_1"),
+        }
+    }
+    stamp_identity_token(servers, "tok.abc")
+    ident = _parse_bearer(servers["awareness"]["headers"]["Authorization"])
+    assert ident.identity_token == "tok.abc"
+    # Every previously-carried fact survives the restamp.
+    assert ident.agent_id == REAL
+    assert ident.turn_source == "chat"
+    assert ident.user_id == "usr_1"
+
+
+def test_stamp_skips_headerless_and_foreign_specs():
+    from xyz_agent_context.module._mcp_identity import stamp_identity_token
+
+    servers = {
+        "no_headers": {"url": "http://mcp:7801/sse"},
+        "foreign": {"url": "http://x/", "headers": {"Authorization": "Bearer real-token"}},
+    }
+    stamp_identity_token(servers, "tok.abc")
+    assert "headers" not in servers["no_headers"]
+    # A non-nx bearer must never be rewritten into an identity record.
+    assert servers["foreign"]["headers"] == {"Authorization": "Bearer real-token"}

@@ -114,6 +114,13 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 # NULL as "not part of the tree being stopped".
 ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 
+# The PROOF for everything above: a short-lived Ed25519 JWT signed by the
+# platform (cloud: the executor broker at ensure() time; local: the
+# agent-runtime process), bound to the turn owner's user_id. The six facts
+# before it are self-declared conveniences; this one is verifiable — see
+# module/identity/ for signing/verification and the enforcement policy.
+IDENTITY_TOKEN_HEADER = "X-NarraNexus-Identity-Token"
+
 # Everything above ALSO rides the borrowed bearer, because codex forwards
 # nothing else. Shipping a fact only on an explicit header was a real hole
 # (PR #229 review): a codex-side asker always wrote NULL turn source, and the
@@ -155,6 +162,13 @@ BEARER_FIELDS = (
     # nothing would go red. That is why `test_every_field_count_parses`
     # asserts position by position, not just the total.
     "root_run_id",
+    # Appended 2026-08-10 (MCP caller auth, blueprint P1). The signed Ed25519
+    # identity token proving the turn owner (see module/identity/tokens.py).
+    # It rides the bearer because codex forwards NOTHING else; JWT's charset
+    # ([A-Za-z0-9_.-]) contains no "~", so it is field-safe. Verified by
+    # identity/mcp_auth.py; every field before it stays self-declared and
+    # fail-open exactly as documented above.
+    "identity_token",
 )
 
 # Values a model supplies when it is guessing instead of reading its prompt.
@@ -234,6 +248,7 @@ class BearerIdentity(NamedTuple):
     errand_channel: Optional[str] = None
     user_id: Optional[str] = None
     root_run_id: Optional[str] = None
+    identity_token: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -592,6 +607,7 @@ def agent_id_headers(
     errand_channel: str | None = None,
     user_id: str | None = None,
     root_run_id: str | None = None,
+    identity_token: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -613,6 +629,7 @@ def agent_id_headers(
         errand_channel or "",
         user_id or "",
         root_run_id or "",
+        identity_token or "",
     ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
@@ -628,10 +645,46 @@ def agent_id_headers(
         (ERRAND_CHANNEL_HEADER, errand_channel),
         (USER_ID_HEADER, user_id),
         (ROOT_RUN_ID_HEADER, root_run_id),
+        (IDENTITY_TOKEN_HEADER, identity_token),
     ):
         if value:
             headers[header] = str(value)
     return headers
+
+
+def stamp_identity_token(mcp_servers: dict, token: str) -> None:
+    """Append the signed identity token to every server spec's built headers.
+
+    Stamped at DISPATCH time (step_3), not at spec build (context_runtime):
+    the cloud token is minted by the broker and only exists once ensure()
+    has answered — the spec's headers were already built by then. Mutates
+    ``mcp_servers`` in place, re-emitting each header set through
+    :func:`agent_id_headers` — the ONE bearer builder; a second hand-rolled
+    record here is exactly the drift the ``BEARER_FIELDS`` contract forbids.
+
+    Specs without headers, and Authorization values that are not our
+    ``nx-agent:`` record (a user's real bearer for some external MCP), are
+    left strictly alone.
+    """
+    for spec in mcp_servers.values():
+        headers = spec.get("headers")
+        if not headers:
+            continue
+        ident = _parse_bearer(headers.get("Authorization", ""))
+        if not ident.agent_id:
+            continue
+        spec["headers"] = {
+            **headers,
+            **agent_id_headers(
+                ident.agent_id,
+                turn_source=ident.turn_source,
+                errand_peer=ident.errand_peer,
+                errand_channel=ident.errand_channel,
+                user_id=ident.user_id,
+                root_run_id=ident.root_run_id,
+                identity_token=token,
+            ),
+        }
 
 
 def caller_turn_source() -> Optional[str]:
@@ -703,6 +756,7 @@ __all__ = [
     "BEARER_FIELD_SEP",
     "BEARER_FIELDS",
     "BearerIdentity",
+    "IDENTITY_TOKEN_HEADER",
     "TURN_SOURCE_HEADER",
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
@@ -723,4 +777,5 @@ __all__ = [
     "placeholder_agent_id_error",
     "resolve_caller_agent_id",
     "resolve_caller_user_id",
+    "stamp_identity_token",
 ]
