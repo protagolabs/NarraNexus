@@ -91,6 +91,9 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelHistoryConfig,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+)
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -235,10 +238,18 @@ class _StreamReplyState:
       Python exception. Signals finalize to surface ``STREAM_ERROR_MARKER``.
     - ``last_error_message`` — short excerpt for the log line only;
       never rendered in the room (which just gets the generic marker).
+    - ``platform_reply_text`` — a reply the PLATFORM wrote and ALREADY
+      delivered (step_3's 1:1 DM no-reply fallback, which sends through
+      ``ChannelSenderRegistry`` itself). Deliberately a separate field from
+      ``narra_reply_text``: finalize fresh-sends the latter to the room, so
+      reusing it would deliver the same message twice. This one is only
+      used as the return value, so the inbox records what was said instead
+      of an empty string.
     """
     narra_reply_text: str = ""
     error_seen: bool = False
     last_error_message: str = ""
+    platform_reply_text: str = ""
     # F28 voice turn only: the live-delivery bridge. None on text turns —
     # every legacy branch below checks nothing and behaves exactly as
     # before (the guard is "bridge is None", not a mode flag).
@@ -1665,19 +1676,23 @@ class MatrixTrigger(ChannelTriggerBase):
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": anchor,
-            "trigger_id": (
+        # Through the base builder. This streaming path is the DEFAULT
+        # (STREAMING_ENABLED), and hand-rolling the dict here is how
+        # NarraMessenger missed the 2026-08-06 turn envelope: DMs read as
+        # group rooms, so the 1:1 no-reply fallback never ran — and this
+        # path's terminal case for "no reply + no error" is precisely the
+        # NO-OP silence that fallback exists to remove.
+        extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=anchor,
+            trigger_id=(
                 f"{self.channel_name}_{message.message_id}"
                 if message.message_id
                 else f"{self.channel_name}_unknown"
             ),
-        }
-        if attachments:
-            extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            builder=builder,
+            attachments=attachments,
+        )
 
         # F28 voice turn: the one-shot fast profile rides this run only;
         # rtc_voice reaches modules via extra_data (expressive surface
@@ -1780,11 +1795,24 @@ class MatrixTrigger(ChannelTriggerBase):
             await self._send_matrix_reply(
                 credential, message.chat_id, final_text
             )
-        else:
-            await self._finalize_stream_silent(
-                credential, message.chat_id, state
+            return final_text
+
+        platform_text = (state.platform_reply_text or "").strip()
+        if platform_text:
+            # Already in the room: step_3's fallback delivered it through
+            # ChannelSenderRegistry before this stream ended. Return it so
+            # the base writes the real text to the inbox, and touch the room
+            # NOT AT ALL — sending here would double-message the person.
+            logger.info(
+                f"[matrix:{credential.agent_id}] stream ended with a "
+                f"platform-delivered reply; recording it without a room write"
             )
-        return final_text
+            return platform_text
+
+        await self._finalize_stream_silent(
+            credential, message.chat_id, state
+        )
+        return ""
 
     async def _handle_stream_event(
         self,
@@ -1854,6 +1882,26 @@ class MatrixTrigger(ChannelTriggerBase):
                 return
         if not isinstance(arguments, dict):
             return
+
+        # A reply the platform wrote AND already delivered (step_3's 1:1 DM
+        # no-reply fallback sends through ChannelSenderRegistry). Recognised
+        # here because this streaming path is the DEFAULT one and never
+        # reaches `resolve_agent_response` — it returns the text captured
+        # mid-stream instead, so without this the turn finalises as silent
+        # and the inbox records "" for a message the person did receive.
+        # Captured into its OWN field: finalize fresh-sends
+        # `narra_reply_text` to the room, so reusing it would deliver the
+        # same message a second time.
+        platform_text = arguments.get(PLATFORM_REPLY_TEXT_KEY)
+        if isinstance(platform_text, str) and platform_text.strip():
+            state.platform_reply_text = platform_text
+            logger.info(
+                f"[matrix:{credential.agent_id}] streaming captured a "
+                f"platform-delivered reply (len={len(platform_text)}, "
+                f"room={room_id}); no room write from this trigger"
+            )
+            return
+
         text = arguments.get("text")
         if not (isinstance(text, str) and text.strip()):
             return
@@ -1908,9 +1956,15 @@ class MatrixTrigger(ChannelTriggerBase):
           was. No dot marker, no redact, no "message deleted" indicator.
         """
         if not state.error_seen:
+            # Reached only when nothing was said by ANYONE this turn — the
+            # caller returns before this when the platform's own fallback
+            # already delivered a reply. Saying "no reply" in that case
+            # would send a debugger looking for a silent turn that was in
+            # fact answered.
             logger.info(
-                f"[matrix:{credential.agent_id}] silent stream — no reply, "
-                f"no error, staying quiet (room={room_id})"
+                f"[matrix:{credential.agent_id}] silent stream — no reply "
+                f"from the agent, none written by the platform, no error; "
+                f"staying quiet (room={room_id})"
             )
             return
 

@@ -30,6 +30,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+    ROOM_TYPE_GROUP,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -96,7 +100,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
             "channel_key": "narramessenger",
             "room_name": room_name,
             "room_id": room_id,
-            "room_type": "Group Room" if is_group else "Direct Message",
+            "room_type": ROOM_TYPE_GROUP if is_group else ROOM_TYPE_DIRECT,
             "sender_display_name": self._message.sender_name or self._message.sender_id,
             "sender_id": self._message.sender_id,
             "timestamp": str(self._message.timestamp_ms),

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import time
 from abc import ABC, abstractmethod
@@ -97,6 +98,15 @@ from xyz_agent_context.repository.channel_trigger_audit_repository import (
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.channel_tag import ChannelTag
+# Top-level, matching the same hoist done in step_3 this round: no cycle
+# here either — `channel/__init__.py` imports message_source_handler well
+# before channel_trigger_base. (The NOTE at the top of this file about lazy
+# imports is specifically about `agent_runtime.client`, a different
+# direction.) Two styles for the same module in one change would read as a
+# trap that isn't there.
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+)
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
 from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
@@ -1437,6 +1447,77 @@ class ChannelTriggerBase(ABC):
             tool_ref=None, room_id="", message_id="", inline=True,
         )
 
+    def build_trigger_extra_data(
+        self,
+        *,
+        channel_tag: ChannelTag,
+        retrieval_anchor: Optional[str],
+        trigger_id: str,
+        builder: Any = None,
+        attachments: Optional[list[Attachment]] = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        """Assemble ``trigger_extra_data`` for one channel turn.
+
+        **Every** path that starts an AgentRuntime run for an inbound
+        channel message must go through here — including subclasses that
+        override ``_build_and_run_agent`` wholesale (Lark) or ship their own
+        streaming variant (NarraMessenger).
+
+        Why it is a base-class seam rather than a line each site remembers
+        to add: the dict was hand-rolled in four places, and the 2026-08-06
+        turn envelope (`channel_room_type` / `channel_reply_kwargs`) was
+        added to exactly one of them. The other three silently reported an
+        empty room type, so `step_3` read every Lark / NarraMessenger /
+        silent-batch DM as a group room and the 1:1 no-reply fallback was
+        dead code on those channels — the same defect class as the ctx-vs-
+        context wiring bug, twice more. A shared builder is what makes the
+        NEXT envelope key impossible to miss.
+
+        ``builder`` is optional: paths with no context builder (the silent
+        batch merge) get no envelope, which degrades to "not a DM" — no
+        fallback, the safe default.
+
+        ``**extra`` carries per-path keys — Lark's ``source_message_id`` and
+        the batch path's ``batch_messages`` today. Empty values are dropped
+        so callers don't have to branch.
+
+        NarraMessenger's ``rtc_voice`` deliberately does NOT come through
+        here: it depends on a ``turn_profile`` computed after this call, so
+        that path assigns it onto the returned dict afterwards. Stated
+        because this docstring is the contract for the seat — an example
+        listed here that the code does differently is worse than no example.
+        """
+        extra_data: dict[str, Any] = {
+            "channel_tag": channel_tag.to_dict(),
+            "retrieval_anchor": retrieval_anchor,
+            "trigger_id": trigger_id,
+        }
+        for key, value in extra.items():
+            if value is not None:
+                extra_data[key] = value
+        # Room type + this channel's delivery kwargs. step_3 needs both to
+        # decide whether a silent turn was a 1:1 DM (where a person is
+        # waiting) and, if so, to deliver a platform-written reply through
+        # ChannelSenderRegistry. Generic keys on purpose — the runtime must
+        # not learn any channel's specifics (iron rule #3).
+        if builder is not None:
+            try:
+                extra_data.update(builder.turn_envelope())
+            except Exception as e:  # noqa: BLE001 — envelope is best-effort
+                logger.warning(
+                    f"{type(self).__name__}: turn_envelope failed "
+                    f"({type(e).__name__}: {e}); turn degrades to non-DM"
+                )
+        # Only set "attachments" when non-empty — matches the WS route
+        # pattern in backend/routes/websocket.py:644-648 so ChatModule's
+        # downstream `.get("attachments")` check behaves identically.
+        if attachments:
+            extra_data["attachments"] = [
+                a.model_dump(mode="json") for a in attachments
+            ]
+        return extra_data
+
     async def _build_and_run_agent(
         self,
         credential: Any,
@@ -1492,27 +1573,22 @@ class ChannelTriggerBase(ABC):
         # the fix here for free.
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": anchor,
-            "trigger_id": (
+        extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=anchor,
+            trigger_id=(
                 f"{self.channel_name}_{message.message_id}"
                 if message.message_id
                 else f"{self.channel_name}_unknown"
             ),
+            builder=builder,
+            attachments=attachments,
             # The inbound platform message id, surfaced per-turn so a channel
             # module's get_instructions can tell the agent which message to
             # react to / reply in-thread (the react_to_user_message tool). Kept
             # here (not in ChannelTag) so it stays ephemeral, not persisted.
-            "source_message_id": message.message_id or "",
-        }
-        # Only set "attachments" when non-empty — matches the WS route
-        # pattern in backend/routes/websocket.py:644-648 so ChatModule's
-        # downstream `.get("attachments")` check behaves identically.
-        if attachments:
-            extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            source_message_id=message.message_id or "",
+        )
 
         try:
             result = await get_agent_runtime_client().run_and_collect(
@@ -1553,7 +1629,7 @@ class ChannelTriggerBase(ABC):
             # surface the error into the channel. A run that stayed silent by
             # CHOICE never sets is_error, so this never fires on intended
             # silence (group non-@ / nothing to add).
-            sent = self.extract_output(result, message, credential)
+            sent = self.resolve_agent_response(result, message, credential)
             already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
             await self._send_error_fallback(
                 credential, message, err_text, already_replied=already_replied
@@ -1563,7 +1639,7 @@ class ChannelTriggerBase(ABC):
         # Subclasses may want to extract platform-specific tool-call output;
         # default returns the agent's text. Lark's subclass will override
         # to look at result.raw_items in Phase 2.
-        return self.extract_output(result, message, credential)
+        return self.resolve_agent_response(result, message, credential)
 
     async def _build_and_run_agent_silent_batch(
         self,
@@ -1695,17 +1771,21 @@ class ChannelTriggerBase(ABC):
 
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": (anchor_msg.content or "").strip() or None,
-            "trigger_id": (
+        # No context builder on this path (the batch is merged text, not a
+        # single inbound message), so no turn envelope → step_3 treats the
+        # turn as non-DM and runs no fallback. Correct here: a silent batch
+        # run is explicitly not answering anyone (`silent=True` below).
+        extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=(anchor_msg.content or "").strip() or None,
+            trigger_id=(
                 f"{self.channel_name}_batch_{anchor_msg.message_id}"
                 if anchor_msg.message_id
                 else f"{self.channel_name}_batch_unknown"
             ),
-            "batch_messages": batch_messages,
-            "silent_batch_size": len(batch_messages),
-        }
+            batch_messages=batch_messages,
+            silent_batch_size=len(batch_messages),
+        )
 
         try:
             result = await get_agent_runtime_client().run_and_collect(
@@ -1794,6 +1874,72 @@ class ChannelTriggerBase(ABC):
                 f"{type(self).__name__}: error-fallback send_channel_reply "
                 f"failed: {type(e).__name__}: {e}"
             )
+
+    @staticmethod
+    def platform_written_reply(result: Any) -> str:
+        """Reply text the PLATFORM wrote and delivered this turn, if any.
+
+        `step_3`'s 1:1 DM no-reply fallback sends through
+        `ChannelSenderRegistry` and records a synthetic tool-call frame
+        carrying `PLATFORM_REPLY_TEXT_KEY`. That frame reaches the trigger
+        via `result.raw_items`, but every channel's `extract_output` scrapes
+        its own tool's argument shape and cannot recognise it:
+        `_extract_wechat_reply` reads `arguments["text"]` and comes back
+        empty, Lark's requires `+messages-send` inside `command`, and the
+        rest are structurally identical. All of them then fall through to
+        `CHANNEL_SILENT_SENTINEL`.
+
+        That sentinel is what `ChannelInboxWriter` persists as the turn's
+        agent_response — so a reply that really was delivered gets recorded
+        as "(stayed silent)". On WeChat it is worse than a cosmetic record:
+        `WeChatContextBuilder.get_conversation_history` reads recent turns
+        back out of `bus_messages`, so the NEXT turn's Conversation History
+        would show the bot saying "(stayed silent)" — the same
+        placeholder-poisons-the-context failure this change removes one
+        layer up.
+
+        Checked BEFORE `extract_output` for exactly the reason the handler
+        layer checks it before `extract_reply_fn`: this text is
+        authoritative because we wrote it. Teaching each channel's
+        extractor about the key is the approach this change already
+        rejected once.
+        """
+        for raw in getattr(result, "raw_items", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            item = raw.get("item", {})
+            if not isinstance(item, dict) or item.get("type") != "tool_call_item":
+                continue
+            args: Any = item.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except (ValueError, TypeError):
+                    continue
+            if not isinstance(args, dict):
+                continue
+            text = args.get(PLATFORM_REPLY_TEXT_KEY)
+            if isinstance(text, str) and text.strip():
+                return text
+        return ""
+
+    def resolve_agent_response(
+        self, result, message: ParsedMessage, credential: Any
+    ) -> str:
+        """What this turn said, for the inbox record.
+
+        Platform-written replies win; otherwise the channel's own
+        `extract_output` runs unchanged. Keeping the precedence here means
+        no channel subclass has to know the platform-reply key exists.
+        """
+        platform = self.platform_written_reply(result)
+        if platform:
+            logger.info(
+                f"{type(self).__name__}: recording platform-written reply "
+                f"({len(platform)} chars) for the inbox"
+            )
+            return platform
+        return self.extract_output(result, message, credential)
 
     def extract_output(self, result, message: ParsedMessage, credential: Any) -> str:
         """

@@ -8,6 +8,15 @@ These templates live in the channel/ shared layer and are reused by all IM chann
 modules. Channel-specific templates are defined in each module's own directory.
 """
 
+# === Room types ===
+# Every channel context builder reports one of these two as `room_type`.
+# It used to be an accidental enum — six builders each spelled the literals
+# by hand — while the Communication Protocol below ignored the value
+# entirely. Now the value SELECTS the protocol, so it is a real contract
+# and lives here as constants.
+ROOM_TYPE_DIRECT = "Direct Message"
+ROOM_TYPE_GROUP = "Group Room"
+
 # === Main template: channel message execution instruction ===
 CHANNEL_MESSAGE_EXECUTION_TEMPLATE = """\
 ⚡ **INCOMING {channel_display_name} MESSAGE** — This message was sent to you on \
@@ -70,6 +79,18 @@ When your reply needs to convey file content:
 
 **Never do this**: "I saved it to `/app/workspace/output.md`" — the recipient sees a path they can never open. Either embed the content or share a link they CAN click.
 
+{communication_protocol}
+"""
+
+# === Communication Protocol — GROUP rooms ===
+# The tuned 2026-03 rule set. It exists to solve three problems that are
+# all specific to MULTI-PARTY rooms:
+#   1. agent-to-agent "收到 → 好的 → 明白了" acknowledgment loops;
+#   2. every message in a group waking every member's AgentRuntime;
+#   3. @mention abuse forcing everyone to process irrelevant messages.
+# Do not weaken this path — it is what keeps agents from spraying a
+# 500-person room.
+COMMUNICATION_PROTOCOL_GROUP = """\
 ## Communication Protocol
 
 ### Core Principle: Less is More
@@ -109,6 +130,58 @@ In group conversations with multiple participants:
 - **In general discussions**, reply without @mentioning anyone.
 - **Avoid @mentioning multiple people** in a single message.
 """
+
+# === Communication Protocol — 1:1 DIRECT MESSAGES ===
+# A DM has none of the three group problems: there is no room to spam, no
+# @mention to abuse, and the "other participants" whose replies would make
+# yours redundant do not exist. What a DM has instead is one person who
+# addressed you directly and is now waiting.
+#
+# Shipping the group rules here is what produced the 0802 WeChat report —
+# a person sent "hello", and the protocol's own logic ("default NO
+# REPLY", "reply only when the conversation cannot move forward without
+# you") made silence the CORRECT action. Every WeChat turn hit this,
+# because personal-account WeChat is DM-only.
+#
+# The style rules carry over verbatim: brevity and no performative
+# reporting were never about room size.
+COMMUNICATION_PROTOCOL_DIRECT = """\
+## Communication Protocol
+
+### Core Principle: You Were Addressed Directly
+This is a **1:1 conversation**. One person messaged you, and nobody else can answer for you. **Replying is the default.** If you say nothing, they get silence from what looks to them like a broken assistant — that is a failure, not restraint.
+
+### When You May Stay Silent (narrow)
+Staying silent is right only when the incoming message is **pure acknowledgment** with nothing left to act on — "好的", "谢谢", "收到", "got it", "👍" — and you have nothing new to add. That is the whole carve-out.
+
+Everything else gets an answer, including:
+- A greeting ("hello", "你好", "在吗") — greet back and offer to help
+- A question you cannot fully answer — say what you do know and what you would need
+- A request you cannot complete — say so plainly and give one concrete next step
+- Small talk — a short human reply is correct
+
+### If You Need to Work Before Answering
+Do the work first, then reply once with the result. If the work failed or you came up empty, **still reply** — say what you tried and what you would need. An unanswered direct message is never the right outcome.
+
+### Communication Style
+- **Be brief.** Say what you need to say in as few words as possible. No preamble, no filler, no ceremonial greetings.
+- **One message, one purpose.** Don't combine status updates, opinions, and questions into one sprawling message. Pick the most important thing.
+- **No performative reporting.** Don't announce that you received the message or that you are starting work — just do it and answer.
+- **Do not promise future work.** Once your reply is sent, this turn is over; "let me look into it and get back to you" is a promise nothing will keep.
+"""
+
+
+def communication_protocol_for(room_type: str | None) -> str:
+    """Pick the Communication Protocol for this room type.
+
+    Anything other than an exact ``ROOM_TYPE_DIRECT`` match gets the group
+    protocol. The asymmetry is deliberate: being too quiet in a room type
+    we failed to recognise is recoverable, while spraying replies into a
+    large group is not.
+    """
+    if room_type == ROOM_TYPE_DIRECT:
+        return COMMUNICATION_PROTOCOL_DIRECT
+    return COMMUNICATION_PROTOCOL_GROUP
 
 # === Sender profile from Social Network entity (shared part) ===
 SENDER_PROFILE_FROM_ENTITY_TEMPLATE = """\

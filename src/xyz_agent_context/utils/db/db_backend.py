@@ -158,11 +158,22 @@ class DatabaseBackend(ABC):
         table: str,
         id_field: str,
         ids: List[str],
+        fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
         """
         Batch-fetch rows by a list of IDs, preserving the input order.
 
         Solves the N+1 query problem by using a single IN query.
+
+        `fields` narrows the projection (same contract as `get`); `id_field` is
+        always included so the order-preserving map can be built. Declared here
+        because THIS is the contract's enforcement point: `AsyncDatabaseClient`
+        forwards keyword arguments to whichever backend is configured, so a
+        parameter added to only some implementations is a TypeError on every
+        call through the others — including `fields=None`. That is not
+        hypothetical: it shipped once, breaking every `get_by_ids` under the
+        proxy backend (i.e. `run.sh` and the desktop DMG, binding rule #7) while
+        cloud MySQL stayed green.
 
         Args:
             table: Table name.

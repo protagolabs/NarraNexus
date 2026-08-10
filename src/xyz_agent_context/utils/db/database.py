@@ -654,7 +654,8 @@ class AsyncDatabaseClient:
         self,
         table: str,
         id_field: str,
-        ids: List[str]
+        ids: List[str],
+        fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Batch query (core method for solving the N+1 problem)
@@ -665,6 +666,10 @@ class AsyncDatabaseClient:
             table: Table name
             id_field: ID field name
             ids: List of IDs
+            fields: Optional projection, same contract as `get`. Narrow it for
+                existence checks against tables with fat columns — `SELECT *`
+                there ships the payload only to discard it. `id_field` is always
+                included so the order-preserving map can be built.
 
         Returns:
             List of query results (in original ID order)
@@ -678,7 +683,7 @@ class AsyncDatabaseClient:
             events = await db.get_by_ids("events", "event_id", event_ids)
         """
         if self._backend:
-            return await self._backend.get_by_ids(table, id_field, ids)
+            return await self._backend.get_by_ids(table, id_field, ids, fields=fields)
 
         if not ids:
             return []
@@ -689,9 +694,15 @@ class AsyncDatabaseClient:
         safe_table = validate_identifier(table)
         safe_id_field = validate_identifier(id_field)
 
+        if fields:
+            safe_fields = [validate_identifier(f) for f in dict.fromkeys([*fields, id_field])]
+            columns = ", ".join(f"`{f}`" for f in safe_fields)
+        else:
+            columns = "*"
+
         # Build IN query
         placeholders = ','.join(['%s'] * len(unique_ids))
-        query = f"SELECT * FROM `{safe_table}` WHERE `{safe_id_field}` IN ({placeholders})"
+        query = f"SELECT {columns} FROM `{safe_table}` WHERE `{safe_id_field}` IN ({placeholders})"
 
         results = await self.execute(query, tuple(unique_ids), fetch=True)
 

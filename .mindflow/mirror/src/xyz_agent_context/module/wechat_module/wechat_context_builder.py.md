@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_context_builder.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — `room_type` 成了行为开关；新增 `reply_kwargs()`
+
+`room_type` 改用 `ROOM_TYPE_DIRECT` 常量（值不变）。**语义变了**：它不再只是
+prompt 里「Conversation Type」那行，而是选择注入哪份通讯协议。因为本文件把它
+硬编码成私聊，微信**每一轮**原先都在吃「默认不回复」+ 群聊纪律——0802「发消息
+无反应」工单的根因之一（详见 `channel_prompts.py.md` 同日条目）。所以下面那条
+「若将来支持微信群聊必须改这里」的提醒，代价从「显示不准」升级成「群里乱发」。
+
+新增 `reply_kwargs()` 返回 `{"context_token": ...}`：iLink 寻址一个会话要
+inbound 的 context_token，而平台侧兜底投递（`step_3` 的 `no_reply_im_dm`）
+走 `ChannelSenderRegistry` 而不是模型的工具调用，所以得把这个 token 经通用信封
+交出去。token 为空时投递会被 iLink 拒——那时兜底放弃并保持沉默，不写「已回复」。
 
 ## 2026-07-03 (final) — emoji warning reverted
 

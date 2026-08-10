@@ -12,6 +12,10 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+    ROOM_TYPE_GROUP,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -65,7 +69,7 @@ class LarkContextBuilder(ChannelContextBuilderBase):
     async def get_message_info(self) -> Dict[str, Any]:
         brand_display = "Lark" if self.credential.brand == "lark" else "Feishu"
         chat_type = self.event.get("chat_type", "p2p")
-        room_type = "Direct Message" if chat_type == "p2p" else "Group Room"
+        room_type = ROOM_TYPE_DIRECT if chat_type == "p2p" else ROOM_TYPE_GROUP
         return {
             "agent_id": self.agent_id,
             "channel_display_name": brand_display,
