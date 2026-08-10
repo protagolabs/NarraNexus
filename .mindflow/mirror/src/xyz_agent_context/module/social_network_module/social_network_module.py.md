@@ -3,6 +3,13 @@ code_file: src/xyz_agent_context/module/social_network_module/social_network_mod
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-5) — 新增共享结果整形器 `format_contact_result` / `format_stats_result`
+
+两个纯函数把 `recall_entity_info` / `_get_agent_stats` 的原始结果整形成
+get_contact_info / get_agent_social_stats 工具的返回 dict。seam 的 DirectStore
+与 backend `/social-network/{contact,stats}` 路由都 import 用，工具的表现逻辑
+只此一份、不再被抄进路由（与 [[store]] 的 parity 目标一致）。经包 `__init__` re-export。
+
 ## 2026-08-10 (PR-4) — 新增共享 `social_instance_not_found_msg`
 
 模块级纯函数，"agent 无 SocialNetworkModule 实例"的**唯一**文案源。[[store]] 的

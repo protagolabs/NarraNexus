@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-5) — search/contact/stats 三读工具改走 seam + 清死代码
+
+3 个读工具改为 `get_agent_data_store().search_social_network/get_contact_info/
+get_agent_social_stats`。stats 的 `filter_tags` 逗号串解析留在工具层，store 收
+已解析的 list。**清理**：extract/merge/delete/search/contact/stats 全迁后，
+`_get_instance_and_module`（无 caller）与 `setup_mcp_llm_context`/`InstanceRepository`
+import 已删（search 也不再需要——search_network 纯 repository 无 LLM）。`module_class`
+形参保留（注册契约；create_agent 仍用 `get_db_client_fn`）。剩 create_agent 未迁（PR-6）。
+
 ## 2026-08-10 (PR-4) — extract/merge/delete 三写工具改走 AgentDataStore seam
 
 三个写工具的数据访问下沉到 [[data_access/store]]：本地 DirectStore（同实例解析+

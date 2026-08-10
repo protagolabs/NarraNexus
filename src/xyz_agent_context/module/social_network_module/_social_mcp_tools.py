@@ -18,9 +18,6 @@ from typing import Optional, Any
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.repository import InstanceRepository
-from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context
-
 
 def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) -> FastMCP:
     """
@@ -28,28 +25,17 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
 
     Args:
         port: MCP Server port
-        get_db_client_fn: Async function to get database connection
-        module_class: SocialNetworkModule class reference (avoids circular imports)
+        get_db_client_fn: Async function to get database connection (still used
+            by the create_agent tool for the owner lookup)
+        module_class: SocialNetworkModule class reference (kept for the
+            registration contract; the data-touching tools now resolve their
+            own module via the AgentDataStore seam)
 
     Returns:
         FastMCP instance with all tools configured
     """
     mcp = FastMCP("social_network_module")
     mcp.settings.port = port
-
-    async def _get_instance_and_module(agent_id: str):
-        """Common helper: get db, instance_id and create temp module"""
-        db = await get_db_client_fn()
-        instance_repo = InstanceRepository(db)
-        instances = await instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="SocialNetworkModule"
-        )
-        if not instances:
-            return None, None, f"Error: No SocialNetworkModule instance found for agent_id={agent_id}"
-        instance_id = instances[0].instance_id
-        temp_module = module_class(agent_id=agent_id, database_client=db, instance_id=instance_id)
-        return temp_module, instance_id, None
 
     @mcp.tool()
     async def extract_entity_info(
@@ -231,16 +217,13 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 top_k=5
             )
         """
-        await setup_mcp_llm_context(agent_id)
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error, "results": []}
+        # Routes through the AgentDataStore seam. setup_mcp_llm_context is gone:
+        # search_network is pure repository (semantic search was removed
+        # 2026-05-27), so the call only added a db read + a raise path.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.search_network(
-            search_keyword=search_keyword,
-            instance_id=instance_id,
-            search_type=search_type,
-            top_k=top_k
+        return await get_agent_data_store().search_social_network(
+            agent_id, search_keyword, search_type, top_k
         )
 
     @mcp.tool()
@@ -261,22 +244,9 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Contact information including chat_channel, email, preferred_method, etc.
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        result = await temp_module.recall_entity_info(entity_id, instance_id)
-
-        if result["success"]:
-            entity = result["entity"]
-            return {
-                "success": True,
-                "entity_id": entity_id,
-                "entity_name": entity.get("entity_name"),
-                "contact_info": entity.get("contact_info", {})
-            }
-        else:
-            return {"success": False, "message": result["message"]}
+        return await get_agent_data_store().get_contact_info(agent_id, entity_id)
 
     @mcp.tool()
     async def get_agent_social_stats(
@@ -329,28 +299,17 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 filter_tags="expert:前端"
             )
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error, "results": []}
-
-        # Parse filter_tags
+        # Parse filter_tags here (tool-layer input normalization), then route
+        # the data read through the seam. The store takes the parsed list.
         filter_tags_list = None
         if filter_tags and filter_tags.strip():
             filter_tags_list = [tag.strip() for tag in filter_tags.split(",")]
 
-        results = await temp_module._get_agent_stats(
-            instance_id=instance_id,
-            sort_by=sort_by,
-            top_k=top_k,
-            filter_tags=filter_tags_list
-        )
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return {
-            "success": True,
-            "sort_by": sort_by,
-            "count": len(results),
-            "results": results
-        }
+        return await get_agent_data_store().get_agent_social_stats(
+            agent_id, sort_by, top_k, filter_tags_list
+        )
 
     @mcp.tool()
     async def merge_entities(

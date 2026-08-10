@@ -4,6 +4,17 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-5) — 新增 3 个读 seam-孪生端点（POST /recall /contact /stats）
+
+READ MCP 工具（search/get_contact_info/get_agent_social_stats）的 byte-parity
+HTTP 孪生。**POST 不 GET**：动作子路径避开既有 GET `/{user_id}` 路径参数冲突。
+owner-gated。返回**工具 dict shape 原样**（message 键、**不** `_normalize_write_result`），
+故 HttpStore 2xx 直接透传。contact/stats 用 [[social_network_module]] 的共享
+`format_contact_result`/`format_stats_result` 整形（与 DirectStore 同源）。前端向的
+旧 GET response_model 端点不动、各自独立。三个读路由整体包 try/except：实例解析 db
+故障也返回 200 + 工具 message shape（`{success:False, message:"Error: ...", results:[]}`），
+不吐 500——与 DirectStore reads 逐字对齐、守住 store docstring 的"handlers answer 200"契约。
+
 ## 2026-08-10 (PR-4) — 写端点成为 HttpStore 孪生 + 实例文案改共享源
 
 三个写端点（extract/merge/delete）现是 AgentDataStore seam 的 HttpStore 目标。
