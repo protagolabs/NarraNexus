@@ -22,9 +22,13 @@ Two generations live here:
    - ``…/agents/{id}/diagnostics/events``    — run summaries; full
      content only per-id (heavy + sensitive ⇒ explicit pull)
    - ``…/diagnostics/logs/services|tail``    — service-log tail. NOT
-     agent-scoped: logs are process-level. Safe here because this
-     router only registers under ENABLE_MANYFOLD_API=1 — a sprite is a
-     single-user sandbox, so process scope IS user scope.
+     agent-scoped: logs are process-level. The access boundary is the
+     RUNTIME, not the user: the gateway token is an operator credential
+     (platform + NarraNexus support), and its holder can already read
+     every agent's workspace in this runtime through the files API —
+     including the multi-Manyfold-user runtimes that
+     manyfold/agents.py + backend/auth.py explicitly support. Process
+     logs expose no audience broader than that existing surface.
 
 Registered only when ENABLE_MANYFOLD_API=1. Requires the Manyfold gateway
 token. All new endpoints are read-only; known credential shapes are
@@ -43,6 +47,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
+from xyz_agent_context.repository.channel_trigger_audit_repository import (
+    _event_time_str,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
@@ -134,12 +141,14 @@ async def diagnostics(request: Request):
 # Per-agent pull channel (observability plan A, 2026-08-10)
 # ---------------------------------------------------------------------------
 
-# Response caps. `limit` bounds row counts; the per-field cap stops one
-# MEDIUMTEXT column (event_log can reach tens of MB) from blowing the
-# response past what a diagnostic client wants to page through.
+# Response caps. `limit` bounds row counts (pushed into SQL — a
+# long-running agent's events row set is exactly what must never be
+# materialized whole); the per-field cap (CHARACTERS, not bytes — CJK
+# text can be ~3x in UTF-8) stops one MEDIUMTEXT column from blowing
+# the response past what a diagnostic client wants to page through.
 _MAX_ROWS = 200
 _DEFAULT_ROWS = 50
-_MAX_FIELD_BYTES = 512 * 1024
+_MAX_FIELD_CHARS = 512 * 1024
 _MAX_TAIL_LINES = 2000
 
 # Known credential shapes, redacted from every response body. Two forms:
@@ -161,22 +170,34 @@ def _redact(text: str) -> str:
 
 def _clip(value: Any) -> str:
     text = "" if value is None else str(value)
-    if len(text) > _MAX_FIELD_BYTES:
+    if len(text) > _MAX_FIELD_CHARS:
         return (
-            text[:_MAX_FIELD_BYTES]
-            + f"\n…[truncated {len(text) - _MAX_FIELD_BYTES} chars]"
+            text[:_MAX_FIELD_CHARS]
+            + f"\n…[truncated {len(text) - _MAX_FIELD_CHARS} chars]"
         )
     return text
+
+
+def _redact_clip(value: Any) -> str:
+    """Redact FIRST, clip second: clipping first can cut a credential's
+    closing quote at the boundary, defeating the key-pattern regex and
+    leaking the token prefix."""
+    return _clip(_redact("" if value is None else str(value)))
 
 
 def _clamp_limit(limit: int) -> int:
     return max(1, min(limit, _MAX_ROWS))
 
 
-def _time_str(value: Any) -> str:
-    """Uniform sortable string for a DATETIME cell (sqlite returns
-    datetime objects, mysql returns strings)."""
-    return str(value or "")
+def _norm_time(value: Any) -> str:
+    """Comparable form for a DATETIME cell OR a caller's `since` value.
+
+    Delegates to the audit repository's normalizer (one home for the
+    sqlite-datetime-vs-mysql-string asymmetry, rule #8), then folds the
+    ISO 'T' separator to the space form this codebase stores — without
+    it, a `since=2026-08-10T09:00:00` silently filters out EVERY
+    space-form row and the endpoint returns empty with no error."""
+    return _event_time_str(value).replace("T", " ")
 
 
 @router.get("/manyfold/agents/{agent_id}/diagnostics/ingress")
@@ -199,12 +220,21 @@ async def agent_ingress_audit(
     filters: dict[str, Any] = {"agent_id": agent_id}
     if event_type:
         filters["event_type"] = event_type
-    rows = await db.get("channel_trigger_audit", filters)
-    rows.sort(key=lambda r: _time_str(r.get("event_time")), reverse=True)
+    # Order + limit live in SQL. `since` filters the already-bounded
+    # page in Python (newest-first means the page IS the newest slice of
+    # the window) — the DB stores mixed shapes across dialects, so the
+    # comparison needs _norm_time on both sides either way.
+    rows = await db.get(
+        "channel_trigger_audit",
+        filters,
+        limit=_clamp_limit(limit),
+        order_by="event_time DESC",
+    )
     if since:
-        rows = [r for r in rows if _time_str(r.get("event_time")) >= since]
+        floor = _norm_time(since)
+        rows = [r for r in rows if _norm_time(r.get("event_time")) >= floor]
     out = []
-    for r in rows[: _clamp_limit(limit)]:
+    for r in rows:
         details_raw = _redact(str(r.get("details") or "{}"))
         try:
             details = json.loads(details_raw)
@@ -212,7 +242,7 @@ async def agent_ingress_audit(
             details = {"_raw": details_raw[:1000]}
         out.append(
             {
-                "event_time": _time_str(r.get("event_time")),
+                "event_time": _norm_time(r.get("event_time")),
                 "event_type": r.get("event_type"),
                 "channel": r.get("channel"),
                 "message_id": r.get("message_id"),
@@ -235,34 +265,55 @@ async def agent_events_summary(
 
     The list answers "which runs happened and how did they end"; the
     heavy, user-content-bearing columns (env_context / final_output /
-    event_log) are only served per-id by the endpoint below, keeping
-    bulk content out of casual queries (DB is pull-only by policy).
+    event_log) never leave the DB here — SQL projection excludes them —
+    and are only served per-id by the endpoint below (DB is pull-only
+    by policy).
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
-    rows = await db.get("events", {"agent_id": agent_id})
-    rows.sort(key=lambda r: _time_str(r.get("started_at")), reverse=True)
+    # Column projection + SQL-side order/limit are load-bearing, not
+    # style: the un-projected row set of a weeks-old agent carries every
+    # MEDIUMTEXT event_log it ever produced (rule #14 makes multi-hour
+    # runs first-class — those logs reach tens of MB EACH), and a
+    # diagnostic endpoint must never be the thing that OOMs the
+    # container it is diagnosing.
+    rows = await db.get(
+        "events",
+        {"agent_id": agent_id},
+        limit=_clamp_limit(limit),
+        order_by="started_at DESC",
+        fields=[
+            "event_id",
+            "trigger",
+            "trigger_source",
+            "state",
+            "started_at",
+            "finished_at",
+            "tool_call_count",
+            "current_stage",
+            "error_message",
+            "narrative_id",
+        ],
+    )
     if since:
-        rows = [r for r in rows if _time_str(r.get("started_at")) >= since]
+        floor = _norm_time(since)
+        rows = [r for r in rows if _norm_time(r.get("started_at")) >= floor]
     out = [
         {
             "event_id": r.get("event_id"),
             "trigger": r.get("trigger"),
             "trigger_source": r.get("trigger_source"),
             "state": r.get("state"),
-            "started_at": _time_str(r.get("started_at")),
-            "finished_at": _time_str(r.get("finished_at")),
+            "started_at": _norm_time(r.get("started_at")),
+            "finished_at": _norm_time(r.get("finished_at")),
             "tool_call_count": r.get("tool_call_count"),
             "current_stage": r.get("current_stage"),
-            "error_message": _clip(r.get("error_message"))[:500] or None,
+            # error text is the field most likely to embed upstream
+            # credentials (4xx bodies quote Authorization headers whole).
+            "error_message": _redact_clip(r.get("error_message"))[:500] or None,
             "narrative_id": r.get("narrative_id"),
-            "sizes": {
-                "env_context": len(str(r.get("env_context") or "")),
-                "final_output": len(str(r.get("final_output") or "")),
-                "event_log": len(str(r.get("event_log") or "")),
-            },
         }
-        for r in rows[: _clamp_limit(limit)]
+        for r in rows
     ]
     return {"data": out, "object": "list"}
 
@@ -286,16 +337,16 @@ async def agent_event_full(agent_id: str, event_id: str, request: Request):
         "trigger": row.get("trigger"),
         "trigger_source": row.get("trigger_source"),
         "state": row.get("state"),
-        "started_at": _time_str(row.get("started_at")),
-        "finished_at": _time_str(row.get("finished_at")),
+        "started_at": _norm_time(row.get("started_at")),
+        "finished_at": _norm_time(row.get("finished_at")),
         "tool_call_count": row.get("tool_call_count"),
         "current_stage": row.get("current_stage"),
-        "error_message": _redact(_clip(row.get("error_message"))) or None,
+        "error_message": _redact_clip(row.get("error_message")) or None,
         "narrative_id": row.get("narrative_id"),
-        "env_context": _redact(_clip(row.get("env_context"))),
-        "final_output": _redact(_clip(row.get("final_output"))),
-        "event_log": _redact(_clip(row.get("event_log"))),
-        "module_instances": _redact(_clip(row.get("module_instances"))),
+        "env_context": _redact_clip(row.get("env_context")),
+        "final_output": _redact_clip(row.get("final_output")),
+        "event_log": _redact_clip(row.get("event_log")),
+        "module_instances": _redact_clip(row.get("module_instances")),
     }
 
 

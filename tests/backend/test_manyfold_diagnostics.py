@@ -139,6 +139,54 @@ async def test_ingress_filters_and_redaction(diag_app, db_client):
     ]
 
 
+async def test_since_accepts_iso_t_form_against_real_write_path(
+    diag_app, db_client
+):
+    """Regression: audit rows are written via the repository
+    (isoformat(sep=" ") — SPACE form). A caller's ISO `since` with the
+    'T' separator must still match; lexicographic comparison without
+    normalization silently returned empty."""
+    from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        ChannelTriggerAuditRepository,
+    )
+
+    repo = ChannelTriggerAuditRepository("wechat", db_client)
+    await repo.append(
+        "managed_ingress_processed", agent_id="a1", details={"replied": True}
+    )
+    resp = await _get(
+        diag_app,
+        "/manyfold/agents/a1/diagnostics/ingress",
+        since="2000-01-01T00:00:00",  # T form, far past — must NOT filter out
+    )
+    assert len(resp.json()["data"]) == 1
+    resp = await _get(
+        diag_app,
+        "/manyfold/agents/a1/diagnostics/ingress",
+        since="2999-01-01T00:00:00",  # T form, far future — filters all
+    )
+    assert resp.json()["data"] == []
+
+
+async def test_summary_error_message_is_redacted(diag_app, db_client):
+    await db_client.insert(
+        "events",
+        {
+            "event_id": "evt_err",
+            "trigger": "user_message",
+            "trigger_source": "wechat",
+            "agent_id": "a1",
+            "state": "failed",
+            "started_at": "2026-08-10 12:00:00",
+            "error_message": 'upstream 401: {"api_key": "sk-SECRET"} Bearer abcdefgh12345',
+        },
+    )
+    resp = await _get(diag_app, "/manyfold/agents/a1/diagnostics/events")
+    row = resp.json()["data"][0]
+    assert "sk-SECRET" not in row["error_message"]
+    assert "abcdefgh12345" not in row["error_message"]
+
+
 async def test_ingress_limit_clamped(diag_app, db_client):
     await _seed_audit(db_client)
     resp = await _get(
@@ -200,9 +248,11 @@ async def test_events_summary_has_no_content_fields(diag_app, db_client):
     assert row["event_id"] == "evt_1"
     assert row["state"] == "completed"
     assert row["tool_call_count"] == 2
-    # Content stays behind the per-id endpoint; the list carries sizes only.
+    # Content never leaves the DB for the list — SQL projection excludes
+    # the MEDIUMTEXT columns entirely (a long-running agent's event_log
+    # set must not be materialized to serve a summary).
     assert "env_context" not in row and "final_output" not in row
-    assert row["sizes"]["final_output"] == len("hello back")
+    assert "sizes" not in row
 
 
 async def test_event_full_fetch_redacts_and_scopes(diag_app, db_client):

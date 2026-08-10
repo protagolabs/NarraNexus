@@ -2,6 +2,14 @@
 
 `AsyncDatabaseClient` — the single database client every layer of the codebase talks through, plus the MySQL-to-SQLite dialect translator.
 
+## 2026-08-10 — facade `get()` 补 `fields` 透传
+
+三个后端(sqlite/mysql/proxy)与抽象基类的 `get` 都早已支持列投影,
+唯独 facade 签名漏了它——所有调用方被迫 `SELECT *`,在含 MEDIUMTEXT
+的表(events 的 event_log 可达数十 MB/行)上是隐性的整表物化风险。
+补参数并在 legacy 内联路径同样实现(backtick + validate_identifier)。
+首个受益方:manyfold 诊断端点的 events 摘要查询。
+
 ## Why it exists
 
 `database.py` is the project's central database client. Every piece of code that needs to read or write data — repositories, modules, background services, MCP tools — communicates through `AsyncDatabaseClient`. A second critical responsibility lives here: `_mysql_to_sqlite_sql()` rewrites MySQL-flavored queries (backticks, `%s`, `ON DUPLICATE KEY UPDATE`, `NOW()`, etc.) before they reach a SQLite backend, letting all callers write MySQL syntax regardless of deployment environment. Keeping the translator here rather than inside the SQLite backend is intentional: `sqlite_proxy_server.py` also imports it directly to apply the same translation to HTTP-proxied raw SQL.
