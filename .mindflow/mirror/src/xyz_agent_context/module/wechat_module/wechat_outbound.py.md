@@ -12,7 +12,7 @@ WeChat 的**全部**发送位点(`wechat_send` MCP 工具、模块
 `send_to_agent`(ChannelSenderRegistry:step_3 DM 兜底 +
 contact_agent)、trigger `send_channel_reply`(managed 错误兜底))
 统一改调 `send_wechat_text`,由它按
-[[../../utils/manyfold_outbound.py|manyfold_outbound]] 的声明决定:
+[[../../integrations/manyfold_outbound.py|manyfold_outbound]] 的声明决定:
 managed → 平台 channel-send(不需要 context_token,平台按 room_id
 解析收件人并自持 iLink 凭据);否则 → 原直连 `send_text_once`,
 字节不变。

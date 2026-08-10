@@ -16,8 +16,8 @@ everything"语义,晚到重发无害。
 ## 2026-08-10 — A1 `agent_managed_reply` 显式下发 + A3 notify 退避重试
 
 channels inventory 每行 `config` 后处理注入
-`agent_managed_reply`(bool,事实源 = utils/manyfold_outbound 的
-env 声明)。**显式 false 是关键**:平台 mapper 对缺失键按 managed-ON
+`agent_managed_reply`(bool,事实源 = integrations/manyfold_outbound
+的 env 声明)。**显式 false 是关键**:平台 mapper 对缺失键按 managed-ON
 兜底(#504),缺键 = 渠道在某次不可预测的 pull 后突然翻托管;一个
 post-pass 循环保证未来第七个 provider 不可能漏键。
 

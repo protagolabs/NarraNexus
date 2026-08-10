@@ -97,6 +97,19 @@ class TestSendEnv:
         _set_manyfold_env(monkeypatch, url="https://api.example.com/api/other")
         assert mo.channel_send_env() is None
 
+    def test_explicit_url_works_without_webhook_url(self, monkeypatch):
+        # The escape hatch exists for "derivation impossible / different
+        # host" — it must not silently require the webhook URL it is
+        # escaping from. Identity pair alone + explicit URL = resolvable.
+        monkeypatch.setenv("MANYFOLD_SYNC_WEBHOOK_TOKEN", "tok-123")
+        monkeypatch.setenv("MANYFOLD_RUNTIME_ID", "rt-abc")
+        monkeypatch.setenv(
+            "MANYFOLD_CHANNEL_SEND_URL", "https://other.example.com/send"
+        )
+        env = mo.channel_send_env()
+        assert env is not None
+        assert env.url == "https://other.example.com/send"
+
     def test_missing_token_refused(self, monkeypatch):
         monkeypatch.setenv(
             "MANYFOLD_SYNC_WEBHOOK_URL",

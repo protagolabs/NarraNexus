@@ -398,9 +398,11 @@ _flush_task: Optional[asyncio.Task] = None
 
 def _webhook_env() -> Optional[tuple[str, str, str]]:
     """Delegates to the single manyfold env parse (integrations layer) so
-    the notify leg and the channel-send leg cannot skew on env semantics."""
+    the notify leg and the channel-send leg cannot skew on env semantics.
+    The webhook URL requirement is this leg's own: channel-send can run
+    on an explicit URL without it, notify cannot."""
     env = manyfold_runtime_env()
-    if env is None:
+    if env is None or not env.webhook_url:
         return None
     return env.webhook_url, env.token, env.runtime_id
 

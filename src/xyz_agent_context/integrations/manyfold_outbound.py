@@ -72,8 +72,13 @@ def managed_reply_declared(provider: str) -> bool:
 
 @dataclass(frozen=True)
 class ManyfoldRuntimeEnv:
-    """The manyfold runtime identity triple. All-or-nothing: a partial
-    set reads as "not a manyfold surface" for every consumer."""
+    """The manyfold runtime env. ``token`` + ``runtime_id`` are the
+    identity and are required (a partial identity reads as "not a
+    manyfold surface"). ``webhook_url`` may be empty: the notify leg
+    requires it, but channel-send with an explicit
+    ``MANYFOLD_CHANNEL_SEND_URL`` does not — that env var is the escape
+    hatch for exactly the case where the webhook URL is absent or
+    underivable, so gating it on the webhook would defeat its purpose."""
 
     webhook_url: str
     token: str
@@ -85,14 +90,18 @@ def manyfold_runtime_env() -> Optional[ManyfoldRuntimeEnv]:
 
     Both outbound legs — the notify webhook and channel-send — resolve
     through here, so a rename / fallback / validation change lands on
-    both at once instead of silently skewing one of them.
+    both at once instead of silently skewing one of them. Per-leg
+    requirements on ``webhook_url`` stay in the legs.
     """
-    url = os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", "").strip()
     token = os.environ.get("MANYFOLD_SYNC_WEBHOOK_TOKEN", "").strip()
     runtime_id = os.environ.get("MANYFOLD_RUNTIME_ID", "").strip()
-    if not (url and token and runtime_id):
+    if not (token and runtime_id):
         return None
-    return ManyfoldRuntimeEnv(webhook_url=url, token=token, runtime_id=runtime_id)
+    return ManyfoldRuntimeEnv(
+        webhook_url=os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", "").strip(),
+        token=token,
+        runtime_id=runtime_id,
+    )
 
 
 @dataclass(frozen=True)
@@ -114,14 +123,18 @@ def channel_send_env() -> Optional[ChannelSendEnv]:
     """
     env = manyfold_runtime_env()
     if env is None:
-        # Explicit channel-send URL still needs token + runtime_id; a
-        # partial triple stays "not a manyfold surface".
+        # Even an explicit channel-send URL needs the identity pair
+        # (token + runtime_id); without it there is nothing to send AS.
         return None
     explicit = os.environ.get("MANYFOLD_CHANNEL_SEND_URL", "").strip()
     if explicit:
+        # Escape hatch: works without any webhook URL on purpose — it
+        # exists precisely for "derivation impossible / different host".
         return ChannelSendEnv(
             url=explicit, token=env.token, runtime_id=env.runtime_id
         )
+    if not env.webhook_url:
+        return None
     derived = re.sub(r"/notify/?$", "/channel-send", env.webhook_url)
     if derived == env.webhook_url:
         return None
