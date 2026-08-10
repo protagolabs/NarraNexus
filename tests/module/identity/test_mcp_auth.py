@@ -192,3 +192,18 @@ def test_contextvar_resets_between_requests(tmp_path, monkeypatch):
     assert client.post("/messages/", headers=_headers(priv)).text == "usr_1"
     assert client.post("/messages/").text == "anon"
     assert verified_caller() is None
+
+
+# ---------------------------------------------------------------------------
+# wiring — every module server wears the middleware
+# ---------------------------------------------------------------------------
+
+
+def test_build_mcp_server_installs_identity_auth_middleware():
+    from mcp.server.fastmcp import FastMCP
+
+    from xyz_agent_context.module.module_runner import ModuleRunner
+
+    server = ModuleRunner._build_mcp_server(FastMCP("probe_module"), "probe_module", 7999)
+    installed = [m.cls for m in server.config.app.user_middleware]
+    assert IdentityAuthMiddleware in installed
