@@ -27,11 +27,18 @@ wrapper calls.
   self-declared user_id IS the onboarding worklist (unverified by design: it
   feeds a worklist, not an authz decision; no declaration OR a placeholder
   string → "anonymous", reusing `_mcp_identity` 的读取器与占位符语义)。
-  **调用方可控 + audit 不拒 = 双向硬上限**（round-4 #1）:值长 64 截断、窗口
-  基数 256 封顶,超出折进 `<overflow>` 桶(总数与二值信号不丢,只是不再逐个
-  点名)。detail 落库是结构化 entries(caller/method/path/port/n)而非拼接
-  串——自述值可含任意字符,SQL 拆串会错位;port 标明是哪个 module server
-  (一个进程 front 全部端口)。Two documented
+  **调用方可控 + audit 不拒 = 每个可控维度都硬上限**（round-4/5 #1）:自述值
+  64 截断、path 128 截断(中间件在路由**之前**计数,POST 任意瞎编 path 也会
+  先被记一笔再 404)、窗口基数 256 封顶——溢出折进**唯一常量桶**
+  `_OVERFLOW_KEY`(所有维度塌缩;带 path/port 的溢出 key 自己就是新 key,
+  上限只对 caller 维生效,这正是 round-5 抓的旁路)。字典真正封死在 257 条,
+  总数与二值信号不丢,只有逐 key 归因饱和。method 无需上限(谓词钉死 POST),
+  port 是服务端事实。flush 日志行只点名 top-20(人看信号),完整 entries 落
+  审计行(SQL 查名单)。detail 落库是结构化 entries(caller/method/path/
+  port/n)而非拼接串——自述值可含任意字符,SQL 拆串会错位;port 标明是哪个
+  module server(一个进程 front 全部端口)。_declared_caller 与
+  caller_user_id_from_request 同款两段式:显式头是占位符则**回落 bearer**,
+  不让真实 usr_ 从名单上掉下来。Two documented
   approximations: handshake POSTs on /mcp are counted (label says
   "unauthenticated POST(s)"), and a final sub-window's counts can go
   unreported (flush rides the next call; the first call always flushes).

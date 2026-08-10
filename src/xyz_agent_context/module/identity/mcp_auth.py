@@ -129,14 +129,25 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
 # Enforce mode needs none of this: its unauthenticated POSTs are
 # individually rejected and logged at the door.
 _TOKENLESS_FLUSH_SECONDS = 60.0
-# The declared caller is ATTACKER-CONTROLLED input and audit mode by
-# definition rejects nothing (round-4 review #1) — so both dimensions of the
-# aggregation are hard-capped: value length (a real user_id is usr_ + hex;
-# 64 is generous) and key cardinality (same reasoning as _OWNER_CACHE_MAX —
-# past 256 distinct callers the worklist question is already answered; the
-# overflow bucket keeps the total and the binary signal exact).
+# EVERY caller-controlled dimension of the aggregation is hard-capped,
+# because audit mode by definition rejects nothing (round-4/5 review #1):
+# declared value length (a real user_id is usr_ + hex; 64 is generous), path
+# length (the middleware runs BEFORE routing, so a POST to any made-up path
+# is counted first and 404s later), and key cardinality — past the cap
+# everything folds into ONE constant bucket with every dimension collapsed,
+# so the dict is truly bounded at _TOKENLESS_KEYS_MAX + 1 entries no matter
+# which dimension an attacker varies. The total and the binary "anyone still
+# unauthenticated?" signal stay exact; only per-key attribution saturates.
+# (method needs no cap: the unauthed_post predicate pins it to "POST";
+# port comes from scope["server"] — a server-side fact.)
 _DECLARED_MAX_LEN = 64
+_PATH_MAX_LEN = 128
 _TOKENLESS_KEYS_MAX = 256
+_OVERFLOW_KEY = ("<overflow>", "", "", 0)
+# The flush log line names at most this many entries (highest counts first);
+# the DB row carries them all — the log is a human signal, the row is the
+# queryable worklist, and a bounded dict can still be ~257 entries wide.
+_LOG_TOP_N = 20
 _tokenless_counts: dict[tuple[str, str, str, int], int] = {}
 _tokenless_flush_deadline: float = 0.0
 
@@ -159,18 +170,28 @@ def _declared_caller(headers) -> str:
         is_placeholder_user_id,
     )
 
-    declared = _explicit_header(headers, USER_ID_HEADER) or _bearer(headers).user_id
-    if not declared or is_placeholder_user_id(declared):
-        return "anonymous"
-    return declared[:_DECLARED_MAX_LEN]
+    # Same two-stage semantics as caller_user_id_from_request: a placeholder
+    # in the explicit header FALLS THROUGH to the bearer — a caller declaring
+    # "current_user" explicitly while its bearer carries the real usr_… must
+    # not drop off the worklist (round-5 review, minor #1).
+    explicit = _explicit_header(headers, USER_ID_HEADER)
+    if explicit and not is_placeholder_user_id(explicit):
+        return explicit[:_DECLARED_MAX_LEN]
+    candidate = _bearer(headers).user_id
+    if candidate and not is_placeholder_user_id(candidate):
+        return candidate[:_DECLARED_MAX_LEN]
+    return "anonymous"
 
 
 async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
     global _tokenless_flush_deadline
 
-    key = (declared_user, method, path, port)
+    key = (declared_user, method, path[:_PATH_MAX_LEN], port)
     if key not in _tokenless_counts and len(_tokenless_counts) >= _TOKENLESS_KEYS_MAX:
-        key = ("<overflow>", method, path, port)
+        # ONE constant bucket, every dimension collapsed — an overflow key
+        # that kept path/port would itself be a fresh key per value and the
+        # cap would only hold for the caller dimension (round-5 review #1).
+        key = _OVERFLOW_KEY
     _tokenless_counts[key] = _tokenless_counts.get(key, 0) + 1
     now = time.monotonic()
     if now < _tokenless_flush_deadline:
@@ -187,12 +208,15 @@ async def _note_tokenless(declared_user: str, method: str, path: str, port: int)
         {"caller": u, "method": m, "path": p, "port": pt, "n": n}
         for (u, m, p, pt), n in sorted(counts.items())
     ]
+    top = sorted(entries, key=lambda e: -e["n"])[:_LOG_TOP_N]
+    suffix = "" if len(entries) <= _LOG_TOP_N else f" (+{len(entries) - _LOG_TOP_N} more in the audit row)"
     logger.warning(
         f"[mcp-auth] audit: {total} unauthenticated POST(s) this window — "
         + ", ".join(
             f"{e['caller']} | {e['method']} {e['path']} :{e['port']} ×{e['n']}"
-            for e in entries
+            for e in top
         )
+        + suffix
     )
     try:
         from xyz_agent_context.repository.executor_audit_repository import (

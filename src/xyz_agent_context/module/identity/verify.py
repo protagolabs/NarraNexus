@@ -63,8 +63,10 @@ def verify_caller_identity(
     if bearer.user_id and bearer.user_id != identity.user_id:
         # The self-declared bearer user_id disagreeing with the proven sub is
         # a forged field, not an unknown — the whole record is untrusted.
+        # Truncated in the reason: the declared value is caller-controlled
+        # and this string reaches logs and the 401 response body.
         return None, (
-            f"user-id-mismatch: bearer says {bearer.user_id!r}, "
+            f"user-id-mismatch: bearer says {bearer.user_id[:64]!r}, "
             f"token proves {identity.user_id!r}"
         )
     return identity, "ok"

@@ -226,49 +226,16 @@ def test_build_mcp_server_installs_identity_auth_middleware():
 
 
 @pytest.fixture
-def _policy_env(monkeypatch):
-    """Cloud mode + a verified caller + stubbed owner lookup and audit sink."""
+def _policy_env(_policy_owner_stubs, monkeypatch):
+    """_policy_owner_stubs + a verified caller in the connection ContextVar
+    (the pre-per-message fallback path)."""
     from xyz_agent_context.module.identity import mcp_auth
     from xyz_agent_context.module.identity.tokens import VerifiedIdentity
-
-    recorded: list[dict] = []
-    owners = {"agent_of_usr1": "usr_1", "agent_of_usr2": "usr_2", "agent_unknown": ""}
-
-    monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
-    )
-
-    async def fake_get_db_client():
-        return object()
-
-    monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
-    )
-
-    class FakeAgentRepo:
-        def __init__(self, db):
-            pass
-
-        async def resolve_owner(self, agent_id):
-            return owners.get(agent_id, "")
-
-    class FakeAuditRepo:
-        def __init__(self, db):
-            pass
-
-        async def record(self, **kw):
-            recorded.append(kw)
-
-    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
-    monkeypatch.setattr(
-        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
-        FakeAuditRepo,
-    )
 
     token = mcp_auth._verified_var.set(
         VerifiedIdentity(user_id="usr_1", issuer="narranexus-local", expires_at=2**33)
     )
-    yield recorded
+    yield _policy_owner_stubs
     mcp_auth._verified_var.reset(token)
 
 
@@ -614,33 +581,7 @@ def test_audit_measures_tokenless_posts(tmp_path, monkeypatch):
     sampled mcp_auth_tokenless audit row, not silence."""
     from loguru import logger as _logger
 
-    from xyz_agent_context.module.identity import mcp_auth
-
-    _provision(tmp_path, monkeypatch)
-    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
-
-    rows: list[dict] = []
-
-    async def fake_get_db_client():
-        return object()
-
-    class FakeAuditRepo:
-        def __init__(self, db):
-            pass
-
-        async def record(self, **kw):
-            rows.append(kw)
-
-    monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
-    )
-    monkeypatch.setattr(
-        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
-        FakeAuditRepo,
-    )
-    # fresh window so the first note flushes immediately
-    mcp_auth._tokenless_counts.clear()
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+    rows = _audit_capture(tmp_path, monkeypatch)
 
     lines: list[str] = []
     sink_id = _logger.add(lambda m: lines.append(str(m)), level="WARNING")
@@ -692,32 +633,7 @@ def test_tokenless_measurement_names_the_declared_caller(tmp_path, monkeypatch):
     """Round-3 review #1: the audit worklist must answer WHO to onboard. An
     old-broker executor is exactly 'bearer present, field #7 missing' — its
     self-declared user_id keys the aggregation."""
-    from xyz_agent_context.module.identity import mcp_auth
-
-    _provision(tmp_path, monkeypatch)
-    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
-
-    rows: list[dict] = []
-
-    async def fake_get_db_client():
-        return object()
-
-    class FakeAuditRepo:
-        def __init__(self, db):
-            pass
-
-        async def record(self, **kw):
-            rows.append(kw)
-
-    monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
-    )
-    monkeypatch.setattr(
-        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
-        FakeAuditRepo,
-    )
-    mcp_auth._tokenless_counts.clear()
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+    rows = _audit_capture(tmp_path, monkeypatch)
 
     # tokenless but NOT identity-less: the pre-#260 header shape.
     headers = agent_id_headers(AGENT, user_id="usr_legacy")
@@ -789,13 +705,38 @@ def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
     capped = mcp_auth._declared_caller(_H({"x-narranexus-user-id": huge}))
     assert len(capped) == mcp_auth._DECLARED_MAX_LEN
 
-    # Cardinality: fill the dict past the cap inside one window; extras land
-    # in the overflow bucket, the total survives.
+    # Cardinality: fill the dict past the cap inside one window, varying BOTH
+    # caller-controlled dimensions (caller AND path — round-5 #1: an overflow
+    # key that kept path re-opened the hole on the other dimension). Extras
+    # land in the ONE constant bucket; the total survives.
     monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", float("inf"))
     mcp_auth._tokenless_counts.clear()
-    for i in range(mcp_auth._TOKENLESS_KEYS_MAX + 50):
-        asyncio.run(mcp_auth._note_tokenless(f"usr_{i}", "POST", "/mcp", 7801))
+    extra = 50
+    for i in range(mcp_auth._TOKENLESS_KEYS_MAX + extra):
+        asyncio.run(
+            mcp_auth._note_tokenless(f"usr_{i}", "POST", f"/made-up/{i}", 7801)
+        )
     assert len(mcp_auth._tokenless_counts) == mcp_auth._TOKENLESS_KEYS_MAX + 1
-    overflow = mcp_auth._tokenless_counts[("<overflow>", "POST", "/mcp", 7801)]
-    assert overflow == 50
-    assert sum(mcp_auth._tokenless_counts.values()) == mcp_auth._TOKENLESS_KEYS_MAX + 50
+    assert mcp_auth._tokenless_counts[mcp_auth._OVERFLOW_KEY] == extra
+    total = sum(mcp_auth._tokenless_counts.values())
+    assert total == mcp_auth._TOKENLESS_KEYS_MAX + extra
+    # Path length is capped too — the middleware counts BEFORE routing, so a
+    # made-up path of request-line size must not bloat an entry.
+    asyncio.run(mcp_auth._note_tokenless("usr_x", "POST", "/p" * 5000, 7801))
+    longest = max(len(k[2]) for k in mcp_auth._tokenless_counts)
+    assert longest <= mcp_auth._PATH_MAX_LEN
+
+
+def test_placeholder_explicit_header_falls_through_to_bearer(tmp_path, monkeypatch):
+    """Round-5 minor #1: the canonical two-stage read — an explicit
+    placeholder must not shadow a real bearer user_id off the worklist."""
+    from xyz_agent_context.module._mcp_identity import USER_ID_HEADER
+
+    rows = _audit_capture(tmp_path, monkeypatch)
+    headers = {
+        USER_ID_HEADER: "current_user",
+        "Authorization": f"Bearer nx-agent:{AGENT}~chat~~~usr_shadowed",
+    }
+    assert TestClient(_app()).post("/messages/", headers=headers).status_code == 200
+    (entry,) = rows[0]["detail"]["counts"]
+    assert entry["caller"] == "usr_shadowed"
