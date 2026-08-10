@@ -44,6 +44,17 @@ from xyz_agent_context.repository.team_workspace_repository import (
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.repository.team_bulletin_repository import TeamBulletinRepository
+
+# Budget rules live in the core package, not here: the MCP tool enforces the
+# same ceilings for agents, and a core module importing a FastAPI route to get
+# them would invert the layering the architecture depends on.
+from xyz_agent_context.message_bus.team_bulletin import (
+    BULLETIN_NOTICE_MSG_TYPE,
+    BulletinLimitExceeded,
+    add_bulletin_entry,
+    check_bulletin_budget,
+    edit_bulletin_entry,
+)
 from xyz_agent_context.schema.team_schema import (
     BULLETIN_MAX_ENTRIES,
     BULLETIN_MAX_ENTRY_CHARS,
@@ -718,77 +729,6 @@ async def _team_files(db, team_id: str) -> list[dict]:
 # the team feature has.
 
 
-class BulletinLimitExceeded(Exception):
-    """A write that would breach the bulletin's budget.
-
-    Carries the reason as its message so the caller — the REST route for the
-    user, the MCP tool for an agent — can hand the same explanation to a very
-    different reader without re-deriving it.
-    """
-
-
-async def check_bulletin_budget(repo: TeamBulletinRepository, team_id: str) -> BulletinUsage:
-    """Current usage of the shared entry budget (summary excluded).
-
-    Exposed so the UI can grey out "add" BEFORE the user types a rule, rather
-    than rejecting it after they have written it.
-    """
-    return await repo.usage(team_id)
-
-
-async def add_bulletin_entry(
-    repo: TeamBulletinRepository,
-    *,
-    team_id: str,
-    content: str,
-    source: str,
-    author_id: Optional[str],
-    tier: str = BULLETIN_TIER_LONG_TERM,
-):
-    """Add one bulletin entry, or refuse and say why.
-
-    REFUSE, never trim. A silently shortened rule is worse than a rejected
-    one: the user is told nothing and goes on believing the whole rule is in
-    force, and the half that survived may invert the meaning of the half that
-    did not ("never share X with Y" cut at "never share X"). Every refusal
-    names the limit it hit, because "too long" without a number leaves the
-    user guessing how much to cut.
-
-    The budget is shared between the user and the agents. The prompt does not
-    care who wrote a line, so neither does the ceiling — otherwise an agent
-    could mint itself room the user cannot.
-    """
-    text = (content or "").strip()
-    if not text:
-        raise BulletinLimitExceeded("A bulletin entry cannot be empty.")
-    if len(text) > BULLETIN_MAX_ENTRY_CHARS:
-        raise BulletinLimitExceeded(
-            f"That entry is {len(text)} characters; the limit is "
-            f"{BULLETIN_MAX_ENTRY_CHARS}. Shorten it to the rule itself."
-        )
-
-    usage = await repo.usage(team_id)
-    if usage.entry_count >= BULLETIN_MAX_ENTRIES:
-        raise BulletinLimitExceeded(
-            f"The bulletin already holds {usage.entry_count} entries "
-            f"(limit {BULLETIN_MAX_ENTRIES}). Remove one before adding another."
-        )
-    if usage.total_chars + len(text) > BULLETIN_MAX_TOTAL_CHARS:
-        raise BulletinLimitExceeded(
-            f"The bulletin would reach {usage.total_chars + len(text)} characters "
-            f"(limit {BULLETIN_MAX_TOTAL_CHARS}). Shorten or remove an entry first."
-        )
-
-    return await repo.add(team_id=team_id, content=text, source=source, author_id=author_id, tier=tier)
-
-
-# Marks a bulletin change in the transcript. Same shape as the stop notice
-# (``runs.py``): the frontend renders it from an i18n key because the database
-# cannot know the reader's language, and ``content`` carries an English
-# fallback for consumers that only read text.
-BULLETIN_NOTICE_MSG_TYPE = "system_bulletin"
-
-
 async def _post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -> None:
     """Leave a trace in the room when the bulletin changes.
 
@@ -934,40 +874,6 @@ async def clear_team_bulletin_tier(
     if removed:
         await _post_bulletin_notice(db, team_id, "cleared")
     return {"success": True, "removed": removed}
-
-
-async def edit_bulletin_entry(repo: TeamBulletinRepository, *, team_id: str, entry_id: str, content: str):
-    """Replace one entry's text, or refuse and say why.
-
-    The projected total SUBTRACTS the text being replaced. Counting the new
-    text against a total that still includes the old one would refuse the very
-    edit that relieves the budget: a user at the ceiling would be told to free
-    space by doing exactly what they were just blocked from doing.
-
-    Returns the entry as it now reads.
-    """
-    entry = await repo.get(entry_id)
-    # Scoped to the team, not just the id: an entry_id belonging to another of
-    # the owner's teams must not be reachable through this one's path.
-    if entry is None or entry.team_id != team_id:
-        return None
-
-    text = (content or "").strip()
-    if not text:
-        raise BulletinLimitExceeded("A bulletin entry cannot be empty.")
-    if len(text) > BULLETIN_MAX_ENTRY_CHARS:
-        raise BulletinLimitExceeded(f"That entry is {len(text)} characters; the limit is {BULLETIN_MAX_ENTRY_CHARS}.")
-
-    usage = await repo.usage(team_id)
-    projected = usage.total_chars - len(entry.content) + len(text)
-    if projected > BULLETIN_MAX_TOTAL_CHARS:
-        raise BulletinLimitExceeded(
-            f"The bulletin would reach {projected} characters (limit {BULLETIN_MAX_TOTAL_CHARS}). Shorten it further."
-        )
-
-    await repo.update_content(entry_id, text)
-    entry.content = text
-    return entry
 
 
 async def _require_team_owner(request: Request, team_id: str):

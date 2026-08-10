@@ -1163,6 +1163,18 @@ class MessageBusTrigger:
                 f"your teammates cannot open or continue."
             )
 
+        # A tool nobody is told about is a tool nobody uses. Kept to one line
+        # and worded to discourage over-pinning: the bulletin's budget is small
+        # and shared with the user's own rules, so an agent that treats it as a
+        # notepad crowds out the very rules it is supposed to obey.
+        lines.append(
+            "If the team settles on a convention that should govern FUTURE "
+            "replies (an output format, where files go), pin it with "
+            "bus_pin_team_rule so nobody has to repeat it — every teammate "
+            "loads it every turn. Findings, status and conversation belong in "
+            "the chat, not the bulletin."
+        )
+
         # Before the conversation on purpose: these are the standing constraints
         # the messages are to be read UNDER. Appended after twenty lines of chat
         # they would read as a footnote to the chat instead of a frame for it.
