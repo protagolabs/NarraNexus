@@ -3,6 +3,11 @@ code_file: backend/routes/agents/jobs.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 (PR-8b) — 新增 job_update 孪生端点 POST /{agent_id}/jobs/{job_id}/update
+
+调共享 [[_job_writes]] `update_job_from_args`（与 DirectStore、前端 jobs PUT 同源）。
+owner-gated；包 try 兜 get_db_client() → 200+{success:False,job_id,message}。
+
 
 # agents/jobs.py — job 读 seam 孪生端点（agent-scoped, owner-gated）
 

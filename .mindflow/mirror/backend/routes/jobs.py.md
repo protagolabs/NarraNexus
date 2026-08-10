@@ -3,6 +3,11 @@ code_file: backend/routes/jobs.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 (PR-8b) — PUT /{job_id} 收口到共享 update_job_from_args
+
+~90 行 build-updates 逻辑删除、改调 [[_job_writes]]（与 seam DirectStore 及 agent 路由同源，
+消除第三份手抄+zombie-bug 分叉，铁律 #8），结果 wrap 进 JobUpdateResponse。
+
 ## 2026-08-10 (PR-8) — 两个 search 路由收口到共享实现
 
 `/search/semantic` 与 `/search/keywords` 不再自己抄 status 校验/`job_to_llm_dict`/截断，

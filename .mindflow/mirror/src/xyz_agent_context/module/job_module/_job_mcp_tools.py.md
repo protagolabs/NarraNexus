@@ -2,6 +2,12 @@
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
 last_verified: 2026-08-10
 ---
+## 2026-08-10 (PR-8b) — job_update 迁走 seam
+
+job_update 改为 `get_agent_data_store().job_update(agent_id, job_id, fields)`，~90 行
+build-updates 逻辑下沉到 [[_job_writes]]（DirectStore/agent 路由/前端 jobs 路由同源）。
+cross-agent 现读作 not found。job_create/pause/cancel 本 PR 不迁（create 用 LLM）。
+
 ## 2026-08-10 (PR-8) — 三个读工具迁 AgentDataStore seam
 
 job_retrieval_by_id/_semantic/_by_keywords 改为 `get_agent_data_store().job_retrieval_*`，

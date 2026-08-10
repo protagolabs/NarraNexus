@@ -42,10 +42,25 @@ from xyz_agent_context.module.job_module import (
     fetch_job_by_id,
     search_jobs_semantic,
     search_jobs_by_keywords,
+    update_job_from_args,
 )
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
+
+
+class JobUpdateSeamBody(BaseModel):
+    """Body for POST .../jobs/{job_id}/update — mirrors the job_update tool's
+    fields (all optional; only passed ones change)."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    payload: Optional[str] = None
+    guidance_text: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    job_type: Optional[str] = None
+    next_run_time: Optional[str] = None
+    status: Optional[str] = None
+    related_entity_id: Optional[str] = None
 
 
 class JobSemanticSearchBody(BaseModel):
@@ -97,3 +112,17 @@ async def job_search_keywords(agent_id: str, body: JobKeywordSearchBody, request
     except Exception as e:  # noqa: BLE001
         logger.warning(f"job_search_keywords failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+@router.post("/{agent_id}/jobs/{job_id}/update")
+async def job_update(agent_id: str, job_id: str, body: JobUpdateSeamBody, request: Request) -> dict:
+    """Update a job's fields — twin of the ``job_update`` MCP tool. Shares the
+    ``update_job_from_args`` implementation with DirectStore (byte-parity) and
+    the frontend ``/api/jobs/{job_id}`` route."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — update_job_from_args never raises
+        logger.warning(f"job_update failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+    return await update_job_from_args(db, agent_id, job_id, **body.model_dump())

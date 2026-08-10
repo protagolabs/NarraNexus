@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-8b) — job_update 迁入 seam
+
+DirectStore.job_update(agent_id, job_id, fields) 委托 [[job_module]] 包导出的
+`update_job_from_args`（[[_job_writes]]，含承重的 effective_type/compute_next_run
+顺序 zombie-bug 修复），backend agent-scoped 路由 POST `/jobs/{id}/update` 与前端
+`/api/jobs/{id}` PUT 调同一函数 → byte-parity 且不再三份手抄。失败键 `message`(+job_id)；
+HttpStore 传输降级经 `_social_write_message` 把 error→message、`_seg` 编码 job_id 路径段。
+cross-agent 读作 not found（安全，改了旧工具漏存在性的措辞）。
+
 ## 2026-08-10 (PR-8) — job 读 by_id/semantic/by_keywords 迁入 seam
 
 三个读方法委托给 [[job_module]] 包导出的 `fetch_job_by_id`/`search_jobs_semantic`/

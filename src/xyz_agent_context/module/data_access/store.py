@@ -113,6 +113,8 @@ class AgentDataStore(Protocol):
         self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
     ) -> dict: ...
 
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -557,6 +559,19 @@ class DirectStore:
             logger.warning(f"[job.job_retrieval_by_keywords] failed: {e}")
             return {"success": False, "error": str(e)}
 
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict:
+        # The shared update_job_from_args is self-contained (returns a
+        # message-keyed dict, never raises) — the backend job routes call the
+        # SAME function, so Direct and Http are byte-identical. The outer try
+        # only guards _db().
+        from xyz_agent_context.module.job_module import update_job_from_args
+
+        try:
+            return await update_job_from_args(await self._db(), agent_id, job_id, **fields)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_update] failed: {e}")
+            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -784,6 +799,18 @@ class HttpStore:
             json={"keywords": keywords, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
             failure_extra={},
         )
+
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict:
+        # The route calls the SAME update_job_from_args and returns its
+        # message-keyed dict verbatim, so a 2xx body already matches DirectStore.
+        # job_update's contract is the `message` key (never `error`), so a
+        # transport degradation (_parse_dict's `error`) is remapped back to
+        # `message` (with job_id) via _social_write_message.
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/update",
+            json=fields,
+            failure_extra={"job_id": job_id},
+        ))
 
     async def _send(self, method: str, path: str, **kw):
         """Transport layer shared by every Http method: one AsyncClient + one

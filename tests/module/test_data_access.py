@@ -1237,3 +1237,147 @@ def test_httpstore_percent_encodes_llm_supplied_path_ids(monkeypatch):
     assert seen[0] == f"/api/agents/{AGENT}/jobs/a%2Fb%3Fx"
     assert seen[1] == f"/api/agents/{AGENT}/events/e%2F1"
     assert seen[2] == f"/api/agents/{AGENT}/narratives/n%2F1"
+
+
+# ---------------------------------------------------------------------------
+# job_update (PR-8b): the write, via shared update_job_from_args
+# ---------------------------------------------------------------------------
+
+
+def _upd_fields(**kw):
+    base = {"title": None, "description": None, "payload": None, "guidance_text": None,
+            "trigger_config": None, "job_type": None, "next_run_time": None,
+            "status": None, "related_entity_id": None}
+    base.update(kw)
+    return base
+
+
+def _patch_job_writes(monkeypatch, *, job=None, update_result=None):
+    class _FakeJobRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+    class _FakeService:
+        def __init__(self, db):
+            pass
+
+        async def update_job(self, job_id, updates, agent_id):
+            return update_result
+
+    monkeypatch.setattr("xyz_agent_context.module.job_module._job_writes.JobRepository", _FakeJobRepo)
+    monkeypatch.setattr("xyz_agent_context.module.job_module.job_service.JobInstanceService", _FakeService)
+
+
+def test_job_update_parity(monkeypatch):
+    from xyz_agent_context.module.job_module import update_job_from_args
+
+    result = {"success": True, "job_id": "job_1", "updated_fields": ["title"], "message": "Updated"}
+    _patch_job_writes(monkeypatch, job=_FakeJob(), update_result=result)
+    db = object()
+    fields = _upd_fields(title="New")
+    expected = asyncio.run(update_job_from_args(db, AGENT, "job_1", **fields))
+    assert expected == result
+
+    d = _basic_direct(monkeypatch, db)
+    dr = asyncio.run(d.job_update(AGENT, "job_1", fields))
+    assert dr == result
+    h = _social_http(monkeypatch, route_body=result)
+    assert asyncio.run(h.job_update(AGENT, "job_1", fields)) == result == dr
+
+
+def test_job_update_cross_agent_is_not_found(monkeypatch):
+    # A job owned by a different agent reads as "not found" — no existence
+    # oracle (the old tool leaked "does not belong to agent X").
+    _patch_job_writes(monkeypatch, job=_FakeJob(agent_id="other_agent"))
+    d = _basic_direct(monkeypatch, object())
+    out = asyncio.run(d.job_update(AGENT, "job_1", _upd_fields(title="x")))
+    assert out == {"success": False, "job_id": "job_1", "message": "Job job_1 not found"}
+
+
+def test_job_update_invalid_status_parity(monkeypatch):
+    _patch_job_writes(monkeypatch, job=_FakeJob())
+    expected = {"success": False, "job_id": "job_1",
+                "message": "Invalid status: bogus. Valid: active, paused, cancelled"}
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_update(AGENT, "job_1", _upd_fields(status="bogus"))) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_update(AGENT, "job_1", _upd_fields(status="bogus"))) == expected
+
+
+def test_job_update_no_fields_parity(monkeypatch):
+    _patch_job_writes(monkeypatch, job=_FakeJob())
+    expected = {"success": False, "job_id": "job_1", "message": "No fields to update"}
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_update(AGENT, "job_1", _upd_fields())) == expected
+
+
+def test_job_update_http_forwards_to_the_right_route(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.raw_path.decode("ascii"), _json.loads(request.content)))
+        return httpx.Response(200, json={"success": True, "job_id": "job_1", "updated_fields": [], "message": "ok"})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    fields = _upd_fields(title="New", status="paused")
+    asyncio.run(h.job_update(AGENT, "job_1", fields))
+    assert seen[0][0] == "POST"
+    assert seen[0][1] == f"/api/agents/{AGENT}/jobs/job_1/update"
+    assert seen[0][2] == fields
+
+
+def _patch_job_writes_capture(monkeypatch, *, job):
+    """Like _patch_job_writes but captures the `updates` dict the shared fn
+    hands to JobInstanceService.update_job — so a test can assert on what the
+    build-updates logic actually computed (not just the final return shape)."""
+    captured: dict = {}
+
+    class _FakeJobRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+    class _FakeService:
+        def __init__(self, db):
+            pass
+
+        async def update_job(self, job_id, updates, agent_id):
+            captured["updates"] = updates
+            return {"success": True, "job_id": job_id,
+                    "updated_fields": list(updates.keys()), "message": "Updated"}
+
+    monkeypatch.setattr("xyz_agent_context.module.job_module._job_writes.JobRepository", _FakeJobRepo)
+    monkeypatch.setattr("xyz_agent_context.module.job_module.job_service.JobInstanceService", _FakeService)
+    return captured
+
+
+def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
+    # The load-bearing invariant this whole refactor protects: `effective_type`
+    # must be resolved BEFORE compute_next_run. A one_off job switched to
+    # scheduled with a cron MUST get a non-None next_run_time — if the ordering
+    # regressed, compute_next_run would see the OLD one_off type, return None,
+    # and silently zombify the job (pre-open review #4). This asserts the
+    # computed `updates` directly so a reordering ships red, not green.
+    from xyz_agent_context.module.job_module import update_job_from_args
+    from xyz_agent_context.schema import JobType
+
+    job = _FakeJob()  # job_type == one_off, trigger_config is None
+    captured = _patch_job_writes_capture(monkeypatch, job=job)
+
+    fields = _upd_fields(job_type="scheduled", trigger_config={"cron": "0 8 * * *", "timezone": "UTC"})
+    out = asyncio.run(update_job_from_args(object(), AGENT, "job_1", **fields))
+    assert out["success"] is True
+
+    updates = captured["updates"]
+    assert updates["job_type"] == JobType.SCHEDULED          # new type won
+    assert updates["next_run_time"] is not None              # computed with the NEW type, not one_off→None
+    assert updates["next_run_at_local"] is not None
+    assert updates["next_run_tz"] == "UTC"

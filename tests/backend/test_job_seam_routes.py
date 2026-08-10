@@ -151,3 +151,51 @@ def test_job_search_keywords_returns_results(client):
 def test_job_search_keywords_requires_keywords(client):
     r = client.post("/api/agents/agent_mine/jobs/search-keywords", headers=OWNER, json={"keywords": []})
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------- job_update twin
+
+
+import xyz_agent_context.module.job_module._job_writes as jwrites  # noqa: E402
+import xyz_agent_context.module.job_module.job_service as jsvc  # noqa: E402
+
+
+def _patch_update(monkeypatch, *, job, result):
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+    class _Svc:
+        def __init__(self, db):
+            pass
+
+        async def update_job(self, job_id, updates, agent_id):
+            return result
+
+    monkeypatch.setattr(jwrites, "JobRepository", _Repo)
+    monkeypatch.setattr(jsvc, "JobInstanceService", _Svc)
+
+
+def test_job_update_non_owner_is_denied(client):
+    r = client.post("/api/agents/agent_theirs/jobs/job_theirs/update", headers=OWNER, json={"title": "x"})
+    assert r.status_code == 403
+
+
+def test_job_update_success(client, monkeypatch):
+    job = _FakeJob("job_mine", "agent_mine")
+    _patch_update(monkeypatch, job=job, result={"success": True, "job_id": "job_mine", "updated_fields": ["title"], "message": "Updated"})
+    r = client.post("/api/agents/agent_mine/jobs/job_mine/update", headers=OWNER, json={"title": "New"})
+    assert r.status_code == 200
+    assert r.json() == {"success": True, "job_id": "job_mine", "updated_fields": ["title"], "message": "Updated"}
+
+
+def test_job_update_cross_agent_is_not_found(client, monkeypatch):
+    job = _FakeJob("job_theirs", "agent_theirs")
+    _patch_update(monkeypatch, job=job, result=None)
+    # caller owns agent_mine; job_theirs belongs to agent_theirs -> not found
+    r = client.post("/api/agents/agent_mine/jobs/job_theirs/update", headers=OWNER, json={"title": "New"})
+    assert r.status_code == 200
+    assert r.json() == {"success": False, "job_id": "job_theirs", "message": "Job job_theirs not found"}
