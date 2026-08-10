@@ -25,8 +25,8 @@ class _FakeNarrativeRow(dict):
 
 
 class _FakeDb:
-    """Minimal AsyncDatabaseClient stand-in: only get_one/get are used by
-    this route file (no raw SQL)."""
+    """Minimal AsyncDatabaseClient stand-in: get_one / get / get_by_ids are
+    used by this route file (no raw SQL)."""
 
     def __init__(self, narratives=None, links=None, chat_memory=None):
         self._narratives = narratives or {}
@@ -40,10 +40,18 @@ class _FakeDb:
             return self._chat_memory.get(filters.get("instance_id"))
         raise AssertionError(f"unexpected get_one table: {table}")
 
-    async def get(self, table, filters):
+    async def get(self, table, filters, limit=None):
         if table == "instance_narrative_links":
-            return self._links.get(filters.get("narrative_id"), [])
+            rows = self._links.get(filters.get("narrative_id"), [])
+            return rows[:limit] if limit else rows
         raise AssertionError(f"unexpected get table: {table}")
+
+    async def get_by_ids(self, table, id_field, ids):
+        # Single-query batch fetch (the N+1 fix uses this instead of a
+        # per-instance get_one loop).
+        if table == "instance_json_format_memory_chat":
+            return [self._chat_memory[i] for i in ids if i in self._chat_memory]
+        raise AssertionError(f"unexpected get_by_ids table: {table}")
 
 
 class _FakeNarrative:

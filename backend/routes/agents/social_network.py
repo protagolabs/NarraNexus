@@ -23,13 +23,12 @@ non-agent-triggered path to the same data.
 """
 
 import json
-import os
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
@@ -37,9 +36,8 @@ from xyz_agent_context.repository import (
     SocialNetworkRepository,
     InstanceRepository,
     AgentRepository,
-    InstanceAwarenessRepository,
 )
-from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
+from xyz_agent_context.bootstrap.provision import provision_new_agent
 from xyz_agent_context.module.social_network_module import SocialNetworkModule
 from xyz_agent_context.schema import (
     SocialNetworkEntityInfo,
@@ -47,7 +45,6 @@ from xyz_agent_context.schema import (
     SocialNetworkListResponse,
     SocialNetworkSearchResponse,
 )
-from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
 
 # Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
 # controlled path input — without the owner check any caller could extract/
@@ -269,29 +266,29 @@ async def get_all_social_network_entities(agent_id: str):
 class ExtractEntityBody(BaseModel):
     """Body for POST .../extract — mirrors the `extract_entity_info` MCP
     tool's params minus `agent_id` (taken from the path instead)."""
-    entity_id: str
+    entity_id: str = Field(min_length=1, max_length=128)
     updates: dict[str, Any]
     update_mode: str = "merge"
 
 
 class MergeEntitiesBody(BaseModel):
     """Body for POST .../merge — mirrors the `merge_entities` MCP tool's params."""
-    source_entity_id: str
-    target_entity_id: str
+    source_entity_id: str = Field(min_length=1, max_length=128)
+    target_entity_id: str = Field(min_length=1, max_length=128)
     keep_target_name: bool = True
 
 
 class DeleteEntityBody(BaseModel):
     """Body for POST .../delete-entity — mirrors the `delete_entity` MCP tool's params."""
-    entity_id: str
+    entity_id: str = Field(min_length=1, max_length=128)
 
 
 class CreateAgentBody(BaseModel):
     """Body for POST .../create-agent — mirrors the `create_agent` MCP tool's
     params minus `agent_id` (the creator, taken from the path instead)."""
-    agent_name: str
-    awareness: str
-    agent_description: str = ""
+    agent_name: str = Field(min_length=1, max_length=128)
+    awareness: str = Field(default="", max_length=65536)
+    agent_description: str = Field(default="", max_length=2000)
 
 
 async def _resolve_social_instance_id(db_client, agent_id: str) -> tuple[str | None, str | None]:
@@ -363,10 +360,10 @@ async def merge_entities(agent_id: str, body: MergeEntitiesBody, request: Reques
     related_job_ids unioned, descriptions appended, interaction counts
     summed, newest last_interaction_time kept) then the source is deleted.
 
-    Duplicated here rather than imported: the tool's implementation is a
-    closure inside `create_social_network_mcp_server`
-    (`_social_mcp_tools.py`), not a standalone reusable function. Keep this
-    in lockstep with that tool's `merge_entities` body if either changes.
+    Delegates to `SocialNetworkModule.merge_entities` (pre-open review #2:
+    this used to be a byte-for-byte copy of the MCP tool's inline closure
+    body; both the tool and this route now call the same module method so
+    the merge semantics can't drift between the two entry points).
     """
     await assert_owned(request, agent_id)
 
@@ -376,74 +373,14 @@ async def merge_entities(agent_id: str, body: MergeEntitiesBody, request: Reques
         if error:
             return {"success": False, "error": error}
 
-        repo = SocialNetworkRepository(db_client)
-
-        source = await repo.get_entity(body.source_entity_id, instance_id)
-        target = await repo.get_entity(body.target_entity_id, instance_id)
-
-        if not source:
-            return {"success": False, "error": f"Source entity not found: {body.source_entity_id}"}
-        if not target:
-            return {"success": False, "error": f"Target entity not found: {body.target_entity_id}"}
-
-        # Merge keywords (case-insensitive dedup, capped at 10)
-        merged_tags = list(target.keywords or [])
-        existing_lower = {t.lower() for t in merged_tags}
-        for t in (source.keywords or []):
-            if t.lower() not in existing_lower:
-                merged_tags.append(t)
-                existing_lower.add(t.lower())
-        if len(merged_tags) > 10:
-            merged_tags = merged_tags[:10]
-
-        # Merge identity_info (target takes precedence; source fills in missing keys)
-        merged_identity = {**(source.identity_info or {}), **(target.identity_info or {})}
-
-        # Merge contact_info (deep merge + normalize)
-        merged_contact = merge_contact_info(source.contact_info or {}, target.contact_info or {})
-
-        # Merge related_job_ids (union)
-        merged_jobs = list(set(target.related_job_ids or []) | set(source.related_job_ids or []))
-
-        # Append descriptions
-        merged_desc = target.entity_description or ""
-        if source.entity_description:
-            if merged_desc:
-                merged_desc += f"\n(Merged from {body.source_entity_id}): {source.entity_description}"
-            else:
-                merged_desc = source.entity_description
-
-        # Sum interaction counts
-        merged_count = (target.interaction_count or 0) + (source.interaction_count or 0)
-
-        # Determine name
-        merged_name = target.entity_name if body.keep_target_name else (source.entity_name or target.entity_name)
-
-        updates: dict[str, Any] = {
-            "entity_name": merged_name,
-            "entity_description": merged_desc,
-            "identity_info": merged_identity,
-            "contact_info": merged_contact,
-            "tags": merged_tags,
-            "related_job_ids": merged_jobs,
-            "interaction_count": merged_count,
-        }
-        # Keep the most recent interaction time
-        if source.last_interaction_time and target.last_interaction_time:
-            updates["last_interaction_time"] = max(source.last_interaction_time, target.last_interaction_time)
-        elif source.last_interaction_time:
-            updates["last_interaction_time"] = source.last_interaction_time
-
-        await repo.update_entity_info(body.target_entity_id, instance_id, updates)
-        await repo.delete_entity(body.source_entity_id, instance_id)
-
-        logger.info(f"Merged entity {body.source_entity_id} into {body.target_entity_id}")
-        return {
-            "success": True,
-            "message": f"Merged '{body.source_entity_id}' into '{body.target_entity_id}'",
-            "target_entity_id": body.target_entity_id,
-            "merged_tags": merged_tags,
-        }
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        result = await temp_module.merge_entities(
+            source_entity_id=body.source_entity_id,
+            target_entity_id=body.target_entity_id,
+            instance_id=instance_id,
+            keep_target_name=body.keep_target_name,
+        )
+        return _normalize_write_result(result)
 
     except Exception as e:
         logger.exception(f"Error merging entities: {e}")
@@ -457,6 +394,9 @@ async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request)
     `delete_entity` MCP tool. POST (not HTTP DELETE) so the target entity_id
     travels in the body, consistent with this route family's other write
     endpoints.
+
+    Delegates to `SocialNetworkModule.delete_entity` (pre-open review #2 —
+    see the `merge` endpoint above for the same rationale).
     """
     await assert_owned(request, agent_id)
 
@@ -466,20 +406,9 @@ async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request)
         if error:
             return {"success": False, "error": error}
 
-        repo = SocialNetworkRepository(db_client)
-
-        entity = await repo.get_entity(body.entity_id, instance_id)
-        if not entity:
-            return {"success": False, "error": f"Entity not found: {body.entity_id}"}
-
-        entity_name = entity.entity_name or body.entity_id
-        await repo.delete_entity(body.entity_id, instance_id)
-
-        logger.info(f"Deleted entity '{entity_name}' ({body.entity_id}) from instance {instance_id}")
-        return {
-            "success": True,
-            "message": f"Entity '{entity_name}' ({body.entity_id}) has been permanently deleted.",
-        }
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        result = await temp_module.delete_entity(entity_id=body.entity_id, instance_id=instance_id)
+        return _normalize_write_result(result)
 
     except Exception as e:
         logger.exception(f"Error deleting entity: {e}")
@@ -508,78 +437,23 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         owner_user_id = caller.created_by
         new_agent_id = f"agent_{uuid4().hex[:12]}"
 
-        # 1. Create agent record in DB
-        await agent_repo.add_agent(
+        # Canonical provisioning seam (pre-open review #3): agent row +
+        # default module instances + peer-discovery registration + bootstrap
+        # profile + default-skill install + awareness seed, all in one call.
+        # This used to be a hand-maintained copy of auth.py's create_agent
+        # sequence; now both this route and the MCP `create_agent` tool call
+        # the same `provision_new_agent`, so they can't drift from each
+        # other again (and this route no longer risks missing a step like
+        # default-skill install the way the MCP tool's old copy did).
+        await provision_new_agent(
+            db_client,
             agent_id=new_agent_id,
+            user_id=owner_user_id,
             agent_name=body.agent_name,
-            created_by=owner_user_id,
             agent_description=body.agent_description or f"Agent created by {caller.agent_name or agent_id}",
-            agent_type="chat",
+            awareness=body.awareness,
         )
         logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
-
-        # 2-4. Canonical provisioning — the SAME three steps auth.py's
-        # create-agent route runs (pre-open review #3: the MCP tool's copy
-        # skips them and produces half-provisioned agents — no social/basic-
-        # info/bus instances and invisible to peer discovery, the exact "ask
-        # agent X came back empty" failure). Best-effort like the canonical
-        # path: the agent row exists either way and the per-turn hooks
-        # re-sync.
-        try:
-            from xyz_agent_context.module._module_impl.instance_factory import (
-                InstanceFactory,
-            )
-            await InstanceFactory(db_client).create_agent_level_instances(new_agent_id)
-        except Exception as inst_err:  # noqa: BLE001
-            logger.warning(f"Failed to create default instances for {new_agent_id}: {inst_err}")
-
-        from xyz_agent_context.message_bus.agent_discovery_sync import (
-            sync_agent_discovery,
-        )
-        await sync_agent_discovery(db_client, new_agent_id)
-
-        try:
-            from xyz_agent_context.bootstrap.profiles import (
-                BootstrapContext,
-                apply_bootstrap,
-                get_profile,
-            )
-            await apply_bootstrap(
-                db_client,
-                agent_id=new_agent_id,
-                user_id=owner_user_id,
-                profile=get_profile("default"),
-                ctx=BootstrapContext(
-                    agent_id=new_agent_id,
-                    user_id=owner_user_id,
-                    agent_name=body.agent_name,
-                ),
-            )
-        except Exception as bootstrap_err:  # noqa: BLE001
-            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
-
-        # 5. Seed the requested awareness text onto the factory-created
-        # AwarenessModule instance (create it only if the factory could not).
-        instance_repo = InstanceRepository(db_client)
-        instances = await instance_repo.get_by_agent(
-            agent_id=new_agent_id, module_class="AwarenessModule"
-        )
-        if instances:
-            awareness_instance_id = instances[0].instance_id
-        else:
-            awareness_instance_id = f"aware_{uuid4().hex[:8]}"
-            await instance_repo.create_instance(ModuleInstanceRecord(
-                instance_id=awareness_instance_id,
-                module_class="AwarenessModule",
-                agent_id=new_agent_id,
-                is_public=True,
-                status=InstanceStatus.ACTIVE,
-                description="Agent self-awareness module instance",
-            ))
-
-        awareness_repo = InstanceAwarenessRepository(db_client)
-        await awareness_repo.upsert(awareness_instance_id, body.awareness)
-        logger.info(f"Set awareness for {new_agent_id}: {len(body.awareness)} chars")
 
         return {
             "success": True,

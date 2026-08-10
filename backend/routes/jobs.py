@@ -521,6 +521,24 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
 
         updates: dict = {}
 
+        # Resolve the effective job_type up front: trigger_config's
+        # compute_next_run runs BEFORE the job_type branch below, so reading
+        # updates.get("job_type") there always saw the OLD type — a
+        # one_off→scheduled switch with a new cron computed next_run_time as
+        # one_off (→ None), silently zombifying the job (pre-open review #4).
+        if body.job_type is not None:
+            try:
+                effective_type = JobType(body.job_type.lower())
+            except ValueError:
+                return JobUpdateResponse(
+                    success=False,
+                    job_id=job_id,
+                    message=f"Invalid job_type: {body.job_type}. Valid: one_off, scheduled, ongoing",
+                )
+            updates["job_type"] = effective_type
+        else:
+            effective_type = job.job_type
+
         if body.title is not None:
             updates["title"] = body.title
         if body.description is not None:
@@ -542,7 +560,6 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
                     success=False, job_id=job_id, message=f"Invalid trigger_config ({loc}): {first['msg']}"
                 )
             updates["trigger_config"] = tc_model
-            effective_type = updates.get("job_type", job.job_type)
             nxt = compute_next_run(effective_type, tc_model)
             if nxt:
                 updates["next_run_time"] = nxt.utc
@@ -552,15 +569,6 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
                 updates["next_run_time"] = None
                 updates["next_run_at_local"] = None
                 updates["next_run_tz"] = None
-        if body.job_type is not None:
-            try:
-                updates["job_type"] = JobType(body.job_type.lower())
-            except ValueError:
-                return JobUpdateResponse(
-                    success=False,
-                    job_id=job_id,
-                    message=f"Invalid job_type: {body.job_type}. Valid: one_off, scheduled, ongoing",
-                )
         if body.next_run_time is not None:
             # Atomic alpha+beta override: parse UTC input, then derive the beta
             # pair in the job's frozen timezone so display and poller stay consistent.

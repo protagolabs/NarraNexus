@@ -398,3 +398,54 @@ def test_search_keywords_failure_shape(client, monkeypatch):
     body = r.json()
     assert body["success"] is False
     assert "db unavailable" in body["error"]
+
+
+def test_update_job_type_switch_recomputes_next_run_with_new_type(client, monkeypatch):
+    """Pre-open review #4: job_type is resolved BEFORE the trigger_config
+    branch, so a one_off→scheduled switch submitted with a fresh cron computes
+    next_run_time under the NEW type. Reading updates.get('job_type') inside
+    the trigger branch (the old code) saw the old type, computed next_run as
+    one_off → None, and zombified the job."""
+    async def _get_job(self, job_id):
+        return _fake_job(job_type=JobType.ONE_OFF)
+
+    monkeypatch.setattr(jobs_module.JobRepository, "get_job", _get_job)
+
+    seen_types = {}
+
+    def _fake_compute(job_type, tc_model):
+        seen_types["job_type"] = job_type
+        # Only a scheduled type yields a next run for a cron config; one_off → None.
+        if job_type == JobType.SCHEDULED:
+            return SimpleNamespace(
+                utc="2026-09-01T09:00:00+00:00", local="2026-09-01T09:00:00", tz="UTC"
+            )
+        return None
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.job_module._job_scheduling.compute_next_run",
+        _fake_compute,
+    )
+
+    captured = {}
+
+    async def _update_job(self, job_id, updates, agent_id=None):
+        captured["updates"] = dict(updates)
+        return {"success": True, "job_id": job_id, "updated_fields": list(updates.keys()), "message": "ok"}
+
+    monkeypatch.setattr(job_service_module.JobInstanceService, "update_job", _update_job)
+
+    r = client.put(
+        "/api/jobs/job1",
+        headers={"x-test-user": "u1"},
+        json={
+            "agent_id": "agent_mine",
+            "job_type": "scheduled",
+            "trigger_config": {"cron": "0 9 * * *", "timezone": "UTC"},
+        },
+    )
+    assert r.status_code == 200
+    # The fix: compute_next_run saw SCHEDULED (the new type), not ONE_OFF.
+    assert seen_types["job_type"] == JobType.SCHEDULED
+    assert captured["updates"]["next_run_time"] is not None
+    assert captured["updates"]["job_type"] == JobType.SCHEDULED

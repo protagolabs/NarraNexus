@@ -474,6 +474,21 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             # Build update dictionary
             updates = {}
 
+            # Resolve effective job_type up front — trigger_config's
+            # compute_next_run runs before the job_type branch below, so
+            # reading updates.get("job_type") there saw the OLD type and a
+            # one_off->scheduled switch with a new cron computed next_run_time
+            # as one_off (-> None), zombifying the job (fixed in lockstep with
+            # the /api/jobs/{id} route, pre-open review #4).
+            if job_type is not None:
+                try:
+                    effective_type = JobType(job_type.lower())
+                except ValueError:
+                    return {"success": False, "job_id": job_id, "message": f"Invalid job_type: {job_type}. Valid: one_off, scheduled, ongoing"}
+                updates["job_type"] = effective_type
+            else:
+                effective_type = job.job_type
+
             if title is not None:
                 updates["title"] = title
             if description is not None:
@@ -496,7 +511,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                     return {"success": False, "job_id": job_id,
                             "message": f"Invalid trigger_config ({loc}): {first['msg']}"}
                 updates["trigger_config"] = tc_model
-                effective_type = updates.get("job_type", job.job_type)
                 nxt = compute_next_run(effective_type, tc_model)
                 if nxt:
                     updates["next_run_time"] = nxt.utc
@@ -506,11 +520,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                     updates["next_run_time"] = None
                     updates["next_run_at_local"] = None
                     updates["next_run_tz"] = None
-            if job_type is not None:
-                try:
-                    updates["job_type"] = JobType(job_type.lower())
-                except ValueError:
-                    return {"success": False, "job_id": job_id, "message": f"Invalid job_type: {job_type}. Valid: one_off, scheduled, ongoing"}
             if next_run_time is not None:
                 # Atomic alpha+beta override: parse UTC input, then derive the
                 # beta pair in the job's frozen timezone so display and poller

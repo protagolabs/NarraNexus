@@ -62,19 +62,21 @@ async def _narrative_chat_history(db, narrative_id: str, limit: int = 200) -> Li
     routes must not hand-write SQL (unlike the in-process MCP tool, which
     has direct db credentials the Http path deliberately doesn't expose).
     """
-    links = await db.get("instance_narrative_links", filters={"narrative_id": narrative_id})
+    links = await db.get(
+        "instance_narrative_links", filters={"narrative_id": narrative_id}, limit=200
+    )
     inst_ids = [row.get("instance_id") for row in (links or [])]
-    # Fan-out bound: each chat instance costs one get_one; the MCP twin runs
-    # in the module process where a fat narrative only slows its own agent,
-    # but on the shared API process an unbounded loop is a slow request for
-    # everyone. 100 chat instances is far beyond any observed narrative.
+    # Bounded fan-out with ONE query (BaseRepository exists to kill N+1): the
+    # MCP twin ran in the module process where a fat narrative only slowed its
+    # own agent, but on the shared API process a per-instance loop is a slow
+    # request for everyone. 100 chat instances is far beyond any real narrative.
     inst_ids = [i for i in inst_ids if i and i.startswith("chat_")][:100]
 
     messages: List[Dict[str, Any]] = []
-    for iid in inst_ids:
-        mrow = await db.get_one("instance_json_format_memory_chat", filters={"instance_id": iid})
-        if not mrow:
-            continue
+    mrows = await db.get_by_ids(
+        "instance_json_format_memory_chat", "instance_id", inst_ids
+    ) if inst_ids else []
+    for mrow in mrows:
         mem = _parse_info(mrow.get("memory"))
         for m in mem.get("messages", []):
             meta = m.get("meta_data", {}) or {}

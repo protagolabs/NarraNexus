@@ -4,6 +4,17 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (pre-open review #4) — job_type 提前解析,修 type-switch 僵尸 job
+
+job_update 的 `effective_type` 原来在 trigger_config 分支里 `updates.get(
+"job_type", job.job_type)` 读——但 job_type 分支跑在 trigger_config **之后**,
+永远拿旧类型。one_off→scheduled + 新 cron 一起提交时,compute_next_run 用
+one_off 算出 None,next_run_time 被写空,job 变成 status 正常却永不被调度的
+僵尸。改为进 updates 前先解析 `effective_type`;**MCP 工具 _job_mcp_tools.py
+同处 lockstep 一起改**(两边对称的同一 bug)。回归测试
+test_update_job_type_switch_recomputes_next_run_with_new_type 钉住。
+
+
 ## 2026-08-10 (pre-open review) — search 收归调用者身份 + 中立错误文案
 
 - 两个 search 端点删掉 "optional user_id" query 参数,强制

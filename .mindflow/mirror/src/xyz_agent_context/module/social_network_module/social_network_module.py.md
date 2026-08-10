@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — 新增 merge_entities / delete_entity 方法(供 MCP+路由共用)
+
+把原本散在 `_social_mcp_tools.py` 闭包与 backend 路由里的 merge/delete 业务
+逻辑(tags 并集去重、identity/contact 深合、related_job 并集、描述追加、
+交互计数求和、保留最新交互时间)提炼为本类的真方法,与既有
+`extract_and_update_entity_info` 同层。MCP 闭包与 `backend/routes/agents/
+social_network.py` 路由都改调这两个方法,消除两份复制、堵住 drift(PR-2
+pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 2026-07-28 — R4b：实体卡（§5）搬进 get_turn_context
 

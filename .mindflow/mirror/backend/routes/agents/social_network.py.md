@@ -46,7 +46,7 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
   - `InstanceRepository` — 查询 `SocialNetworkModule` 实例 ID
   - `SocialNetworkRepository` — 语义搜索（`semantic_search`）、关键词搜索（`keyword_search`）、写端点里的 `get_entity`/`update_entity_info`/`delete_entity`
   - `SocialNetworkModule.extract_and_update_entity_info` — `extract` 端点直接委托给它，保证与 agent 工具路径语义一致
-  - `AgentRepository` / `InstanceAwarenessRepository` / `xyz_agent_context.utils.workspace_paths.agent_workspace_path` / `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — `create-agent` 端点建新 agent 记录、workspace、awareness instance
+  - `AgentRepository` / `InstanceRepository` / `InstanceAwarenessRepository` — `create-agent` 端点建新 agent 记录并 seed awareness；供给序列(实例/发现/bootstrap)走 canonical 路径(见 2026-08-10 pre-open review 条目)
   - `backend.routes._ownership.assert_owned` — 四个写端点的授权门禁
   - （历史：语义搜索曾经由 agent_framework 的 embedding 工具生成 query 向量；该向量化子系统已整体移除）
   - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表

@@ -50,56 +50,26 @@ class _FakeInstanceRepository:
         return 1
 
 
-class _FakeSocialEntity:
-    def __init__(
-        self,
-        entity_id: str,
-        entity_name: str = "",
-        keywords: list[str] | None = None,
-        identity_info: dict | None = None,
-        contact_info: dict | None = None,
-        related_job_ids: list[str] | None = None,
-        entity_description: str = "",
-        interaction_count: int = 0,
-        last_interaction_time=None,
-    ):
-        self.entity_id = entity_id
-        self.entity_name = entity_name
-        self.keywords = keywords or []
-        self.identity_info = identity_info or {}
-        self.contact_info = contact_info or {}
-        self.related_job_ids = related_job_ids or []
-        self.entity_description = entity_description
-        self.interaction_count = interaction_count
-        self.last_interaction_time = last_interaction_time
-
-
-class _FakeSocialNetworkRepository:
-    """Stands in for SocialNetworkRepository. `known` maps entity_id ->
-    _FakeSocialEntity; missing ids resolve to None (not found)."""
-
-    def __init__(self, db, known: dict[str, _FakeSocialEntity]):
-        self.db = db
-        self.known = known
-        self.updated: tuple[str, dict] | None = None
-        self.deleted: list[str] = []
-
-    async def get_entity(self, entity_id: str, instance_id: str):
-        return self.known.get(entity_id)
-
-    async def update_entity_info(self, entity_id: str, instance_id: str, updates: dict):
-        self.updated = (entity_id, updates)
-
-    async def delete_entity(self, entity_id: str, instance_id: str):
-        self.deleted.append(entity_id)
-
-
 class _FakeSocialNetworkModule:
     """Stands in for SocialNetworkModule — records the call and returns a
-    canned extract_and_update_entity_info result."""
+    canned result for whichever method the route delegates to. The real
+    merge/delete business logic (tag union, description append, etc.) now
+    lives on `SocialNetworkModule` itself and is proven separately in
+    tests/social_network_module/test_merge_delete.py; these route-level
+    tests only need to prove the route delegates with the right args and
+    forwards the result (with 'message' normalized to 'error' on failure)."""
 
     last_call: dict[str, Any] | None = None
     result: dict[str, Any] = {"success": True, "message": "Entity info updated successfully", "entity_id": "x"}
+    merge_last_call: dict[str, Any] | None = None
+    merge_result: dict[str, Any] = {
+        "success": True,
+        "message": "Merged 'a' into 'b'",
+        "target_entity_id": "b",
+        "merged_tags": [],
+    }
+    delete_last_call: dict[str, Any] | None = None
+    delete_result: dict[str, Any] = {"success": True, "message": "Entity deleted."}
 
     def __init__(self, agent_id, database_client, instance_id):
         self.agent_id = agent_id
@@ -113,6 +83,19 @@ class _FakeSocialNetworkModule:
             "update_mode": update_mode,
         }
         return type(self).result
+
+    async def merge_entities(self, source_entity_id, target_entity_id, instance_id, keep_target_name):
+        type(self).merge_last_call = {
+            "source_entity_id": source_entity_id,
+            "target_entity_id": target_entity_id,
+            "instance_id": instance_id,
+            "keep_target_name": keep_target_name,
+        }
+        return type(self).merge_result
+
+    async def delete_entity(self, entity_id, instance_id):
+        type(self).delete_last_call = {"entity_id": entity_id, "instance_id": instance_id}
+        return type(self).delete_result
 
 
 class _FakeAgent:
@@ -133,16 +116,6 @@ class _FakeAgentRepository:
 
     async def add_agent(self, **kwargs):
         self.added = kwargs
-
-
-class _FakeInstanceAwarenessRepository:
-    def __init__(self, db):
-        self.db = db
-        self.upserted: tuple[str, str] | None = None
-
-    async def upsert(self, instance_id: str, awareness: str):
-        self.upserted = (instance_id, awareness)
-        return True
 
 
 # --------------------------------------------------------------------------- fixture
@@ -259,25 +232,14 @@ def test_extract_no_social_network_instance_reports_family_style_error(client):
 # --------------------------------------------------------------------------- merge
 
 
-def test_merge_success_unions_tags_and_deletes_source(client, monkeypatch):
-    source = _FakeSocialEntity(
-        "entity_alice_lark",
-        entity_name="Alice (Lark)",
-        keywords=["expert:ml", "engineer"],
-        identity_info={"organization": "Acme"},
-        entity_description="Met via Lark",
-        interaction_count=3,
-    )
-    target = _FakeSocialEntity(
-        "user_alice_123",
-        entity_name="Alice",
-        keywords=["expert:ml"],
-        identity_info={"position": "Lead"},
-        entity_description="",
-        interaction_count=5,
-    )
-    fake_repo = _FakeSocialNetworkRepository(None, {"entity_alice_lark": source, "user_alice_123": target})
-    monkeypatch.setattr(sn_routes, "SocialNetworkRepository", lambda db: fake_repo)
+def test_merge_success_delegates_to_social_network_module(client, monkeypatch):
+    _FakeSocialNetworkModule.merge_result = {
+        "success": True,
+        "message": "Merged 'entity_alice_lark' into 'user_alice_123'",
+        "target_entity_id": "user_alice_123",
+        "merged_tags": ["expert:ml", "engineer"],
+    }
+    monkeypatch.setattr(sn_routes, "SocialNetworkModule", _FakeSocialNetworkModule)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/merge",
@@ -289,18 +251,20 @@ def test_merge_success_unions_tags_and_deletes_source(client, monkeypatch):
     assert body["success"] is True
     assert body["target_entity_id"] == "user_alice_123"
     assert set(body["merged_tags"]) == {"expert:ml", "engineer"}
+    assert _FakeSocialNetworkModule.merge_last_call == {
+        "source_entity_id": "entity_alice_lark",
+        "target_entity_id": "user_alice_123",
+        "instance_id": "social_agent_mine",
+        "keep_target_name": True,
+    }
 
-    updated_entity_id, updates = fake_repo.updated
-    assert updated_entity_id == "user_alice_123"
-    assert updates["identity_info"] == {"position": "Lead", "organization": "Acme"}
-    assert updates["interaction_count"] == 8
-    assert fake_repo.deleted == ["entity_alice_lark"]
 
-
-def test_merge_missing_source_entity_returns_family_style_error(client, monkeypatch):
-    target = _FakeSocialEntity("user_alice_123", entity_name="Alice")
-    fake_repo = _FakeSocialNetworkRepository(None, {"user_alice_123": target})
-    monkeypatch.setattr(sn_routes, "SocialNetworkRepository", lambda db: fake_repo)
+def test_merge_underlying_failure_maps_message_to_error_key(client, monkeypatch):
+    _FakeSocialNetworkModule.merge_result = {
+        "success": False,
+        "message": "Source entity not found: ghost",
+    }
+    monkeypatch.setattr(sn_routes, "SocialNetworkModule", _FakeSocialNetworkModule)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/merge",
@@ -310,16 +274,18 @@ def test_merge_missing_source_entity_returns_family_style_error(client, monkeypa
     body = r.json()
     assert body["success"] is False
     assert body["error"] == "Source entity not found: ghost"
-    assert fake_repo.deleted == []
+    assert "message" not in body
 
 
 # --------------------------------------------------------------------------- delete-entity
 
 
-def test_delete_entity_success(client, monkeypatch):
-    entity = _FakeSocialEntity("entity_junk", entity_name="Junk Entry")
-    fake_repo = _FakeSocialNetworkRepository(None, {"entity_junk": entity})
-    monkeypatch.setattr(sn_routes, "SocialNetworkRepository", lambda db: fake_repo)
+def test_delete_entity_success_delegates_to_social_network_module(client, monkeypatch):
+    _FakeSocialNetworkModule.delete_result = {
+        "success": True,
+        "message": "Entity 'Junk Entry' (entity_junk) has been permanently deleted.",
+    }
+    monkeypatch.setattr(sn_routes, "SocialNetworkModule", _FakeSocialNetworkModule)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/delete-entity",
@@ -330,12 +296,15 @@ def test_delete_entity_success(client, monkeypatch):
     body = r.json()
     assert body["success"] is True
     assert "permanently deleted" in body["message"]
-    assert fake_repo.deleted == ["entity_junk"]
+    assert _FakeSocialNetworkModule.delete_last_call == {
+        "entity_id": "entity_junk",
+        "instance_id": "social_agent_mine",
+    }
 
 
 def test_delete_missing_entity_returns_family_style_error(client, monkeypatch):
-    fake_repo = _FakeSocialNetworkRepository(None, {})
-    monkeypatch.setattr(sn_routes, "SocialNetworkRepository", lambda db: fake_repo)
+    _FakeSocialNetworkModule.delete_result = {"success": False, "message": "Entity not found: ghost"}
+    monkeypatch.setattr(sn_routes, "SocialNetworkModule", _FakeSocialNetworkModule)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/delete-entity",
@@ -345,18 +314,30 @@ def test_delete_missing_entity_returns_family_style_error(client, monkeypatch):
     body = r.json()
     assert body["success"] is False
     assert body["error"] == "Entity not found: ghost"
-    assert fake_repo.deleted == []
+    assert "message" not in body
 
 
 # --------------------------------------------------------------------------- create-agent
 
 
-def test_create_agent_success(client, monkeypatch):
+class _FakeProvisionResult:
+    def __init__(self, bootstrap_active: bool = True):
+        self.bootstrap_active = bootstrap_active
+        self.warnings: list[str] = []
+
+
+def test_create_agent_success_delegates_to_provisioning_seam(client, monkeypatch):
     caller = _FakeAgent("agent_mine", created_by="u1", agent_name="Owner Agent")
     fake_agent_repo = _FakeAgentRepository(None, {"agent_mine": caller})
-    fake_awareness_repo = _FakeInstanceAwarenessRepository(None)
     monkeypatch.setattr(sn_routes, "AgentRepository", lambda db: fake_agent_repo)
-    monkeypatch.setattr(sn_routes, "InstanceAwarenessRepository", lambda db: fake_awareness_repo)
+
+    calls: list[dict[str, Any]] = []
+
+    async def _fake_provision(db, **kwargs):
+        calls.append(kwargs)
+        return _FakeProvisionResult()
+
+    monkeypatch.setattr(sn_routes, "provision_new_agent", _fake_provision)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",
@@ -369,15 +350,22 @@ def test_create_agent_success(client, monkeypatch):
     assert body["agent_name"] == "Scout"
     assert body["new_agent_id"].startswith("agent_")
 
-    assert fake_agent_repo.added["created_by"] == "u1"
-    assert fake_agent_repo.added["agent_name"] == "Scout"
-    assert fake_awareness_repo.upserted[1] == "I am Scout, a research helper."
+    assert len(calls) == 1
+    assert calls[0]["user_id"] == "u1"
+    assert calls[0]["agent_name"] == "Scout"
+    assert calls[0]["awareness"] == "I am Scout, a research helper."
+    assert calls[0]["agent_id"] == body["new_agent_id"]
 
 
 def test_create_agent_without_resolvable_owner_returns_family_style_error(client, monkeypatch):
     caller = _FakeAgent("agent_mine", created_by=None)
     fake_agent_repo = _FakeAgentRepository(None, {"agent_mine": caller})
     monkeypatch.setattr(sn_routes, "AgentRepository", lambda db: fake_agent_repo)
+
+    async def _unreachable_provision(db, **kwargs):
+        raise AssertionError("provision_new_agent must not be called without a resolvable owner")
+
+    monkeypatch.setattr(sn_routes, "provision_new_agent", _unreachable_provision)
 
     r = client.post(
         "/api/agents/agent_mine/social-network/create-agent",

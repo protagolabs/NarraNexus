@@ -385,87 +385,12 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         if error:
             return {"success": False, "message": error}
 
-        try:
-            from xyz_agent_context.repository import SocialNetworkRepository
-            db = await get_db_client_fn()
-            repo = SocialNetworkRepository(db)
-
-            source = await repo.get_entity(source_entity_id, instance_id)
-            target = await repo.get_entity(target_entity_id, instance_id)
-
-            if not source:
-                return {"success": False, "message": f"Source entity not found: {source_entity_id}"}
-            if not target:
-                return {"success": False, "message": f"Target entity not found: {target_entity_id}"}
-
-            # Merge keywords (case-insensitive dedup, capped at 10)
-            merged_tags = list(target.keywords or [])
-            existing_lower = {t.lower() for t in merged_tags}
-            for t in (source.keywords or []):
-                if t.lower() not in existing_lower:
-                    merged_tags.append(t)
-                    existing_lower.add(t.lower())
-            if len(merged_tags) > 10:
-                merged_tags = merged_tags[:10]
-
-            # Merge identity_info (target takes precedence; source fills in missing keys)
-            merged_identity = {**(source.identity_info or {}), **(target.identity_info or {})}
-
-            # Merge contact_info (deep merge + normalize)
-            from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
-            merged_contact = merge_contact_info(source.contact_info or {}, target.contact_info or {})
-
-            # Merge related_job_ids (union)
-            merged_jobs = list(set(target.related_job_ids or []) | set(source.related_job_ids or []))
-
-            # Append descriptions
-            merged_desc = target.entity_description or ""
-            if source.entity_description:
-                if merged_desc:
-                    merged_desc += f"\n(Merged from {source_entity_id}): {source.entity_description}"
-                else:
-                    merged_desc = source.entity_description
-
-            # Sum interaction counts
-            merged_count = (target.interaction_count or 0) + (source.interaction_count or 0)
-
-            # Determine name
-            merged_name = target.entity_name if keep_target_name else (source.entity_name or target.entity_name)
-
-            # Update target
-            updates = {
-                "entity_name": merged_name,
-                "entity_description": merged_desc,
-                "identity_info": merged_identity,
-                "contact_info": merged_contact,
-                "tags": merged_tags,
-                "related_job_ids": merged_jobs,
-                "interaction_count": merged_count,
-            }
-            # Keep the most recent interaction time
-            if source.last_interaction_time and target.last_interaction_time:
-                updates["last_interaction_time"] = max(
-                    source.last_interaction_time, target.last_interaction_time
-                )
-            elif source.last_interaction_time:
-                updates["last_interaction_time"] = source.last_interaction_time
-
-            await repo.update_entity_info(target_entity_id, instance_id, updates)
-
-            # Delete source
-            await repo.delete_entity(source_entity_id, instance_id)
-
-            logger.info(f"Merged entity {source_entity_id} into {target_entity_id}")
-            return {
-                "success": True,
-                "message": f"Merged '{source_entity_id}' into '{target_entity_id}'",
-                "target_entity_id": target_entity_id,
-                "merged_tags": merged_tags,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error merging entities: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        return await temp_module.merge_entities(
+            source_entity_id=source_entity_id,
+            target_entity_id=target_entity_id,
+            instance_id=instance_id,
+            keep_target_name=keep_target_name,
+        )
 
     @mcp.tool()
     async def delete_entity(
@@ -499,28 +424,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         if error:
             return {"success": False, "message": error}
 
-        try:
-            from xyz_agent_context.repository import SocialNetworkRepository
-            db = await get_db_client_fn()
-            repo = SocialNetworkRepository(db)
-
-            # Verify entity exists
-            entity = await repo.get_entity(entity_id, instance_id)
-            if not entity:
-                return {"success": False, "message": f"Entity not found: {entity_id}"}
-
-            entity_name = entity.entity_name or entity_id
-            await repo.delete_entity(entity_id, instance_id)
-
-            logger.info(f"Deleted entity '{entity_name}' ({entity_id}) from instance {instance_id}")
-            return {
-                "success": True,
-                "message": f"Entity '{entity_name}' ({entity_id}) has been permanently deleted.",
-            }
-
-        except Exception as e:
-            logger.exception(f"Error deleting entity: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        return await temp_module.delete_entity(entity_id=entity_id, instance_id=instance_id)
 
     @mcp.tool()
     async def create_agent(
@@ -555,7 +459,6 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         """
         try:
             from uuid import uuid4
-            import os
 
             db = await get_db_client_fn()
 
@@ -569,50 +472,24 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             owner_user_id = caller.created_by
             new_agent_id = f"agent_{uuid4().hex[:12]}"
 
-            # 1. Create agent record in DB
-            await agent_repo.add_agent(
+            # Canonical provisioning seam (pre-open review #3): this used to
+            # be a half-copy of auth.py's create_agent sequence that skipped
+            # InstanceFactory / peer-discovery sync / bootstrap profile /
+            # default-skill install entirely (only agent row + Bootstrap.md +
+            # a hand-rolled AwarenessModule instance) — producing agents
+            # invisible to peer discovery and with none of their default
+            # skills. Now calls the same `provision_new_agent` the HTTP
+            # create-agent route uses.
+            from xyz_agent_context.bootstrap.provision import provision_new_agent
+            await provision_new_agent(
+                db,
                 agent_id=new_agent_id,
+                user_id=owner_user_id,
                 agent_name=agent_name,
-                created_by=owner_user_id,
                 agent_description=agent_description or f"Agent created by {caller.agent_name or agent_id}",
-                agent_type="chat",
+                awareness=awareness,
             )
             logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {owner_user_id}")
-
-            # 2. Create workspace directory + Bootstrap.md
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-            workspace_path = str(
-                agent_workspace_path(new_agent_id, owner_user_id, base=settings.base_working_path)
-            )
-            os.makedirs(workspace_path, exist_ok=True)
-
-            try:
-                from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
-                bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
-                with open(bootstrap_file, "w", encoding="utf-8") as f:
-                    f.write(BOOTSTRAP_MD_TEMPLATE)
-            except Exception as e:
-                logger.warning(f"Failed to write Bootstrap.md for {new_agent_id}: {e}")
-
-            # 3. Create awareness instance and set awareness text
-            instance_repo = InstanceRepository(db)
-            from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
-            awareness_instance_id = f"aware_{uuid4().hex[:8]}"
-            new_instance = ModuleInstanceRecord(
-                instance_id=awareness_instance_id,
-                module_class="AwarenessModule",
-                agent_id=new_agent_id,
-                is_public=True,
-                status=InstanceStatus.ACTIVE,
-                description="Agent self-awareness module instance",
-            )
-            await instance_repo.create_instance(new_instance)
-
-            from xyz_agent_context.repository import InstanceAwarenessRepository
-            awareness_repo = InstanceAwarenessRepository(db)
-            await awareness_repo.upsert(awareness_instance_id, awareness)
-            logger.info(f"Set awareness for {new_agent_id}: {len(awareness)} chars")
 
             return {
                 "success": True,
