@@ -118,7 +118,9 @@ async def provision_new_agent(
     # Reject an unsafe agent_id before it becomes a path segment or DB key (see
     # _SAFE_AGENT_ID). Raised, not folded into warnings: a bad id means we must
     # NOT create anything (no row, no workspace dir), so it aborts the call.
-    if not _SAFE_AGENT_ID.match(agent_id):
+    # fullmatch (not match): `$` would accept a trailing newline, and this is a
+    # security primitive whose whole job is to catch a bad id from any caller.
+    if not _SAFE_AGENT_ID.fullmatch(agent_id):
         raise ValueError(f"unsafe agent_id (must match [A-Za-z0-9_-]+): {agent_id!r}")
 
     # 0. Insert the agent row itself. Not wrapped in try/except — a failed

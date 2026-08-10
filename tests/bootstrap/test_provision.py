@@ -164,7 +164,7 @@ def test_unsafe_agent_id_is_rejected_before_any_write(wired):
     # path segment (base/{user_id}/{agent_id}), so "../victim/agent" could write
     # into another tenant's workspace. This is the ONE seam every caller funnels
     # through, so the guard belongs here.
-    for bad in ("../u2/agent_x", "a/b", "x..y", "with space", "semi;colon", ""):
+    for bad in ("../u2/agent_x", "a/b", "x..y", "with space", "semi;colon", "", "agent_ok\n", "\nagent_ok"):
         with pytest.raises(ValueError):
             asyncio.run(prov.provision_new_agent(
                 object(), agent_id=bad, user_id="usr_1", agent_name="New"
