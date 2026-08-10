@@ -8,7 +8,7 @@ last_verified: 2026-08-10
 
 The ONE header-level identity verification (PR #260 review Important #3):
 mcp middleware and backend's nx-agent service path ran the identical
-algorithm (explicit header or bearer field #7 → Ed25519 verify → cross-check
+algorithm (explicit header or the bearer identity_token field → Ed25519 verify → cross-check
 bearer user_id vs proven sub) as two near-identical copies, with a third
 consumer already forecast. Copies drift; the algorithm now lives here once.
 

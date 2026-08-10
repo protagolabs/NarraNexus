@@ -12,11 +12,32 @@ token(每 run 新鲜);本地在 `NX_MCP_AUTH_MODE != off` 时才让进程自签
 铁律 #7。**云端绝不自签**(review #1):`ensured is not None or is_cloud_mode()`
 时无 broker token 就返回 None——进程内临时签名对不上 mcp 挂载的部署公钥,
 audit 期会把「谁还没 token」的核心测量污染成 invalid 噪音,enforce 期则全站
-401;测试钉住 audit 模式下旧 broker/云无 broker 两种形态都不 stamp。选中的 token 经 `stamp_identity_token` 原地写进 `ctx.mcp_servers`
-的 headers(bearer 第 7 位):放在 TurnInput 之后是**故意的**——turn_input.py
-文档明言 mcp_servers 按引用传递、"step_3 merges into mcp_servers before the
-call",本处沿用同一契约。云 token 只在 ensure 后存在,所以 stamp 不能提前到
-context_runtime 盖章处。测试:`test_step3_identity_stamp.py`。
+401;测试钉住 audit 模式下旧 broker/云无 broker 两种形态都不 stamp。选中的
+token 经 `stamp_identity_token` 原地写进 `ctx.mcp_servers` 的 headers
+(bearer 第 **9** 位——与 #255 的 team_id/event_id 撞位后按「先到 dev 者得位」
+让位,stamp 重建时透传全部既有字段,漏一个=codex 通道静默丢该事实):放在
+TurnInput 之后是**故意的**——turn_input.py 文档明言 mcp_servers 按引用传递、
+"step_3 merges into mcp_servers before the call",本处沿用同一契约。云 token
+只在 ensure 后存在,所以 stamp 不能提前到 context_runtime 盖章处。测试:
+`test_step3_identity_stamp.py`。
+
+## 2026-08-10 (review 修正) — 授予收窄到本回合 team
+
+改用 [[workspace_paths.py]] 的 `turn_accessible_roots`，team 取自
+`trigger_extra_data["bus_team_id"]`（与 MCP 身份 header 同源）。此前授予的是整棵
+`_shared`——该 owner 名下**每一个** team 的目录，且**每个回合**都授予。
+
+字段随之改名 `extra_readable_roots` → `extra_accessible_roots`：它不是只读的。
+
+## 2026-08-07 — 授予 per-user `_shared` 为额外可读根
+
+组 TurnInput 时把 `{base}/{user_id}/_shared` 作为 `extra_readable_roots` 传下去，让
+NexusPower 的 confinement 放行团队共享目录与 bus 附件（此前 prompt 让读、框架层拒绝，
+且与 claude/codex 行为不一致——见 [[policy.py]]）。
+
+范围性质：`_shared` 在**本 user 根之下**，而 message bus 禁止跨 user，故这不授予任何
+跨 user 访问——正是 per-user Executor 已经挂载的同一棵子树。
+
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 

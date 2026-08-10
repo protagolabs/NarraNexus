@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-07-22
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 两段落点指令互斥，已统一
+
+多文件那段原本写「写进**你 workspace** 的专用子目录」，而团队那段写「写进**团队共享目录**」——
+两条对同一个 agent 同时成立时是矛盾的，且团队分支缺了「多文件要建子目录」这句。
+
+现在多文件那段只讲**要建子目录**这件事本身，把「哪个顶层」交给下一段的归属规则：私有 → 自己
+workspace，团队 → 团队目录，**多文件的团队 artifact 因此进团队目录的子目录**。
+
+这也顺带压低了 [[registration.py]] 记的那个体量陷阱的暴露面：entry 在子目录里时，
+`artifact_root` 就不再是团队根。
+
+## 2026-08-10 (方案 B) — 工具描述点明团队里往哪写
+
+新增一段：**团队房间里把文件写进团队共享目录再注册**，不要写自己 workspace——后者对队友的工具
+不可达，从那里注册的 artifact 没人能接着做。并说明从自己 workspace 注册团队 artifact 会被拒、
+错误里带目录路径。规则本身见 [[registration.py]]。
+
+## 2026-08-07 — scope 参数：team 由服务端定，模型只有否决权
+
+新增 `scope: str = "auto"`。**非对称设计**，这是本次的关键：
+
+- **team 来自服务端** `caller_team_id_from_request()`。模型**无法**通过传参把 artifact 放进
+  某个 team——`agent_id` 本身就是模型填的参数，若 team 也信参数，私聊回合就能写进团队空间。
+- **`scope="private"` 是模型唯一的杠杆，且只能收窄**：把草稿从「它确实所在的 team」里摘出来，
+  永远不能用来够到一个它不在的 team。
+- **其他任何值（含默认值与模型瞎编的值）一律跟随 turn**。这是弱模型下的安全方向：常见情况
+  零决策，编错了退化成**正确行为**，而不是退化成「一个团队里谁都找不到的私有 artifact」。
+
+**参数必须是 `str` + 默认值，不能是 `Optional[str]`**：FastMCP 会把 Optional 渲染成
+`anyOf:[X,null]`，strict-schema provider 直接**请求级 400**——整个请求挂掉，不是这一次调用
+降级。测试 `test_scope_parameter_is_not_optional_typed` 守着这条。
+
+⚠️ 本文件顶部的前端耦合警告（`ARTIFACT_TOOL_BASE_NAMES`）仍然有效：本次**没有改工具名**，
+只加参数，故前端无需同步。
 
 ## 2026-07-22 — new `open_url` MCP tool
 

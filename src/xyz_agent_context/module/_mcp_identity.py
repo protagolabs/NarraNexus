@@ -114,10 +114,28 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 # NULL as "not part of the tree being stopped".
 ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 
+# The team whose room this turn is running in, when it is one. Server-side
+# because a tool cannot ask the MODEL whether it is in a team: `agent_id` is
+# already a model-filled parameter, so a private-chat turn could claim a team
+# and write into that team's workspace. Same reasoning as the agent id above.
+#
+# NOT derivable from ERRAND_CHANNEL: that one is populated only when the turn
+# continues the agent's OWN errand (message_bus_trigger stamps it
+# conditionally), so it is empty on most team turns and would read as "not a
+# team turn" — the failure would be silent and intermittent.
+TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
+
+# The events-row id of the turn making the call — this codebase's turn handle
+# (same meaning as bus_messages.event_id). Attribution needs to record WHICH
+# turn changed an artifact, and the tool cannot ask the model for that without
+# accepting a guess. Available because the event row is created in Step 0,
+# before context_runtime builds the MCP spec in Step 3.
+EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
+
 # The PROOF for everything above: a short-lived Ed25519 JWT signed by the
 # platform (cloud: the executor broker at ensure() time; local: the
-# agent-runtime process), bound to the turn owner's user_id. The six facts
-# before it are self-declared conveniences; this one is verifiable — see
+# agent-runtime process), bound to the turn owner's user_id. The facts before
+# it are self-declared conveniences; this one is verifiable — see
 # module/identity/ for signing/verification and the enforcement policy.
 IDENTITY_TOKEN_HEADER = "X-NarraNexus-Identity-Token"
 
@@ -162,12 +180,21 @@ BEARER_FIELDS = (
     # nothing would go red. That is why `test_every_field_count_parses`
     # asserts position by position, not just the total.
     "root_run_id",
-    # Appended 2026-08-10 (MCP caller auth, blueprint P1). The signed Ed25519
-    # identity token proving the turn owner (see module/identity/tokens.py).
-    # It rides the bearer because codex forwards NOTHING else; JWT's charset
-    # ([A-Za-z0-9_.-]) contains no "~", so it is field-safe. Verified by
-    # identity/mcp_auth.py; every field before it stays self-declared and
-    # fail-open exactly as documented above.
+    # Appended 2026-08-07 (team workspace), written in parallel with
+    # `root_run_id` and resolved by the same rule it documents above: that one
+    # reached dev first, so #6 is already on the wire and the team lands at #7.
+    # Taking #6 here would make an in-flight bearer decode a team id as a run
+    # id — and the cascade stop selects a whole trigger tree by that value.
+    "team_id",
+    "event_id",
+    # Appended 2026-08-10 (MCP caller auth, blueprint P1), and resolved by the
+    # SAME first-to-dev rule a third time: this field was written at #7 in
+    # parallel with team_id/event_id, which reached dev first — so it lands at
+    # #9. The signed Ed25519 identity token proving the turn owner (see
+    # module/identity/tokens.py); it rides the bearer because codex forwards
+    # NOTHING else, and JWT's charset ([A-Za-z0-9_.-]) contains no "~", so it
+    # is field-safe. Verified by identity/mcp_auth.py; every field before it
+    # stays self-declared and fail-open exactly as documented above.
     "identity_token",
 )
 
@@ -248,6 +275,8 @@ class BearerIdentity(NamedTuple):
     errand_channel: Optional[str] = None
     user_id: Optional[str] = None
     root_run_id: Optional[str] = None
+    team_id: Optional[str] = None
+    event_id: Optional[str] = None
     identity_token: Optional[str] = None
 
 
@@ -352,6 +381,50 @@ def caller_user_id_from_request() -> Optional[str]:
             return candidate
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller user: {e}")
+    return None
+
+
+def caller_team_id_from_request() -> Optional[str]:
+    """The team whose room this turn runs in, or None outside a team.
+
+    There is deliberately no ``resolve_*`` counterpart taking a model-supplied
+    fallback: the whole point is that a tool must not be able to learn "I am in
+    a team" from the model. None means private, and a turn that cannot prove a
+    team IS private — the safe direction, since the alternative is writing into
+    a team workspace on a model's say-so.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, TEAM_ID_HEADER)
+        if injected:
+            return injected
+        # Codex path: everything rides the borrowed bearer.
+        return _bearer(headers).team_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller team: {e}")
+    return None
+
+
+def caller_event_id_from_request() -> Optional[str]:
+    """The events-row id of the calling turn, or None.
+
+    None is normal: plenty of callers have no event in scope. Absence degrades
+    attribution (the history row simply records no turn) and must never fail a
+    registration — losing the agent's work to protect a log line would be the
+    wrong trade.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, EVENT_ID_HEADER)
+        if injected:
+            return injected
+        return _bearer(headers).event_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller event: {e}")
     return None
 
 
@@ -652,6 +725,8 @@ def agent_id_headers(
     errand_channel: str | None = None,
     user_id: str | None = None,
     root_run_id: str | None = None,
+    team_id: str | None = None,
+    event_id: str | None = None,
     identity_token: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
@@ -674,6 +749,8 @@ def agent_id_headers(
         errand_channel or "",
         user_id or "",
         root_run_id or "",
+        team_id or "",
+        event_id or "",
         identity_token or "",
     ]
     while len(fields) > 1 and not fields[-1]:
@@ -690,6 +767,8 @@ def agent_id_headers(
         (ERRAND_CHANNEL_HEADER, errand_channel),
         (USER_ID_HEADER, user_id),
         (ROOT_RUN_ID_HEADER, root_run_id),
+        (TEAM_ID_HEADER, team_id),
+        (EVENT_ID_HEADER, event_id),
         (IDENTITY_TOKEN_HEADER, identity_token),
     ):
         if value:
@@ -727,6 +806,14 @@ def stamp_identity_token(mcp_servers: dict, token: str) -> None:
                 errand_channel=ident.errand_channel,
                 user_id=ident.user_id,
                 root_run_id=ident.root_run_id,
+                # EVERY parsed field must ride the rebuild. Dropping one here
+                # erases it from the bearer — and codex forwards nothing else,
+                # so e.g. a missing team_id would silently demote every team
+                # turn to private on that adapter (PR #260 round-6 review #2).
+                # The count-matches-contract test below is the tripwire for
+                # the next appended field.
+                team_id=ident.team_id,
+                event_id=ident.event_id,
                 identity_token=token,
             ),
         }

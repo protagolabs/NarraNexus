@@ -7,7 +7,8 @@ consumer of the nx-agent bearer contract.
 
 Both verifiers — the mcp middleware (identity/mcp_auth.py) and backend's
 nx-agent service path (backend/auth.py) — run the identical algorithm: take
-the explicit X-NarraNexus-Identity-Token header or bearer field #7, verify
+the explicit X-NarraNexus-Identity-Token header or the bearer's identity_token
+field (last in BEARER_FIELDS — #9 since #255 took #7/#8), verify
 the Ed25519 signature, and cross-check the self-declared bearer user_id
 against the proven sub. Only their DEGRADATION differs (mcp fails open on a
 missing key, backend fails closed), so that stays with the callers and the

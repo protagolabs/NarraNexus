@@ -23,7 +23,7 @@ wrapper calls.
   + one sampled `mcp_auth_tokenless` audit row — the enforce-flip decision
   reads SQL, not grep (round-2 #1; incident lesson #4/#5). The
   declared-caller key is round-3 #1: tokenless ≠ identity-less — an
-  old-broker executor is exactly "bearer present, field #7 missing", so the
+  old-broker executor is exactly "bearer present, identity_token missing", so the
   self-declared user_id IS the onboarding worklist (unverified by design: it
   feeds a worklist, not an authz decision; no declaration OR a placeholder
   string → "anonymous", reusing `_mcp_identity` 的读取器与占位符语义)。

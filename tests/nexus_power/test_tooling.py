@@ -499,3 +499,181 @@ async def test_dispatcher_rejects_missing_required_args_before_routing(ctx, engi
         ToolCall(id="2", name="write_file", args={"path": "out.txt", "content": "hi"})
     )
     assert ok.ok
+
+
+# ── extra readable roots (team shared workspace) ────────────────────────────
+#
+# Why these exist: the team prompt tells an agent to `Read` the team shared
+# folder (`_shared/teams/{team_id}`, a SIBLING of the agent workspace), but
+# both confinement layers denied it — prompt and framework contradicted each
+# other, and claude/codex (which have no such layer) behaved differently.
+# `extra_accessible_roots` is the framework-generic escape hatch: the PLATFORM
+# decides which roots are additionally readable this turn; the framework
+# never learns what `_shared` means. Fail-closed is preserved — an empty
+# tuple (the default) reproduces the old behaviour exactly.
+
+
+@pytest.fixture()
+def shared_root(tmp_path):
+    """A sibling of the agent workspace, mirroring `_shared/` on disk."""
+    d = tmp_path.parent / "_shared_probe"
+    d.mkdir(exist_ok=True)
+    (d / "team_report.md").write_text("shared\n")
+    return d
+
+
+@pytest.fixture()
+def ctx_with_shared(workspace, shared_root):
+    return ToolContext(
+        agent_id="a1",
+        workspace=str(workspace),
+        extra_accessible_roots=(str(shared_root),),
+    )
+
+
+def test_extra_root_allows_path_tools(engine, ctx_with_shared, shared_root):
+    """A declared extra root is readable by the path-argument tools."""
+    ok = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(shared_root / "team_report.md")}),
+        _pctx(ctx_with_shared),
+    )
+    assert ok.allowed, ok.reason
+
+
+def test_extra_root_allows_shell(engine, ctx_with_shared, shared_root):
+    """The shell layer honours the same roots — otherwise `cat` would be
+    denied for a file `read_file` just allowed (inconsistent surface)."""
+    ok = engine.check(
+        ToolCall(
+            id="2",
+            name="bash",
+            args={"command": f"cat {shared_root / 'team_report.md'}"},
+        ),
+        _pctx(ctx_with_shared),
+    )
+    assert ok.allowed, ok.reason
+
+
+def test_extra_root_does_not_widen_anything_else(engine, ctx_with_shared):
+    """Declaring one extra root must not turn the layers off: any OTHER
+    outside path stays denied, for both layers."""
+    denied = engine.check(
+        ToolCall(id="3", name="read_file", args={"path": "/etc/passwd"}),
+        _pctx(ctx_with_shared),
+    )
+    assert not denied.allowed
+
+    denied_shell = engine.check(
+        ToolCall(id="4", name="bash", args={"command": "cat /etc/passwd"}),
+        _pctx(ctx_with_shared),
+    )
+    assert not denied_shell.allowed
+
+
+def test_no_extra_roots_preserves_old_behaviour(engine, ctx, shared_root):
+    """Default (empty tuple) must deny the shared dir exactly as before —
+    the widening is opt-in, never implicit."""
+    denied = engine.check(
+        ToolCall(id="5", name="read_file", args={"path": str(shared_root / "team_report.md")}),
+        _pctx(ctx),
+    )
+    assert not denied.allowed and "outside the workspace" in denied.reason
+
+
+def test_a_granted_root_does_not_admit_its_siblings(engine, workspace, tmp_path):
+    """Granting one team's folder must not admit the team next to it.
+
+    The narrow grant only holds if the layer compares against the granted path
+    itself and not its parent. Two sibling directories under a common root are
+    exactly the shape that would slip through a parent-based check — and the
+    common root here is `_shared`, which holds every team the owner has.
+    """
+    # OUTSIDE the workspace, mirroring the real layout: `_shared` is a sibling
+    # of each agent workspace, never inside one. Putting it under the workspace
+    # would make this test pass on workspace containment alone and prove
+    # nothing about the grant.
+    shared = tmp_path.parent / "i3_shared" / "teams"
+    mine = shared / "team_1"
+    theirs = shared / "team_2"
+    mine.mkdir(parents=True, exist_ok=True)
+    theirs.mkdir(parents=True, exist_ok=True)
+    (mine / "ours.md").write_text("ours")
+    (theirs / "secret.md").write_text("theirs")
+
+    ctx = ToolContext(
+        agent_id="a1", workspace=str(workspace), extra_accessible_roots=(str(mine),)
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    allowed = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(mine / "ours.md")}), pctx
+    )
+    assert allowed.allowed, allowed.reason
+
+    denied = engine.check(
+        ToolCall(id="2", name="read_file", args={"path": str(theirs / "secret.md")}), pctx
+    )
+    assert not denied.allowed, "a sibling team's folder must stay out of bounds"
+
+
+def test_the_grant_covers_writes_not_just_reads(engine, workspace, tmp_path):
+    """Pins the reason the field is called "accessible": `file_path` is in
+    `_PATH_ARG_NAMES`, so write tools are governed by the same list. A reader
+    who assumes read-only would under-estimate what a grant hands out."""
+    granted = tmp_path.parent / "i3_shared_w" / "teams" / "team_1"
+    granted.mkdir(parents=True, exist_ok=True)
+
+    ctx = ToolContext(
+        agent_id="a1", workspace=str(workspace), extra_accessible_roots=(str(granted),)
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    write = engine.check(
+        ToolCall(
+            id="1", name="write_file",
+            args={"path": str(granted / "new.md"), "content": "x"},
+        ),
+        pctx,
+    )
+    assert write.allowed, "the grant is not read-only, and the name now says so"
+
+
+def test_a_team_artifacts_home_is_readable_by_a_teammate(engine, workspace, tmp_path):
+    """The end of the chain N3 was about.
+
+    A team artifact is required to live in the team folder, and a teammate's
+    turn is granted exactly that folder. Those two rules only mean something
+    together: this asserts the file a teammate is pointed at is one its own
+    confinement layer admits — on NexusPower, which is the framework where the
+    previous arrangement failed while claude and codex quietly succeeded.
+    """
+    shared = tmp_path.parent / "n3_shared"
+    team_folder = shared / "teams" / "team_1"
+    team_folder.mkdir(parents=True, exist_ok=True)
+    (team_folder / "report.md").write_text("ours")
+
+    # A DIFFERENT agent's turn in the same team: its own workspace plus what
+    # turn_accessible_roots grants.
+    ctx = ToolContext(
+        agent_id="agent_teammate",
+        workspace=str(workspace),
+        extra_accessible_roots=(str(shared / "bus_files"), str(team_folder)),
+    )
+    pctx = PolicyContext(tool_ctx=ctx, disallowed_tools=frozenset())
+
+    read = engine.check(
+        ToolCall(id="1", name="read_file", args={"path": str(team_folder / "report.md")}),
+        pctx,
+    )
+    assert read.allowed, read.reason
+
+    # And the producer's private workspace stays unreachable, which is why the
+    # artifact had to move rather than the grant widen.
+    producer_ws = tmp_path.parent / "n3_producer_ws"
+    producer_ws.mkdir(exist_ok=True)
+    (producer_ws / "private.md").write_text("mine")
+    denied = engine.check(
+        ToolCall(id="2", name="read_file", args={"path": str(producer_ws / "private.md")}),
+        pctx,
+    )
+    assert not denied.allowed

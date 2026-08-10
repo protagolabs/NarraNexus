@@ -7,7 +7,7 @@
 ``module/_mcp_identity.py`` answers "who does the caller SAY they are" — a
 deliberately fail-open convenience. This module answers "can they PROVE it":
 Ed25519 verification of the identity token the platform stamped into the same
-header channel (bearer field #7 / X-NarraNexus-Identity-Token), plus the
+header channel (the bearer's identity_token field / X-NarraNexus-Identity-Token), plus the
 owner-scoped access policy built on that proof.
 
 Gated by ``NX_MCP_AUTH_MODE``:
@@ -164,7 +164,7 @@ _tokenless_flush_deadline: float = 0.0
 def _declared_caller(headers) -> str:
     """The SELF-DECLARED user behind an unauthenticated call, or "anonymous".
 
-    Old-broker executors are exactly the "bearer present, field #7 missing"
+    Old-broker executors are exactly the "bearer present, identity_token missing"
     shape, so the declared user_id is the actionable aggregation key —
     unverified, which is fine: this feeds an onboarding worklist, not an
     authorization decision. Reuses _mcp_identity's own readers (in-package

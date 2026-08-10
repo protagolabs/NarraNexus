@@ -638,7 +638,7 @@ def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
 
 def test_tokenless_measurement_names_the_declared_caller(tmp_path, monkeypatch):
     """Round-3 review #1: the audit worklist must answer WHO to onboard. An
-    old-broker executor is exactly 'bearer present, field #7 missing' — its
+    old-broker executor is exactly 'bearer present, identity_token missing' — its
     self-declared user_id keys the aggregation."""
     rows = _audit_capture(tmp_path, monkeypatch)
 

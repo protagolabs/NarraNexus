@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — extra_readable_roots（空则不发键）
+
+bundle 新增 `extra_readable_roots`：本回合 workspace 之外还可读的绝对根（如团队共享目录，
+它是每个 agent workspace 的 sibling）。沿用 `expressive_tools` 的约定——**空则不发键**，
+保证不授予任何东西的回合产出逐字不变的 legacy kwargs。只有真正执行 workspace 收敛的
+driver（NexusPower）会消费它；CLI driver 无此层，经 **kwargs 忽略。
+
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
