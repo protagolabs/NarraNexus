@@ -29,6 +29,11 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "sse-starlette>=2.2.0",
     "croniter>=6.0.0",
+    # Timeout-capable regex engine for grep_memory over untrusted (LLM-supplied)
+    # patterns — stdlib `re` is uninterruptible, so a ReDoS pattern would wedge
+    # the shared API loop. Was already present transitively; now a direct dep
+    # because retrieval.grep_filter imports it explicitly.
+    "regex>=2024.0.0",
     "aiomysql>=0.3.2",
     "aiosqlite>=0.20.0",
     "google-genai>=1.0.0",

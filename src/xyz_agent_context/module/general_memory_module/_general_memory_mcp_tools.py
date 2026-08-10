@@ -8,10 +8,13 @@
 These are the unified "回忆" surface (design §6.3): one cross-kind ranked
 recall + one cross-kind exact/regex search + one explicit durable write,
 replacing the fragmented per-module recall tools (view_narrative /
-search_social_network / get_chat_history / …). `remember` and `memory_retain`
-route through the AgentDataStore seam (DirectStore locally / HttpStore in
-cloud — see module/data_access); `grep_memory` still calls MemoryCoordinator
-directly (its HTTP twin refuses regex, so it waits for a timeout-safe engine).
+search_social_network / get_chat_history / …). All three (`remember`,
+`grep_memory`, `memory_retain`) route through the AgentDataStore seam
+(DirectStore locally / HttpStore in cloud — see module/data_access), so the
+cloud mcp container needs no db credentials. grep's regex path is now safe on
+the shared API: retrieval.grep_filter runs the untrusted pattern through the
+`regex` package with a per-match timeout + total budget (was the last blocker —
+its HTTP twin used to refuse regex).
 `agent_id` is a tool parameter (the LLM passes its own id — same convention as
 every other module's tools).
 """
@@ -19,9 +22,6 @@ from __future__ import annotations
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
-
-from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, format_memory_hits
-from xyz_agent_context.module.base import XYZBaseModule
 
 
 def create_general_memory_mcp_server(port: int) -> FastMCP:
@@ -53,14 +53,11 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
         )
     )
     async def grep_memory(agent_id: str, pattern: str, regex: bool = False, limit: int = 30) -> dict:
-        try:
-            db = await XYZBaseModule.get_mcp_db_client()
-            coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-            hits = await coord.grep_memory(pattern, regex=regex, limit=limit)
-            return {"success": True, "pattern": pattern, "matches": format_memory_hits(hits)}
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[memory.grep_memory] failed: {e}")
-            return {"success": False, "error": str(e), "matches": []}
+        # Route through the AgentDataStore seam: DirectStore (local) or HttpStore
+        # (cloud, backend API — no db creds in mcp). The regex engine is
+        # ReDoS-guarded in retrieval.grep_filter, so serving it over HTTP is safe.
+        from xyz_agent_context.module.data_access import get_agent_data_store
+        return await get_agent_data_store().grep_memory(agent_id, pattern, regex, limit)
 
     @mcp.tool(
         description=(

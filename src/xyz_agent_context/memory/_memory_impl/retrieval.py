@@ -21,11 +21,29 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from datetime import datetime
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 
+from loguru import logger
+
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
+
+# ReDoS guards for the regex grep path (the pattern is agent/LLM-supplied and
+# untrusted). A per-record match timeout bounds any single catastrophic-
+# backtracking evaluation; a per-CALL wall-clock budget caps one grep_filter
+# scan (one kind's candidate set). NOTE the aggregate: coordinator.grep_memory
+# calls grep_filter once PER memory kind (all_kinds(), ~6-7), so a single
+# grep_memory request's worst case is ~num_kinds × this budget of CPU, and each
+# grep_filter runs synchronously on the caller's loop (the kinds are separated
+# by DB awaits that yield). Bounded, never an unbounded hang — a big improvement
+# over the old uninterruptible stdlib-re path — but if the shared-API loop stall
+# ever matters, offloading grep_filter to run_in_executor is the follow-up (see
+# reference/self_notebook/todo). These are safety bounds on a SEARCH primitive,
+# NOT an agent-loop ceiling (铁律 #14/#15 govern agent_loop, not a bounded search).
+_GREP_PER_MATCH_TIMEOUT_S = 0.25
+_GREP_TOTAL_BUDGET_S = 2.0
 
 # Tokenizer: ASCII alphanumeric runs (words) PLUS individual CJK characters.
 # NarraNexus content is heavily Chinese, where there are no spaces between
@@ -123,14 +141,43 @@ def grep_filter(
 ) -> List[MemoryRecord]:
     """Exact substring (default) or regex match over `content_text`.
     Complements BM25: finds the literal token (an id, URL, exact phrase) that
-    tokenized ranking can miss. Invalid regex falls back to substring."""
-    flags = re.IGNORECASE if ignore_case else 0
+    tokenized ranking can miss. Invalid regex falls back to substring.
+
+    The regex path uses the `regex` package with a per-match ``timeout=``, NOT
+    stdlib ``re``: the pattern is agent/LLM-supplied and untrusted, and stdlib
+    re is UNINTERRUPTIBLE — a catastrophic-backtracking pattern (`(a|aa)+$`-class)
+    would pin a CPU core and, once grep is served over HTTP, wedge the shared
+    API loop for every user. `regex` resists many ReDoS patterns by construction
+    AND honours a timeout that raises TimeoutError, so a record that times out is
+    skipped (treated as a non-match) and a wall-clock budget caps THIS call's
+    scan (one kind's candidates — the tool scans several kinds, each a separate
+    bounded call; see the constants' note on the per-request aggregate). Invalid
+    pattern → substring fallback (unchanged)."""
     if regex:
+        import regex as _regex
+
+        rflags = _regex.IGNORECASE if ignore_case else 0
         try:
-            rx = re.compile(pattern, flags)
-            return [r for r in records if rx.search(r.content_text or "")]
-        except re.error:
+            rx = _regex.compile(pattern, rflags)
+        except _regex.error:
             pass  # fall through to substring
+        else:
+            out: List[MemoryRecord] = []
+            deadline = time.monotonic() + _GREP_TOTAL_BUDGET_S
+            for r in records:
+                if time.monotonic() > deadline:
+                    logger.debug(
+                        "grep_filter: regex scan hit the {}s budget; results truncated",
+                        _GREP_TOTAL_BUDGET_S,
+                    )
+                    break
+                try:
+                    if rx.search(r.content_text or "", timeout=_GREP_PER_MATCH_TIMEOUT_S):
+                        out.append(r)
+                except TimeoutError:
+                    logger.debug("grep_filter: regex timed out on one record; skipped")
+                    continue
+            return out
     needle = pattern.lower() if ignore_case else pattern
     return [r for r in records if needle in ((r.content_text or "").lower() if ignore_case else (r.content_text or ""))]
 

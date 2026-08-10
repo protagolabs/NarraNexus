@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-11) — grep_memory 迁入 seam（memory 收尾）
+
+Protocol+DirectStore+HttpStore 加 `grep_memory(agent_id, pattern, regex, limit) -> dict`。DirectStore 复刻 remember（MemoryCoordinator/MemoryEngine，方言安全）；HttpStore GET 现有路由 `/memory/grep`（regex 序列化成小写供 FastAPI bool 解析）。grep 有**自己**的输入契约：`_grep_reject`(pattern 1-256) + `_clamp_grep_limit`(1-200)，**不同于** remember 的 512/100——两 store 都跑保 parity。失败键 `matches`。ReDoS 安全在 [[retrieval]] grep_filter（regex 包+timeout），故 HTTP 侧不再拒 regex。**三工具全迁完 → general_memory mcp 弃 db 凭据**。
+
 ## 2026-08-10 (PR-10) — get_chat_history 迁入 seam
 
 Protocol+DirectStore+HttpStore 加 `get_chat_history(agent_id, instance_id, limit) -> dict`。DirectStore 调 [[chat_module]] 包导出的 `fetch_chat_history`（de-raw+instance-scope，闭 IDOR）；孪生路由 [[chat_history]] `POST /chat-history/by-instance` 调同一函数。instance_id 走 body 非 path（无需 _seg）；失败降级用工具 dict 形状（instance_id/total_messages/messages）。 DirectStore 外层 try 只守 `_db()`（懒建 MySQL 池会抛）→ 保 never-raises 不变式，与孪生路由包 get_db_client 同因（管线 fix-first 补）。

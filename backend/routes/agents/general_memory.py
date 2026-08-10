@@ -83,30 +83,20 @@ async def grep_memory(
     regex: bool = False,
     limit: int = Query(30, ge=1, le=200),
 ) -> dict:
-    """Substring search over memory content. Mirrors the ``grep_memory`` MCP
-    tool — EXCEPT regex mode, which is refused here: the engine compiles the
-    caller's pattern with the stdlib re and runs it synchronously, and a
-    catastrophic-backtracking pattern ((a+)+$-class, empirically >30s on one
-    40-char record) would wedge the shared API event loop for every user. The
-    MCP twin keeps regex because it runs in the per-module process driven by
-    the agent's own LLM; publishing it on the shared API is what turns it
-    into a self-service DoS. Migrating grep's Http path (PR-3) must first
-    swap in a timeout-capable engine (the `regex` package / re2) — recorded
-    in the mirror md."""
+    """Substring (default) or regex search over memory content — byte-parity
+    Http twin of the ``grep_memory`` MCP tool, and the shared implementation
+    behind the AgentDataStore seam's DirectStore.
+
+    Regex mode is now served here (it used to be refused): the engine
+    (``retrieval.grep_filter``) runs the untrusted pattern through the ``regex``
+    package with a per-match timeout + a total wall-clock budget, so a
+    catastrophic-backtracking pattern can no longer wedge the shared API loop —
+    it is skipped, not run to completion. Owner-gated."""
     await assert_owned(request, agent_id)
-    if regex:
-        return {
-            "success": False,
-            "error": (
-                "regex mode is not available over HTTP; use a plain substring "
-                "pattern"
-            ),
-            "matches": [],
-        }
     try:
         db = await get_db_client()
         coord = MemoryCoordinator(MemoryEngine(db, agent_id))
-        hits = await coord.grep_memory(pattern, regex=False, limit=limit)
+        hits = await coord.grep_memory(pattern, regex=regex, limit=limit)
         return {"success": True, "pattern": pattern, "matches": format_memory_hits(hits)}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[memory.grep_memory] failed for agent {agent_id}: {e}")
