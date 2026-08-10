@@ -42,6 +42,9 @@ def verify_caller_identity(
     """
     from xyz_agent_context.module._mcp_identity import (
         IDENTITY_TOKEN_HEADER,
+        USER_ID_HEADER,
+        _explicit_header,
+        is_placeholder_user_id,
         parse_bearer_identity,
     )
 
@@ -60,15 +63,25 @@ def verify_caller_identity(
         identity = verify_identity_token(token, public_key)
     except IdentityTokenError as e:
         return None, f"invalid: {e}"
-    if bearer.user_id and bearer.user_id != identity.user_id:
-        # The self-declared bearer user_id disagreeing with the proven sub is
-        # a forged field, not an unknown — the whole record is untrusted.
-        # Truncated in the reason: the declared value is caller-controlled
-        # and this string reaches logs and the 401 response body.
-        return None, (
-            f"user-id-mismatch: bearer says {bearer.user_id[:64]!r}, "
-            f"token proves {identity.user_id!r}"
-        )
+    # A self-declared user_id disagreeing with the proven sub is a forged
+    # field, not an unknown — the whole record is untrusted. Checked on BOTH
+    # carriage channels INDEPENDENTLY: consumers read the explicit header
+    # first with the bearer as fallback, so validating only one channel would
+    # let a forger simply pick the unchecked one (and pinning both means a
+    # future change in reader preference cannot re-open the gap). Placeholder
+    # strings are not declarations (the readers skip them too). Truncated in
+    # the reason: the declared value is caller-controlled and this string
+    # reaches logs and the 401 response body.
+    for declared_user in (_explicit_header(headers, USER_ID_HEADER), bearer.user_id):
+        if (
+            declared_user
+            and not is_placeholder_user_id(declared_user)
+            and declared_user != identity.user_id
+        ):
+            return None, (
+                f"user-id-mismatch: caller declares {declared_user[:64]!r}, "
+                f"token proves {identity.user_id!r}"
+            )
     return identity, "ok"
 
 

@@ -48,7 +48,8 @@ wrapper calls.
   tool calls get an in-band error value. GETs (SSE handshake) and
   /health(z) stay open — tool calls are POSTs on both transports.
 - Unknown mode value reads as **audit**, not off: a typo must surface in
-  logs, not silently disable auth.
+  logs, not silently disable auth (warned once per distinct value —
+  auth_mode() runs per request AND per tool call).
 
 ## Design decisions
 
@@ -58,8 +59,11 @@ wrapper calls.
   entire data plane down over a deploy misconfiguration.
 - **Pure ASGI, not BaseHTTPMiddleware** — composes with the streamable-HTTP
   lifespan and never re-buffers SSE streams.
-- **bearer.user_id must equal token sub** — a mismatch is a forged field and
-  invalidates the whole record (not treated as unknown).
+- **Every declared user_id must equal the token sub** — explicit header AND
+  bearer field, checked independently in [[verify]]: consumers read the
+  explicit header first, so validating only the bearer would leave the
+  preferred channel forgeable (pre-push round-6 self-review). A mismatch on
+  either is a forged field and invalidates the whole record.
 - **The policy's proof is PER-MESSAGE, not the middleware ContextVar**
   (`verified_caller_for_tool_call`, PR #260 review #2, verified against mcp
   1.24 sources): on SSE the tool runs inside the GET /sse task, on stateful

@@ -344,6 +344,7 @@ def test_every_agent_id_tool_is_async():
     from xyz_agent_context.module import MODULE_MAP
 
     offenders = []
+    checked = 0
     for name, cls in MODULE_MAP.items():
         try:
             m = cls(agent_id="probe", user_id="probe", database_client=None)
@@ -362,9 +363,15 @@ def test_every_agent_id_tool_is_async():
                 continue
             if "agent_id" in params and not inspect.iscoroutinefunction(fn):
                 offenders.append(f"{name}.{tool.name}")
+            if "agent_id" in params:
+                checked += 1
     assert offenders == [], (
         f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
     )
+    # Coverage floor: the except/continue above silently skips modules whose
+    # constructor starts failing under database_client=None — without this,
+    # the invariant could hollow out while staying green (93 tools today).
+    assert checked >= 90, f"invariant only checked {checked} tools — coverage shrank"
 
 
 # ---------------------------------------------------------------------------
@@ -740,3 +747,43 @@ def test_placeholder_explicit_header_falls_through_to_bearer(tmp_path, monkeypat
     assert TestClient(_app()).post("/messages/", headers=headers).status_code == 200
     (entry,) = rows[0]["detail"]["counts"]
     assert entry["caller"] == "usr_shadowed"
+
+
+def test_enforce_rejects_explicit_header_user_mismatch(tmp_path, monkeypatch):
+    """Pre-push round-6 self-review: the forgery check must cover BOTH
+    declaration channels — consumers read the explicit X-NarraNexus-User-Id
+    first, so a mismatch there must 401 exactly like the bearer-field one."""
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        USER_ID_HEADER,
+    )
+
+    priv = _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    token = sign_identity_token("usr_real", priv, issuer=ISSUER_LOCAL)
+    headers = {
+        IDENTITY_TOKEN_HEADER: token,
+        USER_ID_HEADER: "usr_other",  # forged on the channel readers prefer
+        # bearer omits the user_id field entirely — the old check saw nothing
+        "Authorization": f"Bearer nx-agent:{AGENT}",
+    }
+    assert TestClient(_app()).post("/messages/", headers=headers).status_code == 401
+
+
+def test_placeholder_declarations_do_not_trip_the_mismatch(tmp_path, monkeypatch):
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        USER_ID_HEADER,
+    )
+
+    priv = _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+    token = sign_identity_token("usr_real", priv, issuer=ISSUER_LOCAL)
+    headers = {
+        IDENTITY_TOKEN_HEADER: token,
+        USER_ID_HEADER: "current_user",  # a guess, not a declaration
+        "Authorization": f"Bearer nx-agent:{AGENT}",
+    }
+    r = TestClient(_app()).post("/messages/", headers=headers)
+    assert r.status_code == 200
+    assert r.text == "usr_real"

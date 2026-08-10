@@ -56,13 +56,22 @@ _verified_var: ContextVar[Optional[VerifiedIdentity]] = ContextVar(
 )
 
 
+# Last unknown mode value already warned about — auth_mode() runs per request
+# AND per tool call, so an unmemoized warning would flood a busy process over
+# one typo. Warn once per distinct value; the signal survives, the flood doesn't.
+_warned_unknown_mode: Optional[str] = None
+
+
 def auth_mode() -> str:
     """The configured mode. An unknown value reads as *audit*, not off — a
     typo'd mode must surface in logs rather than silently disable auth."""
+    global _warned_unknown_mode
     raw = (os.environ.get(AUTH_MODE_ENV) or "off").strip().lower()
     if raw in _MODES:
         return raw
-    logger.warning(f"[mcp-auth] unknown {AUTH_MODE_ENV}={raw!r}; treating as audit")
+    if raw != _warned_unknown_mode:
+        _warned_unknown_mode = raw
+        logger.warning(f"[mcp-auth] unknown {AUTH_MODE_ENV}={raw!r}; treating as audit")
     return "audit"
 
 
