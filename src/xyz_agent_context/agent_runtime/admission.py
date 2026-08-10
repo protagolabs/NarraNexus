@@ -61,6 +61,52 @@ def _opt_int_env(name: str, default: Optional[int]) -> Optional[int]:
         return default
 
 
+class AccessDeniedError(Exception):
+    """A blocked user tried to start a run — reject it IMMEDIATELY (never queue).
+
+    Distinct from the concurrency gate (which only delays): this is a hard,
+    fatal, actionable rejection surfaced to the user as "account suspended",
+    NEVER masked by the helper-LLM fallback. The broker enforces the same
+    blocklist physically (no executor is spawned); this admission-side gate is
+    the clean-UX layer that also stops the run before any work begins.
+    """
+
+
+# --- executor abuse blocklist (#2) -------------------------------------------
+# A user_id per line (`#` comments) — the SAME file the broker reads, mounted
+# read-only into backend/workers. Hot-reloaded by mtime so edits take effect
+# with no restart. LOCAL DEFAULT: env unset -> file None -> nobody blocked, so
+# `bash run.sh` / the DMG behave exactly as before (binding rule #7).
+_BLOCKLIST_FILE = os.environ.get("EXECUTOR_BLOCKLIST_FILE") or None
+_blocklist: set[str] = set()
+_blocklist_mtime: float = -1.0
+
+
+def _load_blocklist() -> set[str]:
+    global _blocklist, _blocklist_mtime
+    if not _BLOCKLIST_FILE:
+        return _blocklist  # unset -> empty -> no blocking
+    try:
+        mtime = os.stat(_BLOCKLIST_FILE).st_mtime
+    except OSError:
+        return _blocklist  # absent/unreadable -> keep last known (fail-open)
+    if mtime != _blocklist_mtime:
+        try:
+            with open(_BLOCKLIST_FILE) as f:
+                _blocklist = {
+                    ln.strip() for ln in f if ln.strip() and not ln.lstrip().startswith("#")
+                }
+            _blocklist_mtime = mtime
+        except OSError:
+            pass
+    return _blocklist
+
+
+def is_user_blocked(user_id: str) -> bool:
+    """True iff user_id is on the (hot-reloaded) executor blocklist."""
+    return user_id in _load_blocklist()
+
+
 class AgentAdmissionController:
     """In-process two-level admission gate (global + per-user + mem guard)."""
 
@@ -141,6 +187,10 @@ class AgentAdmissionController:
         Returns a token to pass back to ``release``. Never interrupts —
         only the START is delayed (binding rule #14).
         """
+        # #2 blocklist: reject a blocked user IMMEDIATELY — do not queue. Raised
+        # before the condition wait so a blocked user never occupies the queue.
+        if is_user_blocked(user_id):
+            raise AccessDeniedError(f"user {user_id} is blocked from starting runs")
         async with self._cond:
             self._waiting += 1
             try:
