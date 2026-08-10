@@ -8,6 +8,8 @@ Provides endpoints for:
 - GET /{agent_id}/chat-history - Get all Narratives and Events
 - DELETE /{agent_id}/history - Clear conversation history
 - GET /{agent_id}/simple-chat-history - Get simplified chat message list
+- GET /{agent_id}/event-log/{event_id} - Get one event's timeline
+- POST /{agent_id}/chat-history/by-instance - MCP seam twin of get_chat_history
 """
 
 import json
@@ -16,7 +18,6 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
-
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id

@@ -613,10 +613,18 @@ class DirectStore:
     async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
         # fetch_chat_history is self-contained (instance-scoped, de-rawed, returns
         # the tool's dict, never raises) — the backend twin route calls the SAME
-        # function, so Direct and Http are byte-identical.
+        # function, so Direct and Http are byte-identical. The outer try only
+        # guards _db() (lazy MySQL pool build can raise) so DirectStore keeps the
+        # "never raises, only returns a dict" invariant — the twin route wraps
+        # get_db_client() for the same reason.
         from xyz_agent_context.module.chat_module import fetch_chat_history
 
-        return await fetch_chat_history(await self._db(), agent_id, instance_id, limit)
+        try:
+            return await fetch_chat_history(await self._db(), agent_id, instance_id, limit)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[chat.get_chat_history] failed: {e}")
+            return {"success": False, "instance_id": instance_id, "error": str(e),
+                    "total_messages": 0, "messages": []}
 
 
 class HttpStore:

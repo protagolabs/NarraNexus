@@ -1569,3 +1569,19 @@ def test_get_chat_history_http_unreachable_degrades(monkeypatch):
     h = HttpStore("http://backend:8000")
     out = asyncio.run(h.get_chat_history(AGENT, "chat_1", 20))
     assert out["success"] is False and out["messages"] == [] and out["instance_id"] == "chat_1"
+
+
+def test_get_chat_history_direct_db_failure_returns_dict_not_raise(monkeypatch):
+    # DirectStore.get_chat_history must keep the "never raises" invariant: if
+    # _db() (lazy MySQL pool build) raises, it returns the tool's failure dict,
+    # matching what HttpStore/route degrade to. Non-vacuous — without the outer
+    # try this raises RuntimeError instead of returning a dict.
+    d = DirectStore()
+
+    async def boom():
+        raise RuntimeError("pool build failed")
+
+    d._db = boom  # type: ignore[method-assign]
+    out = asyncio.run(d.get_chat_history(AGENT, "chat_1", 20))
+    assert out["success"] is False and out["messages"] == [] and out["total_messages"] == 0
+    assert out["instance_id"] == "chat_1" and "pool build failed" in out["error"]

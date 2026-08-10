@@ -26,6 +26,14 @@ Two things change from the pre-seam tool, both deliberate:
    an EMPTY history (no existence oracle — indistinguishable from an own instance
    that simply has no messages). The seam route additionally owner-gates agent_id,
    so a cloud caller must own the agent whose history it asks for.
+
+   Residual surface, by design (do NOT hang more sensitive reads on this pattern
+   without tightening it): agent_id is LLM-self-reported and the DirectStore
+   (local/DMG) path has no gate, so locally this only narrows the attack from
+   "guess an instance_id" to "guess a matching (agent_id, instance_id)" — strictly
+   better, not closed. On the cloud path assert_owned closes CROSS-USER reads, but
+   one owner reading their OWN agent A's history from agent B is still possible and
+   is accepted (an owner already has full access to all their agents' data).
 """
 from __future__ import annotations
 

@@ -22,6 +22,7 @@ stub: false
    就能读别的 agent 的会话。现加 `agent_id`（LLM 传，同 send_message_to_user_directly 先例），
    instance 必须属于该 agent；外来/未知 instance 读作**空历史**（无存在性 oracle，与自己没消息的
    instance 不可区分）。孪生路由再 owner-gate agent_id → 云调用方必须拥有该 agent。
+   - **残留面（有意，勿在此模式上挂更敏感读）**：agent_id 是 LLM 自报、DirectStore 本地路径无门禁，故本地只把攻击从「猜 instance_id」收紧到「猜匹配的 (agent_id,instance_id)」——变好非关闭；云端 assert_owned 关**跨用户**，同 owner 名下 agent A 读 agent B 会话仍可（owner 本就有全部数据访问权，可接受）。
 
 ## 契约
 
