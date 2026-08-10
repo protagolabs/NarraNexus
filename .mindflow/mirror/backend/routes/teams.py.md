@@ -4,6 +4,20 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
+
+**同一条规则改了两次，第二次才是重点。**
+
+初版 `clear_files` 连 artifact 一起删，理由是「artifact 指向被删的树」——当时**不成立**（生产者
+workspace 是第一允许根，内容还在），所以我撤回了级联。
+
+方案 B 要求团队 artifact **必须**住在团队目录之后，那个理由**变成真的了**，级联也随之正确。
+变的是世界，不是推理：rmtree 现在会销毁每一个团队 artifact 的内容，留下行就等于面板列出内容已
+消失的 artifact，而 `heal` **救不回来**——它从不传 `team_id`（重注册会撞归属校验），且
+「指针仍有效」的短路只看 agent workspace 内部。
+
+`clear_artifacts` 仍可单独使用（删 tab、留文件）。
+
 ## 2026-08-10 (review 修正) — `_team_files` 钉死 wire shape + 时间戳带时区
 
 `SELECT *` 把 `id` / `owner_user_id` / `content_hash` 带进了 API 形状（owner-only，不构成泄露，

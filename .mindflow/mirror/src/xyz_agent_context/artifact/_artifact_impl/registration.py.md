@@ -4,6 +4,20 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (方案 B 的后果修正) — 团队根也是「容器根」
+
+`_resolve_entry` 现在返回 `(abs_entry, artifact_root, team_root)`，体量核算把
+`artifact_root in (workspace, team_root)` 一并当作**单文件模式**。
+
+**为什么必须改**：把团队 artifact 要求进团队目录之后，最常见的落点让 `artifact_root` **就是团队
+根**，于是 `_dir_size` 会按「该团队分享过的一切」计费——一旦越过 `MAX_ARTIFACT_BYTES`，**团队里
+谁都再也注册不了任何东西**。这是方案 B 引入的，不是既有问题。
+
+`team_root` 由这里返回而非调用方重算：同一个事实算两遍，迟早会有一处漏改
+（[[raw_access.py]] 有同源的第二处，见那份 md）。
+
+顺带把 `team_shared_dir` 的 import 提到模块级——上一轮声称「0 残留」时漏了这一处。
+
 ## 2026-08-10 (review 修正) — 仓储 import 提到模块级
 
 纯位置调整：`team_workspace_repository` 的 import 从函数体移到模块顶部。这里没有循环依赖要躲

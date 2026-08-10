@@ -42,13 +42,13 @@ from typing import List, NamedTuple, Optional
 
 from loguru import logger
 
+from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
 from xyz_agent_context.utils.attachment_storage import (
     generate_file_id,
     is_valid_file_id,
     resolve_attachment_path,
 )
-from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 from xyz_agent_context.utils.file_safety import ensure_within_directory
 from xyz_agent_context.utils.workspace_paths import (
     agent_workspace_path,

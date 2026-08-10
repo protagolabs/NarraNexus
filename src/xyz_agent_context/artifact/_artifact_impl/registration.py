@@ -48,6 +48,7 @@ from xyz_agent_context.schema.artifact_schema import (
     CreateArtifactToolResult,
 )
 from xyz_agent_context.settings import settings
+from xyz_agent_context.utils.workspace_paths import team_shared_dir
 from xyz_agent_context.utils.office_watch import OFFICE_LIVE_KIND
 
 
@@ -142,7 +143,12 @@ def _resolve_entry(
     a sibling team's folder stays out of bounds either way.
 
     Returns:
-        (abs_entry, artifact_root) — both realpath-resolved absolute paths.
+        (abs_entry, artifact_root, team_root) — realpath-resolved absolutes.
+        `team_root` is the team folder on a team turn, else None. It is
+        returned rather than recomputed by callers because it is ALSO a
+        container root: an entry sitting directly in it must be treated the way
+        an entry at the workspace root is (single-file mode), both for size
+        accounting and for raw serving.
         `artifact_root` is `dirname(abs_entry)`; the public-raw route serves
         files under that root for multi-file artifacts. When the entry sits
         directly in the workspace (artifact_root == workspace), the route
@@ -160,6 +166,7 @@ def _resolve_entry(
     raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
     abs_entry = os.path.realpath(raw)
 
+    team_root = None
     if team_id:
         # A TEAM artifact must live in the team's shared folder — not merely
         # be allowed to.
@@ -177,8 +184,6 @@ def _resolve_entry(
         # entry simply has to already be somewhere the team can read, and the
         # agent can put it there (the grant covers writes), so the error below
         # is one move and a retry away from success.
-        from xyz_agent_context.utils.workspace_paths import team_shared_dir
-
         team_root = os.path.realpath(str(team_shared_dir(user_id, team_id)))
         if not abs_entry.startswith(team_root + os.sep):
             raise ArtifactPathEscape(
@@ -199,7 +204,7 @@ def _resolve_entry(
         )
 
     artifact_root = os.path.dirname(abs_entry)
-    return abs_entry, artifact_root
+    return abs_entry, artifact_root, team_root
 
 
 async def _record_history(
@@ -310,13 +315,20 @@ async def register_artifact(
             f"image/png, image/jpeg, application/pdf."
         )
 
-    abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path, team_id)
+    abs_entry, artifact_root, team_root = _resolve_entry(
+        agent_id, user_id, entry_path, team_id
+    )
     workspace = os.path.realpath(workspace_root(agent_id, user_id))
     # Single-file mode when entry sits at the workspace root: account only for
     # the entry file (and serve only the entry — see raw_access.py).
     # Otherwise account for the whole dir so the multi-file artifact's
     # sibling assets are reflected in size_bytes (UI / debugging only).
-    if artifact_root == workspace:
+    # The team root counts as a container root too. Without it, an entry at
+    # the team folder charges the artifact the size of EVERYTHING the team has
+    # ever shared — and once that crosses MAX_ARTIFACT_BYTES nobody on the team
+    # can register anything again. Requiring team artifacts to live there is
+    # what put a root in this position that this branch had never seen.
+    if artifact_root in (workspace, team_root):
         size_bytes = os.path.getsize(abs_entry)
     else:
         size_bytes = _dir_size(artifact_root)

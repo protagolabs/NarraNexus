@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (review 修正) — 仓储 import 移到 `schema` 与 `utils` 之间
+
+纯位置：上一轮把它插进了 `utils.*` 块中间，把成块的 import 劈成两半。ruff 只 select `["E","F"]`、
+没开 isort，所以不会报——这属于纯手工维护的秩序。
+
 ## 2026-08-10 (review 修正) — 仓储 import 提到模块级
 
 纯位置调整：`team_workspace_repository` 的 import 从函数体移到模块顶部。这里没有循环依赖要躲

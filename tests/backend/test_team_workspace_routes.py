@@ -219,35 +219,18 @@ async def test_rows_without_a_turn_are_skipped(db_client):
 
 # ── each switch does what its name says ───────────────────────────────────
 #
-# The first version had `clear_files` delete the team's artifacts too, on the
-# stated grounds that "team artifacts point into the very tree being deleted".
-# That is false in the common case: `_resolve_entry` keeps the producer's own
-# workspace as the FIRST allowed root, so a team artifact registered the
-# ordinary way points there and survives the folder being removed. Deleting
-# those rows destroyed pointers to files that still exist.
+# This rule was revised twice, and the second revision is the interesting one.
 #
-# Artifacts that DID live in the shared folder become broken pointers, which
-# is a state this codebase already recovers from (ArtifactService.heal) — a
-# far better outcome than silently dropping the ones that were fine.
-
-
-@pytest.mark.asyncio
-async def test_clearing_files_leaves_team_artifacts_alone(db_client, monkeypatch, tmp_path):
-    """Content living in the producer's workspace is untouched by removing the
-    shared folder, so its artifact row must survive too."""
-    from xyz_agent_context.settings import settings as sa
-    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
-
-    await _seed_artifact(db_client, "art_team", team_id=TID)
-    await _seed_file(db_client, "f1", team_id=TID)
-
-    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
-    await _wipe_team_data(db_client, team, clear_chat=False, clear_files=True)
-
-    left = {r["artifact_id"] for r in
-            await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)}
-    assert left == {"art_team"}, "clearing FILES must not delete artifacts"
-    assert await db_client.execute("SELECT * FROM team_files", fetch=True) == []
+# Originally clear_files deleted the team's artifacts, defended by "team
+# artifacts point into the very tree being deleted" — false at the time, since
+# the producer's own workspace was the first allowed root and content there
+# survived. So the cascade was removed.
+#
+# Requiring team artifacts to live in the team folder then made the original
+# claim TRUE, and the cascade correct. What changed is the world, not the
+# reasoning: the tests below assert the current rule, and the deleted one that
+# asserted "clear_files leaves artifacts alone" was guarding a premise that no
+# longer holds.
 
 
 @pytest.mark.asyncio
@@ -338,3 +321,63 @@ async def test_file_rows_do_not_leak_internal_columns(db_client):
         "file_id", "original_name", "rel_path", "mime_type", "category",
         "size_bytes", "shared_by_agent_id", "created_at",
     }
+
+
+# ── clear_files after plan B ──────────────────────────────────────────────
+#
+# I2 removed artifact deletion from clear_files, reasoning that a team
+# artifact's content lived in the PRODUCER's workspace and survived the folder
+# being removed — deleting the row would have destroyed a pointer to a file
+# that still existed.
+#
+# Plan B made that premise false. Team artifacts are now REQUIRED to live in
+# the team folder, so rmtree'ing it destroys every one of them. Leaving the
+# rows behind means the panel lists artifacts whose content is gone, and heal
+# cannot recover them: it never passes team_id, so its re-registration path
+# hits the ownership check, and its "pointer still valid" shortcut only looks
+# inside the agent workspace.
+
+
+@pytest.mark.asyncio
+async def test_clearing_files_now_takes_the_team_artifacts_with_it(
+    db_client, monkeypatch, tmp_path
+):
+    """The content and the row live and die together now."""
+    from xyz_agent_context.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+    d = team_shared_dir(OWNER, TID, str(tmp_path))
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "x.md").write_text("x")
+
+    await _seed_artifact(db_client, "art_team", team_id=TID)
+    await _seed_history(db_client, "art_team", event_id="evt_a")
+    await _seed_file(db_client, "f1", team_id=TID)
+
+    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
+    await _wipe_team_data(db_client, team, clear_chat=False, clear_files=True)
+
+    left = await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)
+    assert left == [], "their content was just deleted; the rows cannot survive it"
+    hist = await db_client.execute("SELECT * FROM instance_artifact_history", fetch=True)
+    assert hist == []
+
+
+@pytest.mark.asyncio
+async def test_clearing_files_still_spares_other_teams_and_private_work(
+    db_client, monkeypatch, tmp_path
+):
+    """The cascade is scoped to this team's folder, which is the only content
+    being removed."""
+    from xyz_agent_context.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+
+    await _seed_artifact(db_client, "art_team", team_id=TID)
+    await _seed_artifact(db_client, "art_other", team_id=OTHER_TID)
+    await _seed_artifact(db_client, "art_private", team_id=None)
+
+    team = Team(team_id=TID, owner_user_id=OWNER, name="T")
+    await _wipe_team_data(db_client, team, clear_chat=False, clear_files=True)
+
+    left = {r["artifact_id"] for r in
+            await db_client.execute("SELECT * FROM instance_artifacts", fetch=True)}
+    assert left == {"art_other", "art_private"}

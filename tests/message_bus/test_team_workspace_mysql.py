@@ -324,9 +324,26 @@ async def test_history_bulk_delete_runs_on_mysql(mysql_client):
 
 @pytest.mark.asyncio
 async def test_history_bulk_delete_tolerates_an_empty_list(mysql_client):
-    """An empty id list must not compose `IN ()`, which is a syntax error."""
+    """An empty id list must not compose `IN ()`, which is a syntax error.
+
+    Asserting a surviving row as well as the absence of an exception: "did not
+    raise" alone cannot tell a correct no-op apart from a statement that ran
+    and deleted something it should not have.
+    """
     from xyz_agent_context.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
 
+    await _seed_artifact(mysql_client, f"{_PREFIX}_n1", team_id=TEAM)
+    await mysql_client.insert("instance_artifact_history", {
+        "artifact_id": f"{_PREFIX}_n1", "agent_id": AGENT, "file_path": "p",
+        "action": "created", "event_id": "evt_n",
+    })
+
     await ArtifactHistoryRepository(mysql_client).delete_for_artifacts([])
+
+    left = await mysql_client.execute(
+        "SELECT artifact_id FROM instance_artifact_history WHERE artifact_id = %s",
+        (f"{_PREFIX}_n1",), fetch=True,
+    )
+    assert len(left) == 1, "an empty list must delete nothing at all"

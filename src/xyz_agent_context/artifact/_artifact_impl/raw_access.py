@@ -105,7 +105,20 @@ async def resolve_raw_file(
     # This is the soft replacement for the old "entry must be in a
     # subdirectory" hard rule.
     workspace_root = os.path.realpath(str(resolve_existing_workspace(art.agent_id, art.user_id, base)))
-    if artifact_root == workspace_root and file_path:
+    # A team artifact's entry sits in the TEAM folder, which is a container
+    # root exactly like a workspace root. Without it in this set, a view token
+    # for one team artifact would serve every other file in the team folder —
+    # over a route that deliberately bypasses JWT, so the token IS the
+    # capability. Team artifacts only started landing there when registration
+    # began requiring it.
+    container_roots = {workspace_root}
+    if art.team_id:
+        from xyz_agent_context.utils.workspace_paths import team_shared_dir
+
+        container_roots.add(
+            os.path.realpath(str(team_shared_dir(art.user_id, art.team_id, base)))
+        )
+    if artifact_root in container_roots and file_path:
         if os.path.normpath(file_path) == os.path.basename(entry_abs):
             file_path = ""
         else:

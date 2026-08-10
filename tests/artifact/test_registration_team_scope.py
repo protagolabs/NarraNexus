@@ -601,3 +601,51 @@ async def test_another_teams_folder_is_still_refused(env):
             entry_path=str(other / "secret.md"), title="T", description=None,
             target_artifact_id=None, team_id=TEAM,
         )
+
+
+# ── consequences of moving team artifacts into the shared folder ──────────
+#
+# Requiring team artifacts to live in the team folder (plan B) made that folder
+# an artifact ROOT, and two rules that had only ever seen an agent workspace in
+# that position started misbehaving. Both were introduced by that change.
+
+
+@pytest.mark.asyncio
+async def test_a_team_artifact_is_sized_by_its_own_file(env):
+    """Size accounting must treat the team root like a workspace root.
+
+    `_dir_size(artifact_root)` is meant for a multi-file artifact in its own
+    subdirectory. With the entry sitting at the team root, artifact_root IS the
+    team folder, so every registration would be charged the size of everything
+    the team has ever shared — and once that passes MAX_ARTIFACT_BYTES, no one
+    on the team can register anything again.
+    """
+    big = env["shared"] / "unrelated.bin"
+    big.write_bytes(b"x" * (2 * 1024 * 1024))
+    (env["shared"] / "small.md").write_text("tiny\n")
+
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(env["shared"] / "small.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    got = await env["repo"].get_by_id(res.artifact_id)
+    assert got.size_bytes < 1000, (
+        f"charged {got.size_bytes} bytes — the whole team folder, not the entry"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_multi_file_team_artifact_still_sizes_its_directory(env):
+    """The subdirectory case is unchanged: siblings still count."""
+    sub = env["shared"] / "report"
+    sub.mkdir()
+    (sub / "index.md").write_text("entry\n")
+    (sub / "data.bin").write_bytes(b"y" * 5000)
+
+    res = await env["svc"].register(
+        agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",
+        entry_path=str(sub / "index.md"), title="T", description=None,
+        target_artifact_id=None, team_id=TEAM,
+    )
+    assert (await env["repo"].get_by_id(res.artifact_id)).size_bytes > 5000

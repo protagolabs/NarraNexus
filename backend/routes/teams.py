@@ -120,18 +120,23 @@ async def _wipe_team_data(
 
     - clear_chat: delete ``bus_messages`` (and their ``bus_message_failures``)
       for the team room channel (``created_by='team_<id>'``).
-    - clear_files: delete the on-disk ``_shared/teams/{team_id}`` dir AND its
-      ``team_files`` index rows. Deliberately does NOT touch artifacts: a team
-      artifact registered the ordinary way points into the PRODUCER's own
-      workspace (``_resolve_entry`` keeps that as the first allowed root), so
-      its content survives this and deleting the row would destroy a pointer
-      to a file that still exists. The few artifacts that did live in the
-      shared folder become broken pointers — a state ``ArtifactService.heal``
-      already recovers from, and a far better outcome than silently dropping
-      the ones that were fine.
+    - clear_files: delete the on-disk ``_shared/teams/{team_id}`` dir, its
+      ``team_files`` index rows, AND this team's artifacts.
+
+      The cascade to artifacts is not an over-reach — it became correct when
+      registration started REQUIRING a team artifact to live in that folder.
+      An earlier version of this docstring argued the opposite, on the grounds
+      that a team artifact pointed into the producer's own workspace and
+      survived; that was true then and is false now. Deleting the folder now
+      destroys every team artifact's content, so leaving the rows would list
+      artifacts whose files are gone, and ``ArtifactService.heal`` cannot get
+      them back: it never passes ``team_id`` (so its re-registration hits the
+      ownership check) and its "pointer still valid" shortcut only looks inside
+      the agent workspace.
     - clear_artifacts: delete this team's ``instance_artifacts`` rows and their
-      attribution history. Used when the TEAM itself goes away, where the rows
-      become unreachable by every query path rather than merely stale.
+      attribution history WITHOUT touching the folder. Used when the TEAM
+      itself goes away, and available on its own for dropping the tabs while
+      keeping the files.
 
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
@@ -163,8 +168,11 @@ async def _wipe_team_data(
     if clear_files:
         # The index has to go with the bytes. A row that outlives its file is
         # worse than no row: the panel still lists it and the user only finds
-        # out when the download fails.
+        # out when the download fails. Since team artifacts are required to
+        # live in this very folder, the same argument now covers them — see the
+        # docstring for why the earlier reasoning stopped holding.
         result["file_rows"] = await TeamFileRepository(db).delete_by_team(team.team_id)
+        clear_artifacts = True
 
         d = team_shared_dir(team.owner_user_id, team.team_id)
         try:
