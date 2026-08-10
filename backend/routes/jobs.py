@@ -684,9 +684,12 @@ async def search_jobs_semantic(
     # STRICTER than the agent-path seam route (agents/jobs.py), which trusts the
     # agent to pass a user_id (it queries its OWN agent's jobs).
     user_id = await resolve_current_user_id(request)
-    result = await _shared_search_semantic(
-        await get_db_client(), agent_id, query, user_id, status, limit,
-    )
+    try:
+        db_client = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — the shared helper never raises
+        logger.exception(f"Error in semantic job search: {e}")
+        return JobSemanticSearchResponse(success=False, error=str(e))
+    result = await _shared_search_semantic(db_client, agent_id, query, user_id, status, limit)
     return JobSemanticSearchResponse(**result)
 
 
@@ -709,7 +712,10 @@ async def search_jobs_by_keywords(
     # Caller's own identity is the filter (stricter than the agent-path seam
     # route — see search_jobs_semantic above).
     user_id = await resolve_current_user_id(request)
-    result = await _shared_search_keywords(
-        await get_db_client(), agent_id, keywords, user_id, status, limit,
-    )
+    try:
+        db_client = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — the shared helper never raises
+        logger.exception(f"Error in keyword job search: {e}")
+        return JobKeywordSearchResponse(success=False, error=str(e))
+    result = await _shared_search_keywords(db_client, agent_id, keywords, user_id, status, limit)
     return JobKeywordSearchResponse(**result)

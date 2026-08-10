@@ -1215,3 +1215,25 @@ def test_job_search_input_bounds_rejected_identically_on_both(monkeypatch):
     empty_kw = {"success": False, "error": "keywords is empty"}
     assert asyncio.run(d.job_retrieval_by_keywords(AGENT, [], None, None, 20)) == empty_kw
     assert asyncio.run(h.job_retrieval_by_keywords(AGENT, [], None, None, 20)) == empty_kw
+
+
+def test_httpstore_percent_encodes_llm_supplied_path_ids(monkeypatch):
+    # _seg guard: an id with '/' / '?' must be percent-encoded in the URL path
+    # segment (else it retargets the request / diverges from DirectStore).
+    import json as _json  # noqa: F401 (kept for symmetry with other handlers)
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # raw_path is the wire-format (encoded) path; .path would decode it back.
+        seen.append(request.url.raw_path.decode("ascii"))
+        return httpx.Response(200, json={"success": False, "error": "not found"})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.job_retrieval_by_id(AGENT, "a/b?x"))
+    asyncio.run(h.view_event(AGENT, "e/1"))
+    asyncio.run(h.view_narrative(AGENT, "n/1"))
+    assert seen[0] == f"/api/agents/{AGENT}/jobs/a%2Fb%3Fx"
+    assert seen[1] == f"/api/agents/{AGENT}/events/e%2F1"
+    assert seen[2] == f"/api/agents/{AGENT}/narratives/n%2F1"

@@ -50,10 +50,16 @@ from loguru import logger
 
 def _seg(value: str) -> str:
     """Percent-encode an id used as a URL PATH SEGMENT. LLM-supplied ids
-    (narrative_id / event_id / job_id) may contain ``/`` ``?`` ``#`` ``..`` —
-    without encoding they would retarget the request (httpx dot-segment
-    normalization) and make the Http path diverge from DirectStore (which just
-    reports 'not found'). ``safe=""`` encodes everything, including slashes."""
+    (narrative_id / event_id / job_id) may contain ``?`` ``#`` ``..`` — without
+    encoding those would retarget the request (httpx dot-segment normalization)
+    and hit a DIFFERENT resource. Encoding keeps them inside one path segment so
+    the route matches its handler and returns DirectStore's same 'not found'.
+
+    ``/`` is the residual case: ``%2F`` is percent-decoded at the ASGI layer, so
+    ``.../jobs/a%2Fb`` still route-misses to a 404 (HttpStore degrades to
+    'backend rejected (404)') while DirectStore says 'not found: a/b' — a known
+    parity seam, but a safe one (404, not a cross-resource retarget). ``safe=""``
+    encodes everything including slashes."""
     return quote(str(value), safe="")
 
 
