@@ -19,7 +19,7 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 
-def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) -> FastMCP:
+def create_social_network_mcp_server(port: int, get_db_client_fn) -> FastMCP:
     """
     Create a SocialNetworkModule MCP Server instance
 
@@ -27,12 +27,13 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         port: MCP Server port
         get_db_client_fn: Async function to get database connection (still used
             by the create_agent tool for the owner lookup)
-        module_class: SocialNetworkModule class reference (kept for the
-            registration contract; the data-touching tools now resolve their
-            own module via the AgentDataStore seam)
 
     Returns:
         FastMCP instance with all tools configured
+
+    Note: the data-touching tools no longer need a SocialNetworkModule class
+    reference — they resolve their own module through the AgentDataStore seam
+    (module/data_access), so the old ``module_class`` parameter is gone.
     """
     mcp = FastMCP("social_network_module")
     mcp.settings.port = port

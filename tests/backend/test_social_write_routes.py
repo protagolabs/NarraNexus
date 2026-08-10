@@ -114,7 +114,7 @@ class _FakeSocialNetworkModule:
         type(self).recall_last_call = {"entity_id": entity_id, "instance_id": instance_id}
         return type(self).recall_result
 
-    async def _get_agent_stats(self, instance_id, sort_by, top_k, filter_tags):
+    async def get_agent_stats(self, instance_id, sort_by, top_k, filter_tags):
         type(self).stats_last_call = {
             "instance_id": instance_id, "sort_by": sort_by, "top_k": top_k, "filter_tags": filter_tags,
         }

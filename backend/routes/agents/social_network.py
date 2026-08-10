@@ -370,7 +370,7 @@ async def contact_info(agent_id: str, body: ContactInfoBody, request: Request) -
 @router.post("/{agent_id}/social-network/stats")
 async def agent_social_stats(agent_id: str, body: AgentStatsBody, request: Request) -> dict:
     """Owner-perspective social stats — byte-parity twin of `get_agent_social_stats`.
-    Shapes `_get_agent_stats` via the shared `format_stats_result`."""
+    Shapes `get_agent_stats` via the shared `format_stats_result`."""
     await assert_owned(request, agent_id)
     try:
         db_client = await get_db_client()
@@ -378,7 +378,7 @@ async def agent_social_stats(agent_id: str, body: AgentStatsBody, request: Reque
         if error:
             return {"success": False, "message": error, "results": []}
         temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
-        stats = await temp_module._get_agent_stats(
+        stats = await temp_module.get_agent_stats(
             instance_id=instance_id, sort_by=body.sort_by, top_k=body.top_k, filter_tags=body.filter_tags,
         )
         return format_stats_result(body.sort_by, stats)

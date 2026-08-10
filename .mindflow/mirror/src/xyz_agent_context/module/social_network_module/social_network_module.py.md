@@ -101,5 +101,5 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 新人易踩的坑
 
-- MCP Server 的 `create_social_network_mcp_server(port, get_mcp_db_client, SocialNetworkModule)` 传入了整个 `SocialNetworkModule` 类引用——这是为了让 MCP 工具在 MCP 进程里能实例化临时的 Module 对象查数据库，而不是持有共享实例。
-- `extract_and_update_entity_info()` 是 Module 的 public API，被 `_social_mcp_tools.py` 里的 `extract_entity_info` 工具调用。两者不直接等价——MCP 工具层会先验证和格式化入参，再调用这个方法。
+- MCP Server 由 `create_social_network_mcp_server(port, get_mcp_db_client)` 构造。数据操作工具通过 [[data_access/store]] 的 seam 解析实例并临时构造 Module（本地 DirectStore / 云端 backend 路由），工具层不再接收 `SocialNetworkModule` 类引用（旧 `module_class` 参数 PR-5 已删）。
+- `extract_and_update_entity_info()` / `merge_entities()` / `delete_entity()` / `search_network()` / `recall_entity_info()` / `get_agent_stats()` 是 Module 的 public API，被 seam（DirectStore + backend 社交路由）调用。`get_agent_stats` 曾是私有 `_get_agent_stats`，PR-5 因成为跨包（backend 路由）契约而提升为公开命名。

@@ -86,7 +86,7 @@ def format_contact_result(entity_id: str, recall: dict) -> dict:
 
 
 def format_stats_result(sort_by: str, stats: list) -> dict:
-    """Shape ``_get_agent_stats``' list into the ``get_agent_social_stats`` MCP
+    """Shape ``get_agent_stats``' list into the ``get_agent_social_stats`` MCP
     tool's return dict. Shared by DirectStore and the `/social-network/stats`
     route so both agree (see ``format_contact_result``)."""
     return {"success": True, "sort_by": sort_by, "count": len(stats), "results": stats}
@@ -672,7 +672,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         Tool definitions have been extracted to _social_mcp_tools.py.
         """
         return create_social_network_mcp_server(
-            self.port, SocialNetworkModule.get_mcp_db_client, SocialNetworkModule
+            self.port, SocialNetworkModule.get_mcp_db_client
         )
 
     # ============================================================================= Helper Methods
@@ -857,7 +857,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         return []
 
-    async def _get_agent_stats(
+    async def get_agent_stats(
         self,
         instance_id: str,
         sort_by: str = "recent",

@@ -372,7 +372,7 @@ class DirectStore:
         if err is not None:
             return {**err, "results": []}  # stats tool's no-instance shape
         try:
-            stats = await module._get_agent_stats(
+            stats = await module.get_agent_stats(
                 instance_id=instance_id, sort_by=sort_by, top_k=top_k, filter_tags=filter_tags,
             )
             return format_stats_result(sort_by, stats)

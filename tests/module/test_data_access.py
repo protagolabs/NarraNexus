@@ -512,7 +512,7 @@ def _social_direct(monkeypatch, *, has_instance=True, method_result=None,
             store._calls["method"] = ("recall", {"entity_id": entity_id, "instance_id": instance_id})  # type: ignore[attr-defined]
             return recall_result
 
-        async def _get_agent_stats(self, **kw):
+        async def get_agent_stats(self, **kw):
             store._calls["method"] = ("stats", kw)  # type: ignore[attr-defined]
             return stats_result
 
