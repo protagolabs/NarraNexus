@@ -56,7 +56,6 @@ dependencies = [
     "ddgs>=9.0.0",
     "websockets>=15.0.1",
     "tiktoken>=0.13.0",
-    "posthog>=7.18.0",
     # Floor at the newest STABLE release rather than an ancient one: with
     # a low floor the resolver is free to wander onto a pre-release above
     # it, which is how 1.95.0.dev3 got locked.

@@ -4,6 +4,12 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — rendered reply as value outcome
+
+On `complete`, the store verifies a nonblank user-facing reply, commits the
+assistant message, then records `reply_rendered` with run/agent IDs. Error-only
+and no-response turns never count as value DAU.
+
 ## 2026-08-04 — 回复提取过滤空白部分；删除死方法 getUserVisibleResponse
 
 stopStreaming 的回复提取 `.filter(Boolean)` 收紧为

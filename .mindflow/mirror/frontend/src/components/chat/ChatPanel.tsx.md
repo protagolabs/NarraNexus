@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — message submitted at the action boundary
+
+After committing the local user bubble and immediately before opening the run,
+the composer records `message_submitted`. Message content and attachments are
+never included.
 
 ## 2026-07-30 (r2) — 直播回复套 silicon 气泡
 

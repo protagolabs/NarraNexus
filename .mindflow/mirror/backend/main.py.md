@@ -1,8 +1,20 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — product analytics ingestion router
+
+Registers authenticated `/api/analytics/events`. Startup schema migration runs
+before traffic, so capture sites can safely write the additive fact table.
+
+## 2026-08-10 — external telemetry removed
+
+The backend no longer registers a vendor analytics sink and shutdown no longer
+flushes a network queue. Product events go only through the first-party
+database writer. This makes local/desktop privacy independent of environment
+variables or release-build secrets.
 
 ## 2026-08-07 — 挂载 runs_router(/api/runs)
 
@@ -59,19 +71,6 @@ router 和 middleware 都不注册，中间件栈长度不变。见
 运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
 报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
 `[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
-
-## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
-
-`register_posthog_sink()`（backend/analytics）在 **import 期**、`app = FastAPI(...)`
-之前调用——不是 lifespan。原因：track() 在任意 route 的请求路径上都可能触发，
-而 kernel 的 sink 是 lru_cache 单例；若装配放 lifespan，理论上存在「首个请求
-先于 lifespan 完成」的窗口拿到 NullSink 并被缓存（register_sink_factory 里的
-cache_clear 兜底了这个竞态，但 import 期装配让它根本不发生）。装配本身只存一个
-callable：不发网络、不碰 DB、不读 key（key 在 factory 被 kernel 调用时才读），
-对 /health 启动时序零影响。未注册该 seam 的进程（workers / mcp / model-sync）
-拿到 NullSink 是**预期行为**——它们从不调用 track()，此前也从未有过 vendor sink。
-（shutdown 侧见 2026-06-08 条目——两侧现在对称了。）
-
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
@@ -142,13 +141,6 @@ ledger (migrations/ [[__init__]]). Wrapped defensively (best-effort): a migratio
 error is logged and never blocks startup. This is what carries the
 unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
 deploy-side step.
-
-## 2026-06-08 — analytics shutdown wired into lifespan
-
-`lifespan` teardown now calls `await shutdown_analytics()` (from
-`xyz_agent_context.analytics`) just before `close_db_client`. This drains the
-PostHog background-thread buffer so no buffered funnel events are lost on
-process exit.
 
 ## 2026-05-15 — invite_router 改为 server-to-server
 

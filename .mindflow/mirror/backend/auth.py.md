@@ -4,6 +4,13 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — product analytics bypasses the quota resolver
+
+`/api/analytics` still requires normal user authentication but skips provider
+resolution: event ingestion is metadata-only and spends no LLM quota. This is
+essential at the paywall, where exhausted users must still be able to record
+subscribe and checkout actions instead of receiving a resolver 402 first.
+
 ## 2026-08-10 — nx-agent 服务身份旁路（蓝图 Q6，MCP caller auth）
 
 云 JWT 段在 `decode_token` 之前多一条判定:bearer 是 `nx-agent:` 位置记录

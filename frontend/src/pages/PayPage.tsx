@@ -49,6 +49,7 @@ import { useConfigStore } from '@/stores';
 import { api, ApiError } from '@/lib/api';
 import { isTauri } from '@/lib/tauri';
 import { platform } from '@/lib/platform';
+import { captureProductEvent } from '@/lib/productAnalytics';
 
 type PayPhase = 'working' | 'error';
 
@@ -83,9 +84,11 @@ export function PayPage() {
       } catch {
         // Unknown subscription state — let subscribe() and the backend decide.
       }
+      captureProductEvent('subscribe_clicked');
       const r = await api.subscribe();
       const url = r.data?.checkout_url;
       if (!url) throw new Error(r.error || 'No checkout URL returned');
+      captureProductEvent('checkout_opened');
       // Backend allowlists the host (https://*.stripe.com) before it ever
       // reaches us — see billing.py::_validate_checkout_url.
       if (isTauri()) {

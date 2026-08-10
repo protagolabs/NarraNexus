@@ -24,19 +24,10 @@ from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
-    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
-    EVENT_SETUP_COMPLETED, PROP_METHOD,
+    EVENT_SIGNED_UP, PROP_METHOD,
 )
-
-# Whitelist of frontend-reportable funnel events. The setup_* events are pure
-# UI actions (page view, skip/done clicks) that have no backend signal, so the
-# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
-# endpoint from being a generic event firehose.
-_ALLOWED_FUNNEL_EVENTS = frozenset({
-    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
-})
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
@@ -517,8 +508,12 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if is_new:
         try:
-            identify_user(user.user_id, {"signup_method": "netmind"})
-            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+            await track(
+                user_id=user.user_id,
+                event=EVENT_SIGNED_UP,
+                properties={PROP_METHOD: "netmind"},
+                event_id=f"signed_up:{user.user_id}",
+            )
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
@@ -1502,13 +1497,6 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
-        # Only non-identifying traits — the distinct_id is hashed and we
-        # deliberately do NOT ship display_name, so no real names reach
-        # PostHog.
-        await identify_user(
-            user_id=request.user_id,
-            traits={"role": "individual"},
-        )
         await track(
             user_id=request.user_id,
             event=EVENT_SIGNED_UP,
@@ -1760,28 +1748,3 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     repo = UserSettingsRepository(await get_db_client())
     await repo.set_analytics_opt_out(uid, request.opted_out)
     return {"success": True, "opted_out": request.opted_out}
-
-
-class FunnelEventRequest(BaseModel):
-    event: str
-
-
-@router.post("/funnel")
-async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
-    """Report a frontend-originated funnel event (setup page UI actions).
-
-    Identity comes from auth_middleware (request.state.user_id) — never the
-    body — so events can't be spoofed onto another user. Only whitelisted
-    setup_* events are accepted, and no client-supplied properties are
-    forwarded: the setup_* events carry no payload by design, so accepting a
-    properties dict would only let a client inject arbitrary data (or
-    override the server-derived `surface`) into PostHog. track() applies
-    opt-out, distinct_id hashing, and the surface label, and never raises.
-    """
-    uid = _require_request_user(http_request)
-    if request.event not in _ALLOWED_FUNNEL_EVENTS:
-        raise HTTPException(
-            status_code=400, detail=f"Unknown funnel event: {request.event}"
-        )
-    await track(user_id=uid, event=request.event)
-    return {"success": True}

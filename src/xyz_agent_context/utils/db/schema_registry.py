@@ -635,6 +635,10 @@ _register(
             # user's own key). Was only ever a ContextVar (api_config.py);
             # persisting it here makes billing auditable.
             Column("provider_source", "TEXT", "VARCHAR(32)"),
+            # Exact source of the provider card selected for this call
+            # (e.g. netmind_free vs netmind/byok). provider_source above is
+            # only the legacy resolver branch and is always "user" now.
+            Column("provider_card_source", "TEXT", "VARCHAR(64)"),
             # Prompt-cache telemetry (2026-07-23). input_tokens alone cannot
             # distinguish full-price tokens from cache writes (1.25x) and cache
             # reads (0.1x), so cache effectiveness was unmeasurable. Summed
@@ -654,6 +658,42 @@ _register(
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
             Index("idx_cost_records_user_id", ["user_id"]),
+        ],
+    )
+)
+
+# 16b. product_analytics_events
+# First-party product facts queried by narranexus-data. Local and desktop
+# surfaces keep the same facts in their local SQLite database; no external
+# telemetry sink receives them.
+_register(
+    TableDef(
+        name="product_analytics_events",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("analytics_event_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("event_name", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False, default="'backend'"),
+            Column("surface", "TEXT", "VARCHAR(32)"),
+            Column("session_id", "TEXT", "VARCHAR(128)"),
+            Column("run_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("trigger_source", "TEXT", "VARCHAR(64)"),
+            Column("provider_card_source", "TEXT", "VARCHAR(64)"),
+            Column("failure_category", "TEXT", "VARCHAR(32)"),
+            Column("failure_reason", "TEXT", "VARCHAR(64)"),
+            Column("latency_ms", "INTEGER", "BIGINT"),
+            Column("properties_json", "TEXT", "MEDIUMTEXT"),
+            Column("occurred_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_product_analytics_event_id", ["analytics_event_id"], unique=True),
+            Index("idx_product_analytics_event_time", ["event_name", "occurred_at"]),
+            Index("idx_product_analytics_user_time", ["user_id", "occurred_at"]),
+            Index("idx_product_analytics_run_event", ["run_id", "event_name"]),
+            Index("idx_product_analytics_failure_time", ["failure_category", "occurred_at"]),
         ],
     )
 )

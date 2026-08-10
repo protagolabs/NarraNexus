@@ -23,6 +23,7 @@ import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
+import { captureProductEvent } from '@/lib/productAnalytics';
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ export function SetupPage() {
   useEffect(() => {
     if (enteredFired.current) return;
     enteredFired.current = true;
-    api.trackFunnelEvent('setup_entered').catch(() => {});
+    captureProductEvent('setup_entered');
   }, []);
 
   // Check current provider count on mount and after changes. Routed
@@ -64,7 +65,7 @@ export function SetupPage() {
   // on provider count — "Skip for now" is a skip; the primary "Get Started"
   // button and one-key onboarding completion are completions. Fire-and-forget.
   const finishSetup = (event: 'setup_completed' | 'setup_skipped') => {
-    api.trackFunnelEvent(event).catch(() => {});
+    captureProductEvent(event);
     navigate('/app/chat', { replace: true });
   };
 

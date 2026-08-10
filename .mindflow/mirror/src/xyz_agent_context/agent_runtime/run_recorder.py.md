@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — retain normalized action reason
+
+Fatal capture retains `action_reason` beside error type/message so analytics
+can classify quota/configuration/infrastructure/runtime without parsing copy.
+
 ## 2026-08-07 — root_run_id 的铸造:根 run 给自己盖章
 
 `RunRecorder` 增加 `inherited_root_run_id`,在 `_bind_run_id` 里与 running

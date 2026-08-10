@@ -46,6 +46,15 @@ from backend.auth_errors import (
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from xyz_agent_context.analytics import track
+from xyz_agent_context.analytics.events import (
+    EVENT_MESSAGE_ACCEPTED,
+    EVENT_RUN_STARTED,
+    PROP_AGENT_ID,
+    PROP_RUN_ID,
+    PROP_SESSION_ID,
+    PROP_TRIGGER_SOURCE,
+)
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.repository import MCPRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -55,6 +64,38 @@ router = APIRouter()
 
 # WebSocket close codes (RFC 6455 + application-specific)
 WS_CLOSE_POLICY_VIOLATION = 1008  # auth failure / policy violation
+
+
+async def _record_message_accepted(
+    *, user_id: str, agent_id: str, trigger_source: str, session_id: str
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_MESSAGE_ACCEPTED,
+        event_id=f"message_accepted:{session_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
+
+
+async def _record_run_started(
+    *, user_id: str, agent_id: str, run_id: str,
+    trigger_source: str, session_id: str,
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_RUN_STARTED,
+        event_id=f"run_started:{run_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_RUN_ID: run_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
 
 
 class AgentRunRequest(BaseModel):
@@ -750,6 +791,16 @@ async def websocket_agent_run(websocket: WebSocket):
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)
 
+        import uuid as _uuid
+        _session_id = str(_uuid.uuid4())
+
+        await _record_message_accepted(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            trigger_source=request.working_source,
+            session_id=_session_id,
+        )
+
         logger.info(f"Starting agent runtime: agent_id={request.agent_id}, user_id={request.user_id}")
 
         # ---- Dashboard v2 (TDR-2): register active session AFTER auth passes, ----
@@ -757,11 +808,9 @@ async def websocket_agent_run(websocket: WebSocket):
         # ---- below guarantees removal on every exit path.
         # ---- NOTE: logging discipline — never print SessionInfo fields user_id /
         # ---- user_display / channel (PII). Only session_id + agent_id are log-safe.
-        import uuid as _uuid
         from datetime import datetime as _datetime, timezone as _timezone
         from backend.state.active_sessions import get_session_registry as _get_registry, SessionInfo as _SessionInfo
 
-        _session_id = str(_uuid.uuid4())
         _channel = request.working_source or "web"
         _registry = _get_registry()
         await _registry.add(
@@ -901,6 +950,13 @@ async def websocket_agent_run(websocket: WebSocket):
                         "type": "run_started",
                         "run_id": bg.run_id,
                     })
+                await _record_run_started(
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    run_id=bg.run_id,
+                    trigger_source=request.working_source,
+                    session_id=_session_id,
+                )
 
             # Subscribe this WS to the broadcaster.
             subscriber = bg.broadcaster.subscribe(_session_id)
