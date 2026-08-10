@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/memory/coordinator.py
-last_verified: 2026-06-03
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (PR-3) — `format_memory_hits` 落户此处，成为唯一渲染器
+
+新增模块级 `format_memory_hits(hits) -> list[dict]`（就在 `MemoryHit` 旁，
+渲染的正是它），从 memory 包导出。这是「把召回的记忆返回给 agent」的**唯一**
+渲染实现:`remember`/`grep_memory` MCP 工具、AgentDataStore 的 DirectStore、
+以及 backend `/memory/*` 路由（HttpStore 路径）全部 import 它。此前是三份逐字
+拷贝靠注释维持 lockstep，其唯一分支字段 `source` 无测试覆盖——收成一份后
+lockstep 由「约定」变「编译期事实」。分支字段由 [[data_access/store]] 的
+parity 测试覆盖。
 
 # coordinator.py — unified Agent Memory
 

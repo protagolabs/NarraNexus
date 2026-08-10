@@ -153,7 +153,7 @@ def test_http_unreachable_backend_degrades_in_band(monkeypatch):
     _patch_http(monkeypatch, boom)
     store = HttpStore("http://backend:8000")
     out = asyncio.run(store.update_awareness(AGENT, "hello"))
-    assert out == "Error: awareness backend unreachable (ConnectError)"
+    assert out == "Error: awareness backend unreachable"
 
 
 def test_direct_resolves_instance_through_repository(monkeypatch, _upsert_spy):
@@ -251,3 +251,208 @@ def test_http_store_sends_identity_headers(monkeypatch):
     )
     asyncio.run(store.update_awareness(AGENT, "x"))
     assert seen["auth"] == "Bearer nx-agent:a~chat"
+
+
+# ---------------------------------------------------------------------------
+# general_memory migration (PR-3): remember + memory_retain parity
+# ---------------------------------------------------------------------------
+
+
+class _Hit:
+    """Minimal memory hit matching what memory.format_memory_hits reads."""
+
+    @staticmethod
+    def make(kind, text, tags=None, source_ref=None):
+        h = _Hit()
+        h.kind = kind
+        rec = type("R", (), {})()
+        rec.content_text = text
+        rec.created_at = None
+        rec.tags = tags or []
+        rec.source_ref = source_ref
+        h.record = rec
+        return h
+
+
+def _memory_direct(monkeypatch, hits=None, record_id="mem_1", retain_ok=True):
+    """DirectStore with MemoryCoordinator/MemoryEngine stubbed. The stub records
+    the ``limit`` it actually received in ``store._seen`` so a test can assert
+    DirectStore clamped it the same way HttpStore does."""
+    store = DirectStore()
+    store._seen = {}  # type: ignore[attr-defined]
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+
+    class FakeCoord:
+        def __init__(self, engine):
+            pass
+
+        async def remember(self, query, limit):
+            store._seen["limit"] = limit  # type: ignore[attr-defined]
+            return hits or []
+
+    class FakeEngine:
+        def __init__(self, db, agent_id):
+            pass
+
+        async def retain(self, record):
+            if not retain_ok:
+                raise RuntimeError("db down")
+            return type("Rec", (), {"record_id": record_id})()
+
+    monkeypatch.setattr("xyz_agent_context.memory.MemoryCoordinator", FakeCoord)
+    monkeypatch.setattr("xyz_agent_context.memory.MemoryEngine", FakeEngine)
+    return store
+
+
+def _memory_http(monkeypatch, remember_body=None, retain_body=None, seen=None):
+    """HttpStore whose backend echoes what the REAL routes return. When
+    ``remember_body`` is a list of hits, the handler renders it through the
+    same ``format_memory_hits`` the route calls — so a passing parity assertion
+    proves DirectStore and the route agree by construction, not because the
+    test fed both the same literal."""
+    from xyz_agent_context.memory import format_memory_hits
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen["limit"] = request.url.params.get("limit")
+        if request.url.path.endswith("/memory/remember"):
+            if isinstance(remember_body, list):
+                q = request.url.params.get("query")
+                return httpx.Response(200, json={
+                    "success": True, "query": q,
+                    "memories": format_memory_hits(remember_body),
+                })
+            return httpx.Response(200, json=remember_body)
+        if request.url.path.endswith("/memory/retain"):
+            return httpx.Response(200, json=retain_body)
+        return httpx.Response(404)
+
+    _patch_http(monkeypatch, handler)
+    return HttpStore("http://backend:8000")
+
+
+def test_remember_parity(monkeypatch):
+    # Includes a source_ref hit so the one branching field in
+    # format_memory_hits (`if r.source_ref: item["source"] = ...`) is exercised
+    # on BOTH paths — the branch a divergent copy would silently drop.
+    hits = [
+        _Hit.make("observation", "the sky is blue", tags=["fact"]),
+        _Hit.make("job", "ship the release", source_ref={"kind": "job", "id": "job_9"}),
+    ]
+    expected = {
+        "success": True, "query": "sky",
+        "memories": [
+            {"kind": "observation", "memory": "the sky is blue", "when": None, "tags": ["fact"]},
+            {"kind": "job", "memory": "ship the release", "when": None, "tags": [],
+             "source": {"kind": "job", "id": "job_9"}},
+        ],
+    }
+    direct = _memory_direct(monkeypatch, hits=hits)
+    d = asyncio.run(direct.remember("agent_a", "sky", 15))
+    assert d == expected
+
+    # The http handler renders the SAME hits through the route's real
+    # format_memory_hits, so this equality is a genuine cross-path check.
+    http = _memory_http(monkeypatch, remember_body=hits)
+    h = asyncio.run(http.remember("agent_a", "sky", 15))
+    assert h == expected == d
+
+
+def test_remember_limit_clamped_identically_on_both(monkeypatch):
+    # limit=200 is a common LLM overreach ("recall everything"). Both paths
+    # must clamp to the route's max=100 — local must not return a result the
+    # cloud path would 422 on. This is the parity fix for the reviewer's
+    # out-of-bounds finding.
+    direct = _memory_direct(monkeypatch, hits=[])
+    asyncio.run(direct.remember("agent_a", "sky", 200))
+    assert direct._seen["limit"] == 100  # type: ignore[attr-defined]
+
+    seen = {}
+    http = _memory_http(monkeypatch, remember_body=[], seen=seen)
+    out = asyncio.run(http.remember("agent_a", "sky", 200))
+    assert out["success"] is True
+    assert seen["limit"] == "100"  # reached the backend clamped, no 422
+
+
+def test_remember_empty_and_overlong_query_rejected_on_both(monkeypatch):
+    direct = _memory_direct(monkeypatch, hits=[])
+    http = _memory_http(monkeypatch, remember_body=[])
+    empty = {"success": False, "error": "query is empty", "memories": []}
+    assert asyncio.run(direct.remember("agent_a", "  ", 15)) == empty
+    assert asyncio.run(http.remember("agent_a", "", 15)) == empty  # rejected pre-send
+
+    long_q = "a" * 513
+    long_err = {"success": False, "error": "query too long (max 512 chars)", "memories": []}
+    assert asyncio.run(direct.remember("agent_a", long_q, 15)) == long_err
+    assert asyncio.run(http.remember("agent_a", long_q, 15)) == long_err
+
+
+def test_retain_parity(monkeypatch):
+    direct = _memory_direct(monkeypatch, record_id="mem_42")
+    d = asyncio.run(direct.memory_retain("agent_a", "remember this", "MEMORY.md"))
+    assert d == {"success": True, "record_id": "mem_42"}
+
+    http = _memory_http(monkeypatch, retain_body={"success": True, "record_id": "mem_42"})
+    h = asyncio.run(http.memory_retain("agent_a", "remember this", "MEMORY.md"))
+    assert h == d
+
+
+def test_retain_empty_content_is_rejected_on_both(monkeypatch):
+    direct = _memory_direct(monkeypatch)
+    http = _memory_http(monkeypatch)
+    err = {"success": False, "error": "content is empty"}
+    assert asyncio.run(direct.memory_retain("agent_a", "   ", "")) == err
+    # HttpStore rejects before any request (no fake needed for the empty path).
+    assert asyncio.run(http.memory_retain("agent_a", "", "")) == err
+
+
+def test_retain_overlong_content_rejected_on_both(monkeypatch):
+    # The "import a MEMORY.md slice" use case can exceed 64KB. Both paths must
+    # reject identically instead of local writing / cloud silently 422-ing.
+    direct = _memory_direct(monkeypatch)
+    http = _memory_http(monkeypatch)
+    big = "x" * 65537
+    err = {"success": False, "error": "content too long (max 65536 chars)"}
+    assert asyncio.run(direct.memory_retain("agent_a", big, "")) == err
+    assert asyncio.run(http.memory_retain("agent_a", big, "")) == err  # rejected pre-send
+
+
+def test_remember_http_transport_failure_degrades_in_band(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.remember("agent_a", "x", 15))
+    assert out["success"] is False
+    assert "unreachable" in out["error"]
+    assert out["memories"] == []  # tool's own failure shape
+
+
+def test_remember_http_422_is_actionable(monkeypatch):
+    # A 422 (route pydantic bound) must surface as an argument-fixable message,
+    # not lumped with 401/502 "backend rejected" — else the model blind-retries.
+    def bad_args(request):
+        return httpx.Response(422, json={"detail": "validation error"})
+
+    _patch_http(monkeypatch, bad_args)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.remember("agent_a", "x", 15))
+    assert out["success"] is False
+    assert "invalid arguments" in out["error"]
+    assert out["memories"] == []
+
+
+def test_retain_http_401_degrades_in_band(monkeypatch):
+    def gate(request):
+        return httpx.Response(401, text="identity required")
+
+    _patch_http(monkeypatch, gate)
+    store = HttpStore("http://backend:8000")
+    out = asyncio.run(store.memory_retain("agent_a", "fact", ""))
+    assert out["success"] is False
+    assert "401" in out["error"]

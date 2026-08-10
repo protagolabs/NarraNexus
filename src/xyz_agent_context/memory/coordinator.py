@@ -29,6 +29,36 @@ class MemoryHit:
     kind: str
 
 
+def format_memory_hits(hits: Sequence[MemoryHit]) -> List[dict]:
+    """Render recalled hits for the agent — text + provenance (kind, when, tags).
+
+    The ONE canonical rendering of a MemoryHit. Every surface that returns
+    recalled memory to an agent imports this so all paths agree by
+    construction, not by convention: the `remember` / `grep_memory` MCP tools,
+    the AgentDataStore DirectStore, and the backend `/memory/*` routes (the
+    HttpStore path). Do not fork a copy — a divergence here silently hands the
+    local and cloud agent different dict keys for the same underlying hit.
+
+    Projection kinds (job/event/narrative/bus) carry a `source` pointer back to
+    the live original so the agent can two-step Search→Fetch (e.g. a job hit's
+    {"kind":"job","id":...} → job_retrieval_by_id). Self-contained kinds
+    (observation/entity) omit it — the snippet is the whole thing.
+    """
+    out: List[dict] = []
+    for h in hits:
+        r = h.record
+        item: dict = {
+            "kind": h.kind,
+            "memory": r.content_text,
+            "when": (r.created_at.isoformat() if r.created_at else None),
+            "tags": r.tags,
+        }
+        if r.source_ref:
+            item["source"] = r.source_ref
+        out.append(item)
+    return out
+
+
 class MemoryCoordinator:
     def __init__(self, engine: MemoryEngine):
         self.engine = engine

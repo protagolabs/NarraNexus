@@ -15,19 +15,29 @@ Endpoints (mounted under /api/agents by agents/core.py):
 
 Each mirrors the matching MCP tool in
 ``_general_memory_mcp_tools.py`` byte-for-byte on call shape (same
-MemoryCoordinator(MemoryEngine(db, agent_id)) construction, same
-``_format`` hit rendering, same response dict keys) so an HttpStore-backed
-caller gets identical payloads to the in-process MCP path.
+MemoryCoordinator(MemoryEngine(db, agent_id)) construction, the shared
+``memory.format_memory_hits`` renderer, same response dict keys) so an
+HttpStore-backed caller gets identical payloads to the in-process MCP path.
+
+Note the pydantic bounds below (query 1-512, limit 1-100, content <=64KB,
+source <=512): unlike the tool body's own {"success": false} failures, an
+out-of-bounds argument is rejected by FastAPI as a 422 BEFORE the handler
+runs. HttpStore._parse_dict surfaces that 422 as its own in-band
+"invalid arguments" dict so the agent can correct — see store.py.
 """
 from __future__ import annotations
-
-from typing import Any, Dict, List
 
 from fastapi import APIRouter, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT
+from xyz_agent_context.memory import (
+    MemoryCoordinator,
+    MemoryEngine,
+    MemoryRecord,
+    SCOPE_AGENT,
+    format_memory_hits,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 # Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
@@ -46,28 +56,6 @@ class MemoryRetainBody(BaseModel):
     source: str = Field(default="", max_length=512)
 
 
-def _format(hits: List[Any]) -> List[Dict[str, Any]]:
-    """Render hits for the caller — text + provenance (which kind, when).
-
-    Kept in lockstep with ``_general_memory_mcp_tools._format``: same kind /
-    memory / when / tags / source keys, so the HTTP and MCP paths return
-    identical shapes for the same underlying hits.
-    """
-    out: List[Dict[str, Any]] = []
-    for h in hits:
-        r = h.record
-        item: Dict[str, Any] = {
-            "kind": h.kind,
-            "memory": r.content_text,
-            "when": (r.created_at.isoformat() if r.created_at else None),
-            "tags": r.tags,
-        }
-        if r.source_ref:
-            item["source"] = r.source_ref
-        out.append(item)
-    return out
-
-
 @router.get("/{agent_id}/memory/remember")
 async def remember(
     request: Request,
@@ -81,7 +69,7 @@ async def remember(
         db = await get_db_client()
         coord = MemoryCoordinator(MemoryEngine(db, agent_id))
         hits = await coord.remember(query, limit=limit)
-        return {"success": True, "query": query, "memories": _format(hits)}
+        return {"success": True, "query": query, "memories": format_memory_hits(hits)}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[memory.remember] failed for agent {agent_id}: {e}")
         return {"success": False, "error": str(e), "memories": []}
@@ -119,7 +107,7 @@ async def grep_memory(
         db = await get_db_client()
         coord = MemoryCoordinator(MemoryEngine(db, agent_id))
         hits = await coord.grep_memory(pattern, regex=False, limit=limit)
-        return {"success": True, "pattern": pattern, "matches": _format(hits)}
+        return {"success": True, "pattern": pattern, "matches": format_memory_hits(hits)}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[memory.grep_memory] failed for agent {agent_id}: {e}")
         return {"success": False, "error": str(e), "matches": []}
