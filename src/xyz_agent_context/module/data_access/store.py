@@ -243,17 +243,16 @@ class DirectStore:
     async def _social_module(self, agent_id: str):
         """Resolve the agent's SocialNetworkModule instance and build a temp
         module bound to it — the same (instance lookup + module construction)
-        the MCP tool's ``_get_instance_and_module`` does, and the same the
-        backend social write routes do.
+        the backend social routes do (this is where the tool's old
+        ``_get_instance_and_module`` logic moved).
 
         Returns (module, instance_id, None) on success, or (None, None,
         failure_dict) where failure_dict is the seam's own ``message``-shaped
         dict — for a missing instance OR any db/resolution error — so a caller
         never sees an exception escape (the DirectStore invariant, module
         docstring: only ever return a dict; the memory methods keep it the same
-        way). SocialNetworkModule is imported lazily (the tool passes it in as
-        ``module_class`` to dodge a circular import at module load; a lazy
-        import here does the same)."""
+        way). SocialNetworkModule is imported lazily here to avoid a circular
+        import at module load."""
         from xyz_agent_context.repository import InstanceRepository
         from xyz_agent_context.module.social_network_module import (
             SocialNetworkModule,

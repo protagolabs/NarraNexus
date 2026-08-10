@@ -7,7 +7,7 @@ last_verified: 2026-08-10
 ## 2026-08-10 (PR-5) — social 读 search/contact/stats 迁入 seam
 
 3 个读工具走 seam。DirectStore 复用 `_social_module`（try/except 不抛），调
-`search_network`/`recall_entity_info`/`_get_agent_stats`。**结果整形共享**：
+`search_network`/`recall_entity_info`/`get_agent_stats`。**结果整形共享**：
 contact 用 [[social_network_module]] 的 `format_contact_result`、stats 用
 `format_stats_result`（DirectStore + 新路由同源，杜绝漂移）；search 原样透传。
 HttpStore 调**新建的 POST 孪生路由** `/social-network/{recall,contact,stats}`
