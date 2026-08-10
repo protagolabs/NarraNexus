@@ -41,6 +41,7 @@ from loguru import logger
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.manyfold_outbound import managed_reply_declared
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -357,6 +358,17 @@ async def list_channels_for_manyfold(request: Request):
             }
         )
 
+    # Every row declares agent_managed_reply EXPLICITLY. Manyfold's mapper
+    # defaults mirrored channels to managed-ON when the key is absent, so an
+    # explicit false is what keeps the rollout under this deployment's
+    # declaration (NEXUS_MANAGED_REPLY_PROVIDERS) instead of flipping at
+    # whichever pull first applies the platform default. One post-pass so a
+    # future seventh provider cannot miss the key.
+    for row in data:
+        row["config"]["agent_managed_reply"] = managed_reply_declared(
+            row["provider"]
+        )
+
     return {"data": data, "object": "list"}
 
 
@@ -414,21 +426,48 @@ def notify_manyfold_config_changed(kinds: set[str]) -> None:
         _flush_task.add_done_callback(_log_flush_outcome)
 
 
+# Backoff between notify attempts. Tuned to the failure this retries: the
+# platform API being briefly unreachable (deploy blip / cold path). Bind-time
+# is when a lost notify hurts most — the user walks away to the IM app and
+# nothing else triggers a pull (the platform's 5-min reconcile only sweeps
+# running sprites) — so three spaced retries are cheap insurance.
+_NOTIFY_RETRY_BACKOFF_S: tuple[float, ...] = (1.0, 5.0, 25.0)
+
+
 async def _flush_pending(env: tuple[str, str, str]) -> None:
     await asyncio.sleep(0.5)
-    kinds = sorted(_pending_kinds)
+    kinds = set(_pending_kinds)
     _pending_kinds.clear()
     if not kinds:
         return
     url, token, runtime_id = env
     timeout = float(os.environ.get("MANYFOLD_SYNC_WEBHOOK_TIMEOUT_S", "5"))
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(
-            url,
-            json={"runtimeId": runtime_id, "kinds": kinds},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
+    last_error: Exception | None = None
+    for attempt, delay in enumerate((0.0, *_NOTIFY_RETRY_BACKOFF_S)):
+        if delay:
+            await asyncio.sleep(delay)
+            # Kinds queued while we were failing ride this retry instead of
+            # waiting out their own flush cycle (the flush task is single-
+            # flight, so nobody else will pick them up until we finish).
+            kinds |= _pending_kinds
+            _pending_kinds.clear()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    url,
+                    json={"runtimeId": runtime_id, "kinds": sorted(kinds)},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                resp.raise_for_status()
+            return
+        except Exception as e:  # noqa: BLE001 — retried, then surfaced once below
+            last_error = e
+            logger.warning(
+                f"Manyfold config-change webhook attempt {attempt + 1} failed "
+                f"({type(e).__name__}: {e})"
+            )
+    if last_error is not None:
+        raise last_error
 
 
 def _log_flush_outcome(task: asyncio.Task) -> None:

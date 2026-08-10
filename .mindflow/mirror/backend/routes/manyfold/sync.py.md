@@ -1,8 +1,22 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — A1 `agent_managed_reply` 显式下发 + A3 notify 退避重试
+
+channels inventory 每行 `config` 后处理注入
+`agent_managed_reply`(bool,事实源 = utils/manyfold_outbound 的
+env 声明)。**显式 false 是关键**:平台 mapper 对缺失键按 managed-ON
+兜底(#504),缺键 = 渠道在某次不可预测的 pull 后突然翻托管;一个
+post-pass 循环保证未来第七个 provider 不可能漏键。
+
+`_flush_pending` 加退避重试(`_NOTIFY_RETRY_BACKOFF_S` = 1s/5s/25s):
+bind 完丢 notify 是最疼的场景(用户直接去 IM 等,turn-final 扳机
+永不触发,平台周期 reconcile 只扫醒着的沙盒)。重试间隙到达的
+kinds 并入当前批(flush task 单飞,没人会另行捡起它们);全败后仍
+raise 给 done-callback 记 warning——never-raise 面向调用方不变。
 
 ## 2026-08-04 — 契约值归一化 + lark enabled 收敛(review)
 
