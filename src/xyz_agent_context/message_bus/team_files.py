@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
 
 #: Cap on one listing. Large enough that a real team folder fits, small enough
@@ -69,10 +70,6 @@ async def list_team_files(
         # third hand-written copy was the whole reason that seam exists, and it
         # was also the only `team_files` statement with a bound LIMIT — the one
         # shape drivers disagree about — with no MySQL case of its own.
-        from xyz_agent_context.repository.team_workspace_repository import (
-            TeamFileRepository,
-        )
-
         rows = await TeamFileRepository(db).list_by_team(team_id, limit=MAX_TEAM_FILES)
         root = team_shared_dir(team["owner_user_id"], team_id, base).parent.parent.parent
         files = [
@@ -90,5 +87,13 @@ async def list_team_files(
         ]
         return {"success": True, "files": files}
     except Exception as e:  # noqa: BLE001 — tool surface returns structured errors
+        # Widening watch: this catch now also sits over the repository, so it
+        # can swallow things that are not "you cannot list this" — a malformed
+        # `created_at` reaching `parse_dt`, say, would reach the agent as
+        # "listing failed" rather than as the data problem it is. `created_at`
+        # is NOT NULL with a default, so that is theoretical today; the note is
+        # here because the call chain under this blanket keeps growing, and the
+        # right fix when it stops being theoretical is to narrow the catch, not
+        # to improve the message.
         logger.warning(f"[team files] list failed for {team_id}: {e}")
         return {"success": False, "error": str(e)}

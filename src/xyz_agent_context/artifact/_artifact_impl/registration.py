@@ -38,6 +38,9 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactTooLarge,
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.repository.team_workspace_repository import (
+    ArtifactHistoryRepository,
+)
 from xyz_agent_context.schema.artifact_schema import (
     URL_ARTIFACT_KIND,
     Artifact,
@@ -222,10 +225,6 @@ async def _record_history(
     cases (two artifacts in one turn, concurrent turns). None when the caller
     had no event in scope, which degrades the record without failing anything.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
-        ArtifactHistoryRepository,
-    )
-
     try:
         # Through the repository, not `repo._db`: reaching into another
         # layer's private handle from `_*_impl/` is exactly the coupling the

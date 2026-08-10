@@ -16,6 +16,9 @@ Artifacts 那半边可点开内联渲染，Files 是死文本——验收 #5 的
 端点本身天然安全：`resolve_shared_file_for_user` 按**调用者自己的 root** 解析，被篡改的
 path 最多够到调用者本就拥有的文件。
 
+锚点要**挂进 document**、object URL 要**延后一拍再 revoke**：Firefox 会在 URL 于同一个 task
+内失效时掐断大文件下载，游离锚点在那里也不可靠。
+
 ## 2026-08-07 (三次) — 改为纯展示组件，选中态由父级控制
 
 数据获取上提到 [[TeamChatPanel.tsx]]。原因：消息下的芯片和面板列表**必须对「现在打开的是

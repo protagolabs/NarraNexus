@@ -48,6 +48,7 @@ from xyz_agent_context.utils.attachment_storage import (
     is_valid_file_id,
     resolve_attachment_path,
 )
+from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 from xyz_agent_context.utils.file_safety import ensure_within_directory
 from xyz_agent_context.utils.workspace_paths import (
     agent_workspace_path,
@@ -305,8 +306,6 @@ async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path) -> 
     a duplicate: those are two different files that happen to share a name,
     and folding one onto the other would silently destroy a share.
     """
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
-
     candidates = await TeamFileRepository(db).find_by_name_and_size(team_id, name, size)
     if not candidates:
         return _DedupProbe(None, None)
@@ -383,8 +382,6 @@ async def stage_path_into_team(
 
     if digest is None:
         digest = await asyncio.to_thread(_content_hash, src)
-
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
 
     try:
         await TeamFileRepository(db).add({

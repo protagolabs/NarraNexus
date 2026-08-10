@@ -31,4 +31,6 @@ stub: false
 ## 上下游
 
 - 被 [[teams.py]]（列表 / 芯片映射 / 清理）、[[_bus_attachment_impl.py]]（去重与写入）、
-  [[registration.py]]（归因追加）使用
+  [[registration.py]]（归因追加）、[[team_files.py]]（agent 侧列举，带 bound LIMIT）使用。
+  **MCP 工具那一处是本文件「为什么存在」开篇点名的三处之一**，清单漏了它就等于文档与自己的
+  立论矛盾。

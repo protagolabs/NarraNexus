@@ -18,9 +18,10 @@ only against `SQLiteBackend(":memory:")`. Two of them are the interesting ones:
     bound parameter. A bound LIMIT is dialect-sensitive: some drivers refuse a
     string there, and SQLite silently accepts what MySQL rejects.
 
-The rest (`list_by_team`, `list_pinned`'s new LIMIT, `_team_files`, and the
-`team_files` dedup probe) are simpler but ship in the same change, so they are
-covered here rather than left to be discovered in prod.
+The rest (`list_by_team`, `list_pinned`'s new LIMIT, `_team_files`, the
+`team_files` dedup probe, and the history bulk delete's expanded IN-list) are
+simpler but ship in the same change, so they are covered here rather than left
+to be discovered in prod.
 
 Project policy for new raw SQL (see `test_cascade_stop_mysql.py`,
 `test_agents_bus_failures_mysql.py`): validate against a real MySQL.
@@ -286,3 +287,46 @@ async def test_same_name_different_hash_still_inserts_on_mysql(mysql_client):
         params=(TEAM, "report.md"), fetch=True,
     )
     assert len(rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_history_bulk_delete_runs_on_mysql(mysql_client):
+    """`DELETE ... WHERE artifact_id IN (%s, %s, ...)` with a generated
+    placeholder list — one statement instead of one per id.
+
+    Covered because this file's own rule is that every hand-written statement
+    in the change gets a real dialect run; a generated placeholder count is
+    also the shape where an off-by-one between list length and parameter tuple
+    shows up as a driver error rather than a wrong result.
+    """
+    from xyz_agent_context.repository.team_workspace_repository import (
+        ArtifactHistoryRepository,
+    )
+
+    await _seed_artifact(mysql_client, f"{_PREFIX}_m1", team_id=TEAM)
+    await _seed_artifact(mysql_client, f"{_PREFIX}_m2", team_id=TEAM)
+    await _seed_artifact(mysql_client, f"{_PREFIX}_m3", team_id=TEAM)
+    for aid in (f"{_PREFIX}_m1", f"{_PREFIX}_m2", f"{_PREFIX}_m3"):
+        await mysql_client.insert("instance_artifact_history", {
+            "artifact_id": aid, "agent_id": AGENT, "file_path": "p",
+            "action": "created", "event_id": "evt_m",
+        })
+
+    repo = ArtifactHistoryRepository(mysql_client)
+    await repo.delete_for_artifacts([f"{_PREFIX}_m1", f"{_PREFIX}_m2"])
+
+    left = await mysql_client.execute(
+        "SELECT artifact_id FROM instance_artifact_history WHERE artifact_id LIKE %s",
+        (f"{_PREFIX}_m%",), fetch=True,
+    )
+    assert [r["artifact_id"] for r in left] == [f"{_PREFIX}_m3"]
+
+
+@pytest.mark.asyncio
+async def test_history_bulk_delete_tolerates_an_empty_list(mysql_client):
+    """An empty id list must not compose `IN ()`, which is a syntax error."""
+    from xyz_agent_context.repository.team_workspace_repository import (
+        ArtifactHistoryRepository,
+    )
+
+    await ArtifactHistoryRepository(mysql_client).delete_for_artifacts([])

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_files.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 改走仓储；`shared_at` 归一为 offset-aware
+
+两处对外可见的变化：
+
+1. **数据访问路径**：不再手写 `SELECT * FROM team_files …`，改走
+   [[team_workspace_repository.py]] 的 `TeamFileRepository.list_by_team(limit=)`。这条曾是
+   `team_files` 上**第三处**手写 SQL，也是**唯一带 bound LIMIT** 的一条——而那个 seam 正是同一
+   分支为收口方言风险建的，留一处在外面等于自我否定。
+2. **`shared_at` 的 wire 形状**：`str(created_at)` → `parse_dt(...).isoformat()`，即
+   `'2026-08-07T12:34:56+00:00'`。这是 **agent 在 `bus_list_team_files` 返回里直接读到的字段**，
+   不带 offset 时消费方会按本地时区解释。
 
 # team_files — 枚举团队共享目录
 
@@ -30,4 +42,4 @@ stub: false
 
 - **被谁用**：`bus_list_team_files` MCP 工具（[[_message_bus_mcp_tools.py]]）；team prompt
   （[[message_bus_trigger.py]]）明确指向该工具而非让 agent 自己猜路径
-- **依赖谁**：`team_files` 表（由 [[_bus_attachment_impl.py]] 分享时写入）、`team_members`
+- **依赖谁**：[[team_workspace_repository.py]] 的 `TeamFileRepository`（不再直接碰表；写入方仍是 [[_bus_attachment_impl.py]]）、`team_members`

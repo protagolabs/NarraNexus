@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (review 修正) — 仓储 import 提到模块级
+
+纯位置调整：`team_workspace_repository` 的 import 从函数体移到模块顶部。这里没有循环依赖要躲
+（仓储层只 import `repository.base.parse_dt`），同一行写在多个函数里是纯噪音。
+
 ## 2026-08-10 (方案 B) — 团队 artifact **必须**住在团队目录
 
 此前是「workspace **或** 团队目录都允许」。现在按归属分岔：私有 → 自己 workspace；

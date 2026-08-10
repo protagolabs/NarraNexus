@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (review 修正) — 仓储 import 提到模块级
+
+纯位置调整：`team_workspace_repository` 的 import 从函数体移到模块顶部。这里没有循环依赖要躲
+（仓储层只 import `repository.base.parse_dt`），同一行写在多个函数里是纯噪音。
+
 ## 2026-08-10 (review 修正) — 去重竞态回读；探测返回改为具名元组
 
 **竞态**：去重探测是 check-then-act 且无锁，而索引是 UNIQUE。两个并发的同内容分享都会 miss，
