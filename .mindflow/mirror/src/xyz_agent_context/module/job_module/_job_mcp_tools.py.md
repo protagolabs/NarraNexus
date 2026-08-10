@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — job_update: effective_type 提前解析(修 type-switch 僵尸 job)
+
+`job_update` 里 `effective_type` 原在 trigger_config 分支中 `updates.get(
+"job_type", job.job_type)` 读——但 job_type 分支跑在其**后**,永远拿旧类型。
+one_off→scheduled + 新 cron 同时提交时 compute_next_run 用旧类型算出 None,
+next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。改为进 updates
+前先解析 effective_type;backend `/api/jobs/{id}` 路由同处 lockstep 一起改
+(两边对称同一 bug)。纯实现重排,工具对 LLM 的 schema/语义不变。
+
 
 ## 2026-08-04 — job_create 补齐兄弟工具的边界纪律（W1）
 

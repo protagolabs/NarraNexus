@@ -199,7 +199,7 @@ agent 两条互相矛盾的指令里的哪一条,漏传不该静默继承 Owner 
 
 ## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
 
-行为不变（异常仍回 '' + warn），实现收敛到 repository seam。
+实现收敛到 repository seam。2026-08-10 起契约随 resolve_owner 拆分:DB 异常在 repository 层就转成 None,外层 except→'' 那条路基本不再触发——别按「异常回 ''」推理(见顶部条目)。
 
 ## 2026-07-31 — team reply rows are stamped with their turn's event_id
 

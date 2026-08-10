@@ -1028,6 +1028,144 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 "entity_id": entity_id
             }
 
+    async def merge_entities(
+        self,
+        source_entity_id: str,
+        target_entity_id: str,
+        instance_id: str,
+        keep_target_name: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Merge two entity records into one (called by MCP Server / HTTP route).
+
+        The source entity's data is merged into the target entity, then the
+        source is deleted. Tags, contact_info, identity_info, and
+        related_job_ids are merged (union). entity_description is appended.
+        Interaction counts are summed.
+
+        Args:
+            source_entity_id: Entity to merge FROM (deleted after merge)
+            target_entity_id: Entity to merge INTO (survives after merge)
+            instance_id: Instance ID (data isolation scope)
+            keep_target_name: If True, keep target's entity_name; if False, use source's name
+
+        Returns:
+            Operation result
+        """
+        try:
+            repo = self._get_repo()
+
+            source = await repo.get_entity(source_entity_id, instance_id)
+            target = await repo.get_entity(target_entity_id, instance_id)
+
+            if not source:
+                return {"success": False, "message": f"Source entity not found: {source_entity_id}"}
+            if not target:
+                return {"success": False, "message": f"Target entity not found: {target_entity_id}"}
+
+            # Merge keywords (case-insensitive dedup, capped at 10)
+            merged_tags = list(target.keywords or [])
+            existing_lower = {t.lower() for t in merged_tags}
+            for t in (source.keywords or []):
+                if t.lower() not in existing_lower:
+                    merged_tags.append(t)
+                    existing_lower.add(t.lower())
+            if len(merged_tags) > 10:
+                merged_tags = merged_tags[:10]
+
+            # Merge identity_info (target takes precedence; source fills in missing keys)
+            merged_identity = {**(source.identity_info or {}), **(target.identity_info or {})}
+
+            # Merge contact_info (deep merge + normalize)
+            from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
+            merged_contact = merge_contact_info(source.contact_info or {}, target.contact_info or {})
+
+            # Merge related_job_ids (union)
+            merged_jobs = list(set(target.related_job_ids or []) | set(source.related_job_ids or []))
+
+            # Append descriptions
+            merged_desc = target.entity_description or ""
+            if source.entity_description:
+                if merged_desc:
+                    merged_desc += f"\n(Merged from {source_entity_id}): {source.entity_description}"
+                else:
+                    merged_desc = source.entity_description
+
+            # Sum interaction counts
+            merged_count = (target.interaction_count or 0) + (source.interaction_count or 0)
+
+            # Determine name
+            merged_name = target.entity_name if keep_target_name else (source.entity_name or target.entity_name)
+
+            updates: Dict[str, Any] = {
+                "entity_name": merged_name,
+                "entity_description": merged_desc,
+                "identity_info": merged_identity,
+                "contact_info": merged_contact,
+                "tags": merged_tags,
+                "related_job_ids": merged_jobs,
+                "interaction_count": merged_count,
+            }
+            # Keep the most recent interaction time
+            if source.last_interaction_time and target.last_interaction_time:
+                updates["last_interaction_time"] = max(
+                    source.last_interaction_time, target.last_interaction_time
+                )
+            elif source.last_interaction_time:
+                updates["last_interaction_time"] = source.last_interaction_time
+
+            await repo.update_entity_info(target_entity_id, instance_id, updates)
+
+            # Delete source
+            await repo.delete_entity(source_entity_id, instance_id)
+
+            logger.info(f"Merged entity {source_entity_id} into {target_entity_id}")
+            return {
+                "success": True,
+                "message": f"Merged '{source_entity_id}' into '{target_entity_id}'",
+                "target_entity_id": target_entity_id,
+                "merged_tags": merged_tags,
+            }
+
+        except Exception as e:
+            logger.exception(f"Error merging entities: {e}")
+            return {"success": False, "message": f"Error: {str(e)}"}
+
+    async def delete_entity(self, entity_id: str, instance_id: str) -> Dict[str, Any]:
+        """
+        Permanently delete a social network entity (called by MCP Server / HTTP route).
+
+        This action is irreversible from the caller's point of view (the
+        repository tombstones the row rather than hard-deleting it, but reads
+        and search stop seeing it).
+
+        Args:
+            entity_id: The entity ID to delete
+            instance_id: Instance ID (data isolation scope)
+
+        Returns:
+            Operation result with success status.
+        """
+        try:
+            repo = self._get_repo()
+
+            entity = await repo.get_entity(entity_id, instance_id)
+            if not entity:
+                return {"success": False, "message": f"Entity not found: {entity_id}"}
+
+            entity_name = entity.entity_name or entity_id
+            await repo.delete_entity(entity_id, instance_id)
+
+            logger.info(f"Deleted entity '{entity_name}' ({entity_id}) from instance {instance_id}")
+            return {
+                "success": True,
+                "message": f"Entity '{entity_name}' ({entity_id}) has been permanently deleted.",
+            }
+
+        except Exception as e:
+            logger.exception(f"Error deleting entity: {e}")
+            return {"success": False, "message": f"Error: {str(e)}"}
+
     async def recall_entity_info(self, entity_id: str, instance_id: str) -> Dict[str, Any]:
         """
         Recall entity information (called by MCP Server)

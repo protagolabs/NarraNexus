@@ -7,7 +7,11 @@
 Provides endpoints for:
 - GET /api/jobs - List jobs for an agent/user
 - GET /api/jobs/{job_id} - Get job details
+- PUT /api/jobs/{job_id} - Update job fields (mirrors job_update MCP tool)
 - PUT /api/jobs/{job_id}/cancel - Cancel a job
+- PUT /api/jobs/{job_id}/pause - Pause a job (mirrors job_pause MCP tool)
+- GET /api/jobs/search/semantic - BM25 search (mirrors job_retrieval_semantic MCP tool)
+- GET /api/jobs/search/keywords - Keyword search (mirrors job_retrieval_by_keywords MCP tool)
 - POST /api/jobs/complex - Create batch jobs with dependencies (Job Complex)
 
 Refactoring notes (2025-12-24):
@@ -15,6 +19,16 @@ Refactoring notes (2025-12-24):
 
 Refactoring notes (2026-01-04):
 - Added Job Complex batch creation API
+
+Refactoring notes (2026-08-10):
+- Added update/pause/search-semantic/search-keywords — the backend half of the
+  MCP data-access seam. Each mirrors the matching tool in
+  src/xyz_agent_context/module/job_module/_job_mcp_tools.py exactly (same
+  repository/service calls, same response shape) so a non-agent caller (e.g. a
+  frontend panel) gets identical semantics to the agent's own tools. Gated by
+  `assert_owned` — the dashboard route's pause/resume (job_recovery, status
+  preconditioned) is a DIFFERENT, unrelated code path; see this file's mirror
+  doc for why both exist.
 """
 
 import json
@@ -25,11 +39,13 @@ from fastapi import APIRouter, Query, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
+from backend.routes._ownership import assert_owned
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.schema import (
     JobStatus,
+    JobType,
     JobResponse,
     JobListResponse,
     JobDetailResponse,
@@ -42,6 +58,59 @@ class CancelJobResponse(BaseModel):
     success: bool
     job_id: Optional[str] = None
     previous_status: Optional[str] = None
+    error: Optional[str] = None
+
+
+class JobUpdateBody(BaseModel):
+    """Update request — mirrors job_update MCP tool args. Only passed fields change."""
+    agent_id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    payload: Optional[str] = None
+    guidance_text: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    job_type: Optional[str] = None
+    next_run_time: Optional[str] = None
+    status: Optional[str] = None
+    related_entity_id: Optional[str] = None
+
+
+class JobUpdateResponse(BaseModel):
+    """Response model for job update — same shape as JobInstanceService.update_job()."""
+    success: bool
+    job_id: Optional[str] = None
+    updated_fields: List[str] = []
+    message: Optional[str] = None
+
+
+class JobPauseBody(BaseModel):
+    """Pause request — mirrors job_pause MCP tool args."""
+    agent_id: str
+
+
+class JobPauseResponse(BaseModel):
+    """Response model for job pause — same shape as the job_pause MCP tool."""
+    success: bool
+    job_id: str
+    status: Optional[str] = None
+    message: Optional[str] = None
+
+
+class JobSemanticSearchResponse(BaseModel):
+    """Response model for semantic (BM25) job search — same shape as job_retrieval_semantic."""
+    success: bool
+    query: Optional[str] = None
+    total_results: int = 0
+    jobs: List[dict] = []
+    error: Optional[str] = None
+
+
+class JobKeywordSearchResponse(BaseModel):
+    """Response model for keyword job search — same shape as job_retrieval_by_keywords."""
+    success: bool
+    keywords: List[str] = []
+    total_results: int = 0
+    jobs: List[dict] = []
     error: Optional[str] = None
 
 
@@ -420,3 +489,272 @@ async def create_job_complex(request: CreateJobComplexRequest):
             success=False,
             error=str(e)
         )
+
+
+@router.put("/{job_id}", response_model=JobUpdateResponse)
+async def update_job(job_id: str, request: Request, body: JobUpdateBody):
+    """
+    Update Job fields — mirrors the `job_update` MCP tool
+    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L410).
+    Only passed fields change.
+    """
+    await assert_owned(request, body.agent_id)
+
+    try:
+        from datetime import datetime, timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+        from xyz_agent_context.module.job_module.job_service import JobInstanceService
+
+        db_client = await get_db_client()
+        job_repo = JobRepository(db_client)
+
+        job = await job_repo.get_job(job_id)
+        if not job:
+            return JobUpdateResponse(success=False, job_id=job_id, message=f"Job {job_id} not found")
+
+        if job.agent_id != body.agent_id:
+            return JobUpdateResponse(
+                success=False,
+                job_id=job_id,
+                message=f"Job {job_id} not found",
+            )
+
+        updates: dict = {}
+
+        # Resolve the effective job_type up front: trigger_config's
+        # compute_next_run runs BEFORE the job_type branch below, so reading
+        # updates.get("job_type") there always saw the OLD type — a
+        # one_off→scheduled switch with a new cron computed next_run_time as
+        # one_off (→ None), silently zombifying the job (pre-open review #4).
+        if body.job_type is not None:
+            try:
+                effective_type = JobType(body.job_type.lower())
+            except ValueError:
+                return JobUpdateResponse(
+                    success=False,
+                    job_id=job_id,
+                    message=f"Invalid job_type: {body.job_type}. Valid: one_off, scheduled, ongoing",
+                )
+            updates["job_type"] = effective_type
+        else:
+            effective_type = job.job_type
+
+        if body.title is not None:
+            updates["title"] = body.title
+        if body.description is not None:
+            updates["description"] = body.description
+        if body.payload is not None:
+            updates["payload"] = body.payload
+        if body.guidance_text:
+            base_payload = updates.get("payload", job.payload) or ""
+            updates["payload"] = f"{base_payload}\n\n## Manager Guidance\n{body.guidance_text}"
+        if body.trigger_config is not None:
+            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+            from pydantic import ValidationError as _VE
+            try:
+                tc_model = TriggerConfig(**body.trigger_config)
+            except _VE as ve:
+                first = ve.errors()[0]
+                loc = ".".join(str(p) for p in first.get("loc", ()))
+                return JobUpdateResponse(
+                    success=False, job_id=job_id, message=f"Invalid trigger_config ({loc}): {first['msg']}"
+                )
+            updates["trigger_config"] = tc_model
+            nxt = compute_next_run(effective_type, tc_model)
+            if nxt:
+                updates["next_run_time"] = nxt.utc
+                updates["next_run_at_local"] = nxt.local
+                updates["next_run_tz"] = nxt.tz
+            else:
+                updates["next_run_time"] = None
+                updates["next_run_at_local"] = None
+                updates["next_run_tz"] = None
+        if body.next_run_time is not None:
+            # Atomic alpha+beta override: parse UTC input, then derive the beta
+            # pair in the job's frozen timezone so display and poller stay consistent.
+            try:
+                next_utc = datetime.fromisoformat(body.next_run_time.replace("Z", "+00:00"))
+                if next_utc.tzinfo is None:
+                    next_utc = next_utc.replace(tzinfo=dt_timezone.utc)
+            except ValueError as e:
+                return JobUpdateResponse(
+                    success=False, job_id=job_id, message=f"Invalid next_run_time format: {e}"
+                )
+            tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+            next_local = next_utc.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+            updates["next_run_time"] = next_utc
+            updates["next_run_at_local"] = next_local
+            updates["next_run_tz"] = tz_name
+        if body.status is not None:
+            try:
+                updates["status"] = JobStatus(body.status.lower())
+            except ValueError:
+                return JobUpdateResponse(
+                    success=False,
+                    job_id=job_id,
+                    message=f"Invalid status: {body.status}. Valid: active, paused, cancelled",
+                )
+        if body.related_entity_id is not None:
+            updates["related_entity_id"] = body.related_entity_id
+
+        if not updates:
+            return JobUpdateResponse(success=False, job_id=job_id, message="No fields to update")
+
+        service = JobInstanceService(db_client)
+        result = await service.update_job(job_id=job_id, updates=updates, agent_id=body.agent_id)
+        return JobUpdateResponse(**result)
+
+    except Exception as e:
+        logger.exception(f"Error updating job {job_id}: {e}")
+        return JobUpdateResponse(success=False, job_id=job_id, message=str(e))
+
+
+@router.put("/{job_id}/pause", response_model=JobPauseResponse)
+async def pause_job(job_id: str, request: Request, body: JobPauseBody):
+    """
+    Pause a Job — mirrors the `job_pause` MCP tool
+    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L553).
+
+    Unconditional: sets status to PAUSED regardless of the current status (no
+    precondition check). This differs from the dashboard route's
+    `/api/dashboard/jobs/{id}/pause`, which goes through
+    `job_recovery.pause_job` and only allows pausing from active/pending —
+    that route exists for the human-facing dashboard; this one exists so a
+    non-agent caller gets the exact same semantics the agent's own
+    `job_pause` tool has.
+    """
+    await assert_owned(request, body.agent_id)
+
+    try:
+        db_client = await get_db_client()
+        job_repo = JobRepository(db_client)
+
+        job = await job_repo.get_job(job_id)
+        if not job:
+            return JobPauseResponse(success=False, job_id=job_id, message=f"Job {job_id} not found")
+        if job.agent_id != body.agent_id:
+            return JobPauseResponse(
+                success=False, job_id=job_id, message=f"Job {job_id} not found"
+            )
+
+        updated_rows = await job_repo.pause_job(job_id)
+
+        return JobPauseResponse(
+            success=updated_rows > 0,
+            job_id=job_id,
+            status="paused",
+            message="Job paused successfully" if updated_rows > 0 else "Failed to pause job",
+        )
+
+    except Exception as e:
+        logger.exception(f"Error pausing job {job_id}: {e}")
+        return JobPauseResponse(success=False, job_id=job_id, message=str(e))
+
+
+@router.get("/search/semantic", response_model=JobSemanticSearchResponse)
+async def search_jobs_semantic(
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+    query: str = Query(..., min_length=1, max_length=512, description="Natural language search query"),
+    status: Optional[str] = Query(None, description="Optional status filter"),
+    limit: int = Query(10, ge=1, le=100, description="Max number of results"),
+):
+    """
+    Search jobs by relevance to a natural-language query — mirrors the
+    `job_retrieval_semantic` MCP tool
+    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L193).
+
+    Despite the name, this is BM25 keyword ranking, not vector cosine
+    similarity — vectors were retired from job search (unified-memory
+    refactor); the MCP tool kept its name for LLM-facing continuity and this
+    route mirrors that same underlying call.
+    """
+    await assert_owned(request, agent_id)
+
+    # Same user-scoping decision as list_jobs above: the caller's own
+    # identity is the filter — an "optional user_id" query param let any
+    # client read anyone's jobs, and these endpoints must not reintroduce
+    # what that fix removed (jobs are per-user records under the agent).
+    user_id = await resolve_current_user_id(request)
+
+    try:
+        status_enum = None
+        if status:
+            try:
+                status_enum = JobStatus(status.lower())
+            except ValueError:
+                return JobSemanticSearchResponse(
+                    success=False,
+                    error=f"Invalid status: {status}. Valid values: pending, active, running, completed, failed",
+                )
+
+        db_client = await get_db_client()
+        repo = JobRepository(db_client)
+        results = await repo.search_keyword(
+            agent_id=agent_id, query=query, user_id=user_id, status=status_enum, limit=limit
+        )
+
+        from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
+        jobs_data = [
+            {**job_to_llm_dict(job), "similarity_score": round(score, 4)}
+            for job, score in results
+        ]
+
+        return JobSemanticSearchResponse(
+            success=True, query=query, total_results=len(jobs_data), jobs=jobs_data
+        )
+
+    except Exception as e:
+        logger.exception(f"Error in semantic job search: {e}")
+        return JobSemanticSearchResponse(success=False, error=str(e))
+
+
+@router.get("/search/keywords", response_model=JobKeywordSearchResponse)
+async def search_jobs_by_keywords(
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+    keywords: List[str] = Query(..., min_length=1, max_length=20, description="Keywords to search for (matches if ANY keyword found)"),
+    status: Optional[str] = Query(None, description="Optional status filter"),
+    limit: int = Query(20, ge=1, le=100, description="Max number of results"),
+):
+    """
+    Search jobs by keyword matching — mirrors the `job_retrieval_by_keywords`
+    MCP tool (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L339).
+    """
+    await assert_owned(request, agent_id)
+
+    # Same user-scoping decision as list_jobs above: the caller's own
+    # identity is the filter — an "optional user_id" query param let any
+    # client read anyone's jobs, and these endpoints must not reintroduce
+    # what that fix removed (jobs are per-user records under the agent).
+    user_id = await resolve_current_user_id(request)
+
+    try:
+        status_enum = None
+        if status:
+            try:
+                status_enum = JobStatus(status.lower())
+            except ValueError:
+                return JobKeywordSearchResponse(success=False, error=f"Invalid status: {status}")
+
+        db_client = await get_db_client()
+        repo = JobRepository(db_client)
+        jobs = await repo.search_by_keywords(
+            agent_id=agent_id, keywords=keywords, user_id=user_id, status=status_enum, limit=limit
+        )
+
+        from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
+        jobs_data = []
+        for job in jobs:
+            entry = job_to_llm_dict(job)
+            if len(entry["description"] or "") > 200:
+                entry["description"] = entry["description"][:200] + "..."
+            jobs_data.append(entry)
+
+        return JobKeywordSearchResponse(
+            success=True, keywords=keywords, total_results=len(jobs_data), jobs=jobs_data
+        )
+
+    except Exception as e:
+        logger.exception(f"Error in keyword job search: {e}")
+        return JobKeywordSearchResponse(success=False, error=str(e))

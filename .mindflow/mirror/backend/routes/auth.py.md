@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
+
+原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +
+默认技能安装」序列,提炼进 [[provision]] `provision_new_agent`,本路由改为调它。
+本路由仍是该序列的**语义来源**,只把非共享部分留在外面:user-existence 校验、
+team assignment(#43)、CreateAgentResponse shape。同一 seam 被 MCP 工具与
+social-network 路由共用,消除三份漂移复制(PR-2 pre-open review #3)。
 
 ## 2026-08-06 — 新增 `GET /api/auth/session`（会话探针）
 

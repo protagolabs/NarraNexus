@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-08-01
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — merge/delete/create_agent 闭包改调共享 seam(去复制)
+
+`merge_entities` / `delete_entity` 闭包体提炼为 [[social_network_module]] 的真
+方法,闭包改调之;`create_agent` 闭包(此前是**半供给**副本,缺默认技能安装)
+改调 [[provision]] `provision_new_agent`——补齐 install_defaults,不再造出
+半供给 agent。三处均消除与 backend 路由的逐字复制(PR-2 pre-open review #2/#3)。
 
 ## 2026-08-01 — get_contact_info 描述加免责与改道
 

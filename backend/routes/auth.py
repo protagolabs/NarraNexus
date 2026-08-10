@@ -823,67 +823,24 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # the agent records a real description during bootstrap.
         agent_description = request.agent_description or ""
 
-        # Add agent to database
-        repo = AgentRepository(db_client)
-        record_id = await repo.add_agent(
+        # Provisioning (agent row + default instances + peer-discovery
+        # registration + bootstrap profile + default skills) is the
+        # canonical sequence in `provision_new_agent` — this route is its
+        # semantic source. `bootstrap` in the request
+        # picks a profile; unknown/None falls back to "default" inside
+        # `get_profile`. This route stays the SEMANTIC SOURCE the seam mirrors;
+        # everything below that ISN'T the shared sequence (team assignment #43,
+        # response shape) stays here.
+        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        provision_result = await provision_new_agent(
+            db_client,
             agent_id=agent_id,
+            user_id=created_by,
             agent_name=agent_name,
-            created_by=created_by,
             agent_description=agent_description,
-            agent_type="chat"
+            bootstrap_profile=getattr(request, "bootstrap", None) or "default",
         )
-
-        logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
-
-        # Create the default agent-level instances (Awareness, SocialNetwork,
-        # BasicInfo, MessageBus, Lark). Without this the HTTP-created agent has
-        # no AwarenessModule instance and downstream provisioning / awareness
-        # writes have nothing to attach to. Idempotent (factory checks first);
-        # best-effort so a transient failure never blocks agent creation.
-        try:
-            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
-            await InstanceFactory(db_client).create_agent_level_instances(agent_id)
-        except Exception as inst_err:
-            logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
-
-        # Enter the peer-discovery directory NOW. Registration used to be a
-        # side effect of taking a turn (MessageBusModule's data-gathering
-        # hook), so a freshly created agent was invisible to its owner's other
-        # agents until it happened to run — one half of why "ask agent X" came
-        # back empty (P1 section 02, target 2). Runs after the instances exist so the
-        # capability snapshot is not empty. Best-effort: the agent is created
-        # either way, and the per-turn hook re-syncs.
-        await sync_agent_discovery(db_client, agent_id)
-
-        # First-run flow via a bootstrap PROFILE (default = today's behavior).
-        # The profile renders Bootstrap.md + the greeting + the deletion rule and
-        # apply_bootstrap stores them (workspace + agent_metadata). Pass
-        # `bootstrap` in the request to pick a profile; unknown/None → "default".
-        from xyz_agent_context.settings import settings
-        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-        workspace_path = str(
-            agent_workspace_path(agent_id, created_by, base=settings.base_working_path)
-        )
-        bootstrap_active = False
-        try:
-            from xyz_agent_context.bootstrap.profiles import (
-                apply_bootstrap, get_profile, BootstrapContext,
-            )
-            profile = get_profile(getattr(request, "bootstrap", None) or "default")
-            await apply_bootstrap(
-                db_client,
-                agent_id=agent_id,
-                user_id=created_by,
-                profile=profile,
-                ctx=BootstrapContext(
-                    agent_id=agent_id, user_id=created_by, agent_name=agent_name,
-                ),
-            )
-            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
-            logger.info(f"Bootstrap profile '{profile.name}' applied to {agent_id}")
-        except Exception as bootstrap_err:
-            # Non-fatal: agent is already created, bootstrap is best-effort
-            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
+        logger.info(f"Agent created: {agent_id}")
 
         # Team assignment (#43): when the sidebar "Add agent" was clicked under
         # a specific team, attach the new agent to that team so it lands in the
@@ -910,38 +867,8 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             except Exception as team_err:
                 logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
 
-        # Default skills — fire-and-forget install of every marketplace skill
-        # flagged is_default into the new agent's workspace. Never blocks or
-        # fails creation: an unreachable registry (desktop offline, cloud
-        # marketplace not yet live) degrades to a no-op inside the service.
-        try:
-            import asyncio as _asyncio
-
-            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
-
-            async def _install_default_skills(aid: str, uid: str) -> None:
-                try:
-                    summary = await SkillMarketplaceService().install_defaults(aid, uid)
-                    if summary.get("failed"):
-                        logger.warning(
-                            f"Default skills for {aid}: failed={summary['failed']}"
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Default skills install for {aid} skipped: {exc}")
-
-            _task = _asyncio.create_task(_install_default_skills(agent_id, created_by))
-            # Fire-and-forget needs a done callback (incident lesson #2);
-            # the inner try/except already swallows, this catches cancellation-
-            # adjacent surprises.
-            _task.add_done_callback(
-                lambda t: (
-                    logger.warning(f"default-skills task died: {t.exception()}")
-                    if not t.cancelled() and t.exception() is not None
-                    else None
-                )
-            )
-        except Exception as defaults_err:  # noqa: BLE001
-            logger.warning(f"Failed to schedule default skills: {defaults_err}")
+        # Default skills install is scheduled inside `provision_new_agent`
+        # (fire-and-forget, same shape as before this extraction).
 
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
@@ -953,7 +880,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
             created_by=created_by,
-            bootstrap_active=bootstrap_active,
+            bootstrap_active=provision_result.bootstrap_active,
         )
 
         return CreateAgentResponse(
