@@ -40,6 +40,49 @@ class TeamMember(BaseModel):
     joined_at: Optional[datetime] = None
 
 
+# ===== Bulletin =====
+#
+# The team's standing rules, loaded into EVERY member's EVERY team turn. See
+# `repository/team_bulletin_repository.py` for why the auto-summary is a slot
+# rather than a growing list, and why it has a budget of its own.
+
+BULLETIN_SOURCE_USER = "user"
+BULLETIN_SOURCE_AGENT = "agent"
+BULLETIN_SOURCE_SUMMARY = "auto_summary"
+
+BULLETIN_TIER_LONG_TERM = "long_term"
+BULLETIN_TIER_CURRENT_TASK = "current_task"
+
+# Budgets. Anything that reaches a prompt needs a ceiling; these are refused at
+# the edge with an explanation rather than trimmed, because a user who is told
+# nothing assumes the whole rule is in force.
+BULLETIN_MAX_ENTRIES = 20
+BULLETIN_MAX_ENTRY_CHARS = 500
+BULLETIN_MAX_TOTAL_CHARS = 2000
+# Separate on purpose: automatic output must never be able to push a
+# hand-written rule out of the prompt.
+BULLETIN_MAX_SUMMARY_CHARS = 800
+
+
+class BulletinEntry(BaseModel):
+    id: Optional[int] = None
+    entry_id: str
+    team_id: str
+    content: str
+    source: str = BULLETIN_SOURCE_USER
+    author_id: Optional[str] = None
+    tier: str = BULLETIN_TIER_LONG_TERM
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class BulletinUsage(BaseModel):
+    """What the shared entry budget currently holds. Excludes the summary."""
+
+    entry_count: int = 0
+    total_chars: int = 0
+
+
 # ===== API request / response =====
 
 

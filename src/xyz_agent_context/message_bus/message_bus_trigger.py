@@ -637,10 +637,12 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                bulletin = await self._load_bulletin(team_id)
                 prompt = self._build_team_prompt(
                     agent_id, history, member_map,
                     owner_user_id=team_owner, team_id=team_id,
                     trigger_messages=messages,
+                    bulletin=bulletin,
                 )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
@@ -1013,6 +1015,101 @@ class MessageBusTrigger:
                 out[m.agent_id] = row.get("agent_name") or m.agent_id
         return out
 
+    async def _load_bulletin(self, team_id: str) -> List[Any]:
+        """The team's standing rules, or [] if they cannot be read.
+
+        Its own method so the degradation is testable rather than buried in the
+        dispatch path. A read failure must NOT take the turn down: the turn is
+        still perfectly answerable without the bulletin, so losing it is a
+        degradation while losing the reply is an outage. The warning is what
+        makes the degradation visible — silently returning [] would present an
+        unreachable database as "this team has no rules".
+        """
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.repository import TeamBulletinRepository
+
+            return await TeamBulletinRepository(await get_db_client()).list_for_team(team_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[team-bulletin] could not load bulletin for {team_id}, "
+                f"continuing without it: {e}"
+            )
+            return []
+
+    @staticmethod
+    def _render_bulletin(bulletin: Optional[List[Any]], member_map: Dict[str, str]) -> List[str]:
+        """Render the team bulletin block, or nothing at all.
+
+        Returns [] for an empty/absent bulletin — a stated acceptance criterion,
+        not an optimisation. A header with "(none)" under it would ride along in
+        every turn of every team that never touches the feature.
+
+        Three groups, in this order:
+
+        1. long-term rules, 2. current-task rules, 3. the auto-summary.
+
+        Rules before summary because the summary is machine guesswork sitting
+        next to instructions a human typed; rendered as another numbered rule it
+        would be *obeyed* rather than read. It is labelled as automatic and
+        possibly stale for the same reason — an agent needs some way to weigh
+        the two apart, and there is none in the text itself.
+
+        Agent-written entries are attributed, user-written ones are not: the
+        attribution exists so the reader can tell which rules the team invented
+        for itself. Everything unattributed came from the person in charge.
+        """
+        if not bulletin:
+            return []
+
+        from xyz_agent_context.schema.team_schema import (
+            BULLETIN_SOURCE_AGENT,
+            BULLETIN_SOURCE_SUMMARY,
+            BULLETIN_TIER_CURRENT_TASK,
+        )
+
+        rules = [e for e in bulletin if e.source != BULLETIN_SOURCE_SUMMARY]
+        summary = next(
+            (e for e in bulletin if e.source == BULLETIN_SOURCE_SUMMARY), None
+        )
+        if not rules and summary is None:
+            return []
+
+        def _label(entry) -> str:
+            if entry.source != BULLETIN_SOURCE_AGENT or not entry.author_id:
+                return ""
+            return f"  (added by {member_map.get(entry.author_id, entry.author_id)})"
+
+        out: List[str] = []
+        if rules:
+            out += [
+                "",
+                "[Team Bulletin] — standing rules for this team. They apply to "
+                "every reply you make here, including ones the conversation "
+                "below says nothing about. Follow them without being reminded.",
+            ]
+            n = 0
+            for e in [r for r in rules if r.tier != BULLETIN_TIER_CURRENT_TASK]:
+                n += 1
+                out.append(f"{n}. {e.content}{_label(e)}")
+            current = [r for r in rules if r.tier == BULLETIN_TIER_CURRENT_TASK]
+            if current:
+                out.append("For the CURRENT TASK only:")
+                for e in current:
+                    n += 1
+                    out.append(f"{n}. {e.content}{_label(e)}")
+
+        if summary is not None and (summary.content or "").strip():
+            out += [
+                "",
+                "[Team progress] — auto-summarised by the platform, NOT written "
+                "by anyone, and it may lag behind what just happened. Treat it "
+                "as background, and trust the conversation below over it where "
+                "they disagree.",
+                summary.content,
+            ]
+        return out
+
     def _build_team_prompt(
         self,
         agent_id: str,
@@ -1021,6 +1118,7 @@ class MessageBusTrigger:
         owner_user_id: str = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
+        bulletin: Optional[List[Any]] = None,
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1064,6 +1162,11 @@ class MessageBusTrigger:
                 f"own workspace is private to you, so work left there is work "
                 f"your teammates cannot open or continue."
             )
+
+        # Before the conversation on purpose: these are the standing constraints
+        # the messages are to be read UNDER. Appended after twenty lines of chat
+        # they would read as a footnote to the chat instead of a frame for it.
+        lines += self._render_bulletin(bulletin, member_map)
 
         def _sender(msg: BusMessage) -> str:
             return (

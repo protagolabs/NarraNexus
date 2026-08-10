@@ -1590,6 +1590,43 @@ _register(
     )
 )
 
+# The team bulletin: the standing rules every member loads on every team turn.
+#
+# `source` and `author_id` are separate columns because they answer different
+# questions. `source` decides the RULES — who may delete the row, whether it
+# spends the shared entry budget, how it renders. `author_id` decides the
+# DISPLAY ("by Ana"). Folding them into one column would make a permission
+# check parse a string prefix.
+#
+# `source='auto_summary'` is a SLOT, not a kind: at most one row per team,
+# overwritten in place, `author_id` NULL. It is in every turn's prompt, so an
+# accumulating summary would reproduce the very problem the bulletin exists to
+# fix, and a poor summary would compound rather than be replaced.
+_register(
+    TableDef(
+        name="team_bulletin_entries",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("entry_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("content", "TEXT", "TEXT", nullable=False),
+            # 'user' | 'agent' | 'auto_summary'
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False, default="'user'"),
+            # user_id or agent_id; NULL for auto_summary (nobody wrote it).
+            Column("author_id", "TEXT", "VARCHAR(64)"),
+            # 'long_term' | 'current_task' — the second is cleared per task.
+            Column("tier", "TEXT", "VARCHAR(16)", nullable=False, default="'long_term'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bulletin_entry_id", ["entry_id"], unique=True),
+            Index("idx_bulletin_team", ["team_id"]),
+            Index("idx_bulletin_team_source", ["team_id", "source"]),
+        ],
+    )
+)
+
 # Subproject 2: Bundle Import — preflight session storage (cross-process / crash-safe)
 _register(
     TableDef(
