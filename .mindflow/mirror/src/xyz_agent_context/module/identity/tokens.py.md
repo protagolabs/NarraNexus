@@ -27,6 +27,9 @@ hold just the public key, so a compromised verifier cannot mint identities.
 - **TTL 72h default** (`NX_IDENTITY_TOKEN_TTL_SECONDS`): minted per run,
   never refreshed mid-run, and runs are unbounded (iron rule #14) — the TTL
   must outlive the longest run. Audit-phase logs decide the final value.
+  **Q6 widening**: the same token is also a user-level backend API credential
+  (nx-agent service path; role "user", no elevation, no revocation list) —
+  the TTL decision weighs BOTH planes, not just MCP.
 - **`load_public_key_pem()` never raises**; None = not provisioned. Each
   verifier chooses its own degradation (mcp fails open + warning, backend
   service path fails closed).

@@ -57,3 +57,25 @@ def test_no_user_id_means_no_token(monkeypatch, tmp_path):
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
     assert _dispatch_identity_token(None, None) is None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cloud_never_self_signs_even_in_audit_mode(monkeypatch, tmp_path):
+    """Review Important #1: a cloud broker without a signing key must yield NO
+    token — a process-local signature cannot verify against the deploy-mounted
+    public key and would pollute the audit window's no-token measurement with
+    `invalid` noise (and 401 everything under enforce)."""
+    monkeypatch.setenv("NX_IDENTITY_KEY_DIR", str(tmp_path))
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+    ensured = ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False)
+    assert _dispatch_identity_token(ensured, "usr_1") is None
+    assert list(tmp_path.iterdir()) == []  # no local keygen leaked into cloud
+
+
+def test_cloud_mode_without_broker_result_never_self_signs(monkeypatch, tmp_path):
+    monkeypatch.setenv("NX_IDENTITY_KEY_DIR", str(tmp_path))
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+    assert _dispatch_identity_token(None, "usr_1") is None
+    assert list(tmp_path.iterdir()) == []

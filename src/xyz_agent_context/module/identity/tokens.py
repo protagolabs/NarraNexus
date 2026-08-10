@@ -23,7 +23,12 @@ therefore outlive the longest plausible run; 72h is the starting value and
 the audit-phase logs decide the final one. A stolen token is only ever worth
 its OWN user's identity (cross-user theft requires compromising app/mcp,
 which is game over regardless), so the long replay window buys no attacker
-anything the executor didn't already have.
+anything the executor didn't already have. NOTE the Q6 widening, though:
+since backend/auth.py's nx-agent service path trusts the same token, it is
+not just an MCP-plane credential — it acts as a user-level backend API
+credential (role "user", no elevation) for its full TTL, with no revocation
+list (Q2: revocation = executor teardown + expiry). Whoever finalizes the
+TTL after the audit window must weigh BOTH planes.
 """
 from __future__ import annotations
 

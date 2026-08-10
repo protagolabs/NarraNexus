@@ -7,7 +7,9 @@ stub: false
 ## 2026-08-10 — nx-agent 服务身份旁路（蓝图 Q6，MCP caller auth）
 
 云 JWT 段在 `decode_token` 之前多一条判定:bearer 是 `nx-agent:` 位置记录
-(mcp 容器 HttpStore 原样转发的 executor→mcp 身份通道)→ 用 broker 公钥
+(mcp 容器 HttpStore 原样转发的 executor→mcp 身份通道)→ 验证算法走共享的
+[[identity/verify]](本文件只保留降级策略与日志;bearer 解析走 module 公开面
+`parse_bearer_identity`/`BEARER_AGENT_PREFIX`,不伸私有名)→ 公钥
 (`NX_IDENTITY_PUBLIC_KEY_FILE`,[[identity/tokens]])验第 7 位 Ed25519 token,
 sub 即生效 user(`request.state.nx_service_authed=True`),路由侧照旧对目标
 agent_id 做 owner 校验。与 manyfold gateway-token 平级的服务信任先例,但有

@@ -19,6 +19,9 @@ Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自
   绝不手搓第二个 bearer;非 nx-agent 的真 bearer 原样不动。
 - 契约测试:parametrize 扩到 7、逐位钉 `BEARER_FIELDS[6]`,新增 stamp 往返
   与"外来 bearer 不重写"用例。
+- bearer 记录既已是跨进程契约,解析器升公开面:`parse_bearer_identity()`
+  (同一实现的公开名)与 `BEARER_AGENT_PREFIX` 经 `module/__init__` 导出,
+  包外消费方(backend/auth、identity/verify)不再伸进私有名(review #4)。
 - `_wrap_fn` 的 **async** 分支在占位符守卫之后接 OwnerScopedPolicy
   (`identity/mcp_auth.check_agent_ownership`,lazy import 避循环):验签身份
   不拥有 resolved agent_id → enforce 下返回工具自身 shape 的错误值(复用

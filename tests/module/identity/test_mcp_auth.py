@@ -387,3 +387,205 @@ def test_every_agent_id_tool_is_async():
     assert offenders == [], (
         f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
     )
+
+
+# ---------------------------------------------------------------------------
+# per-message proof (review Important #2): the policy must read the CURRENT
+# tool call's headers, not the connection-time ContextVar snapshot
+# ---------------------------------------------------------------------------
+
+
+def test_policy_reads_per_message_proof_without_contextvar(
+    tmp_path, monkeypatch, _policy_owner_stubs
+):
+    from tests.module.test_mcp_caller_identity import injected
+
+    priv = _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+
+    import asyncio
+
+    fns, ran = _policy_server()
+    # The ambient identity must NAME the target agent (injected identity wins
+    # over the parameter — the pre-existing hardening) while the token proves
+    # a user who does not own it.
+    token = sign_identity_token("usr_1", priv, issuer=ISSUER_LOCAL)
+    headers = agent_id_headers("agent_of_usr2", user_id="usr_1", identity_token=token)
+    with injected(headers):  # ambient MCP request carries the proof
+        out = asyncio.run(fns["dict_tool"](agent_id="agent_of_usr2"))
+    assert out["success"] is False and "does not own" in out["error"]
+    assert ran == {}
+
+
+def test_per_message_verdict_is_final_over_stale_snapshot(
+    tmp_path, monkeypatch, _policy_owner_stubs
+):
+    """An ambient request WITHOUT proof must leave the policy blind even if a
+    connection-time snapshot exists — falling back there would resurrect the
+    exact mismatch this fixes (proof from one source, facts from another)."""
+    from tests.module.test_mcp_caller_identity import injected
+
+    from xyz_agent_context.module.identity import mcp_auth
+    from xyz_agent_context.module.identity.tokens import VerifiedIdentity
+
+    _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+
+    import asyncio
+
+    fns, ran = _policy_server()
+    stale = mcp_auth._verified_var.set(
+        VerifiedIdentity(user_id="usr_1", issuer="narranexus-local", expires_at=2**33)
+    )
+    try:
+        with injected(agent_id_headers("agent_of_usr2", user_id="usr_1")):  # no token
+            out = asyncio.run(fns["dict_tool"](agent_id="agent_of_usr2"))
+    finally:
+        mcp_auth._verified_var.reset(stale)
+    assert out == {"ok": True}  # no per-message proof → fail-open baseline
+    assert ran["agent_id"] == "agent_of_usr2"
+
+
+@pytest.fixture
+def _policy_owner_stubs(monkeypatch):
+    """Cloud mode + stubbed owner lookup/audit — no ContextVar involvement."""
+    recorded: list[dict] = []
+    owners = {"agent_of_usr1": "usr_1", "agent_of_usr2": "usr_2"}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+
+    async def fake_get_db_client():
+        return object()
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+    )
+
+    class FakeAgentRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            return owners.get(agent_id, "")
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            recorded.append(kw)
+
+    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
+    monkeypatch.setattr(
+        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    from xyz_agent_context.module.identity import mcp_auth
+
+    mcp_auth._owner_cache.clear()
+    return recorded
+
+
+# ---------------------------------------------------------------------------
+# real-transport integration (review Important #2): drive the ACTUAL merged
+# app from _build_mcp_server over streamable HTTP and prove the per-message
+# proof reaches the tool handler (no hand-built Starlette stand-in)
+# ---------------------------------------------------------------------------
+
+
+def _sse_json_payloads(text: str) -> list[dict]:
+    import json
+
+    out = []
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            try:
+                out.append(json.loads(line[len("data: "):]))
+            except ValueError:
+                pass
+    return out
+
+
+def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypatch):
+    from mcp.server.fastmcp import FastMCP
+
+    from xyz_agent_context.module._mcp_identity import install_caller_identity
+    from xyz_agent_context.module.identity.mcp_auth import (
+        verified_caller_for_tool_call,
+    )
+    from xyz_agent_context.module.module_runner import ModuleRunner
+
+    priv = _provision(tmp_path, monkeypatch)
+    monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
+
+    seen: dict = {}
+    mcp = FastMCP("itest_module")
+
+    @mcp.tool()
+    async def probe(agent_id: str) -> dict:
+        ident = verified_caller_for_tool_call()
+        seen["verified_user"] = ident.user_id if ident else None
+        return {"ok": True}
+
+    install_caller_identity(mcp)
+    server = ModuleRunner._build_mcp_server(mcp, "itest_module", 7998)
+    app = server.config.app
+
+    token = sign_identity_token("usr_1", priv, issuer=ISSUER_LOCAL)
+    id_headers = agent_id_headers(AGENT, user_id="usr_1", identity_token=token)
+    accept = {"Accept": "application/json, text/event-stream"}
+
+    with TestClient(app) as client:
+        # Door check first: enforce 401s a tokenless initialize POST.
+        r = client.post(
+            "/mcp",
+            headers=accept,
+            json={
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26", "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "0"},
+                },
+            },
+        )
+        assert r.status_code == 401
+
+        r = client.post(
+            "/mcp",
+            headers={**accept, **id_headers},
+            json={
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26", "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "0"},
+                },
+            },
+        )
+        assert r.status_code == 200, r.text
+        session = {"mcp-session-id": r.headers["mcp-session-id"]}
+
+        r = client.post(
+            "/mcp",
+            headers={**accept, **id_headers, **session},
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        )
+        assert r.status_code in (200, 202), r.text
+
+        r = client.post(
+            "/mcp",
+            headers={**accept, **id_headers, **session},
+            json={
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "probe", "arguments": {"agent_id": AGENT}},
+            },
+        )
+        assert r.status_code == 200, r.text
+        payloads = _sse_json_payloads(r.text) or [r.json()]
+        result = payloads[-1]["result"]
+        assert not result.get("isError"), result
+
+    # THE assertion this test exists for: the proof was readable inside the
+    # tool body, per message, through the real transport's task topology.
+    assert seen["verified_user"] == "usr_1"

@@ -76,13 +76,23 @@ def _dispatch_identity_token(ensured, user_id) -> str | None:
     Blueprint P1: cloud = the broker minted one at ensure() time (fresh per
     run, ExecutorEnsureResult.identity_token); local = this process
     self-signs — but ONLY when NX_MCP_AUTH_MODE != off, so a default local
-    run performs no keygen and no filesystem writes (iron rule #7). A cloud
-    broker without a signing key returns no token and behaves like local:
-    nothing is stamped and the mcp side stays fail-open.
+    run performs no keygen and no filesystem writes (iron rule #7).
+
+    In cloud the broker is the ONLY signer — a broker without a signing key
+    (or predating the field) means NOTHING is stamped, never a local
+    self-sign: the mcp verifier holds the deploy-mounted public key, so a
+    process-local ephemeral signature could not verify anyway, and stamping
+    one would pollute the audit window's central measurement ("which callers
+    are still tokenless?") with `invalid` noise — and under enforce it would
+    401 every tool call (PR #260 review, Important #1).
     """
     if ensured is not None and ensured.identity_token:
         return ensured.identity_token
     if not user_id:
+        return None
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+    if ensured is not None or is_cloud_mode():
         return None
     from xyz_agent_context.module.identity.mcp_auth import auth_mode
 

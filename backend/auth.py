@@ -192,31 +192,24 @@ def _is_cloud_mode() -> bool:
 
 
 def _is_nx_service_bearer(auth_header: str) -> bool:
-    from xyz_agent_context.module import _mcp_identity as nx_ident
+    from xyz_agent_context.module import BEARER_AGENT_PREFIX
 
-    return auth_header.startswith(f"Bearer {nx_ident.BEARER_AGENT_PREFIX}")
+    return auth_header.startswith(f"Bearer {BEARER_AGENT_PREFIX}")
 
 
-def _verify_nx_service_bearer(request: "Request", auth_header: str):
+def _verify_nx_service_bearer(request: "Request"):
     """The proven service identity, or None (invalid/absent/unverifiable).
 
-    None on every failure shape on purpose — the caller answers 401 with one
-    code; the distinct reasons are logged here (0806 discipline: every reject
-    must be diagnosable from server logs).
+    Verification itself is the shared identity/verify.py algorithm — this
+    wrapper only owns backend's degradation policy (fail CLOSED, unlike the
+    mcp middleware: an nx-agent bearer reaching backend is always a service
+    call and must prove itself, so a missing public key rejects too) and the
+    per-reason logging (0806 discipline: every reject must be diagnosable
+    from server logs).
     """
-    from xyz_agent_context.module import _mcp_identity as nx_ident
-    from xyz_agent_context.module.identity.tokens import (
-        IdentityTokenError,
-        load_public_key_pem,
-        verify_identity_token,
-    )
+    from xyz_agent_context.module.identity.tokens import load_public_key_pem
+    from xyz_agent_context.module.identity.verify import verify_caller_identity
 
-    bearer = nx_ident._parse_bearer(auth_header)
-    explicit = (request.headers.get(nx_ident.IDENTITY_TOKEN_HEADER) or "").strip()
-    token = explicit or bearer.identity_token
-    if not token:
-        logger.warning("[nx-service-auth] nx-agent bearer without identity token")
-        return None
     public_key = load_public_key_pem()
     if public_key is None:
         logger.warning(
@@ -224,16 +217,9 @@ def _verify_nx_service_bearer(request: "Request", auth_header: str):
             "(NX_IDENTITY_PUBLIC_KEY_FILE) — rejecting service call"
         )
         return None
-    try:
-        identity = verify_identity_token(token, public_key)
-    except IdentityTokenError as e:
-        logger.warning(f"[nx-service-auth] {e}")
-        return None
-    if bearer.user_id and bearer.user_id != identity.user_id:
-        logger.warning(
-            f"[nx-service-auth] bearer declares user {bearer.user_id!r} but the "
-            f"token proves {identity.user_id!r} — forged field, rejecting"
-        )
+    identity, reason = verify_caller_identity(request.headers, public_key)
+    if identity is None:
+        logger.warning(f"[nx-service-auth] {reason}")
         return None
     return identity
 
@@ -611,7 +597,7 @@ async def auth_middleware(request: Request, call_next):
     # quota resolver below on purpose — these are repository operations, not
     # LLM spends (same reason SAFE_HTTP_METHODS skip it).
     if _is_nx_service_bearer(auth_header):
-        identity = _verify_nx_service_bearer(request, auth_header)
+        identity = _verify_nx_service_bearer(request)
         if identity is None:
             return auth_error_response(
                 TOKEN_INVALID, "Invalid NarraNexus service identity",

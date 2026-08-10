@@ -36,8 +36,24 @@ wrapper calls.
   lifespan and never re-buffers SSE streams.
 - **bearer.user_id must equal token sub** — a mismatch is a forged field and
   invalidates the whole record (not treated as unknown).
-- Verified identity travels per-request in a ContextVar (`verified_caller()`),
-  reset in `finally` — the policy layer reads it without re-verifying.
+- **The policy's proof is PER-MESSAGE, not the middleware ContextVar**
+  (`verified_caller_for_tool_call`, PR #260 review #2, verified against mcp
+  1.24 sources): on SSE the tool runs inside the GET /sse task, on stateful
+  streamable HTTP inside the initialize-time session task — the ContextVar is
+  a connection-time snapshot, while the self-declared facts are read
+  per-message via `request_ctx`. Proof now comes from the same ambient
+  headers (`_ambient_headers` + [[verify]]), and its verdict is FINAL even
+  when it is "no proof" (falling back to the snapshot would resurrect the
+  mismatch). ContextVar remains only the no-ambient-request fallback (direct
+  calls/tests). Pinned by a REAL-transport integration test
+  (`test_real_streamable_transport_carries_proof_to_the_tool` — TestClient
+  driving `_build_mcp_server`'s actual app end-to-end).
+- Header verification itself is the shared [[verify]] algorithm; this module
+  keeps only the mode gate, the door check and the fail-open choice.
+- `resolve_owner` goes through a 60s-TTL in-process cache
+  (`_resolve_owner_cached`) so the hot tool-call path doesn't add one MySQL
+  point-read per call; short TTL keeps it self-correcting, not a second
+  source of truth.
 - `check_agent_ownership` only ever TIGHTENS a proven identity: no identity /
   local mode / unknown agent (`resolve_owner` → "") all allow, so the
   fail-open baseline of `_mcp_identity` survives intact. Denials write

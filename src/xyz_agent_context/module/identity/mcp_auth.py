@@ -37,10 +37,8 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.module.identity.tokens import (
-    IdentityTokenError,
     VerifiedIdentity,
     load_public_key_pem,
-    verify_identity_token,
 )
 
 AUTH_MODE_ENV = "NX_MCP_AUTH_MODE"
@@ -72,35 +70,46 @@ def verified_caller() -> Optional[VerifiedIdentity]:
     return _verified_var.get()
 
 
-def _verify_headers(headers, public_key: bytes) -> tuple[Optional[VerifiedIdentity], str]:
-    """Verify the identity token carried by ``headers`` against ``public_key``.
+def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
+    """The proven caller of the CURRENT TOOL CALL — per-message, not
+    per-connection.
 
-    Returns ``(identity, reason)`` — identity None with a stable reason string
-    when no proof / bad proof. Reasons are for logs; never flow control beyond
-    the enforce-mode door check.
+    Why this exists (pipeline review of PR #260, verified against mcp 1.24
+    sources): the middleware's ContextVar is a snapshot of the request that
+    STARTED the transport session — on SSE the tool handler runs inside the
+    GET /sse task, on stateful streamable HTTP inside the long-lived
+    initialize-time session task. The self-declared facts (`agent_id`,
+    `user_id`) are read per-message via `request_ctx` (explicitly threaded
+    through ServerMessageMetadata), so the PROOF must come from the same
+    source or an adapter that only sets Authorization on tool-call POSTs
+    would pass the door yet leave the ownership policy blind.
+
+    Precedence: ambient (per-message) headers when a request is in scope —
+    and their verdict is FINAL, even when it is "no proof" (falling back to
+    the connection snapshot there would resurrect the mismatch this fixes).
+    The ContextVar is only the fallback when there is no ambient MCP request
+    at all (direct calls, unit tests).
     """
-    from xyz_agent_context.module._mcp_identity import (
-        IDENTITY_TOKEN_HEADER,
-        _parse_bearer,
-    )
+    from xyz_agent_context.module._mcp_identity import _ambient_headers
 
-    explicit = (headers.get(IDENTITY_TOKEN_HEADER.lower()) or headers.get(IDENTITY_TOKEN_HEADER) or "").strip()
-    bearer = _parse_bearer(headers.get("authorization") or headers.get("Authorization") or "")
-    token = explicit or bearer.identity_token
-    if not token:
-        return None, "no-token"
-    try:
-        identity = verify_identity_token(token, public_key)
-    except IdentityTokenError as e:
-        return None, f"invalid: {e}"
-    if bearer.user_id and bearer.user_id != identity.user_id:
-        # The self-declared bearer user_id disagreeing with the proven sub is
-        # a forged field, not an unknown — the whole record is untrusted.
-        return None, (
-            f"user-id-mismatch: bearer says {bearer.user_id!r}, "
-            f"token proves {identity.user_id!r}"
-        )
-    return identity, "ok"
+    headers = _ambient_headers()
+    if headers is None:
+        return verified_caller()
+    public_key = load_public_key_pem()
+    if public_key is None:
+        return None
+    from xyz_agent_context.module.identity.verify import verify_caller_identity
+
+    identity, _reason = verify_caller_identity(headers, public_key)
+    return identity
+
+
+def _verify_headers(headers, public_key: bytes) -> tuple[Optional[VerifiedIdentity], str]:
+    """The shared header-level verification (identity/verify.py) — kept as a
+    thin alias so the middleware body reads naturally."""
+    from xyz_agent_context.module.identity.verify import verify_caller_identity
+
+    return verify_caller_identity(headers, public_key)
 
 
 class IdentityAuthMiddleware:
@@ -205,6 +214,27 @@ async def _reject(send, reason: str) -> None:
 # OwnerScopedPolicy (blueprint P1 authorization layer)
 # ---------------------------------------------------------------------------
 
+# agent_id -> (owner, monotonic deadline). An agent's owner (agents.created_by)
+# never changes in practice, but a short TTL keeps this self-correcting rather
+# than a second source of truth — the point is only to keep the hot tool-call
+# path from adding one MySQL point-read per call.
+_OWNER_CACHE_TTL_SECONDS = 60.0
+_owner_cache: dict[str, tuple[str, float]] = {}
+
+
+async def _resolve_owner_cached(db, agent_id: str) -> str:
+    import time
+
+    now = time.monotonic()
+    cached = _owner_cache.get(agent_id)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    from xyz_agent_context.repository import AgentRepository
+
+    owner = await AgentRepository(db).resolve_owner(agent_id)
+    _owner_cache[agent_id] = (owner, now + _OWNER_CACHE_TTL_SECONDS)
+    return owner
+
 
 async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     """The verified caller must OWN the target agent. None = allow; an error
@@ -216,7 +246,7 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     (incident lesson #5 — the DB row is the measurement that gates the
     audit→enforce flip).
     """
-    ident = verified_caller()
+    ident = verified_caller_for_tool_call()
     if ident is None or not isinstance(agent_id, str) or not agent_id:
         return None
     from xyz_agent_context.utils.deployment_mode import is_cloud_mode
@@ -226,7 +256,6 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     mode = auth_mode()
     if mode == "off":
         return None
-    from xyz_agent_context.repository import AgentRepository
     from xyz_agent_context.repository.executor_audit_repository import (
         ExecutorAuditRepository,
     )
@@ -234,7 +263,7 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
-    owner = await AgentRepository(db).resolve_owner(agent_id)
+    owner = await _resolve_owner_cached(db, agent_id)
     if not owner or owner == ident.user_id:
         return None
     logger.warning(
@@ -260,4 +289,5 @@ __all__ = [
     "auth_mode",
     "check_agent_ownership",
     "verified_caller",
+    "verified_caller_for_tool_call",
 ]

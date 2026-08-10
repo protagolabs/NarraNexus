@@ -2,10 +2,12 @@
 code_file: src/xyz_agent_context/module/__init__.py
 last_verified: 2026-08-10
 ---
-## 2026-08-10 — 导出 IDENTITY_TOKEN_HEADER + stamp_identity_token
+## 2026-08-10 — 导出 IDENTITY_TOKEN_HEADER / stamp_identity_token / BEARER_AGENT_PREFIX / parse_bearer_identity
 
 MCP caller auth(蓝图 P1):包外消费方是 [[step_3_agent_loop.py]](dispatch 时
-stamp broker/本地签的身份 token),沿用「注入面走公开面」的规矩。
+stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 记录
+是跨进程契约,解析走公开名 `parse_bearer_identity`,review #4),沿用
+「注入面走公开面」的规矩。
 
 ## 2026-08-07 — 导出 ROOT_RUN_ID_HEADER
 

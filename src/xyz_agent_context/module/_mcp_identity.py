@@ -273,6 +273,18 @@ def _parse_bearer(auth: str) -> BearerIdentity:
     return BearerIdentity(*values)
 
 
+def parse_bearer_identity(auth: str) -> BearerIdentity:
+    """Public face of the bearer record parser.
+
+    The nx-agent bearer is a cross-process contract (executor→mcp→backend),
+    so consumers OUTSIDE this package — backend/auth.py's service path,
+    identity/mcp_auth.py's verifier — parse it through this name via
+    ``module/__init__``. The underscore parser stays the in-package
+    workhorse; both are the same single implementation.
+    """
+    return _parse_bearer(auth)
+
+
 def _ambient_headers():
     """The current MCP request's headers, or None.
 
@@ -594,6 +606,11 @@ def _wrap_fn(fn: Callable) -> Callable:
     else:
         @functools.wraps(fn)
         def sync_wrapper(*args, **kwargs):
+            # NO ownership policy here — it awaits, and a sync frame cannot.
+            # This is safe ONLY while no sync tool declares agent_id, an
+            # invariant pinned by test_every_agent_id_tool_is_async
+            # (tests/module/identity/test_mcp_auth.py). Adding a sync
+            # agent_id tool turns that test red before this gap can ship.
             args, kwargs = _resolved_kwargs(args, kwargs)
             unresolved = _still_placeholder(args, kwargs)
             if unresolved is not None:
@@ -802,6 +819,7 @@ __all__ = [
     "install_caller_identity",
     "is_placeholder_agent_id",
     "is_placeholder_user_id",
+    "parse_bearer_identity",
     "placeholder_agent_id_error",
     "resolve_caller_agent_id",
     "resolve_caller_user_id",
