@@ -131,3 +131,18 @@ async def test_retention_sweep_deletes_old_files(env):
     assert deleted == 1
     assert not old.exists()
     assert list(env.rglob("*.jsonl"))  # fresh file survived
+
+
+async def test_gzip_bomb_bounded_413(env, monkeypatch):
+    """The cap fires WHILE inflating — a small request must never fully
+    materialize past the limit."""
+    monkeypatch.setattr(collector, "_MAX_BODY_BYTES", 1024)
+    bomb = gzip.compress(b"0" * 100_000)  # tiny wire, big inflate
+    resp = await _post(bomb)
+    assert resp.status_code == 413
+
+
+async def test_truncated_gzip_is_400_not_500(env):
+    truncated = gzip.compress(_lines("x").encode())[:-5]  # EOFError path
+    resp = await _post(truncated)
+    assert resp.status_code == 400

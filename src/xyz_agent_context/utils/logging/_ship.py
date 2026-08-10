@@ -93,6 +93,10 @@ class ShipSink:
         self._host = socket.gethostname()
         self._buf: list[dict] = []
         self._lock = threading.Lock()
+        # Serializes _send: both the enqueue worker (size-triggered flush)
+        # and the timer thread can reach it; without this the fail-streak
+        # accounting races and two batches can interleave on the wire.
+        self._send_lock = threading.Lock()
         self._last_flush = time.monotonic()
         self._fail_streak = 0
         # Periodic flusher so a quiet process still delivers its tail.
@@ -156,6 +160,10 @@ class ShipSink:
         }
         if self._config["token"]:
             headers["Authorization"] = f"Bearer {self._config['token']}"
+        with self._send_lock:
+            self._send_locked(body, headers)
+
+    def _send_locked(self, body: bytes, headers: dict) -> None:
         try:
             with httpx.Client(
                 timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
@@ -180,6 +188,18 @@ class ShipSink:
             )
 
     # -- crash-tail backfill ----------------------------------------------
+
+    def backfill_async(self, log_file: Path) -> None:
+        """Backfill on a daemon thread: the send is a synchronous POST
+        with up to the full timeout — inline it would stall every process
+        START whenever the collector is slow, which is exactly the
+        interference this sink promises never to cause."""
+        threading.Thread(
+            target=self.backfill_from,
+            args=(log_file,),
+            name=f"diag-ship-backfill-{self._service}",
+            daemon=True,
+        ).start()
 
     def backfill_from(self, log_file: Path) -> None:
         """Ship the tail of an existing log file once, flagged backfill.

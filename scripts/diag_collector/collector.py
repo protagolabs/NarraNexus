@@ -34,10 +34,12 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import io
 import json
 import os
 import re
 import time
+import zlib
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -58,6 +60,28 @@ app = FastAPI(title="narranexus-diag-collector", lifespan=_lifespan)
 
 _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9_\-.]")
 _MAX_BODY_BYTES = 32 * 1024 * 1024  # decompressed
+
+
+def _bounded_decompress(raw: bytes) -> bytes:
+    """Streaming gunzip with the size cap enforced WHILE inflating — a
+    checked-after-the-fact limit is no limit at all against a gzip bomb
+    (a few KB of request would fully materialize before the 413)."""
+    out = io.BytesIO()
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+            while True:
+                chunk = gz.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                if out.tell() > _MAX_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="batch too large")
+    # gzip.decompress raises EOFError on truncation and zlib.error on
+    # corruption — neither is an OSError; catching OSError alone turns a
+    # malformed body into a 500.
+    except (OSError, EOFError, zlib.error):
+        raise HTTPException(status_code=400, detail="bad gzip body")
+    return out.getvalue()
 
 
 def _data_dir() -> Path:
@@ -93,11 +117,8 @@ async def ingest(request: Request):
     _require_auth(request)
     raw = await request.body()
     if request.headers.get("content-encoding", "").lower() == "gzip":
-        try:
-            raw = gzip.decompress(raw)
-        except OSError:
-            raise HTTPException(status_code=400, detail="bad gzip body")
-    if len(raw) > _MAX_BODY_BYTES:
+        raw = _bounded_decompress(raw)
+    elif len(raw) > _MAX_BODY_BYTES:
         raise HTTPException(status_code=413, detail="batch too large")
 
     accepted = 0

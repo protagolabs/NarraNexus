@@ -278,7 +278,7 @@ def setup_logging(
             if file_logging_ok:
                 from datetime import date as _date
 
-                sink.backfill_from(
+                sink.backfill_async(
                     resolved_dir
                     / f"{service_name}_{_date.today():%Y%m%d}.log"
                 )
