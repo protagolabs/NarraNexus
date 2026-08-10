@@ -4,6 +4,15 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-3) — 渲染改用共享 `format_memory_hits`
+
+路由本地 `_format` 删除,改 import [[memory/coordinator]] 的
+`format_memory_hits`(唯一真源,铁律 #21 允许 backend→xyz_agent_context 的
+import)。此前 route/tool/store 三份逐字拷贝靠注释维持一致,唯一分支字段
+`source` 无测试覆盖。参数上界(query 1-512/limit 1-100/content ≤64KB/source
+≤512)保持不变——它们是本 HTTP 面的权威守卫(不经 HttpStore 也可达),越界由
+FastAPI 直接 422;HttpStore 侧镜像其可归一化子集并把 422 翻成可改参消息。
+
 ## 2026-08-10 (pre-open review) — regex 模式在 HTTP 层被拒 + 全参数上界
 
 C1:引擎用 stdlib re 同步编译调用方 pattern,(a+)+$ 类灾难回溯实测单条

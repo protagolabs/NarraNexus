@@ -10,7 +10,9 @@ stub: false
 [[data_access/store]]:本地 DirectStore 复刻原 MemoryCoordinator/MemoryEngine
 调用(行为不变),云端 HttpStore 调 backend 路由(mcp 零 db 凭据)。`grep_memory`
 **仍直连**——HTTP 侧因 ReDoS 拒 regex,严格 parity 待 timeout-safe 引擎(todo)。
-本文件 `_format` 保留(grep 还在用),与 store/route 的同名拷贝三方 lockstep。
+本文件不再有本地 `_format`:渲染统一 import [[coordinator]] 的
+`format_memory_hits`(唯一真源),grep_memory 也用它。文件头 `@description`
+已补 `memory_retain` 并说明前两者走 seam。
 
 
 ## 2026-07-21 — added `memory_retain` (explicit write)

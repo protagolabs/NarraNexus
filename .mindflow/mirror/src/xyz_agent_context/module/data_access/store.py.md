@@ -12,11 +12,18 @@ last_verified: 2026-08-10
 这也是它先于 chat 迁移的原因:chat 的 get_chat_history 是 information_schema
 +反引号的 MySQL-only 裸 SQL,迁移要先脱裸 SQL),HttpStore 调
 `/api/agents/{id}/memory/remember|retain`。backend 路由返回与工具**逐字同
-shape** 的 dict(同 `_format`),Http 2xx 直接透传 body;非 2xx/不可达降级为
-工具自身失败 dict(never 异常)。`_format_memory_hits` 是第三份 lockstep 拷贝
-(工具 `_format` / 路由 `_format` / 此处),三者必须一致才 parity。
+shape** 的 dict,Http 2xx 直接透传 body;非 2xx/不可达降级为工具自身失败 dict
+(never 异常)。渲染统一走 [[coordinator]] 的 `format_memory_hits`(唯一真源,
+三处 import 同一函数,不再抄拷贝)。
+**输入契约共享(真 parity)**:`_clamp_limit`/`_remember_reject`/`_retain_reject`
+镜像路由的 pydantic Field 边界(query 1-512、limit 1-100、content/source ≤上限),
+**两个 store 都先跑一遍**,所以本地不会在云端会 422 的入参上成功;limit>100 这类
+常见越界被 clamp 到 100 而非硬失败。`_send` 收敛为唯一传输层(一个 AsyncClient +
+一个 HTTPError 边界,awareness/get/post 共用);`_parse_dict` 把 422 单拎出来给
+agent 一条可据以改参的 in-band 消息,不与 401/502 混。
 **grep_memory 暂不迁**:HTTP 侧因 ReDoS 拒 regex(PR-2),严格 parity 需先落
-timeout-safe regex 引擎(已记 todo),故 grep 仍走 DirectStore 直连。
+timeout-safe regex 引擎(已记 todo),故 grep 仍走 DirectStore 直连——这也意味着
+general_memory 的 mcp 容器现仍需 db 凭据,RCE 收益要到 grep 迁完才兑现。
 
 
 ## Why it exists

@@ -20,18 +20,28 @@ an import) — the allowed one-way hop.
 
 The backend response contract every Http method must honor
 --------------------------------------------------------
-The agents routes report failure as **HTTP 200 with {"success": false,
-"error": ...}** (they reserve non-2xx for transport/middleware layers, e.g.
-the Q6 identity 401). An Http method that checks only the status code
-therefore reports every backend failure as success — parse the body. And a
-method must NEVER let an HTTP error escape as an exception: DirectStore only
-ever returns strings, so the Http path degrades to an in-band "Error: ..."
-the model can read (a 401 here means the deploy set NARRANEXUS_BACKEND_URL
-before provisioning the identity keys — see factory.py).
+The agents routes report *handler* failure as **HTTP 200 with
+{"success": false, "error": ...}**, so an Http method that checks only the
+status code reports every such failure as success — parse the body. Non-2xx
+comes from BEFORE the handler runs, from two sources: (1) transport/middleware,
+e.g. the Q6 identity 401; (2) FastAPI's own pydantic argument validation — a
+422 when an argument violates a route's Field bounds (query 1-512, limit 1-100,
+content <=64KB, source <=512). A method must NEVER let either escape as an
+exception: DirectStore only ever returns its own dict/str, so the Http path
+degrades every non-2xx to an in-band value the model can read (a 401 means the
+deploy set NARRANEXUS_BACKEND_URL before provisioning the identity keys — see
+factory.py; a 422 is surfaced as an actionable "invalid arguments" message).
+
+Parity is enforced, not hoped for: the normalizable half of each route's
+input bounds is mirrored HERE (`_clamp_limit`, `_remember_reject`,
+`_retain_reject`) and applied by BOTH stores, so a local caller can never
+succeed on an input the cloud caller would 422 on. The routes keep their own
+pydantic Field bounds regardless — they are a public HTTP surface reachable
+without going through HttpStore.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Optional, Protocol
 
 from loguru import logger
 
@@ -55,23 +65,37 @@ def _no_instance_msg(agent_id: str) -> str:
     return f"Error: No AwarenessModule instance found for agent_id={agent_id}"
 
 
-def _format_memory_hits(hits: List[Any]) -> List[Dict[str, Any]]:
-    """Render memory hits — text + provenance. Kept byte-for-byte identical to
-    ``_general_memory_mcp_tools._format`` AND ``routes/agents/general_memory._format``
-    (the three must agree so Direct and Http return the same dict — parity)."""
-    out: List[Dict[str, Any]] = []
-    for h in hits:
-        r = h.record
-        item: Dict[str, Any] = {
-            "kind": h.kind,
-            "memory": r.content_text,
-            "when": (r.created_at.isoformat() if r.created_at else None),
-            "tags": r.tags,
-        }
-        if r.source_ref:
-            item["source"] = r.source_ref
-        out.append(item)
-    return out
+# The recall/retain input contract, mirrored from general_memory routes'
+# pydantic Field bounds. Both stores apply it so they reject the SAME inputs
+# (real parity, not happy-path parity). `limit` is normalizable (clamp);
+# empty / over-long free text is a genuine rejection (truncating a query or a
+# fact would change its meaning), returned as the tool's own failure dict.
+_LIMIT_MAX = 100
+_QUERY_MAX = 512
+_CONTENT_MAX = 65536
+_SOURCE_MAX = 512
+
+
+def _clamp_limit(limit: int) -> int:
+    return max(1, min(int(limit), _LIMIT_MAX))
+
+
+def _remember_reject(query: str) -> Optional[dict]:
+    if not query or not query.strip():
+        return {"success": False, "error": "query is empty", "memories": []}
+    if len(query) > _QUERY_MAX:
+        return {"success": False, "error": f"query too long (max {_QUERY_MAX} chars)", "memories": []}
+    return None
+
+
+def _retain_reject(content: str, source: str) -> Optional[dict]:
+    if not content or not content.strip():
+        return {"success": False, "error": "content is empty"}
+    if len(content) > _CONTENT_MAX:
+        return {"success": False, "error": f"content too long (max {_CONTENT_MAX} chars)"}
+    if len(source) > _SOURCE_MAX:
+        return {"success": False, "error": f"source too long (max {_SOURCE_MAX} chars)"}
+    return None
 
 
 class DirectStore:
@@ -106,13 +130,18 @@ class DirectStore:
         # MemoryCoordinator/MemoryEngine go through the repository layer — no
         # raw SQL, dialect-safe on both SQLite and MySQL (unlike chat's
         # information_schema/backtick query, which is why this migrates first).
-        from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine
+        # Same input contract as the Http path (parity) — see _remember_reject.
+        from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, format_memory_hits
 
+        reject = _remember_reject(query)
+        if reject is not None:
+            return reject
+        limit = _clamp_limit(limit)
         try:
             db = await self._db()
             coord = MemoryCoordinator(MemoryEngine(db, agent_id))
             hits = await coord.remember(query, limit=limit)
-            return {"success": True, "query": query, "memories": _format_memory_hits(hits)}
+            return {"success": True, "query": query, "memories": format_memory_hits(hits)}
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[memory.remember] failed: {e}")
             return {"success": False, "error": str(e), "memories": []}
@@ -120,9 +149,10 @@ class DirectStore:
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:
         from xyz_agent_context.memory import MemoryEngine, MemoryRecord, SCOPE_AGENT
 
+        reject = _retain_reject(content, source)
+        if reject is not None:
+            return reject
         try:
-            if not content or not content.strip():
-                return {"success": False, "error": "content is empty"}
             db = await self._db()
             engine = MemoryEngine(db, agent_id)
             tags = ["imported"] if source else []
@@ -142,15 +172,17 @@ class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
 
     Forwards the caller identity so the backend can authenticate the call
-    (blueprint Q6 — the nx-agent bearer's identity_token is verified there;
-    per-route OWNER checks are PR-2's work, not yet in place).
-    ``identity_headers`` is the same header set the executor→mcp hop already
-    carries; see factory.get_agent_data_store for wiring.
+    (blueprint Q6 — the nx-agent bearer's identity_token is verified there,
+    and each route runs its own OWNER check). ``identity_headers`` is the same
+    header set the executor→mcp hop already carries; see
+    factory.get_agent_data_store for wiring.
 
-    Every method sends ``create_missing=false``-style parity switches where
-    the backend route's convenience semantics (auto-create) diverge from the
-    direct path, and parses the 200+success:false failure shape — see the
-    module docstring.
+    Every method goes through `_send` (one transport + HTTPError boundary),
+    pre-applies the shared input contract (`_clamp_limit`/`_*_reject`) so it
+    rejects the same inputs DirectStore does, sends ``create_missing=false``-
+    style parity switches where a route's convenience semantics (auto-create)
+    would diverge from the direct path, and parses the 200+success:false /
+    non-2xx failure shapes via `_parse_dict` — see the module docstring.
     """
 
     def __init__(self, backend_url: str, identity_headers: Optional[dict] = None) -> None:
@@ -158,22 +190,16 @@ class HttpStore:
         self._headers = identity_headers or {}
 
     async def update_awareness(self, agent_id: str, awareness: str) -> str:
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(
-                base_url=self._base, headers=self._headers, timeout=20.0
-            ) as c:
-                r = await c.put(
-                    f"/api/agents/{agent_id}/awareness",
-                    params={"create_missing": "false"},
-                    json={"awareness": awareness},
-                )
-        except httpx.HTTPError as e:
-            logger.warning(f"[data-access] awareness backend unreachable: {e}")
-            return f"Error: awareness backend unreachable ({type(e).__name__})"
+        r = await self._send(
+            "PUT",
+            f"/api/agents/{agent_id}/awareness",
+            params={"create_missing": "false"},
+            json={"awareness": awareness},
+        )
+        if r is None:
+            return "Error: awareness backend unreachable"
         if r.status_code >= 400:
-            # Transport/middleware-layer rejection (the route itself always
+            # Transport/middleware-layer rejection (the route's handler always
             # answers 200) — most likely the Q6 identity gate. In-band, never
             # an exception: the direct path only ever returns strings.
             logger.warning(
@@ -191,10 +217,15 @@ class HttpStore:
 
     async def remember(self, agent_id: str, query: str, limit: int) -> dict:
         # The backend route returns the EXACT dict shape the tool produces
-        # (same _format, same {success, query, memories} keys), so on 2xx the
-        # body is returned verbatim. Transport-layer failures degrade to the
-        # tool's own failure shape — never an exception (DirectStore doesn't
-        # raise either).
+        # (shared format_memory_hits, same {success, query, memories} keys), so
+        # on 2xx the body is returned verbatim. Pre-apply the shared input
+        # contract so Direct and Http reject identically and the common
+        # limit>100 overreach never becomes a hard 422 (parity). Transport
+        # failures degrade to the tool's own shape — never an exception.
+        reject = _remember_reject(query)
+        if reject is not None:
+            return reject
+        limit = _clamp_limit(limit)
         return await self._get_dict(
             f"/api/agents/{agent_id}/memory/remember",
             params={"query": query, "limit": limit},
@@ -202,43 +233,61 @@ class HttpStore:
         )
 
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict:
-        if not content or not content.strip():
-            return {"success": False, "error": "content is empty"}
+        reject = _retain_reject(content, source)
+        if reject is not None:
+            return reject
         return await self._post_dict(
             f"/api/agents/{agent_id}/memory/retain",
             json={"content": content, "source": source},
             failure_extra={},
         )
 
-    async def _get_dict(self, path: str, *, params: dict, failure_extra: dict) -> dict:
+    async def _send(self, method: str, path: str, **kw):
+        """Transport layer shared by every Http method: one AsyncClient + one
+        HTTPError boundary. Returns the httpx.Response, or None when the backend
+        is unreachable — each caller maps None to its own in-band failure (dict
+        for the data methods, str for awareness), since DirectStore never
+        raises. Keeps request/response handling (parse, status mapping) in the
+        callers so awareness's str contract and the data methods' dict contract
+        don't have to share a parser."""
         import httpx
 
         try:
             async with httpx.AsyncClient(
                 base_url=self._base, headers=self._headers, timeout=20.0
             ) as c:
-                r = await c.get(path, params=params)
+                return await c.request(method, path, **kw)
         except httpx.HTTPError as e:
-            logger.warning(f"[data-access] backend unreachable {path}: {e}")
-            return {"success": False, "error": f"backend unreachable ({type(e).__name__})", **failure_extra}
+            logger.warning(f"[data-access] backend unreachable {method} {path}: {e}")
+            return None
+
+    async def _get_dict(self, path: str, *, params: dict, failure_extra: dict) -> dict:
+        r = await self._send("GET", path, params=params)
+        if r is None:
+            return {"success": False, "error": "backend unreachable", **failure_extra}
         return self._parse_dict(r, path, failure_extra)
 
     async def _post_dict(self, path: str, *, json: dict, failure_extra: dict) -> dict:
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(
-                base_url=self._base, headers=self._headers, timeout=20.0
-            ) as c:
-                r = await c.post(path, json=json)
-        except httpx.HTTPError as e:
-            logger.warning(f"[data-access] backend unreachable {path}: {e}")
-            return {"success": False, "error": f"backend unreachable ({type(e).__name__})", **failure_extra}
+        r = await self._send("POST", path, json=json)
+        if r is None:
+            return {"success": False, "error": "backend unreachable", **failure_extra}
         return self._parse_dict(r, path, failure_extra)
 
     @staticmethod
     def _parse_dict(r, path: str, failure_extra: dict) -> dict:
-        # A non-2xx is a transport/middleware rejection (the routes always
+        # 422 = FastAPI rejected the arguments against the route's pydantic
+        # bounds BEFORE the handler ran. HttpStore pre-validates the
+        # normalizable subset so this is rare, but surface it as an ACTIONABLE
+        # message (not lumped with 401/502) so the agent can fix its arguments
+        # rather than read "backend rejected" and blind-retry.
+        if r.status_code == 422:
+            logger.warning(f"[data-access] backend rejected arguments {path}: 422")
+            return {
+                "success": False,
+                "error": "invalid arguments (query 1-512 chars, limit 1-100, content <=64KB, source <=512 chars)",
+                **failure_extra,
+            }
+        # Any other non-2xx is a transport/middleware rejection (the handlers
         # answer 200; e.g. the Q6 identity 401). Surface it as the tool's own
         # failure dict, never an exception.
         if r.status_code >= 400:
