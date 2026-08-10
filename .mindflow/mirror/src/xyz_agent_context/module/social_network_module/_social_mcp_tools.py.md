@@ -3,6 +3,19 @@ code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-4) — extract/merge/delete 三写工具改走 AgentDataStore seam
+
+三个写工具的数据访问下沉到 [[data_access/store]]：本地 DirectStore（同实例解析+
+方法调用，行为不变）/ 云 HttpStore（调 PR-2 写路由，mcp 零 db 凭据）。工具体只
+留 tool 层逻辑：extract 保 `updates` 的 str→dict JSON 解析 + `setup_mcp_llm_context`
+（残留，方法本身不用 LLM，为 parity 保留）。`_get_instance_and_module` /
+`setup_mcp_llm_context` 仍被未迁的读工具（search/contact/stats）与 create_agent 使用。
+失败键仍是工具的 `message`（seam 两侧统一到它）。extract 的
+`setup_mcp_llm_context` **已删**（预审二轮）：其方法纯 repository 不用 LLM，而该
+setup 读 `agents` 表 + 会 raise LLMConfigNotConfigured，留着违背 seam 的「云端零
+db、in-band 不抛异常」。`_get_instance_and_module`/`setup_mcp_llm_context` 仍被
+search（读工具）使用。
+
 ## 2026-08-10 — merge/delete/create_agent 闭包改调共享 seam(去复制)
 
 `merge_entities` / `delete_entity` 闭包体提炼为 [[social_network_module]] 的真

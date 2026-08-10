@@ -4,6 +4,31 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-4) — social 写 extract/merge/delete 迁入 seam
+
+第三个模块（3 个写工具）。DirectStore 复刻工具体：`_social_module` 解析
+SocialNetworkModule 实例（懒 import 避循环，同工具 `_get_instance_and_module`）
++ 构 temp_module + 调 `extract_and_update_entity_info`/`merge_entities`/
+`delete_entity`，失败保工具的 **`message`** 键。HttpStore 调 PR-2 已建的
+byte-parity 写路由（`/social-network/{extract,merge,delete-entity}`）。
+**唯一 parity 坑=失败键**：路由用 `_normalize_write_result` 把 `message`→`error`
+（HTTP 家族约定）；`_social_write_message` 是其**精确逆**（`error`→`message`），
+把路由响应 + HttpStore 自身传输降级统一回工具的 `message` 形状。成立前提=三个
+写方法**只用 `message` 失败**（实测）。实例缺失文案走 [[social_network_module]]
+新增的共享 `social_instance_not_found_msg`（route+DirectStore 同源，杜绝漂移）。
+方法全走 repository（SocialNetworkRepository），**无裸 SQL、双方言安全**。
+**DirectStore 不抛异常**（管线预审二轮 Important）：`_social_module` 把实例解析
+包 try/except、三方法调用处也各有 try/except，本地 db/解析故障返回
+`{success:False, message:"Error: ..."}` 而非抛错——否则同一故障 HttpStore 是
+message dict、Direct 抛错，parity 破。extract 工具里的 `setup_mcp_llm_context`
+**已删**（预审二轮 Important）：它读 `agents` 表 + 会 raise LLMConfigNotConfigured，
+而 extract 方法纯 repository 不用 LLM——留着既给 mcp 加 db 依赖又是异常破口。
+**输入契约**：`_social_id_reject` 镜像路由的 entity-id `Field(1..128)` 边界，两个
+store 发请求/查库前都跑（同 memory 的 `_*_reject` 模式），否则空 id 本地会建空实体
+返回 success、云端 422 分叉；**严格按 Field 长度语义、不 strip**（路由 min_length
+计字符、接受空白 id，strip 会自造分叉）。社交**读**（search/contact/stats）需另建
+孪生路由，另个 PR。
+
 ## 2026-08-10 (PR-3) — general_memory 的 remember / memory_retain 迁入 seam
 
 第二个走 seam 的模块(继 awareness)。两个工具改为

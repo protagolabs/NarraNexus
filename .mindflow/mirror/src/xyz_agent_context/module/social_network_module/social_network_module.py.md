@@ -3,6 +3,13 @@ code_file: src/xyz_agent_context/module/social_network_module/social_network_mod
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-4) — 新增共享 `social_instance_not_found_msg`
+
+模块级纯函数，"agent 无 SocialNetworkModule 实例"的**唯一**文案源。[[store]] 的
+DirectStore 与 backend [[social_network]] 写路由（HttpStore 路径）都 import 它，
+保证 seam 两侧这条边界返回逐字相同（否则迁移的写工具在实例缺失时分叉）。措辞沿用
+本文件姊妹 GET 路由的 "... for agent: X"。经包 `__init__` re-export。
+
 ## 2026-08-10 — 新增 merge_entities / delete_entity 方法(供 MCP+路由共用)
 
 把原本散在 `_social_mcp_tools.py` 闭包与 backend 路由里的 merge/delete 业务

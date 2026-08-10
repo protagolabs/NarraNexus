@@ -38,7 +38,10 @@ from xyz_agent_context.repository import (
     AgentRepository,
 )
 from xyz_agent_context.bootstrap.provision import provision_new_agent
-from xyz_agent_context.module.social_network_module import SocialNetworkModule
+from xyz_agent_context.module.social_network_module import (
+    SocialNetworkModule,
+    social_instance_not_found_msg,
+)
 from xyz_agent_context.schema import (
     SocialNetworkEntityInfo,
     SocialNetworkResponse,
@@ -204,7 +207,7 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
         if not instances:
             return SocialNetworkResponse(
                 success=False,
-                error=f"No SocialNetworkModule instance found for agent: {agent_id}"
+                error=social_instance_not_found_msg(agent_id)
             )
 
         instance_id = instances[0].instance_id
@@ -296,16 +299,15 @@ async def _resolve_social_instance_id(db_client, agent_id: str) -> tuple[str | N
 
     Same repository call as the instance-lookup half of
     `_get_instance_and_module` in `_social_mcp_tools.py`. The "no instance"
-    error text intentionally matches this file's existing GET endpoints
-    ("... for agent: {agent_id}") rather than the MCP tool's phrasing
-    ("... for agent_id={agent_id}") — for an HTTP route family, staying
-    consistent with the sibling GET endpoints in this file wins over
-    matching the tool's wording verbatim.
+    error text now comes from the shared `social_instance_not_found_msg` so the
+    AgentDataStore seam's DirectStore and this route (the HttpStore path) return
+    byte-identical text — the write tools migrated onto the seam depend on that.
+    Its wording matches this file's sibling GET endpoints ("... for agent: X").
     """
     instance_repo = InstanceRepository(db_client)
     instances = await instance_repo.get_by_agent(agent_id=agent_id, module_class="SocialNetworkModule")
     if not instances:
-        return None, f"No SocialNetworkModule instance found for agent: {agent_id}"
+        return None, social_instance_not_found_msg(agent_id)
     return instances[0].instance_id, None
 
 

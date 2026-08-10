@@ -153,16 +153,17 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 "entity_id": entity_id
             }
 
-        await setup_mcp_llm_context(agent_id)
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        # The write routes through the AgentDataStore seam: DirectStore locally
+        # (same instance-resolve + module call as before), HttpStore in cloud
+        # (no db creds). The old setup_mcp_llm_context call is gone:
+        # extract_and_update_entity_info is pure repository (no LLM), and that
+        # setup read the `agents` table (an extra mcp db dependency the seam is
+        # meant to shed) and could raise LLMConfigNotConfigured — both broke the
+        # seam's "in-band dict, no db in cloud" promise for this path.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.extract_and_update_entity_info(
-            entity_id=entity_id,
-            instance_id=instance_id,
-            updates=updates,
-            update_mode=update_mode
+        return await get_agent_data_store().extract_entity_info(
+            agent_id, entity_id, updates, update_mode
         )
 
     @mcp.tool()
@@ -381,15 +382,10 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 target_entity_id="user_alice_123"
             )
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.merge_entities(
-            source_entity_id=source_entity_id,
-            target_entity_id=target_entity_id,
-            instance_id=instance_id,
-            keep_target_name=keep_target_name,
+        return await get_agent_data_store().merge_entities(
+            agent_id, source_entity_id, target_entity_id, keep_target_name
         )
 
     @mcp.tool()
@@ -420,11 +416,9 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Operation result with success status.
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.delete_entity(entity_id=entity_id, instance_id=instance_id)
+        return await get_agent_data_store().delete_entity(agent_id, entity_id)
 
     @mcp.tool()
     async def create_agent(

@@ -34,10 +34,10 @@ factory.py; a 422 is surfaced as an actionable "invalid arguments" message).
 
 Parity is enforced, not hoped for: the normalizable half of each route's
 input bounds is mirrored HERE (`_clamp_limit`, `_remember_reject`,
-`_retain_reject`) and applied by BOTH stores, so a local caller can never
-succeed on an input the cloud caller would 422 on. The routes keep their own
-pydantic Field bounds regardless — they are a public HTTP surface reachable
-without going through HttpStore.
+`_retain_reject`, `_social_id_reject`) and applied by BOTH stores, so a local
+caller can never succeed on an input the cloud caller would 422 on. The routes
+keep their own pydantic Field bounds regardless — they are a public HTTP
+surface reachable without going through HttpStore.
 """
 from __future__ import annotations
 
@@ -54,6 +54,16 @@ class AgentDataStore(Protocol):
     async def remember(self, agent_id: str, query: str, limit: int) -> dict: ...
 
     async def memory_retain(self, agent_id: str, content: str, source: str) -> dict: ...
+
+    async def extract_entity_info(
+        self, agent_id: str, entity_id: str, updates: dict, update_mode: str
+    ) -> dict: ...
+
+    async def merge_entities(
+        self, agent_id: str, source_entity_id: str, target_entity_id: str, keep_target_name: bool
+    ) -> dict: ...
+
+    async def delete_entity(self, agent_id: str, entity_id: str) -> dict: ...
 
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
@@ -98,8 +108,51 @@ def _retain_reject(content: str, source: str) -> Optional[dict]:
     return None
 
 
+_SOCIAL_ID_MAX = 128
+
+
+def _social_id_reject(*entity_ids: str) -> Optional[dict]:
+    """Mirror the social write routes' entity-id Field bounds so DirectStore and
+    HttpStore reject the SAME ids — the route enforces them (ExtractEntityBody /
+    MergeEntitiesBody / DeleteEntityBody: Field(min_length=1, max_length=128))
+    as a 422, and store.py's parity invariant says both stores must too (else a
+    local caller could extract an empty-id entity the cloud caller can't). Uses
+    the social tool's ``message`` failure key. Matches the route's Field
+    semantics EXACTLY — length-only, NOT strip-based — because the route accepts
+    a whitespace id (min_length counts characters); stripping here would itself
+    create a Direct/Http divergence."""
+    for eid in entity_ids:
+        if len(eid) < 1:
+            return {"success": False, "message": "entity id is empty"}
+        if len(eid) > _SOCIAL_ID_MAX:
+            return {"success": False, "message": f"entity id too long (max {_SOCIAL_ID_MAX} chars)"}
+    return None
+
+
+def _social_write_message(result: dict) -> dict:
+    """Exact inverse of the backend social route's ``_normalize_write_result``:
+    map the HTTP route family's ``error`` failure key back to the MCP tool's
+    ``message`` key, so HttpStore returns dicts byte-identical to DirectStore
+    (which mirrors the tool, whose write results use ``message``).
+
+    Sound because the social write METHODS (extract/merge/delete) fail
+    EXCLUSIVELY with ``message`` — the route only ever rewrote a ``message``
+    into ``error``, so a failure ``error`` on the wire always originated as a
+    ``message``. Also folds HttpStore's own transport degradations
+    (unreachable / non-2xx), which _parse_dict emits as ``error``, onto the
+    same ``message`` key so every social failure the agent sees is uniform."""
+    if isinstance(result, dict) and result.get("success") is False and "message" not in result and "error" in result:
+        result = dict(result)
+        result["message"] = result.pop("error")
+    return result
+
+
 class DirectStore:
-    """Local: direct repository access — unchanged from the pre-abstraction tool."""
+    """Local: direct repository access, mirroring the pre-abstraction tool
+    bodies. The one deliberate wording change is social's no-instance text: it
+    now uses the shared ``social_instance_not_found_msg`` (the route's phrasing)
+    instead of the tool's old ``_get_instance_and_module`` string, so Direct and
+    Http agree on that edge case — see the social methods below."""
 
     async def _db(self):
         # The one MCP db entry point (module/base.py) — loop-aware factory
@@ -166,6 +219,93 @@ class DirectStore:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[memory.memory_retain] failed: {e}")
             return {"success": False, "error": str(e)}
+
+    async def _social_module(self, agent_id: str):
+        """Resolve the agent's SocialNetworkModule instance and build a temp
+        module bound to it — the same (instance lookup + module construction)
+        the MCP tool's ``_get_instance_and_module`` does, and the same the
+        backend social write routes do.
+
+        Returns (module, instance_id, None) on success, or (None, None,
+        failure_dict) where failure_dict is the seam's own ``message``-shaped
+        dict — for a missing instance OR any db/resolution error — so a caller
+        never sees an exception escape (the DirectStore invariant, module
+        docstring: only ever return a dict; the memory methods keep it the same
+        way). SocialNetworkModule is imported lazily (the tool passes it in as
+        ``module_class`` to dodge a circular import at module load; a lazy
+        import here does the same)."""
+        from xyz_agent_context.repository import InstanceRepository
+        from xyz_agent_context.module.social_network_module import (
+            SocialNetworkModule,
+            social_instance_not_found_msg,
+        )
+
+        try:
+            db = await self._db()
+            instances = await InstanceRepository(db).get_by_agent(
+                agent_id=agent_id, module_class="SocialNetworkModule"
+            )
+            if not instances:
+                return None, None, {"success": False, "message": social_instance_not_found_msg(agent_id)}
+            instance_id = instances[0].instance_id
+            module = SocialNetworkModule(agent_id=agent_id, database_client=db, instance_id=instance_id)
+            return module, instance_id, None
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social] instance resolution failed for {agent_id}: {e}")
+            return None, None, {"success": False, "message": f"Error: {e}"}
+
+    async def extract_entity_info(
+        self, agent_id: str, entity_id: str, updates: dict, update_mode: str
+    ) -> dict:
+        # Mirrors the extract_entity_info tool's post-parse body: resolve the
+        # instance, then delegate to the module's pure-repository merge. Every
+        # exit is an in-band ``message``-shaped dict — the module method catches
+        # its own errors, and _social_module + this try/except catch resolution
+        # / call failures, so DirectStore never raises (parity with HttpStore).
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.extract_and_update_entity_info(
+                entity_id=entity_id, instance_id=instance_id, updates=updates, update_mode=update_mode
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.extract_entity_info] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
+
+    async def merge_entities(
+        self, agent_id: str, source_entity_id: str, target_entity_id: str, keep_target_name: bool
+    ) -> dict:
+        reject = _social_id_reject(source_entity_id, target_entity_id)
+        if reject is not None:
+            return reject
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.merge_entities(
+                source_entity_id=source_entity_id, target_entity_id=target_entity_id,
+                instance_id=instance_id, keep_target_name=keep_target_name,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.merge_entities] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
+
+    async def delete_entity(self, agent_id: str, entity_id: str) -> dict:
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err
+        try:
+            return await module.delete_entity(entity_id=entity_id, instance_id=instance_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.delete_entity] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
 
 
 class HttpStore:
@@ -242,6 +382,50 @@ class HttpStore:
             failure_extra={},
         )
 
+    # Social writes: the backend routes (PR-2) are byte-parity twins that
+    # delegate to the SAME SocialNetworkModule methods DirectStore calls, so a
+    # 2xx body already matches. The one gap is the failure key: the route runs
+    # ``_normalize_write_result`` (message->error) for its HTTP family, so every
+    # social response is passed back through ``_social_write_message`` to
+    # restore the tool's ``message`` shape — see that helper.
+    async def extract_entity_info(
+        self, agent_id: str, entity_id: str, updates: dict, update_mode: str
+    ) -> dict:
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/extract",
+            json={"entity_id": entity_id, "updates": updates, "update_mode": update_mode},
+            failure_extra={},
+        ))
+
+    async def merge_entities(
+        self, agent_id: str, source_entity_id: str, target_entity_id: str, keep_target_name: bool
+    ) -> dict:
+        reject = _social_id_reject(source_entity_id, target_entity_id)
+        if reject is not None:
+            return reject
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/merge",
+            json={
+                "source_entity_id": source_entity_id,
+                "target_entity_id": target_entity_id,
+                "keep_target_name": keep_target_name,
+            },
+            failure_extra={},
+        ))
+
+    async def delete_entity(self, agent_id: str, entity_id: str) -> dict:
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/delete-entity",
+            json={"entity_id": entity_id},
+            failure_extra={},
+        ))
+
     async def _send(self, method: str, path: str, **kw):
         """Transport layer shared by every Http method: one AsyncClient + one
         HTTPError boundary. Returns the httpx.Response, or None when the backend
@@ -284,7 +468,7 @@ class HttpStore:
             logger.warning(f"[data-access] backend rejected arguments {path}: 422")
             return {
                 "success": False,
-                "error": "invalid arguments (query 1-512 chars, limit 1-100, content <=64KB, source <=512 chars)",
+                "error": "invalid arguments (an argument is out of the route's allowed range)",
                 **failure_extra,
             }
         # Any other non-2xx is a transport/middleware rejection (the handlers
