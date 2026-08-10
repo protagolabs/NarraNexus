@@ -36,6 +36,11 @@ EVENT_ADMIT_GRANTED = "admit_granted"
 # :8020 connection dropped mid-run). Paired with EVENT_OOM_KILLED as the two
 # executor-infra fatals the orchestration layer records + surfaces to the user.
 EVENT_EXECUTOR_UNREACHABLE = "executor_unreachable"
+# A verified MCP caller tried to operate an agent it does not own
+# (OwnerScopedPolicy, module/identity/mcp_auth.py). Written in audit AND
+# enforce mode — the audit-phase row count is the measurement that gates the
+# enforce flip.
+EVENT_MCP_AUTH_DENIED = "mcp_auth_denied"
 
 # Literal union of the closed set — used for type hints where strict validation
 # is wanted (e.g. in tests). The repository accepts plain str so new event_types
@@ -51,6 +56,7 @@ ExecutorEventType = Literal[
     "admit_queued",
     "admit_granted",
     "executor_unreachable",
+    "mcp_auth_denied",
 ]
 
 

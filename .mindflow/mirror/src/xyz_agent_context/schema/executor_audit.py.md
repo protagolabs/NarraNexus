@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-07-22
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — 新增 event_type `mcp_auth_denied`（MCP caller auth）
+
+验签身份对不属于自己的 agent_id 发起工具调用时写入（OwnerScopedPolicy，
+[[identity/mcp_auth]]）。audit 与 enforce 模式**都写**——audit 期的行数就是
+决定切 enforce 的度量（incident lesson #5）。同样无需迁移。
 
 ## 2026-07-22 — 新增 event_type `executor_unreachable`
 

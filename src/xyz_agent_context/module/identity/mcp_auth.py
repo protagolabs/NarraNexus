@@ -1,0 +1,263 @@
+"""
+@file_name: mcp_auth.py
+@author:
+@date: 2026-08-10
+@description: Server-side identity AUTH for module MCP servers (blueprint P1).
+
+``module/_mcp_identity.py`` answers "who does the caller SAY they are" — a
+deliberately fail-open convenience. This module answers "can they PROVE it":
+Ed25519 verification of the identity token the platform stamped into the same
+header channel (bearer field #7 / X-NarraNexus-Identity-Token), plus the
+owner-scoped access policy built on that proof.
+
+Gated by ``NX_MCP_AUTH_MODE``:
+  off     (default) — nothing changes anywhere; a local ``bash run.sh`` stays
+          byte-identical (iron rule #7).
+  audit   — verify + log; NEVER rejects. The measurement phase: its logs and
+          audit rows decide when enforce is safe (which callers still arrive
+          tokenless).
+  enforce — tool-call POSTs without a valid token are 401'd at the door, and
+          OwnerScopedPolicy denies cross-owner agent access at the tool layer.
+
+Scope of the door check: POSTs only. Tool calls are POSTs on both transports
+(/messages/ on SSE, /mcp on streamable HTTP); GETs are connection handshakes
+and stay open, as does /health (compose probes carry no identity).
+
+Missing public key under enforce fails OPEN with a loud warning: mcp is the
+data plane — a deploy misconfiguration must degrade to audit semantics, not
+take every agent's tools down.
+"""
+from __future__ import annotations
+
+import json
+import os
+from contextvars import ContextVar
+from typing import Any, Optional
+
+from loguru import logger
+
+from xyz_agent_context.module.identity.tokens import (
+    IdentityTokenError,
+    VerifiedIdentity,
+    load_public_key_pem,
+    verify_identity_token,
+)
+
+AUTH_MODE_ENV = "NX_MCP_AUTH_MODE"
+_MODES = ("off", "audit", "enforce")
+
+# Paths that stay open in every mode: health probes carry no identity.
+_EXEMPT_PATHS = frozenset({"/health", "/healthz"})
+
+# The verified caller of the CURRENT request. Set by IdentityAuthMiddleware,
+# read by the ownership policy below (and any tool that wants the proven
+# identity). None = no proof presented / verification failed / auth off.
+_verified_var: ContextVar[Optional[VerifiedIdentity]] = ContextVar(
+    "nx_mcp_verified_identity", default=None
+)
+
+
+def auth_mode() -> str:
+    """The configured mode. An unknown value reads as *audit*, not off — a
+    typo'd mode must surface in logs rather than silently disable auth."""
+    raw = (os.environ.get(AUTH_MODE_ENV) or "off").strip().lower()
+    if raw in _MODES:
+        return raw
+    logger.warning(f"[mcp-auth] unknown {AUTH_MODE_ENV}={raw!r}; treating as audit")
+    return "audit"
+
+
+def verified_caller() -> Optional[VerifiedIdentity]:
+    """The cryptographically proven caller of the current request, or None."""
+    return _verified_var.get()
+
+
+def _verify_headers(headers, public_key: bytes) -> tuple[Optional[VerifiedIdentity], str]:
+    """Verify the identity token carried by ``headers`` against ``public_key``.
+
+    Returns ``(identity, reason)`` — identity None with a stable reason string
+    when no proof / bad proof. Reasons are for logs; never flow control beyond
+    the enforce-mode door check.
+    """
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        _parse_bearer,
+    )
+
+    explicit = (headers.get(IDENTITY_TOKEN_HEADER.lower()) or headers.get(IDENTITY_TOKEN_HEADER) or "").strip()
+    bearer = _parse_bearer(headers.get("authorization") or headers.get("Authorization") or "")
+    token = explicit or bearer.identity_token
+    if not token:
+        return None, "no-token"
+    try:
+        identity = verify_identity_token(token, public_key)
+    except IdentityTokenError as e:
+        return None, f"invalid: {e}"
+    if bearer.user_id and bearer.user_id != identity.user_id:
+        # The self-declared bearer user_id disagreeing with the proven sub is
+        # a forged field, not an unknown — the whole record is untrusted.
+        return None, (
+            f"user-id-mismatch: bearer says {bearer.user_id!r}, "
+            f"token proves {identity.user_id!r}"
+        )
+    return identity, "ok"
+
+
+class IdentityAuthMiddleware:
+    """Pure ASGI middleware — one instance wraps each module server's app.
+
+    Kept ASGI-level (not Starlette BaseHTTPMiddleware) so it composes with the
+    streamable-HTTP transport's custom lifespan and never re-buffers SSE
+    streams.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        mode = auth_mode()
+        if mode == "off":
+            await self.app(scope, receive, send)
+            return
+
+        public_key = load_public_key_pem()
+        if public_key is None:
+            # Whole-middleware degradation, BEFORE looking at any token: with
+            # no key provisioned the broker cannot have signed one either, so
+            # every request arrives tokenless and enforce would take the whole
+            # data plane down over a deploy misconfiguration. Fail OPEN, loudly.
+            if mode == "enforce":
+                logger.warning(
+                    "[mcp-auth] enforce requested but no identity public key is "
+                    "provisioned — FAILING OPEN (audit semantics). Fix the "
+                    "deploy: mount the key and set NX_IDENTITY_PUBLIC_KEY_FILE."
+                )
+            await self.app(scope, receive, send)
+            return
+
+        headers = _ScopeHeaders(scope)
+        identity, reason = _verify_headers(headers, public_key)
+        path = scope.get("path", "")
+        method = scope.get("method", "")
+
+        if identity is None and reason != "no-token":
+            # Bad proof — log in every mode (audit's whole job).
+            logger.warning(f"[mcp-auth] {mode}: {reason} method={method} path={path}")
+
+        if (
+            mode == "enforce"
+            and identity is None
+            and method == "POST"
+            and path not in _EXEMPT_PATHS
+        ):
+            if reason == "no-token":
+                logger.warning(f"[mcp-auth] enforce: no token method={method} path={path}")
+            await _reject(send, reason)
+            return
+
+        token = _verified_var.set(identity)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _verified_var.reset(token)
+
+
+class _ScopeHeaders:
+    """Minimal case-insensitive header lookup over a raw ASGI scope."""
+
+    def __init__(self, scope) -> None:
+        self._items = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope.get("headers", [])
+        }
+
+    def get(self, key: str, default=None):
+        return self._items.get(key.lower(), default)
+
+
+async def _reject(send, reason: str) -> None:
+    body = json.dumps(
+        {
+            "error": "identity required",
+            "detail": (
+                "This MCP server requires a platform-signed identity token. "
+                f"Verification said: {reason}"
+            ),
+        }
+    ).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+# ---------------------------------------------------------------------------
+# OwnerScopedPolicy (blueprint P1 authorization layer)
+# ---------------------------------------------------------------------------
+
+
+async def check_agent_ownership(agent_id: Any) -> Optional[str]:
+    """The verified caller must OWN the target agent. None = allow; an error
+    string = deny (enforce only).
+
+    No verified identity / local mode / unknown agent → allow: this policy can
+    only ever TIGHTEN a proven identity, never break the fail-open baseline.
+    Denials are recorded to instance_executor_audit in audit AND enforce mode
+    (incident lesson #5 — the DB row is the measurement that gates the
+    audit→enforce flip).
+    """
+    ident = verified_caller()
+    if ident is None or not isinstance(agent_id, str) or not agent_id:
+        return None
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+    if not is_cloud_mode():
+        return None
+    mode = auth_mode()
+    if mode == "off":
+        return None
+    from xyz_agent_context.repository import AgentRepository
+    from xyz_agent_context.repository.executor_audit_repository import (
+        ExecutorAuditRepository,
+    )
+    from xyz_agent_context.schema.executor_audit import EVENT_MCP_AUTH_DENIED
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+
+    db = await get_db_client()
+    owner = await AgentRepository(db).resolve_owner(agent_id)
+    if not owner or owner == ident.user_id:
+        return None
+    logger.warning(
+        f"[mcp-auth] {mode}: token user {ident.user_id!r} does not own "
+        f"agent {agent_id!r} (owner {owner!r})"
+    )
+    await ExecutorAuditRepository(db).record(
+        event_type=EVENT_MCP_AUTH_DENIED,
+        user_id=ident.user_id,
+        detail={"agent_id": agent_id, "owner": owner, "mode": mode},
+    )
+    if mode == "enforce":
+        return (
+            f"Error: your verified identity ({ident.user_id}) does not own "
+            f"agent {agent_id}. You can only operate your own agents."
+        )
+    return None
+
+
+__all__ = [
+    "AUTH_MODE_ENV",
+    "IdentityAuthMiddleware",
+    "auth_mode",
+    "check_agent_ownership",
+    "verified_caller",
+]
