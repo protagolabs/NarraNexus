@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_work_repository.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
 
@@ -32,3 +32,25 @@ module 的私有实现。
 - **上游**:[[_work_board_mcp_tools]](agent 侧)、`backend/routes/runs.py`
   (停止→暂停)、未来的巡查候选查询
 - **数据**:`team_work_items`,见 [[schema_registry]]
+
+## 2026-08-10 — `list_visible`: why the user's board is a repository query
+
+The board endpoint originally hand-wrote its own `SELECT` in `routes/teams.py`,
+because it needs one state more than `list_active` does (`paused`). That split
+the feature's SQL across two layers, and the project's rule that new raw SQL
+owes a real-MySQL test then applied to a statement sitting in a route — where
+nobody would think to look for it.
+
+So the variant lives here instead. The pair reads as one decision:
+
+  * `list_active` — the AGENT's board. Hides `paused`, which is what makes a
+    stop actually stop: patrol asks this question, and a parked item must not
+    read as "unfinished, go chase it".
+  * `list_visible` — the USER's board. Shows `paused`, because deciding whether
+    to resume is the user's call. If the UI reused `list_active`, pressing stop
+    would erase the task from the board and a stop would be indistinguishable
+    from a delete — exactly what the pause-not-cancel decision exists to avoid.
+
+Both are covered against a real MySQL (`test_team_work_repository_mysql.py`):
+they share the generated-placeholder `IN (...)` shape, which is the shape that
+has produced a 1064 in this codebase before.

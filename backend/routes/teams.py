@@ -912,18 +912,18 @@ async def get_work_board(team_id: str, request: Request):
     db = await get_db_client()
     team = await _owned_team(db, team_id, user_id)
 
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from xyz_agent_context.repository.team_work_repository import (
+        TeamWorkItemRepository,
+    )
 
-    # Filtered in SQL, not in Python: this endpoint is polled every 5s by the
-    # board panel, and a long-lived team's `done`/`cancelled` history only ever
-    # grows — reading all of it to throw most of it away scales with age.
-    visible_states = (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
-    marks = ",".join(["%s"] * len(visible_states))
-    visible = await db.execute(
-        f"SELECT * FROM team_work_items WHERE team_id = %s AND status IN ({marks}) "
-        f"ORDER BY created_at ASC",
-        (team_id, *visible_states),
-    ) or []
+    # Through the repository, and filtered in SQL there: this endpoint is
+    # polled every 5s by the board panel, and a long-lived team's
+    # `done`/`cancelled` history only ever grows — reading all of it to throw
+    # most of it away scales with age. Keeping the query in the repository also
+    # keeps the dialect surface single (new raw SQL owes a MySQL test).
+    visible = [
+        i.model_dump() for i in await TeamWorkItemRepository(db).list_visible(team_id)
+    ]
     # list_members_by_team returns agent_ids, not rows (see the callers above).
     member_ids = list(await TeamMemberRepository(db).list_members_by_team(team_id))
     agent_rows = await db.get_by_ids("agents", "agent_id", member_ids) if member_ids else []

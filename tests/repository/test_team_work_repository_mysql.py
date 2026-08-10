@@ -4,7 +4,7 @@
 @date: 2026-08-10
 @description: Real-MySQL coverage for the work board's hand-written SQL.
 
-`TeamWorkItemRepository` carries three raw statements, and the SQLite suite
+`TeamWorkItemRepository` carries four raw statements, and the SQLite suite
 structurally cannot see a dialect error in them: `AsyncDatabaseClient.execute`
 translates `%s` only on the sqlite branch, so SQLite runs the rewritten text
 while MySQL runs the original. `test_trigger_reserved_word_sql.py` records
@@ -98,6 +98,29 @@ async def test_list_active_runs_on_mysql(mysql_client):
     active = await repo.list_active(team)
 
     assert [i.item_id for i in active] == [live.item_id]
+
+
+@pytest.mark.asyncio
+async def test_list_visible_runs_on_mysql(mysql_client):
+    """The board endpoint's query — same generated IN-list, one state wider.
+
+    Polled every 5s by the panel, so a 1064 here would be a permanently broken
+    board rather than an occasional error.
+    """
+    repo = TeamWorkItemRepository(mysql_client)
+    team = f"{_PREFIX}_t3"
+    live = await repo.create_item(team_id=team, channel_id="ch", title="live",
+                                  created_by="agent_lead")
+    parked = await repo.create_item(team_id=team, channel_id="ch", title="parked",
+                                    created_by="agent_lead", root_run_id=f"{_PREFIX}_r3")
+    await repo.pause_by_root(f"{_PREFIX}_r3")
+    done = await repo.create_item(team_id=team, channel_id="ch", title="done",
+                                  created_by="agent_lead")
+    await repo.set_status(done.item_id, WorkItemStatus.DONE)
+
+    visible = await repo.list_visible(team)
+
+    assert [i.item_id for i in visible] == [live.item_id, parked.item_id]
 
 
 @pytest.mark.asyncio

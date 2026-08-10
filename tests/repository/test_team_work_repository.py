@@ -71,6 +71,35 @@ async def test_teams_with_active_work_is_scoped_per_team(repo):
     assert await repo.teams_with_active_work() == ["team_1"]
 
 
+@pytest.mark.asyncio
+async def test_the_user_facing_list_keeps_paused_items(repo):
+    """The board a HUMAN reads is not the board an agent reads.
+
+    `list_active` hides `paused` so patrol stops chasing a stopped task. If the
+    UI reused it, pressing stop would make the task vanish from the board and a
+    stop would be indistinguishable from a delete — the exact thing the
+    pause-not-cancel decision exists to avoid.
+    """
+    live = await _item(repo, title="live")
+    parked = await _item(repo, title="parked", root="evt_root")
+    await repo.pause_by_root("evt_root")
+    await _item(repo, title="finished", status=WorkItemStatus.DONE)
+    await _item(repo, title="dropped", status=WorkItemStatus.CANCELLED)
+    await _item(repo, team="team_other", title="not mine")
+
+    visible = await repo.list_visible("team_1")
+
+    assert {i.title for i in visible} == {"live", "parked"}
+    # Terminal states stay off it: the board is what still needs a decision.
+    assert [i.item_id for i in visible] == [live.item_id, parked.item_id]
+
+
+@pytest.mark.asyncio
+async def test_the_user_facing_list_of_an_unknown_team_is_empty(repo):
+    assert await repo.list_visible("team_nope") == []
+    assert await repo.list_visible("") == []
+
+
 # ── stop → pause ────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

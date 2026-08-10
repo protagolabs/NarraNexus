@@ -66,6 +66,31 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
         )
         return [self._row_to_entity(r) for r in rows or []]
 
+    async def list_visible(self, team_id: str) -> List[WorkItem]:
+        """What the USER's board shows: unfinished work plus parked items.
+
+        Differs from ``list_active`` by one state, and that state is the whole
+        point: ``paused`` is what a stop leaves behind, and deciding whether to
+        resume it is the user's call — hiding it (as the agent-facing list
+        does) would make a stopped task look deleted.
+
+        Lives here rather than as raw SQL in the route so both queries share
+        one dialect surface: the project requires new hand-written SQL to be
+        validated against a real MySQL, and a second copy in `routes/` would be
+        a second thing to keep covered.
+        """
+        if not team_id:
+            return []
+        states = (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
+        marks = ",".join(["%s"] * len(states))
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} "
+            f"WHERE team_id = %s AND status IN ({marks}) "
+            f"ORDER BY created_at ASC",
+            (team_id, *states),
+        )
+        return [self._row_to_entity(r) for r in rows or []]
+
     async def teams_with_active_work(self) -> List[str]:
         """Teams with at least one unfinished item.
 

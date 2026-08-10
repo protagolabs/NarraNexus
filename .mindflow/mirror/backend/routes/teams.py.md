@@ -293,3 +293,17 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 alongside `thinking` (kept for back-compat). status = running (from [[_bus_activity]]
 `is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
 Drives the team status strip + activity bubbles.
+
+## 2026-08-10 — the work-board endpoint stopped writing its own SQL
+
+`GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
+show `paused` items alongside active ones. It now calls
+`TeamWorkItemRepository.list_visible`.
+
+The filtering itself was never the question — it has to happen in SQL, since the
+panel polls this endpoint every 5s and a long-lived team's `done`/`cancelled`
+history only grows, so reading it all to discard most of it scales with the
+team's age. What moved is WHERE the statement lives: keeping it in the
+repository leaves the feature with a single dialect surface to test, instead of
+a second raw statement in the route that the MySQL suite would have to grow a
+reason to reach into.
