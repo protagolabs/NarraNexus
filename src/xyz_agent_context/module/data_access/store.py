@@ -75,6 +75,11 @@ class AgentDataStore(Protocol):
         self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
     ) -> dict: ...
 
+    async def create_agent(
+        self, creator_agent_id: str, new_agent_id: str, agent_name: str,
+        awareness: str, agent_description: str,
+    ) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -379,6 +384,43 @@ class DirectStore:
             logger.warning(f"[social.get_agent_social_stats] failed: {e}")
             return {"success": False, "message": f"Error: {e}", "results": []}
 
+    async def create_agent(
+        self, creator_agent_id: str, new_agent_id: str, agent_name: str,
+        awareness: str, agent_description: str,
+    ) -> dict:
+        # Resolve the creator's owner, provision the new agent under that owner
+        # with the caller-minted new_agent_id, and shape the result via the
+        # shared format_create_agent_success — same path the create-agent route
+        # takes, so Direct and Http return byte-identical output. Message-shaped
+        # failures; never raises (DirectStore invariant).
+        from xyz_agent_context.repository import AgentRepository
+        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        from xyz_agent_context.module.social_network_module import (
+            format_create_agent_success,
+            CREATE_AGENT_NO_OWNER_MSG,
+        )
+
+        try:
+            db = await self._db()
+            caller = await AgentRepository(db).get_agent(creator_agent_id)
+            if not caller or not caller.created_by:
+                return {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
+            result = await provision_new_agent(
+                db,
+                agent_id=new_agent_id,
+                user_id=caller.created_by,
+                agent_name=agent_name,
+                agent_description=agent_description or f"Agent created by {caller.agent_name or creator_agent_id}",
+                awareness=awareness,
+            )
+            # Match the route's create log so local-mode 'who created which agent
+            # when' is not silent (the route logs this too).
+            logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {caller.created_by}")
+            return format_create_agent_success(agent_name, new_agent_id, result.warnings)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.create_agent] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -534,6 +576,26 @@ class HttpStore:
             f"/api/agents/{agent_id}/social-network/stats",
             json={"sort_by": sort_by, "top_k": top_k, "filter_tags": filter_tags},
             failure_extra={"results": []},
+        ))
+
+    async def create_agent(
+        self, creator_agent_id: str, new_agent_id: str, agent_name: str,
+        awareness: str, agent_description: str,
+    ) -> dict:
+        # The route provisions the SAME caller-minted new_agent_id and shapes the
+        # response with the shared format_create_agent_success, so a 2xx body
+        # already matches DirectStore. _social_write_message maps the route's
+        # error-keyed failures (and transport degradations) back to the tool's
+        # message key.
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{creator_agent_id}/social-network/create-agent",
+            json={
+                "new_agent_id": new_agent_id,
+                "agent_name": agent_name,
+                "awareness": awareness,
+                "agent_description": agent_description,
+            },
+            failure_extra={},
         ))
 
     async def _send(self, method: str, path: str, **kw):

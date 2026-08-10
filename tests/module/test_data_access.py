@@ -804,3 +804,100 @@ def test_social_http_read_forwards_to_the_right_route_and_body(monkeypatch):
     assert seen[1][1] == {"entity_id": "u1"}
     assert seen[2][0].endswith("/social-network/stats")
     assert seen[2][1] == {"sort_by": "frequent", "top_k": 10, "filter_tags": ["expert:fe"]}
+
+
+# ---------------------------------------------------------------------------
+# social create_agent (PR-6): provisioning through the seam
+# ---------------------------------------------------------------------------
+
+
+def _create_agent_direct(monkeypatch, *, caller_created_by="u1", caller_exists=True, warnings=None):
+    """DirectStore with AgentRepository + provision_new_agent stubbed."""
+    store = DirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+
+    class FakeAgent:
+        created_by = caller_created_by
+        agent_name = "Creator"
+
+    class FakeAgentRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_agent(self, agent_id):
+            return FakeAgent() if caller_exists else None
+
+    class FakeProvisionResult:
+        def __init__(self):
+            self.warnings = warnings or []
+
+    async def fake_provision(db, *, agent_id, user_id, agent_name, agent_description, awareness):
+        return FakeProvisionResult()
+
+    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
+    monkeypatch.setattr("xyz_agent_context.bootstrap.provision.provision_new_agent", fake_provision)
+    return store
+
+
+def test_create_agent_success_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import format_create_agent_success
+
+    expected = format_create_agent_success("Scout", "agent_new123", [])
+    d = _create_agent_direct(monkeypatch)
+    dr = asyncio.run(d.create_agent("agent_creator", "agent_new123", "Scout", "I am Scout", ""))
+    assert dr == expected
+    # The route builds the SAME dict via the shared format_create_agent_success
+    # for the same (agent_name, new_agent_id) — parity holds because the id is an
+    # input, not independently minted per path.
+    h = _social_http(monkeypatch, route_body=format_create_agent_success("Scout", "agent_new123", []))
+    hr = asyncio.run(h.create_agent("agent_creator", "agent_new123", "Scout", "I am Scout", ""))
+    assert hr == expected == dr
+
+
+def test_create_agent_warnings_surfaced_on_both(monkeypatch):
+    from xyz_agent_context.module.social_network_module import format_create_agent_success
+
+    expected = format_create_agent_success("Scout", "agent_n", ["instance_factory: boom"])
+    assert expected["warnings"] == ["instance_factory: boom"]
+    d = _create_agent_direct(monkeypatch, warnings=["instance_factory: boom"])
+    dr = asyncio.run(d.create_agent("agent_creator", "agent_n", "Scout", "aw", ""))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.create_agent("agent_creator", "agent_n", "Scout", "aw", "")) == expected
+
+
+def test_create_agent_no_owner_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import CREATE_AGENT_NO_OWNER_MSG
+
+    expected = {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
+    d = _create_agent_direct(monkeypatch, caller_created_by=None)
+    assert asyncio.run(d.create_agent("agent_creator", "agent_n", "Scout", "aw", "")) == expected
+    # A caller that doesn't exist at all takes the same branch.
+    d2 = _create_agent_direct(monkeypatch, caller_exists=False)
+    assert asyncio.run(d2.create_agent("agent_creator", "agent_n", "Scout", "aw", "")) == expected
+    # Route returns the same string under `error`; HttpStore restores `message`.
+    h = _social_http(monkeypatch, route_body={"success": False, "error": CREATE_AGENT_NO_OWNER_MSG})
+    assert asyncio.run(h.create_agent("agent_creator", "agent_n", "Scout", "aw", "")) == expected
+
+
+def test_create_agent_http_forwards_the_minted_id_and_fields(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, _json.loads(request.content)))
+        return httpx.Response(200, json={"success": True, "new_agent_id": "x", "agent_name": "Scout", "message": "ok"})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.create_agent("agent_creator", "agent_new123", "Scout", "I am Scout", "desc"))
+    assert seen[0][0].endswith("/social-network/create-agent")
+    assert seen[0][1] == {
+        "new_agent_id": "agent_new123", "agent_name": "Scout",
+        "awareness": "I am Scout", "agent_description": "desc",
+    }

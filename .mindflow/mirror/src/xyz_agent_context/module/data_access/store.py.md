@@ -4,6 +4,21 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-6) — social create_agent 迁入 seam（社交模块全部迁完）
+
+最后一个 social 工具。**id 归属是 parity 关键**：`new_agent_id` 由**工具**用
+`uuid4` 铸造后作为**入参**传进 seam（不再工具/路由各自随机生成），DirectStore 与
+create-agent 路由用同一 id provision → 输出逐字相同（否则随机 id 无法 parity）。
+DirectStore 解析 creator owner（AgentRepository）→ `provision_new_agent` → 共享
+[[social_network_module]] 的 `format_create_agent_success`（含 warnings 上浮，
+incident #5，工具旧版本丢了 warnings，现统一上浮）。无 owner 用共享
+`CREATE_AGENT_NO_OWNER_MSG`。失败键：DirectStore `message` / 路由 `error`（含
+异常统一 `f"Error: {e}"`）→ HttpStore `_social_write_message` 逆映射。DirectStore
+不抛（invariant）。路由 body 加 `new_agent_id`，**用 `pattern=^agent_[0-9a-f]{12}$`
+约束**——该 id 会成为 workspace 路径段（base/{user_id}/{agent_id}），无约束的
+`../victim/agent` 会跨租户写入；[[provision]] 的 `provision_new_agent` 再做一次
+`_SAFE_AGENT_ID` 兜底（唯一 seam 覆盖所有调用方，铁律 #5）。
+
 ## 2026-08-10 (PR-5) — social 读 search/contact/stats 迁入 seam
 
 3 个读工具走 seam。DirectStore 复用 `_social_module`（try/except 不抛），调

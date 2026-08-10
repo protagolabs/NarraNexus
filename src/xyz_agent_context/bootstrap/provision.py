@@ -41,6 +41,7 @@ Sequence (mirrors auth.py's create_agent route as of 2026-08-10):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from uuid import uuid4
@@ -49,6 +50,14 @@ from loguru import logger
 
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 from xyz_agent_context.repository import AgentRepository
+
+# agent_id is used as a filesystem PATH SEGMENT (agent_workspace_path builds
+# base/{user_id}/{agent_id}) and as a DB key. It must be a safe token — a value
+# like "../other_user/agent" would traverse into another tenant's workspace.
+# This is the ONE provisioning seam, so validating here backstops every call
+# site (auth route, the create_agent MCP tool via DirectStore, the social
+# create-agent route) at once — 铁律 #5, fix the root cause not one entry point.
+_SAFE_AGENT_ID = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
 @dataclass
@@ -105,6 +114,14 @@ async def provision_new_agent(
         collected along the way.
     """
     warnings: list[str] = []
+
+    # Reject an unsafe agent_id before it becomes a path segment or DB key (see
+    # _SAFE_AGENT_ID). Raised, not folded into warnings: a bad id means we must
+    # NOT create anything (no row, no workspace dir), so it aborts the call.
+    # fullmatch (not match): `$` would accept a trailing newline, and this is a
+    # security primitive whose whole job is to catch a bad id from any caller.
+    if not _SAFE_AGENT_ID.fullmatch(agent_id):
+        raise ValueError(f"unsafe agent_id (must match [A-Za-z0-9_-]+): {agent_id!r}")
 
     # 0. Insert the agent row itself. Not wrapped in try/except — a failed
     # insert (duplicate id, DB down) means there is no agent to provision,

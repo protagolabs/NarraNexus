@@ -3,6 +3,13 @@ code_file: src/xyz_agent_context/module/social_network_module/social_network_mod
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-6) — 新增 `format_create_agent_success` + `CREATE_AGENT_NO_OWNER_MSG`
+
+create_agent 的成功 dict（含 warnings 上浮）与无 owner 文案的唯一来源，seam 的
+DirectStore 与 create-agent 路由都 import 用——给定同 (agent_name, new_agent_id)
+两侧输出逐字相同（new_agent_id 是工具铸造后传入的入参，非各自随机生成）。经包
+`__init__` re-export。
+
 ## 2026-08-10 (PR-5) — 新增共享结果整形器 `format_contact_result` / `format_stats_result`
 
 两个纯函数把 `recall_entity_info` / `get_agent_stats` 的原始结果整形成
@@ -101,5 +108,5 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 新人易踩的坑
 
-- MCP Server 由 `create_social_network_mcp_server(port, get_mcp_db_client)` 构造。数据操作工具通过 [[data_access/store]] 的 seam 解析实例并临时构造 Module（本地 DirectStore / 云端 backend 路由），工具层不再接收 `SocialNetworkModule` 类引用（旧 `module_class` 参数 PR-5 已删）。
+- MCP Server 由 `create_social_network_mcp_server(port)` 构造（单参）。数据操作工具通过 [[data_access/store]] 的 seam 解析实例并临时构造 Module（本地 DirectStore / 云端 backend 路由），工具层不再接收 `SocialNetworkModule` 类引用或 db 客户端注入（旧 `module_class` PR-5 删、`get_db_client_fn` PR-6 删）。
 - `extract_and_update_entity_info()` / `merge_entities()` / `delete_entity()` / `search_network()` / `recall_entity_info()` / `get_agent_stats()` 是 Module 的 public API，被 seam（DirectStore + backend 社交路由）调用。`get_agent_stats` 曾是私有 `_get_agent_stats`，PR-5 因成为跨包（backend 路由）契约而提升为公开命名。

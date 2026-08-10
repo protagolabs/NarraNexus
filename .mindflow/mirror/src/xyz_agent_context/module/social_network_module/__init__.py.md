@@ -16,5 +16,8 @@ byte-identical (single source, no drift):
 - `format_contact_result` / `format_stats_result` — the get_contact_info /
   get_agent_social_stats tools' result-shaping, hoisted here so DirectStore and
   the read twin routes share it (PR-5).
+- `format_create_agent_success` / `CREATE_AGENT_NO_OWNER_MSG` — create_agent's
+  success dict (with provisioning warnings surfaced) and no-owner message, shared
+  by DirectStore and the create-agent route (PR-6).
 
 See [[social_network_module]] for where these live and why.

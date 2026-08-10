@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-6) — `_SAFE_AGENT_ID` 兜底：agent_id 路径穿越防护
+
+`agent_id` 会成为文件系统路径段（`agent_workspace_path` = base/{user_id}/{agent_id}）
+和 DB 键。`provision_new_agent` 入口先 `_SAFE_AGENT_ID.match`（`^[A-Za-z0-9_-]+$`），
+不匹配直接 raise（先于 add_agent / workspace 创建），阻断 `../victim/agent` 式跨租户
+写入。放在这唯一 seam 是因为三个调用方（auth 路由、create_agent MCP 工具经
+DirectStore、social create-agent 路由）都汇入此处——铁律 #5 治根因。路由层另有
+`pattern=^agent_[0-9a-f]{12}$` 更紧的 pydantic 前置。
+
 ## Why it exists
 
 The canonical "make a brand-new agent usable" sequence, extracted as one
