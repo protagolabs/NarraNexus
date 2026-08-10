@@ -4,6 +4,16 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-9) — update_agent_profile 迁入 seam
+
+Protocol + DirectStore + HttpStore 加 `update_agent_profile(agent_id, new_name, new_description) -> str`。
+DirectStore 委托 [[_awareness_writes]] `update_agent_profile_from_args`；孪生路由 [[profile]] 调同一函数。
+**首个 str-return 且动态串的方法**：不像 update_awareness 那样重建定值常量，而是路由回 `{"message": <串>}`、
+HttpStore 拆信封原样返回（2xx）；传输降级（unreachable/≥400/非 JSON/无 message 键）一律兜成 "Error: ..." 串，
+绝不返回 dict 或抛（DirectStore 只返串，parity）。
+
+模块 docstring 的 parity 不变量补了 str-return 例外：`update_agent_profile` 的唯一输入上限（AGENT_TEXT_MAX_LENGTH name/desc cap）在共享 fn 里 enforce、路由 body **故意无 Field**——str 返回没有 _parse_dict 把 422 折回工具形状，路由级 422 会让 Http 侧降级成不同串、破 parity。故 str-return 的 bound 只能放共享 fn。
+
 ## 2026-08-10 (PR-8b) — job_update 迁入 seam
 
 DirectStore.job_update(agent_id, job_id, fields) 委托 [[job_module]] 包导出的
