@@ -28,16 +28,24 @@ class _FakeDb:
     """Minimal AsyncDatabaseClient stand-in: get_one / get / get_by_ids are
     used by this route file (no raw SQL)."""
 
-    def __init__(self, narratives=None, links=None, chat_memory=None):
+    def __init__(self, narratives=None, links=None, chat_memory=None, events=None):
         self._narratives = narratives or {}
         self._links = links or {}
         self._chat_memory = chat_memory or {}
+        self._events = events or {}
         self.fanned_out_ids = None  # last ids handed to get_by_ids
         self.links_order_by = "__unset__"  # order_by passed to the links query
 
     async def get_one(self, table, filters):
         if table == "narratives":
             return self._narratives.get(filters.get("narrative_id"))
+        if table == "events":
+            row = self._events.get(filters.get("event_id"))
+            # view_event scopes by agent_id — a row for another agent reads as
+            # not found (the raw-SQL tool it replaces had no such scope).
+            if row and row.get("agent_id") != filters.get("agent_id"):
+                return None
+            return row
         if table == "instance_json_format_memory_chat":
             return self._chat_memory.get(filters.get("instance_id"))
         raise AssertionError(f"unexpected get_one table: {table}")
@@ -108,6 +116,18 @@ def fake_db():
                     ]
                 }
             }
+        },
+        events={
+            "evt_mine": {
+                "event_id": "evt_mine", "agent_id": "agent_mine", "narrative_id": "nar_mine",
+                "trigger": "manual", "trigger_source": "user", "env_context": {"input": "go"},
+                "final_output": "done", "event_log": "trace", "created_at": "2026-08-10T10:00:00",
+            },
+            "evt_theirs": {
+                "event_id": "evt_theirs", "agent_id": "agent_theirs", "narrative_id": "nar_other_agent",
+                "trigger": "manual", "trigger_source": "user", "env_context": {},
+                "final_output": "", "event_log": "", "created_at": "2026-08-10T10:00:00",
+            },
         },
     )
 
@@ -403,3 +423,42 @@ def test_over_cap_chat_instances_flag_truncated_and_fan_out_100(monkeypatch):
     # created_at DESC ordering, not just the cap.
     assert db.fanned_out_ids[0] == "chat_129"
     assert "chat_0" not in db.fanned_out_ids
+
+
+# ---------------------------------------------------------------------------
+# view_event (new seam-twin GET /{agent_id}/events/{event_id})
+# ---------------------------------------------------------------------------
+
+
+def test_view_event_non_owner_is_denied(client):
+    r = client.get("/api/agents/agent_theirs/events/evt_theirs", headers=OWNER_HEADERS)
+    assert r.status_code == 403
+
+
+def test_view_event_returns_detail(client):
+    r = client.get("/api/agents/agent_mine/events/evt_mine", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True
+    assert body["event_id"] == "evt_mine"
+    assert body["narrative_id"] == "nar_mine"
+    assert body["trigger"] == "manual"
+    assert body["input"] == "go"
+    assert body["final_output"] == "done"
+    assert body["event_log"] == "trace"
+
+
+def test_view_event_not_found(client):
+    r = client.get("/api/agents/agent_mine/events/evt_missing", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is False
+    assert "not found" in body["error"]
+
+
+def test_view_event_belonging_to_a_different_agent_reports_not_found(client):
+    # evt_theirs is owned by agent_theirs; agent_mine (owned by the caller u1)
+    # must not be able to read it — the seam scopes by agent_id.
+    r = client.get("/api/agents/agent_mine/events/evt_theirs", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    assert r.json()["success"] is False

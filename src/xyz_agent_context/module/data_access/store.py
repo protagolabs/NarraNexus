@@ -80,6 +80,12 @@ class AgentDataStore(Protocol):
         awareness: str, agent_description: str,
     ) -> dict: ...
 
+    async def view_narrative(self, agent_id: str, narrative_id: str) -> dict: ...
+
+    async def view_event(self, agent_id: str, event_id: str) -> dict: ...
+
+    async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -421,6 +427,38 @@ class DirectStore:
             logger.warning(f"[social.create_agent] failed: {e}")
             return {"success": False, "message": f"Error: {e}"}
 
+    # basic_info narrative/event reads. The fetch_*/check_* helpers are
+    # dialect-safe (get_one/get/get_by_ids, no raw SQL) and self-contained (they
+    # return a dict, never raise), and the narrative routes call the SAME helpers
+    # — so Direct and Http are byte-identical. The outer try only guards the
+    # _db() acquisition so DirectStore still never raises.
+    async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
+        from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_narrative_view
+
+        try:
+            return await fetch_narrative_view(await self._db(), agent_id, narrative_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[basic_info.view_narrative] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def view_event(self, agent_id: str, event_id: str) -> dict:
+        from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_event_view
+
+        try:
+            return await fetch_event_view(await self._db(), agent_id, event_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[basic_info.view_event] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
+        from xyz_agent_context.module.basic_info_module._narrative_reads import check_narrative_switch
+
+        try:
+            return await check_narrative_switch(await self._db(), agent_id, narrative_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[basic_info.switch_narrative] failed: {e}")
+            return {"success": False, "error": str(e)}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -597,6 +635,26 @@ class HttpStore:
             },
             failure_extra={},
         ))
+
+    # basic_info narrative/event reads. The narrative routes return the tool
+    # dict shape verbatim (success/error keys — same as the tool), and failures
+    # already use `error`, which is exactly _parse_dict's degradation key, so no
+    # remapping is needed (unlike social's message/error). 2xx bodies pass
+    # straight through.
+    async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
+        return await self._get_dict(
+            f"/api/agents/{agent_id}/narratives/{narrative_id}", params={}, failure_extra={},
+        )
+
+    async def view_event(self, agent_id: str, event_id: str) -> dict:
+        return await self._get_dict(
+            f"/api/agents/{agent_id}/events/{event_id}", params={}, failure_extra={},
+        )
+
+    async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/narratives/{narrative_id}/switch", json={}, failure_extra={},
+        )
 
     async def _send(self, method: str, path: str, **kw):
         """Transport layer shared by every Http method: one AsyncClient + one

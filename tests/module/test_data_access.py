@@ -901,3 +901,122 @@ def test_create_agent_http_forwards_the_minted_id_and_fields(monkeypatch):
         "new_agent_id": "agent_new123", "agent_name": "Scout",
         "awareness": "I am Scout", "agent_description": "desc",
     }
+
+
+# ---------------------------------------------------------------------------
+# basic_info narrative/event (PR-7): view_narrative / view_event / switch
+# ---------------------------------------------------------------------------
+
+
+class _FakeNarrDb:
+    """Minimal AsyncDatabaseClient stand-in for the _narrative_reads helpers."""
+
+    def __init__(self, *, narratives=None, events=None, links=None, memories=None):
+        self._narratives = narratives or {}   # narrative_id -> row
+        self._events = events or {}            # event_id -> row
+        self._links = links or []              # instance_narrative_links rows
+        self._memories = memories or {}        # instance_id -> memory row
+
+    async def get_one(self, table, filters):
+        if table == "narratives":
+            return self._narratives.get(filters["narrative_id"])
+        if table == "events":
+            row = self._events.get(filters["event_id"])
+            if row and row.get("agent_id") != filters.get("agent_id"):
+                return None
+            return row
+        raise AssertionError(table)
+
+    async def get(self, table, filters, limit=None, order_by=None):
+        assert table == "instance_narrative_links"
+        return [r for r in self._links if r["narrative_id"] == filters["narrative_id"]]
+
+    async def get_by_ids(self, table, col, ids):
+        assert table == "instance_json_format_memory_chat"
+        return [self._memories[i] for i in ids if i in self._memories]
+
+
+def _basic_direct(monkeypatch, db):
+    store = DirectStore()
+
+    async def fake_db():
+        return db
+
+    store._db = fake_db  # type: ignore[method-assign]
+    return store
+
+
+def test_view_narrative_parity(monkeypatch):
+    from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_narrative_view
+
+    db = _FakeNarrDb(
+        narratives={"nar_1": {"agent_id": AGENT, "narrative_info": {"name": "Trip", "description": "d", "current_summary": "s"}, "topic_keywords": ["k"]}},
+        links=[{"narrative_id": "nar_1", "instance_id": "chat_a", "created_at": "2026-01-01"}],
+        memories={"chat_a": {"instance_id": "chat_a", "memory": {"messages": [{"role": "user", "content": "hi", "meta_data": {"timestamp": "2026-01-01T00:00:00", "event_id": "evt_1"}}]}}},
+    )
+    expected = asyncio.run(fetch_narrative_view(db, AGENT, "nar_1"))
+    assert expected["success"] is True and expected["name"] == "Trip" and expected["message_count"] == 1
+
+    d = _basic_direct(monkeypatch, db)
+    dr = asyncio.run(d.view_narrative(AGENT, "nar_1"))
+    assert dr == expected
+    # the route returns the SAME fetch_narrative_view dict → http passes it through
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.view_narrative(AGENT, "nar_1")) == expected == dr
+
+
+def test_view_narrative_cross_tenant_is_not_found_on_both(monkeypatch):
+    # The old raw-SQL tool returned ANY agent's narrative by id; the seam scopes
+    # to the caller. A narrative owned by someone else reads as not-found.
+    db = _FakeNarrDb(narratives={"nar_1": {"agent_id": "other_agent", "narrative_info": {}, "topic_keywords": []}})
+    expected = {"success": False, "error": "narrative nar_1 not found"}
+    d = _basic_direct(monkeypatch, db)
+    assert asyncio.run(d.view_narrative(AGENT, "nar_1")) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.view_narrative(AGENT, "nar_1")) == expected
+
+
+def test_view_event_parity_and_agent_scoped(monkeypatch):
+    from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_event_view
+
+    db = _FakeNarrDb(events={"evt_1": {"agent_id": AGENT, "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "env_context": {"input": "go"}, "final_output": "done", "event_log": "log", "created_at": "2026-01-01T00:00:00"}})
+    expected = asyncio.run(fetch_event_view(db, AGENT, "evt_1"))
+    assert expected == {"success": True, "event_id": "evt_1", "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "time": "2026-01-01T00:00:00", "input": "go", "final_output": "done", "event_log": "log"}
+    d = _basic_direct(monkeypatch, db)
+    assert asyncio.run(d.view_event(AGENT, "evt_1")) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.view_event(AGENT, "evt_1")) == expected
+    # wrong agent → not found (get_one filters agent_id)
+    assert asyncio.run(d.view_event("other", "evt_1")) == {"success": False, "error": "event evt_1 not found"}
+
+
+def test_switch_narrative_parity(monkeypatch):
+    db = _FakeNarrDb(narratives={"nar_1": {"agent_id": AGENT}})
+    ok = {"success": True, "narrative_id": "nar_1", "message": "This turn will be attributed to this narrative."}
+    d = _basic_direct(monkeypatch, db)
+    assert asyncio.run(d.switch_narrative(AGENT, "nar_1")) == ok
+    h = _social_http(monkeypatch, route_body=ok)
+    assert asyncio.run(h.switch_narrative(AGENT, "nar_1")) == ok
+    # cross-tenant / missing → not found on both
+    nf = {"success": False, "error": "narrative nar_x not found"}
+    assert asyncio.run(d.switch_narrative(AGENT, "nar_x")) == nf
+
+
+def test_basic_info_http_forwards_to_the_right_routes(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"success": True})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.view_narrative(AGENT, "nar_1"))
+    asyncio.run(h.view_event(AGENT, "evt_1"))
+    asyncio.run(h.switch_narrative(AGENT, "nar_1"))
+    assert seen[0] == ("GET", f"/api/agents/{AGENT}/narratives/nar_1", None)
+    assert seen[1] == ("GET", f"/api/agents/{AGENT}/events/evt_1", None)
+    assert seen[2] == ("POST", f"/api/agents/{AGENT}/narratives/nar_1/switch", {})

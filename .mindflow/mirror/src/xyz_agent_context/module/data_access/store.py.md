@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-7) — basic_info view_narrative/view_event/switch_narrative 迁入 seam
+
+三个读方法委托给 [[basic_info_module/_narrative_reads]] 的 `fetch_narrative_view`/
+`fetch_event_view`/`check_narrative_switch`——这些是**方言安全**（get_one/get/
+get_by_ids，无裸 SQL）且自兜底（返回 dict 不抛）的共享函数，backend [[narrative]]
+路由调**同一批**函数，故 Direct/Http 逐字相同。DirectStore 外层只包 `_db()` 获取的
+try（fetch_* 自身不抛）保住 invariant。HttpStore GET `/narratives/{id}`、
+`/events/{id}`、POST `/narratives/{id}/switch`；失败键是 `error`（与 _parse_dict
+降级键一致，无需 remap）。**安全副作用**：旧裸 SQL 不校验 agent_id（跨租户读），
+迁移后按调用方 agent 归属过滤。
+
 ## 2026-08-10 (PR-6) — social create_agent 迁入 seam（社交模块全部迁完）
 
 最后一个 social 工具。**id 归属是 parity 关键**：`new_agent_id` 由**工具**用
