@@ -1020,7 +1020,7 @@ class MessageBusTrigger:
         agent_id: str,
         history: List[BusMessage],
         member_map: Dict[str, str],
-        owner_user_id: str = "",
+        owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
     ) -> str:
@@ -1331,7 +1331,7 @@ class MessageBusTrigger:
     def _build_prompt(
         self,
         messages: List[BusMessage],
-        owner_user_id: str = "",
+        owner_user_id: Optional[str] = "",
         owner_name: str = "",
         *,
         i_started_this_exchange: bool,

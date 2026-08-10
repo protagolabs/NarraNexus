@@ -12,7 +12,8 @@ Endpoints:
 Mirrors backend/routes/channels/telegram.py. Auth posture: in local mode (no JWT
 middleware) request.state.user_id is unset and every route is effectively
 unauthenticated; in cloud mode the agent's ``created_by`` must match the
-caller. See slack.py's _verify_agent_ownership docstring for the full note.
+caller. See backend/routes/_ownership.py's module docstring (SECURITY
+POSTURE) for the full note.
 """
 from __future__ import annotations
 
