@@ -31,7 +31,6 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 
-
 # Tool names the runtime hook scans agent_loop_response for (keep in lockstep
 # with step_4_persist_results._detect_narrative_routing_signal).
 SWITCH_NARRATIVE_TOOL = "switch_narrative"

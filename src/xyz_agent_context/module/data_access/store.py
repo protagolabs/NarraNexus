@@ -433,28 +433,34 @@ class DirectStore:
     # — so Direct and Http are byte-identical. The outer try only guards the
     # _db() acquisition so DirectStore still never raises.
     async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_narrative_view
+        from xyz_agent_context.module.basic_info_module import fetch_narrative_view
 
         try:
-            return await fetch_narrative_view(await self._db(), agent_id, narrative_id)
+            result = await fetch_narrative_view(await self._db(), agent_id, narrative_id)
+            logger.info(f"[basic_info.view_narrative] {narrative_id} -> {result.get('message_count')} messages")
+            return result
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[basic_info.view_narrative] failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def view_event(self, agent_id: str, event_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module._narrative_reads import fetch_event_view
+        from xyz_agent_context.module.basic_info_module import fetch_event_view
 
         try:
-            return await fetch_event_view(await self._db(), agent_id, event_id)
+            result = await fetch_event_view(await self._db(), agent_id, event_id)
+            logger.info(f"[basic_info.view_event] {event_id} -> success={result.get('success')}")
+            return result
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[basic_info.view_event] failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module._narrative_reads import check_narrative_switch
+        from xyz_agent_context.module.basic_info_module import check_narrative_switch
 
         try:
-            return await check_narrative_switch(await self._db(), agent_id, narrative_id)
+            result = await check_narrative_switch(await self._db(), agent_id, narrative_id)
+            logger.info(f"[basic_info.switch_narrative] {narrative_id} -> success={result.get('success')}")
+            return result
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[basic_info.switch_narrative] failed: {e}")
             return {"success": False, "error": str(e)}

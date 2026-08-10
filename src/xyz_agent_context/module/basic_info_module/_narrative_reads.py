@@ -36,7 +36,9 @@ _MAX_CHAT_INSTANCES = 100    # ChatModule instances actually fanned out to
 _MAX_MESSAGES = 200          # messages returned (most recent)
 
 
-def _parse_info(raw: Any) -> Dict[str, Any]:
+def _parse_info(raw: Any) -> Any:
+    # Returns a dict for dict/JSON-object input, but a list for a JSON-array
+    # string (the `keywords` path relies on that) — hence -> Any, not -> Dict.
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
@@ -78,6 +80,12 @@ async def narrative_chat_history(
         "instance_json_format_memory_chat", "instance_id", inst_ids
     ) if inst_ids else []
     for mrow in mrows:
+        # get_by_ids preserves order and pads MISSING ids with None. A chat_
+        # instance can be linked (step_1) before its memory row exists (step_5),
+        # so an interrupted first turn leaves a link with no memory — skip it,
+        # don't crash the whole view (the old tool + chat_history route do too).
+        if not mrow:
+            continue
         mem = _parse_info(mrow.get("memory"))
         for m in mem.get("messages", []):
             meta = m.get("meta_data", {}) or {}
@@ -88,7 +96,10 @@ async def narrative_chat_history(
                 "event_id": meta.get("event_id"),
             })
     messages.sort(key=lambda x: x.get("time", ""))
-    return messages[-limit:], truncated
+    # truncated must also cover the MESSAGE cap, not just the instance fan-out —
+    # otherwise a narrative under the instance cap but over _MAX_MESSAGES would
+    # silently drop the older tail with truncated=False (rule #16).
+    return messages[-limit:], truncated or len(messages) > limit
 
 
 async def fetch_narrative_view(db, agent_id: str, narrative_id: str) -> dict:

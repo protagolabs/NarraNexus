@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
 from xyz_agent_context.narrative import NarrativeService
-from xyz_agent_context.module.basic_info_module._narrative_reads import (
+from xyz_agent_context.module.basic_info_module import (
     fetch_narrative_view,
     fetch_event_view,
     check_narrative_switch,

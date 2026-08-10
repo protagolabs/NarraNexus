@@ -66,7 +66,8 @@ class _FakeDb:
         # per-instance get_one loop). Records the fan-out for cap assertions.
         if table == "instance_json_format_memory_chat":
             self.fanned_out_ids = list(ids)
-            return [self._chat_memory[i] for i in ids if i in self._chat_memory]
+            # Real contract: order-preserving, MISSING ids padded with None.
+            return [self._chat_memory.get(i) for i in ids]
         raise AssertionError(f"unexpected get_by_ids table: {table}")
 
 
@@ -95,9 +96,18 @@ def fake_db():
                 "narrative_info": {"name": "Not yours"},
                 "topic_keywords": [],
             },
+            "nar_partial": {
+                "narrative_id": "nar_partial",
+                "agent_id": "agent_mine",
+                "narrative_info": {"name": "Interrupted first turn"},
+                "topic_keywords": [],
+            },
         },
         links={
             "nar_mine": [{"instance_id": "chat_abc123"}, {"instance_id": "aware_ignored"}],
+            # A chat_ instance linked (step_1) whose memory row never landed
+            # (step_5) — get_by_ids pads it with None.
+            "nar_partial": [{"instance_id": "chat_abc123"}, {"instance_id": "chat_no_mem"}],
         },
         chat_memory={
             "chat_abc123": {
@@ -462,3 +472,14 @@ def test_view_event_belonging_to_a_different_agent_reports_not_found(client):
     r = client.get("/api/agents/agent_mine/events/evt_theirs", headers=OWNER_HEADERS)
     assert r.status_code == 200
     assert r.json()["success"] is False
+
+
+def test_view_narrative_with_a_memoryless_chat_instance_does_not_crash(client):
+    # nar_partial links chat_abc123 (has memory) + chat_no_mem (no memory row).
+    # get_by_ids pads chat_no_mem with None; the read must skip it, not 500 /
+    # success:false. Regression guard for the get_by_ids None-contract bug.
+    r = client.get("/api/agents/agent_mine/narratives/nar_partial", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True
+    assert body["message_count"] == 2  # chat_abc123's two messages; chat_no_mem skipped

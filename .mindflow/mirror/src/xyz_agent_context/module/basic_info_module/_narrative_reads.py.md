@@ -27,6 +27,26 @@ event_id 就能读到别人的内容（跨租户读）。这里的每个函数�
 `row.get("agent_id") != agent_id → not found`（event 直接进 get_one 过滤），把读
 限定在调用方自己。
 
+## get_by_ids 的 None 契约（预审二轮 Critical）
+
+`db.get_by_ids` **保序 + 缺失补 None**（`-> List[Optional[dict]]`）。`chat_` 实例可能
+在 step_1 建 link 后、step_5 才落 memory 行——首轮被打断就永久留下「有 link 无 memory」
+的实例。所以 `narrative_chat_history` 遍历 mrows 时 `if not mrow: continue` 跳过 None，
+不能直接 `.get()`（否则 view_narrative 整个崩成 success:false，且是相对旧工具的回退）。
+测试的 fake db 必须照真契约 `[map.get(i) for i in ids]`（补 None），不能 filter 掉——
+否则测试假绿挡住这个 bug。
+
+## truncated 覆盖两个上限（预审二轮 Important）
+
+`truncated = 实例扇出 > _MAX_CHAT_INSTANCES` **or** `消息数 > _MAX_MESSAGES`——只报实例
+上限会在实例数达标但消息超 200 时静默丢老消息且 truncated=False（违背铁律 #16）。
+
+## 公开面（预审二轮 Important）
+
+`fetch_*`/`check_*`/`narrative_chat_history` 经 [[basic_info_module 包]] `__init__` 的
+`__all__` 导出；route 与 store 都 import **包**、不 reach 私有 `_narrative_reads`
+叶子（同 social_network_module 的先例）。
+
 ## 形状（比旧工具 enrich）
 
 统一加 `success` 键（旧 view_* 无 success、switch 用 `ok`），narrative 视图带

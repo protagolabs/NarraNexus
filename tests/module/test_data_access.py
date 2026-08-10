@@ -933,7 +933,8 @@ class _FakeNarrDb:
 
     async def get_by_ids(self, table, col, ids):
         assert table == "instance_json_format_memory_chat"
-        return [self._memories[i] for i in ids if i in self._memories]
+        # Real contract: order-preserving, MISSING ids padded with None.
+        return [self._memories.get(i) for i in ids]
 
 
 def _basic_direct(monkeypatch, db):
@@ -1020,3 +1021,23 @@ def test_basic_info_http_forwards_to_the_right_routes(monkeypatch):
     assert seen[0] == ("GET", f"/api/agents/{AGENT}/narratives/nar_1", None)
     assert seen[1] == ("GET", f"/api/agents/{AGENT}/events/evt_1", None)
     assert seen[2] == ("POST", f"/api/agents/{AGENT}/narratives/nar_1/switch", {})
+
+
+def test_view_narrative_skips_memoryless_chat_instance(monkeypatch):
+    # A chat_ instance can be LINKED (step_1) before its memory row is written
+    # (step_5) — get_by_ids pads the missing row with None. The read must skip
+    # it, not crash. Regression guard for the get_by_ids-None-contract bug.
+    db = _FakeNarrDb(
+        narratives={"nar_1": {"agent_id": AGENT, "narrative_info": {"name": "T"}, "topic_keywords": []}},
+        links=[
+            {"narrative_id": "nar_1", "instance_id": "chat_has_mem", "created_at": "1"},
+            {"narrative_id": "nar_1", "instance_id": "chat_no_mem", "created_at": "2"},  # never got a memory row
+        ],
+        memories={"chat_has_mem": {"instance_id": "chat_has_mem", "memory": {"messages": [
+            {"role": "user", "content": "hi", "meta_data": {"timestamp": "2026-01-01T00:00:00", "event_id": "e"}},
+        ]}}},
+    )
+    d = _basic_direct(monkeypatch, db)
+    out = asyncio.run(d.view_narrative(AGENT, "nar_1"))
+    assert out["success"] is True
+    assert out["message_count"] == 1  # chat_no_mem skipped, not a NoneType crash
