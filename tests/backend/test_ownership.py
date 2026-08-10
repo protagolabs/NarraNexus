@@ -54,7 +54,7 @@ async def test_non_owner_denied(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unknown_agent_404(monkeypatch):
-    _stub_owner(monkeypatch, "")  # resolve_owner returns "" for unknown/failed
+    _stub_owner(monkeypatch, "")  # resolve_owner returns "" for unknown
     assert "not found" in (await own.check_owned(_Req("u1"), "a") or "")
     with pytest.raises(HTTPException) as e:
         await own.assert_owned(_Req("u1"), "a")
@@ -66,3 +66,17 @@ async def test_local_mode_skips_enforcement(monkeypatch):
     _stub_owner(monkeypatch, "u1")
     assert await own.check_owned(_Req(None), "a") is None
     await own.assert_owned(_Req(None), "a")  # no raise
+
+
+@pytest.mark.asyncio
+async def test_db_failure_is_503_not_404(monkeypatch):
+    """PR #258 review #4: resolve_owner returns None when the LOOKUP failed —
+    an infrastructure fault must surface as a server error, never masquerade
+    as 'Agent not found' (a db outage would otherwise look like a batch of
+    users' agents vanishing, with no 5xx metric to alarm on)."""
+    _stub_owner(monkeypatch, None)
+    err = await own.check_owned(_Req("u1"), "a")
+    assert err is not None and "database error" in err and "not found" not in err
+    with pytest.raises(HTTPException) as e:
+        await own.assert_owned(_Req("u1"), "a")
+    assert e.value.status_code == 503

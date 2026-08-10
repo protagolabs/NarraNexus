@@ -27,6 +27,12 @@ from xyz_agent_context.module.slack_module._slack_service import (
 )
 
 
+
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
+
 router = APIRouter()
 
 # Pattern for safe agent_id values (alphanumeric + underscore + hyphen)
@@ -65,10 +71,6 @@ async def _get_db():
     return await get_db_client()
 
 
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Owner check — delegates to the canonical backend helper (backend/routes/_ownership.py)."""
-    from backend.routes._ownership import check_owned
-    return await check_owned(request, agent_id)
 # =========================================================================
 # Endpoints
 # =========================================================================
