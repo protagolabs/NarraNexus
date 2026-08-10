@@ -146,7 +146,7 @@ IDENTITY_TOKEN_HEADER = "X-NarraNexus-Identity-Token"
 # flips a FOLLOW-UP question back to Owner Relay and reproduces the P1. Iron
 # rule #15 forbids treating a first-class adapter as a corner.
 #
-#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>
+#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>~<team_id>~<event_id>~<identity_token>
 #
 # Contract — pin it, do not improvise:
 #   * fields are POSITIONAL and their order is frozen; ``BEARER_FIELDS`` names
@@ -911,4 +911,8 @@ __all__ = [
     "resolve_caller_agent_id",
     "resolve_caller_user_id",
     "stamp_identity_token",
+    "TEAM_ID_HEADER",
+    "EVENT_ID_HEADER",
+    "caller_team_id_from_request",
+    "caller_event_id_from_request",
 ]

@@ -7,7 +7,7 @@
 
 The mcp container's HttpStore forwards the executor→mcp identity headers
 verbatim; the Authorization bearer is the nx-agent positional record whose
-7th field is a broker/local-signed Ed25519 JWT. The middleware must verify it
+identity_token field (last in BEARER_FIELDS) is a broker/local-signed Ed25519 JWT. The middleware must verify it
 with the identity PUBLIC key and trust its sub as the effective user — and,
 unlike the mcp middleware, NEVER fail open: an nx-agent bearer reaching
 backend is always a service call and must prove itself (no key provisioned =

@@ -185,7 +185,8 @@ def _is_cloud_mode() -> bool:
 # Cloud-mode requests whose Authorization bearer is the nx-agent positional
 # record (the executor→mcp identity channel, forwarded verbatim by the mcp
 # container's HttpStore). Verification is asymmetric: the broker signed the
-# 7th field with its Ed25519 PRIVATE key; we hold only the PUBLIC key, so a
+# identity_token field (last in BEARER_FIELDS) with its Ed25519 PRIVATE key;
+# we hold only the PUBLIC key, so a
 # compromised backend/mcp cannot mint identities. Consumed by auth_middleware
 # right before the user-JWT decode; see the block comment there for the
 # no-fail-open rationale.
@@ -588,7 +589,8 @@ async def auth_middleware(request: Request, call_next):
     # ---- NarraNexus service identity (blueprint Q6) -----------------------
     # The mcp container's HttpStore forwards the executor→mcp identity
     # headers verbatim; the bearer is the nx-agent positional record whose
-    # 7th field is a broker/local-signed Ed25519 identity token. Verify it
+    # identity_token field (last in BEARER_FIELDS) is a broker/local-signed
+    # Ed25519 identity token. Verify it
     # with the identity PUBLIC key and trust its sub as the effective user —
     # routes still owner-check the target agent_id. Parallel to the manyfold
     # gateway-token bypass above, but NEVER fail-open: an nx-agent bearer

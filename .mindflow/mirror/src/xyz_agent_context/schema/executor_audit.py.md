@@ -9,7 +9,8 @@ stub: false
 `mcp_auth_denied`：验签身份对不属于自己的 agent_id 发起工具调用时写入
 （OwnerScopedPolicy，[[identity/mcp_auth]]）。audit 与 enforce 模式**都写**。
 `mcp_auth_tokenless`：audit 模式下无 token 的 POST，按 60s 窗口聚合采样写入
-（detail 含 per (自述 user_id, method, path) 计数——自述身份就是接入名单，
+（detail 含 per (自述 user_id, method, path, port) 计数——port 标明是哪个
+module server(一进程 front 全部端口),自述身份就是接入名单，
 无自述归 "anonymous"）——「零行」才能读作「全员持证」，安静的日志读不出这个
 结论（incident lesson #4/#5）。两者共同构成切 enforce 的度量。同样无需迁移。
 

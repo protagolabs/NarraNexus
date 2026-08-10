@@ -11,10 +11,25 @@ filesystem writes (iron rule #7).
 """
 from __future__ import annotations
 
+import pytest
+
 from xyz_agent_context.agent_framework.loop.broker_client import ExecutorEnsureResult
 from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _dispatch_identity_token,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_local_issuer():
+    """get_local_issuer() is a process-wide singleton that publishes its
+    public key only on first use — without a reset, a second self-signing
+    test with a different tmp_path would read an empty dir (ordering
+    coupling flagged by the pre-push review)."""
+    from xyz_agent_context.module.identity import tokens
+
+    tokens._local_issuer = None
+    yield
+    tokens._local_issuer = None
 
 
 def test_cloud_token_from_ensure_wins(monkeypatch, tmp_path):
