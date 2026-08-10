@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — bearer 追加 identity_token(第 9 段;可验证身份,蓝图 P1)
+
+此前各段全是**自声明**事实(fail-open 便利);这一段是**证明**:平台签的
+Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自签),
+绑 `sub=user_id`。签/验/策略都在 [[identity/tokens]] / [[identity/mcp_auth]],
+本模块只负责运载与解析 —— 分工:这里回答"调用者**说**自己是谁",identity/
+包回答"能不能**证明**"。
+
+- 上 bearer 是必然:codex 只转发 Authorization;JWT 字符集无 `~`,field-safe
+  (有测试钉住)。显式头 `X-NarraNexus-Identity-Token` 照旧双发。
+- 新增 `stamp_identity_token(mcp_servers, token)`:在 **dispatch 时**(step_3,
+  ensure 之后)往已建好的 headers 里补 token —— context_runtime 盖章时云 token
+  还不存在(broker 是签发方)。重发走 `agent_id_headers` 这唯一构造器,
+  绝不手搓第二个 bearer;非 nx-agent 的真 bearer 原样不动。
+- 契约测试:parametrize 扩到 9、逐位钉 `BEARER_FIELDS[8]`(与 #255 的
+  team_id/event_id 撞位后按「先到 dev 者得位」第三次裁决,让到第 9),新增
+  stamp 往返与"外来 bearer 不重写"用例;stamp 重建**透传全部既有字段**,
+  漏一个=codex 通道静默丢该事实(round-6 review #2)。
+- bearer 记录既已是跨进程契约,解析器升公开面:`parse_bearer_identity()`
+  (同一实现的公开名)与 `BEARER_AGENT_PREFIX` 经 `module/__init__` 导出,
+  包外消费方(backend/auth、identity/verify)不再伸进私有名(review #4)。
+- `_wrap_fn` 的 **async** 分支在占位符守卫之后接 OwnerScopedPolicy
+  (`identity/mcp_auth.check_agent_ownership`,lazy import 避循环):验签身份
+  不拥有 resolved agent_id → enforce 下返回工具自身 shape 的错误值(复用
+  `returns_dict` 判形),audit 下放行只记账;policy 自身异常一律放行
+  (identity is never flow control)。**只包 async**:93/93 个声明 agent_id
+  的工具全是 coroutine,且有测试
+  (`test_every_agent_id_tool_is_async`)钉死该不变式 —— 新增 sync 工具声明
+  agent_id 会直接红。
+
 ## 2026-08-07 (二次) — root_run_id 落在第 6 位,不是第 5 位
 
 `user_id`(dev)与 `root_run_id`(级联停止)是并行写的,**两者都曾落在

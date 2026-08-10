@@ -419,7 +419,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7, 8])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
     count — and each present field must land in its own slot.
@@ -445,16 +445,23 @@ def test_every_field_count_parses(count):
         caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 8, "arity changed — update _parse_bearer + this test"
+    assert len(BEARER_FIELDS) == 9, "arity changed — update _parse_bearer + this test"
     assert BEARER_FIELDS[4] == "user_id" and BEARER_FIELDS[5] == "root_run_id", (
         "field ORDER changed — the wire is positional; a swap silently "
         "decodes one fact as another"
     )
+    assert BEARER_FIELDS[6] == "team_id" and BEARER_FIELDS[7] == "event_id", (
+        "field ORDER changed — first-to-dev keeps its slot (#255 landed first)"
+    )
+    assert BEARER_FIELDS[8] == "identity_token", (
+        "identity_token must stay at slot #9 — verifiers read it positionally"
+    )
     values = [
         REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1",
-        # #6 root_run_id, #7 team_id, #8 event_id. The first two were written
-        # in parallel; root_run_id reached dev first and keeps the earlier slot.
-        "evt_root1", "team_1", "evt_1",
+        # #6 root_run_id, #7 team_id, #8 event_id — each pair here was written
+        # in parallel and resolved first-to-dev-keeps-the-slot; identity_token
+        # (this PR) yielded #7 to team_id the same way and lands at #9.
+        "evt_root1", "team_1", "evt_1", "tok.abc",
     ][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
@@ -466,6 +473,14 @@ def test_every_field_count_parses(count):
         assert caller_root_run_id() == (values[5] if count >= 6 else None)
         assert caller_team_id_from_request() == (values[6] if count >= 7 else None)
         assert caller_event_id_from_request() == (values[7] if count >= 8 else None)
+        parsed = _parse_bearer_for_test(_bearer(*values))
+        assert parsed.identity_token == (values[8] if count >= 9 else None)
+
+
+def _parse_bearer_for_test(auth: str):
+    from xyz_agent_context.module._mcp_identity import _parse_bearer
+
+    return _parse_bearer(auth)
 
 
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
@@ -589,3 +604,95 @@ def test_no_errand_scope_emits_no_scope_headers_and_no_trailing_separators():
     assert headers["Authorization"] == f"Bearer {BEARER_AGENT_PREFIX}{REAL}~chat"
     with injected(headers):
         assert caller_errand_scope() == (None, None)
+
+# ---------------------------------------------------------------------------
+# identity_token (last bearer field) — carriage + dispatch-time stamping
+# ---------------------------------------------------------------------------
+
+
+def test_agent_id_headers_carries_identity_token():
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        agent_id_headers,
+    )
+
+    h = agent_id_headers(REAL, user_id="usr_1", identity_token="tok.abc")
+    assert h[IDENTITY_TOKEN_HEADER] == "tok.abc"
+    # codex only forwards the bearer — the token MUST ride it too.
+    assert h["Authorization"].endswith("~tok.abc")
+
+
+def test_agent_id_headers_without_token_is_unchanged():
+    from xyz_agent_context.module._mcp_identity import (
+        IDENTITY_TOKEN_HEADER,
+        agent_id_headers,
+    )
+
+    h = agent_id_headers(REAL, user_id="usr_1")
+    assert IDENTITY_TOKEN_HEADER not in h
+    assert not h["Authorization"].endswith("~")
+
+
+def test_stamp_identity_token_rebuilds_existing_headers():
+    from xyz_agent_context.module._mcp_identity import (
+        _parse_bearer,
+        agent_id_headers,
+        stamp_identity_token,
+    )
+
+    servers = {
+        "awareness": {
+            "url": "http://mcp:7801/sse",
+            "headers": agent_id_headers(REAL, turn_source="chat", user_id="usr_1"),
+        }
+    }
+    stamp_identity_token(servers, "tok.abc")
+    ident = _parse_bearer(servers["awareness"]["headers"]["Authorization"])
+    assert ident.identity_token == "tok.abc"
+    # Every previously-carried fact survives the restamp.
+    assert ident.agent_id == REAL
+    assert ident.turn_source == "chat"
+    assert ident.user_id == "usr_1"
+
+
+def test_stamp_skips_headerless_and_foreign_specs():
+    from xyz_agent_context.module._mcp_identity import stamp_identity_token
+
+    servers = {
+        "no_headers": {"url": "http://mcp:7801/sse"},
+        "foreign": {"url": "http://x/", "headers": {"Authorization": "Bearer real-token"}},
+    }
+    stamp_identity_token(servers, "tok.abc")
+    assert "headers" not in servers["no_headers"]
+    # A non-nx bearer must never be rewritten into an identity record.
+    assert servers["foreign"]["headers"] == {"Authorization": "Bearer real-token"}
+
+
+def test_stamp_preserves_every_bearer_fact():
+    """stamp_identity_token rebuilds the record through the one builder — any
+    field it fails to pass through is ERASED from the bearer, and codex
+    forwards nothing else (round-6 review #2: dropping team_id would silently
+    demote every team turn to private on that adapter). Driven by
+    BEARER_FIELDS itself, so the NEXT appended field trips this test the
+    moment stamp forgets to thread it."""
+    from xyz_agent_context.module._mcp_identity import (
+        BEARER_FIELDS,
+        _parse_bearer,
+        agent_id_headers,
+        stamp_identity_token,
+    )
+
+    values = {
+        name: f"v{i}" for i, name in enumerate(BEARER_FIELDS)
+        if name != "identity_token"
+    }
+    values["agent_id"] = REAL
+    servers = {"m": {"url": "http://mcp:7801/sse", "headers": agent_id_headers(**values)}}
+    stamp_identity_token(servers, "tok.xyz")
+    parsed = _parse_bearer(servers["m"]["headers"]["Authorization"])
+    for name, expected in values.items():
+        assert getattr(parsed, name) == expected, (
+            f"stamp erased {name!r} from the bearer — pass it through in "
+            f"stamp_identity_token"
+        )
+    assert parsed.identity_token == "tok.xyz"
