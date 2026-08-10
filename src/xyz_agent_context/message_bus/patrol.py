@@ -27,7 +27,11 @@ from loguru import logger
 
 from xyz_agent_context.message_bus._bus_activity import is_live
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItem, WorkItemStatus
+from xyz_agent_context.schema.team_work_schema import (
+    WorkItem,
+    WorkItemStatus,
+    patrol_is_on,
+)
 from xyz_agent_context.utils.timezone import utc_now
 
 #: Marks a patrol line in the transcript. The frontend renders it as the room
@@ -138,12 +142,9 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
             if not team:
                 continue
             lead = str(team.get("lead_agent_id") or "")
-            if not lead:
-                continue  # no lead = nobody responsible; we do not pick one
-            # NULL = undecided, and reads as ON for a team that HAS a lead:
-            # setting a lead IS the act of saying "this one is responsible".
-            enabled = team.get("patrol_enabled")
-            if enabled is not None and not enabled:
+            # One rule, one implementation — it also covers "no lead means no
+            # patrol", so this single call replaces both checks.
+            if not patrol_is_on(team):
                 continue
             items = await repo.list_active(team_id)
             if not items:

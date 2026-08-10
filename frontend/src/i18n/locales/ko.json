@@ -164,7 +164,9 @@
           "in_progress": "진행 중",
           "stalled": "정체됨",
           "paused": "일시중지"
-        }
+        },
+        "turnOff": "끄기",
+        "turnOn": "켜기"
       }
     },
     "execution": {

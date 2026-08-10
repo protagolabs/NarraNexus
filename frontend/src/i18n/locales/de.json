@@ -164,7 +164,9 @@
           "in_progress": "in Arbeit",
           "stalled": "blockiert",
           "paused": "pausiert"
-        }
+        },
+        "turnOff": "Aus",
+        "turnOn": "An"
       }
     },
     "execution": {

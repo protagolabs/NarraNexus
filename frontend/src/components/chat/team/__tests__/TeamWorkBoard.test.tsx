@@ -16,11 +16,13 @@ import { TeamWorkBoard } from '../TeamWorkBoard';
 
 const getBoardMock = vi.fn();
 const resumeMock = vi.fn();
+const setPatrolMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     getTeamWorkBoard: (...a: unknown[]) => getBoardMock(...a),
     resumeTeamWorkItem: (...a: unknown[]) => resumeMock(...a),
+    setTeamPatrol: (...a: unknown[]) => setPatrolMock(...a),
   },
 }));
 
@@ -56,6 +58,8 @@ beforeEach(() => {
   getBoardMock.mockReset();
   resumeMock.mockReset();
   resumeMock.mockResolvedValue({ success: true });
+  setPatrolMock.mockReset();
+  setPatrolMock.mockResolvedValue({ success: true });
 });
 
 describe('TeamWorkBoard', () => {
@@ -133,5 +137,40 @@ describe('TeamWorkBoard', () => {
     render(<TeamWorkBoard teamId="t1" now={NOW} />);
 
     expect(await screen.findByText('chat.team.board.patrolOff')).toBeTruthy();
+  });
+});
+
+describe('TeamWorkBoard · patrol switch', () => {
+  test('the sweep can be switched off from here', async () => {
+    getBoardMock.mockResolvedValue(board({ items: [LIVE] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('patrol-toggle'));
+
+    await waitFor(() => expect(setPatrolMock).toHaveBeenCalledWith('t1', false));
+  });
+
+  test('a team with patrol OFF keeps the panel even with an empty board', async () => {
+    // Otherwise the only control for a standing user setting disappears, and
+    // there is no way to switch it back on.
+    getBoardMock.mockResolvedValue(board({ items: [], patrol_enabled: false }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    expect(await screen.findByTestId('patrol-toggle')).toBeTruthy();
+    expect(screen.getByText('chat.team.board.patrolOff')).toBeTruthy();
+  });
+
+  test('a failed toggle reverts', async () => {
+    getBoardMock.mockResolvedValue(board({ items: [LIVE] }));
+    setPatrolMock.mockRejectedValue(new Error('nope'));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('patrol-toggle'));
+
+    // Optimistic flip undone — the label must not claim a state the server
+    // never accepted.
+    await waitFor(() =>
+      expect(screen.getByTestId('patrol-toggle').textContent).toBe('chat.team.board.turnOff'),
+    );
   });
 });

@@ -428,11 +428,35 @@ class MessageBusTrigger:
             logger.warning(f"[patrol] candidate sweep failed: {e}")
             return 0
 
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
+
         count = 0
         for team_id, lead_agent_id, channel_id in due:
             # Its own turn is still going — a patrol would just queue behind the
             # per-agent lock, and skipping is cheaper than holding a slot.
             if lead_agent_id in self._in_flight:
+                continue
+            # Same gate message dispatch uses. Without it a lead with a dead key
+            # or exhausted quota gets woken every 180-600s, forever, to run a
+            # turn that cannot succeed — the exact loop the breaker exists to
+            # stop, entered through a lane that did not ask it.
+            try:
+                cb_skip, cb_reason = await should_skip(lead_agent_id)
+            except Exception:  # noqa: BLE001 — an unreadable breaker never blocks
+                cb_skip, cb_reason = False, ""
+            if cb_skip:
+                logger.info(
+                    f"[patrol] skipping {lead_agent_id} (circuit-breaker: {cb_reason})"
+                )
+                # The cursor still moves: leaving it stale would make this team
+                # a candidate on every single cycle for as long as it is broken.
+                try:
+                    from xyz_agent_context.message_bus.patrol import mark_patrolled
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                    await mark_patrolled(await get_db_client(), team_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[patrol] cursor stamp failed for {team_id}: {e}")
                 continue
             self._dispatch_patrol(team_id, lead_agent_id, channel_id)
             count += 1
@@ -451,6 +475,15 @@ class MessageBusTrigger:
         async def _guarded() -> None:
             lock = self._agent_locks.setdefault(lead_agent_id, asyncio.Lock())
             async with lock, self._semaphore:
+                # Same bookkeeping as `_process_agent`: liveness_snapshot's
+                # starvation check and `longest_running_agent` both count only
+                # `running` entries, so a patrol that never sets it would hold a
+                # worker slot while the heartbeat reported it as merely waiting
+                # — the 2026-07-27 shape (33 h of nothing, liveness still green)
+                # one lane over.
+                flight = self._in_flight.get(lead_agent_id)
+                if flight is not None:
+                    flight.running = True
                 await self._run_patrol(team_id, lead_agent_id, channel_id)
 
         task = asyncio.create_task(_guarded())
@@ -1111,6 +1144,21 @@ class MessageBusTrigger:
             # Facts first, and the platform's own: "is this stalled" is derived
             # from activity data, never from the model's read of the room
             # (iron rule #15). The lead's judgement starts after this line.
+            # The speech cap is checked BEFORE the turn, not after it.
+            #
+            # Checking only at post time meant a capped patrol still ran a full
+            # LLM turn and threw the output away: with a stalled board the pace
+            # is 180s (10 sweeps per 30-minute window) against a cap of 6, so
+            # roughly four entire runs per window were burned for nothing —
+            # right next to the "empty board, zero runs" cost guarantee this
+            # feature advertises. The sweep still records its cursor below, so
+            # a capped team does not turn into a hot candidate.
+            if not await may_patrol_speak(db, team_id):
+                logger.info(
+                    f"[patrol] speech cap reached for {team_id}; skipping the sweep"
+                )
+                return
+
             stalled = await detect_stalled_items(db, team_id)
             member_map = await self._team_member_names(channel_id)
             team_owner = await self._get_agent_owner(lead_agent_id)
@@ -1145,6 +1193,8 @@ class MessageBusTrigger:
             text = (response_text or "").strip()
             if not text:
                 return  # nothing wrong, nothing said
+            # Re-checked because the pre-turn gate opened minutes ago and a
+            # concurrent sweep in another process may have used the budget.
             if not await may_patrol_speak(db, team_id):
                 logger.info(f"[patrol] speech cap reached for {team_id}; staying quiet")
                 return
@@ -1405,23 +1455,31 @@ class MessageBusTrigger:
         how many agent hops have happened since the last human message. A user
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
+        # Patrol lines are excluded IN SQL, not skipped after the fact.
+        #
+        # A patrol line is the PLATFORM taking stock, not an agent taking a
+        # turn, so it must not count toward the cap (owner decision
+        # 2026-08-07, option a) — otherwise the exemption is self-defeating:
+        # patrol speaks into a room that is already at the cap precisely
+        # because the flow broke, and its own line would push every later
+        # chase @ out of reach.
+        #
+        # Filtering in Python was not enough. The window is a fixed LIMIT, so
+        # a skipped row still consumed a slot in it: with 3 patrol lines among
+        # the last 6 messages, only 3 countable hops fit, `depth` could never
+        # reach MAX_TEAM_AGENT_HOPS, and the runaway-@ cap silently stopped
+        # applying — in exactly the rooms patrol frequents, since it only
+        # speaks where a chain is already looping.
         rows = await self._bus._db.execute(
-            f"SELECT from_agent, msg_type FROM bus_messages WHERE channel_id = {ph} "
+            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+            f"AND (msg_type IS NULL OR msg_type != {ph}) "
             f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id,),
+            (channel_id, PATROL_MSG_TYPE),
         )
         depth = 0
         for r in rows or []:
             if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
                 break
-            # A patrol line is the PLATFORM taking stock, not an agent taking a
-            # turn: it neither counts toward the cap nor breaks the run of agent
-            # messages (owner decision 2026-08-07, option a). Without this the
-            # exemption would be self-defeating — patrol speaks into a room that
-            # is already at the cap precisely because the flow broke, so its own
-            # line would push every later chase @ out of reach.
-            if str(r.get("msg_type") or "") == PATROL_MSG_TYPE:
-                continue
             depth += 1
         return depth
 

@@ -197,7 +197,9 @@
           "in_progress": "in progress",
           "stalled": "stalled",
           "paused": "paused"
-        }
+        },
+        "turnOff": "Turn off",
+        "turnOn": "Turn on"
       }
     },
     "execution": {

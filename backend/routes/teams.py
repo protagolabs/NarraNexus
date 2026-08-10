@@ -914,11 +914,16 @@ async def get_work_board(team_id: str, request: Request):
 
     from xyz_agent_context.schema.team_work_schema import WorkItemStatus
 
-    rows = await db.get("team_work_items", {"team_id": team_id})
-    visible = [
-        r for r in rows or []
-        if r.get("status") in (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
-    ]
+    # Filtered in SQL, not in Python: this endpoint is polled every 5s by the
+    # board panel, and a long-lived team's `done`/`cancelled` history only ever
+    # grows — reading all of it to throw most of it away scales with age.
+    visible_states = (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
+    marks = ",".join(["%s"] * len(visible_states))
+    visible = await db.execute(
+        f"SELECT * FROM team_work_items WHERE team_id = %s AND status IN ({marks}) "
+        f"ORDER BY created_at ASC",
+        (team_id, *visible_states),
+    ) or []
     # list_members_by_team returns agent_ids, not rows (see the callers above).
     member_ids = list(await TeamMemberRepository(db).list_members_by_team(team_id))
     agent_rows = await db.get_by_ids("agents", "agent_id", member_ids) if member_ids else []
@@ -934,7 +939,7 @@ async def get_work_board(team_id: str, request: Request):
             status=r["status"],
             created_at=format_for_api(r.get("created_at")),
         )
-        for r in sorted(visible, key=lambda r: str(r.get("created_at") or ""))
+        for r in visible
     ]
     return WorkBoardResponse(
         success=True,
@@ -945,12 +950,10 @@ async def get_work_board(team_id: str, request: Request):
 
 
 def _patrol_enabled(team) -> bool:
-    """NULL reads as ON for a team that has a lead — setting a lead IS the act
-    of saying "this one is responsible"."""
-    raw = getattr(team, "patrol_enabled", None)
-    if raw is None:
-        return bool(getattr(team, "lead_agent_id", None))
-    return bool(raw)
+    """See ``team_work_schema.patrol_is_on`` — one implementation, two callers."""
+    from xyz_agent_context.schema.team_work_schema import patrol_is_on
+
+    return patrol_is_on(team)
 
 
 @router.post("/{team_id}/work-items/{item_id}/resume", response_model=TeamOperationResponse)

@@ -197,7 +197,9 @@
           "in_progress": "进行中",
           "stalled": "已停滞",
           "paused": "已暂停"
-        }
+        },
+        "turnOff": "关闭",
+        "turnOn": "开启"
       }
     },
     "execution": {

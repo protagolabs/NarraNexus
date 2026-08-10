@@ -196,3 +196,49 @@ async def test_outside_a_team_room_the_board_is_unavailable(db_client, monkeypat
 
     assert r["success"] is False
     assert "team" in r["error"].lower()
+
+
+# ── cross-team scope ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_write_tools_refuse_another_teams_item(db_client, monkeypatch):
+    """An item id alone must not be a write capability.
+
+    Reachable without an attacker: an agent can belong to several teams, and
+    the prompt's work-board section prints `id=` for every item — so last
+    turn's board from team A sits in the context while this turn runs in team
+    B. The board is the only evidence of who gets chased, so a cross-team write
+    silences the wrong person.
+    """
+    other = await TeamWorkItemRepository(db_client).create_item(
+        team_id="t_other", channel_id="ch_other", title="not yours",
+        created_by="agent_lead", assignee_id="agent_x",
+    )
+
+    async def _get_db():
+        return db_client
+
+    async def _room(db, agent_id):
+        return ("t1", "ch_1")  # this turn runs in t1, the item lives in t_other
+
+    monkeypatch.setattr(mod, "_get_db", _get_db)
+    monkeypatch.setattr(mod, "_resolve_team_room", _room)
+    monkeypatch.setattr(mod, "caller_root_run_id", lambda: "evt_root")
+    mcp = _FakeMCP()
+    mod.register_work_board_mcp_tools(mcp)
+
+    for call in (
+        mcp.tools["work_claim_item"]("agent_a", other.item_id),
+        mcp.tools["work_complete_item"]("agent_a", other.item_id),
+        mcp.tools["work_update_status"]("agent_a", other.item_id, WorkItemStatus.DONE),
+    ):
+        r = await call
+        assert r["success"] is False
+        # "not found", never "exists but is not yours" — the latter would leak
+        # the other team's ids straight back into this context.
+        assert "not found" in r["error"].lower()
+
+    # And the other team's board is untouched.
+    assert (await TeamWorkItemRepository(db_client).get(other.item_id)).status == (
+        WorkItemStatus.IN_PROGRESS
+    )

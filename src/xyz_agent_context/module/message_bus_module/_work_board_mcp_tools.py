@@ -71,6 +71,29 @@ async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional
         return (None, None)
 
 
+async def _item_in_my_room(db, agent_id: str, item_id: str):
+    """The item, if it belongs to the team this turn is running in — else None.
+
+    `item_id` is globally unique, so a tool that only takes an id will happily
+    write across team boundaries. That is reachable without an attacker: an
+    agent can belong to several teams, and the work-board section of the prompt
+    prints `id=` for every item, so last turn's board from team A is sitting in
+    the context while this turn runs in team B.
+
+    Callers must report a plain "not found" on None — "exists but is not yours"
+    would leak the other team's ids back into the same context.
+    """
+    from xyz_agent_context.repository.team_work_repository import (
+        TeamWorkItemRepository,
+    )
+
+    team_id, _ = await _resolve_team_room(db, agent_id)
+    if not team_id:
+        return None
+    item = await TeamWorkItemRepository(db).get(item_id)
+    return item if item and item.team_id == team_id else None
+
+
 _NO_ROOM = {
     "success": False,
     "error": (
@@ -184,6 +207,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         Returns:
             dict with success.
         """
+        db = await _get_db()
+        if not await _item_in_my_room(db, agent_id, item_id):
+            return _not_found(item_id)
         repo = await _repo()
         if not await repo.claim(item_id, agent_id):
             return _not_found(item_id)
@@ -204,6 +230,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         Returns:
             dict with success.
         """
+        db = await _get_db()
+        if not await _item_in_my_room(db, agent_id, item_id):
+            return _not_found(item_id)
         repo = await _repo()
         if not await repo.set_status(item_id, WorkItemStatus.DONE):
             return _not_found(item_id)
@@ -238,6 +267,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
                     f"'cancelled' is the user's decision."
                 ),
             }
+        db = await _get_db()
+        if not await _item_in_my_room(db, agent_id, item_id):
+            return _not_found(item_id)
         repo = await _repo()
         if not await repo.set_status(item_id, status):
             return _not_found(item_id)

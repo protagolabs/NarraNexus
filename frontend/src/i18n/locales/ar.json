@@ -168,7 +168,9 @@
           "in_progress": "قيد التنفيذ",
           "stalled": "متوقفة",
           "paused": "مُعلَّقة"
-        }
+        },
+        "turnOff": "إيقاف",
+        "turnOn": "تشغيل"
       }
     },
     "execution": {

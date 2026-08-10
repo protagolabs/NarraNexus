@@ -72,6 +72,16 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
     return () => { alive = false; window.clearInterval(id); };
   }, [refresh]);
 
+  const togglePatrol = async () => {
+    const next = !patrolEnabled;
+    setPatrolEnabled(next);  // optimistic — the poll corrects a failure
+    try {
+      await api.setTeamPatrol(teamId, next);
+    } catch {
+      setPatrolEnabled(!next);
+    }
+  };
+
   const resume = async (itemId: string) => {
     setResuming(itemId);
     try {
@@ -85,9 +95,11 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
   };
 
   if (!loaded) return null;
-  // An empty board is the normal state for most teams — showing a header with
-  // nothing under it would be permanent chrome for an absent thing.
-  if (items.length === 0) return null;
+  // An empty board shows nothing — permanent chrome for an absent thing is the
+  // debt this room keeps paying off. The exception is a team that switched
+  // patrol OFF: that is a standing setting the user chose, and hiding it would
+  // leave no way to switch it back on.
+  if (items.length === 0 && patrolEnabled) return null;
 
   return (
     <div className="border-t border-[var(--border-subtle)] px-3 py-2">
@@ -153,14 +165,25 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
       {/* Patrol's trace. Shown rather than announced in the room: the sweep
           itself stays silent unless something is wrong, so this is the only
           place the user can see it is happening at all. */}
-      <div className="mt-1.5 font-mono text-[10px]" style={{ color: 'var(--nm-ink30)' }}>
-        {!patrolEnabled
-          ? t('chat.team.board.patrolOff')
-          : lastPatrolAt
-            ? (_ago(lastPatrolAt, now)
-                ? t('chat.team.board.patrolledAgo', { ago: _ago(lastPatrolAt, now) })
-                : t('chat.team.board.patrolledJustNow'))
-            : t('chat.team.board.patrolPending')}
+      <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px]">
+        <span style={{ color: 'var(--nm-ink30)' }}>
+          {!patrolEnabled
+            ? t('chat.team.board.patrolOff')
+            : lastPatrolAt
+              ? (_ago(lastPatrolAt, now)
+                  ? t('chat.team.board.patrolledAgo', { ago: _ago(lastPatrolAt, now) })
+                  : t('chat.team.board.patrolledJustNow'))
+              : t('chat.team.board.patrolPending')}
+        </span>
+        <button
+          type="button"
+          onClick={togglePatrol}
+          data-testid="patrol-toggle"
+          className="ml-auto rounded px-1.5 py-0.5 underline-offset-2 transition-colors hover:underline"
+          style={{ color: 'var(--nm-ink50)' }}
+        >
+          {patrolEnabled ? t('chat.team.board.turnOff') : t('chat.team.board.turnOn')}
+        </button>
       </div>
     </div>
   );

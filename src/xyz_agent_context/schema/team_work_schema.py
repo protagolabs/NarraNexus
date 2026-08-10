@@ -15,7 +15,7 @@ reply closes it); a work item is a TASK-level object maintained explicitly
 through tools, and routinely spans several errands.
 """
 
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -68,3 +68,22 @@ class WorkItem(BaseModel):
     root_run_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+def patrol_is_on(team: Any) -> bool:
+    """Whether the Leader's periodic sweep is active for this team.
+
+    THE single implementation of a rule that is easy to state and easy to get
+    subtly wrong: ``patrol_enabled`` is NULL for every team that predates the
+    column, and NULL reads as ON — but only for a team that HAS a lead, because
+    setting a lead is the act of naming someone responsible. A team with no
+    lead never patrols; the platform does not appoint one.
+
+    Accepts either a ``Team`` model or a raw row dict, since the route layer
+    holds the former and the trigger the latter.
+    """
+    get = team.get if isinstance(team, dict) else lambda k, d=None: getattr(team, k, d)
+    if not (get("lead_agent_id") or ""):
+        return False
+    raw = get("patrol_enabled")
+    return True if raw is None else bool(raw)

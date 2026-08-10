@@ -505,6 +505,13 @@ class ApiClient {
    * caller should render "stopping" off this resolution and watch the run's
    * observation stream for the terminal state.
    */
+  async cancelRun(runId: string): Promise<CancelRunResponse> {
+    return this.request<CancelRunResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/cancel`,
+      { method: 'POST' },
+    );
+  }
+
   /** The team's work board, INCLUDING parked items — a stopped task must not
    *  look deleted, and un-parking it is the user's call. */
   async getTeamWorkBoard(teamId: string): Promise<TeamWorkBoardResponse> {
@@ -527,13 +534,6 @@ class ApiClient {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/patrol`,
       { method: 'PUT', body: JSON.stringify({ enabled }) },
-    );
-  }
-
-  async cancelRun(runId: string): Promise<CancelRunResponse> {
-    return this.request<CancelRunResponse>(
-      `/api/runs/${encodeURIComponent(runId)}/cancel`,
-      { method: 'POST' },
     );
   }
 

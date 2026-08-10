@@ -202,3 +202,67 @@ async def test_a_user_message_still_resets_the_depth(db_client):
     trigger = MessageBusTrigger(bus=bus)
 
     assert await trigger._team_cascade_depth(CHANNEL) == 0
+
+
+@pytest.mark.asyncio
+async def test_patrol_lines_do_not_eat_the_depth_window(db_client):
+    """Skipping patrol rows in Python was not enough — they still ate the window.
+
+    The depth query is a fixed `LIMIT MAX_TEAM_AGENT_HOPS + 2`. A skipped row
+    still consumed one of those slots, so with enough patrol lines interleaved
+    the countable hops could never reach the cap, and the runaway-@ protection
+    stopped applying — precisely in the rooms patrol frequents, since it only
+    speaks where a chain is already looping.
+    """
+    await _seed_room(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+    # Interleave so the newest 6 rows hold 3 patrol lines + 3 agent messages,
+    # while 4 real hops exist just outside that window.
+    for i in range(4):
+        await bus.send_message(from_agent="agent_worker", to_channel=CHANNEL,
+                               content=f"hop{i}")
+    for i in range(3):
+        await bus.send_message(
+            from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}", to_channel=CHANNEL,
+            content=f"sweep{i}", msg_type=PATROL_MSG_TYPE,
+        )
+    trigger = MessageBusTrigger(bus=bus)
+
+    from xyz_agent_context.message_bus.message_bus_trigger import MAX_TEAM_AGENT_HOPS
+
+    # All four agent hops must still be visible, so the cap can fire.
+    assert await trigger._team_cascade_depth(CHANNEL) >= MAX_TEAM_AGENT_HOPS
+
+
+@pytest.mark.asyncio
+async def test_a_capped_patrol_does_not_run_the_turn_at_all(db_client):
+    """The cap gates the TURN, not just the message.
+
+    Checking only at post time still ran a full LLM turn and threw the output
+    away: with a stalled board the pace is 180s against a cap of 6 per 30
+    minutes, so roughly four entire runs per window were burned for nothing —
+    right next to the "empty board, zero runs" guarantee this feature makes.
+    """
+    await _seed_room(db_client)
+    repo = TeamWorkItemRepository(db_client)
+    await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="OCR",
+                           created_by="agent_lead", assignee_id="agent_worker")
+    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+
+    await db_client.update("teams", {"team_id": TEAM}, {
+        "patrol_spoke_at": utc_now(), "patrol_spoke_count": PATROL_SPEECH_MAX,
+    })
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    ran = {"count": 0}
+
+    async def _invoke(**kwargs):
+        ran["count"] += 1
+        return ("@Bruno 还在吗?", "evt_x")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    assert ran["count"] == 0, "capped patrol must not spend an LLM turn"
+    # The cursor still moves, or a capped team becomes a hot candidate.
+    assert (await db_client.get_one("teams", {"team_id": TEAM}))["last_patrol_at"]
