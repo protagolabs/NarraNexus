@@ -65,6 +65,16 @@ class AgentDataStore(Protocol):
 
     async def delete_entity(self, agent_id: str, entity_id: str) -> dict: ...
 
+    async def search_social_network(
+        self, agent_id: str, search_keyword: str, search_type: str, top_k: int
+    ) -> dict: ...
+
+    async def get_contact_info(self, agent_id: str, entity_id: str) -> dict: ...
+
+    async def get_agent_social_stats(
+        self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
+    ) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -126,6 +136,16 @@ def _social_id_reject(*entity_ids: str) -> Optional[dict]:
             return {"success": False, "message": "entity id is empty"}
         if len(eid) > _SOCIAL_ID_MAX:
             return {"success": False, "message": f"entity id too long (max {_SOCIAL_ID_MAX} chars)"}
+    return None
+
+
+def _social_search_reject(search_keyword: str) -> Optional[dict]:
+    """Mirror the /recall route's search_keyword Field(1..512) so both stores
+    reject identically. ``results`` key matches the search tool's failure shape."""
+    if len(search_keyword) < 1:
+        return {"success": False, "message": "search_keyword is empty", "results": []}
+    if len(search_keyword) > _QUERY_MAX:
+        return {"success": False, "message": f"search_keyword too long (max {_QUERY_MAX} chars)", "results": []}
     return None
 
 
@@ -223,17 +243,16 @@ class DirectStore:
     async def _social_module(self, agent_id: str):
         """Resolve the agent's SocialNetworkModule instance and build a temp
         module bound to it — the same (instance lookup + module construction)
-        the MCP tool's ``_get_instance_and_module`` does, and the same the
-        backend social write routes do.
+        the backend social routes do (this is where the tool's old
+        ``_get_instance_and_module`` logic moved).
 
         Returns (module, instance_id, None) on success, or (None, None,
         failure_dict) where failure_dict is the seam's own ``message``-shaped
         dict — for a missing instance OR any db/resolution error — so a caller
         never sees an exception escape (the DirectStore invariant, module
         docstring: only ever return a dict; the memory methods keep it the same
-        way). SocialNetworkModule is imported lazily (the tool passes it in as
-        ``module_class`` to dodge a circular import at module load; a lazy
-        import here does the same)."""
+        way). SocialNetworkModule is imported lazily here to avoid a circular
+        import at module load."""
         from xyz_agent_context.repository import InstanceRepository
         from xyz_agent_context.module.social_network_module import (
             SocialNetworkModule,
@@ -306,6 +325,59 @@ class DirectStore:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[social.delete_entity] failed: {e}")
             return {"success": False, "message": f"Error: {e}"}
+
+    async def search_social_network(
+        self, agent_id: str, search_keyword: str, search_type: str, top_k: int
+    ) -> dict:
+        reject = _social_search_reject(search_keyword)
+        if reject is not None:
+            return reject
+        top_k = _clamp_limit(top_k)
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return {**err, "results": []}  # search tool's no-instance shape
+        try:
+            return await module.search_network(
+                search_keyword=search_keyword, instance_id=instance_id,
+                search_type=search_type, top_k=top_k,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.search_social_network] failed: {e}")
+            return {"success": False, "message": f"Error: {e}", "results": []}
+
+    async def get_contact_info(self, agent_id: str, entity_id: str) -> dict:
+        from xyz_agent_context.module.social_network_module import format_contact_result
+
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return err  # get_contact_info's no-instance shape (no results key)
+        try:
+            recall = await module.recall_entity_info(entity_id, instance_id)
+            return format_contact_result(entity_id, recall)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.get_contact_info] failed: {e}")
+            return {"success": False, "message": f"Error: {e}"}
+
+    async def get_agent_social_stats(
+        self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
+    ) -> dict:
+        from xyz_agent_context.module.social_network_module import format_stats_result
+
+        top_k = _clamp_limit(top_k)
+        module, instance_id, err = await self._social_module(agent_id)
+        if err is not None:
+            return {**err, "results": []}  # stats tool's no-instance shape
+        try:
+            stats = await module.get_agent_stats(
+                instance_id=instance_id, sort_by=sort_by, top_k=top_k, filter_tags=filter_tags,
+            )
+            return format_stats_result(sort_by, stats)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social.get_agent_social_stats] failed: {e}")
+            return {"success": False, "message": f"Error: {e}", "results": []}
 
 
 class HttpStore:
@@ -424,6 +496,44 @@ class HttpStore:
             f"/api/agents/{agent_id}/social-network/delete-entity",
             json={"entity_id": entity_id},
             failure_extra={},
+        ))
+
+    # Social reads: the /recall, /contact, /stats twin routes return the tool
+    # dict shape verbatim (message-keyed), so on 2xx the body passes straight
+    # through. _social_write_message only bites on _parse_dict's own transport
+    # degradations (which are error-keyed) — mapping them onto the tool's
+    # `message` key so every social failure the agent sees is uniform.
+    async def search_social_network(
+        self, agent_id: str, search_keyword: str, search_type: str, top_k: int
+    ) -> dict:
+        reject = _social_search_reject(search_keyword)
+        if reject is not None:
+            return reject
+        top_k = _clamp_limit(top_k)
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/recall",
+            json={"search_keyword": search_keyword, "search_type": search_type, "top_k": top_k},
+            failure_extra={"results": []},
+        ))
+
+    async def get_contact_info(self, agent_id: str, entity_id: str) -> dict:
+        reject = _social_id_reject(entity_id)
+        if reject is not None:
+            return reject
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/contact",
+            json={"entity_id": entity_id},
+            failure_extra={},
+        ))
+
+    async def get_agent_social_stats(
+        self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
+    ) -> dict:
+        top_k = _clamp_limit(top_k)
+        return _social_write_message(await self._post_dict(
+            f"/api/agents/{agent_id}/social-network/stats",
+            json={"sort_by": sort_by, "top_k": top_k, "filter_tags": filter_tags},
+            failure_extra={"results": []},
         ))
 
     async def _send(self, method: str, path: str, **kw):

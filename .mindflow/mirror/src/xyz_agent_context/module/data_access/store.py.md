@@ -4,6 +4,19 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-5) — social 读 search/contact/stats 迁入 seam
+
+3 个读工具走 seam。DirectStore 复用 `_social_module`（try/except 不抛），调
+`search_network`/`recall_entity_info`/`get_agent_stats`。**结果整形共享**：
+contact 用 [[social_network_module]] 的 `format_contact_result`、stats 用
+`format_stats_result`（DirectStore + 新路由同源，杜绝漂移）；search 原样透传。
+HttpStore 调**新建的 POST 孪生路由** `/social-network/{recall,contact,stats}`
+（POST 避开 GET `/{user_id}` 路径参数冲突；路由直接返回工具 shape=message 键、
+不 normalize，故 HttpStore 2xx 原样透传，`_social_write_message` 只兜自身传输降级）。
+**输入契约**：`_social_search_reject`（search_keyword 1-512）、`_clamp_limit`(top_k≤100)、
+`_social_id_reject`(contact entity_id) 两 store 都跑。no-instance：search/stats 带
+`results:[]`、contact 不带（各按工具 shape）。方法全 repository 无裸 SQL、双方言安全。
+
 ## 2026-08-10 (PR-4) — social 写 extract/merge/delete 迁入 seam
 
 第三个模块（3 个写工具）。DirectStore 复刻工具体：`_social_module` 解析

@@ -468,10 +468,11 @@ class _Inst:
         self.instance_id = instance_id
 
 
-def _social_direct(monkeypatch, *, has_instance=True, method_result=None):
+def _social_direct(monkeypatch, *, has_instance=True, method_result=None,
+                   search_result=None, recall_result=None, stats_result=None):
     """DirectStore with InstanceRepository + SocialNetworkModule stubbed. The
-    fake module's write methods all return ``method_result`` so a test pins the
-    exact dict DirectStore forwards."""
+    fake module's methods return the matching *_result so a test pins the exact
+    dict DirectStore forwards, and record (name, kwargs) in store._calls."""
     store = DirectStore()
     store._calls = {}  # type: ignore[attr-defined]
 
@@ -502,6 +503,18 @@ def _social_direct(monkeypatch, *, has_instance=True, method_result=None):
         async def delete_entity(self, **kw):
             store._calls["method"] = ("delete", kw)  # type: ignore[attr-defined]
             return method_result
+
+        async def search_network(self, **kw):
+            store._calls["method"] = ("search", kw)  # type: ignore[attr-defined]
+            return search_result
+
+        async def recall_entity_info(self, entity_id, instance_id):
+            store._calls["method"] = ("recall", {"entity_id": entity_id, "instance_id": instance_id})  # type: ignore[attr-defined]
+            return recall_result
+
+        async def get_agent_stats(self, **kw):
+            store._calls["method"] = ("stats", kw)  # type: ignore[attr-defined]
+            return stats_result
 
     monkeypatch.setattr("xyz_agent_context.repository.InstanceRepository", FakeInstanceRepo)
     monkeypatch.setattr(
@@ -669,7 +682,125 @@ def test_social_direct_db_failure_stays_in_band(monkeypatch):
         return object()
 
     store._db = fake_db  # type: ignore[method-assign]
+    # Both a write and a read must degrade in-band (reads share _social_module).
     out = asyncio.run(store.delete_entity(AGENT, "ent9"))
     assert out["success"] is False
     assert "message" in out and "error" not in out
     assert "db locked" in out["message"]
+
+    read = asyncio.run(store.search_social_network(AGENT, "alice", "auto", 5))
+    assert read["success"] is False
+    assert "message" in read and "error" not in read
+    assert "db locked" in read["message"]
+    assert read["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# social reads (PR-5): search / get_contact_info / get_agent_social_stats
+# ---------------------------------------------------------------------------
+
+
+def test_social_search_parity(monkeypatch):
+    body = {"success": True, "search_type": "keyword", "results": [{"entity_id": "u1"}], "count": 1}
+    d = _social_direct(monkeypatch, search_result=body)
+    dr = asyncio.run(d.search_social_network(AGENT, "alice", "auto", 5))
+    assert dr == body  # search_network's dict passes through raw
+    h = _social_http(monkeypatch, route_body=body)
+    hr = asyncio.run(h.search_social_network(AGENT, "alice", "auto", 5))
+    assert hr == body == dr
+
+
+def test_social_contact_parity(monkeypatch):
+    # Both DirectStore and the route shape recall_entity_info via the SAME
+    # format_contact_result — feed the http side the real function's output so
+    # the equality is a genuine cross-path check.
+    from xyz_agent_context.module.social_network_module import format_contact_result
+
+    recall = {"success": True, "entity": {"entity_name": "Alice", "contact_info": {"email": "a@x.com"}}}
+    expected = {"success": True, "entity_id": "u1", "entity_name": "Alice", "contact_info": {"email": "a@x.com"}}
+    d = _social_direct(monkeypatch, recall_result=recall)
+    dr = asyncio.run(d.get_contact_info(AGENT, "u1"))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=format_contact_result("u1", recall))
+    hr = asyncio.run(h.get_contact_info(AGENT, "u1"))
+    assert hr == expected == dr
+
+
+def test_social_contact_not_found_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import format_contact_result
+
+    recall = {"success": False, "message": "No information found for entity: u9"}
+    expected = {"success": False, "message": "No information found for entity: u9"}
+    d = _social_direct(monkeypatch, recall_result=recall)
+    dr = asyncio.run(d.get_contact_info(AGENT, "u9"))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=format_contact_result("u9", recall))
+    hr = asyncio.run(h.get_contact_info(AGENT, "u9"))
+    assert hr == expected == dr
+
+
+def test_social_stats_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import format_stats_result
+
+    stats_list = [{"entity_name": "Bob", "interaction_count": 3}]
+    expected = {"success": True, "sort_by": "recent", "count": 1, "results": stats_list}
+    d = _social_direct(monkeypatch, stats_result=stats_list)
+    dr = asyncio.run(d.get_agent_social_stats(AGENT, "recent", 5, None))
+    assert dr == expected
+    h = _social_http(monkeypatch, route_body=format_stats_result("recent", stats_list))
+    hr = asyncio.run(h.get_agent_social_stats(AGENT, "recent", 5, None))
+    assert hr == expected == dr
+
+
+def test_social_read_no_instance_parity(monkeypatch):
+    from xyz_agent_context.module.social_network_module import social_instance_not_found_msg
+
+    # search/stats no-instance carry results:[]; contact does NOT (matches tools).
+    search_exp = {"success": False, "message": social_instance_not_found_msg(AGENT), "results": []}
+    d = _social_direct(monkeypatch, has_instance=False)
+    assert asyncio.run(d.search_social_network(AGENT, "x", "auto", 5)) == search_exp
+    h = _social_http(monkeypatch, route_body=dict(search_exp))
+    assert asyncio.run(h.search_social_network(AGENT, "x", "auto", 5)) == search_exp
+
+    contact_exp = {"success": False, "message": social_instance_not_found_msg(AGENT)}
+    d2 = _social_direct(monkeypatch, has_instance=False)
+    assert asyncio.run(d2.get_contact_info(AGENT, "u1")) == contact_exp
+
+
+def test_social_read_bounds_parity(monkeypatch):
+    empty = {"success": False, "message": "search_keyword is empty", "results": []}
+    d = _social_direct(monkeypatch, search_result={"success": True, "results": []})
+    h = _social_http(monkeypatch, route_body={"success": True, "results": []})
+    assert asyncio.run(d.search_social_network(AGENT, "", "auto", 5)) == empty
+    assert asyncio.run(h.search_social_network(AGENT, "", "auto", 5)) == empty  # rejected pre-send
+    # top_k=200 clamps to 100 on both; DirectStore records the kwargs it passed.
+    asyncio.run(d.search_social_network(AGENT, "alice", "auto", 200))
+    assert d._calls["method"] == (
+        "search",
+        {"search_keyword": "alice", "instance_id": "social_1", "search_type": "auto", "top_k": 100},
+    )
+
+
+def test_social_http_read_forwards_to_the_right_route_and_body(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.url.path, body))
+        return httpx.Response(200, json={"success": True, "results": []})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+
+    asyncio.run(h.search_social_network(AGENT, "alice", "auto", 5))
+    asyncio.run(h.get_contact_info(AGENT, "u1"))
+    asyncio.run(h.get_agent_social_stats(AGENT, "frequent", 10, ["expert:fe"]))
+
+    assert seen[0][0].endswith("/social-network/recall")
+    assert seen[0][1] == {"search_keyword": "alice", "search_type": "auto", "top_k": 5}
+    assert seen[1][0].endswith("/social-network/contact")
+    assert seen[1][1] == {"entity_id": "u1"}
+    assert seen[2][0].endswith("/social-network/stats")
+    assert seen[2][1] == {"sort_by": "frequent", "top_k": 10, "filter_tags": ["expert:fe"]}

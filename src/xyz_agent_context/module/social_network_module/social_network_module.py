@@ -68,6 +68,30 @@ def social_instance_not_found_msg(agent_id: str) -> str:
     return f"No SocialNetworkModule instance found for agent: {agent_id}"
 
 
+def format_contact_result(entity_id: str, recall: dict) -> dict:
+    """Shape ``recall_entity_info``'s result into the ``get_contact_info`` MCP
+    tool's return dict. Shared by the seam's DirectStore and the
+    `/social-network/contact` route (HttpStore path) so both produce byte-
+    identical output — the tool's presentation logic lives here once instead of
+    being hand-copied into the route."""
+    if recall.get("success"):
+        entity = recall.get("entity", {}) or {}
+        return {
+            "success": True,
+            "entity_id": entity_id,
+            "entity_name": entity.get("entity_name"),
+            "contact_info": entity.get("contact_info", {}),
+        }
+    return {"success": False, "message": recall.get("message")}
+
+
+def format_stats_result(sort_by: str, stats: list) -> dict:
+    """Shape ``get_agent_stats``' list into the ``get_agent_social_stats`` MCP
+    tool's return dict. Shared by DirectStore and the `/social-network/stats`
+    route so both agree (see ``format_contact_result``)."""
+    return {"success": True, "sort_by": sort_by, "count": len(stats), "results": stats}
+
+
 class SocialNetworkModule(XYZBaseModule):
     """
     Social Network Module
@@ -648,7 +672,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         Tool definitions have been extracted to _social_mcp_tools.py.
         """
         return create_social_network_mcp_server(
-            self.port, SocialNetworkModule.get_mcp_db_client, SocialNetworkModule
+            self.port, SocialNetworkModule.get_mcp_db_client
         )
 
     # ============================================================================= Helper Methods
@@ -833,7 +857,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         return []
 
-    async def _get_agent_stats(
+    async def get_agent_stats(
         self,
         instance_id: str,
         sort_by: str = "recent",

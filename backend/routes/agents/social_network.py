@@ -41,6 +41,8 @@ from xyz_agent_context.bootstrap.provision import provision_new_agent
 from xyz_agent_context.module.social_network_module import (
     SocialNetworkModule,
     social_instance_not_found_msg,
+    format_contact_result,
+    format_stats_result,
 )
 from xyz_agent_context.schema import (
     SocialNetworkEntityInfo,
@@ -292,6 +294,97 @@ class CreateAgentBody(BaseModel):
     agent_name: str = Field(min_length=1, max_length=128)
     awareness: str = Field(default="", max_length=65536)
     agent_description: str = Field(default="", max_length=2000)
+
+
+# ============================================================================= Read (seam-twin) endpoints
+# These are the byte-parity HTTP twins of the READ MCP tools (search /
+# get_contact_info / get_agent_social_stats). They are POST — not GET — so their
+# action sub-paths (/recall, /contact, /stats) can't collide with the existing
+# GET /{agent_id}/social-network/{user_id} path parameter, and they return the
+# tool's dict shape verbatim (message-keyed failures, no _normalize_write_result)
+# so the HttpStore path passes the body straight through. Owner-gated like the
+# write twins.
+
+
+class RecallSocialBody(BaseModel):
+    """Body for POST .../recall — mirrors `search_social_network` tool params."""
+    search_keyword: str = Field(min_length=1, max_length=512)
+    search_type: str = "auto"
+    top_k: int = Field(default=5, ge=1, le=100)
+
+
+class ContactInfoBody(BaseModel):
+    """Body for POST .../contact — mirrors `get_contact_info` tool params."""
+    entity_id: str = Field(min_length=1, max_length=128)
+
+
+class AgentStatsBody(BaseModel):
+    """Body for POST .../stats — mirrors `get_agent_social_stats` tool params.
+    filter_tags is already the parsed list (the tool splits the comma string)."""
+    sort_by: str = "recent"
+    top_k: int = Field(default=5, ge=1, le=100)
+    filter_tags: list[str] | None = None
+
+
+@router.post("/{agent_id}/social-network/recall")
+async def recall_social_network(agent_id: str, body: RecallSocialBody, request: Request) -> dict:
+    """Search the social network — byte-parity twin of the `search_social_network`
+    MCP tool: same `SocialNetworkModule.search_network` call, same raw dict.
+    The whole body is wrapped so an instance-resolution db failure answers 200
+    with the tool's message shape (matching DirectStore), never a 500 — the
+    store docstring's 'handlers answer 200' contract."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error, "results": []}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        return await temp_module.search_network(
+            search_keyword=body.search_keyword, instance_id=instance_id,
+            search_type=body.search_type, top_k=body.top_k,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error searching social network for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}", "results": []}
+
+
+@router.post("/{agent_id}/social-network/contact")
+async def contact_info(agent_id: str, body: ContactInfoBody, request: Request) -> dict:
+    """Contact details for one entity — byte-parity twin of `get_contact_info`.
+    Shapes `recall_entity_info` via the shared `format_contact_result`."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        recall = await temp_module.recall_entity_info(body.entity_id, instance_id)
+        return format_contact_result(body.entity_id, recall)
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error reading contact info for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}"}
+
+
+@router.post("/{agent_id}/social-network/stats")
+async def agent_social_stats(agent_id: str, body: AgentStatsBody, request: Request) -> dict:
+    """Owner-perspective social stats — byte-parity twin of `get_agent_social_stats`.
+    Shapes `get_agent_stats` via the shared `format_stats_result`."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error, "results": []}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        stats = await temp_module.get_agent_stats(
+            instance_id=instance_id, sort_by=body.sort_by, top_k=body.top_k, filter_tags=body.filter_tags,
+        )
+        return format_stats_result(body.sort_by, stats)
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error reading social stats for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}", "results": []}
 
 
 async def _resolve_social_instance_id(db_client, agent_id: str) -> tuple[str | None, str | None]:
