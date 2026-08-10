@@ -22,8 +22,9 @@ from __future__ import annotations
 # The managed surface's lifecycle in the same table as native ingress:
 # a managed message that produced nothing must be as answerable as a
 # native one (lesson #5 — "the N expected events are all missing" is
-# itself evidence). `managed_ingress_processed` (the run-completed row)
-# predates these and is written by ChannelTriggerBase.managed_after_run.
+# itself evidence). `managed_ingress_processed` (the run-completed row,
+# written by ChannelTriggerBase.managed_after_run) predates the rest.
+EVENT_MANAGED_INGRESS_PROCESSED = "managed_ingress_processed"
 EVENT_MANAGED_INGRESS_DENIED = "managed_ingress_denied"
 EVENT_MANAGED_INGRESS_SILENT = "managed_ingress_silent"
 EVENT_MANAGED_ATTACHMENTS = "managed_attachments_converted"

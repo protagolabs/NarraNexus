@@ -4,14 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
-## 2026-08-10 — managed_audit seam + processed 行合并 audit_details
+## 2026-08-10 — processed 行合并 audit_details(review 后:seam 撤销)
 
-`managed_audit(db, event, **kw)`:coordinator 自己的生命周期点
-(deny/silent/附件转换)需要写审计,但 repo 只在 `_managed_bind` 后
-存在——公开一个自绑定的窄口,而不是把 `_audit` 的绑定职责模糊掉。
 `managed_after_run` 新增 `audit_details`(completions 端点才知道的
 turn 事实:route/duration_ms),合并进 `managed_ingress_processed`
-行;本方法自己的 `replied`/`error` 键**后写覆盖**,调用方伪造不了。
+行(事件名改用 `EVENT_MANAGED_INGRESS_PROCESSED` 常量);本方法自己
+的 `replied`/`error` 键**后写覆盖**,调用方伪造不了。初版加过
+`managed_audit` seam 供 coordinator 借道写审计,review 指出两条
+deny 路径在 trigger 不可用时触发、借道机制天然记不了——coordinator
+改为直接持仓库写,seam 撤销。
 
 ## 2026-08-10 — managed_reply_kwargs seam(managed turn 的信封第二半)
 

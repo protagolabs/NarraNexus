@@ -28,6 +28,7 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -444,11 +445,22 @@ async def write_file(
     return {"ok": True, "path": rel, "size": len(body)}
 
 
+# Same retention as the trigger audits (ChannelTriggerBase
+# .AUDIT_RETENTION_DAYS) — restated here because "manyfold" is not a
+# registered trigger channel, so no trigger's daily cleanup tick ever
+# covers these rows; without a cleanup driver of their own they grow
+# without bound. The sweep piggybacks on the write path, throttled to
+# once per process-day.
+_AUDIT_RETENTION_DAYS = 30
+_audit_cleanup_next: float = 0.0
+
+
 async def _audit_files_write(
     agent_id: str, *, path: str, ok: bool, size: int = 0, error: str = ""
 ) -> None:
     """Best-effort audit row for one write attempt. Never raises — losing
     an audit row must not fail (or double-fail) the write itself."""
+    global _audit_cleanup_next
     try:
         from xyz_agent_context.channel.channel_audit_events import (
             EVENT_MANYFOLD_FILES_WRITE,
@@ -458,7 +470,8 @@ async def _audit_files_write(
         )
 
         db = await get_db_client()
-        await ChannelTriggerAuditRepository("manyfold", db).append(
+        repo = ChannelTriggerAuditRepository("manyfold", db)
+        await repo.append(
             EVENT_MANYFOLD_FILES_WRITE,
             agent_id=agent_id,
             details={
@@ -468,6 +481,15 @@ async def _audit_files_write(
                 "error": error[:200],
             },
         )
+        now = time.monotonic()
+        if now >= _audit_cleanup_next:
+            _audit_cleanup_next = now + 24 * 3600
+            deleted = await repo.cleanup_older_than_days(_AUDIT_RETENTION_DAYS)
+            if deleted:
+                logger.info(
+                    f"[manyfold-files] audit retention: dropped {deleted} "
+                    f"rows older than {_AUDIT_RETENTION_DAYS}d"
+                )
     except Exception as e:  # noqa: BLE001 — audit is a side-channel
         logger.warning(
             f"[manyfold-files:{agent_id}] write audit failed "

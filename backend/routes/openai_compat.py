@@ -528,6 +528,15 @@ def _receipt_completion(
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _managed_audit_details(managed_t0: float) -> dict:
+    """Turn facts for the managed_ingress_processed audit row — one
+    derivation for both the stream and non-stream finally blocks."""
+    return {
+        "route": "normal",
+        "duration_ms": int((time.monotonic() - managed_t0) * 1000),
+    }
+
+
 def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
     """Fire-and-forget the post-run bookkeeping with a done-callback
     (engineering lesson #2: no unobserved task exceptions)."""
@@ -914,12 +923,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         db=db,
                         reply_text="\n".join(reply_parts),
                         error_text=last_error_msg or "",
-                        audit_details={
-                            "route": "normal",
-                            "duration_ms": int(
-                                (time.monotonic() - managed_t0) * 1000
-                            ),
-                        },
+                        audit_details=_managed_audit_details(managed_t0),
                     )
 
         return StreamingResponse(
@@ -994,10 +998,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 db=db,
                 reply_text="\n".join(parts),
                 error_text=error_msg or "",
-                audit_details={
-                    "route": "normal",
-                    "duration_ms": int((time.monotonic() - managed_t0) * 1000),
-                },
+                audit_details=_managed_audit_details(managed_t0),
             )
 
     if error_msg:

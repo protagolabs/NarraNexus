@@ -4,17 +4,22 @@ last_verified: 2026-08-10
 stub: false
 ---
 
-## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B)
+## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B;review 后直写重构)
 
-三个写入点:before_run 拒绝 → `managed_ingress_denied`(带 reason;
-**独立 try**——审计失败若落进外层 except 会把 DENY 翻成 ALLOW);
-silent_ingest 成功 → `managed_ingress_silent`(附件数+receipt;同样
-独立 try,审计失败不得把成功摄取报成 dropped);convert_attachments
-→ `managed_attachments_converted`(**declared vs converted**——转换
-器 never-raise,缺口以前只在进程日志)。after_run 增加
-`audit_details` 透传。设计取舍:复用 `channel_trigger_audit` 表而非
-新建 `instance_managed_ingress_audit`(todo §B 原案)——现表已有
-JSON details/保留期/查询助手,平行审计系统违背铁律 #8。
+coordinator **直接持 `ChannelTriggerAuditRepository` 写**(`_audit`
+never-raise 助手),不经 trigger seam——两条 deny 路径(trigger 加载
+不上、gate 崩溃 fail-closed)恰恰在 trigger 不可用时触发,"依赖坏件
+才能记坏件"的机制记不了。**全部 deny 路径落 `managed_ingress_denied`**
+(含基础设施两条:整渠道级故障若无痕会被二分法误判成"平台没发",
+方向正好指反);silent → `managed_ingress_silent`;convert_attachments
+→ `managed_attachments_converted`(declared vs converted;**workspace
+解析失败的 early-return 也落行**,error="workspace_resolution: …"——
+那是"全部附件丢失"、最需要覆盖的一格)。`_wire_message_id` 统一
+message 身份推导(ParsedMessage 与审计行共用,不漂移);审计行带
+chat_id/sender_id(取自 channel_tag)。after_run 增加 `audit_details`
+透传。设计取舍:复用 `channel_trigger_audit` 表而非新建(todo §B
+原案)——现表已有 JSON details/保留期/查询助手,平行审计系统违背
+铁律 #8。
 
 ## 2026-08-10 — before_run 补 #254 turn envelope
 

@@ -59,6 +59,7 @@ from loguru import logger
 # client seam (agent_runtime/client.py) is itself import-safe, but we
 # keep the call-site import lazy to preserve this guarantee.
 from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_MANAGED_INGRESS_PROCESSED,
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_HISTORIC,
@@ -2022,17 +2023,6 @@ class ChannelTriggerBase(ABC):
         self._managed_bind(db)
         return True, ""
 
-    async def managed_audit(
-        self, db: Any, event_type: str, **kwargs: Any
-    ) -> None:
-        """Audit write for the ingress COORDINATOR's own lifecycle points
-        (deny / silent / attachment conversion). The coordinator can't use
-        ``_audit`` directly — the repo only exists after ``_managed_bind``
-        — and widening ``_audit`` itself would blur who owns the binding.
-        Best-effort like every audit write."""
-        self._managed_bind(db)
-        await self._audit(event_type, **kwargs)
-
     async def managed_after_run(
         self,
         *,
@@ -2089,7 +2079,7 @@ class ChannelTriggerBase(ABC):
         details["replied"] = replied
         details["error"] = (error_text or "")[:200]
         await self._audit(
-            "managed_ingress_processed",
+            EVENT_MANAGED_INGRESS_PROCESSED,
             agent_id=agent_id,
             message_id=message.message_id,
             chat_id=message.chat_id,
