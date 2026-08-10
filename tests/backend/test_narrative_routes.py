@@ -32,6 +32,7 @@ class _FakeDb:
         self._narratives = narratives or {}
         self._links = links or {}
         self._chat_memory = chat_memory or {}
+        self.fanned_out_ids = None  # last ids handed to get_by_ids
 
     async def get_one(self, table, filters):
         if table == "narratives":
@@ -42,14 +43,19 @@ class _FakeDb:
 
     async def get(self, table, filters, limit=None, offset=None, order_by=None):
         if table == "instance_narrative_links":
-            rows = self._links.get(filters.get("narrative_id"), [])
+            rows = list(self._links.get(filters.get("narrative_id"), []))
+            # Honor order_by so the truncation-order fix is actually exercised:
+            # created_at DESC = newest first (rows are seeded oldest-first).
+            if order_by == "created_at DESC":
+                rows = list(reversed(rows))
             return rows[:limit] if limit else rows
         raise AssertionError(f"unexpected get table: {table}")
 
     async def get_by_ids(self, table, id_field, ids):
         # Single-query batch fetch (the N+1 fix uses this instead of a
-        # per-instance get_one loop).
+        # per-instance get_one loop). Records the fan-out for cap assertions.
         if table == "instance_json_format_memory_chat":
+            self.fanned_out_ids = list(ids)
             return [self._chat_memory[i] for i in ids if i in self._chat_memory]
         raise AssertionError(f"unexpected get_by_ids table: {table}")
 
@@ -303,3 +309,87 @@ def test_create_narrative_underlying_failure_is_success_false(client, monkeypatc
     body = r.json()
     assert body["success"] is False
     assert "boom" in body["error"]
+
+
+def _client_for(monkeypatch, db):
+    """A TestClient wired to an arbitrary _FakeDb (owner = u1 for agent_mine)."""
+    async def _db():
+        return db
+
+    monkeypatch.setattr(own, "get_db_client", _db)
+    monkeypatch.setattr(nr, "get_db_client", _db)
+
+    async def _resolve(self, agent_id):
+        return {"agent_mine": "u1"}.get(agent_id, "")
+
+    monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _identity(request: Request, call_next):
+        request.state.user_id = request.headers.get("x-test-user") or None
+        return await call_next(request)
+
+    app.include_router(nr.router, prefix="/api/agents")
+    return TestClient(app)
+
+
+def _nar_row(nid="nar_mine", agent="agent_mine"):
+    return {
+        "narrative_id": nid,
+        "agent_id": agent,
+        "narrative_info": {"name": "N", "description": "", "current_summary": ""},
+        "topic_keywords": [],
+    }
+
+
+def test_chat_history_survives_when_newest_links_are_non_chat(monkeypatch):
+    """Round-3 review #2: the pre-fix code fetched the first 200 links then
+    filtered to chat_, so a narrative whose newest 200 links are non-chat
+    (aware_/job_/…) lost ALL its chat history. The fix fetches 500 ordered by
+    created_at DESC before filtering — the chat link must still come through."""
+    # 200 non-chat links (seeded oldest→newest) then one chat link (newest).
+    links = [{"instance_id": f"aware_{i}"} for i in range(200)]
+    links.append({"instance_id": "chat_real"})
+    db = _FakeDb(
+        narratives={"nar_mine": _nar_row()},
+        links={"nar_mine": links},
+        chat_memory={
+            "chat_real": {
+                "instance_id": "chat_real",
+                "memory": {"messages": [
+                    {"role": "user", "content": "hello",
+                     "meta_data": {"timestamp": "2026-08-10T00:00:00", "event_id": "e1"}}
+                ]},
+            }
+        },
+    )
+    client = _client_for(monkeypatch, db)
+    r = client.get("/api/agents/agent_mine/narratives/nar_mine", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True
+    assert body["message_count"] == 1  # the chat history was NOT dropped
+    assert body["messages"][0]["content"] == "hello"
+    assert body["truncated"] is False
+
+
+def test_over_cap_chat_instances_flag_truncated_and_fan_out_100(monkeypatch):
+    """>100 chat instances → truncated True and exactly 100 fanned out (not
+    all of them)."""
+    links = [{"instance_id": f"chat_{i}"} for i in range(130)]
+    chat_memory = {
+        f"chat_{i}": {"instance_id": f"chat_{i}", "memory": {"messages": []}}
+        for i in range(130)
+    }
+    db = _FakeDb(
+        narratives={"nar_mine": _nar_row()},
+        links={"nar_mine": links},
+        chat_memory=chat_memory,
+    )
+    client = _client_for(monkeypatch, db)
+    r = client.get("/api/agents/agent_mine/narratives/nar_mine", headers=OWNER_HEADERS)
+    assert r.status_code == 200
+    assert r.json()["truncated"] is True
+    assert len(db.fanned_out_ids) == 100  # capped, not all 130

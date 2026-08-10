@@ -15,7 +15,12 @@ stub: false
 - **无 ORDER BY**:LIMIT 不定序取的是引擎心情。加 `order_by="created_at DESC"`
   取最近的链接。
 - 三个同值 `200` 字面量(链接行/消息/扇出)抽成语义各异的 `UPPER_SNAKE` 常量。
-数据访问仍只走 `db.get`/`get_by_ids`(无裸 SQL)。
+数据访问仍只走 `db.get`/`get_by_ids`(无裸 SQL)。round-4 补回归测试
+`test_chat_history_survives_when_newest_links_are_non_chat`(前 200 链接全非
+chat + 之后一条 chat,断言历史不丢)与
+`test_over_cap_chat_instances_flag_truncated_and_fan_out_100`(>100 chat 实例
+断言 truncated=True 且只扇出 100);fake db 真实现 order_by DESC——把代码回退
+成旧的「limit=200 先取后过滤」两条测试即红(已验证),非形式测试。
 
 
 ## 2026-08-10 (pre-open review) — user_id 只信认证身份 + 扇出上界

@@ -4,6 +4,20 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (round-2/3) — 四个写端点全部委托,不再有手工同步复制
+
+round-2 把此前逐字复制的业务逻辑全部提炼成可 import 的委托目标,下方
+「Where the logic lives」那段(说 merge/delete/create-agent 是无法委托的
+闭包复制品、drift 需手工同步)**已作废**:
+- `merge` → `SocialNetworkModule.merge_entities`;`delete-entity` →
+  `SocialNetworkModule.delete_entity`(闭包提炼为真方法,MCP 工具与路由同调);
+- `create-agent` → [[provision]] `provision_new_agent`(agent 行+默认实例+
+  发现注册+bootstrap+默认技能安装+awareness seed 的唯一序列;auth.py / MCP
+  工具 / 本路由三处收敛)。「MCP 副本仍坏 + auth.py 待提炼」那条 todo 也已
+  在本 PR 内做完,不再是后续项。
+- create-agent 成功响应新增可选 `warnings` 字段(seam 收集的非致命供给告警,
+  半供给 agent 的运维信号,incident lesson #5)——对外 API 形状变化。
+
 ## 2026-08-10 (pre-open review) — create-agent 走 canonical 三步供给
 
 原实现复刻的 MCP 工具本身就是 auth.py 创建路径的不完整副本:缺
@@ -11,9 +25,9 @@ InstanceFactory.create_agent_level_instances(社交/基础/总线实例)、
 sync_agent_discovery(同伴发现目录)、apply_bootstrap(profile 渲染的
 Bootstrap.md+greeting+删除规则)——造出的 agent 对同主其他 agent 不可见
 (正是 "ask agent X came back empty" P1)。路由现执行与 auth.py 相同的
-三步,awareness 文本 seed 到工厂建出的实例上。**MCP 工具的副本仍是坏的**
-(模块进程能 import 同一批 xyz 原语,可同法修)+ auth.py 提炼单一
-provisioning seam,均记 reference/self_notebook/todo/ 后续项。
+三步,awareness 文本 seed 到工厂建出的实例上。(**后续 round-2 已收敛**:见
+顶部 round-2/3 条目——三处调用方全部改调 `provision_new_agent`,MCP 副本与
+auth.py 提炼都在本 PR 内完成,不再是 todo。)
 
 ## 2026-08-10 — write endpoints added (PR-2 · MCP data-access seam, backend half)
 
@@ -21,7 +35,14 @@ Added four POST endpoints (`extract` / `merge` / `delete-entity` / `create-agent
 
 Each endpoint calls `assert_owned(request, agent_id)` first (403 non-owner / 404 unknown agent / 503 on a failed ownership lookup — see `backend/routes/_ownership.py`). This is the first ownership check this file has ever had; the three pre-existing GET endpoints below remain unauthenticated reads.
 
-**Where the logic lives, and why it isn't imported:** `extract` delegates to `SocialNetworkModule.extract_and_update_entity_info` (a real, reusable module method) so its merge/replace/tag-dedup semantics can't drift from the agent-facing path. `merge` and `delete-entity` and `create-agent`, by contrast, are **duplicated** here — their MCP-tool implementations are closures defined inline inside `create_social_network_mcp_server()` in `_social_mcp_tools.py`, not standalone functions, so there was nothing importable to delegate to without refactoring that file (out of scope for this route addition). If either tool's body changes, this file's copy needs the same change by hand — there is no test or lint that catches drift between them.
+**Where the logic lives (superseded 2026-08-10 round-2 — see the entry at top):** ALL four write endpoints delegate now — `extract` →
+`SocialNetworkModule.extract_and_update_entity_info`, `merge` →
+`SocialNetworkModule.merge_entities`, `delete-entity` →
+`SocialNetworkModule.delete_entity`, `create-agent` → `provision_new_agent`.
+The MCP tool closures were extracted into those same targets, so the route
+and the tool share one implementation and cannot drift. (The paragraph that
+used to live here described the pre-refactor state where merge/delete/create
+were hand-copied closures — no longer true.)
 
 **Deliberate deviations from the MCP tool surface** (call these out if you're diffing behavior):
 - `extract`'s `updates` field is typed as a JSON object in the request body (FastAPI/Pydantic enforces this at the boundary). The MCP tool additionally accepts a JSON-*string* for `updates` and parses it — that's an LLM tool-calling quirk (some models emit a stringified object), not a data-semantics difference, so the HTTP route doesn't replicate it.
@@ -46,7 +67,12 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
   - `InstanceRepository` — 查询 `SocialNetworkModule` 实例 ID
   - `SocialNetworkRepository` — 语义搜索（`semantic_search`）、关键词搜索（`keyword_search`）、写端点里的 `get_entity`/`update_entity_info`/`delete_entity`
   - `SocialNetworkModule.extract_and_update_entity_info` — `extract` 端点直接委托给它，保证与 agent 工具路径语义一致
-  - `AgentRepository` / `InstanceRepository` / `InstanceAwarenessRepository` — `create-agent` 端点建新 agent 记录并 seed awareness；供给序列(实例/发现/bootstrap)走 canonical 路径(见 2026-08-10 pre-open review 条目)
+  - `SocialNetworkModule.merge_entities` / `.delete_entity` — `merge` /
+    `delete-entity` 端点委托的真方法(与 MCP 工具同源)
+  - `AgentRepository` — `create-agent` 端点解析 creator 的 owner
+  - `xyz_agent_context.bootstrap.provision.provision_new_agent` —
+    `create-agent` 的唯一供给入口([[provision]];建 row/实例/发现/bootstrap/
+    默认技能/awareness seed 全在 seam 内,本路由不再直接建 row 或 seed)
   - `backend.routes._ownership.assert_owned` — 四个写端点的授权门禁
   - （历史：语义搜索曾经由 agent_framework 的 embedding 工具生成 query 向量；该向量化子系统已整体移除）
   - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
