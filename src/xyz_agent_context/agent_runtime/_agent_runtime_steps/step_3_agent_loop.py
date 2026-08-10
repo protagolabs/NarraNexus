@@ -1163,7 +1163,12 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.1: Initialize ContextRuntime -------------
-    context_runtime = ContextRuntime(ctx.agent_id, ctx.user_id, db_client)
+    context_runtime = ContextRuntime(
+        ctx.agent_id, ctx.user_id, db_client,
+        # Step 0 already created the event row; passing it here is what
+        # lets tools stamp attribution with the turn that called them.
+        event_id=getattr(ctx.event, "id", None),
+    )
     substeps.append("[3.1] ✓ ContextRuntime initialization complete")
     logger.debug("ContextRuntime initialized")
 
@@ -1239,6 +1244,24 @@ async def step_3_agent_loop(
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
+    # What this turn may reach outside its own workspace: the bus attachment
+    # dir (user-wide by design — the bus stages one copy per owner and every
+    # same-user recipient reads that path) plus the shared folder of the ONE
+    # team this turn belongs to.
+    #
+    # Narrowed after review: the first version granted the whole per-user
+    # `_shared` tree on every turn, which handed every team the owner has to
+    # every turn, including one-to-one chats belonging to no team. That is the
+    # owner-vs-membership mistake the rest of this feature deliberately avoids
+    # (see `_resolve_entry` and `list_for_agent_context`), and it is not
+    # read-only: the confinement layers inspect `file_path` and shell paths,
+    # so the grant covers Write, Edit and rm.
+    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+    _turn_extra = ctx.trigger_extra_data or {}
+    extra_accessible_roots = turn_accessible_roots(
+        ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path
+    )
+
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}
     if context.ctx_data and context.ctx_data.extra_data:
@@ -1302,6 +1325,7 @@ async def step_3_agent_loop(
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
             turn_profile=ctx.turn_profile,
+            extra_accessible_roots=extra_accessible_roots,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no

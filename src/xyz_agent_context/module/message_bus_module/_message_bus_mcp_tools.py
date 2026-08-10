@@ -425,6 +425,30 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
+    async def bus_list_team_files(agent_id: str, team_id: str) -> dict:
+        """List the files shared into a team's folder — what the team has, not
+        what someone happened to mention.
+
+        Use this instead of guessing paths or asking a teammate to repeat one.
+        Each entry gives the file's name, the absolute path you can open with
+        Read, its size, and who shared it.
+
+        You must be a member of the team. An empty list means nothing has been
+        shared yet — that is an answer, not an error.
+
+        Args:
+            agent_id: Your own agent id.
+            team_id: The team whose folder to list.
+        """
+        from xyz_agent_context.message_bus.team_files import list_team_files
+        from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+
+        db = await get_db_client()
+        return await list_team_files(
+            db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
+        )
+
+    @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
         """
         Get recent message history from a channel.

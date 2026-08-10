@@ -38,6 +38,9 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactTooLarge,
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.repository.team_workspace_repository import (
+    ArtifactHistoryRepository,
+)
 from xyz_agent_context.schema.artifact_schema import (
     URL_ARTIFACT_KIND,
     Artifact,
@@ -45,6 +48,7 @@ from xyz_agent_context.schema.artifact_schema import (
     CreateArtifactToolResult,
 )
 from xyz_agent_context.settings import settings
+from xyz_agent_context.utils.workspace_paths import team_shared_dir
 from xyz_agent_context.utils.office_watch import OFFICE_LIVE_KIND
 
 
@@ -118,15 +122,33 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, str]:
+def _resolve_entry(
+    agent_id: str, user_id: str, entry_path: str, team_id: Optional[str] = None
+) -> tuple[str, str]:
     """Resolve and validate the entry file path.
 
-    `entry_path` may be absolute or relative to the agent workspace. The
-    resolved file must be an existing regular file, strictly inside the agent
-    workspace.
+    `entry_path` may be absolute or relative to the agent workspace. Where the
+    resolved file must live depends on who the artifact is for:
+
+    * PRIVATE (no team) — inside the agent's own workspace, as before.
+    * TEAM — inside THAT team's shared folder, and nowhere else. Not merely
+      allowed there: required. A teammate's turn can only reach its own
+      workspace, the bus attachment dir and this team's folder, so an entry
+      left in the producer's workspace is unreadable to the very people the
+      artifact is for — on NexusPower it is denied outright, while claude and
+      codex quietly succeed.
+
+    `team_id` reaches here from the server-side identity headers, never from a
+    tool argument, so a private turn cannot name a team to reach its files, and
+    a sibling team's folder stays out of bounds either way.
 
     Returns:
-        (abs_entry, artifact_root) — both realpath-resolved absolute paths.
+        (abs_entry, artifact_root, team_root) — realpath-resolved absolutes.
+        `team_root` is the team folder on a team turn, else None. It is
+        returned rather than recomputed by callers because it is ALSO a
+        container root: an entry sitting directly in it must be treated the way
+        an entry at the workspace root is (single-file mode), both for size
+        accounting and for raw serving.
         `artifact_root` is `dirname(abs_entry)`; the public-raw route serves
         files under that root for multi-file artifacts. When the entry sits
         directly in the workspace (artifact_root == workspace), the route
@@ -138,10 +160,40 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
         ArtifactPathEscape: file missing / not a file / outside the workspace.
     """
     workspace = os.path.realpath(workspace_root(agent_id, user_id))
+    # Relative paths keep resolving against the agent's OWN workspace: the
+    # team folder is reachable by absolute path, never by silently re-basing
+    # a relative one onto a root the agent did not name.
     raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
     abs_entry = os.path.realpath(raw)
 
-    if not abs_entry.startswith(workspace + os.sep):
+    team_root = None
+    if team_id:
+        # A TEAM artifact must live in the team's shared folder — not merely
+        # be allowed to.
+        #
+        # The reason is reachability, not tidiness. A teammate opening this
+        # work has exactly three roots granted to its turn (see
+        # `turn_accessible_roots`): its own workspace, the bus attachment dir,
+        # and this team's folder. A file left in the PRODUCER's workspace is in
+        # none of them, so NexusPower denies the read while claude and codex,
+        # which run no confinement layer, succeed — the three-frameworks-two-
+        # behaviours state this feature exists to remove, and a silent defeat
+        # of the whole point of a shared workspace.
+        #
+        # Pointer semantics are untouched: this never copies or moves. The
+        # entry simply has to already be somewhere the team can read, and the
+        # agent can put it there (the grant covers writes), so the error below
+        # is one move and a retry away from success.
+        team_root = os.path.realpath(str(team_shared_dir(user_id, team_id)))
+        if not abs_entry.startswith(team_root + os.sep):
+            raise ArtifactPathEscape(
+                f"a team artifact must live in your team's shared folder so "
+                f"your teammates can open it. Write the file(s) under "
+                f"{team_root} and register the entry from there. (Files in "
+                f"your own workspace are private to you — your teammates' "
+                f"tools cannot reach them.)"
+            )
+    elif not abs_entry.startswith(workspace + os.sep):
         raise ArtifactPathEscape(
             "entry_path is outside your agent workspace. Write the artifact "
             "files inside your workspace first, then register the entry file."
@@ -152,7 +204,43 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
         )
 
     artifact_root = os.path.dirname(abs_entry)
-    return abs_entry, artifact_root
+    return abs_entry, artifact_root, team_root
+
+
+async def _record_history(
+    repo: ArtifactRepository,
+    *,
+    artifact_id: str,
+    agent_id: str,
+    file_path: str,
+    size_bytes: int,
+    action: str,
+    event_id: Optional[str] = None,
+) -> None:
+    """Append one attribution row. Never raises.
+
+    Registration must not fail because bookkeeping did: the artifact itself is
+    already correct at this point, and turning a successful registration into
+    an error would cost the agent real work to save a log line. A missing row
+    degrades the history; a raised exception would degrade the feature.
+
+    `event_id` names the turn that made the change. It arrives from the
+    server-side identity headers, so it is a fact rather than an inference —
+    matching an artifact to a turn by timestamp would break on the ordinary
+    cases (two artifacts in one turn, concurrent turns). None when the caller
+    had no event in scope, which degrades the record without failing anything.
+    """
+    try:
+        # Through the repository, not `repo._db`: reaching into another
+        # layer's private handle from `_*_impl/` is exactly the coupling the
+        # repository seam exists to prevent, and it put a third copy of this
+        # table's SQL in a third module.
+        await ArtifactHistoryRepository(repo._db).append(
+            artifact_id=artifact_id, agent_id=agent_id, file_path=file_path,
+            size_bytes=size_bytes, action=action, event_id=event_id,
+        )
+    except Exception as e:  # noqa: BLE001 — bookkeeping is never flow control
+        logger.warning(f"artifact history not recorded for {artifact_id}: {e}")
 
 
 # ── registration ───────────────────────────────────────────────────────────────
@@ -169,6 +257,8 @@ async def register_artifact(
     title: str,
     description: Optional[str],
     target_artifact_id: Optional[str],
+    team_id: Optional[str] = None,
+    event_id: Optional[str] = None,
 ) -> CreateArtifactToolResult:
     """
     Register a pointer to an entry file the agent wrote in its workspace.
@@ -199,6 +289,8 @@ async def register_artifact(
         title: Human-readable title (truncated to 200 chars).
         description: Optional freeform description.
         target_artifact_id: If set, re-register onto this existing artifact.
+        team_id: Owning team when this is a team turn, else None (private).
+            Comes from the server-side identity headers, never from the model.
 
     Returns:
         CreateArtifactToolResult with artifact_id, url, created_at.
@@ -223,13 +315,20 @@ async def register_artifact(
             f"image/png, image/jpeg, application/pdf."
         )
 
-    abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path)
+    abs_entry, artifact_root, team_root = _resolve_entry(
+        agent_id, user_id, entry_path, team_id
+    )
     workspace = os.path.realpath(workspace_root(agent_id, user_id))
     # Single-file mode when entry sits at the workspace root: account only for
     # the entry file (and serve only the entry — see raw_access.py).
     # Otherwise account for the whole dir so the multi-file artifact's
     # sibling assets are reflected in size_bytes (UI / debugging only).
-    if artifact_root == workspace:
+    # The team root counts as a container root too. Without it, an entry at
+    # the team folder charges the artifact the size of EVERYTHING the team has
+    # ever shared — and once that crosses MAX_ARTIFACT_BYTES nobody on the team
+    # can register anything again. Requiring team artifacts to live there is
+    # what put a root in this position that this branch had never seen.
+    if artifact_root in (workspace, team_root):
         size_bytes = os.path.getsize(abs_entry)
     else:
         size_bytes = _dir_size(artifact_root)
@@ -245,7 +344,28 @@ async def register_artifact(
 
     if target_artifact_id is not None:
         existing = await repo.get_by_id(target_artifact_id)
-        if existing is None:
+        # Reachability, not just existence. Until this check the branch looked
+        # the artifact up by id and validated only its KIND, so any agent that
+        # guessed an `art_` id could repoint someone else's artifact at its own
+        # file. Ids are eight hex chars; guessing was never the hard part.
+        #
+        # What "reachable" means differs by scope, and mirrors exactly what the
+        # read surfaces already enforce:
+        #   * a TEAM artifact belongs to the team, so any turn in THAT team may
+        #     update it — picking up a teammate's work is the whole point, and
+        #     agent identity is deliberately not the test;
+        #   * a PRIVATE artifact belongs to its producer, so only that agent
+        #     may update it.
+        # A team turn therefore cannot reach a private artifact, and a private
+        # turn cannot reach a team's — otherwise `scope="private"`, which is
+        # supposed to only NARROW, would become a way to pull an artifact out
+        # of the team that owns it.
+        #
+        # 404-shaped (ArtifactNotFound), like the HTTP routes: a distinct
+        # "forbidden" would confirm which ids exist to anyone probing.
+        if existing is None or existing.team_id != team_id:
+            raise ArtifactNotFound("artifact not found — omit target_artifact_id to register a new one")
+        if team_id is None and existing.agent_id != agent_id:
             raise ArtifactNotFound("artifact not found — omit target_artifact_id to register a new one")
         if existing.kind != kind:
             raise ArtifactKindMismatch(
@@ -260,6 +380,11 @@ async def register_artifact(
             size_bytes=size_bytes,
             title=title[:200],
             description=description,
+        )
+        await _record_history(
+            repo, artifact_id=target_artifact_id, agent_id=agent_id,
+            file_path=rel_path, size_bytes=size_bytes, action="updated",
+            event_id=event_id,
         )
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
@@ -276,13 +401,26 @@ async def register_artifact(
         # agent). Same agent + same entry pointer + agent scope = the same
         # artifact: update it in place and hand the existing id back.
         for existing in await repo.find({"agent_id": agent_id, "file_path": rel_path}):
-            if existing.pinned and existing.kind == kind:
+            # The scope is part of the identity, not a detail of it. Without
+            # it, an agent that surfaces the same file both privately and to
+            # its team gets ONE artifact and the second call's scope is
+            # silently discarded — in either direction: a private call can be
+            # handed back the team's artifact, or a team registration can be
+            # folded into a private one nobody on the team can see. (Caught by
+            # an end-to-end probe; the unit tests each used a fresh database,
+            # so the collision never arose.)
+            if existing.pinned and existing.kind == kind and existing.team_id == team_id:
                 await repo.update_pointer(
                     existing.artifact_id,
                     file_path=rel_path,
                     size_bytes=size_bytes,
                     title=title[:200],
                     description=description,
+                )
+                await _record_history(
+                    repo, artifact_id=existing.artifact_id, agent_id=agent_id,
+                    file_path=rel_path, size_bytes=size_bytes, action="updated",
+                    event_id=event_id,
                 )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
@@ -308,11 +446,17 @@ async def register_artifact(
             kind=kind,
             description=description,
             pinned=session_id is None,
+            team_id=team_id,
             file_path=rel_path,
             size_bytes=size_bytes,
             created_at=now,
             updated_at=now,
         )
+    )
+    await _record_history(
+        repo, artifact_id=artifact_id, agent_id=agent_id,
+        file_path=rel_path, size_bytes=size_bytes, action="created",
+        event_id=event_id,
     )
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(

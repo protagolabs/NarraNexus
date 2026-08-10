@@ -114,6 +114,24 @@ ERRAND_CHANNEL_HEADER = "X-NarraNexus-Errand-Channel"
 # NULL as "not part of the tree being stopped".
 ROOT_RUN_ID_HEADER = "X-NarraNexus-Root-Run-Id"
 
+# The team whose room this turn is running in, when it is one. Server-side
+# because a tool cannot ask the MODEL whether it is in a team: `agent_id` is
+# already a model-filled parameter, so a private-chat turn could claim a team
+# and write into that team's workspace. Same reasoning as the agent id above.
+#
+# NOT derivable from ERRAND_CHANNEL: that one is populated only when the turn
+# continues the agent's OWN errand (message_bus_trigger stamps it
+# conditionally), so it is empty on most team turns and would read as "not a
+# team turn" — the failure would be silent and intermittent.
+TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
+
+# The events-row id of the turn making the call — this codebase's turn handle
+# (same meaning as bus_messages.event_id). Attribution needs to record WHICH
+# turn changed an artifact, and the tool cannot ask the model for that without
+# accepting a guess. Available because the event row is created in Step 0,
+# before context_runtime builds the MCP spec in Step 3.
+EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
+
 # Everything above ALSO rides the borrowed bearer, because codex forwards
 # nothing else. Shipping a fact only on an explicit header was a real hole
 # (PR #229 review): a codex-side asker always wrote NULL turn source, and the
@@ -155,6 +173,13 @@ BEARER_FIELDS = (
     # nothing would go red. That is why `test_every_field_count_parses`
     # asserts position by position, not just the total.
     "root_run_id",
+    # Appended 2026-08-07 (team workspace), written in parallel with
+    # `root_run_id` and resolved by the same rule it documents above: that one
+    # reached dev first, so #6 is already on the wire and the team lands at #7.
+    # Taking #6 here would make an in-flight bearer decode a team id as a run
+    # id — and the cascade stop selects a whole trigger tree by that value.
+    "team_id",
+    "event_id",
 )
 
 # Values a model supplies when it is guessing instead of reading its prompt.
@@ -234,6 +259,8 @@ class BearerIdentity(NamedTuple):
     errand_channel: Optional[str] = None
     user_id: Optional[str] = None
     root_run_id: Optional[str] = None
+    team_id: Optional[str] = None
+    event_id: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -325,6 +352,50 @@ def caller_user_id_from_request() -> Optional[str]:
             return candidate
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller user: {e}")
+    return None
+
+
+def caller_team_id_from_request() -> Optional[str]:
+    """The team whose room this turn runs in, or None outside a team.
+
+    There is deliberately no ``resolve_*`` counterpart taking a model-supplied
+    fallback: the whole point is that a tool must not be able to learn "I am in
+    a team" from the model. None means private, and a turn that cannot prove a
+    team IS private — the safe direction, since the alternative is writing into
+    a team workspace on a model's say-so.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, TEAM_ID_HEADER)
+        if injected:
+            return injected
+        # Codex path: everything rides the borrowed bearer.
+        return _bearer(headers).team_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller team: {e}")
+    return None
+
+
+def caller_event_id_from_request() -> Optional[str]:
+    """The events-row id of the calling turn, or None.
+
+    None is normal: plenty of callers have no event in scope. Absence degrades
+    attribution (the history row simply records no turn) and must never fail a
+    registration — losing the agent's work to protect a log line would be the
+    wrong trade.
+    """
+    headers = _ambient_headers()
+    if headers is None:
+        return None
+    try:
+        injected = _explicit_header(headers, EVENT_ID_HEADER)
+        if injected:
+            return injected
+        return _bearer(headers).event_id or None
+    except Exception as e:  # noqa: BLE001 — identity is never flow control
+        logger.debug(f"[mcp-identity] could not read caller event: {e}")
     return None
 
 
@@ -592,6 +663,8 @@ def agent_id_headers(
     errand_channel: str | None = None,
     user_id: str | None = None,
     root_run_id: str | None = None,
+    team_id: str | None = None,
+    event_id: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -613,6 +686,8 @@ def agent_id_headers(
         errand_channel or "",
         user_id or "",
         root_run_id or "",
+        team_id or "",
+        event_id or "",
     ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
@@ -628,6 +703,8 @@ def agent_id_headers(
         (ERRAND_CHANNEL_HEADER, errand_channel),
         (USER_ID_HEADER, user_id),
         (ROOT_RUN_ID_HEADER, root_run_id),
+        (TEAM_ID_HEADER, team_id),
+        (EVENT_ID_HEADER, event_id),
     ):
         if value:
             headers[header] = str(value)

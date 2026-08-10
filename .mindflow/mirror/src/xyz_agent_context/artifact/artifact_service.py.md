@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/artifact/artifact_service.py
-last_verified: 2026-07-22
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — `register()` 增加 team_id / event_id 两个语义参数
+
+两者都**不是模型可填的**，均来自服务端身份 header（见 [[_mcp_identity.py]]）：
+
+- `team_id` — 本回合所属 team（None = 私有）。工具层把「模型只能收窄」的规则解析完再传进来，
+  service 只负责透传，不做 scope 决策。
+- `event_id` — 本回合的 events 行 id，落进归因日志回答「哪一次 turn 改的」。
+
+service 仍是薄桥接：scope 语义在 [[artifact_tool.py]]，路径与写库在
+[[registration.py]]。
 
 ## 2026-07-22 — URL-tab domain operations
 

@@ -1,13 +1,99 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
+
+**同一条规则改了两次，第二次才是重点。**
+
+初版 `clear_files` 连 artifact 一起删，理由是「artifact 指向被删的树」——当时**不成立**（生产者
+workspace 是第一允许根，内容还在），所以我撤回了级联。
+
+方案 B 要求团队 artifact **必须**住在团队目录之后，那个理由**变成真的了**，级联也随之正确。
+变的是世界，不是推理：rmtree 现在会销毁每一个团队 artifact 的内容，留下行就等于面板列出内容已
+消失的 artifact，而 `heal` 也救不回来。
+
+> **2026-08-10 更正**：上面这条结论仍然成立，但当时给的理由错了。原文写的是「`heal` 从不传
+> `team_id`、短路只看 agent workspace」——那是 `heal` 当时**自身的 bug**，已在同轮修掉（见
+> [[heal.py]]）。真正的理由更简单：`heal` 只能把指针**重新接回仍然存在的文件**，而这里文件本身
+> 被删了。**拿一个 bug 当另一处设计的论据，bug 修掉那天论据就跟着塌了。**
+
+`clear_artifacts` 仍可单独使用（删 tab、留文件）。
+
+## 2026-08-10 (review 修正) — `_team_files` 钉死 wire shape + 时间戳带时区
+
+`SELECT *` 把 `id` / `owner_user_id` / `content_hash` 带进了 API 形状（owner-only，不构成泄露，
+但形状应当是**选定的**而非从表继承）。现在显式列字段。
+
+`created_at` 归一为 **offset-aware** ISO。原值是 UTC 但**无标记**（SQLite 的
+`datetime('now')` 给 `'2026-08-07 12:34:56'`，MySQL 给 naive datetime）——按 ES 规范，不带
+offset 的 date-time 被当作**本地时间**解析，于是 UTC+8 用户刚分享的文件显示成「8h ago」。
+artifacts 那半边没这个问题，因为它走 `Artifact` 模型、`parse_dt` 会补 UTC。
+
+## 2026-08-08 (review 修正) — 三个独立 scope，且 delete_team 带走工作台
+
+**撤回一处过度删除**：初版让 `clear_files` 连团队 artifact 一起删，理由写的是「团队 artifact
+指向的正是被删的那棵树」——**这在最常见情况下不成立**。`_resolve_entry` 把生产者自己的
+workspace 保留为**第一个**允许根，团队目录只是追加的第二个，所以按常规方式注册的团队 artifact
+指向的是生产者 workspace，内容根本没被删。删它们的行等于销毁指向仍存在文件的指针。
+
+现在 `clear_files` 只删共享目录 + `team_files` 索引。确实住在共享目录里的那些会变成**破损指针**
+——这是 [[artifact_service.py]] 的 `heal` 已能恢复的状态，远好过把本来没事的那些一起丢掉。
+
+**`delete_team` 现在先全清再删 team**。团队一旦消失，它的 artifact 对**所有查询路径都不可达**：
+私聊面用 `team_id IS NULL` 排除、`list_by_team` 需要已不存在的 team、并集查询 join 的
+`team_members` 下一行就被清空。**读不到的行才是验收 #7 说的孤儿**，不是「无害垃圾」。
+
+新增 `clear_artifacts` scope 承载这件事；两个既有开关语义不变，前端对话框无需改动。
+
 ## 2026-08-07 — chat messages 透出 msg_type
 
 `"system_stop"` 标记 owner 停止留痕,前端据此渲染成系统行而不是"这个 agent
 在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
 索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
+
+## 2026-08-07 (三次) — `GET /{team_id}/artifact-turns`
+
+消息下方芯片的数据源：`event_id → [artifact_id]`。join 键是 events 行 id，transcript 和
+`instance_artifact_history` 两边都带它。
+
+**为什么不用时间戳近邻**：一轮可以注册两个 artifact，两个 agent 也可以在同一房间同时回复——
+按时间就近匹配会把产出挂到错误的消息上。
+
+**更新型 turn 也纳入**：重新注册正是队友接力的方式，那一轮恰恰最值得浮现。`event_id` 为 NULL
+的行（历史数据、或调用方无 event 在作用域）直接跳过，不归到占位分组里。
+
+## 2026-08-07 (二次) — 团队 artifact 的 view-token
+
+`POST /{team_id}/artifacts/{artifact_id}/view-token`。
+
+**token 载荷刻意不动**。既有设计里 token 就是「针对某一个 artifact 的 bearer 能力」，授权
+发生在 **mint 那一刻**——所以团队校验放在这条路由里，签发时仍用**产出者**的 agent_id，
+而那正是 raw serving（[[raw_access.py]]）解析所依据的字段。下游一行都不用知道 team 的存在。
+
+为什么必须换一套校验：agent 侧的 `_get_owned_artifact` 要求调用方 agent **就是** artifact 的
+agent——这在团队里恰好是反的，面板本来就展示多个成员的产出，队友打开同事的 artifact 是常态
+而非攻击。`_authorize_team_artifact` 改判 **artifact 属于这个 team**。
+
+拒绝一律 404（与 agent 路由一致）：换成 403 会让探测者据此枚举出哪些 artifact_id 存在。
+`team_id IS NULL` 的私有 artifact 同样通不过这条比较——**拥有一个 team 不是通往该 owner
+私有产出的入口**。
+
+可行的前提（已核）：`resolve_raw_file` 的路径约束是 `base_working_path` 而非 agent workspace
+（`raw_access.py:97`），所以落在团队共享目录里的 artifact 本来就能正常提供。
+
+## 2026-08-07 — 工作台读取路由 + 清理链路跟上新表
+
+新增 `GET /{team_id}/artifacts`（团队面板，**不按 agent 过滤**——面板是团队的，谁产出的都算，
+`agent_id` 留在行上供 UI 归因）与 `GET /{team_id}/files`（共享目录的**用户入口**，此前不存在：
+`_shared/` 是 agent workspace 的 sibling，workspace 浏览器看不见它）。两者复用既有 owner 校验。
+
+**`_wipe_team_data` 必须同步删索引**：清理会 rmtree 掉共享目录，行若留下，面板照样列出这些
+文件，用户要等到下载失败才发现——**留下孤儿行比不显示更糟**。团队 artifact 指向的正是被删掉
+的那棵树，所以一并删除，连同它们的归因行（否则 history 表堆积永远无人读取的孤儿）。
+过滤条件是**这个 team**，不是这个 owner：私有 artifact 与其他 team 不受影响。
 
 ## 2026-07-31 — idle carries started_at; messages carry event_id
 

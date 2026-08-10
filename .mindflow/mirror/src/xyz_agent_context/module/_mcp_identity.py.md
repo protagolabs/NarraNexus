@@ -32,6 +32,34 @@ stub: false
 两条:bearer-only 往返(codex 只转发 bearer,header-only 的事实就是个洞)、
 空 errand 段不把 root 左移(team 轮永远有 root、永远没有 errand scope)。
 
+## 2026-08-07 (二次) — 追加 event_id（BEARER_FIELDS 6 → 7）
+
+归因要回答「**哪一次 turn** 改的」。这个事实不能问模型——问了就是让它猜。所以 turn 句柄
+（events 行 id，同 [[bus_messages]] 的语义）走和 agent_id/team_id 同一条服务端通道。
+
+**时序可行**：event 行在 **Step 0** 创建（[[step_0_initialize.py]]），而 MCP spec 在 **Step 3**
+才构建（[[context_runtime.py]]）——写这条时先核过顺序，否则整条链路是空的。
+
+缺席不是错误：多数调用方没有 event 在作用域内。缺席只让记录降级，**绝不让注册失败**——
+为保住一行日志而丢掉 agent 的实际工作是错误的取舍。
+
+## 2026-08-07 — 追加 team_id 字段（BEARER_FIELDS 5 → 6）
+
+工具无法从**模型**得知「我在不在 team」——`agent_id` 本身就是模型填的参数，私聊回合完全
+可以谎称自己在某个 team 并写进那个 team 的工作台。所以 team 走和 agent_id 同一条服务端
+通道：新增 `X-NarraNexus-Team-Id` + bearer **追加**第 6 位（契约明写「APPENDED，绝不
+中插」——中插会让未同步的读者把后续每个位置都解析成错误的事实）。
+
+**为什么不复用 `errand_channel`**：它只在 turn 延续 agent 自己的 errand 时才被 stamp
+（[[message_bus_trigger]] 条件写入），绝大多数 team turn 是空的，复用会读成「不在 team」
+——失败还是静默且间歇的。
+
+`caller_team_id_from_request()` **故意没有 resolve_* 对应物**（不接受模型兜底）：None 即
+私有，证明不了 team 的回合就是私有——安全方向，反之等于凭模型一句话写进团队空间。
+
+`tests/module/test_mcp_caller_identity.py` 里的 arity 触发器（前人留的「arity changed —
+update _parse_bearer + this test」）按设计触发并已同步到 6。
+
 ## 2026-08-04 — user_id 上线同一 seam（W1），纪律刻意弱于 agent_id
 
 `X-NarraNexus-User-Id` + bearer 第 5 位（`BEARER_FIELDS` 尾部追加，老

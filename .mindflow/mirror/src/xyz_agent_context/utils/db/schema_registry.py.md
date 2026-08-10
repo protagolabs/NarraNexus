@@ -53,6 +53,28 @@ narrative 路由的决策轨迹。`candidates_json` 存**整个** BM25 候选池
 据此触发)和 [[run_recorder]] 的 `sweep_stale_runs`(据此把停止中的 run
 落成 cancelled 而非 failed)。
 
+## 2026-08-07 — team shared working-space：一列 + 两张新表（全部 additive）
+
+**`instance_artifacts.team_id`（可空）**：artifact 此前只有 agent/user 两个维度，这正是
+「team turn 里注册的产出只能落进某个 agent 私有列表」的机制原因。NULL = 私有，涵盖所有
+存量行与非团队回合，故私聊语义按构造不变、无需回填（铁律 #6）。`agent_id` 保留不动——
+归属迁到 team 之后，「谁产出的」仍要答得出。配套 `idx_artifact_team_updated`，否则团队面板
+与 agent prompt 的团队半边是全表扫描。
+
+**新表 `team_files`**：共享目录（`_shared/teams/{id}`）此前磁盘有文件、库里无行，落地用的是
+生成的 file_id 当磁盘名，`original_name` 只活在内存 dict 里 → 无法列举，只能靠 agent 在群里
+念路径。`content_hash`(sha256) 是去重能成立的前提：**同名不等于同一个文件**。同名同 hash =
+真重复，复用既有行；同名不同 hash = 不同文件，**两份都留**（静默覆盖属破坏性写）。唯一索引
+带上 hash 正是为了让后者仍可插入，同时让去重在并发下也成立。选 sha256 而非 md5：日后 CAS
+复用同一哈希，且成本相同。另有 `idx_team_files_prefilter`——hash 要读全文件，写路径只在
+(team,name,size) 撞车时才算，那次查找必须有索引否则「廉价前置」本身就是全表扫描。
+
+**新表 `instance_artifact_history`**：只记 who/when/where-it-pointed，**不存内容**，与
+2026-07-21 因成本退役的 `instance_artifact_versions` 不是一回事（测试 `test_retired_versions_table_stays_retired`
+专门守这条）。一行几十字节，故常开且不依赖 agent 配合——归因必须在模型不配合时也正确。
+`event_id` 沿用本项目既有的 turn 句柄语义（同 [[bus_messages]]），可空：MCP 注册路径目前
+拿不到它。
+
 ## 2026-08-04 — bus_messages 增加 sender_turn_source 列
 
 可空,记录发送方那一轮的种类(owner 面 vs message_bus)。纯新增列,
