@@ -1813,9 +1813,11 @@ class ChannelTriggerBase(ABC):
     # Owner resolution + agent output extraction (subclass override hooks)
     # ────────────────────────────────────────────────────────────────────
 
-    async def _resolve_agent_owner(self, agent_id: str) -> str:
+    async def _resolve_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the agent's owner user_id from the agents table.
-        Returns empty string on miss; caller falls back to agent_id.
+        Returns "" when the agent is unknown, None when the lookup failed
+        (resolve_owner's split) — callers gate on truthiness / `or agent_id`,
+        so both degrade identically.
         Delegates to the shared AgentRepository.resolve_owner seam so
         ownership semantics have one home."""
         if self._db is None or not agent_id:

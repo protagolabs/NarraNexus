@@ -42,10 +42,13 @@ from fastapi import HTTPException, Request
 from xyz_agent_context.repository import AgentRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
-# Deny reasons — the ONE decision both public surfaces map from.
+# Deny reasons — the ONE decision both public surfaces map from. A failed
+# LOOKUP is not a reason either surface renders as prose: _deny_reason raises
+# 503 directly, so a db outage produces a 5xx on BOTH surfaces (the channel
+# routes would otherwise wrap the string in a 200 payload — exactly the
+# "no 5xx metric to alarm on" failure the split exists to prevent).
 _DENY_UNKNOWN = "unknown"      # agent does not exist -> 404-class
 _DENY_NOT_OWNER = "not_owner"  # exists, not yours -> 403-class
-_DENY_DB_ERROR = "db_error"    # the LOOKUP failed -> 5xx-class, never "not found"
 
 
 def _caller_user_id(request: Request) -> Optional[str]:
@@ -70,8 +73,15 @@ async def _deny_reason(request: Request, agent_id: str) -> Optional[str]:
     db = await get_db_client()
     owner = await AgentRepository(db).resolve_owner(agent_id)
     if owner is None:
-        return _DENY_DB_ERROR
+        raise HTTPException(
+            status_code=503,
+            detail="Ownership check unavailable (database error) — try again.",
+        )
     if not owner:
+        # NOTE an existing row with NULL/empty created_by also lands here
+        # (404), where the pre-consolidation copies answered 403 — both deny,
+        # and "an agent nobody owns" is closer to not-found than to
+        # somebody-else's; intentional.
         return _DENY_UNKNOWN
     if owner != user_id:
         return _DENY_NOT_OWNER
@@ -82,14 +92,14 @@ async def check_owned(request: Request, agent_id: str) -> Optional[str]:
     """Return an error string when the caller does not own ``agent_id``.
 
     Returns None when the caller owns it OR when running in local mode (no
-    user_id → no enforcement, as every copy did). Unknown/unresolvable
-    owners deny (fail-closed) rather than leak the resource.
+    user_id → no enforcement, as every copy did). Unknown owners deny
+    (fail-closed) rather than leak; a FAILED ownership lookup raises 503
+    from the shared decision — channel routes would otherwise wrap the
+    string in a 200 payload and a db outage would emit zero 5xx.
     """
     reason = await _deny_reason(request, agent_id)
     if reason is None:
         return None
-    if reason == _DENY_DB_ERROR:
-        return "Ownership check unavailable (database error) — try again."
     if reason == _DENY_UNKNOWN:
         return f"Agent {agent_id} not found."
     return "Permission denied: you do not own this agent."
@@ -98,18 +108,13 @@ async def check_owned(request: Request, agent_id: str) -> Optional[str]:
 async def assert_owned(request: Request, agent_id: str) -> None:
     """Raise HTTPException when the caller does not own ``agent_id``.
 
-    Local mode → no-op. 404 unknown agent, 403 non-owner, 503 when the
-    ownership lookup itself failed (an infrastructure fault must surface as
+    Local mode → no-op. 404 unknown agent, 403 non-owner; a failed lookup
+    raises 503 from the shared decision (an infrastructure fault surfaces as
     a server error, not as the resource's absence).
     """
     reason = await _deny_reason(request, agent_id)
     if reason is None:
         return
-    if reason == _DENY_DB_ERROR:
-        raise HTTPException(
-            status_code=503,
-            detail="Ownership check unavailable (database error) — try again.",
-        )
     if reason == _DENY_UNKNOWN:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
     raise HTTPException(

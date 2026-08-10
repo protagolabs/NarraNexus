@@ -75,8 +75,11 @@ async def test_db_failure_is_503_not_404(monkeypatch):
     as 'Agent not found' (a db outage would otherwise look like a batch of
     users' agents vanishing, with no 5xx metric to alarm on)."""
     _stub_owner(monkeypatch, None)
-    err = await own.check_owned(_Req("u1"), "a")
-    assert err is not None and "database error" in err and "not found" not in err
+    # BOTH surfaces 503 — check_owned's callers wrap returned strings in a
+    # 200 payload, which would leave a db outage with zero 5xx to alarm on.
+    with pytest.raises(HTTPException) as e:
+        await own.check_owned(_Req("u1"), "a")
+    assert e.value.status_code == 503
     with pytest.raises(HTTPException) as e:
         await own.assert_owned(_Req("u1"), "a")
     assert e.value.status_code == 503

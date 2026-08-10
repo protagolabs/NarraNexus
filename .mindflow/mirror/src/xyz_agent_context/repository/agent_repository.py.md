@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_repository.py
-last_verified: 2026-08-31
+last_verified: 2026-08-10
 stub: false
 ---
 

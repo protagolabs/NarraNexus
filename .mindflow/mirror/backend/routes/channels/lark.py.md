@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-07-29
 ---
 
+> 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
+> `backend/routes/_ownership.py::check_owned`(canonical;DB 故障走 503 而非 200)。
+
+
 ## 2026-07-29 — auth/complete persists bot_open_id
 
 The route's post-OAuth `/open-apis/bot/v3/info` lookup now stores

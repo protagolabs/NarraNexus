@@ -26,8 +26,6 @@ from xyz_agent_context.module.telegram_module._telegram_service import (
     do_test_connection,
 )
 
-
-
 # One canonical owner check (backend/routes/_ownership.py); module-level
 # alias keeps the historical local name at its ~per-route call sites. No
 # import cycle: this subpackage never gets imported back from _ownership.
