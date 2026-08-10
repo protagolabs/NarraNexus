@@ -209,20 +209,24 @@ def _job_keywords_reject(keywords: list) -> Optional[dict]:
 
 
 def _write_message_key(result: dict) -> dict:
-    """Normalize a write family's failure key to ``message`` (the key every
-    write TOOL uses). Serves both write families the seam carries — social
-    (extract/merge/delete) and job (job_update) — so HttpStore returns dicts
-    byte-identical to DirectStore (which mirrors the tool).
+    """Fold any ``error``-keyed failure back onto the ``message`` key, so an
+    HttpStore dict stays byte-identical to DirectStore (which mirrors the tool,
+    and the tools involved fail with ``message``). It is applied on two kinds of
+    call site, folding two distinct sources:
 
-    Two things fold onto ``message``:
-    - The social route's ``_normalize_write_result`` rewrote the tool's
-      ``message`` into ``error`` on the wire; this is its exact inverse. Sound
-      because those methods fail EXCLUSIVELY with ``message``, so a failure
-      ``error`` on the wire always originated as a ``message``.
-    - HttpStore's own transport degradations (unreachable / non-2xx), which
-      _parse_dict emits as ``error``.
-    So every write failure the agent sees is uniform, whichever family it came
-    from."""
+    - WRITE methods (social extract/merge/delete, job job_update): the backend
+      route's ``_normalize_write_result`` rewrote the tool's ``message`` into
+      ``error`` on the wire; this is its exact inverse. Sound because those
+      methods fail EXCLUSIVELY with ``message``, so a failure ``error`` on the
+      wire always originated as a ``message``.
+    - READ methods that route through it too (social search / get_entity_contact
+      / get_social_network_stats): their 2xx body is passed through untouched
+      (it already uses the tool's keys); here the call only ever bites on
+      HttpStore's OWN transport degradations (unreachable / non-2xx), which
+      _parse_dict emits as ``error`` — see the inline note at those sites.
+
+    Either way every failure the agent sees is uniform, whichever surface it
+    came from."""
     if isinstance(result, dict) and result.get("success") is False and "message" not in result and "error" in result:
         result = dict(result)
         result["message"] = result.pop("error")

@@ -70,7 +70,10 @@ class CancelJobResponse(BaseModel):
 class JobUpdateBody(JobUpdateFields):
     """Frontend update request. Inherits the 9 mutable fields from the shared
     JobUpdateFields (declared once) and adds agent_id for ownership scoping —
-    the ONLY difference from the seam route's body."""
+    the ONLY difference from the seam route's body. Unlike the seam body it
+    keeps the default extra="ignore" (no forbid): this route calls
+    update_job_from_args in-process, so there is no HttpStore silent-drop path
+    to guard here — the forbid guard's reason exists only on the seam leg."""
     agent_id: str
 
 

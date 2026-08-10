@@ -60,7 +60,13 @@ class JobUpdateSeamBody(JobUpdateFields):
     fail LOUDLY (422 → HttpStore._parse_dict surfaces "invalid arguments")
     rather than be silently dropped while DirectStore applies it — that silent
     local/cloud divergence is exactly what the seam's byte-parity exists to
-    prevent."""
+    prevent. This is chosen "loud" over "surgical": the MCP tool's ``fields``
+    literal always sends all nine keys, so on drift EVERY cloud job_update 422s,
+    not just the call that set the new field — on-call should read a sudden
+    "job_update always fails" as a missing field on THIS body, not a lost route.
+    (The frontend JobUpdateBody deliberately keeps the default extra="ignore":
+    it calls update_job_from_args in-process, so it has no silent-drop path to
+    guard, and it adds a required field rather than forbidding unknown ones.)"""
     model_config = ConfigDict(extra="forbid")
 
 
