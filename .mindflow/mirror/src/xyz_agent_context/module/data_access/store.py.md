@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-8b) — job_update 迁入 seam
+
+DirectStore.job_update(agent_id, job_id, fields) 委托 [[job_module]] 包导出的
+`update_job_from_args`（[[_job_writes]]，含承重的 effective_type/compute_next_run
+顺序 zombie-bug 修复），backend agent-scoped 路由 POST `/jobs/{id}/update` 与前端
+`/api/jobs/{id}` PUT 调同一函数 → byte-parity 且不再三份手抄。失败键 `message`(+job_id)；
+HttpStore 传输降级经 `_write_message_key` 把 error→message、`_seg` 编码 job_id 路径段。
+cross-agent 读作 not found（安全，改了旧工具漏存在性的措辞）。
+
 ## 2026-08-10 (PR-8) — job 读 by_id/semantic/by_keywords 迁入 seam
 
 三个读方法委托给 [[job_module]] 包导出的 `fetch_job_by_id`/`search_jobs_semantic`/
@@ -35,7 +44,7 @@ DirectStore 解析 creator owner（AgentRepository）→ `provision_new_agent` �
 [[social_network_module]] 的 `format_create_agent_success`（含 warnings 上浮，
 incident #5，工具旧版本丢了 warnings，现统一上浮）。无 owner 用共享
 `CREATE_AGENT_NO_OWNER_MSG`。失败键：DirectStore `message` / 路由 `error`（含
-异常统一 `f"Error: {e}"`）→ HttpStore `_social_write_message` 逆映射。DirectStore
+异常统一 `f"Error: {e}"`）→ HttpStore `_write_message_key` 逆映射。DirectStore
 不抛（invariant）。路由 body 加 `new_agent_id`，**用 `pattern=^agent_[0-9a-f]{12}$`
 约束**——该 id 会成为 workspace 路径段（base/{user_id}/{agent_id}），无约束的
 `../victim/agent` 会跨租户写入；[[provision]] 的 `provision_new_agent` 再做一次
@@ -49,7 +58,7 @@ contact 用 [[social_network_module]] 的 `format_contact_result`、stats 用
 `format_stats_result`（DirectStore + 新路由同源，杜绝漂移）；search 原样透传。
 HttpStore 调**新建的 POST 孪生路由** `/social-network/{recall,contact,stats}`
 （POST 避开 GET `/{user_id}` 路径参数冲突；路由直接返回工具 shape=message 键、
-不 normalize，故 HttpStore 2xx 原样透传，`_social_write_message` 只兜自身传输降级）。
+不 normalize，故 HttpStore 2xx 原样透传，`_write_message_key` 只兜自身传输降级）。
 **输入契约**：`_social_search_reject`（search_keyword 1-512）、`_clamp_limit`(top_k≤100)、
 `_social_id_reject`(contact entity_id) 两 store 都跑。no-instance：search/stats 带
 `results:[]`、contact 不带（各按工具 shape）。方法全 repository 无裸 SQL、双方言安全。
@@ -62,7 +71,7 @@ SocialNetworkModule 实例（懒 import 避循环，同工具 `_get_instance_and
 `delete_entity`，失败保工具的 **`message`** 键。HttpStore 调 PR-2 已建的
 byte-parity 写路由（`/social-network/{extract,merge,delete-entity}`）。
 **唯一 parity 坑=失败键**：路由用 `_normalize_write_result` 把 `message`→`error`
-（HTTP 家族约定）；`_social_write_message` 是其**精确逆**（`error`→`message`），
+（HTTP 家族约定）；`_write_message_key` 是其**精确逆**（`error`→`message`），
 把路由响应 + HttpStore 自身传输降级统一回工具的 `message` 形状。成立前提=三个
 写方法**只用 `message` 失败**（实测）。实例缺失文案走 [[social_network_module]]
 新增的共享 `social_instance_not_found_msg`（route+DirectStore 同源，杜绝漂移）。

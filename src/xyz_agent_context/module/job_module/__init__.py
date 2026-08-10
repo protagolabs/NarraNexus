@@ -19,6 +19,7 @@ from ._job_reads import (
     search_jobs_semantic,
     search_jobs_by_keywords,
 )
+from ._job_writes import update_job_from_args
 
 # Register the Job channel handler so chat_module recognises
 # job-triggered replies and renders job-source rows with a distinct
@@ -47,4 +48,5 @@ __all__ = [
     "fetch_job_by_id",
     "search_jobs_semantic",
     "search_jobs_by_keywords",
+    "update_job_from_args",
 ]

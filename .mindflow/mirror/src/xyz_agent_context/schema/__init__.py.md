@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — 导出 `JobUpdateFields`
+
+[[job_schema]] 新增的 job_update 可变字段集合进公共导出面——两个 backend 路由
+body（前端 `JobUpdateBody` 加 agent_id、seam `JobUpdateSeamBody` 加
+`extra="forbid"`）都从 `xyz_agent_context.schema` 顶层引，字段清单只声明一份。纯转发。
 
 ## 2026-08-04 — 导出 `is_agent_description_unset` / `LEGACY_AGENT_DESCRIPTION_PLACEHOLDER`
 

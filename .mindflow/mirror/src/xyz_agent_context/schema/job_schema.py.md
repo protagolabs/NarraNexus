@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-06-01
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (PR-8b r2) — `JobUpdateFields`：job_update 可变字段的单一来源
+
+新增 `JobUpdateFields`(9 个 optional 字段：title/description/payload/guidance_text/
+trigger_config/job_type/next_run_time/status/related_entity_id)。存在理由：job_update
+的字段清单原本手抄 4 份——`update_job_from_args` keyword 签名、MCP 工具 `fields` 字面量、
+前端 `JobUpdateBody`、seam `JobUpdateSeamBody`。schema 层两份 body 现都 derive 自本类
+（前端加 `agent_id`，seam 加 `extra="forbid"`），字段只声明一次。**parity 承重**：seam
+是 HttpStore 写路径，pydantic 默认 `extra="ignore"` 会让「加字段漏改 body」在云上静默丢字段
+（success=True 但少写）而本地 DirectStore 却写入=seam byte-parity 要防的分叉；forbid 让漂移
+以 422 响亮失败。None=不改语义见 [[_job_writes]] `update_job_from_args`。放 schema 包因它是
+工具契约(agent-side)，两个 backend 路由 import 它属允许方向(backend→agent，铁律 #21)。
 
 ## 2026-06-01 — resilience states + backoff fields (batch ②)
 

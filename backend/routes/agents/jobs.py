@@ -2,15 +2,15 @@
 @file_name: jobs.py
 @author:
 @date: 2026-08-10
-@description: Job READ endpoints for the MCP data-access seam (agent-scoped,
-owner-gated).
+@description: Job READ + UPDATE endpoints for the MCP data-access seam
+(agent-scoped, owner-gated).
 
-Byte-parity Http twins of the JobModule read tools (job_retrieval_by_id /
-_semantic / _by_keywords) so the HttpStore path of AgentDataStore can serve
-them without db credentials in the mcp container. Each endpoint returns the
-EXACT dict the seam's DirectStore returns — both call the shared, dialect-safe
-``xyz_agent_context.module.job_module`` read helpers — so the Http and
-in-process paths are byte-identical.
+Byte-parity Http twins of the JobModule tools (job_retrieval_by_id / _semantic
+/ _by_keywords reads, and job_update writes) so the HttpStore path of
+AgentDataStore can serve them without db credentials in the mcp container. Each
+endpoint returns the EXACT dict the seam's DirectStore returns — both call the
+shared, dialect-safe ``xyz_agent_context.module.job_module`` helpers — so the
+Http and in-process paths are byte-identical.
 
 Distinct from ``backend/routes/jobs.py`` (the frontend-facing job API under
 ``/jobs`` with response_model shapes): these live under
@@ -35,17 +35,39 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Request
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.routes._ownership import assert_owned
 from xyz_agent_context.module.job_module import (
     fetch_job_by_id,
     search_jobs_semantic,
     search_jobs_by_keywords,
+    update_job_from_args,
 )
+from xyz_agent_context.schema import JobUpdateFields
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
+
+
+class JobUpdateSeamBody(JobUpdateFields):
+    """Body for POST .../jobs/{job_id}/update — the job_update tool's mutable
+    fields, inherited from the shared JobUpdateFields (declared once, same list
+    as the frontend JobUpdateBody).
+
+    ``extra="forbid"`` is load-bearing: this is the HttpStore write path, so a
+    field added to update_job_from_args + the MCP tool but forgotten HERE must
+    fail LOUDLY (422 → HttpStore._parse_dict surfaces "invalid arguments")
+    rather than be silently dropped while DirectStore applies it — that silent
+    local/cloud divergence is exactly what the seam's byte-parity exists to
+    prevent. This is chosen "loud" over "surgical": the MCP tool's ``fields``
+    literal always sends all nine keys, so on drift EVERY cloud job_update 422s,
+    not just the call that set the new field — on-call should read a sudden
+    "job_update always fails" as a missing field on THIS body, not a lost route.
+    (The frontend JobUpdateBody deliberately keeps the default extra="ignore":
+    it calls update_job_from_args in-process, so it has no silent-drop path to
+    guard, and it adds a required field rather than forbidding unknown ones.)"""
+    model_config = ConfigDict(extra="forbid")
 
 
 class JobSemanticSearchBody(BaseModel):
@@ -97,3 +119,17 @@ async def job_search_keywords(agent_id: str, body: JobKeywordSearchBody, request
     except Exception as e:  # noqa: BLE001
         logger.warning(f"job_search_keywords failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+@router.post("/{agent_id}/jobs/{job_id}/update")
+async def job_update(agent_id: str, job_id: str, body: JobUpdateSeamBody, request: Request) -> dict:
+    """Update a job's fields — twin of the ``job_update`` MCP tool. Shares the
+    ``update_job_from_args`` implementation with DirectStore (byte-parity) and
+    the frontend ``/api/jobs/{job_id}`` route."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — update_job_from_args never raises
+        logger.warning(f"job_update failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+    return await update_job_from_args(db, agent_id, job_id, **body.model_dump())

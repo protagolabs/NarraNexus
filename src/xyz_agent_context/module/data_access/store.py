@@ -113,6 +113,8 @@ class AgentDataStore(Protocol):
         self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
     ) -> dict: ...
 
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict: ...
+
 
 # Return strings the awareness MCP tool has always produced — DirectStore and
 # HttpStore MUST both yield these so migration is behaviour-preserving (parity).
@@ -206,18 +208,25 @@ def _job_keywords_reject(keywords: list) -> Optional[dict]:
     return None
 
 
-def _social_write_message(result: dict) -> dict:
-    """Exact inverse of the backend social route's ``_normalize_write_result``:
-    map the HTTP route family's ``error`` failure key back to the MCP tool's
-    ``message`` key, so HttpStore returns dicts byte-identical to DirectStore
-    (which mirrors the tool, whose write results use ``message``).
+def _write_message_key(result: dict) -> dict:
+    """Fold any ``error``-keyed failure back onto the ``message`` key, so an
+    HttpStore dict stays byte-identical to DirectStore (which mirrors the tool,
+    and the tools involved fail with ``message``). It is applied on two kinds of
+    call site, folding two distinct sources:
 
-    Sound because the social write METHODS (extract/merge/delete) fail
-    EXCLUSIVELY with ``message`` — the route only ever rewrote a ``message``
-    into ``error``, so a failure ``error`` on the wire always originated as a
-    ``message``. Also folds HttpStore's own transport degradations
-    (unreachable / non-2xx), which _parse_dict emits as ``error``, onto the
-    same ``message`` key so every social failure the agent sees is uniform."""
+    - WRITE methods (social extract/merge/delete, job job_update): the backend
+      route's ``_normalize_write_result`` rewrote the tool's ``message`` into
+      ``error`` on the wire; this is its exact inverse. Sound because those
+      methods fail EXCLUSIVELY with ``message``, so a failure ``error`` on the
+      wire always originated as a ``message``.
+    - READ methods that route through it too (social search / get_entity_contact
+      / get_social_network_stats): their 2xx body is passed through untouched
+      (it already uses the tool's keys); here the call only ever bites on
+      HttpStore's OWN transport degradations (unreachable / non-2xx), which
+      _parse_dict emits as ``error`` — see the inline note at those sites.
+
+    Either way every failure the agent sees is uniform, whichever surface it
+    came from."""
     if isinstance(result, dict) and result.get("success") is False and "message" not in result and "error" in result:
         result = dict(result)
         result["message"] = result.pop("error")
@@ -557,6 +566,19 @@ class DirectStore:
             logger.warning(f"[job.job_retrieval_by_keywords] failed: {e}")
             return {"success": False, "error": str(e)}
 
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict:
+        # The shared update_job_from_args is self-contained (returns a
+        # message-keyed dict, never raises) — the backend job routes call the
+        # SAME function, so Direct and Http are byte-identical. The outer try
+        # only guards _db().
+        from xyz_agent_context.module.job_module import update_job_from_args
+
+        try:
+            return await update_job_from_args(await self._db(), agent_id, job_id, **fields)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_update] failed: {e}")
+            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
 
 class HttpStore:
     """Cloud: call the backend API (no db creds in mcp).
@@ -636,7 +658,7 @@ class HttpStore:
     # delegate to the SAME SocialNetworkModule methods DirectStore calls, so a
     # 2xx body already matches. The one gap is the failure key: the route runs
     # ``_normalize_write_result`` (message->error) for its HTTP family, so every
-    # social response is passed back through ``_social_write_message`` to
+    # social response is passed back through ``_write_message_key`` to
     # restore the tool's ``message`` shape — see that helper.
     async def extract_entity_info(
         self, agent_id: str, entity_id: str, updates: dict, update_mode: str
@@ -644,7 +666,7 @@ class HttpStore:
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/extract",
             json={"entity_id": entity_id, "updates": updates, "update_mode": update_mode},
             failure_extra={},
@@ -656,7 +678,7 @@ class HttpStore:
         reject = _social_id_reject(source_entity_id, target_entity_id)
         if reject is not None:
             return reject
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/merge",
             json={
                 "source_entity_id": source_entity_id,
@@ -670,7 +692,7 @@ class HttpStore:
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/delete-entity",
             json={"entity_id": entity_id},
             failure_extra={},
@@ -678,7 +700,7 @@ class HttpStore:
 
     # Social reads: the /recall, /contact, /stats twin routes return the tool
     # dict shape verbatim (message-keyed), so on 2xx the body passes straight
-    # through. _social_write_message only bites on _parse_dict's own transport
+    # through. _write_message_key only bites on _parse_dict's own transport
     # degradations (which are error-keyed) — mapping them onto the tool's
     # `message` key so every social failure the agent sees is uniform.
     async def search_social_network(
@@ -688,7 +710,7 @@ class HttpStore:
         if reject is not None:
             return reject
         top_k = _clamp_limit(top_k)
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/recall",
             json={"search_keyword": search_keyword, "search_type": search_type, "top_k": top_k},
             failure_extra={"results": []},
@@ -698,7 +720,7 @@ class HttpStore:
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/contact",
             json={"entity_id": entity_id},
             failure_extra={},
@@ -708,7 +730,7 @@ class HttpStore:
         self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
     ) -> dict:
         top_k = _clamp_limit(top_k)
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{agent_id}/social-network/stats",
             json={"sort_by": sort_by, "top_k": top_k, "filter_tags": filter_tags},
             failure_extra={"results": []},
@@ -720,10 +742,10 @@ class HttpStore:
     ) -> dict:
         # The route provisions the SAME caller-minted new_agent_id and shapes the
         # response with the shared format_create_agent_success, so a 2xx body
-        # already matches DirectStore. _social_write_message maps the route's
+        # already matches DirectStore. _write_message_key maps the route's
         # error-keyed failures (and transport degradations) back to the tool's
         # message key.
-        return _social_write_message(await self._post_dict(
+        return _write_message_key(await self._post_dict(
             f"/api/agents/{creator_agent_id}/social-network/create-agent",
             json={
                 "new_agent_id": new_agent_id,
@@ -784,6 +806,18 @@ class HttpStore:
             json={"keywords": keywords, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
             failure_extra={},
         )
+
+    async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict:
+        # The route calls the SAME update_job_from_args and returns its
+        # message-keyed dict verbatim, so a 2xx body already matches DirectStore.
+        # job_update's contract is the `message` key (never `error`), so a
+        # transport degradation (_parse_dict's `error`) is remapped back to
+        # `message` (with job_id) via _write_message_key.
+        return _write_message_key(await self._post_dict(
+            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/update",
+            json=fields,
+            failure_extra={"job_id": job_id},
+        ))
 
     async def _send(self, method: str, path: str, **kw):
         """Transport layer shared by every Http method: one AsyncClient + one

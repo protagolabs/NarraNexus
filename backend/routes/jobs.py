@@ -44,13 +44,14 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.module.job_module import (
-    # aliased: the route handlers below share these names
+    # aliased: the search route handlers below share these names
     search_jobs_semantic as _shared_search_semantic,
     search_jobs_by_keywords as _shared_search_keywords,
+    update_job_from_args,
 )
 from xyz_agent_context.schema import (
     JobStatus,
-    JobType,
+    JobUpdateFields,
     JobResponse,
     JobListResponse,
     JobDetailResponse,
@@ -66,18 +67,14 @@ class CancelJobResponse(BaseModel):
     error: Optional[str] = None
 
 
-class JobUpdateBody(BaseModel):
-    """Update request — mirrors job_update MCP tool args. Only passed fields change."""
+class JobUpdateBody(JobUpdateFields):
+    """Frontend update request. Inherits the 9 mutable fields from the shared
+    JobUpdateFields (declared once) and adds agent_id for ownership scoping —
+    the ONLY difference from the seam route's body. Unlike the seam body it
+    keeps the default extra="ignore" (no forbid): this route calls
+    update_job_from_args in-process, so there is no HttpStore silent-drop path
+    to guard here — the forbid guard's reason exists only on the seam leg."""
     agent_id: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    payload: Optional[str] = None
-    guidance_text: Optional[str] = None
-    trigger_config: Optional[dict] = None
-    job_type: Optional[str] = None
-    next_run_time: Optional[str] = None
-    status: Optional[str] = None
-    related_entity_id: Optional[str] = None
 
 
 class JobUpdateResponse(BaseModel):
@@ -499,126 +496,38 @@ async def create_job_complex(request: CreateJobComplexRequest):
 @router.put("/{job_id}", response_model=JobUpdateResponse)
 async def update_job(job_id: str, request: Request, body: JobUpdateBody):
     """
-    Update Job fields — mirrors the `job_update` MCP tool
-    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L410).
+    Update Job fields — mirrors the `job_update` MCP tool, sharing the
+    `xyz_agent_context.module.job_module.update_job_from_args` implementation.
     Only passed fields change.
     """
     await assert_owned(request, body.agent_id)
 
+    # The ~90-line build-updates logic (effective_type ordering, trigger_config
+    # + compute_next_run, next_run_time, status validation) is the shared
+    # update_job_from_args — the seam's DirectStore and the agent-scoped route
+    # call the same function, so the zombie-bug ordering fix can't drift between
+    # the browser API and the agent path (rule #8).
     try:
-        from datetime import datetime, timezone as dt_timezone
-        from zoneinfo import ZoneInfo
-        from xyz_agent_context.module.job_module.job_service import JobInstanceService
-
         db_client = await get_db_client()
-        job_repo = JobRepository(db_client)
-
-        job = await job_repo.get_job(job_id)
-        if not job:
-            return JobUpdateResponse(success=False, job_id=job_id, message=f"Job {job_id} not found")
-
-        if job.agent_id != body.agent_id:
-            return JobUpdateResponse(
-                success=False,
-                job_id=job_id,
-                message=f"Job {job_id} not found",
-            )
-
-        updates: dict = {}
-
-        # Resolve the effective job_type up front: trigger_config's
-        # compute_next_run runs BEFORE the job_type branch below, so reading
-        # updates.get("job_type") there always saw the OLD type — a
-        # one_off→scheduled switch with a new cron computed next_run_time as
-        # one_off (→ None), silently zombifying the job (pre-open review #4).
-        if body.job_type is not None:
-            try:
-                effective_type = JobType(body.job_type.lower())
-            except ValueError:
-                return JobUpdateResponse(
-                    success=False,
-                    job_id=job_id,
-                    message=f"Invalid job_type: {body.job_type}. Valid: one_off, scheduled, ongoing",
-                )
-            updates["job_type"] = effective_type
-        else:
-            effective_type = job.job_type
-
-        if body.title is not None:
-            updates["title"] = body.title
-        if body.description is not None:
-            updates["description"] = body.description
-        if body.payload is not None:
-            updates["payload"] = body.payload
-        if body.guidance_text:
-            base_payload = updates.get("payload", job.payload) or ""
-            updates["payload"] = f"{base_payload}\n\n## Manager Guidance\n{body.guidance_text}"
-        if body.trigger_config is not None:
-            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
-            from pydantic import ValidationError as _VE
-            try:
-                tc_model = TriggerConfig(**body.trigger_config)
-            except _VE as ve:
-                first = ve.errors()[0]
-                loc = ".".join(str(p) for p in first.get("loc", ()))
-                return JobUpdateResponse(
-                    success=False, job_id=job_id, message=f"Invalid trigger_config ({loc}): {first['msg']}"
-                )
-            updates["trigger_config"] = tc_model
-            nxt = compute_next_run(effective_type, tc_model)
-            if nxt:
-                updates["next_run_time"] = nxt.utc
-                updates["next_run_at_local"] = nxt.local
-                updates["next_run_tz"] = nxt.tz
-            else:
-                updates["next_run_time"] = None
-                updates["next_run_at_local"] = None
-                updates["next_run_tz"] = None
-        if body.next_run_time is not None:
-            # Atomic alpha+beta override: parse UTC input, then derive the beta
-            # pair in the job's frozen timezone so display and poller stay consistent.
-            try:
-                next_utc = datetime.fromisoformat(body.next_run_time.replace("Z", "+00:00"))
-                if next_utc.tzinfo is None:
-                    next_utc = next_utc.replace(tzinfo=dt_timezone.utc)
-            except ValueError as e:
-                return JobUpdateResponse(
-                    success=False, job_id=job_id, message=f"Invalid next_run_time format: {e}"
-                )
-            tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
-            next_local = next_utc.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
-            updates["next_run_time"] = next_utc
-            updates["next_run_at_local"] = next_local
-            updates["next_run_tz"] = tz_name
-        if body.status is not None:
-            try:
-                updates["status"] = JobStatus(body.status.lower())
-            except ValueError:
-                return JobUpdateResponse(
-                    success=False,
-                    job_id=job_id,
-                    message=f"Invalid status: {body.status}. Valid: active, paused, cancelled",
-                )
-        if body.related_entity_id is not None:
-            updates["related_entity_id"] = body.related_entity_id
-
-        if not updates:
-            return JobUpdateResponse(success=False, job_id=job_id, message="No fields to update")
-
-        service = JobInstanceService(db_client)
-        result = await service.update_job(job_id=job_id, updates=updates, agent_id=body.agent_id)
-        return JobUpdateResponse(**result)
-
-    except Exception as e:
-        logger.exception(f"Error updating job {job_id}: {e}")
-        return JobUpdateResponse(success=False, job_id=job_id, message=str(e))
+    except Exception as e:  # noqa: BLE001 — update_job_from_args never raises
+        logger.exception(f"Error in job update: {e}")
+        return JobUpdateResponse(success=False, job_id=job_id, message=f"Error: {e}")
+    # Forward the mutable fields by unpacking the shared JobUpdateFields set
+    # (everything on the body except agent_id) — so a field added to
+    # JobUpdateFields flows through here automatically instead of being silently
+    # dropped on the browser path, finishing the "declare the field list once"
+    # story the seam route already gets via **body.model_dump().
+    result = await update_job_from_args(
+        db_client, body.agent_id, job_id, **body.model_dump(exclude={"agent_id"}),
+    )
+    return JobUpdateResponse(**result)
 
 
 @router.put("/{job_id}/pause", response_model=JobPauseResponse)
 async def pause_job(job_id: str, request: Request, body: JobPauseBody):
     """
     Pause a Job — mirrors the `job_pause` MCP tool
-    (src/xyz_agent_context/module/job_module/_job_mcp_tools.py L553).
+    (xyz_agent_context.module.job_module._job_mcp_tools job_pause).
 
     Unconditional: sets status to PAUSED regardless of the current status (no
     precondition check). This differs from the dashboard route's
