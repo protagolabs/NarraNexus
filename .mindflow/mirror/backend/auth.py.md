@@ -1,8 +1,24 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — nx-agent 服务身份旁路（蓝图 Q6，MCP caller auth）
+
+云 JWT 段在 `decode_token` 之前多一条判定:bearer 是 `nx-agent:` 位置记录
+(mcp 容器 HttpStore 原样转发的 executor→mcp 身份通道)→ 用 broker 公钥
+(`NX_IDENTITY_PUBLIC_KEY_FILE`,[[identity/tokens]])验第 7 位 Ed25519 token,
+sub 即生效 user(`request.state.nx_service_authed=True`),路由侧照旧对目标
+agent_id 做 owner 校验。与 manyfold gateway-token 平级的服务信任先例,但有
+两点刻意不同:
+1. **绝不 fail-open**——nx-agent bearer 打到 backend 只可能是服务调用,无 token
+   /无公钥/验签失败/bearer 声明的 user 与 sub 不符,一律 401(每种 reason 单独
+   落 WARNING,0806 的可诊断纪律);mcp 侧中间件 fail-open 是因为它是数据面,
+   这里不是。
+2. **早退跳过 provider/quota resolver**——数据面服务调用是 repository 操作不是
+   LLM 花销,欠费用户的 awareness 更新不该被 402(与 SAFE_HTTP_METHODS 同理)。
+测试:`test_auth_nx_service_bearer.py`。
 
 ## 2026-08-06 — 每个 401 带上 `code` + 一行 `[auth-reject]` 日志
 

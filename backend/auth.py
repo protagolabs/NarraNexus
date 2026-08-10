@@ -179,6 +179,66 @@ def _is_cloud_mode() -> bool:
 
 
 # =============================================================================
+# NarraNexus service identity (blueprint Q6 — mcp→backend trust path)
+# =============================================================================
+#
+# Cloud-mode requests whose Authorization bearer is the nx-agent positional
+# record (the executor→mcp identity channel, forwarded verbatim by the mcp
+# container's HttpStore). Verification is asymmetric: the broker signed the
+# 7th field with its Ed25519 PRIVATE key; we hold only the PUBLIC key, so a
+# compromised backend/mcp cannot mint identities. Consumed by auth_middleware
+# right before the user-JWT decode; see the block comment there for the
+# no-fail-open rationale.
+
+
+def _is_nx_service_bearer(auth_header: str) -> bool:
+    from xyz_agent_context.module import _mcp_identity as nx_ident
+
+    return auth_header.startswith(f"Bearer {nx_ident.BEARER_AGENT_PREFIX}")
+
+
+def _verify_nx_service_bearer(request: "Request", auth_header: str):
+    """The proven service identity, or None (invalid/absent/unverifiable).
+
+    None on every failure shape on purpose — the caller answers 401 with one
+    code; the distinct reasons are logged here (0806 discipline: every reject
+    must be diagnosable from server logs).
+    """
+    from xyz_agent_context.module import _mcp_identity as nx_ident
+    from xyz_agent_context.module.identity.tokens import (
+        IdentityTokenError,
+        load_public_key_pem,
+        verify_identity_token,
+    )
+
+    bearer = nx_ident._parse_bearer(auth_header)
+    explicit = (request.headers.get(nx_ident.IDENTITY_TOKEN_HEADER) or "").strip()
+    token = explicit or bearer.identity_token
+    if not token:
+        logger.warning("[nx-service-auth] nx-agent bearer without identity token")
+        return None
+    public_key = load_public_key_pem()
+    if public_key is None:
+        logger.warning(
+            "[nx-service-auth] no identity public key provisioned "
+            "(NX_IDENTITY_PUBLIC_KEY_FILE) — rejecting service call"
+        )
+        return None
+    try:
+        identity = verify_identity_token(token, public_key)
+    except IdentityTokenError as e:
+        logger.warning(f"[nx-service-auth] {e}")
+        return None
+    if bearer.user_id and bearer.user_id != identity.user_id:
+        logger.warning(
+            f"[nx-service-auth] bearer declares user {bearer.user_id!r} but the "
+            f"token proves {identity.user_id!r} — forged field, rejecting"
+        )
+        return None
+    return identity
+
+
+# =============================================================================
 # JWT Token
 # =============================================================================
 
@@ -538,6 +598,32 @@ async def auth_middleware(request: Request, call_next):
             TOKEN_MISSING, "Authentication required",
             path=path, method=request.method,
         )
+
+    # ---- NarraNexus service identity (blueprint Q6) -----------------------
+    # The mcp container's HttpStore forwards the executor→mcp identity
+    # headers verbatim; the bearer is the nx-agent positional record whose
+    # 7th field is a broker/local-signed Ed25519 identity token. Verify it
+    # with the identity PUBLIC key and trust its sub as the effective user —
+    # routes still owner-check the target agent_id. Parallel to the manyfold
+    # gateway-token bypass above, but NEVER fail-open: an nx-agent bearer
+    # reaching backend is always a service call and must prove itself (no
+    # key provisioned = still 401). Early return also skips the provider/
+    # quota resolver below on purpose — these are repository operations, not
+    # LLM spends (same reason SAFE_HTTP_METHODS skip it).
+    if _is_nx_service_bearer(auth_header):
+        identity = _verify_nx_service_bearer(request, auth_header)
+        if identity is None:
+            return auth_error_response(
+                TOKEN_INVALID, "Invalid NarraNexus service identity",
+                path=path, method=request.method,
+            )
+        request.state.user_id = identity.user_id
+        request.state.role = "user"
+        request.state.nx_service_authed = True
+        from xyz_agent_context.agent_framework.api_config import set_current_user_id
+
+        set_current_user_id(identity.user_id)
+        return await call_next(request)
 
     token = auth_header[7:]
     try:
