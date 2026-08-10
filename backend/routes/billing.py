@@ -149,6 +149,17 @@ async def get_subscription(request: Request):
         # Business 4xx on a read endpoint = upstream contract violation -> 502.
         logger.error(f"[billing] get_subscription upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
+    subscription = data.get("subscription") if isinstance(data, dict) else None
+    if isinstance(subscription, dict) and subscription.get("status") == "ACTIVE":
+        from xyz_agent_context.analytics import track
+        from xyz_agent_context.analytics.events import EVENT_SUBSCRIPTION_ACTIVATED
+
+        user_id = await resolve_current_user_id(request)
+        await track(
+            user_id=user_id,
+            event=EVENT_SUBSCRIPTION_ACTIVATED,
+            event_id=f"subscription_activated:{user_id}",
+        )
     return {"success": True, "data": data}
 
 
@@ -340,6 +351,20 @@ async def subscribe(request: Request):
     """Start a Pro subscription — returns Stripe {session_id, checkout_url}."""
     result = await _write_action(request, "subscribe", _return_urls("subscription"))
     _validate_checkout_url((result.get("data") or {}).get("checkout_url"))
+    from xyz_agent_context.analytics import track
+    from xyz_agent_context.analytics.events import (
+        EVENT_CHECKOUT_CREATED,
+        PROP_SESSION_ID,
+    )
+
+    user_id = await resolve_current_user_id(request)
+    session_id = (result.get("data") or {}).get("session_id")
+    await track(
+        user_id=user_id,
+        event=EVENT_CHECKOUT_CREATED,
+        event_id=f"checkout_created:{session_id}" if session_id else None,
+        properties={PROP_SESSION_ID: session_id},
+    )
     return result
 
 

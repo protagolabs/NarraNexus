@@ -750,6 +750,23 @@ async def websocket_agent_run(websocket: WebSocket):
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)
 
+        from xyz_agent_context.analytics import track as _track_product_event
+        from xyz_agent_context.analytics.events import (
+            EVENT_MESSAGE_ACCEPTED,
+            PROP_AGENT_ID,
+            PROP_SESSION_ID,
+            PROP_TRIGGER_SOURCE,
+        )
+
+        await _track_product_event(
+            user_id=request.user_id,
+            event=EVENT_MESSAGE_ACCEPTED,
+            properties={
+                PROP_AGENT_ID: request.agent_id,
+                PROP_TRIGGER_SOURCE: request.working_source,
+            },
+        )
+
         logger.info(f"Starting agent runtime: agent_id={request.agent_id}, user_id={request.user_id}")
 
         # ---- Dashboard v2 (TDR-2): register active session AFTER auth passes, ----
@@ -901,6 +918,21 @@ async def websocket_agent_run(websocket: WebSocket):
                         "type": "run_started",
                         "run_id": bg.run_id,
                     })
+                from xyz_agent_context.analytics.events import (
+                    EVENT_RUN_STARTED,
+                    PROP_RUN_ID,
+                )
+                await _track_product_event(
+                    user_id=request.user_id,
+                    event=EVENT_RUN_STARTED,
+                    event_id=f"run_started:{bg.run_id}",
+                    properties={
+                        PROP_AGENT_ID: request.agent_id,
+                        PROP_RUN_ID: bg.run_id,
+                        PROP_SESSION_ID: _session_id,
+                        PROP_TRIGGER_SOURCE: request.working_source,
+                    },
+                )
 
             # Subscribe this WS to the broadcaster.
             subscriber = bg.broadcaster.subscribe(_session_id)

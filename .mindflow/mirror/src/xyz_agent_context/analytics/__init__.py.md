@@ -1,10 +1,17 @@
 ---
 code_file: src/xyz_agent_context/analytics/__init__.py
-last_verified: 2026-07-24
+last_verified: 2026-08-10
 stub: false
 ---
 
 # __init__.py (analytics)
+
+## 2026-08-10 — first-party product facts are the reporting source
+
+`track()` now writes opted-in events to `product_analytics_events` before
+optionally forwarding them to the legacy sink. Both destinations fail
+independently. Cloud's NullSink remains unchanged; PostHog is not queried by
+the metrics service. Caller-supplied event IDs provide idempotency.
 
 ## Why it exists
 

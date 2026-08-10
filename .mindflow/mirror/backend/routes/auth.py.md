@@ -4,6 +4,12 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — cloud signup capture repaired
+
+The new-NetMind-user branch now awaits and keyword-calls analytics. Positional
+calls to keyword-only async functions previously raised and were swallowed, so
+cloud signup facts never existed. Setup actions are tagged frontend-originated.
+
 ## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
 
 原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +

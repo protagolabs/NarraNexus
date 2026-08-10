@@ -51,6 +51,7 @@ lifespan, at startup and periodically.
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -82,18 +83,78 @@ if TYPE_CHECKING:
 
 
 async def _fire_message_success(*, user_id: str, agent_id: str,
-                                run_id: "str | None") -> None:
+                                run_id: "str | None", trigger_source: str = "chat",
+                                latency_ms: int = 0) -> None:
     """Funnel step ⑤: agent produced and delivered a reply (COMPLETED)."""
     if not user_id:
         return
     from xyz_agent_context.analytics import track
     from xyz_agent_context.analytics.events import (
-        EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED, PROP_AGENT_ID, PROP_RUN_ID,
+        EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED, PROP_AGENT_ID, PROP_LATENCY_MS,
+        PROP_RUN_ID, PROP_TRIGGER_SOURCE,
     )
     await track(
         user_id=user_id,
         event=EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED,
-        properties={PROP_AGENT_ID: agent_id, PROP_RUN_ID: run_id},
+        event_id=f"message_succeeded:{run_id}" if run_id else None,
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_RUN_ID: run_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+            PROP_LATENCY_MS: latency_ms,
+        },
+    )
+
+
+def _failure_category(reason: str | None, state: str) -> str:
+    if state == STATE_CANCELLED:
+        return "cancelled"
+    if reason in {"free_tier_exhausted", "insufficient_balance"}:
+        return "quota"
+    if reason == "invalid_credentials":
+        return "auth"
+    if reason and reason.startswith("executor_"):
+        return "infrastructure"
+    if reason in {
+        "no_provider_configured", "context_window", "model_not_found",
+        "model_unavailable", "NoProviderConfiguredError",
+    }:
+        return "configuration"
+    return "runtime"
+
+
+async def _fire_message_failure(*, user_id: str, agent_id: str,
+                                run_id: "str | None", trigger_source: str,
+                                latency_ms: int, state: str,
+                                reason: str | None) -> None:
+    from xyz_agent_context.analytics import track
+    from xyz_agent_context.analytics.events import (
+        EVENT_MESSAGE_ROUND_TRIP_FAILED,
+        PROP_AGENT_ID,
+        PROP_FAILURE_CATEGORY,
+        PROP_FAILURE_REASON,
+        PROP_LATENCY_MS,
+        PROP_PROVIDER_CARD_SOURCE,
+        PROP_RUN_ID,
+        PROP_TRIGGER_SOURCE,
+    )
+    from xyz_agent_context.agent_framework.api_config import (
+        get_provider_card_source,
+    )
+
+    await track(
+        user_id=user_id,
+        event=EVENT_MESSAGE_ROUND_TRIP_FAILED,
+        event_id=f"message_failed:{run_id}" if run_id else None,
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_RUN_ID: run_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+            PROP_LATENCY_MS: latency_ms,
+            PROP_FAILURE_CATEGORY: _failure_category(reason, state),
+            PROP_FAILURE_REASON: reason or "unknown",
+            PROP_PROVIDER_CARD_SOURCE: get_provider_card_source("agent_loop"),
+        },
     )
 
 
@@ -224,6 +285,8 @@ class BackgroundRun:
         # Lazy import to avoid circular dependency at module load time.
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 
+        started_at = time.monotonic()
+        trigger_source = getattr(working_source, "value", str(working_source))
         try:
             # Two-level concurrency gate: queues the START only, never
             # interrupts a running loop (binding rule #14).
@@ -267,7 +330,24 @@ class BackgroundRun:
                 # agent reply — that is not a successful round-trip.
                 if not self.recorder.had_fatal_error:
                     await _fire_message_success(
-                        user_id=user_id, agent_id=agent_id, run_id=self.run_id,
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        run_id=self.run_id,
+                        trigger_source=trigger_source,
+                        latency_ms=int((time.monotonic() - started_at) * 1000),
+                    )
+                else:
+                    await _fire_message_failure(
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        run_id=self.run_id,
+                        trigger_source=trigger_source,
+                        latency_ms=int((time.monotonic() - started_at) * 1000),
+                        state=self.state,
+                        reason=(
+                            self.recorder.last_action_reason
+                            or self.recorder.last_error_type
+                        ),
                     )
         except CancelledByUser as e:
             self.state = STATE_CANCELLED
@@ -281,6 +361,15 @@ class BackgroundRun:
                 "type": "cancelled",
                 "message": f"Agent run stopped: {e.reason}",
             })
+            await _fire_message_failure(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=self.run_id,
+                trigger_source=trigger_source,
+                latency_ms=int((time.monotonic() - started_at) * 1000),
+                state=self.state,
+                reason="user_cancelled",
+            )
         except Exception as e:  # noqa: BLE001
             self.state = STATE_FAILED
             logger.exception(f"[BackgroundRun {self.run_id}] failed: {e}")
@@ -299,6 +388,15 @@ class BackgroundRun:
                 "error_type": type(e).__name__,
                 "severity": "fatal",
             })
+            await _fire_message_failure(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=self.run_id,
+                trigger_source=trigger_source,
+                latency_ms=int((time.monotonic() - started_at) * 1000),
+                state=self.state,
+                reason=type(e).__name__,
+            )
         finally:
             await self._finalize()
 

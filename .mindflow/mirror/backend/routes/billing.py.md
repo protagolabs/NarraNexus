@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — checkout and subscription facts
+
+Successful subscribe responses record `checkout_created` keyed by Stripe
+session. A subscription read observing ACTIVE records an idempotent
+`subscription_activated`; polling is the local conversion source because this
+repository receives no Stripe/NetMind webhook.
 
 ## 2026-08-06 — 7 处 NetMind 401 改带 `netmind_token_invalid`
 

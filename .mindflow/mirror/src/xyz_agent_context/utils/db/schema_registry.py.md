@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — product facts + exact provider source
+
+Added append-only `product_analytics_events`, indexed by event/user/run/failure
+time. Existing PostHog data is not migrated. `cost_records` gained
+`provider_card_source`; the older resolver branch is always `user` now and
+cannot distinguish `netmind_free` from another user-owned provider.
+
 ## 2026-08-07 — 审计两表的保留期：待定，不是「不需要」
 
 `narrative_routing_audit` 每轮一行、带 ~15KB 的 `candidates_json`；

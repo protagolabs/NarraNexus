@@ -1,10 +1,17 @@
 ---
 code_file: src/xyz_agent_context/analytics/events.py
-last_verified: 2026-06-09
+last_verified: 2026-08-10
 stub: false
 ---
 
 # events.py
+
+## 2026-08-10 — end-to-end product and payment vocabulary
+
+The vocabulary covers workspace entry, submit/accept/run/outcome/render
+message stages, and click/create/open/activate subscription stages.
+`FRONTEND_EVENTS` doubles as the browser ingestion allowlist; backend-only
+facts cannot be spoofed through the route.
 
 ## Why it exists
 

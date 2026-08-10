@@ -468,6 +468,7 @@ from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
 from backend.routes.billing import router as billing_router
 from backend.routes.feedback import router as feedback_router
+from backend.routes.analytics import router as product_analytics_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -495,6 +496,7 @@ app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
 app.include_router(feedback_router, prefix="/api", tags=["Feedback"])
+app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])

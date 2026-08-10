@@ -26,6 +26,7 @@ import { generateId } from '@/lib/utils';
 import { isBlankText } from '@/lib/isBlankText';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
+import { captureProductEvent } from '@/lib/productAnalytics';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -874,7 +875,20 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'complete': {
+          const session = getSession(get().agentSessions, agentId);
+          const hasReply = session.currentToolCalls.some(
+            (tool) =>
+              tool.tool_name.endsWith('send_message_to_user_directly') &&
+              !isBlankText(tool.tool_input?.content as string),
+          );
           get().stopStreaming(agentId);
+          if (hasReply) {
+            captureProductEvent('reply_rendered', {
+              agent_id: agentId,
+              run_id: session.currentRunId ?? undefined,
+              trigger_source: 'chat',
+            });
+          }
           break;
         }
 

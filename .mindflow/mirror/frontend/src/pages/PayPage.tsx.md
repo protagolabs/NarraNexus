@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/PayPage.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — direct-pay funnel facts
+
+The bounce route records the same click/open stages as the account panel.
+Active-subscription redirects and failed checkout creation do not emit opened.
 
 # PayPage.tsx — /pay 官网直达 Stripe 的中转路由
 

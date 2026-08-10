@@ -27,7 +27,7 @@ from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track, identify_user
 from xyz_agent_context.analytics.events import (
     EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
-    EVENT_SETUP_COMPLETED, PROP_METHOD,
+    EVENT_SETUP_COMPLETED, PROP_METHOD, PROP_SOURCE,
 )
 
 # Whitelist of frontend-reportable funnel events. The setup_* events are pure
@@ -517,8 +517,15 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if is_new:
         try:
-            identify_user(user.user_id, {"signup_method": "netmind"})
-            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+            await identify_user(
+                user_id=user.user_id, traits={"signup_method": "netmind"}
+            )
+            await track(
+                user_id=user.user_id,
+                event=EVENT_SIGNED_UP,
+                properties={PROP_METHOD: "netmind"},
+                event_id=f"signed_up:{user.user_id}",
+            )
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
@@ -1783,5 +1790,9 @@ async def track_funnel_event(request: FunnelEventRequest, http_request: Request)
         raise HTTPException(
             status_code=400, detail=f"Unknown funnel event: {request.event}"
         )
-    await track(user_id=uid, event=request.event)
+    await track(
+        user_id=uid,
+        event=request.event,
+        properties={PROP_SOURCE: "frontend"},
+    )
     return {"success": True}

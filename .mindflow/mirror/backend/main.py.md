@@ -1,8 +1,13 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — product analytics ingestion router
+
+Registers authenticated `/api/analytics/events`. Startup schema migration runs
+before traffic, so capture sites can safely write the additive fact table.
 
 ## 2026-08-07 — 挂载 runs_router(/api/runs)
 
