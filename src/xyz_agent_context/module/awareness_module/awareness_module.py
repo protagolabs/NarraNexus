@@ -322,26 +322,11 @@ class AwarenessModule(XYZBaseModule):
             Returns:
                 Success or error message
             """
-            # Use MCP-dedicated database connection
-            db = await AwarenessModule.get_mcp_db_client()
-
-            # Find instance_id through agent_id + module_class
-            from xyz_agent_context.repository import InstanceRepository, InstanceAwarenessRepository
-            instance_repo = InstanceRepository(db)
-            instances = await instance_repo.get_by_agent(
-                agent_id=agent_id,
-                module_class="AwarenessModule"
-            )
-
-            if not instances:
-                return f"Error: No AwarenessModule instance found for agent_id={agent_id}"
-
-            instance_id = instances[0].instance_id
-
-            # Use InstanceAwarenessRepository to update awareness
-            awareness_repo = InstanceAwarenessRepository(db)
-            await awareness_repo.upsert(instance_id, new_awareness)
-            return "Awareness updated successfully"
+            # Route through the AgentDataStore seam: DirectStore (local, unchanged
+            # DB access) or HttpStore (cloud, backend API — no db creds in mcp),
+            # chosen by NARRANEXUS_BACKEND_URL. Blueprint P0 (behaviour-preserving).
+            from xyz_agent_context.module.data_access import get_agent_data_store
+            return await get_agent_data_store().update_awareness(agent_id, new_awareness)
 
         @mcp.tool()
         async def update_agent_profile(
