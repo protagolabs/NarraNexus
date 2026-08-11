@@ -26,10 +26,8 @@ from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from xyz_agent_context.module.data_access import get_channel_credential_store
-from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
-from ._telegram_credential_manager import TelegramCredentialManager, _cred_from_raw
-from ._telegram_service import do_bind, do_test_connection
+from ._telegram_credential_manager import _cred_from_raw
 from ._telegram_skill_loader import get_skill_loader
 from .telegram_sdk_client import TelegramSDKClient
 
@@ -62,12 +60,6 @@ async def _get_credential(agent_id: str):
     # dataclass so every caller keeps using cred.bot_token.
     raw = await get_channel_credential_store().get_credential("telegram", agent_id)
     return _cred_from_raw(raw) if raw is not None else None
-
-
-async def _get_manager() -> TelegramCredentialManager:
-    # Write/lifecycle (bind/status/unbind) — local-only via the seam (see
-    # channel_store.py "known gap").
-    return await ChannelDirectStore().get_manager("telegram")
 
 
 def register_telegram_mcp_tools(mcp: Any) -> None:
@@ -217,8 +209,9 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
                 _NO_BOT_INSTRUCTION,
             )
             return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
-        mgr = await _get_manager()
-        return await do_bind(mgr, agent_id, bot_token, owner_username)
+        return await get_channel_credential_store().bind(
+            "telegram", agent_id, {"bot_token": bot_token, "owner_username": owner_username}
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
@@ -228,12 +221,11 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
         Re-runs ``getMe`` so you see live connectivity, not just DB
         state.
         """
-        mgr = await _get_manager()
-        cred = await mgr.get(agent_id)
+        cred = await _get_credential(agent_id)
         if not cred:
             return {"success": True, "data": None, "bound": False}
 
-        live = await do_test_connection(mgr, agent_id)
+        live = await get_channel_credential_store().test_connection("telegram", agent_id)
         public = cred.to_public_dict()
         public["bound"] = True
         public["live_check"] = live
@@ -243,11 +235,7 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def tg_unbind(agent_id: str) -> dict:
         """Remove this agent's Telegram binding."""
-        mgr = await _get_manager()
-        removed = await mgr.unbind(agent_id)
-        if not removed:
-            return {"success": False, "error": "no Telegram credential bound"}
-        return {"success": True, "data": {"unbound": True}}
+        return await get_channel_credential_store().unbind("telegram", agent_id)
 
     logger.info(
         "Telegram MCP tools registered: tg_cli, tg_skill, tg_bind, tg_status, tg_unbind"

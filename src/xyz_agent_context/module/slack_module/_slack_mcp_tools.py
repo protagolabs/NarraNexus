@@ -28,10 +28,8 @@ from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from xyz_agent_context.module.data_access import get_channel_credential_store
-from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
-from ._slack_credential_manager import SlackCredentialManager, _cred_from_raw
-from ._slack_service import do_bind, do_test_connection
+from ._slack_credential_manager import _cred_from_raw
 from ._slack_skill_loader import get_skill_loader
 from .slack_sdk_client import SlackSDKClient
 
@@ -63,13 +61,6 @@ async def _get_credential(agent_id: str):
     # dataclass so every caller keeps using cred.bot_token / cred.app_token.
     raw = await get_channel_credential_store().get_credential("slack", agent_id)
     return _cred_from_raw(raw) if raw is not None else None
-
-
-async def _get_manager() -> SlackCredentialManager:
-    # Write/lifecycle (bind/status/unbind) — read-only Protocol doesn't cover
-    # these yet; DirectStore.get_manager keeps the db acquisition in the seam
-    # module (local only, see channel_store.py "known gap").
-    return await ChannelDirectStore().get_manager("slack")
 
 
 def register_slack_mcp_tools(mcp: Any) -> None:
@@ -217,8 +208,9 @@ def register_slack_mcp_tools(mcp: Any) -> None:
                 _NO_BOT_INSTRUCTION,
             )
             return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
-        mgr = await _get_manager()
-        return await do_bind(mgr, agent_id, bot_token, app_token)
+        return await get_channel_credential_store().bind(
+            "slack", agent_id, {"bot_token": bot_token, "app_token": app_token}
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
@@ -227,12 +219,11 @@ def register_slack_mcp_tools(mcp: Any) -> None:
 
         Re-runs ``auth.test`` so you see live connectivity, not just DB state.
         """
-        mgr = await _get_manager()
-        cred = await mgr.get(agent_id)
+        cred = await _get_credential(agent_id)
         if not cred:
             return {"success": True, "data": None, "bound": False}
 
-        live = await do_test_connection(mgr, agent_id)
+        live = await get_channel_credential_store().test_connection("slack", agent_id)
         public = cred.to_public_dict()
         public["bound"] = True
         public["live_check"] = live
@@ -242,10 +233,6 @@ def register_slack_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def slack_unbind(agent_id: str) -> dict:
         """Remove this agent's Slack binding."""
-        mgr = await _get_manager()
-        removed = await mgr.unbind(agent_id)
-        if not removed:
-            return {"success": False, "error": "no Slack credential bound"}
-        return {"success": True, "data": {"unbound": True}}
+        return await get_channel_credential_store().unbind("slack", agent_id)
 
     logger.info("Slack MCP tools registered: slack_cli, slack_skill, slack_bind, slack_status, slack_unbind")

@@ -46,7 +46,6 @@ from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
 from ._narra_command_security import sanitize_command
 from ._narra_guide import get_guide
 from ._narramessenger_credential_manager import _cred_from_raw
-from ._narramessenger_service import do_bind
 from .narra_cli_client import run_narra_cli
 
 
@@ -215,8 +214,9 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
                 _SETUP_INSTRUCTION,
             )
             return {"success": True, "setup_guide": _SETUP_INSTRUCTION}
-        db = await XYZBaseModule.get_mcp_db_client()
-        return await do_bind(db, agent_id, bind_command)
+        return await get_channel_credential_store().bind(
+            "narramessenger", agent_id, {"bind_command": bind_command}
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

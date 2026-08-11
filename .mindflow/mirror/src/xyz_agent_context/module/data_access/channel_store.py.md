@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (PR-H) — 写侧 seam：bind/unbind/test_connection
+
+Protocol 加 `bind/unbind/test_connection`。unbind/test_connection **契约统一**(mgr.unbind / do_test_connection)；bind **异构**由 `_BIND_SERVICE`(模块,函数,takes=mgr|db)分派——discord/slack/telegram 收 mgr、narra 收 db。DirectStore 复刻路由 envelope(`{success,data:{unbound}}`)；HttpStore `_post_json` POST `/api/<ch>/<op>`、**never-raise 但返 `{success:False,error}`**(失败的 unbind 不是'已解绑')。lark 写整体排除(CLI-OAuth，另立)。已迁写：discord/slack/telegram/wechat(unbind)/narramessenger(bind)。
+
 
 ## 2026-08-10 (PR-A) — ChannelCredentialStore：per-channel 送信凭据的 MCP 取数 seam
 

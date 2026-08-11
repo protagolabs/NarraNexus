@@ -23,9 +23,8 @@ from typing import Any
 from loguru import logger
 
 from xyz_agent_context.module.data_access import get_channel_credential_store
-from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
-from ._wechat_credential_manager import WeChatCredentialManager, _cred_from_raw
+from ._wechat_credential_manager import _cred_from_raw
 from .wechat_outbound import send_wechat_text
 
 
@@ -35,12 +34,6 @@ async def _get_credential(agent_id: str):
     # dataclass so send/status keep using cred.bot_token / cred.to_public_dict().
     raw = await get_channel_credential_store().get_credential("wechat", agent_id)
     return _cred_from_raw(raw) if raw is not None else None
-
-
-async def _get_manager() -> WeChatCredentialManager:
-    # Write/lifecycle (unbind) — local-only via the seam (see channel_store.py
-    # "known gap"). Bind is QR-scan, backend-only; no bind MCP tool here.
-    return await ChannelDirectStore().get_manager("wechat")
 
 
 def register_wechat_mcp_tools(mcp: Any) -> None:
@@ -106,10 +99,6 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def wechat_unbind(agent_id: str) -> dict:
         """Remove this agent's WeChat binding."""
-        mgr = await _get_manager()
-        removed = await mgr.unbind(agent_id)
-        if not removed:
-            return {"success": False, "error": "no WeChat credential bound"}
-        return {"success": True, "data": {"unbound": True}}
+        return await get_channel_credential_store().unbind("wechat", agent_id)
 
     logger.info("WeChat MCP tools registered: wechat_send, wechat_status, wechat_unbind")

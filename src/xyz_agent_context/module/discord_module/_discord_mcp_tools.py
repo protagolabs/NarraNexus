@@ -27,10 +27,9 @@ from loguru import logger
 
 from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.data_access import get_channel_credential_store
-from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
-from ._discord_credential_manager import DiscordCredentialManager, _cred_from_raw
-from ._discord_service import _friendly_discord_error, do_bind, do_test_connection
+from ._discord_credential_manager import _cred_from_raw
+from ._discord_service import _friendly_discord_error
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
 
@@ -59,15 +58,6 @@ async def _get_credential(agent_id: str):
     # dict so every caller below keeps using `cred.bot_token` unchanged.
     raw = await get_channel_credential_store().get_credential("discord", agent_id)
     return _cred_from_raw(raw) if raw is not None else None
-
-
-async def _get_manager() -> DiscordCredentialManager:
-    # Bind/status/unbind are write/lifecycle operations the read-only
-    # ChannelCredentialStore Protocol doesn't cover yet (see
-    # channel_store.py's module docstring, "known gap") — DirectStore's
-    # get_manager() convenience keeps the db-client acquisition centralised
-    # in the seam module instead of this file rolling its own.
-    return await ChannelDirectStore().get_manager("discord")
 
 
 def register_discord_mcp_tools(mcp: Any) -> None:
@@ -221,8 +211,9 @@ def register_discord_mcp_tools(mcp: Any) -> None:
                 _NO_BOT_INSTRUCTION,
             )
             return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
-        mgr = await _get_manager()
-        return await do_bind(mgr, agent_id, bot_token, owner_user_id=owner_user_id)
+        return await get_channel_credential_store().bind(
+            "discord", agent_id, {"bot_token": bot_token, "owner_user_id": owner_user_id}
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
@@ -232,11 +223,10 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         Re-runs GET /users/@me so you see live connectivity, not just DB
         state.
         """
-        mgr = await _get_manager()
-        cred = await mgr.get(agent_id)
+        cred = await _get_credential(agent_id)
         if not cred:
             return {"success": True, "data": None, "bound": False}
-        live = await do_test_connection(mgr, agent_id)
+        live = await get_channel_credential_store().test_connection("discord", agent_id)
         public = cred.to_public_dict()
         public["bound"] = True
         public["live_check"] = live
@@ -319,11 +309,7 @@ def register_discord_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def discord_unbind(agent_id: str) -> dict:
         """Remove this agent's Discord binding."""
-        mgr = await _get_manager()
-        removed = await mgr.unbind(agent_id)
-        if not removed:
-            return {"success": False, "error": "no Discord credential bound"}
-        return {"success": True, "data": {"unbound": True}}
+        return await get_channel_credential_store().unbind("discord", agent_id)
 
     logger.info(
         "Discord MCP tools registered: discord_send, discord_reply, "

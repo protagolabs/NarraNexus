@@ -66,6 +66,12 @@ class ChannelCredentialStore(Protocol):
 
     async def get_agent_owner(self, agent_id: str) -> str: ...
 
+    async def bind(self, channel: str, agent_id: str, fields: dict) -> dict: ...
+
+    async def unbind(self, channel: str, agent_id: str) -> dict: ...
+
+    async def test_connection(self, channel: str, agent_id: str) -> dict: ...
+
 
 # channel -> (module path, manager class name, read-method name). Lazy (import
 # by name only when a call actually needs that channel) so this module never
@@ -118,6 +124,20 @@ _MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
 # The allowlist the backend endpoint gates on — derived from the registry so it
 # can never drift from what DirectStore can actually resolve.
 SUPPORTED_CHANNELS = frozenset(_MANAGER_REGISTRY)
+
+# Write dispatch for bind (blueprint P2 write leg). unbind is uniform across all
+# channels (mgr.unbind(agent_id)) so it needs no per-channel entry; bind is NOT
+# — each channel's do_bind lives in its own service module and takes either the
+# manager (discord/slack/telegram) or the raw db (narramessenger's gateway-bind).
+# ``bind_takes`` records which. Lark is intentionally absent — its bind is part of
+# the deferred CLI-OAuth write leg. Channels with no bind MCP tool (wechat: QR)
+# simply never call bind() and need no entry.
+_BIND_SERVICE: dict[str, tuple[str, str, str]] = {
+    "discord": ("xyz_agent_context.module.discord_module._discord_service", "do_bind", "mgr"),
+    "slack": ("xyz_agent_context.module.slack_module._slack_service", "do_bind", "mgr"),
+    "telegram": ("xyz_agent_context.module.telegram_module._telegram_service", "do_bind", "mgr"),
+    "narramessenger": ("xyz_agent_context.module.narramessenger_module._narramessenger_service", "do_bind", "db"),
+}
 
 
 def _manager_class(channel: str):
@@ -174,10 +194,47 @@ class DirectStore:
         return (row or {}).get("created_by", "") or ""
 
     async def get_manager(self, channel: str):
-        """A live per-channel manager for write/lifecycle operations the
-        read-only Protocol doesn't cover (see module docstring's "known gap").
-        DirectStore-only — there is no HttpStore equivalent."""
+        """A live per-channel manager for the write/lifecycle operations still
+        outside the Protocol (lark's CLI-OAuth flow — see module docstring's
+        "known gap"). DirectStore-only. bind/unbind now have first-class seam
+        methods below; this remains only for the un-migrated lark writes."""
         return (_manager_class(channel))(await self._db())
+
+    async def bind(self, channel: str, agent_id: str, fields: dict) -> dict:
+        """Bind via the channel's own do_bind service (byte-identical to what the
+        MCP tool did locally). do_bind takes either the manager or the raw db —
+        `_BIND_SERVICE` records which. Returns do_bind's {success, error?, data?}."""
+        entry = _BIND_SERVICE.get(channel)
+        if entry is None:
+            raise ValueError(f"channel {channel!r} has no bind service")
+        import importlib
+
+        module_path, fn_name, takes = entry
+        do_bind = getattr(importlib.import_module(module_path), fn_name)
+        db = await self._db()
+        if takes == "mgr":
+            return await do_bind((_manager_class(channel))(db), agent_id, **fields)
+        return await do_bind(db, agent_id, **fields)
+
+    async def unbind(self, channel: str, agent_id: str) -> dict:
+        """Uniform across channels: mgr.unbind + the same {success,...} envelope
+        the backend `/unbind` route returns (so Direct↔Http are parity)."""
+        mgr = (_manager_class(channel))(await self._db())
+        removed = await mgr.unbind(agent_id)
+        if not removed:
+            return {"success": False, "error": f"no {channel} credential bound for this agent"}
+        return {"success": True, "data": {"unbound": True}}
+
+    async def test_connection(self, channel: str, agent_id: str) -> dict:
+        """Re-validate the stored credential against the platform (do_test_connection,
+        which lives in the same _service module as do_bind). Read-only — no
+        mutation — but it needs the manager, so it routes here rather than staying
+        a raw get_mcp_db_client call in the status tool."""
+        import importlib
+
+        module_path = _BIND_SERVICE[channel][0]
+        do_test = getattr(importlib.import_module(module_path), "do_test_connection")
+        return await do_test((_manager_class(channel))(await self._db()), agent_id)
 
 
 class HttpStore:
@@ -215,6 +272,41 @@ class HttpStore:
         if not body:
             return ""
         return body.get("owner_user_id") or ""
+
+    async def bind(self, channel: str, agent_id: str, fields: dict) -> dict:
+        # POST the channel's owner-gated /bind route (same do_bind the local path
+        # runs). The route already accepts the nx-service identity (check_owned
+        # reads request.state.user_id, which auth_middleware sets from the bearer).
+        return await self._post_json(f"/api/{_seg(channel)}/bind", {"agent_id": agent_id, **fields})
+
+    async def unbind(self, channel: str, agent_id: str) -> dict:
+        return await self._post_json(f"/api/{_seg(channel)}/unbind", {"agent_id": agent_id})
+
+    async def test_connection(self, channel: str, agent_id: str) -> dict:
+        return await self._post_json(f"/api/{_seg(channel)}/test", {"agent_id": agent_id})
+
+    async def _post_json(self, path: str, body: dict) -> dict:
+        """POST + one HTTPError boundary. Writes must ALWAYS hand back a
+        {success, error?} dict the tool can relay — never raise, never None (a
+        failed unbind is not "unbound"), so transport failures degrade to
+        success:False with a readable reason."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base, headers=self._headers, timeout=20.0
+            ) as c:
+                r = await c.post(path, json=body)
+        except httpx.HTTPError as e:
+            logger.warning(f"[channel-store] backend unreachable POST {path}: {e}")
+            return {"success": False, "error": f"channel backend unreachable ({type(e).__name__})"}
+        if r.status_code >= 400:
+            logger.warning(f"[channel-store] backend rejected POST {path}: {r.status_code}")
+            return {"success": False, "error": f"channel backend rejected the call ({r.status_code})"}
+        try:
+            return r.json() or {"success": False, "error": "channel backend returned an empty response"}
+        except ValueError:
+            return {"success": False, "error": "channel backend returned a non-JSON response"}
 
     async def _get_json(self, path: str) -> Optional[dict[str, Any]]:
         """One transport + HTTPError boundary, mirroring store.py's HttpStore.

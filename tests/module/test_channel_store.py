@@ -290,3 +290,116 @@ def test_factory_cloud_uses_ambient_identity_headers_by_default(monkeypatch):
     )
     store = get_channel_credential_store()
     assert store._headers == {"authorization": "Bearer nx-agent:ambient"}
+
+
+# ---------------------------------------------------------------------------
+# write leg (blueprint P2): bind / unbind / test_connection
+# ---------------------------------------------------------------------------
+
+
+def _http():
+    return ChannelHttpStore("http://backend:8000")
+
+
+def test_http_unbind_posts_the_route_and_returns_its_json(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        import json
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"success": True, "data": {"unbound": True}})
+
+    _patch_http(monkeypatch, handler)
+    out = asyncio.run(_http().unbind("discord", AGENT))
+    assert seen["path"] == "/api/discord/unbind"
+    assert seen["body"] == {"agent_id": AGENT}
+    assert out == {"success": True, "data": {"unbound": True}}
+
+
+def test_http_bind_posts_agent_id_plus_fields(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _j
+        seen["path"] = request.url.path
+        seen["body"] = _j.loads(request.content)
+        return httpx.Response(200, json={"success": True, "data": {"bot_username": "b"}})
+
+    _patch_http(monkeypatch, handler)
+    out = asyncio.run(_http().bind("discord", AGENT, {"bot_token": "tok", "owner_user_id": "o"}))
+    assert seen["path"] == "/api/discord/bind"
+    assert seen["body"] == {"agent_id": AGENT, "bot_token": "tok", "owner_user_id": "o"}
+    assert out["success"] is True
+
+
+def test_http_write_unreachable_degrades_to_success_false(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    out = asyncio.run(_http().unbind("discord", AGENT))
+    assert out["success"] is False and "unreachable" in out["error"]
+
+
+def test_http_write_5xx_degrades_to_success_false(monkeypatch):
+    def reject(request):
+        return httpx.Response(500, text="nope")
+
+    _patch_http(monkeypatch, reject)
+    out = asyncio.run(_http().unbind("discord", AGENT))
+    assert out["success"] is False and "500" in out["error"]
+
+
+def _direct_with_fake_manager(monkeypatch, *, unbind_result):
+    class _FakeMgr:
+        def __init__(self, db):
+            pass
+
+        async def unbind(self, agent_id):
+            return unbind_result
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _FakeMgr,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    return store
+
+
+def test_direct_unbind_wraps_like_the_route(monkeypatch):
+    ok = _direct_with_fake_manager(monkeypatch, unbind_result=True)
+    assert asyncio.run(ok.unbind("discord", AGENT)) == {"success": True, "data": {"unbound": True}}
+    missing = _direct_with_fake_manager(monkeypatch, unbind_result=False)
+    r = asyncio.run(missing.unbind("discord", AGENT))
+    assert r["success"] is False and "bound" in r["error"]
+
+
+def test_direct_bind_delegates_to_do_bind(monkeypatch):
+    captured = {}
+
+    async def fake_do_bind(mgr, agent_id, **fields):
+        captured["agent_id"] = agent_id
+        captured["fields"] = fields
+        return {"success": True, "data": {"ok": 1}}
+
+    import xyz_agent_context.module.discord_module._discord_service as ds
+    monkeypatch.setattr(ds, "do_bind", fake_do_bind)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.bind("discord", AGENT, {"bot_token": "t", "owner_user_id": "o"}))
+    assert out == {"success": True, "data": {"ok": 1}}
+    assert captured == {"agent_id": AGENT, "fields": {"bot_token": "t", "owner_user_id": "o"}}
