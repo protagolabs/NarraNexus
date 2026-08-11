@@ -48,6 +48,23 @@ PATROL_INTERVAL_S = 600
 PATROL_STALLED_INTERVAL_S = 180
 
 
+async def _clear_stale_stall(repo: TeamWorkItemRepository, item: WorkItem) -> None:
+    """Drop a ``stalled`` verdict that no longer has evidence behind it.
+
+    Two callers reach this from opposite directions — "the assignee came back"
+    and "this row says nothing about the sweeper" — but the write is the same
+    and so is the principle: a stall is a derived fact, so it lasts exactly as
+    long as the evidence for it.
+
+    Always back to ``in_progress``. The only item that lands somewhere it did
+    not start is one a model pushed to ``open`` via ``work_update_status``
+    while keeping its assignee; ``create_item`` already opens an assigned item
+    as ``in_progress``.
+    """
+    if item.status == WorkItemStatus.STALLED:
+        await repo.set_status(item.item_id, WorkItemStatus.IN_PROGRESS)
+
+
 async def detect_stalled_items(
     db: Any, team_id: str, *, executor_agent_id: str
 ) -> List[WorkItem]:
@@ -111,21 +128,27 @@ async def detect_stalled_items(
             # from the returned list so the lead is never told to fix it by
             # hand. Reachable without contrivance: assign to B, B goes dark and
             # gets marked, then the owner makes B the lead.
-            if item.status == WorkItemStatus.STALLED:
-                await repo.set_status(item.item_id, WorkItemStatus.IN_PROGRESS)
+            await _clear_stale_stall(repo, item)
             continue
         try:
+            # Keyed by BOTH columns, because the table is: one row per
+            # (agent_id, channel_id). Belonging to several teams is a supported
+            # shape, so an agent has several rows, and `get_one` is LIMIT 1
+            # with no ORDER BY — on MySQL the clustered PK makes that
+            # "whichever channel_id sorts first", which has nothing to do with
+            # this item. The effect was the feature's own founding case
+            # inverted: a member who had abandoned this room while running a
+            # turn in another read as live, so the item was never chased.
             row = await db.get_one(
-                "bus_agent_activity", {"agent_id": item.assignee_id}
+                "bus_agent_activity",
+                {"agent_id": item.assignee_id, "channel_id": item.channel_id},
             )
         except Exception as e:  # noqa: BLE001 — unreadable activity = unknown
             logger.debug(f"[patrol] activity lookup failed for {item.assignee_id}: {e}")
             continue
-        working = is_live(row)
-        if working:
+        if is_live(row):
             # Came back — clear a stall we may have recorded earlier.
-            if item.status == WorkItemStatus.STALLED:
-                await repo.set_status(item.item_id, WorkItemStatus.IN_PROGRESS)
+            await _clear_stale_stall(repo, item)
             continue
         if item.status != WorkItemStatus.STALLED:
             await repo.set_status(item.item_id, WorkItemStatus.STALLED)

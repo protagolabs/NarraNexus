@@ -429,6 +429,7 @@ class MessageBusTrigger:
             return 0
 
         from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
+        from xyz_agent_context.message_bus.patrol import mark_patrolled
 
         count = 0
         for team_id, lead_agent_id, channel_id in due:
@@ -452,8 +453,6 @@ class MessageBusTrigger:
                 # The cursor still moves: leaving it stale would make this team
                 # a candidate on every single cycle for as long as it is broken.
                 try:
-                    from xyz_agent_context.message_bus.patrol import mark_patrolled
-
                     await mark_patrolled(await get_db_client(), team_id)
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"[patrol] cursor stamp failed for {team_id}: {e}")

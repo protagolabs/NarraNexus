@@ -154,3 +154,53 @@ async def test_recovery_clears_the_stall(db_client, repo):
 
     assert await detect_stalled_items(db_client, "t1", executor_agent_id="") == []
     assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
+
+
+# ── which activity row ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_a_member_busy_in_another_room_is_still_stalled_here(db_client, repo):
+    """The verdict must read THIS room's activity row, not any of the agent's.
+
+    `bus_agent_activity` is keyed `(agent_id, channel_id)` and belonging to
+    several teams is a supported shape — `_item_in_my_room` is built on it. So
+    a cross-team member has several rows, and `get_one` is `LIMIT 1` with no
+    `ORDER BY`: on MySQL the clustered PK makes that "whichever channel_id
+    sorts first", which has nothing to do with the item.
+
+    The failure it produces is the exact case this feature exists for: a member
+    who has abandoned room B while happening to run a turn in room A is read as
+    live, so B's item is never chased. Worse, the panel disagrees out loud —
+    the roster is per-channel, so it shows the same agent idle in B while
+    patrol treats it as busy.
+    """
+    item = await repo.create_item(
+        team_id="t1", channel_id="ch_1", title="abandoned here",
+        created_by="agent_lead", assignee_id="agent_a",
+    )
+    # Live in another room ("ch_0" sorts before "ch_1" — the row LIMIT 1 picks).
+    await _activity(db_client, "agent_a", channel_id="ch_0",
+                    state="running", age_s=10, beat_s=1)
+    # Gone quiet in this one.
+    await _activity(db_client, "agent_a", channel_id="ch_1",
+                    state="idle", age_s=3600)
+
+    stalled = await detect_stalled_items(db_client, "t1", executor_agent_id="")
+
+    assert [i.item_id for i in stalled] == [item.item_id]
+    assert (await repo.get(item.item_id)).status == WorkItemStatus.STALLED
+
+
+@pytest.mark.asyncio
+async def test_a_member_live_in_this_room_is_not_stalled(db_client, repo):
+    """The mirror image: idle elsewhere must not condemn someone working here."""
+    item = await repo.create_item(
+        team_id="t1", channel_id="ch_1", title="in hand",
+        created_by="agent_lead", assignee_id="agent_a",
+    )
+    await _activity(db_client, "agent_a", channel_id="ch_0", state="idle", age_s=3600)
+    await _activity(db_client, "agent_a", channel_id="ch_1",
+                    state="running", age_s=10, beat_s=1)
+
+    assert await detect_stalled_items(db_client, "t1", executor_agent_id="") == []
+    assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
