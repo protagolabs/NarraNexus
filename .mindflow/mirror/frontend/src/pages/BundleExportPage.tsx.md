@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 渐进披露:选完才出现区块;打包信息进确认弹窗;全局开关上移
+
+Owner 对着截图的三点重构(信息架构,导出语义零变化):
+
+1. **底部固定块(文件名 + Notes + 两个 checkbox,~300px)整体删除**——它把
+   滚动区压得几乎不可用。文件名/Notes 挪进 ReviewSummaryModal(可编辑,
+   `onFilenameChange`/`onIntroChange` 回写页面 state),打包细节在导出确认
+   时刻填写。
+2. **两个全局开关上移到 MODE 行下方**(它们改变下方各区的内容,放最底部
+   是倒果为因)。凭据项文案去掉 "Full mode" 字样(与 MODE 单选的
+   Full snapshot 撞名,实际语义是 include_channel_credentials +
+   include_skill_secrets)——10 个 locale 同步,其中 8 个原本缺这个 key
+   一直 fallback 英文,顺手补齐。
+3. **渐进披露**:`hasSelection`(agent kind 看 selectedAgents,team kind 看
+   selectedTeam)为假时,history/skills/social/bus/artifacts/workspace 六个
+   区块不渲染,只显示 `pickFirstHint` 一行提示;选中后才展开全部区块。
+
 
 ## 2026-08-06 (3) — Chooser 统一 + Agent bundle 收紧为单选
 

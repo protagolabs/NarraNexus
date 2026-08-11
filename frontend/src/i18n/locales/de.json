@@ -1409,6 +1409,8 @@
       "uploadInfoNote": "Ein Bundle kann einen einzelnen Agenten oder ein ganzes Team enthalten (Agenten, Gedächtnis, Skills, Kanäle). Im nächsten Schritt prüfst du Namenskonflikte und Warnungen, bevor etwas geschrieben wird."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Zugangsdaten einschließen (IM-Kanäle + Skill-Secrets)",
+      "pickFirstHint": "Wählen Sie zuerst oben den Agenten oder das Team aus — die Bereiche für Narrative, Skills und Kanäle erscheinen danach.",
       "title": "Bundle exportieren",
       "backToSettings": "Zurück zu den Einstellungen",
       "summaryLine": "{{agents}} Agenten · {{skills}} Skills · {{entities}} Entitäten · {{channels}} Kanäle",

@@ -1408,6 +1408,8 @@
       "uploadInfoNote": "バンドルには単一のエージェント、またはチーム全体（エージェント、メモリ、スキル、チャンネル）を含められます。次のステップで名前の衝突や警告を確認してから書き込みが行われます。"
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "認証情報を含める（IMチャンネル + スキルシークレット）",
+      "pickFirstHint": "まず上でエージェントまたはチームを選択してください。選択すると、ナラティブ・スキル・チャンネルなどのセクションが表示されます。",
       "title": "バンドルをエクスポート",
       "backToSettings": "設定に戻る",
       "summaryLine": "{{agents}} エージェント · {{skills}} スキル · {{entities}} エンティティ · {{channels}} チャンネル",

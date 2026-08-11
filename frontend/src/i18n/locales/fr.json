@@ -1409,6 +1409,8 @@
       "uploadInfoNote": "Un bundle peut contenir un seul agent ou une équipe entière (agents, mémoire, compétences, canaux). Vous examinerez ensuite les conflits de noms et les avertissements avant toute écriture."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Inclure les identifiants (canaux IM + secrets des compétences)",
+      "pickFirstHint": "Choisissez d'abord l'agent ou l'équipe ci-dessus — les sections narratifs, compétences et canaux apparaîtront ensuite.",
       "title": "Exporter le bundle",
       "backToSettings": "Retour aux paramètres",
       "summaryLine": "{{agents}} agents · {{skills}} compétences · {{entities}} entités · {{channels}} canaux",

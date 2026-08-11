@@ -975,6 +975,11 @@ export default function BundleExportPage() {
     }
   }
 
+  // Progressive disclosure: the scope sections below the picker only appear
+  // once there is something to scope. Before that they'd all be empty shells
+  // that read as noise (Owner review 2026-08-11).
+  const hasSelection = bundleKind === 'team' ? !!selectedTeam : selectedAgents.size > 0;
+
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--nm-card)' }}>
       {/* Header — NM display title + bracket-section count line */}
@@ -1056,6 +1061,33 @@ export default function BundleExportPage() {
             {t('pages.bundleExport.mode.fullNote')}
           </div>
         )}
+        {/* Content-scope toggles — GLOBAL options, so they live with the
+            mode choice, not buried under the pickers (Owner review
+            2026-08-11). Both change what the sections below offer. */}
+        <div className="ml-[60px] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
+          <label className="inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={includeChat}
+              onChange={(e) => setIncludeChat(e.target.checked)}
+            />
+            {t('pages.bundleExport.includeChatLabel')}
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={includeChannelCredentials}
+              onChange={(e) => setIncludeChannelCredentials(e.target.checked)}
+            />
+            {t('pages.bundleExport.includeChannelCredentialsLabel')}
+          </label>
+        </div>
+        {includeChannelCredentials && (
+          <div className="ml-[60px] mt-1 text-[11px] text-[var(--color-warning)] flex items-start gap-1.5">
+            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+            <span>{t('pages.bundleExport.channelCredentialsWarning')}</span>
+          </div>
+        )}
       </div>
 
       {/* Include scopes — v4 collapsible sections (one consistent stack) */}
@@ -1075,6 +1107,12 @@ export default function BundleExportPage() {
           />
         </div>
         )}
+        {!hasSelection && (
+          <div className="px-4 py-6 text-center text-xs text-[var(--text-tertiary)]">
+            {t('pages.bundleExport.pickFirstHint')}
+          </div>
+        )}
+        {hasSelection && (<>
         <ScopeHeader id="history" open={openScopes.has('history')} onToggle={toggleScope} />
         {openScopes.has('history') && (
           <div className="px-4 py-3.5 border-b border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
@@ -1287,56 +1325,8 @@ export default function BundleExportPage() {
           />
         </div>
         )}
+        </>)}
         </div>
-      </div>
-
-      {/* Bundle notes (README.md) + filename (P9) */}
-      <div className="px-6 py-4 border-t border-[var(--nm-hairline)] bg-[var(--nm-paper)]">
-        {/* Filename input */}
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-tertiary)] shrink-0">
-            {t('pages.bundleExport.fileName')}
-          </span>
-          <input
-            value={filename}
-            onChange={(e) => setFilename(e.target.value)}
-            placeholder="bundle.nxbundle"
-            className="flex-1 px-3 py-1.5 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none"
-          />
-        </div>
-        <div className="flex items-center gap-2 mb-2">
-          <FileText className="w-4 h-4" />
-          <span className="text-sm font-mono">{t('pages.bundleExport.bundleNotesLabel')}</span>
-        </div>
-        <textarea
-          value={introMd}
-          onChange={(e) => setIntroMd(e.target.value)}
-          rows={4}
-          placeholder={`# ${selectedTeam ? teams.find((x) => x.team.team_id === selectedTeam)?.team.name : t('pages.bundleExport.bundleNotesPlaceholderTeam')}\n\n${t('pages.bundleExport.bundleNotesPlaceholderDesc')}`}
-          className="w-full px-3 py-2 text-sm font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none resize-y"
-        />
-        <label className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={includeChat}
-            onChange={(e) => setIncludeChat(e.target.checked)}
-          />
-          {t('pages.bundleExport.includeChatLabel')}
-        </label>
-        <label className="mt-3 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={includeChannelCredentials}
-            onChange={(e) => setIncludeChannelCredentials(e.target.checked)}
-          />
-          {t('pages.bundleExport.includeChannelCredentialsLabel')}
-        </label>
-        {includeChannelCredentials && (
-          <div className="mt-2 ml-6 text-[11px] text-[var(--color-warning)] flex items-start gap-1.5">
-            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-            <span>{t('pages.bundleExport.channelCredentialsWarning')}</span>
-          </div>
-        )}
       </div>
 
       {/* Footer */}
@@ -1365,6 +1355,9 @@ export default function BundleExportPage() {
           onConfirm={doExport}
           downloading={downloading}
           filename={filename}
+          onFilenameChange={setFilename}
+          onIntroChange={setIntroMd}
+          notesPlaceholder={`# ${selectedTeam ? teams.find((x) => x.team.team_id === selectedTeam)?.team.name : t('pages.bundleExport.bundleNotesPlaceholderTeam')}\n\n${t('pages.bundleExport.bundleNotesPlaceholderDesc')}`}
           mode={mode}
         />
       )}
@@ -2567,7 +2560,7 @@ function WorkspaceTab({
 
 function ReviewSummaryModal({
   summary, team, introMd, skills, warnings, onCancel, onConfirm, downloading,
-  filename, mode,
+  filename, mode, onFilenameChange, onIntroChange, notesPlaceholder,
 }: any) {
   const { t } = useTranslation();
   const skillStats = (skills || []).reduce(
@@ -2594,10 +2587,27 @@ function ReviewSummaryModal({
           </span>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm font-mono">
-          {/* Filename — show what will be downloaded */}
+          {/* Filename + notes — packaging details belong at the moment of
+              export, not as standing chrome on the picker page (Owner
+              review 2026-08-11). */}
           <div className="text-[12px] flex items-center gap-2">
-            <span className="text-[var(--text-tertiary)] uppercase tracking-widest text-[10px]">{t('pages.bundleExport.review.fileLabel')}</span>
-            <span className="text-[var(--text-primary)]">{filename || 'bundle.nxbundle'}</span>
+            <span className="text-[var(--text-tertiary)] uppercase tracking-widest text-[10px] shrink-0">{t('pages.bundleExport.review.fileLabel')}</span>
+            <input
+              value={filename}
+              onChange={(e) => onFilenameChange?.(e.target.value)}
+              placeholder="bundle.nxbundle"
+              className="flex-1 px-2 py-1 text-[12px] font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none"
+            />
+          </div>
+          <div>
+            <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">{t('pages.bundleExport.bundleNotesLabel')}</div>
+            <textarea
+              value={introMd}
+              onChange={(e) => onIntroChange?.(e.target.value)}
+              rows={3}
+              placeholder={notesPlaceholder}
+              className="w-full px-2 py-1.5 text-[12px] font-mono bg-[var(--nm-card)] border border-[var(--border-default)] focus:outline-none resize-y"
+            />
           </div>
           <div>
             <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">{t('pages.bundleExport.review.includedHeader')}</div>
