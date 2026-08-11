@@ -139,7 +139,10 @@ export function ChatHeader({
           title={t('chat.header.agentDetailTitle')}
           className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-raised)] shrink-0"
         >
-          <span className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
+          {/* Same family as the sidebar row that shows this same name — the
+              header keeps its lead role via size + weight, not a second
+              typeface (design_system.md §4.1: display is for large titles). */}
+          <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
             {agentName}
           </span>
           <ChevronDown className="h-3.5 w-3.5 text-[var(--nm-ink30)]" />

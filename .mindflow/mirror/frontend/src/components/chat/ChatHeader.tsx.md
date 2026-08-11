@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — agent 名与侧栏同字族(sans),主角感靠字号/字重
+
+Owner 对照截图指出头部 "New Agent" 与侧栏行观感不一致:此处原为
+Space Grotesk 15px semibold,侧栏行是 Inter 14px medium——同名同屏双字族。
+按 design_system.md §4.1(display 只用于大标题),改为 `--font-sans`
+text-base(16px)semibold:字族与侧栏统一,「主角」层级由字号+字重承担。
 
 ## 2026-08-06 (2) — Artifacts 入口改开 drawer + 换 glyph
 
