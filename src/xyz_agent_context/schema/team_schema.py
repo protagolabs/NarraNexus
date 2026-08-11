@@ -18,12 +18,20 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# The synthetic sender/owner markers a team room is built on. Defined here —
-# with Team, not inside any one consumer — because four modules construct or
-# match them (the trigger, the teams route, the bulletin notice, the summary
-# worker) and each had been retyping the literal. `message_bus_trigger` and
-# `backend/routes/teams` re-export them so existing importers are unaffected.
+# The synthetic markers a team room is built on. Defined with Team rather than
+# inside any one consumer: six modules construct or match them (the bus trigger,
+# the teams route, the runs route, the bulletin notice, the work-board tools,
+# the summary worker), and each had been retyping the literal.
+#
+# A team channel's ``created_by`` is this prefix + team_id, which does two jobs:
+# it identifies the room deterministically without an extra column, and it makes
+# the owner a NON-AGENT — MessageBusTrigger always activates a channel's owner,
+# so a member in that seat would answer everything. Delivery in a team room is
+# purely @-mention driven, and that property rests on this marker.
 TEAM_ROOM_OWNER_PREFIX = "team_"
+
+# The user posts into a team room as this prefix + user_id — also a non-agent
+# sender, which is how the transcript tells a person from a teammate.
 USER_SENDER_PREFIX = "usr_"
 
 

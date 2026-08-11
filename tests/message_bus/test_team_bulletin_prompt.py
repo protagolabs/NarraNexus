@@ -297,11 +297,14 @@ def _sys(content, msg_type, from_agent="agent_a"):
     )
 
 
-def test_platform_lines_are_not_rendered_as_someone_speaking():
-    """Rendered through the normal path they read as a member talking —
-    "Alice: Team bulletin updated." — because a notice's sender is whoever
-    triggered it, and patrol's `team_<id>` marker does not resolve through
-    member_map at all. The agent then answers things nobody said."""
+def test_platform_lines_are_labelled_not_attributed_to_a_member():
+    """The property is "not dressed as conversation", NOT "absent".
+
+    The first version of this test asserted the content did not appear, which
+    pinned the wrong behaviour in place: dropping the line also removed the
+    question a patrol chase asks, and the pointer line below it prints only the
+    sender. Content stays; the impersonation is what goes.
+    """
     from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
 
     history = [_msg(content="real work happened")]
@@ -311,7 +314,9 @@ def test_platform_lines_are_not_rendered_as_someone_speaking():
 
     assert "real work happened" in out
     for t in PLATFORM_MSG_TYPES:
-        assert f"platform said {t}" not in out, f"{t} leaked into the scrollback"
+        assert f"platform said {t}" in out, f"{t} content was dropped"
+        assert f"Alice: platform said {t}" not in out, f"{t} rendered as a member"
+        assert f"[system] platform said {t}" in out
 
 
 def test_a_patrol_marker_never_reaches_the_transcript_as_a_name():
@@ -331,3 +336,51 @@ def test_ordinary_messages_still_render():
     real conversation."""
     out = _prompt([], history=[_msg(content="hello"), _msg(content="world")])
     assert "hello" in out and "world" in out
+
+
+def test_a_patrol_chase_still_shows_what_it_asked():
+    """The regression the platform-line filter created.
+
+    A patrol reply is posted WITH @mentions (the Leader is told to "@mention the
+    owner and ask where it stands"), so it becomes the mentioned member's
+    trigger message for that turn. The prompt's pointer line prints only the
+    sender — "You were just @mentioned by X. Respond to that message." — on the
+    explicit grounds that the text "is already in the history above". Dropping
+    platform lines from the history took the question away and left the pointer
+    aimed at nothing: the agent answers the air, or invents what was asked.
+
+    Stop and bulletin notices were never at risk (both send mentions=None and so
+    can never be a trigger), which means the ONE sender this filter existed to
+    silence is also the only one it broke.
+    """
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    chase = _sys(
+        "the parser task has been open for three days — where does it stand?",
+        PATROL_MSG_TYPE,
+        from_agent="team_team_42",
+    )
+    out = MessageBusTrigger(bus=None)._build_team_prompt(
+        "agent_b", [chase], MEMBERS,
+        owner_user_id="user_a", team_id="team_42",
+        trigger_messages=[chase], bulletin=None,
+    )
+
+    assert "where does it stand?" in out, (
+        "the agent is told to respond to a message the prompt does not contain"
+    )
+
+
+def test_a_platform_line_is_labelled_rather_than_impersonating_a_member():
+    """Kept, but not dressed as conversation. The two faults being avoided are
+    "Alice: Team bulletin updated." and a `team_<id>` marker appearing as if it
+    were a member."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    out = _prompt(
+        [],
+        history=[_sys("chasing you", PATROL_MSG_TYPE, from_agent="team_team_42")],
+    )
+    assert "chasing you" in out
+    assert "team_team_42" not in out
+    assert "Alice: chasing you" not in out

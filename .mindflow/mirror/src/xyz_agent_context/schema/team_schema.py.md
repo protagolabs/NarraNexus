@@ -52,3 +52,14 @@ NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指�
 
 `TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 同理：四个模块在构造或匹配这两个合成标记，
 此前各自重打字面量。
+
+## 2026-08-11 (review 收口 2) — 前缀真的只剩一处定义了
+
+上一轮我写的注释是「四个模块都已统一」，**一次 grep 就证伪**：`team_summary_worker`、
+`backend/routes/runs`、`_work_board_mcp_tools` 三处仍在各自定义同一个字面量，其中第一个
+正是注释点名的那个。**一条被证伪的注释比没有注释更贵。**
+
+三处都改为 import，现在 `TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 在全仓只有这一处定义。
+`message_bus_trigger` 里那两段「Keep in sync with backend/routes/teams.py」的注释也删了——
+定义搬走后它们悬在原地，而且要求读者去做的正是这次改动要消灭的事。其中「为什么必须是
+non-agent marker」那段理由有价值，搬到了定义处而不是丢掉。

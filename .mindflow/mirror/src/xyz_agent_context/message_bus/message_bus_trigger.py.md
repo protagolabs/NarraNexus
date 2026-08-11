@@ -788,3 +788,23 @@ agent 在发言；而且固定 LIMIT 窗口里被跳过的行仍占一个槽）�
 
 `TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 的定义移到 [[team_schema]]（四个模块在构造或
 匹配它们），本文件改为 re-export，既有 importer 不受影响。
+
+## 2026-08-11 (review 收口 2) — 平台行**标注**，而不是丢弃
+
+上一轮我把 `msg_type in PLATFORM_MSG_TYPES` 的行整条从 scrollback 里删掉——**这打断了
+#259 的巡查追问链路**，而且断在最讽刺的地方：
+
+巡查的回复是**带 @mention 发出去的**（prompt 明确要求 Leader「@mention the owner and ask
+where it stands」），所以它会成为被点名成员这一轮的**触发消息**。而 prompt 里那句指认
+（「You were just @mentioned by X. Respond to that message.」）**只印发送者、不印正文**——
+依据正是它自己那句注释「it's already in the history above」。history 一旦跳过它，
+这句指令就指向了 prompt 里不存在的东西：**被追问的 agent 对着空气回答，或者自己编一个问题。**
+
+停止通知和公告栏通知都是 `mentions=None`，永远不会成为触发消息。所以**这条过滤唯一真正
+想挡的那个 sender，正是它唯一弄坏的那个**。
+
+现在渲染成 `[system] <content>`：内容留下，身份不冒充。指认行对平台 sender 也不再打印
+`team_<id>` 这个合成标记（否则等于凭空发明一个队友，agent 还可能回 @ 它）。
+
+**上一轮那条测试断言的是「内容不出现」——它把错误行为钉住了。** 现在断言的是真正要的性质：
+内容在、但不被渲染成某个成员在说话。

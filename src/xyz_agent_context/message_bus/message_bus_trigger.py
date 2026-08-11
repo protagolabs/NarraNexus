@@ -57,16 +57,6 @@ from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
 
-# A team group-chat channel's ``created_by`` is this prefix + team_id (a
-# non-agent marker), set by the team-chat route. It both identifies the
-# room and ensures no member agent is the always-activated channel owner —
-# delivery is purely @-mention driven. Keep in sync with backend/routes/teams.py.
-
-
-# The user posts into a team room as this prefix + user_id (a non-agent
-# sender). Keep in sync with backend/routes/teams.py.
-
-
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
 
@@ -1607,12 +1597,22 @@ class MessageBusTrigger:
                   "including any files posted by anyone; open a file path with Read "
                   "if you need its contents:"]
         for msg in history:
-            # Platform lines are not conversation. Rendered as `"{sender}: ..."`
-            # they read as a member speaking — "Alice: Team bulletin updated." —
-            # because the sender of a notice is whoever triggered it, and the
-            # patrol marker `team_<id>` does not resolve through member_map at
-            # all. The agent is then answering things nobody said.
+            # Platform lines are LABELLED, not dropped.
+            #
+            # Rendered the normal way they read as a member speaking — "Alice:
+            # Team bulletin updated." — because a notice's sender is whoever
+            # triggered it, and patrol's `team_<id>` marker does not resolve
+            # through member_map at all, so it prints raw as a phantom teammate.
+            #
+            # But dropping them was worse, and briefly shipped: a patrol reply
+            # is posted WITH @mentions, so it becomes the mentioned member's
+            # trigger message, and the pointer line below prints only the sender
+            # — "Respond to that message" — precisely because the text is
+            # supposed to be here in the history. Removing it aimed that
+            # instruction at nothing. The one sender this filter exists to
+            # silence was the only one it broke.
             if (msg.msg_type or "") in PLATFORM_MSG_TYPES:
+                lines.append(f"[system] {msg.content}")
                 continue
             sender = _sender(msg)
             lines.append(f"{sender}: {msg.content}")
@@ -1624,9 +1624,17 @@ class MessageBusTrigger:
         # @mentioned it (it's already in the history above, shown in order).
         if trigger_messages:
             tm = trigger_messages[-1]
+            # A patrol chase reaches here as a real trigger, and its sender is
+            # the synthetic `team_<id>` marker, which member_map cannot resolve.
+            # Naming it verbatim invents a teammate the agent may then try to
+            # @mention back.
+            if (tm.msg_type or "") in PLATFORM_MSG_TYPES:
+                who = "the team's Leader check"
+            else:
+                who = _sender(tm)
             lines += [
                 "",
-                f"You were just @mentioned by {_sender(tm)}. Respond to that "
+                f"You were just @mentioned by {who}. Respond to that "
                 f"message. If it refers to a file/image shown above, open the "
                 f"path with the Read tool first, then reply.",
             ]

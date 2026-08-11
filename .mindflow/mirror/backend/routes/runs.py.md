@@ -79,3 +79,9 @@ run 活在另一个进程(workers),HTTP 请求进不去。真正的中断由那�
 常量本身不变，定义处从这里移到 [[team_bulletin]]，本文件改为 import。
 原因是又多了一个消费者：团队总结 worker 要把它排除在「团队活动」之外，
 而核心包不能反向 import 路由。
+
+## 2026-08-11 (review 收口 2) — 中段 import 提到文件顶部
+
+上一轮为了让核心包能共用 `STOP_NOTICE_MSG_TYPE`，这里留下了一个带 `# noqa: E402` 的
+中段 import。座位不用再动就能收拾干净：import 移到顶部，解释「为什么定义在核心包」的注释
+留在原处，`# noqa` 删除。同时不再自定义 `TEAM_ROOM_OWNER_PREFIX`。

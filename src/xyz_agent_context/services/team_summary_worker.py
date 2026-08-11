@@ -57,13 +57,13 @@ from xyz_agent_context.message_bus.system_messages import (
     placeholders as _placeholders,
 )
 from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
     BULLETIN_MAX_SUMMARY_CHARS,
     BULLETIN_SOURCE_SUMMARY,
 )
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_context
 
-TEAM_ROOM_OWNER_PREFIX = "team_"
 
 
 _INSTRUCTIONS = (

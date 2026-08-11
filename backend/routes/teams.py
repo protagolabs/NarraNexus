@@ -114,10 +114,6 @@ class TeamChatSendRequest(BaseModel):
     attachments: list[dict] = []
 
 
-def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
-    """See `schema.team_schema.resolve_default_responder` — the rule moved there
-    so the team-summary worker could use the same one instead of its own copy."""
-    return resolve_default_responder(team, member_agent_ids)
 
 
 async def _wipe_team_data(
@@ -345,7 +341,7 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     # No @mention → route to the team's default responder so the room never
     # goes silent. Exactly one agent is triggered; it can @-delegate from there.
     if not resolved:
-        default_responder = _resolve_default_responder(team, members)
+        default_responder = resolve_default_responder(team, members)
         if default_responder:
             resolved = [default_responder]
     msg_id = await bus.send_message(
@@ -485,7 +481,7 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
         "channel_id": channel_id,
         "messages": out,
         "activity": activity,
-        "lead_agent_id": _resolve_default_responder(team, members),
+        "lead_agent_id": resolve_default_responder(team, members),
     }
 
 

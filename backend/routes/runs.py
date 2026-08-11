@@ -28,6 +28,8 @@ from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_runtime.run_recorder import STATE_RUNNING
 from xyz_agent_context.repository.agent_repository import AgentRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE
+from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 from xyz_agent_context.utils.timezone import utc_now
 
 router = APIRouter(tags=["runs"])
@@ -46,14 +48,13 @@ class CancelRunResponse(BaseModel):
 
 # A team room's channel is owned by the synthetic ``team_<id>`` marker rather
 # than by any agent — same convention as backend/routes/teams.py.
-TEAM_ROOM_OWNER_PREFIX = "team_"
 
 # Marks the stop notice in the transcript. The frontend renders it from an i18n
 # key (the DB cannot know the reader's language); ``content`` carries an English
 # fallback for consumers that only read text, e.g. the memory index.
-# Defined in the core package: the team-summary worker also has to recognise it,
-# and core cannot import a route.
-from xyz_agent_context.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE  # noqa: E402
+# Defined in the core package (imported at the top of this file): the
+# team-summary worker has to recognise this type too, and core cannot import a
+# route.
 
 
 async def _leave_room_trace(db, stopped_runs: list[dict]) -> None:

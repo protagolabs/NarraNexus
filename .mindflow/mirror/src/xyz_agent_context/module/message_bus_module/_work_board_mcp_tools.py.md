@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_work_board_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -76,3 +76,7 @@ lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发�
 
 注入了 team 但房间还不存在时返回 `(None, None)` 而不是 `(team, "")` —— 每个写
 入都要 channel_id,半个答案会把条目落进空字符串。
+
+## 2026-08-11 — `TEAM_ROOM_OWNER_PREFIX` 改为 import
+
+本文件此前自定义了同一个字面量。定义现在唯一地住在 [[team_schema]]。

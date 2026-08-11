@@ -339,3 +339,9 @@ reason to reach into.
 
 `_resolve_default_responder` 变成一层薄委托，实现移入 [[team_schema]]，好让总结 worker
 用同一条规则而不是自己再写一份。两个房间前缀同样改为 import。
+
+## 2026-08-11 (review 收口 2) — 删掉转发壳
+
+`_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
+import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
+测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。
