@@ -49,7 +49,7 @@ PATROL_STALLED_INTERVAL_S = 180
 
 
 async def detect_stalled_items(
-    db: Any, team_id: str, *, executor_agent_id: str = ""
+    db: Any, team_id: str, *, executor_agent_id: str
 ) -> List[WorkItem]:
     """Items whose assignee has gone quiet. Writes ``stalled`` through.
 
@@ -79,10 +79,18 @@ async def detect_stalled_items(
     information about whether the item is progressing, and a verdict from
     absent evidence is worse than no verdict.
 
-    The cost is real and accepted: a lead genuinely stuck on its own item is
-    not caught by its own patrol. Someone else's sweep still catches it, and
-    the alternative on offer was a permanent self-nag that no recovery path
-    could clear.
+    The cost is real, accepted, and larger than it first looks: a lead stuck on
+    its own item is caught by NOBODY. Patrol is one sweep per team run by that
+    team's lead (``teams_due_for_patrol`` yields a single
+    ``(team_id, lead, channel)`` per team), so there is no other sweep to fall
+    back on. This is a known gap, not a covered case — closing it needs a
+    second scanner, either another member or a platform-side pass, and this
+    change does not add one.
+
+    It is still the better of the two options on offer: the alternative was a
+    permanent self-nag with no recovery path at all. And a stale ``stalled``
+    does get cleared (below), so the gap is "nobody notices new trouble", not
+    "an old verdict hangs forever".
 
     Recovery is written through too — an assignee that comes back leaves the
     stalled set, so patrol stops chasing someone already working again.
@@ -94,7 +102,18 @@ async def detect_stalled_items(
         if not item.assignee_id:
             continue  # unclaimed: needs assigning, not chasing
         if executor_agent_id and item.assignee_id == executor_agent_id:
-            continue  # the sweeper is not evidence about itself (see above)
+            # Pass no verdict on the sweeper — but do not leave an old one
+            # standing either. A `stalled` recorded before this agent became
+            # the sweeper would otherwise be permanent: skipping the item means
+            # nothing can ever clear it, `ACTIVE` includes `STALLED` so the
+            # team stays pinned at the fast pace forever, the user's panel
+            # shows a stall that is not happening, and the item is excluded
+            # from the returned list so the lead is never told to fix it by
+            # hand. Reachable without contrivance: assign to B, B goes dark and
+            # gets marked, then the owner makes B the lead.
+            if item.status == WorkItemStatus.STALLED:
+                await repo.set_status(item.item_id, WorkItemStatus.IN_PROGRESS)
+            continue
         try:
             row = await db.get_one(
                 "bus_agent_activity", {"agent_id": item.assignee_id}

@@ -1136,12 +1136,11 @@ class MessageBusTrigger:
 
         db = await get_db_client()
         try:
-            # The activity mirror wraps the ENTIRE sweep, not just the LLM
-            # call. A sweep is a turn: the lead is occupied from the moment
-            # detection starts, the roster should say so for that whole span,
-            # and the work-board tools' fallback room resolver reads this row.
-            # Scoping it to the runtime call alone would leave the first half
-            # of the sweep invisible.
+            # The stack owns the sweep's activity row and its cancellation
+            # registration. Both are entered inside `_patrol_body`, at the
+            # point a turn is actually going to run — see the note there for
+            # why opening the row earlier costs the roster the very link it
+            # exists to provide.
             async with contextlib.AsyncExitStack() as stack:
                 await self._patrol_body(db, stack, team_id, lead_agent_id, channel_id)
         except Exception as e:  # noqa: BLE001 — a bad sweep never breaks the poller
@@ -1150,7 +1149,12 @@ class MessageBusTrigger:
             await mark_patrolled(db, team_id)
 
     async def _patrol_body(
-        self, db, stack, team_id: str, lead_agent_id: str, channel_id: str
+        self,
+        db: Any,
+        stack: contextlib.AsyncExitStack,
+        team_id: str,
+        lead_agent_id: str,
+        channel_id: str,
     ) -> None:
         """The sweep proper, inside the caller's activity/cancellation scope."""
         from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
@@ -1160,10 +1164,6 @@ class MessageBusTrigger:
             detect_stalled_items,
             may_patrol_speak,
             note_patrol_spoke,
-        )
-
-        act = await stack.enter_async_context(
-            _bus_activity.turn(db, lead_agent_id, channel_id)
         )
 
         # Facts first, and the platform's own: "is this stalled" is derived
@@ -1235,6 +1235,26 @@ class MessageBusTrigger:
         #   * the cancel watcher. The owner's stop lands in the backend
         #     process, not here, so it arrives through the DB and needs a token
         #     registered against the run id in order to fire.
+        # The activity row opens HERE — not at the top of the sweep.
+        #
+        # `start()` writes `event_id: None` and resets `steps` / `started_at`,
+        # and nothing writes the id back until `on_event_id` fires below. Open
+        # it any earlier and every sweep that returns before running a turn —
+        # the speech cap above, or a throw while assembling the prompt — blanks
+        # the lead's link to its LAST REAL run's event log on the way past.
+        # That is not a corner: with a stalled board the pace is 180s against a
+        # cap of 6 per 30 minutes, so the tail of every window is exactly those
+        # no-op sweeps.
+        #
+        # Opening it late costs nothing that was actually being bought. The
+        # roster misses the two DB reads above, and `detect_stalled_items` no
+        # longer consults this row for the sweeper at all (it takes
+        # `executor_agent_id` and skips it), so whether the row is open during
+        # detection cannot change a verdict. The board tools' fallback room
+        # resolver is only read from inside the runtime call.
+        act = await stack.enter_async_context(
+            _bus_activity.turn(db, lead_agent_id, channel_id)
+        )
         cancellation = CancellationToken()
         watcher = get_cancel_watcher(db)
         watched_run_id: list[str] = [""]

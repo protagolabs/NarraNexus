@@ -61,7 +61,7 @@ async def test_a_long_running_member_is_not_stalled(db_client, repo):
     # Started 25 minutes ago and STILL BEATING — this is work in progress.
     await _activity(db_client, "agent_a", state="running", age_s=1500, beat_s=2)
 
-    stalled = await detect_stalled_items(db_client, "t1")
+    stalled = await detect_stalled_items(db_client, "t1", executor_agent_id="")
 
     assert stalled == []
     assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
@@ -76,7 +76,7 @@ async def test_an_idle_assignee_with_unfinished_work_is_stalled(db_client, repo)
     )
     await _activity(db_client, "agent_a", state="idle", age_s=600)
 
-    stalled = await detect_stalled_items(db_client, "t1")
+    stalled = await detect_stalled_items(db_client, "t1", executor_agent_id="")
 
     assert [i.item_id for i in stalled] == [item.item_id]
     # Written through, so the patrol prompt reads a platform fact rather than
@@ -93,7 +93,7 @@ async def test_a_dead_heartbeat_is_stalled_even_though_it_says_running(db_client
     )
     await _activity(db_client, "agent_a", state="running", age_s=3600)
 
-    stalled = await detect_stalled_items(db_client, "t1")
+    stalled = await detect_stalled_items(db_client, "t1", executor_agent_id="")
 
     assert [i.item_id for i in stalled] == [item.item_id]
 
@@ -106,7 +106,7 @@ async def test_unclaimed_work_is_not_stalled(db_client, repo):
         team_id="t1", channel_id="ch_1", title="unclaimed", created_by="agent_lead",
     )
 
-    assert await detect_stalled_items(db_client, "t1") == []
+    assert await detect_stalled_items(db_client, "t1", executor_agent_id="") == []
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_paused_items_are_never_stalled(db_client, repo):
     await repo.pause_by_root("evt_root")
     await _activity(db_client, "agent_a", state="idle", age_s=600)
 
-    assert await detect_stalled_items(db_client, "t1") == []
+    assert await detect_stalled_items(db_client, "t1", executor_agent_id="") == []
     assert (await repo.get(item.item_id)).status == WorkItemStatus.PAUSED
 
 
@@ -132,7 +132,7 @@ async def test_an_assignee_with_no_activity_row_is_stalled(db_client, repo):
         assignee_id="agent_ghost",
     )
 
-    stalled = await detect_stalled_items(db_client, "t1")
+    stalled = await detect_stalled_items(db_client, "t1", executor_agent_id="")
 
     assert [i.item_id for i in stalled] == [item.item_id]
 
@@ -146,11 +146,11 @@ async def test_recovery_clears_the_stall(db_client, repo):
         assignee_id="agent_a",
     )
     await _activity(db_client, "agent_a", state="idle", age_s=600)
-    await detect_stalled_items(db_client, "t1")
+    await detect_stalled_items(db_client, "t1", executor_agent_id="")
     assert (await repo.get(item.item_id)).status == WorkItemStatus.STALLED
 
     await db_client.update("bus_agent_activity", {"agent_id": "agent_a"},
                            {"state": "running", "updated_at": utc_now()})
 
-    assert await detect_stalled_items(db_client, "t1") == []
+    assert await detect_stalled_items(db_client, "t1", executor_agent_id="") == []
     assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS

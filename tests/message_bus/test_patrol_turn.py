@@ -453,3 +453,66 @@ async def test_a_lead_does_not_stall_its_own_work_by_patrolling(db_client):
     assert (await repo.get(mine.item_id)).status != WorkItemStatus.STALLED
     # The rest of the board is judged normally — the worker never showed up.
     assert (await repo.get(theirs.item_id)).status == WorkItemStatus.STALLED
+
+
+@pytest.mark.asyncio
+async def test_a_capped_sweep_leaves_the_previous_run_link_alone(db_client):
+    """A sweep that never runs a turn must not touch the activity row.
+
+    `TurnActivity.start()` writes `event_id: None` and resets `steps` /
+    `started_at`. Nothing writes the id back until `on_event_id` fires, which
+    only happens if a turn actually runs — so opening the row before the speech
+    cap meant a capped sweep silently erased the lead's link to its LAST REAL
+    run's event log. That is the same user-visible regression this lane already
+    fixed once, arriving through the other door: with a stalled board the pace
+    is 180s and the cap is 6 per 30 minutes, so the tail of every window is
+    exactly these no-op sweeps.
+    """
+    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+
+    await _seed_room(db_client)
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": "agent_lead", "channel_id": CHANNEL, "state": "idle",
+        "event_id": "evt_last_real_reply",
+    })
+    await db_client.update("teams", {"team_id": TEAM}, {
+        "patrol_spoke_at": utc_now(), "patrol_spoke_count": PATROL_SPEECH_MAX,
+    })
+    trigger, _ = _trigger(db_client, "should never run")
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    row = await db_client.get_one("bus_agent_activity", {"agent_id": "agent_lead"})
+    assert row["event_id"] == "evt_last_real_reply"
+
+
+@pytest.mark.asyncio
+async def test_a_stale_stall_on_the_sweepers_own_item_is_cleared(db_client):
+    """Skipping the sweeper must mean "pass no verdict", not "touch nothing".
+
+    Reachable without contrivance: an item is assigned to B, B goes dark and an
+    earlier sweep marks it `stalled`, then the owner makes B the lead. From
+    then on every sweep skips the item, so the stall can never be cleared —
+    `ACTIVE` includes `STALLED`, so `has_stalled` pins the team at the 180s
+    pace forever, the user's panel shows a permanent `stalled`, and the item is
+    excluded from `patrol_stalled` so the lead is never even told to fix it.
+
+    If this row carries no information about the sweeper, then a verdict drawn
+    from it earlier has no business outliving that.
+    """
+    from xyz_agent_context.message_bus.patrol import detect_stalled_items
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    await _seed_room(db_client)
+    repo = TeamWorkItemRepository(db_client)
+    item = await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="carried over",
+                                  created_by="agent_lead", assignee_id="agent_lead")
+    await repo.set_status(item.item_id, WorkItemStatus.STALLED)
+
+    stalled = await detect_stalled_items(
+        db_client, TEAM, executor_agent_id="agent_lead"
+    )
+
+    assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
+    # Cleared, not chased: the sweeper is still not told to nag itself.
+    assert [i.item_id for i in stalled] == []

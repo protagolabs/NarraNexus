@@ -660,8 +660,9 @@ per-agent 单行,描述的是**当前这一轮**,而巡查者当前这一轮就�
 让 lead 去催自己),开行之后读到 running(于是 lead 的条目永远不会 stalled)。
 两个读数都不携带「这个条目有没有在推进」的信息。所以真正的修法是
 `detect_stalled_items(executor_agent_id=...)` **把巡查者自己的条目跳过** ——
-代价是「lead 卡在自己条目上时,它自己的巡查抓不到」,这个代价是明写接受的:
-别人的 sweep 仍然抓得到,而另一个选项是一个没有任何恢复路径的永久自我催办。
+代价是「lead 卡在自己条目上时,**没有任何人**会发现」—— 巡查每个 team 只有一
+条、由该 team 的 lead 跑,不存在第二个 sweep 兜底(详见 [[patrol]] 的更正)。
+明写接受,因为另一个选项是完全没有恢复路径的永久自我催办。
 
 **同时给 `_invoke_runtime` 传 `team_id=`**,MCP 身份头才有 team 可注入。这与上一
 条是同一个洞的两头:工具必须从服务端知道自己在哪个 team,不能从模型参数知道。
@@ -709,3 +710,20 @@ per (agent, channel) 单行,`start()` 往 `event_id` 写 NULL。一次 sweep 之
 顺带把 sweep 主体拆成 `_patrol_body`:`_run_patrol` 现在只负责 activity/取消的
 作用域 + 「无论如何都推进游标」这条不变量,主体在里面平铺,不用为了一个
 `async with` 再缩进一层。
+
+## 2026-08-11 — 活动行推迟到「真要跑 turn」才开
+
+上一条把活动行提到 sweep 开头,理由是「检测开始那一刻 lead 就被占用了」。这个
+理由**在同一次改动之后就不成立了**:正因为 `detect_stalled_items` 现在显式跳过
+巡查者,检测阶段这行是开是关对判定毫无影响;工作板工具的兜底解析也只在
+`_invoke_runtime` 期间才有人读。
+
+而代价是实的:`start()` 写 `event_id: None` 并重置 `steps` / `started_at`,写回
+要等 `on_event_id`。开得早,则**任何在跑 turn 之前返回的 sweep**(频控门命中,
+或组装 prompt 时抛异常)都会顺路把 lead 上一次真实回复的事件日志入口抹掉 ——
+正是本 lane 已经修过一次的那条用户可见回退,从另一扇门进来。而且不是边角:
+板上有 stalled 时节奏 180s、30 分钟窗口约 10 次 sweep,而 `PATROL_SPEECH_MAX`
+是 6,窗口尾部那几次全走这条空跑路径。
+
+所以现在开在 `_invoke_runtime` 之前一行。roster 少显示前两次 DB 读那一瞬的
+running,换回一个不会被抹掉的链接。
