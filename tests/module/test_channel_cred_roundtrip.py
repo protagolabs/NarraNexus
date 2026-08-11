@@ -47,6 +47,10 @@ def _cases():
         LarkCredential,
         _cred_from_raw as lark_from_raw,
     )
+    from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import (
+        _HABindingCred,
+        _cred_from_raw as ha_from_raw,
+    )
 
     return [
         ("discord", DiscordCredential(agent_id="agent_x", bot_token="d-secret",
@@ -74,6 +78,11 @@ def _cases():
             permission_state={"user_oauth_completed_at": "2026-08-11T00:00:00"},
             created_at=_DT, updated_at=_DT),
          lark_from_raw, ["app_secret_encoded"]),
+        # Home Assistant: the secret (the Long-Lived Access Token) rides INSIDE
+        # config_json — the raw dict carries the blob verbatim.
+        ("home_assistant", _HABindingCred(
+            config_json='{"base_url": "https://ha", "token": "llat-secret", "verify_tls": true}'),
+         ha_from_raw, ["config_json"]),
     ]
 
 

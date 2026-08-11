@@ -106,6 +106,13 @@ _MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
         "LarkCredentialManager",
         "get_credential",
     ),
+    # Home Assistant has no bot credential — a JSON config blob (base_url + LLAT).
+    # A thin repository-backed adapter gives it the seam's uniform read shape.
+    "home_assistant": (
+        "xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding",
+        "HomeAssistantCredentialManager",
+        "get",
+    ),
 }
 
 # The allowlist the backend endpoint gates on — derived from the registry so it

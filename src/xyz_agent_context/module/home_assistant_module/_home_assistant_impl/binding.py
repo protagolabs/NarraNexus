@@ -15,7 +15,8 @@ instances (home vs. office) can point different agents at different HAs.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple
 
 from xyz_agent_context.repository import HomeAssistantBindingRepository
 from xyz_agent_context.schema.home_assistant_schema import HAConfig
@@ -29,13 +30,56 @@ NOT_CONFIGURED = (
 )
 
 
-async def resolve_client(db, agent_id: str) -> Tuple[Optional[HAClient], Optional[str]]:
-    """Return (HAClient, None) on success, or (None, reason) to relay to the user."""
-    row = await HomeAssistantBindingRepository(db).get_by_agent(agent_id)
-    if not row or not row.config_json:
+# ---------------------------------------------------------------------------
+# ChannelCredentialStore adapter (blueprint P2, #2). Home Assistant has no
+# credential-manager class — it stores a JSON config blob keyed on agent_id.
+# This thin adapter gives the seam the uniform ``.get(agent_id) -> obj with
+# to_raw_dict()`` shape the other channels' managers have, WITHOUT flattening
+# the blob: the raw dict carries ``config_json`` verbatim (which contains the
+# Long-Lived Access Token — the secret), so resolve_client keeps parsing it the
+# exact same way and preserves the corrupt-vs-not-configured distinction the
+# flattened fields would lose.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _HABindingCred:
+    config_json: str
+
+    def to_raw_dict(self) -> dict[str, Any]:
+        return {"config_json": self.config_json}
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> _HABindingCred:
+    return _HABindingCred(config_json=raw.get("config_json", "") or "")
+
+
+class HomeAssistantCredentialManager:
+    """Repository-backed adapter exposing the seam's uniform read shape."""
+
+    def __init__(self, db) -> None:
+        self._db = db
+
+    async def get(self, agent_id: str) -> Optional[_HABindingCred]:
+        row = await HomeAssistantBindingRepository(self._db).get_by_agent(agent_id)
+        if not row or not row.config_json:
+            return None
+        return _HABindingCred(config_json=row.config_json)
+
+
+async def resolve_client(agent_id: str) -> Tuple[Optional[HAClient], Optional[str]]:
+    """Return (HAClient, None) on success, or (None, reason) to relay to the user.
+
+    Reads the binding via the ChannelCredentialStore seam (DirectStore locally,
+    HttpStore -> owner-gated backend endpoint in cloud) so neither the MCP tool
+    process nor this helper touches the db directly."""
+    from xyz_agent_context.module.data_access import get_channel_credential_store
+
+    raw = await get_channel_credential_store().get_credential("home_assistant", agent_id)
+    if not raw or not raw.get("config_json"):
         return None, NOT_CONFIGURED
     try:
-        cfg = HAConfig.model_validate_json(row.config_json)
+        cfg = HAConfig.model_validate_json(raw["config_json"])
     except Exception:  # noqa: BLE001 — corrupt/legacy config → actionable message
         return None, "The Home Assistant binding is corrupted; please re-bind it in the config panel."
     try:
