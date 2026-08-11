@@ -127,7 +127,20 @@ class TeamBulletinRepository(BaseRepository[BulletinEntry]):
         return entry
 
     async def update_content(self, entry_id: str, content: str) -> bool:
-        changed = await self._db.update(self.table_name, {"entry_id": entry_id}, {"content": content})
+        """Replace an entry's text and move its `updated_at`.
+
+        The timestamp is written explicitly because the db client does not touch
+        it; leaving it at the creation time would make "last edited" report when
+        the rule was first written, which is precisely the question a reader
+        asks when a rule surprises them.
+        """
+        from xyz_agent_context.utils.timezone import utc_now
+
+        changed = await self._db.update(
+            self.table_name,
+            {"entry_id": entry_id},
+            {"content": content, "updated_at": utc_now()},
+        )
         return bool(changed)
 
     async def upsert_summary(self, team_id: str, content: str) -> BulletinEntry:

@@ -216,3 +216,94 @@ def test_the_prompt_discourages_using_the_bulletin_as_a_notepad():
         team_id="team_42",
     )
     assert "chat, not the bulletin" in prompt
+
+
+# ── an agent's write announces itself too ───────────────────────────────────
+#
+# The notice helper was first wired only to the REST routes, so a rule an AGENT
+# pinned changed how the whole team behaved and left no mark in the room. The
+# acceptance criterion says a system message appears when the bulletin updates;
+# half the writers were skipping it.
+
+
+async def _seed_room(db):
+    await db.insert("bus_channels", {
+        "channel_id": "ch1", "channel_type": "group",
+        "created_by": f"team_{TEAM}", "name": "T",
+    })
+
+
+async def _notices(db):
+    rows = await db.execute(
+        "SELECT * FROM bus_messages WHERE msg_type = %s", ("system_bulletin",), fetch=True
+    )
+    return rows or []
+
+
+@pytest.mark.asyncio
+async def test_an_agent_pinning_a_rule_leaves_a_notice(db_client):
+    await _seed(db_client)
+    await _seed_room(db_client)
+
+    await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="v2")
+
+    assert len(await _notices(db_client)) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_notice_names_the_agent_that_wrote_it(db_client):
+    """The transcript resolves from_agent to a display name, which is how the
+    line localises — and how a reader tells a teammate's rule from the owner's."""
+    await _seed(db_client)
+    await _seed_room(db_client)
+
+    await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="v2")
+
+    assert (await _notices(db_client))[0]["from_agent"] == AGENT
+
+
+@pytest.mark.asyncio
+async def test_the_notice_wakes_nobody(db_client):
+    """A mention would wake every member the moment a rule is written, and a
+    rule written BY an agent would wake the agents that might write another."""
+    await _seed(db_client)
+    await _seed_room(db_client)
+
+    await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="v2")
+
+    assert not (await _notices(db_client))[0].get("mentions")
+
+
+@pytest.mark.asyncio
+async def test_retracting_a_rule_also_leaves_a_notice(db_client):
+    await _seed(db_client)
+    await _seed_room(db_client)
+    res = await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="v2")
+
+    await remove_team_bulletin(
+        db=db_client, agent_id=AGENT, team_id=TEAM, entry_id=res["entry_id"]
+    )
+
+    assert len(await _notices(db_client)) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_refused_write_leaves_no_notice(db_client):
+    """Announcing a change that did not happen is worse than silence."""
+    await _seed(db_client, member=False)
+    await _seed_room(db_client)
+
+    await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="nope")
+
+    assert await _notices(db_client) == []
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_no_room_does_not_break_the_write(db_client):
+    """A bulletin edit must not conjure a chat channel, and must not fail
+    because there is nobody to tell."""
+    await _seed(db_client)
+
+    res = await post_team_bulletin(db=db_client, agent_id=AGENT, team_id=TEAM, content="v2")
+
+    assert res["success"] is True

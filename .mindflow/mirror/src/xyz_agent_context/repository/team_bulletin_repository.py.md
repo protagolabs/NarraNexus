@@ -33,3 +33,8 @@ PRD 的诊断一句话：team 级别不存在「持久 × 共享 × 每轮必然
 
 相关：[[team_schema]]（常量与模型）、[[schema_registry]]（建表）、
 [[team_bulletin]]（预算与 agent 权限）、[[team_summary_worker]]（写总结槽的人）
+
+## 2026-08-11 (review) — `update_content` 现在推进 `updated_at`
+
+db client 不会自动动这一列，所以显式写。留着不动的话，「最后编辑于」报的会是规则**最初写下**的
+时间——而那恰好是读者在一条规则让他意外时最想问的东西。

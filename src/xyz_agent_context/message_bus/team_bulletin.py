@@ -163,6 +163,52 @@ async def edit_bulletin_entry(repo: TeamBulletinRepository, *, team_id: str, ent
     return entry
 
 
+async def post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -> None:
+    """Leave a trace in the room when the bulletin changes.
+
+    The bulletin governs every reply from now on, so a silent change means
+    members start behaving differently with nothing in the transcript to explain
+    why — the same reasoning that makes a stopped run post a notice.
+
+    Lives here rather than beside the REST routes because BOTH writers need it.
+    The first version was route-only, so a rule an AGENT pinned changed how the
+    whole team behaved and left no mark at all — the acceptance criterion says
+    "a system message appears when the bulletin updates", and half the writers
+    were skipping it.
+
+    NO MENTIONS, deliberately. A mention would wake every member the instant a
+    rule is written, and a rule written BY an agent would then wake the agents
+    that might write another — the write-wake-write loop. The notice is for the
+    humans reading the room; agents pick the rules up on their next turn
+    regardless, which is the entire point of the bulletin.
+
+    Best-effort: a write that succeeded must not report failure because its
+    announcement did not land.
+    """
+    try:
+        from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+
+        channel = await db.get_one(
+            "bus_channels", {"created_by": f"team_{team_id}", "channel_type": "group"}
+        )
+        # No room means nobody to notify. Creating one here would be the tail
+        # wagging the dog: a bulletin edit should not conjure a chat channel.
+        if not channel:
+            return
+        team = await db.get_one("teams", {"team_id": team_id})
+        sender = actor or f"usr_{(team or {}).get('owner_user_id', '')}"
+        bus = LocalMessageBus(backend=db._backend)
+        await bus.send_message(
+            from_agent=sender,
+            to_channel=channel["channel_id"],
+            content=f"Team bulletin {action}.",
+            msg_type=BULLETIN_NOTICE_MSG_TYPE,
+            mentions=None,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[team-bulletin] could not post notice for {team_id}: {e}")
+
+
 # ── the agent-facing surface ────────────────────────────────────────────────
 
 
@@ -221,6 +267,7 @@ async def post_team_bulletin(
         logger.warning(f"[team-bulletin] agent write failed ({agent_id}/{team_id}): {e}")
         return {"success": False, "error": str(e)}
 
+    await post_bulletin_notice(db, team_id, "updated", actor=agent_id)
     return {"success": True, "entry_id": entry.entry_id, "content": entry.content}
 
 
@@ -249,4 +296,5 @@ async def remove_team_bulletin(*, db: Any, agent_id: str, team_id: str, entry_id
         }
 
     await repo.delete(entry_id)
+    await post_bulletin_notice(db, team_id, "updated", actor=agent_id)
     return {"success": True, "entry_id": entry_id}

@@ -61,6 +61,10 @@ from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_co
 
 TEAM_ROOM_OWNER_PREFIX = "team_"
 
+# Room lines the platform wrote about itself. Neither counts as team activity,
+# and one of them is this feature's own bulletin notice.
+_SYSTEM_MSG_TYPES = ("system_bulletin", "system_stop")
+
 _INSTRUCTIONS = (
     "You are summarising a team's group chat so every teammate can see where "
     "the work stands at the start of their next turn.\n"
@@ -100,11 +104,9 @@ async def _inject_team_credentials(team_id: str, db) -> None:
     team's credentials — a cross-tenant leak, not merely a stale config.
     """
     from xyz_agent_context.agent_framework.providers.resolver import (
-        clear_user_config,
-        resolve_and_set_provider_for_user,
+        inject_user_helper_credentials,
     )
 
-    clear_user_config()
     team = await db.get_one("teams", {"team_id": team_id})
     owner = (team or {}).get("owner_user_id")
     if not owner:
@@ -112,8 +114,10 @@ async def _inject_team_credentials(team_id: str, db) -> None:
             f"[team.summary] team {team_id} has no owner row — helper "
             f"credentials left cleared (global fallback)."
         )
-        return
-    await resolve_and_set_provider_for_user(owner, db)
+    # Called even with an empty owner: the clear-first step is the whole point
+    # of routing through the shared helper, and skipping it on the unresolvable
+    # path is exactly how the previous tenant's credentials would survive.
+    await inject_user_helper_credentials(owner or "", db)
 
 
 class TeamSummaryWorker:
@@ -130,6 +134,8 @@ class TeamSummaryWorker:
         self.poll_interval = poll_interval
         self.running = False
         self._task: Optional[asyncio.Task] = None
+        # Last pass's outcome, for health probes and tests.
+        self.last_pass: Dict[str, int] = {"rooms": 0, "summarised": 0, "failed": 0}
 
     # ── lifecycle (mirrors services/memory_consolidation_worker.py) ─────────
 
@@ -168,12 +174,25 @@ class TeamSummaryWorker:
         unsummarisable room must not stall every other room.
         """
         summarised = 0
-        for room in await self._team_rooms():
+        failed = 0
+        rooms = await self._team_rooms()
+        for room in rooms:
             try:
                 if await self._summarise_team(room["team_id"], room["channel_id"]):
                     summarised += 1
             except Exception as e:  # noqa: BLE001 — isolate the bad team
+                failed += 1
                 logger.warning(f"[team.summary] team {room['team_id']} failed, keeping its previous summary: {e}")
+        # An L2 heartbeat, not decoration. With only per-failure warnings, "every
+        # room is quiet" and "every room is failing" are the same observation:
+        # silence. This distinguishes them, and it is the signal that would have
+        # exposed the two production-only faults review had to find by reading —
+        # the worker returned 0 forever while looking perfectly healthy.
+        self.last_pass = {"rooms": len(rooms), "summarised": summarised, "failed": failed}
+        if failed or summarised:
+            logger.info(
+                f"[team.summary] pass: rooms={len(rooms)} summarised={summarised} failed={failed}"
+            )
         return summarised
 
     async def _team_rooms(self) -> List[Dict[str, str]]:
@@ -201,17 +220,25 @@ class TeamSummaryWorker:
         return out
 
     async def _new_message_count(self, channel_id: str, since: Optional[str]) -> int:
-        """Messages in this room newer than the last summarised one."""
+        """Messages in this room newer than the last summarised one.
+
+        System lines are excluded. They are not team activity, and one of them
+        is the bulletin notice THIS FEATURE writes into the same room — counting
+        it lets a quiet team be pushed over the threshold by the announcement of
+        its own last summary, i.e. the platform triggering itself.
+        """
         if since is None:
             rows = await self._db.execute(
-                "SELECT COUNT(*) AS n FROM bus_messages WHERE channel_id = %s",
-                (channel_id,),
+                "SELECT COUNT(*) AS n FROM bus_messages "
+                "WHERE channel_id = %s AND msg_type NOT IN (%s, %s)",
+                (channel_id, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
         else:
             rows = await self._db.execute(
-                "SELECT COUNT(*) AS n FROM bus_messages WHERE channel_id = %s AND created_at > %s",
-                (channel_id, since),
+                "SELECT COUNT(*) AS n FROM bus_messages "
+                "WHERE channel_id = %s AND created_at > %s AND msg_type NOT IN (%s, %s)",
+                (channel_id, since, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
         return int((rows or [{"n": 0}])[0].get("n") or 0)
@@ -248,10 +275,14 @@ class TeamSummaryWorker:
         Returned together so the watermark advances to exactly what the model
         was shown — advancing past unseen messages would silently skip them.
         """
+        # Same exclusion as the trigger: feeding "Team bulletin updated." into
+        # the summariser invites it to report the platform's own bookkeeping as
+        # team progress.
         rows = await self._db.execute(
             "SELECT created_at, from_agent, content FROM bus_messages "
-            "WHERE channel_id = %s ORDER BY created_at DESC LIMIT %s",
-            (channel_id, self.TRANSCRIPT_LIMIT),
+            "WHERE channel_id = %s AND msg_type NOT IN (%s, %s) "
+            "ORDER BY created_at DESC LIMIT %s",
+            (channel_id, *_SYSTEM_MSG_TYPES, self.TRANSCRIPT_LIMIT),
             fetch=True,
         )
         rows = list(reversed(rows or []))
@@ -305,21 +336,61 @@ class TeamSummaryWorker:
         test_team_summary_worker.py` now exercises this body with only the SDK
         faked, which is the smallest seam that still runs the assembly below.
         """
+        from xyz_agent_context.agent_framework.providers.resolver import clear_user_config
+
         # Detached background task: no per-request ContextVars, so without this
         # every cloud call falls through to the platform key.
         await _inject_team_credentials(team_id, self._db)
-        # Two positional parameters. There is no user_id and no label — passing
-        # them raises TypeError, which `run_once` swallows into a warning, so
-        # the worker looks alive while never writing a summary.
-        set_cost_context("", self._db)
+
+        # A cost record is keyed on an AGENT, and every helper SDK drops the
+        # record outright when the agent id is empty (`if not _agent_id or not
+        # _db: return`) — before even the warn-on-missing-usage call, so an
+        # empty id produces neither a row nor the L2 warning that exists to
+        # catch exactly that. Writing `set_cost_context("")` would therefore
+        # have been worse than writing nothing: the next reader sees a cost
+        # context and assumes the tokens are accounted for.
+        #
+        # So the team's designated responder bears it. That is a mild
+        # misattribution — the agent did not ask for this summary — and it is
+        # the better of the two available errors, because the alternative is an
+        # invisible hole in the owner's token spend — which this codebase
+        # already calls its largest silent accounting gap.
+        bearer = await self._cost_bearer(team_id)
+        set_cost_context(bearer, self._db)
         try:
             sdk = get_helper_sdk()
             result = await sdk.llm_function(
                 instructions=_INSTRUCTIONS,
                 user_input=transcript,
-                agent_id="",
+                agent_id=bearer,
                 db=self._db,
             )
             return getattr(result, "final_output", "") or ""
         finally:
             clear_cost_context()
+            # Symmetric with the line above. Without it this task keeps the last
+            # team's LLM config on its ContextVars until the next pass clears
+            # it; harmless only because nothing else runs in this task, which is
+            # a fact about today rather than a guarantee from the code.
+            clear_user_config()
+
+    async def _cost_bearer(self, team_id: str) -> str:
+        """The agent a team summary's tokens are recorded against.
+
+        The team's lead if it has one, else its earliest-joined member — the
+        same "who answers when nobody is @mentioned" rule the room already uses,
+        so the cost lands on the member the team already treats as its default.
+        Empty when the team has no members, in which case there is nothing to
+        summarise either.
+        """
+        team = await self._db.get_one("teams", {"team_id": team_id})
+        lead = (team or {}).get("lead_agent_id")
+        rows = await self._db.execute(
+            "SELECT agent_id FROM team_members WHERE team_id = %s ORDER BY id ASC",
+            (team_id,),
+            fetch=True,
+        )
+        members = [r["agent_id"] for r in (rows or [])]
+        if lead and lead in members:
+            return lead
+        return members[0] if members else ""

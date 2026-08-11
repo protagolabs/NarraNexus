@@ -286,3 +286,9 @@ Drives the team status strip + activity bubbles.
 
 条目查找按 **(team_id, entry_id)** 而非仅 id：同一 owner 另一个团队的 entry_id
 不该能从这个团队的路径上打开。
+
+## 2026-08-11 (review) — 通知助手移出，两个未用 import 清掉
+
+`_post_bulletin_notice` 移到核心包 [[team_bulletin]]（agent 写入也需要它，而核心包不能反向
+import 路由），这里改为 import。`Optional` / `BulletinUsage` 在预算函数搬走后成了未用 import，
+已删。

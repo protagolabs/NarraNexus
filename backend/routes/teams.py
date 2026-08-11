@@ -18,7 +18,6 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
-from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -49,8 +48,8 @@ from xyz_agent_context.repository.team_bulletin_repository import TeamBulletinRe
 # same ceilings for agents, and a core module importing a FastAPI route to get
 # them would invert the layering the architecture depends on.
 from xyz_agent_context.message_bus.team_bulletin import (
-    BULLETIN_NOTICE_MSG_TYPE,
     BulletinLimitExceeded,
+    post_bulletin_notice as _post_bulletin_notice,
     add_bulletin_entry,
     check_bulletin_budget,
     edit_bulletin_entry,
@@ -62,7 +61,6 @@ from xyz_agent_context.schema.team_schema import (
     BULLETIN_SOURCE_USER,
     BULLETIN_TIER_CURRENT_TASK,
     BULLETIN_TIER_LONG_TERM,
-    BulletinUsage,
     CreateTeamRequest,
     UpdateTeamRequest,
     AddMemberRequest,
@@ -727,40 +725,6 @@ async def _team_files(db, team_id: str) -> list[dict]:
 # reaches every prompt, which is why the budget below is enforced rather than
 # advisory: an unbounded bulletin is an unbounded prompt on the hottest path
 # the team feature has.
-
-
-async def _post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -> None:
-    """Leave a trace in the room when the bulletin changes.
-
-    The bulletin governs every reply from now on, so a silent change means
-    members start behaving differently with nothing in the transcript to
-    explain why — the same reasoning that made a stopped run post a notice.
-
-    NO MENTIONS, deliberately. A mention would wake every member the instant a
-    rule is written, and a rule written BY an agent would then wake the agents
-    that might write another — the write→wake→write loop. The notice is for
-    the humans reading the room; the agents pick the rules up on their next
-    turn regardless, which is the entire point of the bulletin.
-
-    Best-effort: a bulletin write that succeeded must not report failure
-    because its announcement did not land.
-    """
-    try:
-        team = await TeamRepository(db).get_team(team_id)
-        if not team:
-            return
-        members = await TeamMemberRepository(db).list_members_by_team(team_id)
-        bus = LocalMessageBus(backend=db._backend)
-        channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
-        await bus.send_message(
-            from_agent=actor or f"{USER_SENDER_PREFIX}{team.owner_user_id}",
-            to_channel=channel_id,
-            content=f"Team bulletin {action}.",
-            msg_type=BULLETIN_NOTICE_MSG_TYPE,
-            mentions=None,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[team-bulletin] could not post notice for {team_id}: {e}")
 
 
 class CreateBulletinEntryRequest(BaseModel):

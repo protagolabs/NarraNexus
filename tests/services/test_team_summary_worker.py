@@ -358,17 +358,32 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
     monkeypatch.setattr(mod, "set_cost_context", fake_set)
     monkeypatch.setattr(mod, "clear_cost_context", lambda: None)
     monkeypatch.setattr(mod, "_inject_team_credentials", _noop_creds)
-    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("a summary"), raising=False)
+    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("a summary"))
 
     await _seed_room(db_client, messages=1)
+    await db_client.insert("agents", {"agent_id": "agent_a", "agent_name": "A", "created_by": OWNER})
     out = await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
 
     assert out == "a summary"
-    # Positional, and the db must be the real client — a context without one
-    # records nothing, which is how the consolidation-worker hole hid for weeks.
-    assert seen["kwargs"] == {} or set(seen["kwargs"]) <= {"agent_id", "db"}
+
+    # Bind the captured call against the REAL signature. Asserting a shape I
+    # happened to expect is what let the previous version through: the fake
+    # accepted anything, so it certified my guess rather than the contract.
+    import inspect
+
+    from xyz_agent_context.utils import cost_tracker
+
+    inspect.signature(cost_tracker.set_cost_context).bind(*seen["args"], **seen["kwargs"])
+
     passed = list(seen["args"]) + list(seen["kwargs"].values())
     assert db_client in passed
+
+    # And a NON-EMPTY agent id. Every helper SDK drops the record when it is
+    # empty — before the warn-on-missing-usage call — so an empty id is not
+    # "attributed with a blank"; it is silently unrecorded, with the docstring
+    # still claiming otherwise.
+    bearer = [v for v in passed if isinstance(v, str)]
+    assert bearer and bearer[0], "cost context carries an empty agent_id"
 
 
 @pytest.mark.asyncio
@@ -385,7 +400,7 @@ async def test_the_real_summarise_injects_the_teams_credentials(db_client, monke
     monkeypatch.setattr(mod, "_inject_team_credentials", fake_inject)
     monkeypatch.setattr(mod, "set_cost_context", lambda *a, **k: None)
     monkeypatch.setattr(mod, "clear_cost_context", lambda: None)
-    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("s"), raising=False)
+    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("s"))
 
     await _seed_room(db_client, messages=1)
     await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
@@ -450,3 +465,95 @@ class _FakeSdk:
 
 async def _noop_creds(team_id, db):
     return None
+
+
+# ── the platform must not feed its own bookkeeping back to itself ───────────
+
+
+@pytest.mark.asyncio
+async def test_system_lines_do_not_count_toward_the_threshold(db_client):
+    """The bulletin notice THIS FEATURE writes lands in the same room. Counting
+    it means a quiet team can be pushed over the threshold by the announcement
+    of its own last summary — the platform triggering itself."""
+    await _seed_room(db_client, messages=0)
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD * 2):
+        await db_client.insert("bus_messages", {
+            "message_id": f"sys{i}", "channel_id": CHANNEL, "from_agent": "usr_1",
+            "content": "Team bulletin updated.", "msg_type": "system_bulletin",
+            "created_at": _ts(i),
+        })
+
+    w = _worker(db_client)
+    await w.run_once()
+
+    assert w.calls == [], "system notices were counted as team activity"
+
+
+@pytest.mark.asyncio
+async def test_system_lines_are_not_shown_to_the_summariser(db_client):
+    """Feeding "Team bulletin updated." in invites the model to report the
+    platform's own bookkeeping as team progress."""
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    await db_client.insert("bus_messages", {
+        "message_id": "sysx", "channel_id": CHANNEL, "from_agent": "usr_1",
+        "content": "Team bulletin updated.", "msg_type": "system_bulletin",
+        "created_at": _ts(900),
+    })
+
+    w = _worker(db_client)
+    await w.run_once()
+
+    assert "Team bulletin updated." not in w.calls[0]["transcript"]
+
+
+# ── L2: silence must not be ambiguous ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_pass_reports_what_it_did(db_client):
+    """With only per-failure warnings, "every room is quiet" and "every room is
+    failing" are the same observation. This is the signal that would have
+    surfaced the two production-only faults review had to find by reading."""
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    w = _worker(db_client)
+
+    await w.run_once()
+    assert w.last_pass == {"rooms": 1, "summarised": 1, "failed": 0}
+
+
+@pytest.mark.asyncio
+async def test_a_failing_pass_is_distinguishable_from_a_quiet_one(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    w = _worker(db_client, summary=RuntimeError("boom"))
+
+    await w.run_once()
+    assert w.last_pass["failed"] == 1
+    assert w.last_pass["summarised"] == 0
+
+
+# ── the cost bearer ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_lead_agent_bears_the_cost(db_client):
+    await _seed_room(db_client, messages=1)
+    await db_client.update("teams", {"team_id": TEAM}, {"lead_agent_id": "agent_lead"})
+    await db_client.insert("team_members", {"team_id": TEAM, "agent_id": "agent_lead"})
+
+    assert await TeamSummaryWorker(db_client)._cost_bearer(TEAM) == "agent_lead"
+
+
+@pytest.mark.asyncio
+async def test_without_a_lead_the_earliest_member_bears_it(db_client):
+    """Same rule the room already uses for "who answers with no @mention", so
+    the cost lands on the member the team already treats as its default."""
+    await _seed_room(db_client, messages=1)  # seeds agent_a as the first member
+    await db_client.insert("team_members", {"team_id": TEAM, "agent_id": "agent_z"})
+
+    assert await TeamSummaryWorker(db_client)._cost_bearer(TEAM) == "agent_a"
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_no_members_has_no_bearer(db_client):
+    await db_client.insert("teams", {"team_id": "team_empty", "owner_user_id": OWNER, "name": "E"})
+    assert await TeamSummaryWorker(db_client)._cost_bearer("team_empty") == ""
