@@ -37,8 +37,9 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
-  /** 'text' | 'multimodal' for ordinary messages; 'system_stop' is the
-   *  owner-stopped notice, rendered as a system line rather than a bubble. */
+  /** 'text' | 'multimodal' for ordinary messages. 'system_stop' is the
+   *  owner-stopped notice and 'patrol' is the Leader's sweep — both render as
+   *  room-level lines rather than as a member speaking. */
   msg_type?: string | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */
@@ -88,6 +89,26 @@ export interface TeamMemberActivity {
   /** `events` row id of the member's current/last turn — fetch the full
    *  event_log detail through the existing event-log endpoint. */
   event_id?: string | null;
+}
+
+/** One task on the team's work board. */
+export interface TeamWorkItem {
+  item_id: string;
+  title: string;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
+  /** open | in_progress | stalled | done | paused | cancelled.
+   *  The user's view only ever receives the first three plus `paused`. */
+  status: string;
+  created_at?: string | null;
+}
+
+export interface TeamWorkBoardResponse {
+  success: boolean;
+  items: TeamWorkItem[];
+  /** When the lead last swept the board. Null = never patrolled yet. */
+  last_patrol_at?: string | null;
+  patrol_enabled: boolean;
 }
 
 export interface TeamChatHistoryResponse {

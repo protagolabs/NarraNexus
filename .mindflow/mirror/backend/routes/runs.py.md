@@ -3,6 +3,19 @@ code_file: backend/routes/runs.py
 last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 (四次) — 停止顺带把工作板停下(第 7 条落地)
+
+`_pause_work_items(db, root)`:停一棵树之后,把该树 ACTIVE 的工作项置
+`paused`。
+
+不加这一步,停止会被**悄悄撤销**:树的 run 停了,但工作板仍然列着这个任务
+未完成,于是 Leader 下一轮巡查看到「未完成项 + 负责人 idle」→ 催办 → 拉起
+新 run。owner 按了停,眼看着新活冒出来 —— 与排队消息过滤要防的同一个打地鼠,
+高一层,而且这次是**平台主动**发起的。
+
+`paused` 而非 `cancelled`(Owner 拍板):停止意味着「别跑了」,不是「这事不做
+了」。工作项留在板上,恢复是用户的显式动作。
+
 ## 2026-08-07 (三次) — 每个被停的 agent 各一条,不合并
 
 二次改动收了整个 stopped 集合、按房间分组,但 `_post_stop_notice` 只用了

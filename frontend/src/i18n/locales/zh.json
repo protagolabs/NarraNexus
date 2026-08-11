@@ -183,6 +183,24 @@
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
       "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手",
       "stoppedNotice": "{{name}} 的任务已被所有者停止",
+      "patrolNotice": "Leader 巡查",
+      "board": {
+        "title": "工作板",
+        "unclaimed": "待认领",
+        "resume": "恢复该任务",
+        "patrolOff": "巡查已关闭",
+        "patrolPending": "尚未巡查",
+        "patrolledJustNow": "刚刚巡查过",
+        "patrolledAgo": "{{ago}} 前巡查",
+        "status": {
+          "open": "待开始",
+          "in_progress": "进行中",
+          "stalled": "已停滞",
+          "paused": "已暂停"
+        },
+        "turnOff": "关闭",
+        "turnOn": "开启"
+      },
       "bulletin": {
         "title": "公告栏",
         "intro": "这个团队的常驻规则。每个成员在每一轮开始时都会加载 —— 无论你多久以前写的，也无论他们何时加入。",

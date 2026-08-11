@@ -18,6 +18,7 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
+from typing import List, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -134,6 +135,7 @@ async def _wipe_team_data(
     clear_files: bool,
     clear_artifacts: bool = False,
     clear_bulletin: bool = False,
+    clear_board: bool = False,
 ) -> dict:
     """Clear a team's group-chat history and/or its shared files.
 
@@ -166,6 +168,13 @@ async def _wipe_team_data(
       bulletin exists precisely because it is not chat, so wiping the
       transcript must not take the rules with it — that would recreate the
       "say it again" loop the bulletin was built to end.
+    - clear_board: delete the team's work items.
+
+    The board is a SEPARATE scope rather than part of ``clear_chat``, because
+    the two answer different questions: the chat is what was said, the board is
+    what is still owed. A user clearing a noisy transcript usually still wants
+    to know what the team is on the hook for — and a user abandoning the work
+    should not have to wipe the history to do it.
 
     DB deletes commit first (source of truth); the disk delete runs after,
     best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
@@ -177,6 +186,7 @@ async def _wipe_team_data(
         "file_rows": 0,
         "artifacts": 0,
         "bulletin_entries": 0,
+        "work_items": 0,
         "errors": [],
     }
     marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
@@ -198,6 +208,11 @@ async def _wipe_team_data(
                 )
                 result["chat_failures"] = failures if isinstance(failures, int) else 0
                 result["chat_messages"] = await db.delete("bus_messages", {"channel_id": cid})
+
+    if clear_board:
+        result["work_items"] = await db.delete(
+            "team_work_items", {"team_id": team.team_id}
+        )
 
     if clear_files:
         # The index has to go with the bytes. A row that outlives its file is
@@ -660,6 +675,10 @@ async def delete_team(team_id: str, request: Request):
     # Rows nothing can ever read again are precisely the orphans the acceptance
     # criterion is about; leaving them is not "harmless clutter". The bulletin
     # is in the same position: its only reader is this team's turn builder.
+    # Rows nothing can ever read again are precisely the orphans the acceptance
+    # criterion is about; leaving them is not "harmless clutter". The bulletin
+    # and the work board are in the same position: both key on a team_id that is
+    # about to stop existing, so their only readers vanish with the team.
     await _wipe_team_data(
         db,
         team,
@@ -667,6 +686,7 @@ async def delete_team(team_id: str, request: Request):
         clear_files=True,
         clear_artifacts=True,
         clear_bulletin=True,
+        clear_board=True,
     )
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
@@ -686,12 +706,28 @@ async def clear_team_data(
         False,
         description="Delete the team's bulletin — its standing rules and auto-summary",
     ),
+    board: bool = Query(
+        False,
+        description=(
+            "Delete the team's work items. Off by default: an existing caller "
+            "asking to clear chat did not ask to drop what the team still owes."
+        ),
+    ),
 ):
-    """Clear a team's collaboration data (chat and/or shared files), keeping the
-    team, its members, and the bus channel. Owner-only. The team counterpart to
-    the per-agent ``DELETE /{agent_id}/history``."""
-    if not chat and not files and not bulletin:
-        raise HTTPException(status_code=400, detail="Select at least one scope: chat, files and/or bulletin")
+    """Clear a team's collaboration data, keeping the team, its members, and the
+    bus channel. Owner-only. The team counterpart to the per-agent
+    ``DELETE /{agent_id}/history``.
+
+    Four independent scopes. Neither the bulletin nor the board is folded into
+    ``chat``, and for the same reason: both are the team's standing state rather
+    than its conversation, so clearing a noisy transcript must not silently take
+    the rules it was given or the work it still owes.
+    """
+    if not any((chat, files, bulletin, board)):
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one scope: chat, files, bulletin and/or board",
+        )
 
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
@@ -701,7 +737,14 @@ async def clear_team_data(
     if team.owner_user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files, clear_bulletin=bulletin)
+    result = await _wipe_team_data(
+        db,
+        team,
+        clear_chat=chat,
+        clear_files=files,
+        clear_bulletin=bulletin,
+        clear_board=board,
+    )
     return {"success": True, **result}
 
 
@@ -986,3 +1029,145 @@ async def remove_member(team_id: str, agent_id: str, request: Request):
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Member not found in team")
     return TeamOperationResponse(success=True, message="Member removed")
+
+
+# ---------------------------------------------------------------------------
+# Work board
+#
+# Read-and-resume only. Agents maintain the board through MCP tools; the user's
+# side of it is seeing what is outstanding and un-parking what a stop parked.
+# Deliberately no create/delete here: a board the user edits by hand and a board
+# the lead maintains would drift, and the lead is the one held responsible.
+# ---------------------------------------------------------------------------
+
+
+class WorkItemView(BaseModel):
+    item_id: str
+    title: str
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    status: str
+    created_at: Optional[str] = None
+
+
+class WorkBoardResponse(BaseModel):
+    success: bool
+    items: List[WorkItemView]
+    #: When the lead last swept the board. None = never patrolled yet.
+    last_patrol_at: Optional[str] = None
+    patrol_enabled: bool = True
+
+
+class PatrolToggleRequest(BaseModel):
+    enabled: bool
+
+
+async def _owned_team(db, team_id: str, user_id: str):
+    team = await TeamRepository(db).get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.owner_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return team
+
+
+@router.get("/{team_id}/work-items", response_model=WorkBoardResponse)
+async def get_work_board(team_id: str, request: Request):
+    """The team's board, INCLUDING parked items.
+
+    Unlike the agent-facing tool (which lists only what still needs doing), the
+    user's view has to show `paused` too — that is the state a stop leaves
+    behind, and it is the user who decides whether to resume it. Hiding it
+    would make a stopped task look deleted.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    team = await _owned_team(db, team_id, user_id)
+
+    from xyz_agent_context.repository.team_work_repository import (
+        TeamWorkItemRepository,
+    )
+
+    # Through the repository, and filtered in SQL there: this endpoint is
+    # polled every 5s by the board panel, and a long-lived team's
+    # `done`/`cancelled` history only ever grows — reading all of it to throw
+    # most of it away scales with age. Keeping the query in the repository also
+    # keeps the dialect surface single (new raw SQL owes a MySQL test).
+    visible = await TeamWorkItemRepository(db).list_visible(team_id)
+    # list_members_by_team returns agent_ids, not rows (see the callers above).
+    member_ids = list(await TeamMemberRepository(db).list_members_by_team(team_id))
+    agent_rows = await db.get_by_ids("agents", "agent_id", member_ids) if member_ids else []
+    name_by_agent = {
+        r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in agent_rows if r
+    }
+    # Straight off the entity: the repository already returned typed
+    # `WorkItem`s, and round-tripping them through `model_dump()` would trade
+    # that away for string keys a typo only breaks at request time.
+    items = [
+        WorkItemView(
+            item_id=i.item_id,
+            title=i.title,
+            assignee_id=i.assignee_id,
+            assignee_name=name_by_agent.get(i.assignee_id or ""),
+            status=i.status,
+            created_at=format_for_api(i.created_at),
+        )
+        for i in visible
+    ]
+    return WorkBoardResponse(
+        success=True,
+        items=items,
+        last_patrol_at=format_for_api(getattr(team, "last_patrol_at", None)),
+        patrol_enabled=_patrol_enabled(team),
+    )
+
+
+def _patrol_enabled(team) -> bool:
+    """See ``team_schema.patrol_is_on`` — one implementation, two callers."""
+    from xyz_agent_context.schema.team_schema import patrol_is_on
+
+    return patrol_is_on(team)
+
+
+@router.post("/{team_id}/work-items/{item_id}/resume", response_model=TeamOperationResponse)
+async def resume_work_item(team_id: str, item_id: str, request: Request):
+    """Un-park an item a stop parked.
+
+    The other half of the stop→pause decision: stopping means "stop running",
+    not "abandon the task", so resuming has to be an explicit user action
+    rather than something patrol infers.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    await _owned_team(db, team_id, user_id)
+
+    from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    repo = TeamWorkItemRepository(db)
+    item = await repo.get(item_id)
+    if not item or item.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Work item not found")
+    if item.status != WorkItemStatus.PAUSED:
+        # Not an error: the user clicked resume on something already live.
+        return TeamOperationResponse(success=True, message="Already active")
+    # Back to whoever had it, or to the unclaimed pool.
+    await repo.set_status(
+        item_id,
+        WorkItemStatus.IN_PROGRESS if item.assignee_id else WorkItemStatus.OPEN,
+    )
+    return TeamOperationResponse(success=True, message="Resumed")
+
+
+@router.put("/{team_id}/patrol", response_model=TeamOperationResponse)
+async def set_patrol_enabled(team_id: str, payload: PatrolToggleRequest, request: Request):
+    """Turn the lead's patrol on or off for this team.
+
+    Off keeps the board fully usable — it only stops the periodic sweep. A user
+    who wants to track work without an agent chasing people should be able to.
+    """
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    await _owned_team(db, team_id, user_id)
+    await db.update("teams", {"team_id": team_id}, {"patrol_enabled": 1 if payload.enabled else 0})
+    return TeamOperationResponse(success=True, message="Updated")

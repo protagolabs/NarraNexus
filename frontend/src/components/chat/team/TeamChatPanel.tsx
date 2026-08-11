@@ -654,6 +654,35 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       </div>
                     );
                   }
+                  // A patrol line is the platform taking stock, not a member
+                  // talking. It is posted under the room's own marker, so
+                  // `author_name` would resolve to a raw `team_<id>` — and more
+                  // importantly, rendering it as a bubble would make the Leader
+                  // look like it keeps interrupting the room on its own.
+                  if (m.msg_type === 'patrol') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`patrol-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <div
+                          className="max-w-[85%] rounded-lg border border-dashed border-[var(--border-subtle)] px-3 py-1.5"
+                          style={{ background: 'var(--nm-paper-warm)' }}
+                        >
+                          <div
+                            className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.18em]"
+                            style={{ color: 'var(--nm-ink50)' }}
+                          >
+                            {t('chat.team.patrolNotice')}
+                          </div>
+                          <div className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+                            <Markdown content={m.content.trim()} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
                       {/* Carbon ring for the human, silicon for an agent — matching
@@ -984,6 +1013,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         </div>
 
         <TeamRosterPanel
+          teamId={teamId}
           members={members}
           activity={activity}
           leadAgentId={leadAgentId}
@@ -1000,6 +1030,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             at 92vw) — a fixed width here would undo the expansion. */}
         {mobileRosterOpen && (
           <TeamRosterPanel
+            teamId={teamId}
             members={members}
             activity={activity}
             leadAgentId={leadAgentId}

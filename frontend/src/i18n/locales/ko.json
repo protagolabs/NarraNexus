@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
-      "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다"
+      "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다",
+      "patrolNotice": "리더 점검",
+      "board": {
+        "title": "작업 보드",
+        "unclaimed": "미할당",
+        "resume": "이 작업 재개",
+        "patrolOff": "점검 꺼짐",
+        "patrolPending": "아직 점검 안 함",
+        "patrolledJustNow": "방금 점검함",
+        "patrolledAgo": "{{ago}} 전 점검",
+        "status": {
+          "open": "대기",
+          "in_progress": "진행 중",
+          "stalled": "정체됨",
+          "paused": "일시중지"
+        },
+        "turnOff": "끄기",
+        "turnOn": "켜기"
+      }
     },
     "execution": {
       "showSteps": "실행 단계 표시",

@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "Envie uma mensagem para começar — {{name}} assume, ou use @ para falar com outra pessoa diretamente.",
       "leadTitle": "{{name}} · responde quando ninguém é mencionado",
-      "stoppedNotice": "A tarefa de {{name}} foi parada pelo proprietário"
+      "stoppedNotice": "A tarefa de {{name}} foi parada pelo proprietário",
+      "patrolNotice": "Ronda do líder",
+      "board": {
+        "title": "Quadro de trabalho",
+        "unclaimed": "sem responsável",
+        "resume": "Retomar esta tarefa",
+        "patrolOff": "Ronda desligada",
+        "patrolPending": "Ainda sem ronda",
+        "patrolledJustNow": "Ronda agora mesmo",
+        "patrolledAgo": "Ronda há {{ago}}",
+        "status": {
+          "open": "aberto",
+          "in_progress": "em andamento",
+          "stalled": "parado",
+          "paused": "pausado"
+        },
+        "turnOff": "Desligar",
+        "turnOn": "Ligar"
+      }
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",

@@ -3,6 +3,14 @@ code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
 last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-10 — 巡查行渲染
+
+`msg_type === 'patrol'` 走独立分支:虚线框 + 「Leader 巡查」小标 + Markdown 正文。
+
+**不能当普通气泡渲染**,两个原因:巡查是以房间自己的标记(`team_<id>`)落墙的,
+`author_name` 会解析成裸 id;而且画成气泡会让 Leader 看起来在不停打断房间,
+而它其实是平台在盘点。
+
 ## 2026-08-07 — 停止留痕渲染成系统行
 
 `msg_type === 'system_stop'` 的消息走独立分支:居中的小胶囊,文案

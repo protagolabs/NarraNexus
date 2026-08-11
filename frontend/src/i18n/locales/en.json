@@ -183,6 +183,24 @@
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned",
       "stoppedNotice": "{{name}}'s task was stopped by the owner",
+      "patrolNotice": "Leader patrol",
+      "board": {
+        "title": "Work board",
+        "unclaimed": "unclaimed",
+        "resume": "Resume this task",
+        "patrolOff": "Patrol off",
+        "patrolPending": "Not patrolled yet",
+        "patrolledJustNow": "Patrolled just now",
+        "patrolledAgo": "Patrolled {{ago}} ago",
+        "status": {
+          "open": "open",
+          "in_progress": "in progress",
+          "stalled": "stalled",
+          "paused": "paused"
+        },
+        "turnOff": "Turn off",
+        "turnOn": "Turn on"
+      },
       "bulletin": {
         "title": "Bulletin",
         "intro": "Standing rules for this team. Every member loads them at the start of every turn — no matter how long ago you wrote them, or when they joined.",

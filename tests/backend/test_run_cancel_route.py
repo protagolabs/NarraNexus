@@ -325,3 +325,48 @@ async def test_a_chat_run_is_not_narrated(db_client, monkeypatch):
 
     assert resp.status_code == 200
     assert await db_client.get("bus_messages", {"msg_type": "system_stop"}) == []
+
+
+# ── work board linkage ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stopping_a_tree_parks_its_work_items(db_client, monkeypatch):
+    """Stop must also park the board, or patrol undoes the stop.
+
+    Ending the runs is not enough: the board still lists the task as
+    unfinished, so the next patrol sees "unfinished item, assignee idle",
+    chases it, and starts a fresh run — the owner presses stop and watches new
+    work appear, this time initiated by the platform.
+    """
+    from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    await _seed(db_client, run_id="evt_root", root="evt_root")
+    repo = TeamWorkItemRepository(db_client)
+    mine = await repo.create_item(
+        team_id="t1", channel_id="ch_team", title="the task",
+        created_by="agent_lead", root_run_id="evt_root",
+    )
+    other = await repo.create_item(
+        team_id="t1", channel_id="ch_team", title="unrelated",
+        created_by="agent_lead", root_run_id="evt_other",
+    )
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
+
+    client.post("/api/runs/evt_root/cancel")
+
+    # Parked, not cancelled — a stop means "stop running", not "abandon it".
+    assert (await repo.get(mine.item_id)).status == WorkItemStatus.PAUSED
+    assert (await repo.get(other.item_id)).status == WorkItemStatus.OPEN
+    # And patrol now sees nothing to chase for this tree.
+    assert [i.item_id for i in await repo.list_active("t1")] == [other.item_id]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_without_a_board_still_succeeds(db_client, monkeypatch):
+    """The board is optional; a team that never used it must not break stop."""
+    await _seed(db_client, run_id="evt_plain", root="evt_plain")
+    client = _build_client(db_client, monkeypatch, viewer_id="user_owner")
+
+    assert client.post("/api/runs/evt_plain/cancel").status_code == 200

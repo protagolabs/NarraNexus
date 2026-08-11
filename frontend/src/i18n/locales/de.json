@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
-      "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt"
+      "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt",
+      "patrolNotice": "Leader-Kontrolle",
+      "board": {
+        "title": "Arbeitsboard",
+        "unclaimed": "nicht zugewiesen",
+        "resume": "Aufgabe fortsetzen",
+        "patrolOff": "Kontrolle aus",
+        "patrolPending": "Noch nicht kontrolliert",
+        "patrolledJustNow": "Gerade kontrolliert",
+        "patrolledAgo": "Vor {{ago}} kontrolliert",
+        "status": {
+          "open": "offen",
+          "in_progress": "in Arbeit",
+          "stalled": "blockiert",
+          "paused": "pausiert"
+        },
+        "turnOff": "Aus",
+        "turnOn": "An"
+      }
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
