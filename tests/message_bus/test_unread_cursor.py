@@ -215,3 +215,59 @@ async def test_a_peer_dm_without_a_reply_stays_unread(db_client):
         "bus_channel_members", {"channel_id": "ch_dm", "agent_id": ME}
     )
     assert (row or {}).get("last_read_at") is None
+
+
+# ── the cursor may not outrun what was rendered ─────────────────────────────
+
+@pytest.mark.asyncio
+async def test_a_backlog_deeper_than_the_scrollback_is_not_swallowed(db_client):
+    """"A turn ran" is not "everything before it was shown".
+
+    The prompt renders `TEAM_HISTORY_LIMIT` messages. Advancing the cursor to
+    the trigger declares the WHOLE room read up to that point — so a member who
+    accumulated 60 messages while nobody @mentioned it, then finally gets
+    @mentioned, is shown 20 and silently loses 40 it never saw.
+
+    That is the same failure this lane refuses to cause at the un-mentioned and
+    rate-limited ack sites, arriving on the path that does run a turn. A single
+    high-water cursor cannot say "read the window but not the gap below it", so
+    when the rendered window does not reach back to the cursor, it must not move
+    at all.
+    """
+    from xyz_agent_context.message_bus.message_bus_trigger import TEAM_HISTORY_LIMIT
+
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    for i in range(TEAM_HISTORY_LIMIT + 5):
+        await trigger._bus.send_message(
+            from_agent=PEER, to_channel=CHANNEL, content=f"backlog {i}",
+        )
+    await _post(trigger._bus, mentions=[ME])
+
+    await trigger._process_agent(ME)
+
+    assert await _read_cursor(db_client) is None
+    # The un-rendered older messages are still on offer.
+    unread = [m.content for m in await trigger._bus.get_unread(ME)]
+    assert "backlog 0" in unread
+
+
+@pytest.mark.asyncio
+async def test_a_backlog_the_scrollback_covers_is_cleared(db_client):
+    """The ordinary case, and the one that has to keep converging.
+
+    When the window reaches back past the cursor there is no gap: everything
+    between them was rendered, so the cursor advances and the room settles.
+    """
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    for i in range(3):
+        await trigger._bus.send_message(
+            from_agent=PEER, to_channel=CHANNEL, content=f"chat {i}",
+        )
+    await _post(trigger._bus, mentions=[ME])
+
+    await trigger._process_agent(ME)
+
+    assert await _read_cursor(db_client) is not None
+    assert await trigger._bus.get_unread(ME) == []

@@ -41,6 +41,7 @@ from xyz_agent_context.message_bus.local_bus import (
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
     _as_utc,
+    canonical_ts,
 )
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
 from xyz_agent_context.message_bus.schemas import BusMessage
@@ -659,16 +660,34 @@ class MessageBusTrigger:
 
     async def _ack_room_seen(
         self, agent_id: str, channel_id: str, trigger_message: BusMessage,
-        is_team: bool,
+        is_team: bool, rendered_from: Optional[str],
     ) -> None:
         """Advance the READ cursor for a team room whose turn actually ran.
 
         A team room delivers by RENDERING: `_build_team_prompt` puts the room's
-        recent scrollback into the turn's user message, so by the time the model
-        sees anything it has been shown every message up to the trigger. That is
-        what "read" means here, and it holds whether the agent replied or stayed
-        silent — silence is a reply-discipline decision, not a claim that it did
-        not look.
+        recent scrollback into the turn's user message, so what the agent has
+        been shown is exactly that window. That is what "read" means here, and
+        it holds whether the agent replied or stayed silent — silence is a
+        reply-discipline decision, not a claim that it did not look.
+
+        `rendered_from` is the oldest message the prompt actually carried. The
+        cursor may only pass it when the window reaches back to wherever the
+        cursor already was — otherwise there is a GAP of messages this turn
+        never showed, and a single high-water cursor cannot say "read the window
+        but not the gap below it". It would swallow them.
+
+        That gap is reachable and not rare: a member nobody @mentions for a
+        while accumulates a backlog, and the day it finally gets @mentioned the
+        prompt still only carries `TEAM_HISTORY_LIMIT` messages. Advancing to
+        the trigger would mark the rest read having never rendered them — the
+        same silent loss this method refuses to cause at the un-mentioned and
+        rate-limited ack sites, arriving through the one path that does run a
+        turn.
+
+        So on a gap the cursor simply does not move. The room stays behind and
+        keeps surfacing through the unread list, which is where an un-caught-up
+        member is supposed to see it. Rooms whose backlog fits the window — the
+        ordinary case — still converge in one turn.
 
         Nothing else advanced this cursor. Its only other writer keys off a bus
         delivery tool showing up in the turn's trace, and a team reply is posted
@@ -690,9 +709,25 @@ class MessageBusTrigger:
         Best-effort — a cursor that fails to advance costs some duplicate
         context next turn; raising here would cost the turn itself.
         """
-        if not is_team:
+        if not is_team or not rendered_from:
             return
         try:
+            # "Did the window reach the bottom of what this agent still owes?"
+            # `get_unread` already measures against the cursor, so anything it
+            # returns below the window is by definition a message this turn did
+            # not render. One question, correct whether or not a cursor exists.
+            floor = canonical_ts(rendered_from)
+            behind = [
+                m for m in await self._bus.get_unread(agent_id)
+                if m.channel_id == channel_id and canonical_ts(m.created_at) < floor
+            ]
+            if behind:
+                logger.info(
+                    f"[bus] read cursor held for {agent_id} in {channel_id}: "
+                    f"{len(behind)} unread message(s) predate this turn's "
+                    f"scrollback and were never rendered"
+                )
+                return
             await self._bus.ack_read(
                 agent_id=agent_id,
                 channel_id=channel_id,
@@ -736,6 +771,10 @@ class MessageBusTrigger:
         )
 
         is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
+        # The oldest message the prompt ends up carrying. Declared here, not in
+        # the team branch, so the cancelled handler can read it however the body
+        # exits — the read cursor may not pass what was never rendered.
+        rendered_from: Optional[str] = None
         member_map: Dict[str, str] = {}
         # DM branch overwrites this with the classifier's verdict; team rooms
         # keep False (they never carry the Owner-Relay/Answer-the-peer split).
@@ -779,6 +818,7 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                rendered_from = history[0].created_at if history else None
                 lead_agent_id, work_items = await self._team_board(team_id)
                 prompt = self._build_team_prompt(
                     agent_id, history, member_map,
@@ -906,7 +946,9 @@ class MessageBusTrigger:
                 channel_id=channel_id,
                 up_to_timestamp=trigger_message.created_at,
             )
-            await self._ack_room_seen(agent_id, channel_id, trigger_message, is_team)
+            await self._ack_room_seen(
+                agent_id, channel_id, trigger_message, is_team, rendered_from
+            )
 
             logger.info(
                 f"MessageBusTrigger: agent {agent_id} processed "
@@ -980,7 +1022,7 @@ class MessageBusTrigger:
                 # was built and the room's scrollback rendered before the model
                 # ever got a chance to be interrupted.
                 await self._ack_room_seen(
-                    agent_id, channel_id, trigger_message, is_team
+                    agent_id, channel_id, trigger_message, is_team, rendered_from
                 )
         except Exception as e:
             logger.exception(

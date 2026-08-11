@@ -30,6 +30,19 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
+def canonical_ts(value) -> str:
+    """A cursor-comparable ISO-8601 string.
+
+    Both cursors are TEXT and compared lexicographically, while the sqlite
+    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
+    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
+    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
+    every real ``created_at``, making every message look unprocessed forever.
+    That cost us a re-trigger loop once; it gets exactly one home.
+    """
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 def _now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
@@ -258,7 +271,7 @@ class LocalMessageBus(MessageBusService):
             f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
             (agent_id, agent_id),
         )
-        return int((rows or [{}])[0].get("n") or 0) if rows else 0
+        return int(rows[0].get("n") or 0) if rows else 0
 
     async def mark_read(self, agent_id: str, message_ids: List[str]) -> None:
         """Mark messages as read by advancing the read cursor per channel."""
@@ -651,8 +664,7 @@ class LocalMessageBus(MessageBusService):
         message look unprocessed → the agent is re-triggered forever (capped
         only by the rate limiter). Canonicalise to ISO-8601 so both sides match.
         """
-        if hasattr(up_to_timestamp, "isoformat"):
-            up_to_timestamp = up_to_timestamp.isoformat()
+        up_to_timestamp = canonical_ts(up_to_timestamp)
         await self._db.update(
             "bus_channel_members",
             {"agent_id": agent_id, "channel_id": channel_id},
@@ -674,18 +686,15 @@ class LocalMessageBus(MessageBusService):
         merged (``inbox.py`` merged them once and the result was a room that
         showed 0 unread while accumulating hundreds).
 
-        Timestamp canonicalisation is the same hazard ``ack_processed`` documents
-        at length, so it is delegated there rather than re-derived: both cursors
-        are TEXT and compared lexicographically, and a ``datetime`` stringified
-        with a space instead of 'T' sorts BELOW every real ``created_at``.
+        Timestamp canonicalisation goes through ``canonical_ts``, which both
+        cursors share — see its docstring for the hazard it exists to close.
 
         Only ever moves forward. ``ack_processed`` can get away without that
         guard because its caller always passes the batch's own high-water mark;
         this one is called from more than one site, and a cursor that can be
         pulled backwards would resurface messages the agent has already read.
         """
-        if hasattr(up_to_timestamp, "isoformat"):
-            up_to_timestamp = up_to_timestamp.isoformat()
+        up_to_timestamp = canonical_ts(up_to_timestamp)
         ph = self._db.placeholder
         await self._db.execute_write(
             f"UPDATE bus_channel_members SET last_read_at = {ph} "

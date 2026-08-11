@@ -40,11 +40,16 @@ USER = "usr_1"
 
 
 @pytest.fixture
-def client(db_client):
+def client(db_client, monkeypatch):
     """The real inbox router over the real sqlite fixture.
 
     The sibling suite mocks the DB to assert SQL shape; this one needs the
     actual cursor arithmetic, so it runs the query for real.
+
+    Through `monkeypatch`, not a bare assignment: the override closes over a
+    fixture-scoped client that is shut down at teardown, so leaving it installed
+    would hand every later test touching this router a dead connection — with a
+    failure pointing nowhere near the cause.
     """
     app = FastAPI()
     app.include_router(inbox_mod.router, prefix="/api/agent-inbox")
@@ -52,7 +57,7 @@ def client(db_client):
     async def _get_db_override():
         return db_client
 
-    inbox_mod._get_db = _get_db_override  # type: ignore[assignment]
+    monkeypatch.setattr(inbox_mod, "_get_db", _get_db_override)
     return TestClient(app)
 
 

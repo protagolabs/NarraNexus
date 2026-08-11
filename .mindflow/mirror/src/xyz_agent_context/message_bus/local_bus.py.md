@@ -190,3 +190,10 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 的同一段逻辑而不是重写一遍 —— 那个 `'T'(0x54) > ' '(0x20)` 的坑值不得踩第二次。
 它**只前进**:`ack_processed` 能不带这个保护是因为它的调用方总是传批次自己的水位线,
 而 `ack_read` 有多个调用点,一个能被往回拨的游标会让已读消息重新冒出来。
+
+## 2026-08-11 (补) — `canonical_ts`:那个坑只留一个落点
+
+两个 ack 各自抄了一遍 `isoformat()` 归一化,而 `ack_read` 的 docstring 却写着它
+"delegated" 给了 `ack_processed` —— 注释和代码不一致,偏偏这是个踩过的坑
+(`'T'(0x54) > ' '(0x20)`,空格格式的游标沉到所有 `created_at` 之下,消息永远显示
+未处理)。抽成模块级 `canonical_ts`,两个 ack 和 trigger 的缺口判定共用一份。
