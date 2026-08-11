@@ -1658,7 +1658,7 @@
         "analyticsTitle": "Product analytics",
         "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. It is never sent to a third-party analytics service. Conversation content is never collected.",
         "telemetryTitle": "Diagnostic telemetry",
-        "telemetryDesc": "Send this install's service logs (startup, errors, integration diagnostics) to NarraNexus's own collector so crashes and failures can be debugged. Log lines may include whatever the services normally log; nothing is sent to any third party.",
+        "telemetryDesc": "Send this install's service logs to NarraNexus's own collector so crashes and failures can be debugged. At the default level this means structured events, warnings and errors — no message content. Deployments that run the \"full\" level (managed sandboxes, debug setups) ship whole log lines, which can include message content that services log. Nothing goes to any third party.",
         "telemetryTiming": "Turning it off takes effect within seconds. If telemetry was already off when the app started, turning it on takes effect at the next launch.",
         "telemetryManaged": "Managed by your deployment (environment setting) — the switch is not available here.",
         "telemetryManagedCloud": "Your administrator controls diagnostic telemetry for this install.",
@@ -2528,7 +2528,7 @@
     "doneTitle": "Done"
   },
   "telemetryNotice": {
-    "body": "NarraNexus now sends diagnostic service logs from this install to its own collector, to help debug crashes and integration failures. You can turn this off anytime in Settings → Privacy.",
+    "body": "NarraNexus now sends diagnostic service logs from this install to its own collector, to help debug crashes and integration failures. On installs running the \"full\" level, log lines can include message content. You can turn this off anytime in Settings → Privacy.",
     "settings": "Open settings",
     "dismiss": "Got it",
     "bodyManaged": "This install sends diagnostic service logs (errors and diagnostic events) to NarraNexus's own collector, as configured by your administrator."

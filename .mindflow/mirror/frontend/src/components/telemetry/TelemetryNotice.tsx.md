@@ -8,8 +8,8 @@ last_verified: 2026-08-11
 
 ## 为什么存在
 
-遥测默认值翻 full 与本横幅**同一变更落地**(默认值与同意基础不可
-分批)。一次性、每浏览器 profile 一次(localStorage,沿用 HelpButton
+遥测默认值(off→meta;托管沙盒经默认层跑 full)与本横幅**同一
+变更落地**(默认值与同意基础不可分批)。一次性、每浏览器 profile 一次(localStorage,沿用 HelpButton
 的 `_v1` key 模式,存储异常 fail-closed 不纠缠)。
 
 ## 设计决策(每条都有反面教材)

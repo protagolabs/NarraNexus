@@ -4,6 +4,29 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(十一)— 三审 ⛔:沙盒 full 从"覆盖"降到"托管默认层"
+
+初版 run.sh 给沙盒 `export NEXUS_DIAG_SHIP=full`,占的是同意链第 1
+层——三件事同时成立:发的是含完整用户消息的 full、沙盒用户开关灰
++PUT 409(撤回权为零,本 PR 建的"撤回一个 flush 生效"在沙盒上不
+存在)、managed 文案比实际外发窄。修复(评审推荐方案①):
+
+- **同意链插入第 3 层"托管默认"**:`env > optout >
+  NEXUS_DIAG_DEFAULT_SHIP(meta|full)> 内置 meta`。它改变的是"用户
+  未表态时适用什么",**用户的 optout 标记仍然赢、开关仍然活**;
+  `off` 不被接受(想静默是覆盖层的事,"默认关"会渲染一个开不了的
+  开关)。run.sh 改为导出 `NEXUS_DIAG_DEFAULT_SHIP=full`;
+- **沙盒身份判据对齐单一解析点**(manyfold_outbound.
+  manyfold_runtime_env:token+runtime_id 双非空,webhook URL 明文
+  允许缺席):原 URL 嗅探会漏掉 escape-hatch 配置的真沙盒,更糟的
+  是让仅设了 URL 的自托管容器开始外发用户正文;
+- **非 staging 沙盒获得专属标签 `sprite`**(三边同批:KNOWN_ENVS +
+  discovery 示例):否则 prod 沙盒回落 "cloud" 与 prod 栈同分区,
+  full 量级(比 meta 高 1-2 个数量级)会按最旧优先冲掉 prod 诊断
+  历史;429 在发送端走 4xx 丢弃不重试,预算打满伤及全体;
+- 告知文案点名 full 档内容("整行外发,可能含消息内容"),
+  desc 与横幅 body 同批改口,10 语种。
+
 ## 2026-08-11(十)— 同意 UI PR:默认 off→meta,撤回即时生效
 
 `_DEFAULT_MODE` 翻为 **meta**(非 full)——与它的同意基础(首次告知
@@ -12,9 +35,12 @@ last_verified: 2026-08-11
 full 逐字外发 INFO 行,而生产 INFO 含完整用户消息
 (agent_runtime 的 `Input content:`)、IM 入站正文、LLM 结构化输出
 ——告知文案("启动、错误、诊断事件")没有覆盖这些;`redact()` 在
-ship 路径上也从未被调用。full 保留为显式部署旋钮(manyfold 沙盒/
-dev 栈的 env=full 不受影响);把**默认**抬到 full 的前置是 ship 侧
-脱敏 + 重写告知文案。配套:
+ship 路径上也从未被调用。full 到达一台机器只有两条路,都是明确的
+部署行为:**托管默认层**(见三审条目——我方 run.sh 给 manyfold
+沙盒注入 `NEXUS_DIAG_DEFAULT_SHIP=full`,用户 opt-out 仍然赢)或
+机器本地 `.env` 的显式 `NEXUS_DIAG_SHIP` 覆盖(仓库不断言哪台机器
+这么配了);把**内置默认**抬到 full 的前置是 ship 侧脱敏 + 重写
+告知文案。配套:
 
 - **发现探测退避**:2xx 但非发现文档形状(如 SPA fallback 的
   200+HTML)按"本部署没有遥测服务"处理,退避整个 TTL(1h)而非

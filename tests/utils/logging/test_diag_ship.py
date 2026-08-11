@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
-import os
 import re
-import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +33,8 @@ def _clean_env(monkeypatch, tmp_path):
         "MANYFOLD_SYNC_WEBHOOK_URL",
         "NARRANEXUS_DEPLOYMENT_MODE",
         "DATABASE_URL",
+        "NEXUS_DIAG_DEFAULT_SHIP",
+        "NEXUS_DIAG_OPTOUT_FILE",
         "NARRA_SURFACE",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -138,21 +137,42 @@ class TestConsentGating:
         assert _ship.ship_config() is not None
         _ship.set_telemetry_optout(False)  # idempotent on a missing file
 
-    def test_optout_path_env_override_resolves_at_import(self, tmp_path):
+    def test_optout_path_env_override_resolves_per_call(self, monkeypatch, tmp_path):
         """NEXUS_DIAG_OPTOUT_FILE points every service at one shared
         mounted path — without it, a containerized self-host's opt-out
         written by the backend container silences only itself and dies
-        on recreate. Import-time resolution, so verified in a child
-        interpreter."""
-        marker = tmp_path / "shared" / "optout"
-        out = subprocess.run(
-            [sys.executable, "-c",
-             "from xyz_agent_context.utils.logging import _ship; "
-             "print(_ship._OPTOUT_FILE)"],
-            env={**os.environ, "NEXUS_DIAG_OPTOUT_FILE": str(marker)},
-            capture_output=True, text=True, check=True, timeout=60,
-        )
-        assert out.stdout.strip() == str(marker)
+        on recreate. Resolution is per call, so no child interpreter is
+        needed and the _OPTOUT_FILE-repointing fixtures keep working."""
+        shared = tmp_path / "shared" / "optout"
+        monkeypatch.setenv("NEXUS_DIAG_OPTOUT_FILE", str(shared))
+        assert _ship._optout_file() == shared
+        _ship.set_telemetry_optout(True)
+        assert shared.exists()
+        assert _ship.telemetry_consent()["source"] == "optout"
+        monkeypatch.delenv("NEXUS_DIAG_OPTOUT_FILE")
+        assert _ship._optout_file() == _ship._OPTOUT_FILE  # fixture path
+
+    def test_managed_default_is_a_default_not_an_override(self, monkeypatch):
+        """NEXUS_DIAG_DEFAULT_SHIP changes what applies when the user
+        has expressed NOTHING — the opt-out marker still wins and the
+        source stays "default" (toggle live). This is the layer run.sh
+        uses for manyfold sandboxes: full by default, switch intact."""
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "full")
+        assert _ship.telemetry_consent() == {"mode": "full", "source": "default"}
+        _ship.set_telemetry_optout(True)
+        assert _ship.telemetry_consent() == {"mode": "off", "source": "optout"}
+        _ship.set_telemetry_optout(False)
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "env"}
+
+    def test_managed_default_rejects_off_and_garbage(self, monkeypatch):
+        # A deployment that wants silence sets the OVERRIDE
+        # (NEXUS_DIAG_SHIP=off); "default off" would render a toggle
+        # whose on-position is unreachable. Garbage falls through.
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "off")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "everything")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
 
     def test_package_reexports_consent_api(self):
         from xyz_agent_context.utils import logging as pkg
@@ -555,7 +575,7 @@ class TestDiscovery:
         keys = set(
             re.findall(r'"(\w+)":"https://[^"]+/telemetry/v1/ingest"', text)
         )
-        assert {"default", "staging", "dev"} <= keys
+        assert {"default", "staging", "dev", "sprite"} <= keys
 
     def test_unresolvable_discovery_drops_quietly(self, monkeypatch):
         def _dead(request: httpx.Request) -> httpx.Response:

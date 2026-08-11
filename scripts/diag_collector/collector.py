@@ -55,9 +55,13 @@ Env:
                                   "default" = prod)
     DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
                                   their own storage partition; default
-                                  "staging,cloud,local,desktop,dev"
-                                  (the sender label vocabulary + our
-                                  dev cloud stack). THREE-SIDED with
+                                  "staging,cloud,local,desktop,dev,
+                                  sprite" (the sender label vocabulary
+                                  + our dev cloud stack + non-staging
+                                  manyfold sandboxes — their own
+                                  partition, so a full-level sandbox
+                                  fleet rotates itself under the size
+                                  cap instead of crowding prod). THREE-SIDED with
                                   the senders' NEXUS_DIAG_ENV and the
                                   discovery map above: this list only
                                   decides the STORAGE PARTITION, the
@@ -380,7 +384,7 @@ _UNKNOWN_ENV = "unknown"
 # .env.example): the prod collector's DIAG_COLLECT_CONFIG_JSON must
 # carry a "dev" ingest entry, or the label silently routes to the
 # "default" (prod) ingest — no warning fires on either side.
-_DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev"
+_DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev,sprite"
 
 # One warning per demoted label, not per record — silent collapse is how
 # our own data would rot unnoticed if the sender vocabulary drifts

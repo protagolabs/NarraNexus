@@ -482,22 +482,37 @@ run_container_mode() {
   # lives HERE on purpose: the logging utility (_ship.py) must not sniff
   # another integration's env vars. Staging manyfold sandboxes identify
   # themselves by the webhook host they were provisioned with.
-  if [ -z "${NEXUS_DIAG_ENV:-}" ]; then
+  # Manyfold-managed sandbox detection mirrors the canonical identity
+  # resolver (integrations/manyfold_outbound.manyfold_runtime_env):
+  # token + runtime_id, BOTH required — the webhook URL is explicitly
+  # allowed to be absent (channel-send escape hatch), so gating on it
+  # would silently skip real sandboxes AND fire on self-hosts that
+  # merely set the URL.
+  _is_manyfold_sandbox=""
+  if [ -n "${MANYFOLD_SYNC_WEBHOOK_TOKEN:-}" ] && [ -n "${MANYFOLD_RUNTIME_ID:-}" ]; then
+    _is_manyfold_sandbox="1"
+  fi
+  if [ -z "${NEXUS_DIAG_ENV:-}" ] && [ -n "$_is_manyfold_sandbox" ]; then
+    # Every managed sandbox gets its own label: "staging" routes to the
+    # dev collector; everything else is "sprite" — its own storage
+    # partition, so a full-level sandbox fleet rotates ITSELF under the
+    # collector's size cap instead of crowding out prod's history.
+    # Three-sided contract: "sprite" is in the collector's default
+    # DIAG_COLLECT_KNOWN_ENVS and in the discovery-map examples.
     case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
       *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
+      *)             export NEXUS_DIAG_ENV="sprite" ;;
     esac
   fi
-  # Manyfold-managed sandboxes are OUR runtime: telemetry defaults to
-  # FULL here — a deployment decision, like the compose stacks setting
-  # NEXUS_DIAG_SHIP=full in their .env. The consent default ("meta")
-  # governs PERSONAL installs, where full would ship INFO bodies the
-  # disclosure copy does not cover; on a managed sandbox full logs are
-  # the point (joint support debugging) and the settings UI honestly
-  # shows "managed by deployment". Explicit env still wins; gated on
-  # the manyfold webhook env so a bare container run stays on the
-  # consent default.
-  if [ -n "${MANYFOLD_SYNC_WEBHOOK_URL:-}" ] && [ -z "${NEXUS_DIAG_SHIP:-}" ]; then
-    export NEXUS_DIAG_SHIP="full"
+  # Managed sandboxes DEFAULT to full — via the consent chain's
+  # managed-DEFAULT layer, not the env override: full logs are the
+  # point of sandbox telemetry (joint support debugging), but the
+  # user's opt-out marker still wins and the settings toggle stays
+  # live. An NEXUS_DIAG_SHIP override here would grey the toggle and
+  # 409 the PUT — confiscating the switch on exactly the single-tenant
+  # user runtime the consent design was built for.
+  if [ -n "$_is_manyfold_sandbox" ] && [ -z "${NEXUS_DIAG_DEFAULT_SHIP:-}" ]; then
+    export NEXUS_DIAG_DEFAULT_SHIP="full"
   fi
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data

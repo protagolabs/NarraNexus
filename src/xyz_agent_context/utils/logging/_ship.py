@@ -28,13 +28,25 @@ Consent resolution (first match wins):
      next flush through the same gate. The file is PER-MACHINE: callers on
      multi-tenant surfaces must gate the write themselves (the backend
      route refuses it in cloud mode).
-  3. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
+  3. Managed default: ``NEXUS_DIAG_DEFAULT_SHIP`` (``meta``/``full``)
+     — a DEFAULT-layer input, not an override: it changes what applies
+     when the user has expressed nothing, and the opt-out marker still
+     wins. This is how our run.sh container mode gives manyfold
+     sandboxes ``full`` (joint-support debugging is their telemetry's
+     purpose) WITHOUT confiscating the user's switch — an env override
+     here would grey the toggle and 409 the PUT, hollowing out the
+     consent design on exactly the single-tenant user runtime it was
+     built for. Invalid/absent values fall through; ``off`` is not
+     accepted (a deployment that wants silence sets NEXUS_DIAG_SHIP).
+  4. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
      first-run disclosure + settings toggle) shipped in the same
      change that flipped this from off, never apart. meta (no INFO
-     bodies) is the highest level the disclosure copy honestly
-     describes; ``full`` is an explicit deployment knob. Single-tenant
-     surfaces (desktop, local, sprite sandboxes) show the toggle;
-     multi-tenant cloud is governed by the deployment env instead.
+     bodies) is the highest level the base disclosure copy honestly
+     describes; the copy names the full-level content for surfaces
+     that run full. Single-tenant surfaces (desktop, local, sprite
+     sandboxes) show the toggle — sandboxes run full via the managed
+     default and can still opt out; multi-tenant cloud is governed by
+     the deployment env instead.
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -144,15 +156,21 @@ _BREAKER_COOLDOWN_S = 60.0
 _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
-# Overridable for containerized single-tenant self-hosts: with one
-# container per service and no shared HOME mount, a marker written by
-# the backend container is invisible to poller/mcp/workers (they keep
-# shipping while the UI reports "off") and dies with the writable
-# layer on recreate. Point every service at one mounted path instead.
-_OPTOUT_FILE = Path(
-    os.environ.get("NEXUS_DIAG_OPTOUT_FILE", "").strip()
-    or Path.home() / ".narranexus" / "telemetry_optout"
-)
+_OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
+
+
+def _optout_file() -> Path:
+    """Marker path, resolved PER CALL. ``NEXUS_DIAG_OPTOUT_FILE``
+    overrides for containerized single-tenant self-hosts: with one
+    container per service and no shared HOME mount, a marker written
+    by the backend container is invisible to poller/mcp/workers (they
+    keep shipping while the UI reports "off") and dies with the
+    writable layer on recreate — point every service at ONE mounted
+    (absolute) path instead. Call-time resolution keeps the test
+    fixtures that repoint ``_OPTOUT_FILE`` working and needs no child
+    interpreter to test."""
+    override = os.environ.get("NEXUS_DIAG_OPTOUT_FILE", "").strip()
+    return Path(override) if override else _OPTOUT_FILE
 # Default LEVEL is "meta" (AUDIT+ structured events, warnings, errors
 # — no INFO bodies), because "full" ships INFO lines verbatim and
 # production INFO includes entire user messages (agent_runtime logs
@@ -204,8 +222,11 @@ def telemetry_consent() -> dict:
     raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
     if raw in ("off", "meta", "full"):
         return {"mode": raw, "source": "env"}
-    if _OPTOUT_FILE.exists():
+    if _optout_file().exists():
         return {"mode": "off", "source": "optout"}
+    managed = os.environ.get("NEXUS_DIAG_DEFAULT_SHIP", "").strip().lower()
+    if managed in ("meta", "full"):
+        return {"mode": managed, "source": "default"}
     return {"mode": _DEFAULT_MODE, "source": "default"}
 
 
@@ -214,14 +235,15 @@ def set_telemetry_optout(opted_out: bool) -> None:
     this host (Path.home()), not strictly per-machine: a co-deployed
     process under a different HOME keeps its own consent state — on a
     desktop install all sidecars share HOME, so the distinction is
-    latent there. Idempotent. The
-    module attribute is read at call time on purpose — tests repoint
-    ``_OPTOUT_FILE`` and the settings route must follow."""
+    latent there (containerized self-hosts: see _optout_file).
+    Idempotent; resolution is per call — tests repoint ``_OPTOUT_FILE``
+    and the settings route must follow."""
+    marker = _optout_file()
     if opted_out:
-        _OPTOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _OPTOUT_FILE.touch()
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
     else:
-        _OPTOUT_FILE.unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
 
 
 def ship_mode() -> str:

@@ -1285,7 +1285,7 @@
         "analyticsTitle": "Analítica del producto",
         "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
         "telemetryTitle": "Telemetría de diagnóstico",
-        "telemetryDesc": "Enviar los registros de servicio de esta instalación (arranque, errores, diagnósticos de integraciones) al colector propio de NarraNexus para poder depurar fallos y errores. Las líneas de registro pueden incluir lo que los servicios registran normalmente; no se envía nada a terceros.",
+        "telemetryDesc": "Enviar los registros de servicio de esta instalación al colector propio de NarraNexus para poder depurar fallos y errores. En el nivel predeterminado esto significa eventos estructurados, advertencias y errores, sin contenido de mensajes. Las implementaciones que ejecutan el nivel \"full\" (sandboxes gestionados, entornos de depuración) envían las líneas de registro completas, que pueden incluir contenido de mensajes que los servicios registren. No se envía nada a terceros.",
         "telemetryTiming": "Al desactivarla, surte efecto en cuestión de segundos. Si la telemetría ya estaba desactivada al iniciar la aplicación, activarla surte efecto en el siguiente inicio.",
         "telemetryManaged": "Gestionado por tu despliegue (configuración de entorno): el interruptor no está disponible aquí.",
         "telemetryManagedCloud": "Tu administrador controla la telemetría de diagnóstico de esta instalación.",
@@ -2085,7 +2085,7 @@
     "doneTitle": "Listo"
   },
   "telemetryNotice": {
-    "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",
+    "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",
     "settings": "Abrir ajustes",
     "dismiss": "Entendido",
     "bodyManaged": "Esta instalación envía registros de servicio de diagnóstico (errores y eventos de diagnóstico) al colector propio de NarraNexus, según lo configurado por tu administrador."
