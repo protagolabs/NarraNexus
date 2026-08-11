@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -270,3 +270,19 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 alongside `thinking` (kept for back-compat). status = running (from [[_bus_activity]]
 `is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
 Drives the team status strip + activity bubbles.
+
+## 2026-08-11 — 公告栏子资源 + `clear_bulletin` scope
+
+新增 5 个端点（list / create / patch / delete / 按 tier 清空）。预算规则**不在这里**，
+在核心包 [[team_bulletin]]：MCP 工具要强制同一套上限，而核心包反向 import 一个 FastAPI
+路由会把分层倒过来。第一版就是那么写的，提交前修正。
+
+`clear_bulletin` 是**独立 scope，绝不并入 `clear_chat`**。公告栏之所以存在恰恰因为它不是聊天；
+并进去就意味着「清掉一段吵闹的 transcript」会静默销毁团队被交代过的每一条规则——
+把用户直接送回公告栏本来要终结的那个复读循环。默认关。
+
+`delete_team` **会**带走它，理由与工作台相同：team 行一没，公告栏唯一的读者
+（这个团队的 prompt 构造器）也随之消失，剩下的是任何查询路径都读不到的孤儿行。
+
+条目查找按 **(team_id, entry_id)** 而非仅 id：同一 owner 另一个团队的 entry_id
+不该能从这个团队的路径上打开。

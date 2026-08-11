@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -370,3 +370,8 @@ Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].
 void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正看着的真实
 错误。detail 客户端先截 300（服务端同样有硬上限）。调用方：useNetmindAuth
 的 emailLogin / handleAuthCallback 失败分支。
+
+## 2026-08-11 — 公告栏 5 个方法 + `clearTeamData` 增加 bulletin scope
+
+`getTeamBulletin` 返回 entries **加** usage/limits：面板要在用户打字**之前**就能禁用
+「添加」，而不是写完才被拒。

@@ -71,6 +71,8 @@ import type {
   TeamOperationResponse,
   TeamChatHistoryResponse,
   TeamChatSendResponse,
+  TeamBulletin,
+  BulletinEntry,
   BundleExportRequest,
   BundlePreflightResponse,
   TeamTemplate,
@@ -1798,6 +1800,61 @@ class ApiClient {
     );
   }
 
+  /**
+   * A team's bulletin plus its budget usage.
+   *
+   * Usage rides along with the list so the panel can grey out "add" before the
+   * user types a rule instead of rejecting it afterwards.
+   */
+  async getTeamBulletin(teamId: string): Promise<TeamBulletin> {
+    return this.request<TeamBulletin>(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin`,
+    );
+  }
+
+  async createTeamBulletinEntry(
+    teamId: string,
+    payload: { content: string; tier?: 'long_term' | 'current_task' },
+  ): Promise<{ success: boolean; entry?: BulletinEntry; error?: string }> {
+    return this.request(`/api/teams/${encodeURIComponent(teamId)}/bulletin`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify({ content }) },
+    );
+  }
+
+  async deleteTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Clear one tier in a single action — the "this task is done" button. */
+  async clearTeamBulletinTier(
+    teamId: string,
+    tier: 'long_term' | 'current_task',
+  ): Promise<{ success: boolean; removed?: number; error?: string }> {
+    const params = new URLSearchParams({ tier });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>('/api/teams', {
       method: 'POST',
@@ -1836,9 +1893,19 @@ class ApiClient {
    *  its members and the bus channel. Team counterpart to clearHistory. */
   async clearTeamData(
     teamId: string,
-    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
-  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
-    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    opts: { chat: boolean; files: boolean; bulletin?: boolean } = { chat: true, files: true },
+  ): Promise<{
+    success: boolean;
+    chat_messages?: number;
+    files_removed?: boolean;
+    bulletin_entries?: number;
+    error?: string;
+  }> {
+    const params = new URLSearchParams({
+      chat: String(opts.chat),
+      files: String(opts.files),
+      bulletin: String(opts.bulletin ?? false),
+    });
     return this.request(
       `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
       { method: 'DELETE' },

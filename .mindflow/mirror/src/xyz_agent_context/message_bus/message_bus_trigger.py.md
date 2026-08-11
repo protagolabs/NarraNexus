@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -595,3 +595,23 @@ turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime
 hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
 inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
 已回写进代码注释）。
+
+## 2026-08-11 — 公告栏注入 `_build_team_prompt`
+
+补上 PRD 说的那个空位：team 级别「持久 × 共享 × 每轮必然载入」的状态。这里是唯一注入点，
+`:640` 是每个 team turn 的必经之路。
+
+**位置是有承载的**：公告栏排在 roster / 共享文件夹之后、scrollback **之前**。
+它是这些消息被阅读时所处的约束框架；追加在二十行聊天之后，它读起来会变成聊天的脚注。
+
+**空公告栏一个字符都不加**（连标题都不加）。有测试断言 prompt 与加功能前**逐字节相同**，
+所以从不使用这个功能的团队分文不付。
+
+**读取失败降级，不拖垮 turn**：丢掉常驻规则是降级，丢掉回复是故障。抽成 `_load_bulletin`
+是为了让这个降级**可测**，而不是埋在 dispatch 路径里；两条分支都有测试，
+并且经变异验证——摘掉 guard 会立刻变红。返回 `[]` 但**必须记 warning**：
+静默会把「数据库连不上」呈现成「这个团队没有规则」。
+
+同时在 prompt 里点名 `bus_pin_team_rule`（没人告知的工具就是没人用的工具），
+并在同一句里劝阻把公告栏当记事本——预算很小且与用户的规则共享，
+一个往里钉「发现」的 agent 会挤掉它本该遵守的规则。

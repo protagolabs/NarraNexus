@@ -182,7 +182,29 @@
       },
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
       "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手",
-      "stoppedNotice": "{{name}} 的任务已被所有者停止"
+      "stoppedNotice": "{{name}} 的任务已被所有者停止",
+      "bulletin": {
+        "title": "公告栏",
+        "intro": "这个团队的常驻规则。每个成员在每一轮开始时都会加载 —— 无论你多久以前写的，也无论他们何时加入。",
+        "empty": "还没有规则。写一条，全队从下一次回复起就遵守。",
+        "longTerm": "长期",
+        "currentTask": "本任务",
+        "clearCurrentTask": "清空本任务",
+        "progress": "团队进展",
+        "progressHint": "由系统自动总结，可能略滞后于刚发生的事。",
+        "placeholder": "例如：所有输出使用中文。报告写到共享文件夹。",
+        "fullPlaceholder": "公告栏已满 —— 删掉一条才能再加。",
+        "newEntry": "新规则",
+        "editLabel": "编辑规则",
+        "editEntry": "编辑这条规则",
+        "deleteEntry": "删除这条规则",
+        "tierLabel": "这条规则的适用范围",
+        "add": "添加",
+        "addedBy": "由 {{name}} 添加",
+        "usage": "{{entries}}/{{maxEntries}} 条 · {{chars}}/{{maxChars}} 字",
+        "updatedNotice": "公告栏已更新",
+        "clearedNotice": "公告栏已清空"
+      }
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -1234,7 +1256,9 @@
       "optFilesDesc": "删除分享到该团队的文件，以及该团队的 artifacts —— 团队 artifact 就存放在这个文件夹里，内容会一并删除。",
       "keepNote": "团队、成员，以及每个智能体自己的数据都会保留。",
       "cancel": "取消",
-      "confirm": "清理"
+      "confirm": "清理",
+      "optBulletin": "公告栏",
+      "optBulletinDesc": "删除这个团队的常驻规则和进展总结。之后这些事需要重新告诉团队一次。"
     },
     "alert": {
       "createFailed": "创建团队失败：{{error}}",

@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -320,3 +320,10 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 ## 2026-07-30 — Agent Migration 路由
 
 注册了 `migrate_router`(挂 `/api/migrate`,tags=["Migration"]):`/detect` `/scan` `/apply`,导入其他框架的 agent(Claude Code/Codex/OpenClaw/Hermes)进 NarraNexus。**local/desktop only** —— 三个端点都经 `_require_local_or_raise()` 在 cloud 返回 503(cloud 无用户文件系统)。见 `backend/routes/migrate.py.md`。
+
+## 2026-08-11 — 挂载 `TeamSummaryWorker`
+
+与 memory worker 同一份契约：机会性、逐 team 隔离、失败保留旧总结、任何东西都不等它（铁律 #14）。
+
+**关停顺序有讲究**：在 `close_db_client()` **之前** stop。它的轮询循环持有那个 client，
+一次落在拆解中途的 pass 会在每一次干净关机时打出一条令人困惑的连接错误。有测试钉住这个次序。

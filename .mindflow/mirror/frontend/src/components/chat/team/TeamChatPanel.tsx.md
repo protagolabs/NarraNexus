@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-07 — 停止留痕渲染成系统行
@@ -156,3 +156,19 @@ was written for. It misses exactly one: a wipe of the team's FILES, which
 empties the panel while leaving the transcript unchanged, so the panel went on
 listing rows the server had deleted and every one of them 410'd on click.
 `workspaceRefreshTick` from [[chatStore.ts]] covers it.
+
+## 2026-08-11 — 公告栏：状态、入口、系统消息
+
+公告栏的数据和重载持有在这里（和工作台同一个理由：变更会在 transcript 里落系统行，
+两个面必须对「什么时候变了」有共识）。每次写入后**同时**重载公告栏和 transcript，
+而不是等下一个轮询周期才让 transcript 追上。
+
+入口放在房间标题栏，是**常驻 chrome，不藏在设置里**——公告栏回答的是
+「这个团队已经知道什么」，那是边读房间边问的问题。按钮带条目数，
+让已存在的公告栏**自己宣告存在**，而不是等着被发现。
+
+`system_bulletin` 照 `system_stop` 的先例渲染成居中灰行：公告栏变更是**房间在说话**，
+不是某个成员在说话；套成成员消息就把平台事件归给了恰好触发它的那个人。
+
+面板加载 effect 也挂在 `workspaceRefreshTick` 上：清团队数据可能带走公告栏，
+面板留在屏上列已删掉的规则比空着更糟。
