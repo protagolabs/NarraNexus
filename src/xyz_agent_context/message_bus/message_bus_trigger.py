@@ -657,6 +657,53 @@ class MessageBusTrigger:
             logger.warning(f"_get_agent_owner({agent_id}) failed: {e}")
             return ""
 
+    async def _ack_room_seen(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        is_team: bool,
+    ) -> None:
+        """Advance the READ cursor for a team room whose turn actually ran.
+
+        A team room delivers by RENDERING: `_build_team_prompt` puts the room's
+        recent scrollback into the turn's user message, so by the time the model
+        sees anything it has been shown every message up to the trigger. That is
+        what "read" means here, and it holds whether the agent replied or stayed
+        silent — silence is a reply-discipline decision, not a claim that it did
+        not look.
+
+        Nothing else advanced this cursor. Its only other writer keys off a bus
+        delivery tool showing up in the turn's trace, and a team reply is posted
+        by this trigger — server-side, no tool call — so the cursor sat at
+        `joined_at` for the life of the agent while every team message stayed
+        unread and rode into EVERY scenario's context, owner chat included.
+
+        Deliberately NOT called from the two ack sites in `_process_agent`
+        (un-mentioned, rate-limited). Those advance `last_processed_at` without
+        running a turn, so nothing was rendered and nothing was seen. Marking
+        them read would drop the messages unseen — and would take with them the
+        only way a member nobody @mentioned ever learns what its room is doing,
+        which is a capability, not an oversight.
+
+        Team rooms only. In a DM the unread list IS the queue: "I will get to
+        it" depends on the message resurfacing, so only an actual reply clears
+        it and that path runs through the module hook.
+
+        Best-effort — a cursor that fails to advance costs some duplicate
+        context next turn; raising here would cost the turn itself.
+        """
+        if not is_team:
+            return
+        try:
+            await self._bus.ack_read(
+                agent_id=agent_id,
+                channel_id=channel_id,
+                up_to_timestamp=trigger_message.created_at,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[bus] could not advance read cursor for {agent_id} "
+                f"in {channel_id}: {e}"
+            )
+
     async def _handle_channel_batch(
         self,
         agent_id: str,
@@ -859,6 +906,7 @@ class MessageBusTrigger:
                 channel_id=channel_id,
                 up_to_timestamp=trigger_message.created_at,
             )
+            await self._ack_room_seen(agent_id, channel_id, trigger_message, is_team)
 
             logger.info(
                 f"MessageBusTrigger: agent {agent_id} processed "
@@ -927,6 +975,12 @@ class MessageBusTrigger:
                     agent_id=agent_id,
                     channel_id=channel_id,
                     up_to_timestamp=trigger_message.created_at,
+                )
+                # Stopping does not un-show what was already shown: the prompt
+                # was built and the room's scrollback rendered before the model
+                # ever got a chance to be interrupted.
+                await self._ack_room_seen(
+                    agent_id, channel_id, trigger_message, is_team
                 )
         except Exception as e:
             logger.exception(

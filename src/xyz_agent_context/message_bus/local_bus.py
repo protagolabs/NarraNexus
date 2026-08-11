@@ -199,18 +199,66 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
-    async def get_unread(self, agent_id: str) -> List[BusMessage]:
-        """Get all unread messages for an agent across all channels."""
-        ph = self._db.placeholder
-        rows = await self._db.execute(
-            f"SELECT m.* FROM bus_messages m "
+    def _unread_where(self, ph: str) -> str:
+        """The unread predicate, shared by the fetch and the count.
+
+        ``from_agent != agent`` matches ``get_pending_messages``, which has
+        always had it. Its absence here meant an agent read its own posts back
+        as unanswered items — loudest exactly where it hurts, a room the agent
+        talks in a lot.
+        """
+        return (
+            f"FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
             f"WHERE cm.agent_id = {ph} "
-            f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01') "
-            f"ORDER BY m.created_at ASC",
-            (agent_id,),
+            f"AND m.from_agent != {ph} "
+            f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
         )
-        return [self._row_to_message(row) for row in rows]
+
+    async def get_unread(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[BusMessage]:
+        """Unread messages across all channels, oldest first.
+
+        ``limit`` selects the NEWEST ``limit`` messages and returns them in
+        reading order — the same DESC-then-reverse shape ``get_recent_messages``
+        documents, and for the same reason: ``ORDER BY created_at ASC`` with a
+        cap hands back the OLDEST rows, which is the opposite of what every
+        caller wants. This query feeds the per-turn "what is going on" block, so
+        an ancient window is worse than none: it reads as current.
+
+        ``limit=None`` returns the whole backlog, and one caller depends on
+        that. The module's post-turn hook asks for the full set to work out
+        which messages a reply covers; cap it and every older answered message
+        stays unread forever.
+        """
+        ph = self._db.placeholder
+        where = self._unread_where(ph)
+        if limit is None:
+            rows = await self._db.execute(
+                f"SELECT m.* {where} ORDER BY m.created_at ASC",
+                (agent_id, agent_id),
+            )
+            return [self._row_to_message(row) for row in rows]
+        rows = await self._db.execute(
+            f"SELECT m.* {where} ORDER BY m.created_at DESC LIMIT {int(limit)}",
+            (agent_id, agent_id),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
+    async def count_unread(self, agent_id: str) -> int:
+        """How many unread messages exist, independent of any window.
+
+        The prompt renders "N unread (showing M)". Once the fetch is capped, N
+        can no longer be ``len()`` of the result — it would always equal M and
+        the reader would never learn there was a backlog at all.
+        """
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
+            (agent_id, agent_id),
+        )
+        return int((rows or [{}])[0].get("n") or 0) if rows else 0
 
     async def mark_read(self, agent_id: str, message_ids: List[str]) -> None:
         """Mark messages as read by advancing the read cursor per channel."""
@@ -609,6 +657,41 @@ class LocalMessageBus(MessageBusService):
             "bus_channel_members",
             {"agent_id": agent_id, "channel_id": channel_id},
             {"last_processed_at": up_to_timestamp},
+        )
+
+    async def ack_read(
+        self,
+        agent_id: str,
+        channel_id: str,
+        up_to_timestamp: str,
+    ) -> None:
+        """Mark everything up to a timestamp as SEEN by this agent.
+
+        The twin of ``ack_processed``, on the other cursor. ``last_processed_at``
+        says the trigger drove this agent past a point; ``last_read_at`` says the
+        agent was actually shown what was there. Only the second one gates the
+        unread list that rides every turn's context, which is why they cannot be
+        merged (``inbox.py`` merged them once and the result was a room that
+        showed 0 unread while accumulating hundreds).
+
+        Timestamp canonicalisation is the same hazard ``ack_processed`` documents
+        at length, so it is delegated there rather than re-derived: both cursors
+        are TEXT and compared lexicographically, and a ``datetime`` stringified
+        with a space instead of 'T' sorts BELOW every real ``created_at``.
+
+        Only ever moves forward. ``ack_processed`` can get away without that
+        guard because its caller always passes the batch's own high-water mark;
+        this one is called from more than one site, and a cursor that can be
+        pulled backwards would resurface messages the agent has already read.
+        """
+        if hasattr(up_to_timestamp, "isoformat"):
+            up_to_timestamp = up_to_timestamp.isoformat()
+        ph = self._db.placeholder
+        await self._db.execute_write(
+            f"UPDATE bus_channel_members SET last_read_at = {ph} "
+            f"WHERE agent_id = {ph} AND channel_id = {ph} "
+            f"AND (last_read_at IS NULL OR last_read_at < {ph})",
+            (up_to_timestamp, agent_id, channel_id, up_to_timestamp),
         )
 
     async def record_failure(

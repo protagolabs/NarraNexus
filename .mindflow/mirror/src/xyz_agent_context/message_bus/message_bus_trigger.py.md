@@ -727,3 +727,26 @@ per (agent, channel) 单行,`start()` 往 `event_id` 写 NULL。一次 sweep 之
 
 所以现在开在 `_invoke_runtime` 之前一行。roster 少显示前两次 DB 读那一瞬的
 running,换回一个不会被抹掉的链接。
+
+## 2026-08-11 — team 房间「跑过一轮 = 已读」
+
+`last_read_at` 在 team 房间**从来没有推进过**。它唯一的写入方以「trace 里出现 bus
+投递工具帧」为条件,而 team 回复是本 trigger 服务端代发的 —— 没有工具调用。于是游标
+停在 `joined_at`,该 agent 有生之年每一条团队消息都算未读;而未读又以每轮 20 条的
+上限注入它**所有场景**的上下文,owner 私聊也不例外。
+
+新增 `_ack_room_seen`,挂在 `_handle_channel_batch` 的成功与被取消两条路径上。
+
+**判据是"有没有跑 turn",不是"有没有回复"。** team 房间靠**渲染**投递:
+`_build_team_prompt` 把房间 scrollback 写进 turn 的 user message,所以模型看到任何
+东西之前,截至触发消息的全部内容都已经呈现给它了。回不回复是 Reply Discipline 的
+决定,不是"我没看"。被取消同理 —— prompt 早就构建完了,停止不能把已经展示过的东西
+变回没展示。
+
+**刻意不挂在 `_process_agent` 的另外两个 ack 点上**(未被 @、被限流)。那两处推进
+`last_processed_at` 但**没有跑 turn**,什么都没渲染、什么都没被看见。把它们标成已读
+等于让消息未读先亡 —— 而且会一并砍掉「没被 @ 的成员靠未读列表瞥一眼房间动静」这个
+能力,那是能力,不是疏漏。
+
+**仅限 team 房间。** 在 DM 里未读列表**就是**队列:「我等下处理」依赖消息重新浮现,
+所以只有真的回复才清账,那条路走模块钩子。
