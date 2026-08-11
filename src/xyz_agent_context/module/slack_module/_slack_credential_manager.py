@@ -71,6 +71,31 @@ class SlackCredential:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    def to_raw_dict(self) -> dict[str, Any]:
+        """RAW view INCLUDING the decoded tokens — distinct from to_public_dict.
+        Only handed to the ChannelCredentialStore seam's owner-gated endpoint and
+        the MCP send tools; never logged, never returned from a panel route."""
+        return {**self.to_public_dict(), "bot_token": self.bot_token, "app_token": self.app_token}
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> SlackCredential:
+    """Inverse of to_raw_dict — rebuild the dataclass from the seam's raw dict so
+    an HttpStore-backed lookup reconstructs the SAME object DirectStore does."""
+    return SlackCredential(
+        agent_id=raw.get("agent_id", "") or "",
+        bot_token=raw.get("bot_token", "") or "",
+        app_token=raw.get("app_token", "") or "",
+        bot_user_id=raw.get("bot_user_id", "") or "",
+        team_id=raw.get("team_id", "") or "",
+        team_name=raw.get("team_name", "") or "",
+        owner_email=raw.get("owner_email", "") or "",
+        owner_user_id=raw.get("owner_user_id", "") or "",
+        owner_name=raw.get("owner_name", "") or "",
+        enabled=bool(raw.get("enabled", True)),
+        created_at=SlackCredentialManager._parse_dt(raw.get("created_at")),
+        updated_at=SlackCredentialManager._parse_dt(raw.get("updated_at")),
+    )
+
 
 class SlackCredentialManager:
     """Manages per-agent Slack credentials in `channel_slack_credentials`."""

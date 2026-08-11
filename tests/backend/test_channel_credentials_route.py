@@ -115,8 +115,9 @@ def test_unknown_agent_is_not_found(client):
 
 
 def test_unknown_channel_is_not_found_before_any_lookup(client):
+    # "signal" is not in SUPPORTED_CHANNELS — 404 before any owner check or db.
     r = client.get(
-        _url(channel="telegram"),
+        _url(channel="signal"),
         headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"},
     )
     assert r.status_code == 404

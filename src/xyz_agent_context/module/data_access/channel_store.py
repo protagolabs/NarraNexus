@@ -65,15 +65,34 @@ class ChannelCredentialStore(Protocol):
     async def get_agent_name(self, agent_id: str) -> str: ...
 
 
-# channel -> (module path, manager class name). Lazy (import by name only when
-# a call actually needs that channel) so this module never pulls every channel
-# package in just to define the dispatch table. Adding a channel = one line
-# here + a `to_raw_dict()` on its credential dataclass; the seam, the backend
-# endpoint (which delegates to DirectStore), and SUPPORTED_CHANNELS all follow.
-_MANAGER_REGISTRY: dict[str, tuple[str, str]] = {
+# channel -> (module path, manager class name, read-method name). Lazy (import
+# by name only when a call actually needs that channel) so this module never
+# pulls every channel package in just to define the dispatch table. The read
+# method name is NOT uniform across channels (discord/slack/telegram/wechat use
+# `get`; lark uses `get_credential`), hence the third field. Adding a channel =
+# one line here + a `to_raw_dict()` on its credential dataclass; the seam, the
+# backend endpoint (which delegates to DirectStore), and SUPPORTED_CHANNELS all
+# follow.
+_MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
     "discord": (
         "xyz_agent_context.module.discord_module._discord_credential_manager",
         "DiscordCredentialManager",
+        "get",
+    ),
+    "slack": (
+        "xyz_agent_context.module.slack_module._slack_credential_manager",
+        "SlackCredentialManager",
+        "get",
+    ),
+    "telegram": (
+        "xyz_agent_context.module.telegram_module._telegram_credential_manager",
+        "TelegramCredentialManager",
+        "get",
+    ),
+    "wechat": (
+        "xyz_agent_context.module.wechat_module._wechat_credential_manager",
+        "WeChatCredentialManager",
+        "get",
     ),
 }
 
@@ -87,10 +106,18 @@ def _manager_class(channel: str):
     entry = _MANAGER_REGISTRY.get(channel)
     if entry is None:
         raise ValueError(f"unknown channel: {channel!r}")
-    module_path, class_name = entry
+    module_path, class_name, _read_method = entry
     import importlib
 
     return getattr(importlib.import_module(module_path), class_name)
+
+
+def _read_method_name(channel: str) -> str:
+    """The manager's read method for ``channel`` (get / get_credential / …)."""
+    entry = _MANAGER_REGISTRY.get(channel)
+    if entry is None:
+        raise ValueError(f"unknown channel: {channel!r}")
+    return entry[2]
 
 
 class DirectStore:
@@ -107,7 +134,8 @@ class DirectStore:
 
     async def get_credential(self, channel: str, agent_id: str) -> Optional[dict]:
         mgr = (_manager_class(channel))(await self._db())
-        cred = await mgr.get(agent_id)
+        read = getattr(mgr, _read_method_name(channel))
+        cred = await read(agent_id)
         return cred.to_raw_dict() if cred is not None else None
 
     async def get_agent_name(self, agent_id: str) -> str:

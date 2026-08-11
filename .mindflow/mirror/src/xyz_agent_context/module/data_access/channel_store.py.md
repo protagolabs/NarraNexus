@@ -16,8 +16,9 @@ last_verified: 2026-08-10
   **绝不抛**：unreachable / 非 2xx / 未绑定 一律降级成 `None`，让 send 工具落到它既有的 "no_credential" 分支，
   不炸掉 agent 的一轮。`_seg` 按路径段百分号编码 LLM 可控 id（同 store.py 理由）。
 
-channel→manager 用 `_MANAGER_REGISTRY`（channel → (模块路径, 类名)，按名懒 import）集中登记，`SUPPORTED_CHANNELS`
-由它派生（端点 allowlist 不会与 DirectStore 能解析的漂移）。加一个 channel = 注册表加一行 + 该 channel 凭据类加 `to_raw_dict`，
-seam / 端点 / allowlist 全跟随。**已知缺口（明写不藏）**：写/生命周期（bind/unbind/setup）尚未进本 Protocol，
+channel→manager 用 `_MANAGER_REGISTRY`（channel → (模块路径, 类名, **读方法名**)，按名懒 import）集中登记，`SUPPORTED_CHANNELS`
+由它派生（端点 allowlist 不会与 DirectStore 能解析的漂移）。读方法名**不统一**（discord/slack/telegram/wechat=`get`，lark=`get_credential`）
+故入表第三字段，`_read_method_name` 取之、DirectStore 用 getattr 调用。加一个 channel = 注册表加一行 + 该 channel 凭据类加 `to_raw_dict`/`_cred_from_raw`，
+seam / 端点 / allowlist 全跟随。已接入：discord/slack/telegram/wechat（读侧）。**已知缺口（明写不藏）**：写/生命周期（bind/unbind/setup）尚未进本 Protocol，
 `DirectStore.get_manager()` 是给 discord 写工具的**本地专用**便利、无 HttpStore 对应——所以云端写工具仍需本地 db，
 `DB_PASSWORD` 要等写路径也迁移（另一 PR）才能从 mcp 摘掉。这是 #2「mcp 零 db 凭据」的收口条件。
