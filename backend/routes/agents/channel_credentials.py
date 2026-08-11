@@ -3,27 +3,33 @@
 @author:
 @date: 2026-08-10
 @description: Backend HTTP twin of the ChannelCredentialStore seam (blueprint
-P2, #2 "mcp zero db creds", PR-A).
+P2, #2 "mcp zero db creds").
 
-This is the ONLY endpoint in the codebase that returns a raw channel secret
-(Discord ``bot_token``, and each further channel as its PR lands), so it is
-gated on the PROVEN nx-service caller identity via ``assert_owned`` — never a
-self-declared user id. ``auth_middleware`` has already verified the executor's
-broker-signed Ed25519 identity and set ``request.state.user_id`` before this
-handler runs (fail-closed: forged/expired/mismatched -> 401 before reaching
-here); this route only adds the OWNER check on top of that proven identity.
+The credential endpoint is the ONLY route in the codebase that returns a raw
+channel secret (each channel's own field — Discord ``bot_token``, Lark
+``app_secret_encoded``, …), so all three endpoints here carry a DOUBLE gate:
+
+  1. service gate — ``_require_service_caller`` requires
+     ``request.state.nx_service_authed``, the flag ``auth_middleware`` sets ONLY
+     after it VERIFIED the executor's broker-signed Ed25519 identity (fail-closed
+     on forged/expired/mismatched). A plain user-session JWT, a local
+     ``X-User-Id`` request, or any un-verified path is 403 — the panel masks
+     credentials on purpose and the raw token must never leak back to a browser.
+  2. owner gate — ``assert_owned`` on that proven identity (never a self-declared
+     user id), so no cross-tenant read.
 
 Endpoints (mounted under /api/agents by agents/core.py):
   GET /{agent_id}/channels/{channel}/credential  -> raw cred dict | {"bound": false}
   GET /{agent_id}/channels/name                  -> {"agent_name": str}
+  GET /{agent_id}/channels/owner                 -> {"owner_user_id": str}
 
-``channel`` is validated against an allowlist (PR-A: only "discord") -> 404
-for anything else, so this endpoint can never be used to probe for channels
-that don't have a credential manager wired yet.
+``channel`` is validated against ``SUPPORTED_CHANNELS`` (derived from the seam's
+registry) BEFORE any lookup -> 404 otherwise, so this endpoint can never be used
+to probe for channels that aren't wired.
 
 Never logs the secret — the credential dataclasses' ``to_raw_dict()`` is the
-only place the raw fields leave the manager, and this handler passes it
-straight through to the response body without touching individual fields.
+only place the raw fields leave the manager, and this handler delegates to the
+seam's DirectStore and passes the dict straight through, never touching fields.
 """
 from __future__ import annotations
 
@@ -46,24 +52,24 @@ from xyz_agent_context.module.data_access.channel_store import (
 # docstring before relying on it.
 from backend.routes._ownership import assert_owned
 
-# Service-identity gate: this endpoint returns a RAW secret, so it is
-# restricted to the executor→mcp service path (an nx-agent bearer whose
-# broker-signed identity auth_middleware already proved). A logged-in USER's
-# session JWT can pass assert_owned for its own agent, but the panel already
-# masks credentials on purpose — letting a browser session pull the raw token
-# back through the API would re-widen exactly that surface (an XSS could
-# exfiltrate every bound bot token). So require the service bearer here; the
-# owner check then runs on the identity it proved.
-from backend.auth import _is_nx_service_bearer
-
 router = APIRouter()
 
 
 def _require_service_caller(request: Request) -> None:
-    if not _is_nx_service_bearer(request.headers.get("authorization") or ""):
+    """Service-identity gate: this endpoint returns a RAW secret, so it is
+    restricted to the executor→mcp service path. Gate on the flag
+    ``auth_middleware`` sets ONLY after it actually VERIFIED the broker-signed
+    Ed25519 identity (``request.state.nx_service_authed`` — backend/auth.py),
+    NOT the raw ``Authorization`` prefix: a local ``X-User-Id`` request, a user
+    session JWT, or any un-verified path could also carry an ``nx-agent:``
+    prefix, and the panel already masks credentials on purpose — letting any of
+    those pull the raw token back through the API would re-widen exactly that
+    surface (an XSS could exfiltrate every bound bot token). ``assert_owned``
+    then runs on the identity the middleware proved."""
+    if not getattr(request.state, "nx_service_authed", False):
         raise HTTPException(
             status_code=403,
-            detail="raw channel credentials are only served to the nx-service path",
+            detail="raw channel credentials are only served to the verified nx-service path",
         )
 
 

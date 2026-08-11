@@ -52,29 +52,47 @@ def _cases():
         _cred_from_raw as ha_from_raw,
     )
 
+    # EVERY field set to a distinctive NON-default value (incl. enabled/is_active
+    # = False), so the round-trip below catches a field dropped by EITHER
+    # to_raw_dict OR _cred_from_raw — not just the handful a partial fixture
+    # happens to set (pre-review: silent field loss when you add a field to
+    # to_raw_dict but forget _cred_from_raw).
     return [
-        ("discord", DiscordCredential(agent_id="agent_x", bot_token="d-secret",
-                                      bot_user_id="1", owner_user_id="o",
-                                      created_at=_DT, updated_at=_DT), discord_from_raw,
-         ["bot_token"]),
-        ("slack", SlackCredential(agent_id="agent_x", bot_token="s-bot", app_token="s-app",
-                                  team_id="T1", created_at=_DT, updated_at=_DT), slack_from_raw,
-         ["bot_token", "app_token"]),
-        ("telegram", TelegramCredential(agent_id="agent_x", bot_token="t-secret",
-                                        bot_username="bot", created_at=_DT, updated_at=_DT),
+        ("discord", DiscordCredential(
+            agent_id="agent_x", bot_token="d-secret", bot_user_id="1",
+            bot_username="Scout", owner_user_id="o", owner_name="Al",
+            enabled=False, created_at=_DT, updated_at=_DT),
+         discord_from_raw, ["bot_token"]),
+        ("slack", SlackCredential(
+            agent_id="agent_x", bot_token="s-bot", app_token="s-app",
+            bot_user_id="U1", team_id="T1", team_name="Team", owner_email="a@b.c",
+            owner_user_id="o", owner_name="Al", enabled=False,
+            created_at=_DT, updated_at=_DT),
+         slack_from_raw, ["bot_token", "app_token"]),
+        ("telegram", TelegramCredential(
+            agent_id="agent_x", bot_token="t-secret", bot_user_id="9", bot_username="bot",
+            owner_username="@al", owner_user_id="o", owner_name="Al", enabled=False,
+            created_at=_DT, updated_at=_DT),
          telegram_from_raw, ["bot_token"]),
-        ("wechat", WeChatCredential(agent_id="agent_x", bot_token="w-secret",
-                                    base_url="https://x", created_at=_DT, updated_at=_DT),
+        ("wechat", WeChatCredential(
+            agent_id="agent_x", bot_token="w-secret", base_url="https://x",
+            bot_wx_id="wx", owner_wx_id="ow", owner_user_id="o", owner_name="Al",
+            enabled=False, created_at=_DT, updated_at=_DT),
          wechat_from_raw, ["bot_token"]),
         ("narramessenger", NarramessengerCredential(
-            agent_id="agent_x", bearer_token="n-bearer", matrix_access_token="syt_secret",
-            matrix_homeserver_url="https://m", matrix_since_token="s_123",
-            created_at=_DT, updated_at=_DT),
+            agent_id="agent_x", bearer_token="n-bearer", backend_base_url="https://b",
+            matrix_homeserver_url="https://m", matrix_user_id="@u:m",
+            nexus_principal_id="p", nexus_profile_id="pf", bind_room_id="!r:m",
+            owner_matrix_user_id="@o:m", owner_name="Al", connection_mode="direct",
+            enabled=False, matrix_access_token="syt_secret", matrix_device_id="DEV",
+            matrix_since_token="s_123", created_at=_DT, updated_at=_DT),
          narra_from_raw, ["bearer_token", "matrix_access_token"]),
         ("lark", LarkCredential(
             agent_id="agent_x", app_id="cli_x", app_secret_ref="appsecret:cli_x",
-            brand="feishu", profile_name="agent_agent_x",
-            app_secret_encoded="YmFzZTY0c2VjcmV0",
+            brand="feishu", profile_name="agent_agent_x", workspace_path="/ws",
+            bot_name="Bot", bot_open_id="ou_x", app_secret_encoded="YmFzZTY0c2VjcmV0",
+            owner_open_id="ou_o", owner_name="Al", auth_status="user_logged_in",
+            is_active=False,
             permission_state={"user_oauth_completed_at": "2026-08-11T00:00:00"},
             created_at=_DT, updated_at=_DT),
          lark_from_raw, ["app_secret_encoded"]),
@@ -106,3 +124,16 @@ def test_raw_dict_roundtrips_and_carries_the_secret(channel, cred, from_raw, sec
 def test_every_supported_channel_has_a_read_method():
     for channel in SUPPORTED_CHANNELS:
         assert _read_method_name(channel) in {"get", "get_credential"}
+
+
+@pytest.mark.parametrize("channel,cred,from_raw,secret_fields", _cases())
+def test_to_raw_dict_covers_every_dataclass_field(channel, cred, from_raw, secret_fields):
+    # Belt-and-suspenders on top of the round-trip: to_raw_dict must emit a key
+    # for EVERY dataclass field — a dropped key is silent data loss on the cloud
+    # (HttpStore) path. _HABindingCred (config_json blob) is a dataclass too.
+    import dataclasses
+
+    raw_keys = set(cred.to_raw_dict().keys())
+    field_names = {f.name for f in dataclasses.fields(cred)}
+    missing = field_names - raw_keys
+    assert not missing, f"{channel}: to_raw_dict drops {sorted(missing)}"

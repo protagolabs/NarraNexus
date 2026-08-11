@@ -448,9 +448,12 @@ def test_direct_test_connection_delegates_to_do_test(monkeypatch):
     assert asyncio.run(store.test_connection("discord", AGENT)) == {"success": True, "data": {"live": True}}
 
 
-def test_direct_test_connection_unsupported_channel_raises_clearly():
-    # narramessenger has no do_test_connection — a clear ValueError, not a raw
-    # AttributeError, and never a silent wrong answer.
+@pytest.mark.parametrize("channel", ["wechat", "narramessenger"])
+def test_direct_test_connection_unsupported_channel_raises_clearly(channel):
+    # Both branches must give the SAME clear ValueError, not a KeyError:
+    #   - wechat is NOT in _BIND_SERVICE at all (the `.get` -> None branch)
+    #   - narramessenger IS in _BIND_SERVICE but its _service has no
+    #     do_test_connection (the getattr -> None branch)
     store = ChannelDirectStore()
 
     async def fake_db():
@@ -458,7 +461,7 @@ def test_direct_test_connection_unsupported_channel_raises_clearly():
 
     store._db = fake_db  # type: ignore[method-assign]
     with pytest.raises(ValueError, match="no test_connection"):
-        asyncio.run(store.test_connection("narramessenger", AGENT))
+        asyncio.run(store.test_connection(channel, AGENT))
 
 
 def test_http_test_connection_posts_the_test_route(monkeypatch):

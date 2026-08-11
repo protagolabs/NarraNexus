@@ -25,10 +25,9 @@ into the other.
   degrade to ``None`` so a send tool falls through to its existing
   "no_credential" branch instead of crashing the agent's turn.
 
-PR-A wires only ``discord`` into ``_MANAGER_FOR``; each further channel (Slack,
-Telegram, WeChat, NarraMessenger, Lark) is its own PR per the migration design
-(``reference/self_notebook/specs/2026-08-10-mcp-channel-credential-migration-design.md``),
-adding one line to the dict — no seam change.
+All 7 channels (discord/slack/telegram/wechat/narramessenger/lark/
+home_assistant) are wired into ``_MANAGER_REGISTRY``; adding another is one
+registry line + a ``to_raw_dict()`` on its credential dataclass — no seam change.
 
 Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``) and the
 clean writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
@@ -59,9 +58,13 @@ def _seg(value: str) -> str:
 
 
 class ChannelCredentialStore(Protocol):
-    """Read-only per-channel credential access a send tool needs, transport-
-    agnostic. Returns the RAW credential dict (including the secret) or None
-    when the channel is unbound for that agent."""
+    """Per-channel credential access a send/bind tool needs, transport-agnostic.
+
+    Reads (get_credential/get_agent_name/get_agent_owner) return the RAW
+    credential dict (including the secret) or None when unbound; the clean
+    writes (bind/unbind/test_connection) return the backend route's
+    ``{success, ...}`` envelope. lark's CLI-OAuth writes are NOT here (deferred —
+    see the module docstring's "Known gap")."""
 
     async def get_credential(self, channel: str, agent_id: str) -> Optional[dict]: ...
 
@@ -135,6 +138,19 @@ SUPPORTED_CHANNELS = frozenset(_MANAGER_REGISTRY)
 # ``bind_takes`` records which. Lark is intentionally absent — its bind is part of
 # the deferred CLI-OAuth write leg. Channels with no bind MCP tool (wechat: QR)
 # simply never call bind() and need no entry.
+# Display names the backend `/unbind` routes use in their not-found message
+# ("no <Name> credential bound for this agent") — so DirectStore.unbind is
+# byte-identical to the HTTP route (the whole point of this seam), not just
+# "close". A plain channel.title() would give "Wechat", not "WeChat".
+_DISPLAY_NAME: dict[str, str] = {
+    "discord": "Discord",
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "wechat": "WeChat",
+    "narramessenger": "NarraMessenger",
+    "lark": "Lark",
+}
+
 _BIND_SERVICE: dict[str, tuple[str, str, str]] = {
     "discord": ("xyz_agent_context.module.discord_module._discord_service", "do_bind", "mgr"),
     "slack": ("xyz_agent_context.module.slack_module._slack_service", "do_bind", "mgr"),
@@ -226,7 +242,8 @@ class DirectStore:
         mgr = (_manager_class(channel))(await self._db())
         removed = await mgr.unbind(agent_id)
         if not removed:
-            return {"success": False, "error": f"no {channel} credential bound for this agent"}
+            name = _DISPLAY_NAME.get(channel, channel)
+            return {"success": False, "error": f"no {name} credential bound for this agent"}
         return {"success": True, "data": {"unbound": True}}
 
     async def test_connection(self, channel: str, agent_id: str) -> dict:
@@ -239,22 +256,32 @@ class DirectStore:
         AttributeError for a channel (e.g. narramessenger) that has neither."""
         import importlib
 
-        module_path = _BIND_SERVICE[channel][0]
-        do_test = getattr(importlib.import_module(module_path), "do_test_connection", None)
+        # `.get` first: a channel outside _BIND_SERVICE (wechat/lark/
+        # home_assistant) must ALSO get the clear ValueError below, not a bare
+        # KeyError one line up.
+        entry = _BIND_SERVICE.get(channel)
+        do_test = (
+            getattr(importlib.import_module(entry[0]), "do_test_connection", None)
+            if entry is not None
+            else None
+        )
         if do_test is None:
             raise ValueError(
-                f"channel {channel!r} has no test_connection (only its bind is seam-wired)"
+                f"channel {channel!r} has no test_connection (only discord/slack/telegram wire one)"
             )
         return await do_test((_manager_class(channel))(await self._db()), agent_id)
 
 
 class HttpStore:
-    """Cloud: GET the owner-gated backend endpoint, forwarding the caller
+    """Cloud: call the owner-gated backend endpoints, forwarding the caller
     identity (see ``factory.current_identity_headers`` — the same header set
-    AgentDataStore's HttpStore forwards). Never raises: every failure mode
-    (unreachable, non-2xx, unbound) degrades to ``None`` so the calling tool's
-    existing "no_credential" branch handles it, exactly as an unbound local
-    agent would.
+    AgentDataStore's HttpStore forwards). Never raises, but the degradation
+    shape differs by call kind:
+    - reads (GET credential/name/owner): any failure (unreachable / non-2xx /
+      unbound / non-JSON) -> ``None``, so the send tool's existing
+      "no_credential" branch handles it exactly as an unbound local agent would.
+    - writes (POST bind/unbind/test): any failure -> ``{success: False, error}``
+      (a failed unbind is NOT "unbound"), matching the route's own envelope.
     """
 
     def __init__(self, backend_url: str, identity_headers: Optional[dict] = None) -> None:
@@ -288,6 +315,12 @@ class HttpStore:
         # POST the channel's owner-gated /bind route (same do_bind the local path
         # runs). The route already accepts the nx-service identity (check_owned
         # reads request.state.user_id, which auth_middleware sets from the bearer).
+        # NOTE: the route's Pydantic model also enforces VALUE constraints (e.g.
+        # bot_token min_length) that the local do_bind leaves to the platform API,
+        # so a MALFORMED field (a truncated token) 422s here where DirectStore
+        # would return a friendlier "invalid token" from the API. Both are still
+        # {success:False} the tool relays — never-raise holds — the wording just
+        # differs for bad input; well-formed input is byte-parity.
         return await self._post_json(f"/api/{_seg(channel)}/bind", {"agent_id": agent_id, **fields})
 
     async def unbind(self, channel: str, agent_id: str) -> dict:

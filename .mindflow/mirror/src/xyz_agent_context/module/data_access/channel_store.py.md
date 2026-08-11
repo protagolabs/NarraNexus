@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (审查 round-2 收口)
+
+管线审查清零：模块/Protocol/HttpStore docstring 全扫新（Protocol 不再写 read-only、HttpStore 写「GET→None / POST→{success:False}」两种降级、删对 gitignored spec 的死指针，铁律 #22）。`_DISPLAY_NAME` 让 DirectStore.unbind 的 not-found 措辞与路由 byte 一致(no **Discord**…)。test_connection 用 `_BIND_SERVICE.get` 避免不在表内的 channel(wechat/lark/HA)抛 KeyError→统一清晰 ValueError。HttpStore.bind 注明 route Pydantic 值约束会 422、降级成 {success:False}(never-raise 不破，仅坏输入措辞不同)。
+
 ## 2026-08-11 (PR-H 预审收口) — 删 get_manager + test_connection 守卫
 
 写侧预审 Minor 清理：`DirectStore.get_manager()`（0 调用方，lark 也没用）**已删**（铁律 #2/#8）——lark 写另立时再加。`test_connection` 对无 `do_test_connection` 的 channel（narra）给**清晰 ValueError** 而非裸 AttributeError；`unbind` docstring 记下 **narra 路由 unbind 是扁平 `{success,unbound}` 且空删也报成功**、与本 seam 嵌套 envelope 不符——未来若加 narra_unbind 工具须先对齐(narra 现只有 bind 工具，分歧 inert)。补测：narra db-taker bind 分支/test_connection(两 store)+守卫/non-JSON 写降级。

@@ -57,16 +57,24 @@ def client(monkeypatch):
     async def _get_name(self, agent_id):
         return "Scout"
 
+    async def _get_owner(self, agent_id):
+        return "u1"
+
     monkeypatch.setattr(ChannelDirectStore, "get_credential", _get_cred)
     monkeypatch.setattr(ChannelDirectStore, "get_agent_name", _get_name)
+    monkeypatch.setattr(ChannelDirectStore, "get_agent_owner", _get_owner)
 
     app = FastAPI()
 
     @app.middleware("http")
     async def _identity(request: Request, call_next):
-        # Stand in for auth_middleware: the real one sets user_id ONLY after
-        # verifying the nx-service signature; here the test declares it.
+        # Stand in for auth_middleware: the real one sets user_id AND, ONLY when
+        # it actually verified the broker-signed nx-agent bearer, the
+        # nx_service_authed flag. Simulate that: the flag is True iff a service
+        # bearer is present (a plain user JWT / no bearer leaves it False).
         request.state.user_id = request.headers.get("x-test-user") or None
+        auth = request.headers.get("authorization") or ""
+        request.state.nx_service_authed = auth.startswith("Bearer nx-agent:")
         return await call_next(request)
 
     app.include_router(cc_router, prefix="/api/agents")
@@ -132,3 +140,49 @@ def test_unbound_agent_returns_bound_false(client, monkeypatch):
     r = client.get(_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
     assert r.status_code == 200
     assert r.json() == {"bound": False}
+
+
+# ---------------------------------------------------------------------------
+# /channels/name and /channels/owner carry the SAME double gate — pin them too
+# (pre-review: previously only /credential was TestClient-covered).
+# ---------------------------------------------------------------------------
+
+
+def _name_url(agent="agent_mine"):
+    return f"/api/agents/{agent}/channels/name"
+
+
+def _owner_url(agent="agent_mine"):
+    return f"/api/agents/{agent}/channels/owner"
+
+
+def test_name_service_owner_ok(client):
+    r = client.get(_name_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200
+    assert r.json()["agent_name"] == "Scout"
+
+
+def test_name_non_service_caller_is_forbidden(client):
+    r = client.get(_name_url(), headers={"authorization": "Bearer user-jwt-abc", "x-test-user": "u1"})
+    assert r.status_code == 403
+
+
+def test_name_service_non_owner_is_forbidden(client):
+    r = client.get(_name_url(agent="agent_theirs"), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 403
+
+
+def test_owner_service_owner_ok(client):
+    r = client.get(_owner_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200
+    assert r.json()["owner_user_id"] == "u1"
+
+
+def test_owner_non_service_caller_is_forbidden(client):
+    r = client.get(_owner_url(), headers={"authorization": "Bearer user-jwt-abc", "x-test-user": "u1"})
+    assert r.status_code == 403
+
+
+def test_owner_service_non_owner_is_forbidden(client):
+    r = client.get(_owner_url(agent="agent_theirs"), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 403

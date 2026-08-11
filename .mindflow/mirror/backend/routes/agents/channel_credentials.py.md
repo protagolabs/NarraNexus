@@ -3,6 +3,10 @@ code_file: backend/routes/agents/channel_credentials.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (审查收口) — service 门改用已验签标志 + /owner + 全 7 channel
+
+审查指出：service 门原用 `_is_nx_service_bearer`(**未验签的 header 前缀**)——local X-User-Id 等未验签路径也可能带 `nx-agent:` 前缀。改用中间件 [[auth]] 仅在**验签成功后**才设的 `request.state.nx_service_authed`(fail-closed)，才真正证明是 executor→mcp 服务身份。三端点(credential/name/owner)全 service+owner 双门，`SUPPORTED_CHANNELS`(注册表派生，全 7 channel)先验再查。补 /name+/owner 路由测试。
+
 
 ## 2026-08-11 (PR-A) — 原始 channel 凭据的 HTTP 孪生端点（blueprint P2）
 
