@@ -167,7 +167,7 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
   `is_owner_interacting`. Same model as Slack/Telegram/Lark.
 - **`owner_matrix_user_id` is populated by the trigger, not this module**
   (2026-07-02, X2/X3 fix). This module only reads it; it never writes it.
-  `do_bind` can't learn the binder's identity (see `_narramessenger_service.md`),
+  `do_bind` can't learn the binder's identity (see `_narramessenger_service.py.md`),
   so `NarramessengerTrigger._maybe_claim_owner` claims the first sender in
   the bind room as owner on the first inbound message and persists it via
   `NarramessengerCredentialManager.update_owner`. Before this fix

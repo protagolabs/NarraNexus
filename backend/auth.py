@@ -330,6 +330,12 @@ AUTH_EXEMPT_PATHS = {
     # headless container with no user JWT), gated on the same X-Admin-Secret
     # inside the handler. Read-only.
     "/api/admin/runtime/status",
+    # NarraMessenger sandbox prewarm (F28): machine-to-machine, self-
+    # credentialed inside the handler with the per-agent bearer_token
+    # (constant-time compare) — the caller is the NarraMessenger backend,
+    # which has no user JWT. Same pattern as /api/admin/runtime/status.
+    "/api/narramessenger/prewarm",
+    "/api/narramessenger/prewarm/status",
     # Marketplace publish: self-credentialed via the X-Publish-Token header
     # (MARKETPLACE_PUBLISH_TOKEN env) — CI/ops publishers have no user JWT.
     # Same pattern as migrate-identity above.
