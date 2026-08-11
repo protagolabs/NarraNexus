@@ -29,10 +29,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
-    DiscordCredentialManager,
+# Delegate the actual db access to the seam's DirectStore so this HTTP twin and
+# the in-process path are ONE implementation (same manager dispatch, same raw
+# serialisation) — adding a channel is one registry line in channel_store.py,
+# never an edit here. Backend importing the agent package is the allowed
+# one-way hop (铁律 #21).
+from xyz_agent_context.module.data_access.channel_store import (
+    SUPPORTED_CHANNELS,
+    DirectStore as ChannelDirectStore,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
 
 # Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
 # controlled input — without the owner check, any nx-service caller could
@@ -61,38 +66,27 @@ def _require_service_caller(request: Request) -> None:
             detail="raw channel credentials are only served to the nx-service path",
         )
 
-# PR-A wires only discord; each further channel PR (slack/telegram/wechat/
-# narramessenger/lark) adds its manager here in lockstep with its seam entry
-# in channel_store.py's `_manager_class`.
-_ALLOWED_CHANNELS = {"discord"}
-
 
 @router.get("/{agent_id}/channels/{channel}/credential")
 async def get_channel_credential(request: Request, agent_id: str, channel: str) -> dict:
-    """Raw credential for ``channel`` (owner-gated), or ``{"bound": false}``
-    when the agent has no binding. Mirrors ChannelCredentialStore.DirectStore
-    exactly (same manager, same raw serialisation) so a caller going through
-    HttpStore gets byte-identical payloads to the in-process seam."""
-    if channel not in _ALLOWED_CHANNELS:
+    """Raw credential for ``channel`` (service + owner gated), or
+    ``{"bound": false}`` when the agent has no binding. Delegates to
+    ChannelCredentialStore.DirectStore so this HTTP twin returns byte-identical
+    payloads to the in-process seam a local caller would get."""
+    if channel not in SUPPORTED_CHANNELS:
         raise HTTPException(status_code=404, detail=f"unknown channel: {channel}")
     _require_service_caller(request)
     await assert_owned(request, agent_id)
 
-    db = await get_db_client()
-    mgr = DiscordCredentialManager(db)
-    cred = await mgr.get(agent_id)
-    if cred is None:
-        return {"bound": False}
-    return cred.to_raw_dict()
+    raw = await ChannelDirectStore().get_credential(channel, agent_id)
+    return raw if raw is not None else {"bound": False}
 
 
 @router.get("/{agent_id}/channels/name")
 async def get_agent_channel_name(request: Request, agent_id: str) -> dict:
-    """The agent's human-readable name (owner-gated) — the HTTP twin of
-    ChannelCredentialStore.DirectStore.get_agent_name's raw ``agents`` table
-    lookup, falling back to the id itself when the name is missing."""
+    """The agent's human-readable name (service + owner gated) — the HTTP twin
+    of ChannelCredentialStore.DirectStore.get_agent_name, falling back to the
+    id itself when the name is missing."""
     _require_service_caller(request)
     await assert_owned(request, agent_id)
-    db = await get_db_client()
-    row = await db.get_one("agents", {"agent_id": agent_id})
-    return {"agent_name": (row or {}).get("agent_name", "") or agent_id}
+    return {"agent_name": await ChannelDirectStore().get_agent_name(agent_id)}

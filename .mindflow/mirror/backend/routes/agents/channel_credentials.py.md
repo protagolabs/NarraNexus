@@ -14,7 +14,8 @@ last_verified: 2026-08-11
    面板故意 mask 凭据，若允许浏览器 session 经 API 把原始 token 拉回来，等于把那层重新敞开（XSS 可批量外泄 bot token）。
 2. **owner 门** [[_ownership]] `assert_owned`：token 证明的 user_id 必须 own 该 agent（挡跨租户窃取）。
 
-`channel` 走 allowlist（PR-A 仅 discord）→ 未知 channel 在任何 db 查询前先 404，不能拿来探测未接线的 channel。
-命中则用 `DiscordCredentialManager(db).get(agent_id)`：None→`{"bound": false}`，否则 `cred.to_raw_dict()`。
-**绝不 log 密钥**——raw 字段只在 `to_raw_dict` 一处离开管理器，端点整体透传不碰单字段。
-附带 `GET /{agent_id}/channels/name`（同两道门）供 seam 的 get_agent_name 用。
+`channel` 走 [[channel_store]] 的 `SUPPORTED_CHANNELS`（注册表派生）→ 未知 channel 在任何查询前先 404，
+不能拿来探测未接线的 channel。命中则**委托 seam 的 `ChannelDirectStore().get_credential(channel, agent_id)`**
+（不再硬编码某个 manager）——HTTP 孪生与进程内路径共用**同一份** db 访问，加 channel 只在 channel_store 注册表加一行、
+本文件零改。None→`{"bound": false}`，否则透传 raw dict。**绝不 log 密钥**（raw 只在 `to_raw_dict` 一处离开管理器）。
+附带 `GET /{agent_id}/channels/name`（同两道门）委托 seam 的 get_agent_name。

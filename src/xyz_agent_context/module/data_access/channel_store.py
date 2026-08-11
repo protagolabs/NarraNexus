@@ -65,18 +65,32 @@ class ChannelCredentialStore(Protocol):
     async def get_agent_name(self, agent_id: str) -> str: ...
 
 
-def _manager_class(channel: str):
-    """Resolve ``channel`` to its credential-manager class. Lazy import (like
-    store.py's per-method imports) so this module never pulls in every
-    channel module just to define the dispatch table — PR-A only wires
-    discord; each further channel PR adds one entry here."""
-    if channel == "discord":
-        from xyz_agent_context.module.discord_module._discord_credential_manager import (
-            DiscordCredentialManager,
-        )
+# channel -> (module path, manager class name). Lazy (import by name only when
+# a call actually needs that channel) so this module never pulls every channel
+# package in just to define the dispatch table. Adding a channel = one line
+# here + a `to_raw_dict()` on its credential dataclass; the seam, the backend
+# endpoint (which delegates to DirectStore), and SUPPORTED_CHANNELS all follow.
+_MANAGER_REGISTRY: dict[str, tuple[str, str]] = {
+    "discord": (
+        "xyz_agent_context.module.discord_module._discord_credential_manager",
+        "DiscordCredentialManager",
+    ),
+}
 
-        return DiscordCredentialManager
-    raise ValueError(f"unknown channel: {channel!r}")
+# The allowlist the backend endpoint gates on — derived from the registry so it
+# can never drift from what DirectStore can actually resolve.
+SUPPORTED_CHANNELS = frozenset(_MANAGER_REGISTRY)
+
+
+def _manager_class(channel: str):
+    """Resolve ``channel`` to its credential-manager class, importing lazily."""
+    entry = _MANAGER_REGISTRY.get(channel)
+    if entry is None:
+        raise ValueError(f"unknown channel: {channel!r}")
+    module_path, class_name = entry
+    import importlib
+
+    return getattr(importlib.import_module(module_path), class_name)
 
 
 class DirectStore:

@@ -22,15 +22,17 @@ from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
 from backend.routes.agents.channel_credentials import router as cc_router
-from xyz_agent_context.module.discord_module import _discord_credential_manager as dcm
+from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
 _SERVICE_BEARER = "Bearer nx-agent:agent_mine~~~~u1~~~~sometoken"
-_CRED = dcm.DiscordCredential(
-    agent_id="agent_mine",
-    bot_token="RAW-BOT-TOKEN-secret",
-    bot_user_id="bot123",
-    owner_user_id="owner9",
-)
+# The raw dict the seam's DirectStore.get_credential would return for a bound
+# discord agent (DiscordCredential.to_raw_dict — includes the secret).
+_RAW = {
+    "agent_id": "agent_mine",
+    "bot_token": "RAW-BOT-TOKEN-secret",
+    "bot_user_id": "bot123",
+    "owner_user_id": "owner9",
+}
 
 
 @pytest.fixture
@@ -46,16 +48,17 @@ def client(monkeypatch):
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
 
-    # The route builds a DiscordCredentialManager(db) and calls .get(agent_id).
-    async def _get(self, agent_id):
-        return _CRED if agent_id == "agent_mine" else None
+    # The route delegates db access to the seam's DirectStore — mock it there
+    # (this test pins the route's AUTH gating, not the db path, which
+    # test_channel_store.py's parity suite already covers).
+    async def _get_cred(self, channel, agent_id):
+        return dict(_RAW) if (channel == "discord" and agent_id == "agent_mine") else None
 
-    monkeypatch.setattr(dcm.DiscordCredentialManager, "get", _get)
+    async def _get_name(self, agent_id):
+        return "Scout"
 
-    # Route also acquires its own db for the manager.
-    import backend.routes.agents.channel_credentials as ccmod
-
-    monkeypatch.setattr(ccmod, "get_db_client", _db)
+    monkeypatch.setattr(ChannelDirectStore, "get_credential", _get_cred)
+    monkeypatch.setattr(ChannelDirectStore, "get_agent_name", _get_name)
 
     app = FastAPI()
 
@@ -121,10 +124,10 @@ def test_unknown_channel_is_not_found_before_any_lookup(client):
 
 
 def test_unbound_agent_returns_bound_false(client, monkeypatch):
-    async def _none(self, agent_id):
+    async def _none(self, channel, agent_id):
         return None
 
-    monkeypatch.setattr(dcm.DiscordCredentialManager, "get", _none)
+    monkeypatch.setattr(ChannelDirectStore, "get_credential", _none)
     r = client.get(_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
     assert r.status_code == 200
     assert r.json() == {"bound": False}
