@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 — channel_narramessenger_credentials gains idx_narramessenger_profile
+
+Added a non-unique `Index("idx_narramessenger_profile", ["nexus_profile_id"])`
+to back the credential manager's new `get_by_profile_id` reverse lookup (the
+prewarm endpoint resolves an agent by the platform's `agent_profile_id`).
+Non-unique on purpose: the column existed since inception but `do_bind` never
+wrote it until this same change, so every pre-existing row has
+`nexus_profile_id == ""` — a unique index would reject the second empty-string
+row on insert. See the credential manager's mirror doc for the back-fill gap
+this leaves (old rows need a rebind to become resolvable by profile id).
+
 ## 2026-08-10 — product facts + exact provider source
 
 Added append-only `product_analytics_events`, indexed by event/user/run/failure

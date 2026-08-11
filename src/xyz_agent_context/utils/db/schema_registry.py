@@ -1215,6 +1215,11 @@ _register(
             # MatrixTrigger's credential watcher filters by connection_mode;
             # indexed so N > 1000 agents don't scan the whole table each tick.
             Index("idx_nm_cred_conn_mode_enabled", ["connection_mode", "enabled"]),
+            # Reverse lookup for the prewarm endpoint (NarraMessenger calls
+            # in with its own agent_profile_id). Non-unique: only rows bound
+            # after 2026-08-11 carry a profile id (do_bind started
+            # persisting it); older rows still have it empty.
+            Index("idx_narramessenger_profile", ["nexus_profile_id"]),
         ],
     )
 )
