@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 写迁移) — 全部写点走 ChannelCredentialStore seam
+
+三击 OAuth 的 CLI 子进程 + 轮询留本地(纯计算)，只 DB 持久化经 seam：4 个薄助手 `_patch_ps`(permission_state 深合并)/`_patch_fields`(顶层列)/`_delete_cred`/`_put_cred` 包装 patch/put/delete 原语，替换掉全部 `get_mcp_db_client()+LarkCredentialManager(db).*`。lark_bind→`seam.bind`(do_bind 经 /api/lark/bind)、lark_unbind→`seam.unbind`(do_unbind 含 inbox 拆除)。**本文件 get_mcp_db_client==0**。删 XYZBaseModule/LarkCredentialManager 死 import。
+
 ## 2026-08-11 (PR-F) — 读凭据 + agent 名改走 ChannelCredentialStore seam
 
 `_get_credential` 改 `get_channel_credential_store().get_credential("lark", …)` → `_cred_from_raw` 重建（cred.get_app_secret()/permission_state/current_click_stage() 用法零变化）；`_get_agent_name` 改 seam `get_agent_name`。**写/CLI 大量留尾**：三击 OAuth 全流程（_finalize_setup/_advance_*/lark_setup/lark_bind/lark_unbind/lark_enable_receive/delete_credential）仍 `LarkCredentialManager(db)`——这些是 **CLI 子进程驱动、无后端路由** 的写，是 #2 里唯一真正卡住 strip DB_PASSWORD 的硬骨头，需另立后端基础设施，本期不动（见 [[channel_store]] 已知缺口 + 迁移 spec）。

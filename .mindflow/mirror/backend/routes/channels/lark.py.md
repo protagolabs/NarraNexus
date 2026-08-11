@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/channels/lark.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-08-11
 ---
+## 2026-08-11 — /bind 补传 owner_email
+
+路由 body 收了 owner_email 却没传给 do_bind(既有 bug)——补上，否则 lark_bind 经 seam→路由时 owner_email 在云端丢失。
+
 
 > 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
 > `backend/routes/_ownership.py::check_owned`(canonical;DB 故障走 503 而非 200)。

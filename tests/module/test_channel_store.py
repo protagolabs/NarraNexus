@@ -598,3 +598,75 @@ def test_http_write_primitive_never_raises(monkeypatch):
     _patch_http(monkeypatch, boom)
     out = asyncio.run(ChannelHttpStore("http://backend:8000").patch_credential("lark", AGENT, {"a": 1}))
     assert out["success"] is False and "unreachable" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# lark's typed bind (do_bind) + special unbind (do_unbind teardown)
+# ---------------------------------------------------------------------------
+
+
+def test_direct_lark_bind_dispatches_to_do_bind(monkeypatch):
+    captured = {}
+
+    async def fake_do_bind(mgr, agent_id, **fields):
+        captured["fields"] = fields
+        return {"success": True, "data": {"bound": True}}
+
+    import xyz_agent_context.module.lark_module._lark_service as ls
+    monkeypatch.setattr(ls, "do_bind", fake_do_bind)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.bind("lark", AGENT, {"app_id": "cli", "app_secret": "s", "brand": "feishu", "owner_email": ""}))
+    assert out == {"success": True, "data": {"bound": True}}
+    assert captured["fields"] == {"app_id": "cli", "app_secret": "s", "brand": "feishu", "owner_email": ""}
+
+
+def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
+    # lark's unbind is do_unbind(mgr, agent_id, db) — credential + inbox teardown —
+    # NOT the generic mgr.unbind; the seam must route to it and return its envelope.
+    seen = {}
+    sentinel_db = object()
+    fake_mgr = object()
+
+    async def fake_do_unbind(mgr, agent_id, db):
+        seen["mgr_is"] = mgr is fake_mgr
+        seen["db_is"] = db is sentinel_db
+        seen["agent"] = agent_id
+        return {"success": True, "data": {"unbound": True}}
+
+    import xyz_agent_context.module.lark_module._lark_service as ls
+    monkeypatch.setattr(ls, "do_unbind", fake_do_unbind)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: fake_mgr),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return sentinel_db
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.unbind("lark", AGENT))
+    assert out == {"success": True, "data": {"unbound": True}}
+    assert seen == {"mgr_is": True, "db_is": True, "agent": AGENT}
+
+
+def test_http_lark_unbind_posts_the_lark_unbind_route(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"success": True, "data": {"unbound": True}})
+
+    _patch_http(monkeypatch, handler)
+    out = asyncio.run(ChannelHttpStore("http://backend:8000").unbind("lark", AGENT))
+    assert seen["path"] == "/api/lark/unbind"
+    assert out["success"] is True

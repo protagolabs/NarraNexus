@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 收尾) — lark 入 descriptor：bind + unbind_service
+
+lark 的 `ChannelSpec` 加 `bind=_BindSpec(_lark_service, mgr, has_test=False)`(绑已有 app)+ 新字段 `unbind_service`(do_unbind——unbind 不止删凭据、还拆 inbox 频道，非 mgr.unbind)。DirectStore.unbind 按 unbind_service 分支调 `do_unbind(mgr,agent_id,db)` 返其信封；HttpStore.unbind 打 /api/lark/unbind(通用)。CLI-OAuth 写走 patch/put/delete 原语。
+
 ## 2026-08-11 (lark 原语) — credential-mutation primitives + deep_merge
 
 Protocol/DirectStore/HttpStore 加 `patch_credential`/`put_credential`/`delete_credential`——**通用凭据变更三原语**(任何 manager 实现 apply_patch/save_raw/delete_credential 即可经它写，不用每操作一路由)。模块级 `deep_merge`(嵌套 dict 递归合、标量替换)是 PATCH 承诺的合并语义、manager.apply_patch 用它，本地云端合并一致。HttpStore `_post_json`→`_send_json(method,…)` 泛化支持 PATCH/PUT/DELETE，写侧 never-raise→{success:False} 契约不变。lark 是首个用户。

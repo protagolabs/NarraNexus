@@ -143,7 +143,11 @@ class ChannelSpec:
     # (they have a ``<ch>_unbind`` MCP tool). "" means DirectStore.unbind falls
     # back to the raw channel string (fine: those channels never call it).
     display_name: str = ""
-    bind: Optional[_BindSpec] = None  # None → no bind tool (wechat QR / lark CLI / HA panel)
+    bind: Optional[_BindSpec] = None  # None → no bind tool (wechat QR / HA panel)
+    # Module with a ``do_unbind(mgr, agent_id, db)`` for channels whose unbind is
+    # MORE than ``mgr.unbind`` (lark also tears down inbox channels). "" → the
+    # uniform ``mgr.unbind`` path.
+    unbind_service: str = ""
 
 
 _CM = "xyz_agent_context.module"
@@ -175,9 +179,12 @@ CHANNELS: dict[str, ChannelSpec] = {
     ),
     "lark": ChannelSpec(
         f"{_CM}.lark_module._lark_credential_manager", "LarkCredentialManager",
-        read_method="get_credential",
-        # bind/unbind + the CLI-OAuth writes go through the credential-mutation
-        # primitives (patch/put/delete), not a typed do_bind — so no _BindSpec.
+        read_method="get_credential", display_name="Lark",
+        # bind an EXISTING app is a typed do_bind (mgr-taking, no do_test_connection);
+        # unbind is do_unbind (credential + inbox teardown). The CLI-OAuth writes go
+        # through the patch/put/delete primitives instead.
+        bind=_BindSpec(f"{_CM}.lark_module._lark_service", takes="mgr", has_test=False),
+        unbind_service=f"{_CM}.lark_module._lark_service",
     ),
     # Home Assistant has no bot credential — a JSON config blob (base_url + LLAT).
     # A thin repository-backed adapter gives it the seam's uniform read shape.
@@ -271,11 +278,23 @@ class DirectStore:
         when nothing was removed — it does NOT match this envelope. Wire such a
         tool to this seam only after reconciling narra's route to this shape (or
         special-casing narra here); today narra exposes only a bind tool, so the
-        mismatch is inert."""
-        mgr = (_manager_class(channel))(await self._db())
+        mismatch is inert.
+
+        Channels whose unbind is MORE than a credential delete (lark also tears
+        down inbox channels) declare a ``unbind_service`` with a
+        ``do_unbind(mgr, agent_id, db)`` that owns the full teardown + its own
+        envelope; the backend /unbind route runs the same function."""
+        spec = _spec(channel)
+        db = await self._db()
+        mgr = (_manager_class(channel))(db)
+        if spec.unbind_service:
+            import importlib
+
+            do_unbind = getattr(importlib.import_module(spec.unbind_service), "do_unbind")
+            return await do_unbind(mgr, agent_id, db)
         removed = await mgr.unbind(agent_id)
         if not removed:
-            name = _spec(channel).display_name or channel
+            name = spec.display_name or channel
             return {"success": False, "error": f"no {name} credential bound for this agent"}
         return {"success": True, "data": {"unbound": True}}
 

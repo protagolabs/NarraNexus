@@ -31,11 +31,10 @@ from typing import Any
 from loguru import logger
 
 from xyz_agent_context.channel.channel_reactions import best_effort_react
-from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.module.data_access import get_channel_credential_store
 from ._lark_credential_manager import (
-    LarkCredentialManager,
     _cred_from_raw,
+    _encode_secret,
     AUTH_STATUS_BOT_READY,
     AUTH_STATUS_USER_LOGGED_IN,
 )
@@ -80,6 +79,35 @@ async def _get_credential(agent_id: str):
 async def _get_agent_name(agent_id: str) -> str:
     """Look up the agent's human-readable name via the seam; fall back to id."""
     return await get_channel_credential_store().get_agent_name(agent_id)
+
+
+# -- credential WRITES via the ChannelCredentialStore seam (blueprint P2). The
+# lark-cli subprocess + OAuth polling stay here (pure compute); only the DB
+# persistence hops to the backend, so the mcp holds no db creds. Thin,
+# lark-semantic wrappers over the generic patch/put/delete primitives. --
+
+
+async def _patch_ps(agent_id: str, updates: dict) -> None:
+    """Merge keys INTO the three-click permission_state blob (was
+    LarkCredentialManager.patch_permission_state)."""
+    await get_channel_credential_store().patch_credential(
+        "lark", agent_id, {"permission_state": updates}
+    )
+
+
+async def _patch_fields(agent_id: str, **fields) -> None:
+    """Set top-level credential columns (auth_status / is_active / app_id /
+    app_secret_ref / bot_name / bot_open_id / app_secret_encoded …) — the raw-dict
+    field names, deep-merged server-side."""
+    await get_channel_credential_store().patch_credential("lark", agent_id, fields)
+
+
+async def _delete_cred(agent_id: str) -> None:
+    await get_channel_credential_store().delete_credential("lark", agent_id)
+
+
+async def _put_cred(agent_id: str, cred) -> None:
+    await get_channel_credential_store().put_credential("lark", agent_id, cred.to_raw_dict())
 
 
 def _command_uses_user_identity(args: list[str]) -> bool:
@@ -318,8 +346,7 @@ async def _finalize_setup(
                 await proc.wait()
             except (ProcessLookupError, OSError):
                 pass
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         if proc.returncode != 0:
@@ -327,24 +354,21 @@ async def _finalize_setup(
                 f"lark_setup: {agent_id} CLI exited with code {proc.returncode}. "
                 f"Cleaning up pending row."
             )
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         # Step 2: read the CLI-written config.json from the isolated workspace
         config_path = pathlib.Path(workspace) / ".lark-cli" / "config.json"
         if not config_path.is_file():
             logger.error(f"lark_setup: {agent_id} CLI config not found at {config_path}")
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         try:
             config = _json.loads(config_path.read_text())
         except _json.JSONDecodeError as e:
             logger.exception(f"lark_setup: {agent_id} malformed config.json: {e}")
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         # Step 3: find our profile (matched by name) in the apps list
@@ -357,8 +381,7 @@ async def _finalize_setup(
                 f"lark_setup: {agent_id} profile '{profile_name}' not in "
                 f"config.json (found {[a.get('name') for a in apps]})"
             )
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         app_id = our_app.get("appId", "")
@@ -368,15 +391,12 @@ async def _finalize_setup(
                 f"lark_setup: {agent_id} config.json missing appId or "
                 f"appSecret.id (app_id={app_id!r}, ref={app_secret_ref!r})"
             )
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
             return
 
         # Step 4: flip the DB row to ready
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        await mgr.update_app_credentials(
-            agent_id=agent_id,
+        await _patch_fields(
+            agent_id,
             app_id=app_id,
             app_secret_ref=app_secret_ref,
             is_active=True,
@@ -404,7 +424,7 @@ async def _finalize_setup(
                 data = bot_info.get("data", {})
                 bdata = data.get("bot", data)
                 name = bdata.get("app_name") or bdata.get("name") or ""
-                await mgr.update_bot_identity(
+                await _patch_fields(
                     agent_id, bot_name=name, bot_open_id=bdata.get("open_id", "")
                 )
         except Exception as e:
@@ -413,8 +433,7 @@ async def _finalize_setup(
     except Exception as e:
         logger.exception(f"lark_setup: {agent_id} _finalize_setup unexpected error: {e}")
         try:
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).delete_credential(agent_id)
+            await _delete_cred(agent_id)
         except Exception:
             pass
 
@@ -461,8 +480,7 @@ async def _advance_start(agent_id: str, cred) -> dict:
         return {"success": False, "error": "CLI did not return URL/device_code."}
 
     now = datetime.now(timezone.utc).isoformat()
-    db = await XYZBaseModule.get_mcp_db_client()
-    await LarkCredentialManager(db).patch_permission_state(agent_id, {
+    await _patch_ps(agent_id, {
         "admin_request_url": url,
         "admin_request_device_code": device_code,
         "admin_request_generated_at": now,
@@ -514,8 +532,7 @@ async def _advance_admin_approved(agent_id: str, cred) -> dict:
         return {"success": False, "error": "CLI did not return URL/device_code."}
 
     now = datetime.now(timezone.utc).isoformat()
-    db = await XYZBaseModule.get_mcp_db_client()
-    await LarkCredentialManager(db).patch_permission_state(agent_id, {
+    await _patch_ps(agent_id, {
         "admin_approved_at": now,
         "user_authz_url": url,
         "user_authz_device_code": device_code,
@@ -553,9 +570,6 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
         timeout=60.0,
     )
 
-    db = await XYZBaseModule.get_mcp_db_client()
-    mgr = LarkCredentialManager(db)
-
     if result.get("success"):
         now = datetime.now(timezone.utc).isoformat()
         data = result.get("data", {})
@@ -565,8 +579,8 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             or data.get("user", {}).get("scopes", [])
             or []
         )
-        await mgr.update_auth_status(agent_id, AUTH_STATUS_USER_LOGGED_IN)
-        await mgr.patch_permission_state(agent_id, {
+        await _patch_fields(agent_id, auth_status=AUTH_STATUS_USER_LOGGED_IN)
+        await _patch_ps(agent_id, {
             "user_oauth_completed_at": now,
             "user_scopes_granted": list(granted) if isinstance(granted, (list, tuple)) else [],
             "user_authz_url": None,
@@ -626,7 +640,7 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             new_code = regen_data.get("device_code", "")
             if new_url and new_code:
                 now = datetime.now(timezone.utc).isoformat()
-                await mgr.patch_permission_state(agent_id, {
+                await _patch_ps(agent_id, {
                     "user_authz_url": new_url,
                     "user_authz_device_code": new_code,
                     "user_authz_generated_at": now,
@@ -653,8 +667,7 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
 
 async def _advance_availability_ok(agent_id: str, cred) -> dict:
     """event="availability_ok" — Mark optional app visibility flag."""
-    db = await XYZBaseModule.get_mcp_db_client()
-    await LarkCredentialManager(db).patch_permission_state(agent_id, {
+    await _patch_ps(agent_id, {
         "availability_confirmed": True,
     })
     return {
@@ -761,17 +774,14 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 ps = cred.permission_state or {}
                 if not ps.get("user_oauth_completed_at"):
                     now = datetime.now(timezone.utc).isoformat()
-                    db = await XYZBaseModule.get_mcp_db_client()
-                    await LarkCredentialManager(db).patch_permission_state(agent_id, {
+                    await _patch_ps(agent_id, {
                         "user_oauth_completed_at": now,
                         "user_authz_url": None,
                         "user_authz_device_code": None,
                         "bot_scopes_confirmed": True,
                         "console_setup_done_at": ps.get("console_setup_done_at") or now,
                     })
-                    await LarkCredentialManager(db).update_auth_status(
-                        agent_id, AUTH_STATUS_USER_LOGGED_IN
-                    )
+                    await _patch_fields(agent_id, auth_status=AUTH_STATUS_USER_LOGGED_IN)
                     logger.info(
                         f"lark_cli: self-healed OAuth state for {agent_id} "
                         f"(observed successful --as user call)"
@@ -926,9 +936,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
             from ._lark_credential_manager import LarkCredential
 
-            db = await XYZBaseModule.get_mcp_db_client()
-            mgr = LarkCredentialManager(db)
-            await mgr.save_credential(LarkCredential(
+            await _put_cred(agent_id, LarkCredential(
                 agent_id=agent_id,
                 app_id="pending_setup",
                 app_secret_ref="",
@@ -1018,8 +1026,6 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             brand: "feishu" (中国大陆) or "lark" (International).
             owner_email: Optional but recommended so "me/my/I" resolves correctly.
         """
-        from ._lark_service import do_bind
-
         if not app_id or not app_secret:
             # Setup-residency (B++): no-credential call returns the
             # discovery guide instead of an error. Lazy import avoids a
@@ -1036,9 +1042,10 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         if owner_email and "@" not in owner_email:
             return {"success": False, "error": "Invalid owner_email format."}
 
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        return await do_bind(mgr, agent_id, app_id, app_secret, brand, owner_email)
+        return await get_channel_credential_store().bind(
+            "lark", agent_id,
+            {"app_id": app_id, "app_secret": app_secret, "brand": brand, "owner_email": owner_email},
+        )
 
     @mcp.tool()
     async def lark_unbind(agent_id: str) -> dict:
@@ -1065,11 +1072,10 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             "error": "no_credential",
             "message": "No Lark bot bound to this agent."}``
         """
-        from ._lark_service import do_unbind
-
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        return await do_unbind(mgr, agent_id, db)
+        # do_unbind (credential row + inbox channels + keychain + workspace)
+        # runs through the seam's unbind: local DirectStore calls do_unbind,
+        # cloud HttpStore POSTs /api/lark/unbind (which runs the same do_unbind).
+        return await get_channel_credential_store().unbind("lark", agent_id)
 
     @mcp.tool()
     async def lark_permission_advance(agent_id: str, event: str = "") -> dict:
@@ -1163,9 +1169,9 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 "error": "app_secret is empty. Re-copy from the dev console and try again.",
             }
 
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        await mgr.set_app_secret_encoded(agent_id, secret)
+        # set_app_secret_encoded encoded a PLAIN secret; the patch primitive
+        # carries the raw-dict field, so encode here (the one place) and patch it.
+        await _patch_fields(agent_id, app_secret_encoded=_encode_secret(secret))
 
         return {
             "success": True,
@@ -1220,17 +1226,14 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         if cli_user_logged_in and not cred.user_oauth_ok():
             now = datetime.now(timezone.utc).isoformat()
             ps = cred.permission_state or {}
-            db = await XYZBaseModule.get_mcp_db_client()
-            await LarkCredentialManager(db).patch_permission_state(agent_id, {
+            await _patch_ps(agent_id, {
                 "user_oauth_completed_at": now,
                 "user_authz_url": None,
                 "user_authz_device_code": None,
                 "bot_scopes_confirmed": True,
                 "console_setup_done_at": ps.get("console_setup_done_at") or now,
             })
-            await LarkCredentialManager(db).update_auth_status(
-                agent_id, AUTH_STATUS_USER_LOGGED_IN
-            )
+            await _patch_fields(agent_id, auth_status=AUTH_STATUS_USER_LOGGED_IN)
             logger.info(
                 f"lark_status: self-healed OAuth state for {agent_id} "
                 f"(CLI confirms user token is valid)"

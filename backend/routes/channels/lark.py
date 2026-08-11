@@ -105,7 +105,9 @@ async def bind_lark_bot(request: Request, body: BindRequest) -> dict[str, Any]:
     mgr = LarkCredentialManager(db)
 
     # Core bind logic (shared with MCP tool via _lark_service)
-    bind_result = await do_bind(mgr, body.agent_id, body.app_id, body.app_secret, body.brand)
+    bind_result = await do_bind(
+        mgr, body.agent_id, body.app_id, body.app_secret, body.brand, body.owner_email
+    )
     if not bind_result["success"]:
         return bind_result
 
