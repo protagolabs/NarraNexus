@@ -487,6 +487,18 @@ run_container_mode() {
       *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
     esac
   fi
+  # Manyfold-managed sandboxes are OUR runtime: telemetry defaults to
+  # FULL here — a deployment decision, like the compose stacks setting
+  # NEXUS_DIAG_SHIP=full in their .env. The consent default ("meta")
+  # governs PERSONAL installs, where full would ship INFO bodies the
+  # disclosure copy does not cover; on a managed sandbox full logs are
+  # the point (joint support debugging) and the settings UI honestly
+  # shows "managed by deployment". Explicit env still wins; gated on
+  # the manyfold webhook env so a bare container run stays on the
+  # consent default.
+  if [ -n "${MANYFOLD_SYNC_WEBHOOK_URL:-}" ] && [ -z "${NEXUS_DIAG_SHIP:-}" ]; then
+    export NEXUS_DIAG_SHIP="full"
+  fi
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true
