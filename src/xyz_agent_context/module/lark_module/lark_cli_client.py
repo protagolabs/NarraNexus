@@ -258,13 +258,12 @@ class LarkCLIClient:
         if is_init_new:
             return await self._run_with_home(args, agent_id, stdin_data, timeout)
 
-        from xyz_agent_context.module.base import XYZBaseModule
-        from ._lark_credential_manager import LarkCredentialManager
+        from xyz_agent_context.module.data_access import get_channel_credential_store
+        from ._lark_credential_manager import _cred_from_raw
         from ._lark_workspace import get_home_env, get_workspace_path
 
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        cred = await mgr.get_credential(agent_id)
+        raw = await get_channel_credential_store().get_credential("lark", agent_id)
+        cred = _cred_from_raw(raw) if raw is not None else None
         if not cred:
             return {
                 "success": False,
@@ -501,12 +500,12 @@ class LarkCLIClient:
         The workspace directory itself is the caller's responsibility
         (e.g. delete_agent uses shutil.rmtree).
         """
-        from xyz_agent_context.module.base import XYZBaseModule
-        from ._lark_credential_manager import LarkCredentialManager
+        from xyz_agent_context.module.data_access import get_channel_credential_store
+        from ._lark_credential_manager import _cred_from_raw
         from ._lark_workspace import get_home_env, get_workspace_path
 
-        db = await XYZBaseModule.get_mcp_db_client()
-        cred = await LarkCredentialManager(db).get_credential(agent_id)
+        raw = await get_channel_credential_store().get_credential("lark", agent_id)
+        cred = _cred_from_raw(raw) if raw is not None else None
         if not cred:
             return {"success": False, "error": "No Lark credential for this agent."}
 

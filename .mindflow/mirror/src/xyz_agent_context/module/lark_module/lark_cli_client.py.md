@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 零凭据收尾)
+
+两处 CLI-args 构建里的凭据读（workspace 路径迁移 / profile_remove）从 `get_mcp_db_client()+LarkCredentialManager` 改走 seam `get_credential("lark")`+`_cred_from_raw`——lark_cli 透传路径也零 db 凭据。
+
 
 ## 2026-07-10 — add_reaction runs `--as bot` (identity fix)
 
