@@ -86,27 +86,20 @@ def _config(**over):
 
 
 class TestConsentGating:
-    def test_default_is_off_until_consent_ui_ships(self):
-        """The default flips to full ONLY in the PR that ships the
-        first-run disclosure + settings toggle: a default and its
-        consent basis must land together, never apart."""
-        assert _ship.ship_config() is None
-
-    def test_future_default_full_resolves_lazily(self, monkeypatch):
-        # Exercise the post-UI default without shipping it.
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
+    def test_default_is_full_now_that_consent_basis_ships(self):
+        """The default and its consent basis land TOGETHER: this PR
+        ships the first-run disclosure + settings toggle, and flips
+        the default to full in the same change."""
         config = _ship.ship_config()
         assert config is not None
         assert config["mode"] == "full"
-        assert config["url"] is None
+        assert config["url"] is None  # discovery path, resolved lazily
 
     def test_env_off_silences(self, monkeypatch):
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "off")
         assert _ship.ship_config() is None
 
-    def test_optout_file_silences_future_default(self, monkeypatch):
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
+    def test_optout_file_silences_default(self):
         _ship._OPTOUT_FILE.write_text("")
         assert _ship.ship_config() is None
 
@@ -118,9 +111,59 @@ class TestConsentGating:
         config = _ship.ship_config()
         assert config is not None and config["mode"] == "meta"
 
+    def test_consent_accessor_reports_deciding_layer(self, monkeypatch):
+        """The settings UI needs to know WHICH layer decided the mode:
+        only "optout"/"default" are user-controllable — an env override
+        is the deployment's decision, not the user's."""
+        assert _ship.telemetry_consent() == {"mode": "full", "source": "default"}
+        _ship._OPTOUT_FILE.write_text("")
+        assert _ship.telemetry_consent() == {"mode": "off", "source": "optout"}
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "env"}
+
+    def test_set_telemetry_optout_roundtrip(self):
+        _ship.set_telemetry_optout(True)
+        assert _ship._OPTOUT_FILE.exists()
+        assert _ship.ship_config() is None
+        _ship.set_telemetry_optout(False)
+        assert not _ship._OPTOUT_FILE.exists()
+        assert _ship.ship_config() is not None
+        _ship.set_telemetry_optout(False)  # idempotent on a missing file
+
+    def test_package_reexports_consent_api(self):
+        from xyz_agent_context.utils import logging as pkg
+
+        assert pkg.telemetry_consent() == {"mode": "full", "source": "default"}
+        pkg.set_telemetry_optout(True)
+        assert _ship.telemetry_consent()["source"] == "optout"
+
+    def test_optout_takes_effect_at_next_flush_without_restart(self, monkeypatch):
+        """Consent withdrawal must not wait for a process restart: the
+        sink is registered at startup, but _send re-checks consent —
+        an opt-out written mid-run silences shipping within one flush
+        interval. Re-enabling still waits for the next start (the sink
+        was never registered), an asymmetry in privacy's favor."""
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        sink(_message("before optout"))
+        sink.flush()
+        assert len(rec.requests) == 1
+        _ship.set_telemetry_optout(True)
+        sink(_message("after optout"))
+        sink.flush()
+        assert len(rec.requests) == 1  # dropped at the door, not sent
+        _ship.set_telemetry_optout(False)
+        sink(_message("after optin"))
+        sink.flush()
+        assert len(rec.requests) == 2  # resumes without restart too
+
     def test_unknown_env_value_falls_to_default(self, monkeypatch):
+        # A typo'd override neither silences nor forces a level — it
+        # falls through the whole chain to the default (full).
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
-        assert _ship.ship_config() is None  # default is off today
+        config = _ship.ship_config()
+        assert config is not None and config["mode"] == "full"
 
     def test_env_label_no_longer_sniffs_manyfold(self, monkeypatch):
         """Deployment detection moved to run.sh (which injects

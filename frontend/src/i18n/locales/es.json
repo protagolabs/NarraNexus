@@ -1236,6 +1236,9 @@
     "settings": {
       "title": "Ajustes",
       "headerSections": "Proveedores · Paquete · Artefactos · Agentes",
+      "nav": {
+        "privacy": "Privacidad"
+      },
       "providers": {
         "label": "Proveedores de LLM"
       },
@@ -1275,6 +1278,16 @@
         "frameworkFilteredNote": "Solo se muestran los frameworks que tus proveedores conectados pueden ejecutar realmente.",
         "cloudFrameworkLockedTitle": "Solo para staff en la nube",
         "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local."
+      },
+      "privacy": {
+        "label": "Privacidad",
+        "hint": "Qué sale de este equipo y los interruptores para controlarlo.",
+        "analyticsTitle": "Analítica del producto",
+        "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
+        "telemetryTitle": "Telemetría de diagnóstico",
+        "telemetryDesc": "Enviar los registros de servicio de esta instalación (arranque, errores, diagnósticos de integraciones) al colector propio de NarraNexus para poder depurar fallos y errores. Las líneas de registro pueden incluir lo que los servicios registran normalmente; no se envía nada a terceros.",
+        "telemetryTiming": "Al desactivarlo, surte efecto en cuestión de segundos. Al reactivarlo, se aplica en el siguiente inicio.",
+        "telemetryManaged": "Gestionado por tu despliegue (configuración de entorno): el interruptor no está disponible aquí."
       }
     },
     "system": {
@@ -2067,5 +2080,10 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",
+    "settings": "Abrir ajustes",
+    "dismiss": "Entendido"
   }
 }

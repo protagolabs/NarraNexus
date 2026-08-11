@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 挂载 TelemetryNotice(一次性遥测告知)
+
+与 HelpButton 同层挂载,自门控(看过 / 遥测未激活时渲染 null),
+不分移动端(告知义务不按屏宽豁免)。
 
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe（自带 vh 兜底）
 

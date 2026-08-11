@@ -23,6 +23,10 @@ from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.logging import (
+    set_telemetry_optout,
+    telemetry_consent,
+)
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
@@ -1747,4 +1751,66 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     uid = _require_request_user(http_request)
     repo = UserSettingsRepository(await get_db_client())
     await repo.set_analytics_opt_out(uid, request.opted_out)
+    return {"success": True, "opted_out": request.opted_out}
+
+
+# =============================================================================
+# Telemetry (diagnostic log shipping) consent
+# =============================================================================
+#
+# Unlike analytics (a per-USER row in user_settings), telemetry consent
+# is a per-MACHINE marker file (~/.narranexus/telemetry_optout) read by
+# utils/logging at every send — logging starts before the DB does, so
+# the DB cannot hold this state. Per-machine has two consequences the
+# endpoints must enforce:
+#   - multi-tenant cloud: one user must not silence (or re-enable)
+#     telemetry for everyone → PUT is 403, GET says controllable=false
+#     (that surface is governed by the deployment env instead);
+#   - an explicit NEXUS_DIAG_SHIP env override is the deployment's
+#     decision: a marker write would be silently ineffective, so PUT is
+#     409 and GET reports source=env / controllable=false.
+
+
+class SetTelemetryOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+def _telemetry_state() -> dict:
+    consent = telemetry_consent()
+    return {
+        "mode": consent["mode"],
+        "source": consent["source"],
+        "opted_out": consent["source"] == "optout",
+        "controllable": consent["source"] != "env" and not _is_cloud_mode(),
+    }
+
+
+@router.get("/settings/telemetry")
+async def get_telemetry_consent_state(http_request: Request):
+    """Current telemetry consent state + whether the toggle applies."""
+    _require_request_user(http_request)
+    return _telemetry_state()
+
+
+@router.put("/settings/telemetry")
+async def set_telemetry_consent_state(request: SetTelemetryOptOutRequest,
+                                      http_request: Request):
+    """Flip the per-machine telemetry opt-out marker."""
+    uid = _require_request_user(http_request)
+    if _is_cloud_mode():
+        raise HTTPException(
+            status_code=403,
+            detail="telemetry consent is per-machine; on a multi-tenant "
+                   "install it is governed by the deployment, not a user",
+        )
+    if telemetry_consent()["source"] == "env":
+        raise HTTPException(
+            status_code=409,
+            detail="NEXUS_DIAG_SHIP is set: the deployment overrides "
+                   "telemetry mode and a marker write would be ineffective",
+        )
+    set_telemetry_optout(request.opted_out)
+    logger.info(
+        f"Telemetry opt-out set to {request.opted_out} by {uid}"
+    )
     return {"success": True, "opted_out": request.opted_out}

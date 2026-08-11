@@ -1236,6 +1236,9 @@
     "settings": {
       "title": "Einstellungen",
       "headerSections": "Anbieter · Bundle · Artefakte · Agenten",
+      "nav": {
+        "privacy": "Datenschutz"
+      },
       "providers": {
         "label": "LLM-Anbieter"
       },
@@ -1275,6 +1278,16 @@
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
+      },
+      "privacy": {
+        "label": "Datenschutz",
+        "hint": "Was dieses Gerät verlässt – und die Schalter dafür.",
+        "analyticsTitle": "Produkt-Analyse",
+        "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. Sie werden nie an einen Analysedienst eines Drittanbieters gesendet. Gesprächsinhalte werden niemals erfasst.",
+        "telemetryTitle": "Diagnose-Telemetrie",
+        "telemetryDesc": "Sende die Service-Logs dieser Installation (Start, Fehler, Integrationsdiagnosen) an den eigenen Collector von NarraNexus, damit Abstürze und Ausfälle untersucht werden können. Logzeilen können enthalten, was die Dienste üblicherweise protokollieren; an Dritte wird nichts gesendet.",
+        "telemetryTiming": "Das Ausschalten wirkt innerhalb von Sekunden. Das Wiedereinschalten gilt ab dem nächsten Start.",
+        "telemetryManaged": "Wird von deinem Deployment verwaltet (Umgebungseinstellung) – der Schalter ist hier nicht verfügbar."
       }
     },
     "system": {
@@ -2067,5 +2080,10 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus sendet jetzt diagnostische Service-Logs dieser Installation an seinen eigenen Collector, um Abstürze und Integrationsfehler zu debuggen. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",
+    "settings": "Einstellungen öffnen",
+    "dismiss": "Verstanden"
   }
 }

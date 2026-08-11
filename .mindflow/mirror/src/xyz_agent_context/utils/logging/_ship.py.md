@@ -4,6 +4,24 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(十)— 同意 UI PR:默认翻 full,撤回即时生效
+
+`_DEFAULT_MODE` 翻 **full**——与它的同意基础(首次告知横幅 +
+设置→隐私开关)同一变更落地,兑现第 3 轮立下的"默认值与同意基础
+同批到达"。三件配套:
+
+- **公开同意 API**:`telemetry_consent()`(mode + 决定它的层级
+  env/optout/default——UI 只在 optout/default 时提供开关)与
+  `set_telemetry_optout()`,经包 `__init__` **惰性**再导出
+  (_ship 顶层 import httpx,import 期失败只能坏 shipping 不能坏
+  logging 包);`ship_mode()` 降为 `telemetry_consent()` 的视图,
+  优先级规则单点;
+- **撤回不等重启**:`_send`(唯一出口,flush 与 backfill 共用)每次
+  外发前重查 `ship_mode()`,optout 写入后一个 flush 周期内静默;
+  重新开启等下次启动(sink 未注册)——不对称性偏向隐私一侧;
+- **per-machine 语义由调用方把关**:标记文件是整机的,backend 路由
+  在多租户云模式拒写(403)、env 覆盖时拒写(409)。
+
 ## 2026-08-11(九)— 第 10 轮:路由测试的诚实边界
 
 路由测试守的是解析规则(注入 map)+ .env.example 示例内容(新增

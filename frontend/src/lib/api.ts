@@ -135,6 +135,13 @@ export class ApiError extends Error {
 }
 
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
+export interface TelemetryConsentState {
+  mode: 'off' | 'meta' | 'full';
+  source: 'env' | 'optout' | 'default';
+  opted_out: boolean;
+  controllable: boolean;
+}
+
 export type OnboardProviderType =
   | 'anthropic'
   | 'openai'
@@ -668,6 +675,28 @@ class ApiClient {
   async setAnalyticsOptOut(optedOut: boolean): Promise<void> {
     await this.request<{ success: boolean; opted_out: boolean }>(
       '/api/auth/settings/analytics',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
+  }
+
+  /** Telemetry (diagnostic log shipping) consent state. Unlike
+   *  analytics (per-user, DB row) this is a per-MACHINE marker file:
+   *  `controllable` is false when a deployment env override or a
+   *  multi-tenant cloud install owns the decision — render the toggle
+   *  read-only then. */
+  async getTelemetryConsent(): Promise<TelemetryConsentState> {
+    return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
+  }
+
+  /** Flip the per-machine telemetry opt-out marker. Opting out takes
+   *  effect within one flush interval; re-enabling starts shipping at
+   *  the next process launch. */
+  async setTelemetryOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/telemetry',
       {
         method: 'PUT',
         body: JSON.stringify({ opted_out: optedOut }),

@@ -1235,6 +1235,9 @@
     "settings": {
       "title": "설정",
       "headerSections": "제공자 · 번들 · 아티팩트 · 에이전트",
+      "nav": {
+        "privacy": "개인정보 보호"
+      },
       "providers": {
         "label": "LLM 제공자"
       },
@@ -1274,6 +1277,16 @@
         "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
         "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
+      },
+      "privacy": {
+        "label": "개인정보 보호",
+        "hint": "이 기기에서 외부로 전송되는 데이터와 이를 제어하는 스위치입니다.",
+        "analyticsTitle": "제품 분석",
+        "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 제3자 분석 서비스로 전송되지 않으며 대화 내용도 수집되지 않습니다.",
+        "telemetryTitle": "진단 원격 측정",
+        "telemetryDesc": "이 설치본의 서비스 로그(시작, 오류, 연동 진단)를 NarraNexus 자체 수집 서버로 전송하여 충돌과 장애를 디버깅할 수 있게 합니다. 로그 줄에는 서비스가 평소 기록하는 내용이 포함될 수 있으며, 제3자에게는 아무것도 전송되지 않습니다.",
+        "telemetryTiming": "끄면 몇 초 안에 적용됩니다. 다시 켜면 다음 실행 시부터 적용됩니다.",
+        "telemetryManaged": "배포 환경(환경 설정)에서 관리되므로 여기에서는 스위치를 사용할 수 없습니다."
       }
     },
     "system": {
@@ -2066,5 +2079,10 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus는 이제 충돌과 연동 장애를 디버깅하기 위해 이 설치본의 진단 서비스 로그를 자체 수집 서버로 전송합니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",
+    "settings": "설정 열기",
+    "dismiss": "확인"
   }
 }

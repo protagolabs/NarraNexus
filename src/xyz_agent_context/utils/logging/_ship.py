@@ -17,11 +17,19 @@ Consent resolution (first match wins):
      ``meta``/``full`` force a level (dev/self-host knob, and the test
      suite's kill switch).
   2. Opt-out marker file ``~/.narranexus/telemetry_optout`` — written
-     by the settings UI when the user turns telemetry off.
-  3. Default: ``_DEFAULT_MODE`` — currently **off**. It flips to
-     ``full`` ONLY in the PR that ships the consent UI (first-run
-     disclosure + settings toggle): the default and its consent basis
-     must land in the same change, never apart.
+     by the settings UI (``set_telemetry_optout``) when the user turns
+     telemetry off. Withdrawal is honoured WITHOUT a restart: ``_send``
+     re-checks consent on every egress, so an opt-out written mid-run
+     silences shipping within one flush interval. Re-enabling waits
+     for the next process start (the sink was never registered) — an
+     asymmetry in privacy's favor. The file is PER-MACHINE: callers on
+     multi-tenant surfaces must gate the write themselves (the backend
+     route refuses it in cloud mode).
+  3. Default: ``_DEFAULT_MODE`` = **full** — the consent basis (the
+     first-run disclosure + settings toggle) shipped in the same
+     change that flipped this, never apart. Single-tenant surfaces
+     (desktop, local, sprite sandboxes) show the toggle; multi-tenant
+     cloud is governed by the deployment env instead.
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -132,9 +140,9 @@ _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
 _OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
-# Flips to "full" in the consent-UI PR — see the docstring's consent
-# section. Until the disclosure exists, nothing ships by default.
-_DEFAULT_MODE = "off"
+# Flipped to "full" in the same change that shipped its consent basis
+# (first-run disclosure + settings toggle) — see the consent section.
+_DEFAULT_MODE = "full"
 # Discovery may only point telemetry at hosts we control: the document
 # is served from a PUBLIC endpoint, and this string decides where user
 # logs go. https-only + domain allowlist; a hijacked/misconfigured
@@ -168,17 +176,35 @@ def _flush_all_at_exit() -> None:
 atexit.register(_flush_all_at_exit)
 
 
+def telemetry_consent() -> dict:
+    """Consent state plus WHICH layer of the precedence chain decided
+    it — the settings UI may only offer the toggle for "optout" and
+    "default" (an env override is the deployment's decision, not the
+    user's). Single source of the precedence rule; ship_mode() is a
+    view of it."""
+    raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
+    if raw in ("off", "meta", "full"):
+        return {"mode": raw, "source": "env"}
+    if _OPTOUT_FILE.exists():
+        return {"mode": "off", "source": "optout"}
+    return {"mode": _DEFAULT_MODE, "source": "default"}
+
+
+def set_telemetry_optout(opted_out: bool) -> None:
+    """Create/remove the per-machine opt-out marker. Idempotent. The
+    module attribute is read at call time on purpose — tests repoint
+    ``_OPTOUT_FILE`` and the settings route must follow."""
+    if opted_out:
+        _OPTOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _OPTOUT_FILE.touch()
+    else:
+        _OPTOUT_FILE.unlink(missing_ok=True)
+
+
 def ship_mode() -> str:
     """Consent + level resolution. See the module docstring for the
     precedence; "off" means "do not register the sink at all"."""
-    raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
-    if raw == "off":
-        return "off"
-    if raw in ("meta", "full"):
-        return raw
-    if _OPTOUT_FILE.exists():
-        return "off"
-    return _DEFAULT_MODE
+    return telemetry_consent()["mode"]
 
 
 def _env_label() -> str:
@@ -439,6 +465,12 @@ class ShipSink:
         return self._resolved_url
 
     def _send(self, lines: list[bytes]) -> None:
+        # Consent is re-checked at the door on EVERY egress (one stat):
+        # the sink registers at startup, but an opt-out written mid-run
+        # must silence shipping now, not at the next restart. The env
+        # override still wins in both directions via ship_mode().
+        if ship_mode() == "off":
+            return
         url = self._ingest_url()
         if not url:
             return  # noted once by _ingest_url; file log has everything

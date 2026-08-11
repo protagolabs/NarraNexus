@@ -1562,7 +1562,8 @@
         "bundle": "捆绑包",
         "artifacts": "制品",
         "manageAgents": "管理 Agent",
-        "updates": "应用更新"
+        "updates": "应用更新",
+        "privacy": "隐私"
       },
       "providers": {
         "label": "LLM 服务商"
@@ -1650,6 +1651,16 @@
         "installingDetail": "正在安装 {{version}}——即将完成…",
         "readyDetail": "已下载——重启以完成。",
         "failed": "更新{{stage}}失败。"
+      },
+      "privacy": {
+        "label": "隐私",
+        "hint": "哪些数据会离开这台设备,以及对应的开关。",
+        "analyticsTitle": "产品分析",
+        "analyticsDesc": "允许 NarraNexus 保存产品使用元数据用于分析。云端模式下数据保存在 NarraNexus 管理的数据库中;本地或桌面模式下只保留在本机。数据绝不会发送给第三方分析服务,也绝不收集任何对话内容。",
+        "telemetryTitle": "诊断遥测",
+        "telemetryDesc": "将本安装实例的服务日志(启动、错误、集成诊断)发送到 NarraNexus 自有的收集端,用于排查崩溃与故障。日志行包含服务正常记录的内容;不会发送给任何第三方。",
+        "telemetryTiming": "关闭在数秒内生效;重新开启将于下次启动时生效。",
+        "telemetryManaged": "由部署方管理(环境变量设置)——此处开关不可用。"
       }
     },
     "system": {
@@ -2512,5 +2523,10 @@
     "savedTo": "已保存到 {{path}}",
     "downloadFailed": "下载失败：{{error}}",
     "doneTitle": "已完成"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus 现在会将本安装实例的诊断服务日志发送到自有收集端,用于排查崩溃与集成故障。你可以随时在 设置 → 隐私 中关闭。",
+    "settings": "打开设置",
+    "dismiss": "知道了"
   }
 }

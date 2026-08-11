@@ -52,6 +52,7 @@ import {
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
+import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
@@ -427,6 +428,9 @@ export function ChatView() {
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
           is reserved for content and the page guide isn't tuned for touch. */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
+      {/* One-time telemetry disclosure (self-gating: renders nothing
+          once seen, or when telemetry is off for this install). */}
+      <TelemetryNotice />
 
     </main>
   );
