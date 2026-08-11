@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/agents/jobs.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 — job 三写全孪生：POST /{agent_id}/jobs（create）、PUT .../{job_id}/pause|cancel
+
+调共享 [[_job_writes]] `create_job_from_args`/`pause_job_from_args`/`cancel_job_from_args`
+（与 DirectStore 同源、byte-parity）。owner-gated，各包 try 兜 `get_db_client()`。
+**job_create 的 owner LLM-context 设置 + 相似标题 embedding dedup 在本 backend 侧跑**——
+云端 DB（及 owner LLM 配置）在这里，mcp 容器无凭据加载不了。`JobCreateSeamBody` 同
+`JobUpdateSeamBody` 一样 `extra="forbid"`（漏改字段 422 响亮失败，杜绝 HttpStore 静默丢字段）。
+pause/cancel 是 bodyless PUT（job_id 全在路径），HttpStore 侧走新增的 `_put_dict`。
+
 ## 2026-08-10 (PR-8b) — 新增 job_update 孪生端点 POST /{agent_id}/jobs/{job_id}/update
 
 调共享 [[_job_writes]] `update_job_from_args`（与 DirectStore、前端 jobs PUT 同源）。

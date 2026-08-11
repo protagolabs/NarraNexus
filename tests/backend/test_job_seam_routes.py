@@ -2,10 +2,11 @@
 @file_name: test_job_seam_routes.py
 @author:
 @date: 2026-08-10
-@description: Route-level tests for the job MCP data-access-seam endpoints
-(GET /{agent_id}/jobs/{job_id}, POST .../jobs/search-semantic, .../search-keywords).
-Owner-gated byte-parity twins of the JobModule read tools. Mirrors the
-test_narrative_routes.py fixture shape.
+@description: Route-level tests for the job MCP data-access-seam endpoints —
+reads (GET /{agent_id}/jobs/{job_id}, POST .../search-semantic, .../search-keywords)
+and writes (POST .../{job_id}/update, POST .../jobs create, PUT .../{job_id}/pause,
+PUT .../{job_id}/cancel). Owner-gated byte-parity twins of the JobModule tools.
+Mirrors the test_narrative_routes.py fixture shape.
 """
 from __future__ import annotations
 
@@ -225,3 +226,104 @@ def test_job_update_seam_body_accepts_the_known_fields(client, monkeypatch):
         "next_run_time": None, "status": "paused", "related_entity_id": "nar_1",
     })
     assert r.status_code == 200
+
+
+# --------------------------------------------------------------------------- job_create / job_pause / job_cancel twins
+
+
+import xyz_agent_context.agent_framework.api_config as japi  # noqa: E402
+
+
+def _patch_create(monkeypatch, *, result, capture=None):
+    """Fake create_job_from_args' collaborators: the owner LLM-context setup
+    (no-op) and JobInstanceService.create_job_with_instance."""
+    async def _noop(agent_id):
+        return None
+
+    monkeypatch.setattr(japi, "setup_mcp_llm_context", _noop)
+
+    class _Svc:
+        def __init__(self, db):
+            pass
+
+        async def create_job_with_instance(self, **kw):
+            if capture is not None:
+                capture.update(kw)
+            return result
+
+    monkeypatch.setattr(jsvc, "JobInstanceService", _Svc)
+
+
+def _patch_pause_cancel(monkeypatch, *, job, rows=1):
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+        async def pause_job(self, job_id):
+            return rows
+
+        async def cancel_job(self, job_id):
+            return rows
+
+    monkeypatch.setattr(jwrites, "JobRepository", _Repo)
+
+
+_CREATE_BODY = {"user_id": "u1", "title": "T", "description": "d", "job_type": "one_off",
+                "trigger_config": {"run_at": "2026-09-01T09:00:00", "timezone": "UTC"}, "payload": "p"}
+
+
+def test_job_create_non_owner_is_denied(client):
+    r = client.post("/api/agents/agent_theirs/jobs", headers=OWNER, json=_CREATE_BODY)
+    assert r.status_code == 403
+
+
+def test_job_create_success(client, monkeypatch):
+    _patch_create(monkeypatch, result={"success": True, "job_id": "job_new",
+                                        "instance_id": "job_i", "message": "Created"})
+    r = client.post("/api/agents/agent_mine/jobs", headers=OWNER, json=_CREATE_BODY)
+    assert r.status_code == 200
+    assert r.json() == {"success": True, "job_id": "job_new", "instance_id": "job_i", "message": "Created"}
+
+
+def test_job_create_seam_body_forbids_unknown_fields(client, monkeypatch):
+    # Same loud-drift guard as job_update: an unknown create field must 422 here
+    # (extra="forbid"), never be silently dropped on the HttpStore path.
+    _patch_create(monkeypatch, result={"success": True})
+    r = client.post("/api/agents/agent_mine/jobs", headers=OWNER, json={**_CREATE_BODY, "bogus": 1})
+    assert r.status_code == 422
+
+
+def test_job_pause_non_owner_is_denied(client):
+    r = client.put("/api/agents/agent_theirs/jobs/job_theirs/pause", headers=OWNER)
+    assert r.status_code == 403
+
+
+def test_job_pause_success(client, monkeypatch):
+    _patch_pause_cancel(monkeypatch, job=_FakeJob("job_mine", "agent_mine"))
+    r = client.put("/api/agents/agent_mine/jobs/job_mine/pause", headers=OWNER)
+    assert r.status_code == 200
+    assert r.json() == {"success": True, "job_id": "job_mine", "status": "paused",
+                        "message": "Job paused successfully"}
+
+
+def test_job_pause_cross_agent_is_not_found(client, monkeypatch):
+    _patch_pause_cancel(monkeypatch, job=_FakeJob("job_theirs", "agent_theirs"))
+    r = client.put("/api/agents/agent_mine/jobs/job_theirs/pause", headers=OWNER)
+    assert r.status_code == 200
+    assert r.json() == {"success": False, "job_id": "job_theirs", "message": "Job job_theirs not found"}
+
+
+def test_job_cancel_non_owner_is_denied(client):
+    r = client.put("/api/agents/agent_theirs/jobs/job_theirs/cancel", headers=OWNER)
+    assert r.status_code == 403
+
+
+def test_job_cancel_success(client, monkeypatch):
+    _patch_pause_cancel(monkeypatch, job=_FakeJob("job_mine", "agent_mine"))
+    r = client.put("/api/agents/agent_mine/jobs/job_mine/cancel", headers=OWNER)
+    assert r.status_code == 200
+    assert r.json() == {"success": True, "job_id": "job_mine", "status": "cancelled",
+                        "message": "Job cancelled successfully"}

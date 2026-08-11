@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+## 2026-08-11 — create/pause/cancel 迁走 seam，工具彻底弃 db 凭据
+
+job_create/pause/cancel 改为 `get_agent_data_store().job_create|job_pause|job_cancel(...)`，
+实现下沉到 [[_job_writes]] 三个 `*_from_args`（DirectStore 本地 / HttpStore 调 [[jobs]]
+孪生路由）。**`create_job_mcp_server(port)` 去掉 `get_db_client_fn` 参数**（读工具早已走 seam，
+写工具迁完后它彻底无用），[[job_module]] 的 `create_mcp_server` 同步改。`setup_mcp_llm_context`/
+`LLMConfigNotConfigured`/`JobRepository`/`loguru.logger` import 随之全删（W1 结构化错误兜底搬进
+`create_job_from_args`）。至此 **job 模块 mcp 可达代码 `get_mcp_db_client()` 残留 = 0**，
+配合 lark/narra 零凭据，mcp 容器可 strip `DB_PASSWORD`。cross-agent 现读作 not found。
+
 ## 2026-08-10 (PR-8b) — job_update 迁走 seam
 
 job_update 改为 `get_agent_data_store().job_update(agent_id, job_id, fields)`，~90 行
@@ -62,8 +72,8 @@ next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。�
 
 ## 上下游关系
 
-- **被谁用**：`JobModule.create_mcp_server()` 调用 `create_job_mcp_server(port, JobModule.get_mcp_db_client)`；`ModuleRunner` 部署返回的 FastMCP 实例；`JobModule.get_instance_object_candidates()` 通过 `fastmcp.Client` 内存调用 `job_retrieval_semantic`
-- **依赖谁**：`JobRepository`（DB 操作）；`get_embedding()`（`job_create` 时生成语义向量）；`job_service.JobInstanceService`（创建 ModuleInstance + Job 的统一服务）
+- **被谁用**：`JobModule.create_mcp_server()` 调用 `create_job_mcp_server(port)`（无 db 工厂——每个工具经 seam 取数据）；`ModuleRunner` 部署返回的 FastMCP 实例；`JobModule.get_instance_object_candidates()` 通过 `fastmcp.Client` 内存调用 `job_retrieval_semantic`
+- **依赖谁**：[[store]] 的 `get_agent_data_store()`（唯一数据入口，DirectStore 本地 / HttpStore 云端）。DB 操作（JobRepository/JobInstanceService）、embedding、setup_mcp_llm_context 全下沉到 [[_job_reads]]/[[_job_writes]] 的共享 helper——本文件不再直接 import 任何 repo/service。
 
 ## `agent_id` 如何传入
 
