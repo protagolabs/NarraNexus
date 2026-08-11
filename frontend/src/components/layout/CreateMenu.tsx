@@ -55,7 +55,7 @@ export function CreateMenu({
         className={cn(
           'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)]',
           'text-[13px] font-medium text-left text-[var(--nm-ink)] transition-colors',
-          'hover:bg-[var(--nm-raised)]',
+          'hover:bg-[var(--nm-paper-warm)]',
           open && 'bg-[var(--nm-raised)]',
           disabled && 'opacity-50 cursor-not-allowed',
         )}
@@ -120,7 +120,7 @@ function MenuItem({
       onClick={onClick}
       className={cn(
         'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left',
-        'text-[var(--nm-ink)] hover:bg-[var(--nm-raised)] transition-colors',
+        'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)] transition-colors',
       )}
     >
       {icon}

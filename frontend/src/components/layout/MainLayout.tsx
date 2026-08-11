@@ -367,7 +367,7 @@ export function MainLayout() {
             onClick={() => setSidebarCollapsed(false)}
             title={t('sidebar.expandTitle')}
             aria-label={t('sidebar.expandTitle')}
-            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]"
           >
             <PanelLeft className="h-4 w-4" />
           </button>

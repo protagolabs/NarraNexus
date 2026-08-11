@@ -103,7 +103,7 @@ export function TeamChatRow({
             title={t('layout.teamChatRow.toggleMembers')}
             aria-label={t('layout.teamChatRow.toggleMembers')}
             aria-expanded={expanded}
-            className="shrink-0 flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink30)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+            className="shrink-0 flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink30)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]"
           >
             <ChevronRight
               className={cn('h-3 w-3 transition-transform duration-150', expanded && 'rotate-90')}

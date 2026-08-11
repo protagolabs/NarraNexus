@@ -86,6 +86,13 @@ DM Mono 大写宽字距的小标签、少量语义色点缀。它刻意**不是*
 | **L2 沉底/搁起** | `--nm-paper-warm` / `--nm-raised` | hero 卡、wells、rest 态按钮填充 |
 | **选中/悬停纱** | `--nm-row-active` / `--nm-paper-warm`(hover) | 列表行选中、hover 洗色 |
 
+L2 的两个 token 只差 1-2 个色阶,**按交互角色分工、不得混用**
+(2026-08-11 审计:悬停洗色曾 61:15 分裂在两个 token 上):
+
+- **悬停洗色** → `--nm-paper-warm`(唯一)
+- **选中/激活的持久填充**(segmented 选中项、开启态菜单按钮)→ `--nm-raised`
+- **列表行选中** → `--nm-row-active`
+
 **规则**:
 1. **一屏可辨识的中性底 ≤ 4 层**(行业惯例 3-4;Material 3 / Apple HIG /
    shadcn 的 background/card/muted 同构)。

@@ -124,7 +124,7 @@ export default function CreateTeamPage() {
             onClick={() => navigate('/app/chat')}
             title={t('pages.createTeam.back')}
             aria-label={t('pages.createTeam.back')}
-            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>

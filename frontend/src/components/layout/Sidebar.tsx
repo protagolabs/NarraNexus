@@ -67,7 +67,7 @@ const prefetchDashboard = () => {
 // v4 nav row treatment: flat rows, raised bg on hover/active (design mock),
 // ink70 label brightening to ink.
 const NAV_ROW =
-  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]';
+  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]';
 const NAV_ROW_ACTIVE = 'bg-[var(--nm-raised)] text-[var(--nm-ink)]';
 
 export function Sidebar() {
@@ -247,7 +247,7 @@ export function Sidebar() {
           onClick={toggleSidebar}
           title={t('sidebar.collapseTitle')}
           aria-label={t('sidebar.collapseTitle')}
-          className="shrink-0 hidden md:inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] text-[var(--nm-ink50)] hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)] transition-colors"
+          className="shrink-0 hidden md:inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] text-[var(--nm-ink50)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)] transition-colors"
         >
           <PanelLeft className="w-4 h-4" />
         </button>
@@ -394,7 +394,7 @@ export function Sidebar() {
                         onClick={() => { void i18n.changeLanguage(l.code); setLangOpen(false); }}
                         className={cn(
                           'w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left transition-colors',
-                          'hover:bg-[var(--nm-raised)]',
+                          'hover:bg-[var(--nm-paper-warm)]',
                           active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
                         )}
                       >
@@ -426,7 +426,7 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={handleSwitchMode}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left text-[var(--nm-ink70)] hover:bg-[var(--nm-raised)]"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)]"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   {t('layout.sidebar.currentMode', {
@@ -456,7 +456,7 @@ export function Sidebar() {
             aria-label={t('sidebar.accountTitle')}
             className={cn(
               'flex flex-1 min-w-0 items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-left transition-colors',
-              accountOpen ? 'bg-[var(--nm-raised)]' : 'hover:bg-[var(--nm-raised)]',
+              accountOpen ? 'bg-[var(--nm-raised)]' : 'hover:bg-[var(--nm-paper-warm)]',
             )}
           >
             <RingAvatar species="carbon" label={userLabel || '?'} size="sm" />
@@ -511,7 +511,7 @@ function AccountItem({
         'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors',
         danger
           ? 'text-[var(--color-error)] hover:bg-[rgba(201,90,77,0.08)]'
-          : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]',
+          : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]',
       )}
     >
       {icon}

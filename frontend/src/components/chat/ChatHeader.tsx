@@ -107,7 +107,7 @@ export function ChatHeader({
   };
 
   const iconBtn =
-    'relative inline-flex h-[30px] w-[30px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]';
+    'relative inline-flex h-[30px] w-[30px] items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]';
 
   return (
     <div
@@ -137,7 +137,7 @@ export function ChatHeader({
           type="button"
           onClick={() => setDetailOpen((v) => !v)}
           title={t('chat.header.agentDetailTitle')}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-raised)] shrink-0"
+          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)] shrink-0"
         >
           {/* Same family as the sidebar row that shows this same name — the
               header keeps its lead role via size + weight, not a second
@@ -254,7 +254,7 @@ export function ChatHeader({
                       setDetailOpen(false);
                       onOpenAgentConfig();
                     }}
-                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
+                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
                   >
                     <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
                     {t('chat.header.modelFramework')}
@@ -291,7 +291,7 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
       // Hover title = the same one-sentence explainer the drawer header's
       // ? icon shows — orientation before the click, not only after.
       title={t(tabDescKey(id), '')}
-      className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
+      className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
     >
       <Icon className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
       {t(labelKey, def.label)}
