@@ -101,6 +101,11 @@ _MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
         "NarramessengerCredentialManager",
         "get",
     ),
+    "lark": (
+        "xyz_agent_context.module.lark_module._lark_credential_manager",
+        "LarkCredentialManager",
+        "get_credential",
+    ),
 }
 
 # The allowlist the backend endpoint gates on — derived from the registry so it

@@ -43,6 +43,10 @@ def _cases():
         NarramessengerCredential,
         _cred_from_raw as narra_from_raw,
     )
+    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+        LarkCredential,
+        _cred_from_raw as lark_from_raw,
+    )
 
     return [
         ("discord", DiscordCredential(agent_id="agent_x", bot_token="d-secret",
@@ -63,6 +67,13 @@ def _cases():
             matrix_homeserver_url="https://m", matrix_since_token="s_123",
             created_at=_DT, updated_at=_DT),
          narra_from_raw, ["bearer_token", "matrix_access_token"]),
+        ("lark", LarkCredential(
+            agent_id="agent_x", app_id="cli_x", app_secret_ref="appsecret:cli_x",
+            brand="feishu", profile_name="agent_agent_x",
+            app_secret_encoded="YmFzZTY0c2VjcmV0",
+            permission_state={"user_oauth_completed_at": "2026-08-11T00:00:00"},
+            created_at=_DT, updated_at=_DT),
+         lark_from_raw, ["app_secret_encoded"]),
     ]
 
 
@@ -72,10 +83,13 @@ def test_raw_dict_roundtrips_and_carries_the_secret(channel, cred, from_raw, sec
     # the secret(s) the send tools need are present in the raw dict...
     for f in secret_fields:
         assert raw[f] == getattr(cred, f) and raw[f]
-    # ...and NOT in the sanitised view (that is the whole point of two methods)
-    public = cred.to_public_dict()
-    for f in secret_fields:
-        assert f not in public
+    # ...and NOT in the sanitised view (that is the whole point of two methods).
+    # Lark has no to_public_dict (its dataclass is treated as internal), so the
+    # "absent from public" invariant only applies where a sanitised view exists.
+    if hasattr(cred, "to_public_dict"):
+        public = cred.to_public_dict()
+        for f in secret_fields:
+            assert f not in public
     # inverse rebuilds an identical dataclass (datetimes survive ISO round-trip)
     assert from_raw(raw) == cred
 

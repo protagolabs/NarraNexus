@@ -32,8 +32,10 @@ from loguru import logger
 
 from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.data_access import get_channel_credential_store
 from ._lark_credential_manager import (
     LarkCredentialManager,
+    _cred_from_raw,
     AUTH_STATUS_BOT_READY,
     AUTH_STATUS_USER_LOGGED_IN,
 )
@@ -67,17 +69,17 @@ _SETUP_TIMEOUT_SECONDS = 15 * 60
 
 
 async def _get_credential(agent_id: str):
-    """Load credential from DB via MCP-level database client."""
-    db = await XYZBaseModule.get_mcp_db_client()
-    mgr = LarkCredentialManager(db)
-    return await mgr.get_credential(agent_id)
+    """Load credential via the ChannelCredentialStore seam (blueprint P2):
+    DirectStore locally, HttpStore -> owner-gated backend endpoint in cloud.
+    Rebuild the dataclass so every caller keeps using cred.get_app_secret(),
+    cred.permission_state, cred.current_click_stage(), etc. unchanged."""
+    raw = await get_channel_credential_store().get_credential("lark", agent_id)
+    return _cred_from_raw(raw) if raw is not None else None
 
 
 async def _get_agent_name(agent_id: str) -> str:
-    """Look up the agent's human-readable name; fall back to agent_id."""
-    db = await XYZBaseModule.get_mcp_db_client()
-    row = await db.get_one("agents", {"agent_id": agent_id})
-    return (row or {}).get("agent_name", "") or agent_id
+    """Look up the agent's human-readable name via the seam; fall back to id."""
+    return await get_channel_credential_store().get_agent_name(agent_id)
 
 
 def _command_uses_user_identity(args: list[str]) -> bool:

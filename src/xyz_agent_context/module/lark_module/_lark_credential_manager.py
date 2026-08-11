@@ -141,6 +141,68 @@ class LarkCredential:
             return "waiting_admin"
         return "not_started"
 
+    def to_raw_dict(self) -> dict[str, Any]:
+        """RAW view INCLUDING app_secret_encoded (the base64 app secret). Lark
+        has no to_public_dict; this is the full wire form the ChannelCredentialStore
+        seam's owner-gated endpoint + the CLI/status tools consume. permission_state
+        (the three-click flow blob) rides as-is; timestamps are emitted ISO when
+        they are datetimes (MySQL) and passed through when already strings
+        (SQLite — Lark's _row_to_credential does not normalise them). Never logged."""
+        def _dt(v: Any) -> Any:
+            return v.isoformat() if isinstance(v, datetime) else (v or None)
+
+        return {
+            "agent_id": self.agent_id,
+            "app_id": self.app_id,
+            "app_secret_ref": self.app_secret_ref,
+            "brand": self.brand,
+            "profile_name": self.profile_name,
+            "workspace_path": self.workspace_path,
+            "bot_name": self.bot_name,
+            "bot_open_id": self.bot_open_id,
+            "app_secret_encoded": self.app_secret_encoded,
+            "owner_open_id": self.owner_open_id,
+            "owner_name": self.owner_name,
+            "auth_status": self.auth_status,
+            "is_active": self.is_active,
+            "permission_state": self.permission_state or {},
+            "created_at": _dt(self.created_at),
+            "updated_at": _dt(self.updated_at),
+        }
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> "LarkCredential":
+    """Inverse of to_raw_dict — rebuild the dataclass from the seam's raw dict so
+    an HttpStore-backed lookup reconstructs a functionally-identical credential
+    (app_id / app_secret_encoded / permission_state / auth_status — everything the
+    Lark tools read). ISO timestamp strings are parsed back to datetimes."""
+    def _dt(v: Any) -> Any:
+        if isinstance(v, str) and v:
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                return None
+        return v if isinstance(v, datetime) else None
+
+    return LarkCredential(
+        agent_id=raw.get("agent_id", "") or "",
+        app_id=raw.get("app_id", "") or "",
+        app_secret_ref=raw.get("app_secret_ref", "") or "",
+        brand=raw.get("brand", "feishu") or "feishu",
+        profile_name=raw.get("profile_name", "") or "",
+        workspace_path=raw.get("workspace_path", "") or "",
+        bot_name=raw.get("bot_name", "") or "",
+        bot_open_id=raw.get("bot_open_id", "") or "",
+        app_secret_encoded=raw.get("app_secret_encoded", "") or "",
+        owner_open_id=raw.get("owner_open_id", "") or "",
+        owner_name=raw.get("owner_name", "") or "",
+        auth_status=raw.get("auth_status", AUTH_STATUS_NOT_LOGGED_IN) or AUTH_STATUS_NOT_LOGGED_IN,
+        is_active=bool(raw.get("is_active", True)),
+        permission_state=raw.get("permission_state") or {},
+        created_at=_dt(raw.get("created_at")),
+        updated_at=_dt(raw.get("updated_at")),
+    )
+
 
 class LarkCredentialManager:
     """CRUD for lark_credentials table."""
