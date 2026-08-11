@@ -478,6 +478,15 @@ run_container_mode() {
   # stack may start uvicorn directly, where deployment-mode inference supplies
   # the same label; an explicit override still wins here.
   export NARRA_SURFACE="${NARRA_SURFACE:-cloud}"
+  # Telemetry env label (routing + envelope). Deployment-layer detection
+  # lives HERE on purpose: the logging utility (_ship.py) must not sniff
+  # another integration's env vars. Staging manyfold sandboxes identify
+  # themselves by the webhook host they were provisioned with.
+  if [ -z "${NEXUS_DIAG_ENV:-}" ]; then
+    case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
+      *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
+    esac
+  fi
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true

@@ -107,6 +107,22 @@ class ChannelTriggerAuditRepository:
                 f"ChannelTriggerAuditRepository.append({self._channel}, {event_type}): "
                 f"{type(e).__name__}: {e} (row dropped; audit is advisory only)"
             )
+        # Mirror every audit row as one AUDIT-level log line so lifecycle
+        # events ride the observability push sink (the sink ships log
+        # records, not DB rows — without the mirror, denied/silent/
+        # attachments/processed would only be visible via pull). The
+        # custom AUDIT level exists only after setup_logging ran; bare
+        # library use (tests, scripts) falls back to INFO rather than
+        # losing the line.
+        line = (
+            f"[audit] channel={self._channel} event={event_type} "
+            f"agent={agent_id or ''} message={message_id or ''} "
+            f"details={row['details']}"
+        )
+        try:
+            logger.log("AUDIT", line)
+        except ValueError:
+            logger.info(line)
 
     async def recent(
         self,

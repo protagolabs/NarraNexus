@@ -22,9 +22,17 @@ Also owns two suite-wide safety nets:
    the "pytest prints the summary but the process never exits" hang.
 """
 import asyncio
+import os as _os
 
 import pytest
 import pytest_asyncio
+
+# The telemetry sink defaults OFF in production code today (the
+# consent-UI PR is what flips the default), but the test suite must
+# never phone home REGARDLESS of environment — force the kill switch
+# unconditionally, so a developer's `export NEXUS_DIAG_SHIP=full`
+# cannot leak into test processes.
+_os.environ["NEXUS_DIAG_SHIP"] = "off"
 
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
