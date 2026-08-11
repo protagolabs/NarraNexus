@@ -56,6 +56,7 @@ from xyz_agent_context.schema.team_schema import (
     BULLETIN_MAX_SUMMARY_CHARS,
     BULLETIN_SOURCE_SUMMARY,
 )
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_context
 
 TEAM_ROOM_OWNER_PREFIX = "team_"
@@ -75,6 +76,44 @@ _INSTRUCTIONS = (
     "- No greetings, no preamble, no meta-commentary about the summary.\n"
     "- If the transcript shows no substantive work, reply with nothing at all."
 )
+
+
+async def _inject_team_credentials(team_id: str, db) -> None:
+    """Put the TEAM OWNER's effective LLM config onto this task's ContextVars.
+
+    The background twin of what `auth_middleware` does per request, and the step
+    `MemoryConsolidationWorker` learned to take the hard way: this worker runs in
+    the backend lifespan, outside any HTTP request, so no ContextVar injection
+    happens and the helper call falls through `_ConfigProxy` to the platform
+    global. In cloud that is the 2026-07 incident — an expired platform key 401'd
+    every background helper call for about two weeks while long-term memory
+    silently degraded. Local desktop is unaffected (the resolver is a no-op
+    there), which is exactly why it can pass every local test.
+
+    Resolved by the team's OWNER rather than by some member agent. The summary is
+    platform work for the team, not one agent's errand; picking a member would
+    arbitrarily borrow that agent's model override for output nobody asked it
+    for, and the owner is who pays either way.
+
+    CLEAR FIRST. `run_once` walks every team in sequence in one task, so without
+    a reset a team whose owner cannot be resolved would inherit the previous
+    team's credentials — a cross-tenant leak, not merely a stale config.
+    """
+    from xyz_agent_context.agent_framework.providers.resolver import (
+        clear_user_config,
+        resolve_and_set_provider_for_user,
+    )
+
+    clear_user_config()
+    team = await db.get_one("teams", {"team_id": team_id})
+    owner = (team or {}).get("owner_user_id")
+    if not owner:
+        logger.warning(
+            f"[team.summary] team {team_id} has no owner row — helper "
+            f"credentials left cleared (global fallback)."
+        )
+        return
+    await resolve_and_set_provider_for_user(owner, db)
 
 
 class TeamSummaryWorker:
@@ -259,12 +298,20 @@ class TeamSummaryWorker:
         provider or framework (iron rule #9), and through the cost context so
         the work is attributed rather than invisible.
 
-        Overridden wholesale in tests — every rule around this call matters more
-        than the call itself, and they should be testable without a provider.
+        Most tests replace this method wholesale. That is convenient and it is
+        also how two production-only faults survived a green suite: the cost
+        context was called with keyword arguments the function does not accept,
+        and the owner's credentials were never resolved. `tests/services/
+        test_team_summary_worker.py` now exercises this body with only the SDK
+        faked, which is the smallest seam that still runs the assembly below.
         """
-        from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-
-        set_cost_context(agent_id="", user_id="", label=f"team_summary:{team_id}")
+        # Detached background task: no per-request ContextVars, so without this
+        # every cloud call falls through to the platform key.
+        await _inject_team_credentials(team_id, self._db)
+        # Two positional parameters. There is no user_id and no label — passing
+        # them raises TypeError, which `run_once` swallows into a warning, so
+        # the worker looks alive while never writing a summary.
+        set_cost_context("", self._db)
         try:
             sdk = get_helper_sdk()
             result = await sdk.llm_function(

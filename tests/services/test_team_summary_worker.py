@@ -325,3 +325,128 @@ def test_the_worker_is_started_and_stopped_by_the_app():
     assert "await summary_worker.stop()" in src
     # Order matters: stop the loop before the client it uses goes away.
     assert src.index("await summary_worker.stop()") < src.index("await close_db_client()")
+
+
+# ── the production path, NOT stubbed ────────────────────────────────────────
+#
+# Every test above replaces `_summarise` wholesale, and the docstring on that
+# method presented it as a virtue ("the rules around this call matter more than
+# the call itself"). That reasoning was wrong twice over, and review caught both:
+# the method called `set_cost_context` with keyword arguments the function does
+# not have (TypeError on every real run), and it never injected the owner's
+# credentials, so on cloud every call would fall through to the platform key and
+# 401 — the 2026-07 incident that cost long-term memory two weeks.
+#
+# Both are invisible to a stubbed `_summarise`. These tests exercise the real
+# one with only the SDK faked out, which is the smallest seam that still runs
+# the argument assembly.
+
+
+@pytest.mark.asyncio
+async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monkeypatch):
+    """`set_cost_context(agent_id, db)` — two positional params, no user_id, no
+    label. Calling it wrong raises TypeError, which `run_once` swallows into a
+    warning, so the worker looks alive while never writing a single summary."""
+    from xyz_agent_context.services import team_summary_worker as mod
+
+    seen = {}
+
+    def fake_set(*args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+
+    monkeypatch.setattr(mod, "set_cost_context", fake_set)
+    monkeypatch.setattr(mod, "clear_cost_context", lambda: None)
+    monkeypatch.setattr(mod, "_inject_team_credentials", _noop_creds)
+    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("a summary"), raising=False)
+
+    await _seed_room(db_client, messages=1)
+    out = await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
+
+    assert out == "a summary"
+    # Positional, and the db must be the real client — a context without one
+    # records nothing, which is how the consolidation-worker hole hid for weeks.
+    assert seen["kwargs"] == {} or set(seen["kwargs"]) <= {"agent_id", "db"}
+    passed = list(seen["args"]) + list(seen["kwargs"].values())
+    assert db_client in passed
+
+
+@pytest.mark.asyncio
+async def test_the_real_summarise_injects_the_teams_credentials(db_client, monkeypatch):
+    """A detached background task inherits no per-request ContextVars, so
+    without this every cloud call uses the platform key and 401s."""
+    from xyz_agent_context.services import team_summary_worker as mod
+
+    injected = []
+
+    async def fake_inject(team_id, db):
+        injected.append(team_id)
+
+    monkeypatch.setattr(mod, "_inject_team_credentials", fake_inject)
+    monkeypatch.setattr(mod, "set_cost_context", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "clear_cost_context", lambda: None)
+    monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("s"), raising=False)
+
+    await _seed_room(db_client, messages=1)
+    await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
+
+    assert injected == [TEAM], "the team's owner credentials were never resolved"
+
+
+@pytest.mark.asyncio
+async def test_credentials_are_cleared_before_they_are_resolved(db_client, monkeypatch):
+    """run_once walks tenants in sequence in ONE task. Without a reset first, a
+    team whose owner cannot be resolved inherits the previous team's
+    credentials — a cross-tenant leak, not merely a stale config."""
+    from xyz_agent_context.agent_framework.providers import resolver
+    from xyz_agent_context.services.team_summary_worker import _inject_team_credentials
+
+    order = []
+    monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
+
+    async def fake_resolve(user_id, db, agent_id=None):
+        order.append(f"resolve:{user_id}")
+
+    monkeypatch.setattr(resolver, "resolve_and_set_provider_for_user", fake_resolve)
+
+    await db_client.insert("teams", {"team_id": TEAM, "owner_user_id": OWNER, "name": "T"})
+    await _inject_team_credentials(TEAM, db_client)
+
+    assert order == ["clear", f"resolve:{OWNER}"]
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_team_leaves_credentials_cleared(db_client, monkeypatch):
+    """The leak case made concrete: no owner row means we must NOT fall through
+    holding whatever the last team put there."""
+    from xyz_agent_context.agent_framework.providers import resolver
+    from xyz_agent_context.services.team_summary_worker import _inject_team_credentials
+
+    order = []
+    monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
+
+    async def fake_resolve(user_id, db, agent_id=None):
+        order.append("resolve")
+
+    monkeypatch.setattr(resolver, "resolve_and_set_provider_for_user", fake_resolve)
+
+    await _inject_team_credentials("team_that_does_not_exist", db_client)
+
+    assert order == ["clear"], "resolution ran, or the reset did not"
+
+
+class _Result:
+    def __init__(self, text):
+        self.final_output = text
+
+
+class _FakeSdk:
+    def __init__(self, text):
+        self._text = text
+
+    async def llm_function(self, **kwargs):
+        return _Result(self._text)
+
+
+async def _noop_creds(team_id, db):
+    return None

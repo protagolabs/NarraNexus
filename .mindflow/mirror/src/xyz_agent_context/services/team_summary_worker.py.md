@@ -50,3 +50,28 @@ provider/框架），走既有成本上下文（铁律 #14：纯机会性工作�
    schema 测试批评的「一列两义」。现在是专用可空列 `watermark_at`，并有测试钉住。
 
 相关：[[team_bulletin_repository]]、[[team_schema]]、[[main]]（挂载与关停顺序）
+
+## 2026-08-11 (review 修正) — 后台任务的凭据与成本上下文
+
+两个**只在生产上才发作**的错，测试全绿也拦不住，因为上面每条测试都把 `_summarise` 整个替换掉了。
+而这个「整体 stub」当初还被我写进 docstring 当优点（「围绕这次调用的规则比调用本身更重要」）——
+那句话错了两次：规则确实重要，但**调用本身必须真的能跑**，而我把一次从未执行过的函数调用
+留在了未测面里。
+
+1. `set_cost_context(agent_id="", user_id="", label=...)` —— 真实签名是
+   `set_cost_context(agent_id, db)`，没有 `user_id`、没有 `label`、`db` 必填。每次真实总结必抛
+   `TypeError`，被 `run_once` 的逐 team `except` 吞成一条 warning：**进程活着、循环活着、
+   一条总结也写不出来**，代价是每 60 秒每个活跃 team 一条日志。
+2. **没有注入 owner 凭据。** 这个 worker 跑在 lifespan 里、不在任何 HTTP 请求上下文中，
+   auth_middleware 的 ContextVar 注入根本不发生，helper 调用会穿透 `_ConfigProxy`
+   落到平台全局 key —— 正是 2026-07 那次事故（过期的平台 key 让每一次后台 helper 调用 401 了
+   约两周，长期记忆静默降级）。[[memory_consolidation_worker]] 在 2026-06-11 P0 补过这一步，
+   我抄了它的循环形状，**唯独漏了这一步**。
+
+新增 `_inject_team_credentials`：按 **team owner** 解析（总结是平台替团队做的事，不是某个 agent
+的差事；随便挑一个成员会平白借用它的模型覆盖），并且**先 clear**——`run_once` 在同一个 task 里
+顺序遍历多租户，不先清就意味着 owner 解析失败的团队会继承上一个团队的凭据，**那是跨租户泄漏，
+不只是配置过期**。
+
+三条新测试跑的是**没被 stub 的** `_summarise`，只假掉 SDK；三个修复各自做过变异验证
+（改回原样立刻变红）。

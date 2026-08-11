@@ -486,8 +486,12 @@ app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.
-app.include_router(marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"])
-app.include_router(marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"])
+app.include_router(
+    marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
+)
+app.include_router(
+    marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
+)
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])

@@ -65,8 +65,9 @@ def _send_turn_source(*, to_agent: str = "", channel_id: str = "") -> Optional[s
         return source
 
     errand_peer, errand_channel = caller_errand_scope()
-    aimed_at_errand = (bool(to_agent) and to_agent == errand_peer) or (
-        bool(channel_id) and channel_id == errand_channel
+    aimed_at_errand = (
+        (bool(to_agent) and to_agent == errand_peer)
+        or (bool(channel_id) and channel_id == errand_channel)
     )
     return BUS_ERRAND_TURN_SOURCE if aimed_at_errand else source
 
@@ -79,7 +80,6 @@ def _split_refs(refs: str) -> List[str]:
 async def _resolve_owner_user_id(agent_id: str) -> Optional[str]:
     """Look up an agent's owning user_id (agents.created_by), dialect-safe."""
     from xyz_agent_context.utils.db.db_factory import get_db_client
-
     db = await get_db_client()
     row = await db.get_one("agents", {"agent_id": agent_id})
     return row.get("created_by") if row else None
@@ -95,8 +95,9 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
     if not owner:
         return []
     from xyz_agent_context.message_bus.attachments import resolve_and_stage_refs
-
-    return await resolve_and_stage_refs(sender_agent_id=agent_id, owner_user_id=owner, refs=ref_list)
+    return await resolve_and_stage_refs(
+        sender_agent_id=agent_id, owner_user_id=owner, refs=ref_list
+    )
 
 
 def register_message_bus_mcp_tools(
@@ -406,7 +407,9 @@ def register_message_bus_mcp_tools(
             team = await db.get_one("teams", {"team_id": team_id})
             if not team or team.get("owner_user_id") != owner:
                 return {"success": False, "error": "team not found for this owner"}
-            membership = await db.get_one("team_members", {"team_id": team_id, "agent_id": agent_id})
+            membership = await db.get_one(
+                "team_members", {"team_id": team_id, "agent_id": agent_id}
+            )
             if not membership:
                 return {"success": False, "error": "you are not a member of this team"}
 
@@ -524,7 +527,9 @@ def register_message_bus_mcp_tools(
         from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
 
         db = await get_db_client()
-        return await list_team_files(db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id)
+        return await list_team_files(
+            db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
+        )
 
     @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
@@ -548,13 +553,10 @@ def register_message_bus_mcp_tools(
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             messages = await bus.get_messages(channel_id, limit=limit)
-            return {
-                "success": True,
-                "messages": [
-                    {"from": m.from_agent, "content": m.content, "time": str(m.created_at), "mentions": m.mentions}
-                    for m in messages
-                ],
-            }
+            return {"success": True, "messages": [
+                {"from": m.from_agent, "content": m.content, "time": str(m.created_at), "mentions": m.mentions}
+                for m in messages
+            ]}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -634,15 +636,10 @@ def register_message_bus_mcp_tools(
             profile = await bus.get_agent_profile(target_agent_id)
             if profile is None:
                 return {"success": False, "error": f"Agent {target_agent_id} not found"}
-            return {
-                "success": True,
-                "profile": {
-                    "agent_id": profile.agent_id,
-                    "owner": profile.owner_user_id,
-                    "capabilities": profile.capabilities,
-                    "description": profile.description,
-                    "visibility": profile.visibility,
-                },
-            }
+            return {"success": True, "profile": {
+                "agent_id": profile.agent_id, "owner": profile.owner_user_id,
+                "capabilities": profile.capabilities, "description": profile.description,
+                "visibility": profile.visibility,
+            }}
         except Exception as e:
             return {"success": False, "error": str(e)}
