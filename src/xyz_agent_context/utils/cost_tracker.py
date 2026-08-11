@@ -204,13 +204,16 @@ async def record_cost(
     # legitimately have neither.
     user_id: Optional[str] = None
     provider_source: Optional[str] = None
+    provider_card_source: Optional[str] = None
     try:
         from xyz_agent_context.agent_framework.api_config import (
             get_current_user_id,
+            get_provider_card_source,
             get_provider_source,
         )
         user_id = get_current_user_id()
         provider_source = get_provider_source()
+        provider_card_source = get_provider_card_source(call_type)
     except Exception:
         pass
 
@@ -225,6 +228,7 @@ async def record_cost(
             "total_cost_usd": final_cost,
             "user_id": user_id,
             "provider_source": provider_source,
+            "provider_card_source": provider_card_source,
             "cache_read_input_tokens": cache_read_tokens or 0,
             "cache_creation_input_tokens": cache_creation_tokens or 0,
             "num_turns": num_turns,

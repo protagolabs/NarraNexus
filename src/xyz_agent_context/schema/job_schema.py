@@ -24,7 +24,7 @@ from enum import Enum
 from typing import ClassVar, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -61,6 +61,37 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)
+
+
+class JobUpdateFields(BaseModel):
+    """The single source of truth for the job_update tool's MUTABLE field set.
+
+    Every surface that accepts a job update derives its body from this class so
+    the field list is declared ONCE: the frontend PUT /api/jobs/{job_id} body
+    (JobUpdateBody, which adds agent_id) and the agent-scoped seam route body
+    (JobUpdateSeamBody, which adds extra="forbid"). All three — plus the shared
+    update_job_from_args keyword signature — carry the same names.
+
+    Why it matters: the seam's whole point is that DirectStore (local) and
+    HttpStore (cloud, via this route) write byte-identical results. pydantic's
+    default extra="ignore" would let a field added to update_job_from_args + the
+    MCP tool but forgotten on the route body be SILENTLY dropped on the HttpStore
+    path (success=True, one fewer updated_field) while the DirectStore path
+    applies it — exactly the divergence the seam exists to prevent. Sharing the
+    field list here removes the copy; the seam body's extra="forbid" turns any
+    residual drift into a loud 422 instead of a silent no-write.
+
+    Only-passed-fields-change semantics: every field defaults to None; None means
+    "leave unchanged" (see update_job_from_args)."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    payload: Optional[str] = None
+    guidance_text: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    job_type: Optional[str] = None
+    next_run_time: Optional[str] = None
+    status: Optional[str] = None
+    related_entity_id: Optional[str] = None
 
 
 # =============================================================================

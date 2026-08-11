@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
-      "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt"
+      "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt",
+      "patrolNotice": "Leader-Kontrolle",
+      "board": {
+        "title": "Arbeitsboard",
+        "unclaimed": "nicht zugewiesen",
+        "resume": "Aufgabe fortsetzen",
+        "patrolOff": "Kontrolle aus",
+        "patrolPending": "Noch nicht kontrolliert",
+        "patrolledJustNow": "Gerade kontrolliert",
+        "patrolledAgo": "Vor {{ago}} kontrolliert",
+        "status": {
+          "open": "offen",
+          "in_progress": "in Arbeit",
+          "stalled": "blockiert",
+          "paused": "pausiert"
+        },
+        "turnOff": "Aus",
+        "turnOn": "An"
+      }
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -785,7 +803,7 @@
       "privacyHeading": "Datenschutz",
       "privacyIntro": "Steuere, welche Daten NarraNexus erfasst, um das Produkt zu verbessern.",
       "analyticsTitle": "Produkt-Analyse",
-      "analyticsDesc": "Erlaube NarraNexus, anonyme Nutzungsdaten zu erfassen, um das Produkt zu verbessern. Es werden niemals Gesprächsinhalte erfasst.",
+      "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. Sie werden nie an einen Analysedienst eines Drittanbieters gesendet. Gesprächsinhalte werden niemals erfasst.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Einstellungen, die steuern, wie NarraNexus mit diesem Computer interagiert. Nur in der Desktop-App verfügbar.",
       "lockedUseTitle": "Locked Use — Computer wach halten",

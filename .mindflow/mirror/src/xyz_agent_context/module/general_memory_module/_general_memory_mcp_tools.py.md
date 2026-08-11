@@ -4,6 +4,11 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 (PR-11) — grep_memory 迁 seam（memory 三工具收尾）
+
+grep_memory 改 `get_agent_data_store().grep_memory(agent_id, pattern, regex, limit)`（原来直连 MemoryCoordinator，是唯一没上 seam 的、因等 ReDoS-safe 引擎）。engine 已在 [[retrieval]] grep_filter 换 `regex` 包+timeout。 工具 description 补一句 `truncated=true` 的含义（预算耗尽=结果可能不全，收窄 pattern 重试），因为 LLM 是这个字段的唯一读者。随迁删死 import（MemoryCoordinator/MemoryEngine/format_memory_hits/XYZBaseModule 三工具全 delegate 后无 code 引用）。**三工具全走 seam → mcp 容器可弃 db 凭据**。
+
+
 ## 2026-08-10 (PR-3) — remember / memory_retain 走 AgentDataStore seam
 
 两个工具改为 `get_agent_data_store().remember/memory_retain`,数据访问移到

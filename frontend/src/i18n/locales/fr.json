@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
-      "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire"
+      "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire",
+      "patrolNotice": "Contrôle du responsable",
+      "board": {
+        "title": "Tableau de travail",
+        "unclaimed": "non attribué",
+        "resume": "Reprendre cette tâche",
+        "patrolOff": "Contrôle désactivé",
+        "patrolPending": "Pas encore contrôlé",
+        "patrolledJustNow": "Contrôlé à l'instant",
+        "patrolledAgo": "Contrôlé il y a {{ago}}",
+        "status": {
+          "open": "ouvert",
+          "in_progress": "en cours",
+          "stalled": "bloqué",
+          "paused": "en pause"
+        },
+        "turnOff": "Désactiver",
+        "turnOn": "Activer"
+      }
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -785,7 +803,7 @@
       "privacyHeading": "Confidentialité",
       "privacyIntro": "Contrôlez les données que NarraNexus collecte pour améliorer le produit.",
       "analyticsTitle": "Analyses du produit",
-      "analyticsDesc": "Autoriser NarraNexus à collecter des données d'utilisation anonymes pour améliorer le produit. Aucun contenu de conversation n'est jamais collecté.",
+      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
       "desktopHeading": "Bureau",
       "desktopIntro": "Paramètres contrôlant la manière dont NarraNexus interagit avec cet ordinateur. Disponible uniquement dans l'application de bureau.",
       "lockedUseTitle": "Locked Use — garder l'ordinateur éveillé",

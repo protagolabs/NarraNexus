@@ -143,19 +143,12 @@ impl ProcessManager {
             // Analytics surface label: the desktop sidecar serves the
             // "desktop" surface. resolve_surface() reads NARRA_SURFACE.
             cmd.env("NARRA_SURFACE", "desktop");
-            // Official release builds bake a write-only PostHog ingest key in
-            // at compile time (CI sets NARRA_POSTHOG_KEY from a repo secret).
-            // option_env! resolves to None for community / source builds, which
-            // therefore stay silent (the backend falls back to NullSink). The
-            // key is forwarded to the Python sidecar as POSTHOG_API_KEY.
-            if let Some(key) = option_env!("NARRA_POSTHOG_KEY") {
-                cmd.env("POSTHOG_API_KEY", key);
-            }
             // NetMind ("Power") account login (local dual-mode). A Finder-
             // launched .app inherits no shell env, so — exactly like
-            // NARRA_POSTHOG_KEY above — these are baked at COMPILE time: a build
-            // that exported them (before `bash scripts/release/build-desktop.sh`) ships a
-            // Power-enabled desktop app; a normal community/source build leaves
+            // other release configuration — these are baked at COMPILE time: a
+            // build that exported them (before
+            // `bash scripts/release/build-desktop.sh`) ships a Power-enabled
+            // desktop app; a normal community/source build leaves
             // them None so the backend stays pure-local (username-only). A runtime
             // env var still wins (e.g. `open`ing the .app from a shell that set
             // it), keeping parity with how run.sh / dev-local.sh drive the same

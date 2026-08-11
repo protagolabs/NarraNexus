@@ -71,6 +71,7 @@ import type {
   TeamOperationResponse,
   TeamChatHistoryResponse,
   TeamChatSendResponse,
+  TeamWorkBoardResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   TeamTemplate,
@@ -511,6 +512,31 @@ class ApiClient {
     );
   }
 
+  /** The team's work board, INCLUDING parked items — a stopped task must not
+   *  look deleted, and un-parking it is the user's call. */
+  async getTeamWorkBoard(teamId: string): Promise<TeamWorkBoardResponse> {
+    return this.request<TeamWorkBoardResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items`
+    );
+  }
+
+  /** Un-park an item a stop parked. */
+  async resumeTeamWorkItem(teamId: string, itemId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items/${encodeURIComponent(itemId)}/resume`,
+      { method: 'POST' },
+    );
+  }
+
+  /** Turn the Leader's periodic sweep on or off. The board stays usable either
+   *  way — this only stops the chasing. */
+  async setTeamPatrol(teamId: string, enabled: boolean): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/patrol`,
+      { method: 'PUT', body: JSON.stringify({ enabled }) },
+    );
+  }
+
   async clearHistory(
     agentId: string,
     opts: { conversations: boolean; memory: boolean } = { conversations: true, memory: true },
@@ -645,17 +671,6 @@ class ApiClient {
         body: JSON.stringify({ opted_out: optedOut }),
       },
     );
-  }
-
-  /** Report a frontend funnel event (setup page UI actions). Identity comes
-   *  from the auth header server-side; no client properties are accepted
-   *  (the server stamps surface etc. itself). Best-effort: callers should
-   *  not block on it (fire-and-forget with a .catch). */
-  async trackFunnelEvent(event: string): Promise<void> {
-    await this.request<{ success: boolean }>('/api/auth/funnel', {
-      method: 'POST',
-      body: JSON.stringify({ event }),
-    });
   }
 
   async getAgents(): Promise<AgentListResponse> {

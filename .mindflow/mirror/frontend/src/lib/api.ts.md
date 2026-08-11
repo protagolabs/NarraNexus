@@ -3,6 +3,11 @@ code_file: frontend/src/lib/api.ts
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 工作板三个方法
+
+`getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
+`paused`**(agent 侧的列表刻意不含),因为要不要恢复是用户的决定 —— 隐藏它会
+让被停的任务看起来像被删了。
 
 ## 2026-08-10 (review 修正) — `mintTeamArtifactViewToken` 客户端方法已移除
 
@@ -226,21 +231,11 @@ origination from the Arena SSO flow.
 
 PR #24 review hardening, matching the backend change in `routes/auth.py`:
 `getAnalyticsOptOut()` / `setAnalyticsOptOut(optedOut)` no longer take a
-`userId` parameter (no query param, no body field) and `trackFunnelEvent(event)`
-no longer accepts `properties`. The server derives the user from the auth
-header and stamps event properties (surface etc.) itself.
+`userId` parameter (no query param, no body field). The server derives the user
+from the auth header and stamps event properties (surface etc.) itself.
 
-## 2026-06-09 — trackFunnelEvent (setup page UI actions)
-
-Added `trackFunnelEvent(event)` — POSTs `{event}` to
-`POST /api/auth/funnel`. Called fire-and-forget by `SetupPage` (callers
-`.catch(() => {})` to suppress errors). Identity travels in the auth header
-(X-User-Id / JWT) set by `getAuthHeaders`, not in the body — consistent with
-every other `ApiClient` method.
-
-This is the only `ApiClient` method that targets the `/api/auth/funnel`
-endpoint. It is intentionally not typed beyond `{ success: boolean }` because
-the funnel endpoint is write-only from the frontend's perspective.
+Setup actions no longer live in `ApiClient`; `productAnalytics.ts` owns the
+single browser event ingestion contract.
 
 ## 2026-06-08 — getAnalyticsOptOut / setAnalyticsOptOut
 

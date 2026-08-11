@@ -4,6 +4,55 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-10 (PR-11) — grep_memory 迁入 seam（memory 收尾）
+
+Protocol+DirectStore+HttpStore 加 `grep_memory(agent_id, pattern, regex, limit) -> dict`。DirectStore 复刻 remember（MemoryCoordinator/MemoryEngine，方言安全）；HttpStore GET 现有路由 `/memory/grep`（regex 序列化成小写供 FastAPI bool 解析）。grep 有**自己**的输入契约：`_grep_reject`(pattern 1-256) + `_clamp_grep_limit`(1-200)，**不同于** remember 的 512/100——两 store 都跑保 parity。失败键 `matches`。ReDoS 安全在 [[retrieval]] grep_filter（regex 包+timeout），故 HTTP 侧不再拒 regex。**三工具全迁完 → general_memory mcp 弃 db 凭据**。 DirectStore/route 现返回 `{...,"truncated":bool}`（[[coordinator]] 的截断信号透出）。
+
+## 2026-08-10 (PR-10) — get_chat_history 迁入 seam
+
+Protocol+DirectStore+HttpStore 加 `get_chat_history(agent_id, instance_id, limit) -> dict`。DirectStore 调 [[chat_module]] 包导出的 `fetch_chat_history`（de-raw+instance-scope，闭 IDOR）；孪生路由 [[chat_history]] `POST /chat-history/by-instance` 调同一函数。instance_id 走 body 非 path（无需 _seg）；失败降级用工具 dict 形状（instance_id/total_messages/messages）。 DirectStore 外层 try 只守 `_db()`（懒建 MySQL 池会抛）→ 保 never-raises 不变式，与孪生路由包 get_db_client 同因（管线 fix-first 补）。
+
+## 2026-08-10 (PR-9) — update_agent_profile 迁入 seam
+
+Protocol + DirectStore + HttpStore 加 `update_agent_profile(agent_id, new_name, new_description) -> str`。
+DirectStore 委托 [[_awareness_writes]] `update_agent_profile_from_args`；孪生路由 [[profile]] 调同一函数。
+**首个 str-return 且动态串的方法**：不像 update_awareness 那样重建定值常量，而是路由回 `{"message": <串>}`、
+HttpStore 拆信封原样返回（2xx）；传输降级（unreachable/≥400/非 JSON/无 message 键）一律兜成 "Error: ..." 串，
+绝不返回 dict 或抛（DirectStore 只返串，parity）。
+
+模块 docstring 的 parity 不变量补了 str-return 例外：`update_agent_profile` 的唯一输入上限（AGENT_TEXT_MAX_LENGTH name/desc cap）在共享 fn 里 enforce、路由 body **故意无 Field**——str 返回没有 _parse_dict 把 422 折回工具形状，路由级 422 会让 Http 侧降级成不同串、破 parity。故 str-return 的 bound 只能放共享 fn。
+
+## 2026-08-10 (PR-8b) — job_update 迁入 seam
+
+DirectStore.job_update(agent_id, job_id, fields) 委托 [[job_module]] 包导出的
+`update_job_from_args`（[[_job_writes]]，含承重的 effective_type/compute_next_run
+顺序 zombie-bug 修复），backend agent-scoped 路由 POST `/jobs/{id}/update` 与前端
+`/api/jobs/{id}` PUT 调同一函数 → byte-parity 且不再三份手抄。失败键 `message`(+job_id)；
+HttpStore 传输降级经 `_write_message_key` 把 error→message、`_seg` 编码 job_id 路径段。
+cross-agent 读作 not found（安全，改了旧工具漏存在性的措辞）。
+
+## 2026-08-10 (PR-8) — job 读 by_id/semantic/by_keywords 迁入 seam
+
+三个读方法委托给 [[job_module]] 包导出的 `fetch_job_by_id`/`search_jobs_semantic`/
+`search_jobs_by_keywords`（[[_job_reads]]，走 JobRepository 方言安全、自兜底不抛），
+backend [[jobs]] 孪生路由调同一批 → byte-parity。DirectStore 外层 try 只兜 `_db()`。
+HttpStore GET `/jobs/{id}`、POST `/jobs/search-semantic|search-keywords`；失败键 `error`
+与 _parse_dict 降级键一致、无需 remap。HttpStore 的 URL 路径段（narrative_id/
+event_id/job_id 等 LLM 供给）用 `_seg`(quote safe="") 编码，防 `/`/`..` 改写请求目标
+（否则 Direct 报 not found、Http 报 404，parity 缝）。limit 两 store 都 `_clamp_limit`(≤100) 对齐路由
+`Field(le=100)`。invalid-status 文案由共享 helper 产出（两路一致）。**输入契约**：`_job_query_reject`(query 1-512)/`_job_keywords_reject`(keywords≥1) 镜像路由 Field，两 store 发车前都跑（否则空/超长 query、空 keywords 本地 success、云端 422 分叉——同 memory/social 的 `_*_reject`）。
+
+## 2026-08-10 (PR-7) — basic_info view_narrative/view_event/switch_narrative 迁入 seam
+
+三个读方法委托给 [[basic_info_module/_narrative_reads]] 的 `fetch_narrative_view`/
+`fetch_event_view`/`check_narrative_switch`——这些是**方言安全**（get_one/get/
+get_by_ids，无裸 SQL）且自兜底（返回 dict 不抛）的共享函数，backend [[narrative]]
+路由调**同一批**函数，故 Direct/Http 逐字相同。DirectStore 外层只包 `_db()` 获取的
+try（fetch_* 自身不抛）保住 invariant。HttpStore GET `/narratives/{id}`、
+`/events/{id}`、POST `/narratives/{id}/switch`；失败键是 `error`（与 _parse_dict
+降级键一致，无需 remap）。**安全副作用**：旧裸 SQL 不校验 agent_id（跨租户读），
+迁移后按调用方 agent 归属过滤。
+
 ## 2026-08-10 (PR-6) — social create_agent 迁入 seam（社交模块全部迁完）
 
 最后一个 social 工具。**id 归属是 parity 关键**：`new_agent_id` 由**工具**用
@@ -13,7 +62,7 @@ DirectStore 解析 creator owner（AgentRepository）→ `provision_new_agent` �
 [[social_network_module]] 的 `format_create_agent_success`（含 warnings 上浮，
 incident #5，工具旧版本丢了 warnings，现统一上浮）。无 owner 用共享
 `CREATE_AGENT_NO_OWNER_MSG`。失败键：DirectStore `message` / 路由 `error`（含
-异常统一 `f"Error: {e}"`）→ HttpStore `_social_write_message` 逆映射。DirectStore
+异常统一 `f"Error: {e}"`）→ HttpStore `_write_message_key` 逆映射。DirectStore
 不抛（invariant）。路由 body 加 `new_agent_id`，**用 `pattern=^agent_[0-9a-f]{12}$`
 约束**——该 id 会成为 workspace 路径段（base/{user_id}/{agent_id}），无约束的
 `../victim/agent` 会跨租户写入；[[provision]] 的 `provision_new_agent` 再做一次
@@ -27,7 +76,7 @@ contact 用 [[social_network_module]] 的 `format_contact_result`、stats 用
 `format_stats_result`（DirectStore + 新路由同源，杜绝漂移）；search 原样透传。
 HttpStore 调**新建的 POST 孪生路由** `/social-network/{recall,contact,stats}`
 （POST 避开 GET `/{user_id}` 路径参数冲突；路由直接返回工具 shape=message 键、
-不 normalize，故 HttpStore 2xx 原样透传，`_social_write_message` 只兜自身传输降级）。
+不 normalize，故 HttpStore 2xx 原样透传，`_write_message_key` 只兜自身传输降级）。
 **输入契约**：`_social_search_reject`（search_keyword 1-512）、`_clamp_limit`(top_k≤100)、
 `_social_id_reject`(contact entity_id) 两 store 都跑。no-instance：search/stats 带
 `results:[]`、contact 不带（各按工具 shape）。方法全 repository 无裸 SQL、双方言安全。
@@ -40,7 +89,7 @@ SocialNetworkModule 实例（懒 import 避循环，同工具 `_get_instance_and
 `delete_entity`，失败保工具的 **`message`** 键。HttpStore 调 PR-2 已建的
 byte-parity 写路由（`/social-network/{extract,merge,delete-entity}`）。
 **唯一 parity 坑=失败键**：路由用 `_normalize_write_result` 把 `message`→`error`
-（HTTP 家族约定）；`_social_write_message` 是其**精确逆**（`error`→`message`），
+（HTTP 家族约定）；`_write_message_key` 是其**精确逆**（`error`→`message`），
 把路由响应 + HttpStore 自身传输降级统一回工具的 `message` 形状。成立前提=三个
 写方法**只用 `message` 失败**（实测）。实例缺失文案走 [[social_network_module]]
 新增的共享 `social_instance_not_found_msg`（route+DirectStore 同源，杜绝漂移）。

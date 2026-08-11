@@ -25,7 +25,9 @@ subscribe/cancel, and recharge land in later phases on the same proxy.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlencode, urlparse
 
@@ -34,6 +36,12 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
+from xyz_agent_context.analytics import track
+from xyz_agent_context.analytics.events import (
+    EVENT_CHECKOUT_CREATED,
+    EVENT_SUBSCRIPTION_ACTIVATED,
+    PROP_SESSION_ID,
+)
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.url_safety import is_obviously_non_public_host
 from xyz_agent_context.utils.deployment_mode import (
@@ -54,6 +62,55 @@ from backend.auth_errors import NETMIND_TOKEN_INVALID, AuthError
 router = APIRouter()
 
 _NETMIND_TOKEN_HEADER = "X-Netmind-Token"
+
+
+def _normalise_billing_timestamp(value: object) -> str | None:
+    """Convert a controlled upstream timestamp to DB-neutral UTC DATETIME."""
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value)
+            if seconds > 10_000_000_000:
+                seconds /= 1000
+            parsed = datetime.fromtimestamp(seconds, tz=timezone.utc)
+        elif isinstance(value, str) and value.strip():
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.astimezone(timezone.utc)
+        else:
+            return None
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return parsed.replace(tzinfo=None).isoformat(sep=" ", timespec="microseconds")
+
+
+def _subscription_activation_fact(
+    user_id: str,
+    subscription: dict,
+) -> tuple[str, str] | None:
+    """Return a stable event ID and authoritative activation timestamp.
+
+    A bare ACTIVE snapshot is insufficient: without a subscription/cycle key
+    it cannot distinguish the first purchase from a later re-subscription, and
+    without an upstream timestamp it would mislabel polling time as payment
+    time. Such snapshots deliberately produce no fact.
+    """
+    subscription_id = subscription.get("subscription_id") or subscription.get("id")
+    period_start = subscription.get("current_period_start") or subscription.get(
+        "period_start"
+    )
+    identity = subscription_id or period_start
+    raw_occurred_at = (
+        subscription.get("activated_at")
+        or subscription.get("start_time")
+        or subscription.get("created_at")
+        or period_start
+    )
+    occurred_at = _normalise_billing_timestamp(raw_occurred_at)
+    if not identity or not occurred_at:
+        return None
+    digest = hashlib.sha256(f"{user_id}:{identity}".encode("utf-8")).hexdigest()
+    return f"subscription_activated:{digest}", occurred_at
 
 
 def _client() -> NetmindBillingClient:
@@ -138,7 +195,7 @@ async def get_subscription(request: Request):
     the NetMind loginToken is forwarded to identify the user on NetMind's side.
     """
     # Require a Power account (rejects unauthenticated -> 401, local user -> 404).
-    await _require_power_account(request)
+    user_id = await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
         data = await _client().get_subscription(token)
@@ -149,6 +206,17 @@ async def get_subscription(request: Request):
         # Business 4xx on a read endpoint = upstream contract violation -> 502.
         logger.error(f"[billing] get_subscription upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
+    subscription = data.get("subscription") if isinstance(data, dict) else None
+    if isinstance(subscription, dict) and subscription.get("status") == "ACTIVE":
+        activation = _subscription_activation_fact(user_id, subscription)
+        if activation is not None:
+            event_id, occurred_at = activation
+            await track(
+                user_id=user_id,
+                event=EVENT_SUBSCRIPTION_ACTIVATED,
+                event_id=event_id,
+                occurred_at=occurred_at,
+            )
     return {"success": True, "data": data}
 
 
@@ -340,6 +408,14 @@ async def subscribe(request: Request):
     """Start a Pro subscription — returns Stripe {session_id, checkout_url}."""
     result = await _write_action(request, "subscribe", _return_urls("subscription"))
     _validate_checkout_url((result.get("data") or {}).get("checkout_url"))
+    user_id = await resolve_current_user_id(request)
+    session_id = (result.get("data") or {}).get("session_id")
+    await track(
+        user_id=user_id,
+        event=EVENT_CHECKOUT_CREATED,
+        event_id=f"checkout_created:{session_id}" if session_id else None,
+        properties={PROP_SESSION_ID: session_id},
+    )
     return result
 
 

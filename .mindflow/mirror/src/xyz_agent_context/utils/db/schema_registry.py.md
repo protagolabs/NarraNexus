@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — product facts + exact provider source
+
+Added append-only `product_analytics_events`, indexed by event/user/run/failure
+time. No external telemetry history is migrated. `cost_records` gained
+`provider_card_source`; the older resolver branch is always `user` now and
+cannot distinguish `netmind_free` from another user-owned provider. The new
+column deliberately reuses the existing `created_at` range index instead of
+building a composite index during startup; this avoids an unbounded full-table
+index build delaying `/health` on the high-volume cost ledger.
+
+The product fact hot-retention contract is 400 days, covering the data API's
+maximum 365-day analysis window plus operational margin. Enforcement belongs
+to deployment-managed archival/cleanup, never `auto_migrate`: schema startup
+must not perform destructive or duration-unbounded maintenance.
+
+## 2026-08-07 — team_work_items 新表 + teams 的巡查列
+
+工作板:产品里第一个**任务级**对象(此前持久化的一切都是对话)。语义与状态机
+见 [[team_work_schema]]。`channel_id` 从 team_id 反范式化是为巡查:候选查询每轮
+都要「把 lead 唤到哪个房间」,逐项 join 太贵。索引 `(team_id, status)` 是巡查
+唯一热路径,`(root_run_id)` 服务停止→暂停。
+
+`teams` 加四列:`patrol_enabled`(NULL = 未定,对**有 lead** 的 team 读作开 ——
+设 lead 这个动作本身就是在说「这个负责」)、`last_patrol_at`,以及
+`patrol_spoke_at/count`。
+
+**后两列刻意落盘**:bus 已有 per (agent,channel) 限流,但它活在
+`MessageBusTrigger._rate_counters` —— 内存 dict + `time.monotonic()`,workers
+一重启就清零。对它原本的用途(压制话痨 agent)没问题;对巡查**不行**:巡查
+消息被豁免了级联深度上限(拍板口径 a),这个计数器是仅剩的兜底,而一重启就
+消失的兜底不是兜底。
+
 ## 2026-08-07 — 审计两表的保留期：待定，不是「不需要」
 
 `narrative_routing_audit` 每轮一行、带 ~15KB 的 `candidates_json`；

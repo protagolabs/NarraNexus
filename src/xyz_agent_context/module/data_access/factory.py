@@ -34,6 +34,11 @@ from xyz_agent_context.module.data_access.store import (
     DirectStore,
     HttpStore,
 )
+from xyz_agent_context.module.data_access.channel_store import (
+    ChannelCredentialStore,
+    DirectStore as ChannelDirectStore,
+    HttpStore as ChannelHttpStore,
+)
 
 
 def current_identity_headers() -> dict:
@@ -71,3 +76,21 @@ def get_agent_data_store(identity_headers: Optional[dict] = None) -> AgentDataSt
             else current_identity_headers(),
         )
     return DirectStore()
+
+
+def get_channel_credential_store(
+    identity_headers: Optional[dict] = None,
+) -> ChannelCredentialStore:
+    """Composition root for ChannelCredentialStore — same env gate, same
+    identity-header forwarding as ``get_agent_data_store`` (channel_store.py's
+    module docstring explains why this is a separate Protocol rather than a
+    method added to AgentDataStore)."""
+    backend_url = os.environ.get("NARRANEXUS_BACKEND_URL", "").strip()
+    if backend_url:
+        return ChannelHttpStore(
+            backend_url,
+            identity_headers=identity_headers
+            if identity_headers is not None
+            else current_identity_headers(),
+        )
+    return ChannelDirectStore()

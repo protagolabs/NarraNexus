@@ -182,7 +182,25 @@
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned",
-      "stoppedNotice": "{{name}}'s task was stopped by the owner"
+      "stoppedNotice": "{{name}}'s task was stopped by the owner",
+      "patrolNotice": "Leader patrol",
+      "board": {
+        "title": "Work board",
+        "unclaimed": "unclaimed",
+        "resume": "Resume this task",
+        "patrolOff": "Patrol off",
+        "patrolPending": "Not patrolled yet",
+        "patrolledJustNow": "Patrolled just now",
+        "patrolledAgo": "Patrolled {{ago}} ago",
+        "status": {
+          "open": "open",
+          "in_progress": "in progress",
+          "stalled": "stalled",
+          "paused": "paused"
+        },
+        "turnOff": "Turn off",
+        "turnOn": "Turn on"
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -968,7 +986,7 @@
       "privacyHeading": "Privacy",
       "privacyIntro": "Control what data NarraNexus collects to improve the product.",
       "analyticsTitle": "Product analytics",
-      "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected.",
+      "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. It is never sent to a third-party analytics service. Conversation content is never collected.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
       "lockedUseTitle": "Locked Use — keep the computer awake",

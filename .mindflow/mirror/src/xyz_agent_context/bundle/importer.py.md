@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-07-23
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 工作板还原、id 重映射与回滚
+
+board 随 team 行一起写入,三处 id 各有各的处理:
+
+- `assignee_id` 经 `id_map` 重映射;**落在导出闭包之外的 assignee 变成未认领**
+  —— 这是真的、且可行动的状态,好过一个没人能追的悬空引用。
+- `root_run_id` 恒为 NULL(导出侧已丢弃,理由见 [[builder]])。
+- `channel_id` **在 bus channel 还原之后回填**:team 行写在 channel 之前。
+  bundle 没带聊天时保持为空 —— 板子在 UI 上照样完整可用(那个视图按 team_id
+  查),只有巡查要等房间建起来,而巡查本来也需要一个房间才能说话。
+
+回滚清单同步加了 `team_work_items`,否则失败的导入会留下一块孤儿板子。
 
 ## 2026-07-23 — 导入修剪超长 agent_name / agent_description(#71)
 

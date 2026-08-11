@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "Envie uma mensagem para começar — {{name}} assume, ou use @ para falar com outra pessoa diretamente.",
       "leadTitle": "{{name}} · responde quando ninguém é mencionado",
-      "stoppedNotice": "A tarefa de {{name}} foi parada pelo proprietário"
+      "stoppedNotice": "A tarefa de {{name}} foi parada pelo proprietário",
+      "patrolNotice": "Ronda do líder",
+      "board": {
+        "title": "Quadro de trabalho",
+        "unclaimed": "sem responsável",
+        "resume": "Retomar esta tarefa",
+        "patrolOff": "Ronda desligada",
+        "patrolPending": "Ainda sem ronda",
+        "patrolledJustNow": "Ronda agora mesmo",
+        "patrolledAgo": "Ronda há {{ago}}",
+        "status": {
+          "open": "aberto",
+          "in_progress": "em andamento",
+          "stalled": "parado",
+          "paused": "pausado"
+        },
+        "turnOff": "Desligar",
+        "turnOn": "Ligar"
+      }
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -785,7 +803,7 @@
       "privacyHeading": "Privacidade",
       "privacyIntro": "Controle que dados o NarraNexus recolhe para melhorar o produto.",
       "analyticsTitle": "Análise de produto",
-      "analyticsDesc": "Permitir que o NarraNexus recolha dados de uso anónimos para melhorar o produto. O conteúdo das conversas nunca é recolhido.",
+      "analyticsDesc": "Permitir que o NarraNexus guarde metadados de utilização para análise. No modo cloud, são armazenados numa base de dados gerida pelo NarraNexus; no modo local ou de ambiente de trabalho, ficam neste dispositivo. Nunca são enviados para um serviço de análise de terceiros. O conteúdo das conversas nunca é recolhido.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Configurações que controlam como o NarraNexus interage com este computador. Disponível apenas no aplicativo desktop.",
       "lockedUseTitle": "Locked Use — manter o computador acordado",

@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-05-08
 ---
 
+## 2026-08-10 — recent_for_agent + SQL 下推 + 归一器迁出
+
+`recent_for_agent`(static:实例按 channel 构造,而 agent 轨迹跨
+channel——诊断端点的查询形状);`recent()` 从全表拉取+Python 排序改
+SQL order/limit;`count_by_type` 加列投影(不再拖整窗 details)。
+`_event_time_str` 迁至 utils/db/dialect_time 公有,本模块调用点
+**直接改用公名,不留别名**(铁律 #2:兼容 shim 在零外部消费者时
+纯属摩擦)——曾在本仓库与 Lark 仓库各一份拷贝、且被路由跨包
+import 私名。Lark 仓库的 twin(recent 全表拉取+排序、count_by_type
+无投影)同批收口(铁律 #8:打开了文件就扫完相邻代码)。
+
 ## Why it exists
 
 Generic multi-channel version of ``LarkTriggerAuditRepository``. The

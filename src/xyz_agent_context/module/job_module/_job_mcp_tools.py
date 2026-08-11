@@ -23,7 +23,6 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, TypeAdapter, WithJsonSchema
 
-from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
 
@@ -236,47 +235,14 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 status="active"
             )
         """
-        try:
-            status_enum = None
-            if status:
-                try:
-                    status_enum = JobStatus(status.lower())
-                except ValueError:
-                    return {
-                        "success": False,
-                        "error": f"Invalid status: {status}. Valid values: pending, active, running, completed, failed"
-                    }
+        # Routes through the seam. setup_mcp_llm_context is gone: search_keyword
+        # is BM25 (vectors retired), so the call only added a db read + a raise
+        # path. Status validation lives in the shared helper (parity).
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            await setup_mcp_llm_context(agent_id)
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-
-            # Vectors retired: BM25 keyword search over jobs replaces the
-            # embedding cosine path (unified-memory refactor).
-            results = await repo.search_keyword(
-                agent_id=agent_id,
-                query=query,
-                user_id=user_id,
-                status=status_enum,
-                limit=limit
-            )
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            jobs_data = [
-                {**job_to_llm_dict(job), "similarity_score": round(score, 4)}
-                for job, score in results
-            ]
-
-            return {
-                "success": True,
-                "query": query,
-                "total_results": len(jobs_data),
-                "jobs": jobs_data,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_semantic: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_semantic(
+            agent_id, query, user_id, status, limit
+        )
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_by_id
@@ -305,32 +271,11 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 job_id="job_abc123"
             )
         """
-        try:
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-            job = await repo.get_job(job_id)
+        # Routes through the AgentDataStore seam (DirectStore local / HttpStore
+        # cloud, via job_module's shared read helpers). Agent-scoping preserved.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            if not job:
-                return {"success": False, "error": f"Job not found: {job_id}"}
-
-            if job.agent_id != agent_id:
-                return {"success": False, "error": "Access denied: Job belongs to a different agent"}
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            return {
-                "success": True,
-                "job": {
-                    **job_to_llm_dict(job),
-                    "process": job.process,
-                    "last_error": job.last_error,
-                    "created_at": job.created_at.isoformat() if job.created_at else None,
-                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-                },
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_by_id: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_by_id(agent_id, job_id)
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_by_keywords
@@ -366,42 +311,12 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 status="active"
             )
         """
-        try:
-            status_enum = None
-            if status:
-                try:
-                    status_enum = JobStatus(status.lower())
-                except ValueError:
-                    return {"success": False, "error": f"Invalid status: {status}"}
+        # Routes through the seam (see the other job reads).
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            db = await get_db_client_fn()
-            repo = JobRepository(db)
-            jobs = await repo.search_by_keywords(
-                agent_id=agent_id,
-                keywords=keywords,
-                user_id=user_id,
-                status=status_enum,
-                limit=limit
-            )
-
-            from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-            jobs_data = []
-            for job in jobs:
-                entry = job_to_llm_dict(job)
-                if len(entry["description"] or "") > 200:
-                    entry["description"] = entry["description"][:200] + "..."
-                jobs_data.append(entry)
-
-            return {
-                "success": True,
-                "keywords": keywords,
-                "total_results": len(jobs_data),
-                "jobs": jobs_data,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_retrieval_by_keywords: {e}")
-            return {"success": False, "error": str(e)}
+        return await get_agent_data_store().job_retrieval_by_keywords(
+            agent_id, keywords, user_id, status, limit
+        )
 
     # -----------------------------------------------------------------
     # Tool: job_update (Feature 2.2.2)
@@ -455,105 +370,25 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         Common errors: job not found / other agent's; missing "timezone" or
         run_at with offset; invalid job_type/status; no fields passed.
         """
-        try:
-            from xyz_agent_context.module.job_module.job_service import JobInstanceService
-            from xyz_agent_context.schema.job_schema import JobType
-            from datetime import datetime
+        # Routes through the AgentDataStore seam. The whole build-updates body
+        # (effective_type ordering, trigger_config + compute_next_run, status
+        # validation) is now the shared update_job_from_args (DirectStore local /
+        # HttpStore cloud). A cross-agent job now reads as "not found" (no
+        # existence oracle — the old tool leaked "does not belong to agent X").
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            db = await get_db_client_fn()
-            job_repo = JobRepository(db)
-
-            # Verify authorization
-            job = await job_repo.get_job(job_id)
-            if not job:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
-
-            if job.agent_id != agent_id:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} does not belong to agent {agent_id}"}
-
-            # Build update dictionary
-            updates = {}
-
-            # Resolve effective job_type up front — trigger_config's
-            # compute_next_run runs before the job_type branch below, so
-            # reading updates.get("job_type") there saw the OLD type and a
-            # one_off->scheduled switch with a new cron computed next_run_time
-            # as one_off (-> None), zombifying the job (fixed in lockstep with
-            # the /api/jobs/{id} route, pre-open review #4).
-            if job_type is not None:
-                try:
-                    effective_type = JobType(job_type.lower())
-                except ValueError:
-                    return {"success": False, "job_id": job_id, "message": f"Invalid job_type: {job_type}. Valid: one_off, scheduled, ongoing"}
-                updates["job_type"] = effective_type
-            else:
-                effective_type = job.job_type
-
-            if title is not None:
-                updates["title"] = title
-            if description is not None:
-                updates["description"] = description
-            if payload is not None:
-                updates["payload"] = payload
-            if guidance_text:
-                base_payload = updates.get("payload", job.payload) or ""
-                updates["payload"] = f"{base_payload}\n\n## Manager Guidance\n{guidance_text}"
-            if trigger_config is not None:
-                # Validate + recompute alpha/beta atomically so display matches poller view
-                from xyz_agent_context.schema.job_schema import TriggerConfig
-                from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
-                from pydantic import ValidationError as _VE
-                try:
-                    tc_model = TriggerConfig(**trigger_config)
-                except _VE as ve:
-                    first = ve.errors()[0]
-                    loc = ".".join(str(p) for p in first.get("loc", ()))
-                    return {"success": False, "job_id": job_id,
-                            "message": f"Invalid trigger_config ({loc}): {first['msg']}"}
-                updates["trigger_config"] = tc_model
-                nxt = compute_next_run(effective_type, tc_model)
-                if nxt:
-                    updates["next_run_time"] = nxt.utc
-                    updates["next_run_at_local"] = nxt.local
-                    updates["next_run_tz"] = nxt.tz
-                else:
-                    updates["next_run_time"] = None
-                    updates["next_run_at_local"] = None
-                    updates["next_run_tz"] = None
-            if next_run_time is not None:
-                # Atomic alpha+beta override: parse UTC input, then derive the
-                # beta pair in the job's frozen timezone so display and poller
-                # stay consistent.
-                try:
-                    next_utc = datetime.fromisoformat(next_run_time.replace("Z", "+00:00"))
-                    if next_utc.tzinfo is None:
-                        from datetime import timezone as _tz
-                        next_utc = next_utc.replace(tzinfo=_tz.utc)
-                except ValueError as e:
-                    return {"success": False, "job_id": job_id, "message": f"Invalid next_run_time format: {e}"}
-                from zoneinfo import ZoneInfo
-                tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
-                next_local = next_utc.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
-                updates["next_run_time"] = next_utc
-                updates["next_run_at_local"] = next_local
-                updates["next_run_tz"] = tz_name
-            if status is not None:
-                try:
-                    updates["status"] = JobStatus(status.lower())
-                except ValueError:
-                    return {"success": False, "job_id": job_id, "message": f"Invalid status: {status}. Valid: active, paused, cancelled"}
-            if related_entity_id is not None:
-                updates["related_entity_id"] = related_entity_id
-
-            if not updates:
-                return {"success": False, "job_id": job_id, "message": "No fields to update"}
-
-            service = JobInstanceService(db)
-            return await service.update_job(job_id=job_id, updates=updates, agent_id=agent_id)
-
-        except Exception as e:
-            logger.exception(f"Error in job_update: {e}")
-            return {"success": False, "error": str(e)}
+        fields = {
+            "title": title,
+            "description": description,
+            "payload": payload,
+            "guidance_text": guidance_text,
+            "trigger_config": dict(trigger_config) if trigger_config is not None else None,
+            "job_type": job_type,
+            "next_run_time": next_run_time,
+            "status": status,
+            "related_entity_id": related_entity_id,
+        }
+        return await get_agent_data_store().job_update(agent_id, job_id, fields)
 
     # -----------------------------------------------------------------
     # Tool: job_pause (Feature 2.2.2)

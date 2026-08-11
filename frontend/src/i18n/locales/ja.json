@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応",
-      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました"
+      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました",
+      "patrolNotice": "リーダー巡回",
+      "board": {
+        "title": "作業ボード",
+        "unclaimed": "未割り当て",
+        "resume": "このタスクを再開",
+        "patrolOff": "巡回オフ",
+        "patrolPending": "未巡回",
+        "patrolledJustNow": "たった今巡回",
+        "patrolledAgo": "{{ago}}前に巡回",
+        "status": {
+          "open": "未着手",
+          "in_progress": "進行中",
+          "stalled": "停滞",
+          "paused": "一時停止"
+        },
+        "turnOff": "オフ",
+        "turnOn": "オン"
+      }
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -784,7 +802,7 @@
       "privacyHeading": "プライバシー",
       "privacyIntro": "製品改善のために NarraNexus が収集するデータを管理します。",
       "analyticsTitle": "製品アナリティクス",
-      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。",
+      "analyticsDesc": "分析のために NarraNexus が製品利用メタデータを保存することを許可します。クラウドモードでは NarraNexus が管理するデータベースに保存され、ローカルまたはデスクトップモードではこの端末内に保持されます。第三者の分析サービスには送信されず、会話内容も一切収集されません。",
       "desktopHeading": "デスクトップ",
       "desktopIntro": "NarraNexus とこのコンピュータの連携を制御する設定です。デスクトップアプリでのみ利用できます。",
       "lockedUseTitle": "Locked Use — スリープを防止",

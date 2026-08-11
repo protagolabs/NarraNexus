@@ -1,15 +1,58 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
+
+`_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。
+判定逻辑全在 [[patrol]],这里只负责调度与发言。
+
+- **与消息派发同一道闸**:同一个 per-agent 锁 + 同一个 semaphore,并登记
+  `_in_flight` —— 正在回话的 lead 不会被再叫醒来巡查,巡查也逃不出 worker 上限,
+  卡住的巡查还能像普通轮次一样在心跳里被看见。
+- **静默是常态**:模型没话说就什么都不发。每十分钟播报一次「一切正常」正是这个
+  房间一路在删的常驻噪音(折叠 console、赖着不走的活动气泡)。
+- **游标在 finally 里推**:崩掉的巡查也占用了它那一格,立刻重试会把一个坏掉的
+  team 变成热循环。
+- **以房间身份落墙**(`team_<id>` + `msg_type=patrol`),不是以 lead 的身份:
+  这既是它能被 `_team_cascade_depth` 跳过的原因,读起来也诚实 —— 这是平台在
+  盘点,不是 lead 在聊天。
+
+## 2026-08-10 — `_team_cascade_depth` 跳过巡查行
+
+拍板口径 (a)。不跳过的话豁免会自我拆台:巡查开口的那个房间**正因为流程断了**
+才处在深度上限上,它自己那一行会把后续所有催办 @ 顶出可用区间。
+
+用户消息仍然清零(计数器原本的用途没变)。
+
+**过滤下推到 SQL,不在 Python 里跳过**:`AND (msg_type IS NULL OR msg_type != ?)`。
+这不是写法偏好 —— 深度窗口是固定 `LIMIT MAX_TEAM_AGENT_HOPS + 2` 的定长窗口,
+在 Python 里跳过的巡查行**仍然占着窗口的格子**。一个流程断掉的房间恰恰是巡查
+最常光顾的地方,几条巡查行就能把窗口填满,`depth` 从此永远够不到
+`MAX_TEAM_AGENT_HOPS` —— 防 @ 风暴的上限在最需要它的房间里静默失效。`IS NULL`
+那一半是必须的:老消息没有 `msg_type`,漏掉它等于把历史全部排除在计数外。
+
+## 2026-08-07 (三次) — lead 知道自己是 lead;工作板随 prompt 注入
+
+`_build_team_prompt` 增加 `lead_agent_id` / `work_items`,`_team_board()` 负责
+取数(best-effort:板子读不到就退化成「没有条目」,房间对话才是主表面 —— 丢一
+段板子只是少点上下文,丢一轮是用户拿不到答复)。
+
+**在此之前 `lead_agent_id` 在 agent 侧零语义**:全部消费者只有「无 @ 时的兜底
+路由」和前端徽章。lead 不知道自己是 lead,所以「Leader 应该盯进度」根本无处
+挂载。现在 lead 会拿到职责段:派活必须落 `work_add_item`,收到交付要
+`work_complete_item`。
+
+**板子是注入的,不是让它自己去查**:如果看自己的板子还得先调工具,「我派出去
+什么」就取决于模型愿不愿意去看 —— 铁律 #15 要避开的正是这类依赖。普通成员也
+看得到板子(它得知道自己认领了什么),只是不给驱动流程的职责。
 
 ## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
 
 `resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
 wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
 只是签名与 docstring 不再谎称"永远返回 str"。
-
 
 ## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
 
@@ -602,3 +645,85 @@ turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime
 hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
 inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
 已回写进代码注释）。
+
+## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
+
+**巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
+「少个 UI 指示」而是这条主线上工作板工具全废:`_work_board_mcp_tools` 当时只从
+`bus_agent_activity` 认房间,巡查不写这张表,于是 5 个工具在**平台自己叫 lead
+调 `work_complete_item` 的那一轮**统一返回 no room / not found。连带两处:
+roster 整个 sweep 期间显示 lead 空闲。
+
+**开这行**不能**顺带解决自我 stall**——这点最初写错了,更正在此:活动行是
+per-agent 单行,描述的是**当前这一轮**,而巡查者当前这一轮就是巡查本身。检测在
+开行之前读到 idle(于是 lead 每轮把自己的条目标 stalled,永不恢复,prompt 还会
+让 lead 去催自己),开行之后读到 running(于是 lead 的条目永远不会 stalled)。
+两个读数都不携带「这个条目有没有在推进」的信息。所以真正的修法是
+`detect_stalled_items(executor_agent_id=...)` **把巡查者自己的条目跳过** ——
+代价是「lead 卡在自己条目上时,**没有任何人**会发现」—— 巡查每个 team 只有一
+条、由该 team 的 lead 跑,不存在第二个 sweep 兜底(详见 [[patrol]] 的更正)。
+明写接受,因为另一个选项是完全没有恢复路径的永久自我催办。
+
+**同时给 `_invoke_runtime` 传 `team_id=`**,MCP 身份头才有 team 可注入。这与上一
+条是同一个洞的两头:工具必须从服务端知道自己在哪个 team,不能从模型参数知道。
+resolver 那侧也改成**优先读注入身份**、activity 行退化为兜底 —— 见
+`_work_board_mcp_tools.py.md`,那份文档原本就写下了「依赖 activity 写入时机」
+这个风险预判,巡查 lane 正是把它兑现的那个分支。
+
+**熔断门**:`_dispatch_patrols` 在唤醒 lead 前过 `should_skip`,和消息派发同一道
+闸。没有它,一个 key 失效或额度耗尽的 lead 会被每 180–600s 唤醒一次去跑一轮
+注定失败的 turn —— 正是熔断器要掐断的循环,只是从一条没问过它的 lane 进来。
+外层不包 try/except:`should_skip` 自己 fail-open,包了就是个永远跑不到的
+handler,而死 handler 会让读者以为它会抛。
+
+**`flight.running` 置位**:`liveness_snapshot` 的饥饿检查和 `longest_running_agent`
+都只数 `running`,不置位的巡查会占着 worker 槽却在心跳里显示为「仅在等待」——
+2026-07-27 那种「33 小时什么都没发生,liveness 全绿」的形状。
+
+**事实采集先于说话权**:`detect_stalled_items` 挪到频控门之前。检测不是「说话」
+的一部分 —— 它把 `stalled` 写进板子,那是用户面板渲染的东西,也是下一次 sweep
+定速的依据。频控一并挡住它时,被 cap 的团队整个窗口都不刷新板子:窗口内变哑的
+条目事后仍显示 `in_progress`,UI 少报,自适应间隔还停在慢档 —— 恰恰在出问题的
+时候。一次读加一次状态写,和频控真正要省的那轮 LLM 不在一个量级。
+
+## 2026-08-11 — sweep 是一次完整的 run,不是「顺带开一行」
+
+上一轮只把活动行开在 `_invoke_runtime` 外面,开了行却不填它。三个后果,严重度
+递减:
+
+**(1) 用户可见回退,而且是本 PR 自己造的。** `bus_agent_activity` 是
+per (agent, channel) 单行,`start()` 往 `event_id` 写 NULL。一次 sweep 之后 lead
+那行的 `event_id` 被清空、再没写回,而 `_member_activity` 的 idle 分支正是把这
+一列交给前端当**事件日志入口**。为了 roster 去开这行,结果把 roster 要的那个
+链接弄丢了。
+
+**(2) 巡查 run 停不掉。** 消息 lane 建 `CancellationToken` + `watcher.register`,
+巡查没有,于是 owner 的停止对巡查 run 不生效,`_leave_room_trace` 按
+`bus_agent_activity.event_id` 反查房间也落不到。
+
+**(3) 巡查自己不可观测**:sweep 期间 roster 显示 running,点进去没有 event_log。
+
+现在照消息 lane 的完整形状补齐:`on_event_id` 里同时 `watcher.register` 和
+`act.note_event_id`,`stack.callback` 反注册。活动行也从「只包 LLM 调用」改成
+**包住整个 sweep**——检测开始那一刻 lead 就被占用了,roster 该如实说这段时间。
+
+顺带把 sweep 主体拆成 `_patrol_body`:`_run_patrol` 现在只负责 activity/取消的
+作用域 + 「无论如何都推进游标」这条不变量,主体在里面平铺,不用为了一个
+`async with` 再缩进一层。
+
+## 2026-08-11 — 活动行推迟到「真要跑 turn」才开
+
+上一条把活动行提到 sweep 开头,理由是「检测开始那一刻 lead 就被占用了」。这个
+理由**在同一次改动之后就不成立了**:正因为 `detect_stalled_items` 现在显式跳过
+巡查者,检测阶段这行是开是关对判定毫无影响;工作板工具的兜底解析也只在
+`_invoke_runtime` 期间才有人读。
+
+而代价是实的:`start()` 写 `event_id: None` 并重置 `steps` / `started_at`,写回
+要等 `on_event_id`。开得早,则**任何在跑 turn 之前返回的 sweep**(频控门命中,
+或组装 prompt 时抛异常)都会顺路把 lead 上一次真实回复的事件日志入口抹掉 ——
+正是本 lane 已经修过一次的那条用户可见回退,从另一扇门进来。而且不是边角:
+板上有 stalled 时节奏 180s、30 分钟窗口约 10 次 sweep,而 `PATROL_SPEECH_MAX`
+是 6,窗口尾部那几次全走这条空跑路径。
+
+所以现在开在 `_invoke_runtime` 之前一行。roster 少显示前两次 DB 读那一瞬的
+running,换回一个不会被抹掉的链接。

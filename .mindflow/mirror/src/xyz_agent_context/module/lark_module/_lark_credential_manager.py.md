@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
-last_verified: 2026-07-29
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (PR-F) — 原始视图 + 反序列化助手（channel seam 接入）
+
+新增**显式** `to_raw_dict()`（全字段含密钥 app_secret_encoded + permission_state 原样 + 时间戳 datetime→ISO/str 透传，因 Lark 无 to_public_dict 且 created_at 不经 _parse_dt）+ `_cred_from_raw(raw)` 逆转（ISO 串解析回 datetime）。供 [[channel_store]] seam（读方法登记为 `get_credential`，与其它 channel 的 `get` 不同）+ owner-gated 端点 [[channel_credentials]]。
+
 
 ## 2026-07-29 — bot_open_id + update_bot_identity
 

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-08-05
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — terminal outcome facts and latency
+
+Every terminal chat run emits a success or normalized failure fact with
+trigger source and monotonic latency. Fatal natural endings count as failure
+even when the legacy events state is `completed`; quota failures also carry
+the exact provider-card source.
 
 ## 2026-07-31 — 持久化半身抽出为 RunRecorder（组合，行为不变）
 

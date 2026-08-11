@@ -3,6 +3,21 @@ code_file: backend/routes/jobs.py
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 (PR-8b) — PUT /{job_id} 收口到共享 update_job_from_args
+
+~90 行 build-updates 逻辑删除、改调 [[_job_writes]]（与 seam DirectStore 及 agent 路由同源，
+消除第三份手抄+zombie-bug 分叉，铁律 #8），结果 wrap 进 JobUpdateResponse。
+
+**PR-8b r2**：`JobUpdateBody` derive 自 [[job_schema]] 共享 `JobUpdateFields`(只加 agent_id)，9 字段清单单点声明；与 seam body 同源，消除字段层第 4 份手抄。删死 import `JobType`。 PUT 前端也改 `**body.model_dump(exclude={'agent_id'})` 转发，加字段自动流过、不再前端腿静默丢（drift-proof 收口）。
+
+## 2026-08-10 (PR-8) — 两个 search 路由收口到共享实现
+
+`/search/semantic` 与 `/search/keywords` 不再自己抄 status 校验/`job_to_llm_dict`/截断，
+改调 [[_job_reads]] 的 `search_jobs_semantic`/`search_jobs_by_keywords`（与 seam 的 DirectStore
+及 [[agents/jobs]] 孪生路由同一实现，消除第三份手抄 drift，铁律 #8）。user_id 仍取自
+`resolve_current_user_id`（严格 per-user，与 agent 面 seam 路由的宽松 user_id 相反——见
+[[agents/jobs]]）。import 用 alias（`_shared_search_*`）避与同名路由函数冲突。
+
 
 ## 2026-08-10 (pre-open review #4) — job_type 提前解析,修 type-switch 僵尸 job
 

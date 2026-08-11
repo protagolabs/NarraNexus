@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — subscription intent and checkout open
+
+The upgrade action records `subscribe_clicked` before session creation and
+`checkout_opened` only after a valid URL returns. Capture remains non-blocking.
 
 ## 2026-07-31 — 套餐名统一为 "Nexus Pro"
 

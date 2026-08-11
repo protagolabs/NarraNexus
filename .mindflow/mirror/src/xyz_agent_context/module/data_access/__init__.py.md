@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/__init__.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 (PR-A) — 导出 ChannelCredentialStore 家族
+
+公共面新增 [[channel_store]] 的 `ChannelCredentialStore` 协议 + `ChannelDirectStore`/`ChannelHttpStore`
+（以别名导出，避免与 AgentDataStore 的 DirectStore/HttpStore 撞名）+ 组合根 `get_channel_credential_store`。
 
 ## Why it exists
 
