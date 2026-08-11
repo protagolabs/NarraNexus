@@ -220,6 +220,32 @@ def test_late_voice_upgrade_recovers_cold_roster_cache():
     )
 
 
+def test_late_upgrade_recovers_degraded_turn_on_cold_roster_cache():
+    """The late upgrade shares _detect_voice_turn, so the DEGRADED level
+    must recover on a cold roster cache too: broken v1 metadata with a
+    non-blank voice_instructions parses as plain text (GROUP-conservative
+    gate), then the authoritative dm verdict upgrades it to a degraded
+    voice turn — empty binding IDs, instructions preserved, envelope
+    stripped."""
+    trigger = MatrixTrigger()
+    # Cold cache: no member count -> parse_event refuses voice mode.
+    raw = trigger._wrap_event(
+        event=_voice_event(meta=_rtc_meta(seq=2)),
+        room_id="!freshdeg:h",
+        credential=_cred(),
+    )
+    msg = trigger.parse_event(raw)
+    assert "rtc_voice" not in msg.raw
+
+    upgraded = trigger._late_voice_upgrade(msg, authoritative_dm=True)
+    assert upgraded.content == TRANSCRIPT
+    rtc = upgraded.raw["rtc_voice"]
+    assert rtc["degraded"] is True
+    assert rtc["voice_instructions"] == "Reply for a real-time voice call."
+    for field in ("rtc_session_id", "turn_id", "invocation_id", "agent_profile_id"):
+        assert rtc[field] == ""
+
+
 def test_late_upgrade_drops_envelope_only_turn_like_parse_does():
     """Review finding #21: metadata-valid but envelope-only body must be
     DROPPED on the late path too — never run the agent with the envelope
