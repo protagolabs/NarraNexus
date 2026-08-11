@@ -30,7 +30,7 @@ schema since inception but `do_bind` never wrote it (see
 this change has `nexus_profile_id == ""`. `get_by_profile_id` only
 resolves rows bound (or rebound) after 2026-08-11; older agents need a
 rebind before the prewarm endpoint can find them by profile id. A
-non-unique index (`idx_narramessenger_profile`, see `schema_registry.py`)
+non-unique index (`idx_nm_cred_profile`, see `schema_registry.py`)
 backs the lookup — non-unique because empty-string rows would otherwise
 collide on a unique index, and profile-id uniqueness isn't a contract
 we've verified against NarraMessenger's platform semantics.

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import time
+import itertools
 
 from typing import Any
 
@@ -111,20 +111,28 @@ class PrewarmRequest(BaseModel):
     resolves only for rows bound after profileId persistence landed (older
     bindings need a rebind)."""
     agent_matrix_user_id: str = Field(default="", max_length=255)
-    agent_profile_id: str = Field(default="", max_length=128)
+    # max_length 64 == the nexus_profile_id column (VARCHAR(64)): anything
+    # longer can never resolve, so tightening only turns the 404 into an
+    # earlier 422.
+    agent_profile_id: str = Field(default="", max_length=64)
     rtc_session_id: str = Field(default="", max_length=128)  # log correlation only
 
 
-# In-process prewarm ledger: user_id -> {"status", "executor_url", "ts"}.
+# In-process prewarm ledger: user_id -> {"status", "executor_url", "gen", "task"}.
 # Single-host by design today (binding rule #20): the seam to move this out is
 # the broker itself — on backend restart, readiness simply re-reports False and
 # the next prewarm call re-ensures (idempotent at the broker).
+#
+# The entry doubles as the STRONG reference to the in-flight warmer task (the
+# event loop only keeps weak refs — asyncio docs): an entry is only ever
+# replaced by a newer generation, which holds its own task ref; the superseded
+# task keeps running harmlessly and its generation-guarded writes no-op.
 _PREWARM_STATE: dict[str, dict] = {}
 
-# Strong references to in-flight warmer tasks: the event loop only keeps weak
-# refs, so a fire-and-forget task with no other reference can be
-# garbage-collected mid-flight (asyncio docs). Discarded on completion.
-_PREWARM_TASKS: set[asyncio.Task] = set()
+# Monotonic generation per warmer task: every ledger write inside _do_prewarm
+# is guarded by "my gen is still the current entry's gen", so a stale task can
+# never clobber a newer entry (e.g. failed(old) landing after warming(new)).
+_PREWARM_GEN = itertools.count(1)
 
 
 async def _executor_alive(executor_url: str, timeout: float = 5.0) -> bool:
@@ -175,21 +183,37 @@ async def _resolve_prewarm_target(request: Request, body_mxid: str, body_profile
     return owner, None
 
 
-async def _do_prewarm(user_id: str) -> None:
+def _owns_ledger_entry(user_id: str, gen: int) -> bool:
+    """True iff the current ledger entry is this warmer's own generation."""
+    return _PREWARM_STATE.get(user_id, {}).get("gen") == gen
+
+
+async def _do_prewarm(user_id: str, gen: int) -> None:
     """Background warmer — fire-and-forget, so it catches EVERYTHING (an
-    unawaited task must never carry a live exception)."""
+    unawaited task must never carry a live exception).
+
+    Every ledger write is generation-guarded: if a newer prewarm replaced
+    our entry while we awaited, our late result must not clobber it. Writes
+    mutate the entry in place so the entry keeps holding this task's strong
+    reference for its whole lifetime.
+    """
     try:
         result = await ensure_executor(user_id)
         if result is None:  # broker vanished between guard and call
-            _PREWARM_STATE.pop(user_id, None)
+            if _owns_ledger_entry(user_id, gen):
+                _PREWARM_STATE.pop(user_id, None)
             return
         await wait_until_ready(result.url)
-        _PREWARM_STATE[user_id] = {
-            "status": "ready", "executor_url": result.url, "ts": time.time(),
-        }
+        if _owns_ledger_entry(user_id, gen):
+            state = _PREWARM_STATE[user_id]
+            state["status"] = "ready"
+            state["executor_url"] = result.url
         logger.info(f"[prewarm] executor ready user={user_id} cold={result.cold_started}")
     except Exception as e:  # noqa: BLE001
-        _PREWARM_STATE[user_id] = {"status": "failed", "executor_url": "", "ts": time.time()}
+        if _owns_ledger_entry(user_id, gen):
+            state = _PREWARM_STATE[user_id]
+            state["status"] = "failed"
+            state["executor_url"] = ""
         logger.warning(f"[prewarm] failed user={user_id}: {type(e).__name__}: {e}")
 
 
@@ -212,12 +236,29 @@ async def prewarm(request: Request, body: PrewarmRequest):
         and await _executor_alive(state["executor_url"], timeout=1.0)
     ):
         return JSONResponse(status_code=202, content={"status": "already_warm"})
+    if (
+        state
+        and state["status"] == "warming"
+        and state["task"] is not None
+        and not state["task"].done()
+    ):
+        # In-flight dedup: a call rings once but the partner may POST several
+        # times — piling extra ensure_executor calls onto the broker helps
+        # nobody. The live task will flip this very entry to ready/failed.
+        return JSONResponse(status_code=202, content={"status": "warming"})
     if broker_url() is None:  # local/desktop: nothing to warm — never an error
         return JSONResponse(status_code=202, content={"status": "skipped"})
-    _PREWARM_STATE[owner] = {"status": "warming", "executor_url": "", "ts": time.time()}
-    task = asyncio.create_task(_do_prewarm(owner))
-    _PREWARM_TASKS.add(task)  # exceptions handled inside _do_prewarm
-    task.add_done_callback(_PREWARM_TASKS.discard)
+    gen = next(_PREWARM_GEN)
+    entry: dict[str, Any] = {
+        "status": "warming", "executor_url": "", "gen": gen, "task": None,
+    }
+    _PREWARM_STATE[owner] = entry
+    # Store the entry BEFORE creating the task, then patch the task ref in.
+    # No await separates create_task from the patch, so neither the new task
+    # nor another request can ever observe entry["task"] is None — while the
+    # reverse order (task first, entry after) would let a fast task's ledger
+    # write be clobbered by our own late entry store.
+    entry["task"] = asyncio.create_task(_do_prewarm(owner, gen))
     logger.info(f"[prewarm] requested user={owner} rtc_session={body.rtc_session_id or '-'}")
     return JSONResponse(status_code=202, content={"status": "warming"})
 
@@ -234,5 +275,8 @@ async def prewarm_status(
         return err
     state = _PREWARM_STATE.get(owner)
     if state and state.get("executor_url"):
-        return {"ready": await _executor_alive(state["executor_url"])}
+        # timeout=1.0 like the POST's already-warm probe: the partner polls
+        # this mid-ring — a wedged container must not stall the poll for the
+        # 5s default when "not ready yet" is a perfectly good answer.
+        return {"ready": await _executor_alive(state["executor_url"], timeout=1.0)}
     return {"ready": False}

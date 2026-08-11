@@ -3,9 +3,12 @@ code_file: src/xyz_agent_context/utils/db/schema_registry.py
 last_verified: 2026-08-11
 stub: false
 ---
-## 2026-08-11 — channel_narramessenger_credentials gains idx_narramessenger_profile
+## 2026-08-11 — channel_narramessenger_credentials gains idx_nm_cred_profile
 
-Added a non-unique `Index("idx_narramessenger_profile", ["nexus_profile_id"])`
+Added a non-unique `Index("idx_nm_cred_profile", ["nexus_profile_id"])`
+(named to match the table's `idx_nm_cred_*` siblings; renamed pre-release
+from the initial `idx_narramessenger_profile` — never shipped, so no
+migration concern)
 to back the credential manager's new `get_by_profile_id` reverse lookup (the
 prewarm endpoint resolves an agent by the platform's `agent_profile_id`).
 Non-unique on purpose: the column existed since inception but `do_bind` never

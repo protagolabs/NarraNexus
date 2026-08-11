@@ -56,7 +56,6 @@ def app(monkeypatch):
     a.state.ensured = ensured
     yield a
     nm._PREWARM_STATE.clear()
-    nm._PREWARM_TASKS.clear()
 
 
 def _client(app):
@@ -153,6 +152,31 @@ async def test_prewarm_idempotent_second_call_already_warm(app, monkeypatch):
         r2 = await c.post("/api/narramessenger/prewarm", json=BODY, headers=AUTH)
     assert r2.status_code == 202
     assert r2.json()["status"] == "already_warm"
+
+
+@pytest.mark.asyncio
+async def test_prewarm_inflight_dedup_single_ensure(app, monkeypatch):
+    """Two rapid POSTs while the first ensure is still in flight must both
+    answer 202 warming but spawn only ONE warmer task (stampede guard)."""
+    release = asyncio.Event()
+
+    async def hanging_ensure(user_id, **kw):
+        app.state.ensured.append(user_id)
+        await release.wait()
+        return nm.ExecutorEnsureResult(url="http://nx-exec-user-1:8020", cold_started=True)
+    monkeypatch.setattr(nm, "ensure_executor", hanging_ensure)
+
+    async with _client(app) as c:
+        r1 = await c.post("/api/narramessenger/prewarm", json=BODY, headers=AUTH)
+        await asyncio.sleep(0)  # let the warmer reach the hanging ensure
+        r2 = await c.post("/api/narramessenger/prewarm", json=BODY, headers=AUTH)
+        assert r1.status_code == r2.status_code == 202
+        assert r1.json()["status"] == r2.json()["status"] == "warming"
+        assert app.state.ensured == ["user_1"]  # ONE ensure, not two
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    assert nm._PREWARM_STATE["user_1"]["status"] == "ready"
 
 
 @pytest.mark.asyncio

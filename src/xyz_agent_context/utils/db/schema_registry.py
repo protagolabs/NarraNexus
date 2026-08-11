@@ -1219,7 +1219,7 @@ _register(
             # in with its own agent_profile_id). Non-unique: only rows bound
             # after 2026-08-11 carry a profile id (do_bind started
             # persisting it); older rows still have it empty.
-            Index("idx_narramessenger_profile", ["nexus_profile_id"]),
+            Index("idx_nm_cred_profile", ["nexus_profile_id"]),
         ],
     )
 )
