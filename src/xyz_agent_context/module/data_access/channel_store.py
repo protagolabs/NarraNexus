@@ -33,19 +33,25 @@ bind service, each a lazily-resolved name. Adding a channel is genuinely one
 ``ChannelSpec(...)`` line + a ``to_raw_dict()`` on its dataclass; nothing here
 can drift because there is a single source of truth, not parallel dicts.
 
-Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``) and the
-clean writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
-owner-gated backend routes) are all Protocol methods with a DirectStore and an
-HttpStore side.
+Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``), the
+mapped writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
+owner-gated backend routes), and the generic credential-mutation primitives
+(``patch_credential`` / ``put_credential`` / ``delete_credential``) are all
+Protocol methods with a DirectStore and an HttpStore side.
 
-Known gap (tracked, not hidden): lark's CLI-OAuth write flow (setup / the
-three-click permission advance / enable-receive) and narramessenger's
-``narra-cli`` passthrough are NOT migrated — they spawn a CLI subprocess and, in
-lark's case, do partial ``permission_state`` patches with no backend route, so
-they still reach the db directly via their own credential manager. Removing
-``DB_PASSWORD`` from the mcp container (the definition of done for #2) is not
-real until that CLI-write leg gets a generic credential-upsert endpoint. That is
-deliberately deferred (Owner is deciding the approach).
+lark's CLI-OAuth write flow (setup / the three-click permission advance /
+enable-receive) and narramessenger's ``narra-cli`` passthrough are NOW migrated:
+the CLI subprocess + OAuth polling stay local (pure compute), but every DB
+persistence hops through the seam — lark's partial ``permission_state`` /
+top-level-column writes go through the ``patch/put/delete`` primitives (backed by
+``channel_credentials.py``'s PATCH/PUT/DELETE routes → the manager's
+``apply_patch`` / ``save_raw`` / ``delete_credential``), and narra reads its
+bearer + workspace owner through ``get_credential`` / ``get_agent_owner``.
+``_lark_mcp_tools.py`` / ``lark_cli_client.py`` / ``narra_cli_client.py`` hold
+ZERO ``get_mcp_db_client`` / ``LarkCredentialManager(db)``. Combined with the
+job/chat/memory writes on the AgentDataStore seam, the whole mcp-reachable module
+tree is credential-free — so the mcp container can drop ``DATABASE_URL`` (with
+``NARRANEXUS_BACKEND_URL`` set, every leg is HttpStore).
 """
 from __future__ import annotations
 
@@ -342,7 +348,15 @@ class DirectStore:
         channel whose manager lacks the primitive raises ValueError — a DEV error
         (only lark's manager implements the write primitives), surfaced clearly
         like test_connection does, never a bare AttributeError → 500."""
-        mgr = (_manager_class(channel))(await self._db())
+        try:
+            db = await self._db()
+        except Exception as e:  # noqa: BLE001 — lazy MySQL pool build can raise
+            # Writes flow into lark tools that have no try/except and now check
+            # the envelope, so a raised _db() would raw-throw to the model —
+            # degrade to an envelope instead (matches HttpStore).
+            logger.warning(f"[channel.{method}] {channel} db unavailable: {e}")
+            return {"success": False, "error": str(e)}
+        mgr = (_manager_class(channel))(db)
         fn = getattr(mgr, method, None)
         if fn is None:
             raise ValueError(

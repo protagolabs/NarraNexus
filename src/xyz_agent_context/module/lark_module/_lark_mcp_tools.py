@@ -616,7 +616,11 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             return {"success": False,
                     "error": (f"Login succeeded but failed to persist the logged-in state: "
                               f"{flipped.get('error', 'unknown')}. Retry lark_status to reconcile.")}
-        await _patch_ps(agent_id, {
+        # This is the completion marker — current_click_stage()/user_oauth_ok()
+        # read these permission_state keys to derive "completed". A silent
+        # failure here would return stage_after="completed" while the persisted
+        # stage is still waiting_user_click, telling the model the wrong thing.
+        completed = await _patch_ps(agent_id, {
             "user_oauth_completed_at": now,
             "user_scopes_granted": list(granted) if isinstance(granted, (list, tuple)) else [],
             "user_authz_url": None,
@@ -624,6 +628,10 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             "bot_scopes_confirmed": True,
             "console_setup_done_at": now,
         })
+        if not completed.get("success"):
+            return {"success": False,
+                    "error": (f"Login succeeded but failed to persist the completion state: "
+                              f"{completed.get('error', 'unknown')}. Retry lark_status to reconcile.")}
         return {
             "success": True,
             "data": {
@@ -709,9 +717,14 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
 
 async def _advance_availability_ok(agent_id: str, cred) -> dict:
     """event="availability_ok" — Mark optional app visibility flag."""
-    await _patch_ps(agent_id, {
+    persisted = await _patch_ps(agent_id, {
         "availability_confirmed": True,
     })
+    if not persisted.get("success"):
+        # Optional flag, but don't claim success on a failed persist — keep the
+        # "no silent write success" invariant uniform across the advance handlers.
+        return {"success": False,
+                "error": f"Failed to record the availability flag: {persisted.get('error', 'unknown')}"}
     return {
         "success": True,
         "data": {

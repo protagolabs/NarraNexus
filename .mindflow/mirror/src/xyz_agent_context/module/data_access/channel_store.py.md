@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (二轮审查) — 模块头「已知缺口」改写为「已迁完」+ _run_mutation 守 _db()
+
+模块 docstring 的 "Known gap"（说 lark CLI-OAuth 写 + narra 透传**未迁**、无后端路由、直连 db、strip DB_PASSWORD「不算数」）已**过时且矛盾**——本分支正是迁了这些。是 gates strip 决策的门面文档，误导 ops。改写为「已迁完：CLI 子进程留本地、DB 持久化经 patch/put/delete 原语；三文件 get_mcp_db_client==0；整个 mcp 模块树零凭据、可 strip DATABASE_URL」。另：`_run_mutation` 把 `await self._db()` 包进 try→失败返信封（写路径流入无 try 的 lark 工具、现在检查信封，裸抛会甩给 model）。
+
 ## 2026-08-11 (审查收口) — DirectStore 写原语永不抛（对齐 seam 契约）+ 能力守卫
 
 `patch/put/delete_credential` 合成一个 `_run_mutation`：**运行时失败 catch→`{success:False,error}`**（不再让 apply_patch 的 ValueError 冒泡），这样 DirectStore 与 HttpStore **失败语义对齐**——原来本地抛、云端返信封，导致工具写助手在云端把失败静默当成功（预审 Important）。能力缺失（非 lark channel 无 apply_patch/save_raw）→**清晰 ValueError**（像 test_connection），不再裸 AttributeError→500。守卫测试 [[test_channel_store]]：runtime 失败降级成信封 + 不支持 channel 报 ValueError。

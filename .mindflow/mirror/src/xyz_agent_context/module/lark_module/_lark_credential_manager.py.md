@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
 last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (二轮审查) — apply_patch 只写被 patch 的列（收窄丢更新窗口）
+
+原 apply_patch 是**整行** read-modify-write（save_credential 写全部列），会 clobber 并发的单列写者（trigger 的 `update_auth_status(BRAND_MISMATCH)`、懒 `update_workspace_path`）——它们写不相交的列，却被整行回写盖掉。改为：deep_merge 后经 `_cred_to_columns`（新静态方法，列序列化单一来源，save_credential 也复用）算出全列，再按 `_PATCHABLE_COLUMN`（raw-key→列名，app_secret_encoded→app_secret_encrypted）**只 update patch 指名的列**。不相交列不再被盖；同列并发仍需锁（三击 per-key 写罕见重叠）。未知字段→ValueError。守卫测试 [[test_lark_apply_patch]]（只写指名列 + is_active 0/1 + 拒未知字段）。
+
 ## 2026-08-11 (审查收口) — 删除被 apply_patch 取代的 3 个死写方法
 
 `patch_permission_state` / `set_app_secret_encoded` / `update_app_credentials` 已**删除**（铁律 #8/#2）——`apply_patch` 是唯一写路径，全仓零调用者。留着危险不在体积：那三个是**按列 UPDATE**、`apply_patch` 是**整行 read-modify-write**，语义不同，并存会让下个改 lark 的人挑错 API。`update_auth_status`/`update_bot_identity`/`set_is_active` 仍有 backend 路由 + [[lark_trigger]] 调用，保留。`apply_patch` docstring 记下**整行写 vs 单列写的丢更新窗口**（trigger 的 update_auth_status 罕见路径），当前 setup 用户步进+每 agent 串行故可容忍。

@@ -66,8 +66,34 @@ def test_apply_patch_sets_a_top_level_field():
     new_secret_encoded = _encode_secret("new-secret")
     asyncio.run(mgr.apply_patch("agent_x", {"app_secret_encoded": new_secret_encoded}))
     assert db.updated["app_secret_encrypted"] == new_secret_encoded
-    # permission_state untouched by a non-permission patch
-    assert json.loads(db.updated["permission_state"]) == {"admin_request_url": "u1", "admin_approved_at": "t0"}
+    # permission_state is not even WRITTEN by a non-permission patch (column-
+    # targeted): the whole point is not to clobber a disjoint column.
+    assert "permission_state" not in db.updated
+
+
+def test_apply_patch_writes_only_the_patched_columns():
+    # The concurrency fix: apply_patch must write ONLY the columns its patch
+    # names, so a concurrent single-column writer (update_auth_status /
+    # update_workspace_path) on a DISJOINT column isn't clobbered by a whole-row
+    # rewrite of a stale read.
+    db = _FakeDb(_row())
+    mgr = LarkCredentialManager(db)
+    asyncio.run(mgr.apply_patch("agent_x", {"permission_state": {"user_authz_url": "u3"}}))
+    assert set(db.updated) == {"permission_state"}, db.updated
+
+    db2 = _FakeDb(_row())
+    mgr2 = LarkCredentialManager(db2)
+    asyncio.run(mgr2.apply_patch("agent_x", {"app_id": "cli_new", "is_active": False}))
+    # app_id + is_active only — NOT auth_status / workspace_path / bot_* etc.
+    assert set(db2.updated) == {"app_id", "is_active"}, db2.updated
+    assert db2.updated["is_active"] == 0  # bool serialized to 0/1
+
+
+def test_apply_patch_rejects_unknown_field():
+    db = _FakeDb(_row())
+    mgr = LarkCredentialManager(db)
+    with pytest.raises(ValueError, match="unknown lark credential field"):
+        asyncio.run(mgr.apply_patch("agent_x", {"not_a_real_column": "x"}))
 
 
 def test_apply_patch_on_missing_credential_raises_clearly():
