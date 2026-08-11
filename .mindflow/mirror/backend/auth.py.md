@@ -1,8 +1,16 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — AUTH_EXEMPT_PATHS 新增 NarraMessenger prewarm 双端点
+
+`/api/narramessenger/prewarm` + `/api/narramessenger/prewarm/status`(F28 语音
+快答):caller 是 NarraMessenger 后端(机器对机器,没有用户 JWT),handler 内
+用 per-agent `bearer_token` 自凭证(`hmac.compare_digest` 常量时间比较)——与
+`/api/admin/runtime/status` 同模式。豁免同时跳过 quota resolver,正确:预热
+是纯基础设施操作,不花 LLM 额度。
 
 ## 2026-08-10 — product analytics bypasses the quota resolver
 

@@ -169,6 +169,7 @@ async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
             "status": "connected",
             "matrixUserId": "@agent-testonly:matrix.netmind.chat",
             "principalId": "00000000-0000-0000-0000-000000000000",
+            "profileId": "prof-9",
             "roomId": "!bindroom:matrix.netmind.chat",
         }},
     ]
@@ -195,7 +196,38 @@ async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
     assert cred.matrix_user_id == "@agent-testonly:matrix.netmind.chat"
     assert cred.matrix_homeserver_url == "https://matrix.netmind.chat"
     assert cred.bind_room_id == "!bindroom:matrix.netmind.chat"
+    assert cred.nexus_profile_id == "prof-9"
     assert cred.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_do_bind_leaves_profile_id_empty_when_absent(
+    stub_db, fake_manager, guide_scripts
+):
+    """When the runtime-ready response has no ``profileId`` (current prod
+    behaviour — the platform doesn't return it yet), the stored credential
+    keeps ``nexus_profile_id`` as the empty-string default rather than
+    "None" or a KeyError."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [
+        {"ok": True, "data": {
+            "status": "connected",
+            "matrixUserId": "@agent-testonly:matrix.netmind.chat",
+            "principalId": "00000000-0000-0000-0000-000000000000",
+            "roomId": "!bindroom:matrix.netmind.chat",
+        }},
+    ]
+
+    result = await svc.do_bind(
+        stub_db,
+        agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert len(fake_manager.upserts) == 1
+    cred = fake_manager.upserts[0]
+    assert cred.nexus_profile_id == ""
 
 
 @pytest.mark.asyncio

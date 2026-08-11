@@ -229,6 +229,27 @@ class NarramessengerCredentialManager:
         cred = await self.get(agent_id)
         return cred.to_public_dict() if cred else None
 
+    async def get_by_matrix_user_id(
+        self, matrix_user_id: str
+    ) -> Optional[NarramessengerCredential]:
+        """Reverse lookup for callers that hold the agent's Matrix identity
+        (the prewarm endpoint). UNIQUE index on the column guarantees <=1 row."""
+        if not matrix_user_id:
+            return None
+        row = await self._db.get_one(self.TABLE, {"matrix_user_id": matrix_user_id})
+        return self._row_to_cred(row) if row else None
+
+    async def get_by_profile_id(
+        self, nexus_profile_id: str
+    ) -> Optional[NarramessengerCredential]:
+        """Reverse lookup by the NarraMessenger profile id. Only rows bound
+        after 2026-08-11 carry it (do_bind started persisting profileId);
+        older rows need a rebind before this resolves."""
+        if not nexus_profile_id:
+            return None
+        row = await self._db.get_one(self.TABLE, {"nexus_profile_id": nexus_profile_id})
+        return self._row_to_cred(row) if row else None
+
     async def list_active(self) -> list[NarramessengerCredential]:
         """All enabled rows — consumed by :class:`MatrixTrigger`'s
         credential watcher.

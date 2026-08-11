@@ -6,8 +6,15 @@
 Contract source: Hybrid "Direct Matrix RTC fast reply" handoff, sections 3.1/3.2/4.2.
 The metadata is a performance / presentation hint, NOT an authorization
 credential: callers must keep every existing sender / room check in place.
-Any validation miss degrades the event to a normal Matrix text message —
-it must never break the normal reply path.
+
+Two-level trigger contract: a strictly-validated v1 metadata block
+(parse_rtc_voice_input) starts a full voice turn with correlation IDs
+(rtc_session_id/turn_id/invocation_id/agent_profile_id). When that strict
+parse fails but the metadata still carries a non-blank `voice_instructions`
+string (extract_common_voice_instructions), the event starts a degraded
+voice turn — voice mode without correlation. When neither is present, the
+event is plain text. In every case, nothing here may ever break the normal
+reply path.
 """
 from __future__ import annotations
 
@@ -16,6 +23,10 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 RTC_VOICE_INPUT_KEY = "ai.netmind.rtc.voice_input"
+
+# Cap for instructions accepted through the degraded common trigger, where
+# nothing else bounds the string (the strict parser's contract does).
+COMMON_INSTRUCTIONS_MAX_CHARS = 2000
 
 _BINDING_ID_FIELDS = (
     "rtc_session_id",
@@ -50,19 +61,26 @@ def _non_blank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def parse_rtc_voice_input(event: dict) -> Optional[RtcVoiceInputV1]:
-    """Return the validated v1 payload, or None to mean "normal text message".
-
-    Implements every §3.2 rule strictly; voice_instructions is the only
-    forgiving field (missing / blank / mistyped -> None, turn stays valid).
-    """
+def _voice_metadata(event: Any) -> Optional[dict]:
+    """Shared event-shell guard: the RTC metadata dict, or None unless the
+    event is an m.text room message whose metadata object is a dict."""
     if not isinstance(event, dict) or event.get("type") != "m.room.message":
         return None
     content = event.get("content")
     if not isinstance(content, dict) or content.get("msgtype") != "m.text":
         return None
     meta = content.get(RTC_VOICE_INPUT_KEY)
-    if not isinstance(meta, dict):
+    return meta if isinstance(meta, dict) else None
+
+
+def parse_rtc_voice_input(event: Any) -> Optional[RtcVoiceInputV1]:
+    """Return the validated v1 payload, or None to mean "normal text message".
+
+    Implements every §3.2 rule strictly; voice_instructions is the only
+    forgiving field (missing / blank / mistyped -> None, turn stays valid).
+    """
+    meta = _voice_metadata(event)
+    if meta is None:
         return None
     if not _is_strict_int(meta.get("version"), 1):
         return None
@@ -86,6 +104,39 @@ def parse_rtc_voice_input(event: dict) -> Optional[RtcVoiceInputV1]:
         agent_profile_id=meta["agent_profile_id"],
         voice_instructions=instructions,
     )
+
+
+def extract_common_voice_instructions(event: Any) -> Optional[str]:
+    """Handoff §3.1/§3.4 common trigger: the backend-controlled, non-blank
+    ``voice_instructions`` string inside the (possibly INVALID) v1 metadata
+    object. Used only after ``parse_rtc_voice_input`` returned None: a failed
+    metadata block no longer cancels voice mode, it only forfeits
+    correlation. Returns None unless the event is an m.text room message
+    whose metadata is a dict carrying a non-blank string field — the body
+    envelope is deliberately NOT consulted (mode detection must not depend
+    on body-string parsing).
+
+    Carve-out — ``transcript_final is False``: the backend explicitly
+    saying "not final" is a turn-boundary signal, not malformed data, so
+    an interim STT fragment must NOT enter degraded voice mode (it would
+    be spoken aloud mid-utterance). The check is identity (``is False``)
+    on purpose: a missing or mistyped value (including ``0`` / ``"false"``)
+    is malformed data and still falls through to the common trigger.
+
+    The returned instructions are capped at
+    ``COMMON_INSTRUCTIONS_MAX_CHARS``: this path already lowered the
+    construction bar (no strict validation), so an unbounded string must
+    not be allowed to inflate the prompt.
+    """
+    meta = _voice_metadata(event)
+    if meta is None:
+        return None
+    if meta.get("transcript_final") is False:
+        return None
+    instructions = meta.get("voice_instructions")
+    if not _non_blank_str(instructions):
+        return None
+    return instructions[:COMMON_INSTRUCTIONS_MAX_CHARS]
 
 
 def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:

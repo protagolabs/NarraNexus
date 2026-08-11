@@ -156,10 +156,10 @@ async def test_ensure_executor_transport_error_becomes_unreachable(monkeypatch):
 @pytest.mark.asyncio
 async def test_wait_until_ready_timeout_becomes_unreachable(monkeypatch):
     # Container never answers /health → typed unreachable, not bare RuntimeError.
-    async def _never_healthy(_health_url: str) -> bool:
+    async def _never_healthy(_executor_url: str) -> bool:
         return False
 
-    monkeypatch.setattr(broker_client, "_executor_healthy", _never_healthy)
+    monkeypatch.setattr(broker_client, "executor_healthy", _never_healthy)
 
     with pytest.raises(ExecutorUnreachableError):
         await broker_client.wait_until_ready(

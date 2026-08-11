@@ -16,8 +16,15 @@ Locks (scenario numbers from PRD 4.5):
   the runtime; speak leads via deltas.
 - S4 voice turn then plain text turn: the plain turn runs the legacy
   one-shot path (no live events, no profile) — override not persisted.
-- S5 invalid metadata matrix: every broken field degrades to a plain
-  text turn that still replies (voice mode never breaks the reply path).
+- S5 invalid metadata matrix: every broken v1 field still enters a
+  DEGRADED voice turn while the common trigger (non-blank
+  voice_instructions) holds — fast profile + live delivery, minus
+  correlation (handoff §3.4).
+- S5 carve-out: transcript_final=False is an explicit interim-STT
+  turn-boundary signal, NOT malformed metadata — it stays a plain text
+  turn (never spoken aloud mid-utterance).
+- S5b no voice signal at all: broken metadata AND no
+  voice_instructions — a plain text turn whose reply path never breaks.
 """
 from __future__ import annotations
 
@@ -215,11 +222,16 @@ async def test_s4_plain_turn_after_voice_keeps_legacy_path(harness, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_s5_invalid_metadata_matrix_degrades_and_replies(harness, monkeypatch):
+async def test_s5_invalid_metadata_still_enters_degraded_voice(harness, monkeypatch):
+    """Handoff §3.4: a failed v1 metadata block no longer cancels voice mode
+    when the common trigger (non-blank voice_instructions) holds — the turn
+    runs the fast profile and live delivery, minus correlation."""
     trigger, sent, plain = harness
-    for i, bad in enumerate(("seq", "version", "transport", "final", "missing-id")):
+    for i, bad in enumerate(("seq", "version", "transport", "missing-id")):
+        sent.clear()
         runtime = ScriptedRuntime([
-            _progress("mcp__narramessenger_module__narra_reply", f"reply-{bad}"),
+            _speak_delta(f"answer {bad}.", call_id=f"c{i}"),
+            _progress("mcp__narramessenger_module__speak", f"answer {bad}.", call_id=f"c{i}"),
         ])
         _install_runtime(monkeypatch, runtime)
         out = await _ingest_and_run(
@@ -228,7 +240,56 @@ async def test_s5_invalid_metadata_matrix_degrades_and_replies(harness, monkeypa
             event_id=f"$bad{i}",
         )
         kwargs = runtime.calls[0]
-        assert "turn_profile" not in kwargs, f"{bad} entered voice mode"
-        assert out == f"reply-{bad}"  # the reply path never broke
-    assert sent == []  # no live events for any broken payload
-    assert plain == [f"reply-{b}" for b in ("seq", "version", "transport", "final", "missing-id")]
+        assert kwargs["turn_profile"].name == "voice_fast", f"{bad} missed voice mode"
+        assert "narra-system-prompt" not in kwargs["input_content"]
+        # Full live lifecycle: base live -> final m.replace without marker.
+        assert len(sent) >= 2, f"{bad}: no live lifecycle"
+        final = sent[-1]
+        assert final["m.relates_to"]["rel_type"] == "m.replace"
+        assert LIVE_KEY not in final and LIVE_KEY not in final["m.new_content"]
+        assert f"answer {bad}." in out
+    assert plain == []  # live path delivered; no plain fallback ever needed
+
+
+@pytest.mark.asyncio
+async def test_s5_final_false_interim_transcript_stays_plain(harness, monkeypatch):
+    """transcript_final=False is the backend explicitly marking an interim
+    STT fragment — a turn-boundary signal, not malformed metadata. It must
+    NOT enter degraded voice mode (it would be spoken aloud mid-utterance):
+    the turn stays a plain text turn on the legacy path."""
+    trigger, sent, plain = harness
+    runtime = ScriptedRuntime([
+        _progress("mcp__narramessenger_module__narra_reply", "plain reply"),
+    ])
+    _install_runtime(monkeypatch, runtime)
+    out = await _ingest_and_run(
+        trigger,
+        build_voice_content("probe interim", invalid="final"),
+        event_id="$interim",
+    )
+    kwargs = runtime.calls[0]
+    assert "turn_profile" not in kwargs  # no voice mode, no override
+    assert sent == []  # zero live events — nothing spoken
+    assert plain == ["plain reply"]  # legacy one-shot delivery
+    assert out == "plain reply"
+
+
+@pytest.mark.asyncio
+async def test_s5b_no_voice_signal_at_all_stays_plain(harness, monkeypatch):
+    """Broken metadata AND no voice_instructions: plain text turn, reply
+    path never breaks (the ONLY remaining plain-degrade case)."""
+    trigger, sent, plain = harness
+    runtime = ScriptedRuntime([
+        _progress("mcp__narramessenger_module__narra_reply", "plain reply"),
+    ])
+    _install_runtime(monkeypatch, runtime)
+    out = await _ingest_and_run(
+        trigger,
+        build_voice_content("probe silent", invalid="silent", with_envelope=False),
+        event_id="$silent",
+    )
+    kwargs = runtime.calls[0]
+    assert "turn_profile" not in kwargs  # legacy one-shot path, no override
+    assert sent == []  # zero live events on a plain turn
+    assert plain == ["plain reply"]  # legacy one-shot delivery
+    assert out == "plain reply"
