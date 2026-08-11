@@ -76,6 +76,9 @@ export function RingAvatar({
     height: px,
     borderColor: speciesColor(species),
     fontSize: font,
+    // Glyph persona trial (2026-08-11): the person IS the mark — no ring.
+    // Box size is kept so rows don't shift between personas.
+    ...(persona === 'person' && !src ? { borderWidth: 0 } : null),
   };
   return (
     <div
@@ -182,7 +185,8 @@ export function GroupAvatar({
         width={px}
         height={px}
         viewBox={`0 0 ${px} ${px}`}
-        style={{ transform: 'rotate(-90deg)' }}
+        // Ringless in the people persona (same trial as RingAvatar).
+        style={{ transform: 'rotate(-90deg)', ...(persona === 'people' ? { display: 'none' } : null) }}
         aria-hidden="true"
       >
         {segments.map((s, i) => (
