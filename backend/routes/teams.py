@@ -56,6 +56,9 @@ from xyz_agent_context.message_bus.team_bulletin import (
     edit_bulletin_entry,
 )
 from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+    resolve_default_responder,
     BULLETIN_MAX_ENTRIES,
     BULLETIN_MAX_ENTRY_CHARS,
     BULLETIN_MAX_TOTAL_CHARS,
@@ -95,8 +98,7 @@ async def _user_id_for_request(request: Request) -> str:
 # MessageBusTrigger picks the message up and runs the @mentioned agents; their
 # replies post back into the same channel (see message_bus_trigger.py).
 
-TEAM_ROOM_OWNER_PREFIX = "team_"
-USER_SENDER_PREFIX = "usr_"
+
 
 
 class TeamChatSendRequest(BaseModel):
@@ -113,18 +115,9 @@ class TeamChatSendRequest(BaseModel):
 
 
 def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
-    """The agent that answers a team message with NO @mention.
-
-    ``team.lead_agent_id`` if it's set and still a member; otherwise the
-    earliest-joined member (``member_agent_ids`` is ordered by join time). A
-    single-agent team therefore auto-responds. Returns None for an empty team.
-    """
-    if not member_agent_ids:
-        return None
-    lead = getattr(team, "lead_agent_id", None)
-    if lead and lead in member_agent_ids:
-        return lead
-    return member_agent_ids[0]
+    """See `schema.team_schema.resolve_default_responder` — the rule moved there
+    so the team-summary worker could use the same one instead of its own copy."""
+    return resolve_default_responder(team, member_agent_ids)
 
 
 async def _wipe_team_data(

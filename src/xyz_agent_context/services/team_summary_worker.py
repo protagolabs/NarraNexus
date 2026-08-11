@@ -52,10 +52,9 @@ from loguru import logger
 from xyz_agent_context.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
-from xyz_agent_context.message_bus.team_bulletin import (
-    BULLETIN_NOTICE_MSG_TYPE,
-    STOP_NOTICE_MSG_TYPE,
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES as _SYSTEM_MSG_TYPES,
+    placeholders as _placeholders,
 )
 from xyz_agent_context.schema.team_schema import (
     BULLETIN_MAX_SUMMARY_CHARS,
@@ -66,21 +65,6 @@ from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_co
 
 TEAM_ROOM_OWNER_PREFIX = "team_"
 
-# Room lines the PLATFORM wrote about itself. None of them is team activity.
-#
-# Imported rather than retyped. The first version hard-coded two string literals
-# and then #259 added a third type (`patrol`) that nothing told this filter
-# about — so the "platform triggering itself" hole this filter exists to close
-# reopened through a different door: a stalled room with no real work can reach
-# the threshold on the platform's own chase messages alone.
-_SYSTEM_MSG_TYPES = (
-    BULLETIN_NOTICE_MSG_TYPE,
-    PATROL_MSG_TYPE,
-    STOP_NOTICE_MSG_TYPE,
-)
-# Placeholders are generated from the tuple, so adding a type does not mean
-# editing three SQL strings and hoping all three were found.
-_SYSTEM_MSG_PLACEHOLDERS = ", ".join(["%s"] * len(_SYSTEM_MSG_TYPES))
 
 _INSTRUCTIONS = (
     "You are summarising a team's group chat so every teammate can see where "
@@ -247,14 +231,14 @@ class TeamSummaryWorker:
         if since is None:
             rows = await self._db.execute(
                 "SELECT COUNT(*) AS n FROM bus_messages "
-                f"WHERE channel_id = %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS})",
+                f"WHERE channel_id = %s AND msg_type NOT IN ({_placeholders()})",
                 (channel_id, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
         else:
             rows = await self._db.execute(
                 "SELECT COUNT(*) AS n FROM bus_messages "
-                f"WHERE channel_id = %s AND created_at > %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS})",
+                f"WHERE channel_id = %s AND created_at > %s AND msg_type NOT IN ({_placeholders()})",
                 (channel_id, since, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
@@ -275,7 +259,22 @@ class TeamSummaryWorker:
         if not transcript.strip():
             return False
 
-        text = await self._summarise(team_id=team_id, transcript=transcript)
+        # No member means no cost bearer, and every helper SDK discards a record
+        # whose agent id is empty — so summarising here would burn the owner's
+        # tokens with nothing written down anywhere. The docstring used to say
+        # this case "has nothing to summarise either"; that was an assertion
+        # about the world rather than something the code enforced. Now it is the
+        # gate, and the empty-bearer path is unreachable instead of merely
+        # unlikely.
+        bearer = await self._cost_bearer(team_id)
+        if not bearer:
+            logger.debug(
+                f"[team.summary] team {team_id} has no members — skipping "
+                f"(no cost bearer, so the tokens would go unrecorded)"
+            )
+            return False
+
+        text = await self._summarise(team_id=team_id, transcript=transcript, bearer=bearer)
         # A model that returned whitespace has told us nothing. Writing it would
         # replace a real summary with a blank one, which reads as "no progress".
         if not (text or "").strip():
@@ -297,7 +296,7 @@ class TeamSummaryWorker:
         # team progress.
         rows = await self._db.execute(
             "SELECT created_at, from_agent, content FROM bus_messages "
-            f"WHERE channel_id = %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS}) "
+            f"WHERE channel_id = %s AND msg_type NOT IN ({_placeholders()}) "
             "ORDER BY created_at DESC LIMIT %s",
             (channel_id, *_SYSTEM_MSG_TYPES, self.TRANSCRIPT_LIMIT),
             fetch=True,
@@ -339,7 +338,7 @@ class TeamSummaryWorker:
 
     # ── the LLM call (test seam) ────────────────────────────────────────────
 
-    async def _summarise(self, *, team_id: str, transcript: str) -> str:
+    async def _summarise(self, *, team_id: str, transcript: str, bearer: str = "") -> str:
         """Ask the helper LLM for the summary text.
 
         Goes through `get_helper_sdk()` so the platform is not bound to one
@@ -372,7 +371,6 @@ class TeamSummaryWorker:
         # the better of the two available errors, because the alternative is an
         # invisible hole in the owner's token spend — which this codebase
         # already calls its largest silent accounting gap.
-        bearer = await self._cost_bearer(team_id)
         set_cost_context(bearer, self._db)
         try:
             sdk = get_helper_sdk()
@@ -394,20 +392,18 @@ class TeamSummaryWorker:
     async def _cost_bearer(self, team_id: str) -> str:
         """The agent a team summary's tokens are recorded against.
 
-        The team's lead if it has one, else its earliest-joined member — the
-        same "who answers when nobody is @mentioned" rule the room already uses,
-        so the cost lands on the member the team already treats as its default.
-        Empty when the team has no members, in which case there is nothing to
-        summarise either.
+        Delegates to `resolve_default_responder` — the same rule the room uses
+        for "who answers when nobody is @mentioned" — so the cost lands on the
+        member the team already treats as its default. This was a second
+        hand-written copy of that rule plus its own raw `team_members` query;
+        one rule with two implementations is one that drifts.
+
+        Empty when the team has no members, which `_summarise_team` treats as a
+        reason not to summarise at all.
         """
+        from xyz_agent_context.repository import TeamMemberRepository
+        from xyz_agent_context.schema.team_schema import resolve_default_responder
+
         team = await self._db.get_one("teams", {"team_id": team_id})
-        lead = (team or {}).get("lead_agent_id")
-        rows = await self._db.execute(
-            "SELECT agent_id FROM team_members WHERE team_id = %s ORDER BY id ASC",
-            (team_id,),
-            fetch=True,
-        )
-        members = [r["agent_id"] for r in (rows or [])]
-        if lead and lead in members:
-            return lead
-        return members[0] if members else ""
+        members = await TeamMemberRepository(self._db).list_members_by_team(team_id)
+        return resolve_default_responder(team or {}, members) or ""

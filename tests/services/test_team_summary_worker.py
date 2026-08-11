@@ -86,7 +86,7 @@ def _worker(db, *, summary="the team shipped the parser"):
     w = TeamSummaryWorker(db)
     calls = []
 
-    async def fake_llm(*, team_id, transcript):
+    async def fake_llm(*, team_id, transcript, bearer=""):
         calls.append({"team_id": team_id, "transcript": transcript})
         if isinstance(summary, Exception):
             raise summary
@@ -216,6 +216,7 @@ async def test_one_bad_team_does_not_block_the_others(db_client):
     isolation: a single unsummarisable room must not stall every other room."""
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
     await db_client.insert("teams", {"team_id": "team_2", "owner_user_id": OWNER, "name": "T2"})
+    await db_client.insert("team_members", {"team_id": "team_2", "agent_id": "agent_b"})
     await db_client.insert(
         "bus_channels",
         {
@@ -241,7 +242,7 @@ async def test_one_bad_team_does_not_block_the_others(db_client):
     w = TeamSummaryWorker(db_client)
     seen = []
 
-    async def flaky(*, team_id, transcript):
+    async def flaky(*, team_id, transcript, bearer=""):
         seen.append(team_id)
         if team_id == TEAM:
             raise RuntimeError("this one is cursed")
@@ -362,7 +363,9 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
 
     await _seed_room(db_client, messages=1)
     await db_client.insert("agents", {"agent_id": "agent_a", "agent_name": "A", "created_by": OWNER})
-    out = await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
+    out = await TeamSummaryWorker(db_client)._summarise(
+        team_id=TEAM, transcript="x: y", bearer="agent_a"
+    )
 
     assert out == "a summary"
 
@@ -403,7 +406,9 @@ async def test_the_real_summarise_injects_the_teams_credentials(db_client, monke
     monkeypatch.setattr(mod, "get_helper_sdk", lambda: _FakeSdk("s"))
 
     await _seed_room(db_client, messages=1)
-    await TeamSummaryWorker(db_client)._summarise(team_id=TEAM, transcript="x: y")
+    await TeamSummaryWorker(db_client)._summarise(
+        team_id=TEAM, transcript="x: y", bearer="agent_a"
+    )
 
     assert injected == [TEAM], "the team's owner credentials were never resolved"
 
@@ -614,3 +619,66 @@ def test_the_filter_is_built_from_constants_not_retyped_strings():
     assert set(_SYSTEM_MSG_TYPES) == {
         PATROL_MSG_TYPE, BULLETIN_NOTICE_MSG_TYPE, STOP_NOTICE_MSG_TYPE,
     }
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_no_members_is_not_summarised_at_all(db_client):
+    """The empty-bearer path is now closed rather than merely unlikely.
+
+    Every helper SDK discards a cost record whose agent id is empty, so
+    summarising a memberless team would burn the owner's tokens with nothing
+    written down anywhere. The docstring used to assert this case "has nothing
+    to summarise either" — an assertion about the world that the code did not
+    enforce, and the kind that stops being true the moment someone removes the
+    last member from a busy room.
+    """
+    await db_client.insert("teams", {"team_id": "team_empty", "owner_user_id": OWNER, "name": "E"})
+    await db_client.insert("bus_channels", {
+        "channel_id": "ch_empty", "channel_type": "group",
+        "created_by": "team_team_empty", "name": "E",
+    })
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD * 2):
+        await db_client.insert("bus_messages", {
+            "message_id": f"e{i}", "channel_id": "ch_empty", "from_agent": "a",
+            "content": "busy room, nobody home", "msg_type": "text",
+            "created_at": _ts(i),
+        })
+
+    w = _worker(db_client)
+    await w.run_once()
+
+    assert w.calls == [], "summarised a team with no cost bearer"
+    assert w.last_pass["failed"] == 0, "skipping is not a failure"
+
+
+@pytest.mark.asyncio
+async def test_the_bearer_rule_is_the_rooms_own_default_responder(db_client):
+    """One rule, one implementation. This was a second hand-written copy of
+    `resolve_default_responder` plus its own raw team_members query."""
+    from xyz_agent_context.schema.team_schema import resolve_default_responder
+
+    await _seed_room(db_client, messages=1)
+    await db_client.update("teams", {"team_id": TEAM}, {"lead_agent_id": "agent_lead"})
+    await db_client.insert("team_members", {"team_id": TEAM, "agent_id": "agent_lead"})
+
+    bearer = await TeamSummaryWorker(db_client)._cost_bearer(TEAM)
+    team = await db_client.get_one("teams", {"team_id": TEAM})
+    assert bearer == resolve_default_responder(team, ["agent_a", "agent_lead"])
+
+
+def test_the_health_endpoint_exposes_the_last_pass():
+    """Counters nothing reads are counters that do not exist. The blind spot
+    they close — "quiet" versus "all failing" both looking like a worker that is
+    simply up — stays open if they never leave the process.
+
+    Reported, not judged: one team with a bad provider key must not fail the
+    container's probe, so `status` does not depend on `failed`.
+    """
+    import inspect
+
+    import backend.main as main
+
+    src = inspect.getsource(main.health)
+    assert "team_summary_worker" in src
+    assert "last_pass" in src
+    assert '"status": "healthy"' in src

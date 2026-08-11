@@ -308,7 +308,7 @@ async def test_an_end_to_end_pass_writes_a_summary_on_mysql(mysql_client):
 
     w = TeamSummaryWorker(mysql_client)
 
-    async def fake(*, team_id, transcript):
+    async def fake(*, team_id, transcript, bearer=""):
         return "the team is halfway"
 
     w._summarise = fake
@@ -320,7 +320,7 @@ async def test_an_end_to_end_pass_writes_a_summary_on_mysql(mysql_client):
     # And a second pass must not re-summarise: the watermark landed.
     calls = []
 
-    async def counting(*, team_id, transcript):
+    async def counting(*, team_id, transcript, bearer=""):
         calls.append(team_id)
         return "again"
 

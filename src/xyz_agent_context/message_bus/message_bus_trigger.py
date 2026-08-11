@@ -43,6 +43,14 @@ from xyz_agent_context.message_bus.local_bus import (
     _as_utc,
 )
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+)
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES,
+    placeholders as _platform_placeholders,
+)
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
@@ -53,11 +61,11 @@ POLL_INTERVAL = 3
 # non-agent marker), set by the team-chat route. It both identifies the
 # room and ensures no member agent is the always-activated channel owner —
 # delivery is purely @-mention driven. Keep in sync with backend/routes/teams.py.
-TEAM_ROOM_OWNER_PREFIX = "team_"
+
 
 # The user posts into a team room as this prefix + user_id (a non-agent
 # sender). Keep in sync with backend/routes/teams.py.
-USER_SENDER_PREFIX = "usr_"
+
 
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
@@ -1599,6 +1607,13 @@ class MessageBusTrigger:
                   "including any files posted by anyone; open a file path with Read "
                   "if you need its contents:"]
         for msg in history:
+            # Platform lines are not conversation. Rendered as `"{sender}: ..."`
+            # they read as a member speaking — "Alice: Team bulletin updated." —
+            # because the sender of a notice is whoever triggered it, and the
+            # patrol marker `team_<id>` does not resolve through member_map at
+            # all. The agent is then answering things nobody said.
+            if (msg.msg_type or "") in PLATFORM_MSG_TYPES:
+                continue
             sender = _sender(msg)
             lines.append(f"{sender}: {msg.content}")
             marker = build_bus_markers(msg.attachments, from_agent=sender)
@@ -1671,7 +1686,7 @@ class MessageBusTrigger:
         how many agent hops have happened since the last human message. A user
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
-        # Patrol lines are excluded IN SQL, not skipped after the fact.
+        # Platform lines are excluded IN SQL, not skipped after the fact.
         #
         # A patrol line is the PLATFORM taking stock, not an agent taking a
         # turn, so it must not count toward the cap (owner decision
@@ -1679,6 +1694,12 @@ class MessageBusTrigger:
         # patrol speaks into a room that is already at the cap precisely
         # because the flow broke, and its own line would push every later
         # chase @ out of reach.
+        #
+        # The same sentence is true word for word of the stop notice and the
+        # bulletin notice, which were left in when this was written because
+        # patrol was the only one that existed. They are now all excluded
+        # through one shared tuple, so the next platform message type cannot
+        # be forgotten here (see `system_messages`).
         #
         # Filtering in Python was not enough. The window is a fixed LIMIT, so
         # a skipped row still consumed a slot in it: with 3 patrol lines among
@@ -1688,9 +1709,9 @@ class MessageBusTrigger:
         # speaks where a chain is already looping.
         rows = await self._bus._db.execute(
             f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-            f"AND (msg_type IS NULL OR msg_type != {ph}) "
+            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders(ph)})) "
             f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id, PATROL_MSG_TYPE),
+            (channel_id, *PLATFORM_MSG_TYPES),
         )
         depth = 0
         for r in rows or []:

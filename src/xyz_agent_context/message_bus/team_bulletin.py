@@ -46,6 +46,8 @@ from xyz_agent_context.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
 from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
     BULLETIN_MAX_ENTRIES,
     BULLETIN_MAX_ENTRY_CHARS,
     BULLETIN_MAX_TOTAL_CHARS,
@@ -195,14 +197,15 @@ async def post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -
         from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 
         channel = await db.get_one(
-            "bus_channels", {"created_by": f"team_{team_id}", "channel_type": "group"}
+            "bus_channels",
+            {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}", "channel_type": "group"},
         )
         # No room means nobody to notify. Creating one here would be the tail
         # wagging the dog: a bulletin edit should not conjure a chat channel.
         if not channel:
             return
         team = await db.get_one("teams", {"team_id": team_id})
-        sender = actor or f"usr_{(team or {}).get('owner_user_id', '')}"
+        sender = actor or f"{USER_SENDER_PREFIX}{(team or {}).get('owner_user_id', '')}"
         bus = LocalMessageBus(backend=db._backend)
         await bus.send_message(
             from_agent=sender,

@@ -109,3 +109,16 @@ warning，于是「每个房间都很安静」和「每个房间都在失败」�
 现在三个类型都从各自的定义处 import（`PATROL_MSG_TYPE` / `BULLETIN_NOTICE_MSG_TYPE` /
 `STOP_NOTICE_MSG_TYPE`），SQL 占位符按元组长度生成——否则下次加类型要同步改三处 SQL 字符串，
 而这次的教训正是「有一处没人改」。
+
+## 2026-08-11 (review 收口) — bearer 委托既有规则，空 bearer 路径关闭
+
+`_cost_bearer` 原本是 `_resolve_default_responder` 的**第二份手写实现**外加自己的
+`team_members` 裸 SQL。规则已移入 [[team_schema]]（`patrol_is_on` 一个 release 前立的先例），
+两个调用方——「没人 @ 时谁回答」和「总结的 token 记在谁头上」——共用它，因为**它们问的是同一个问题**。
+
+空 bearer 路径**此前只是不太可能，不是不可达**：闸门只看消息条数。docstring 说这种团队
+「也没有可总结的东西」，那是一句关于世界的断言，不是代码的保证——而它会在有人把最后一个成员
+移出一个繁忙房间的那一刻失效。现在无成员直接跳过并记 debug：没有 bearer 就意味着
+helper SDK 会丢弃整条成本记录，总结等于**烧了 owner 的 token 却哪里都没记下**。
+
+跳过不计入 `failed`——它不是失败。

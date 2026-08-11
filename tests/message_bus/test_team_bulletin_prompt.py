@@ -285,3 +285,49 @@ def test_the_patrol_path_loads_the_bulletin():
     body = inspect.getsource(mod.MessageBusTrigger._patrol_body)
     assert "_load_bulletin(" in body
     assert "bulletin=bulletin" in body
+
+
+# ── platform lines are not conversation ─────────────────────────────────────
+
+
+def _sys(content, msg_type, from_agent="agent_a"):
+    return BusMessage(
+        message_id=f"s_{msg_type}", channel_id="ch1", from_agent=from_agent,
+        content=content, msg_type=msg_type, created_at="2026-08-11T00:00:00Z",
+    )
+
+
+def test_platform_lines_are_not_rendered_as_someone_speaking():
+    """Rendered through the normal path they read as a member talking —
+    "Alice: Team bulletin updated." — because a notice's sender is whoever
+    triggered it, and patrol's `team_<id>` marker does not resolve through
+    member_map at all. The agent then answers things nobody said."""
+    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+
+    history = [_msg(content="real work happened")]
+    history += [_sys(f"platform said {t}", t) for t in PLATFORM_MSG_TYPES]
+
+    out = _prompt([], history=history)
+
+    assert "real work happened" in out
+    for t in PLATFORM_MSG_TYPES:
+        assert f"platform said {t}" not in out, f"{t} leaked into the scrollback"
+
+
+def test_a_patrol_marker_never_reaches_the_transcript_as_a_name():
+    """Its sender is a synthetic `team_<id>`, which member_map cannot resolve,
+    so it would print raw."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    out = _prompt(
+        [],
+        history=[_sys("chasing you", PATROL_MSG_TYPE, from_agent="team_team_42")],
+    )
+    assert "team_team_42" not in out
+
+
+def test_ordinary_messages_still_render():
+    """The filter must key on msg_type, not on anything that would also drop
+    real conversation."""
+    out = _prompt([], history=[_msg(content="hello"), _msg(content="world")])
+    assert "hello" in out and "world" in out

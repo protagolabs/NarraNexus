@@ -334,3 +334,8 @@ reason to reach into.
 `list_visible` 返回的是 `List[WorkItem]`,端点原先又 `model_dump()` 拍回 dict
 再按字符串 key 取回来,把上一轮改动刚拿到的类型直接扔掉:`r["item_id"]` 拼错要
 到请求时才炸,`i.item_id` 在 pyright 就拦得住。
+
+## 2026-08-11 (review 收口) — 默认应答者规则与房间前缀改为 import
+
+`_resolve_default_responder` 变成一层薄委托，实现移入 [[team_schema]]，好让总结 worker
+用同一条规则而不是自己再写一份。两个房间前缀同样改为 import。

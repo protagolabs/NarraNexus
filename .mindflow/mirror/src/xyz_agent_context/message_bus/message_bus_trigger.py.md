@@ -775,3 +775,16 @@ decision」）。所以「agent 自行清理」与「请示 owner 清理」本�
 **那个后续的措辞有一处必须小心**：提示只能是「盘点并向 owner 汇报」，不能是「把板子清短」。
 `done` 是 agent 唯一能写的状态，一旦让它以尺寸为优化目标，它会把没交付的标成已交付——
 板子变成谎报，而且看起来很像成功。#259 锁住 `cancelled` 挡住了一半，另一半正好敞在压力会落下的地方。
+
+## 2026-08-11 (review 收口) — scrollback 与 cascade 都改用共享过滤
+
+**scrollback 不再渲染平台自述行。** 此前它们会被写成 `"{sender}: {content}"`，读起来就是
+「Alice: Team bulletin updated.」——因为通知的 sender 是触发它的人，而巡查的 `team_<id>` 标记
+根本不过 `member_map`。agent 于是在回答**没有人说过的话**。
+
+**`_team_cascade_depth` 补齐另外两种类型。** 它原来的注释把理由写得很清楚（平台在盘点、不是
+agent 在发言；而且固定 LIMIT 窗口里被跳过的行仍占一个槽），那段话对停止通知和公告栏通知
+**逐字成立**——只是写它的时候只有 patrol 存在。现在三种都走 [[system_messages]] 的同一个元组。
+
+`TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 的定义移到 [[team_schema]]（四个模块在构造或
+匹配它们），本文件改为 re-export，既有 importer 不受影响。

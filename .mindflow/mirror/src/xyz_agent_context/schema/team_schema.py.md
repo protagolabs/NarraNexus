@@ -43,3 +43,12 @@ message with no @mention (None = earliest-joined member). See [[teams]].
 规则本身容易说、也容易说错:`patrol_enabled` 对所有早于该列的 team 是 NULL,
 NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指定了负责人」这个
 动作,没有 lead 的 team 永不巡查,平台不替用户指派。
+
+## 2026-08-11 (review 收口) — `resolve_default_responder` 与房间前缀迁入
+
+规则本身没变，只是从 `backend/routes/teams.py` 搬到了 Team 规则该在的地方——理由和
+`patrol_is_on` 一个 release 前的搬家完全相同：**它是一条关于 Team 的规则，却待在一个
+核心包够不着的模块里**，于是总结 worker 长出了第二份拷贝。一条规则两份实现，就是会漂移的那种。
+
+`TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 同理：四个模块在构造或匹配这两个合成标记，
+此前各自重打字面量。

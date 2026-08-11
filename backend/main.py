@@ -536,11 +536,28 @@ app.include_router(
 
 @app.get("/health")
 async def health():
-    """Detailed health check"""
-    return {
+    """Detailed health check.
+
+    Carries the team-summary worker's last pass so its liveness is observable
+    from outside the process. Recording the counters and never exposing them
+    would leave the same blind spot they were added for: "every room is quiet"
+    and "every room is failing" both look like a worker that is simply up.
+
+    Reported, never judged — a non-zero ``failed`` is not an unhealthy service
+    (a single team with a bad provider key must not fail the container's probe),
+    so ``status`` does not depend on it.
+    """
+    body = {
         "status": "healthy",
         "database": "connected",
     }
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        body["team_summary"] = {
+            "running": summary_worker.running,
+            **summary_worker.last_pass,
+        }
+    return body
 
 
 @app.get("/healthz")

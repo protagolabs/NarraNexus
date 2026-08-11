@@ -18,6 +18,15 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+# The synthetic sender/owner markers a team room is built on. Defined here —
+# with Team, not inside any one consumer — because four modules construct or
+# match them (the trigger, the teams route, the bulletin notice, the summary
+# worker) and each had been retyping the literal. `message_bus_trigger` and
+# `backend/routes/teams` re-export them so existing importers are unaffected.
+TEAM_ROOM_OWNER_PREFIX = "team_"
+USER_SENDER_PREFIX = "usr_"
+
+
 class Team(BaseModel):
     id: Optional[int] = None
     team_id: str
@@ -124,6 +133,32 @@ class TeamOperationResponse(BaseModel):
     success: bool
     message: Optional[str] = None
     team: Optional[Team] = None
+
+def resolve_default_responder(team: Any, member_agent_ids: List[str]) -> Optional[str]:
+    """The member a team falls back to when nobody is named.
+
+    ``lead_agent_id`` if it is set and still a member, else the earliest-joined
+    one (``member_agent_ids`` is ordered by join time). None for an empty team,
+    so callers have to decide what "no members" means for them rather than
+    getting a plausible-looking empty string.
+
+    Lives with Team for the same reason `patrol_is_on` does: it is a rule ABOUT
+    Team, and it spent a while inside `backend/routes/teams.py`, where the
+    team-summary worker could not reach it — so the worker grew a second copy,
+    which is how one rule becomes two that drift.
+
+    Two callers today: "who answers a message with no @mention" (the route) and
+    "whose token budget a team summary is recorded against" (the worker). They
+    want the same answer because they are asking the same question — which
+    member does this team treat as its default.
+    """
+    if not member_agent_ids:
+        return None
+    lead = getattr(team, "lead_agent_id", None) if not isinstance(team, dict) else team.get("lead_agent_id")
+    if lead and lead in member_agent_ids:
+        return lead
+    return member_agent_ids[0]
+
 
 # `patrol_enabled` and `lead_agent_id` are both fields of Team, so the rule that
 # combines them lives with Team. It sat in `team_work_schema.py` for one release
