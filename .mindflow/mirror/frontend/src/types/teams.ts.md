@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
+
+工作板的类型。`status` 在用户侧只会收到 ACTIVE 三态 + `paused`;`msg_type`
+的取值增加 `'patrol'`(与 `'system_stop'` 同属房间级系统行)。
+
 ## 2026-08-07 — TeamChatMessage.msg_type
 
 `'text' | 'multimodal' | 'system_stop'`。见 [[TeamChatPanel]] 的系统行分支。

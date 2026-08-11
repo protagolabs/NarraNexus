@@ -1574,12 +1574,93 @@ _register(
             # NULL = fall back to the earliest-joined member. auto_migrate adds
             # this to pre-existing tables. See backend/routes/teams.py.
             Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
+            # --- Leader patrol (2026-08-07) ---
+            #
+            # Whether the lead periodically checks the work board and chases
+            # stalled items. NULL is the un-decided default and reads as ON for
+            # a team that HAS a lead — setting a lead is the act of saying "this
+            # one is responsible", so patrol follows it rather than asking
+            # again. A team with no lead never patrols: the platform does not
+            # appoint someone in charge on the user's behalf.
+            Column("patrol_enabled", "INTEGER", "TINYINT(1)"),
+            Column("last_patrol_at", "TEXT", "DATETIME(6)"),
+            # Patrol's own rate limit, DELIBERATELY on disk.
+            #
+            # The bus already has a per (agent, channel) limiter, but it lives
+            # in `MessageBusTrigger._rate_counters` — an in-memory dict keyed on
+            # `time.monotonic()`, so a workers restart clears it. That is fine
+            # for its original job (dampening a chatty agent) and NOT fine here:
+            # patrol messages are exempted from the cascade-depth cap that stops
+            # runaway @-loops, so this counter is the only remaining backstop.
+            # A backstop that a restart erases is not a backstop.
+            Column("patrol_spoke_at", "TEXT", "DATETIME(6)"),
+            Column("patrol_spoke_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_teams_team_id", ["team_id"], unique=True),
             Index("idx_teams_owner_user_id", ["owner_user_id"]),
+        ],
+    )
+)
+
+# ---------------------------------------------------------------------------
+# Team work board — the first task-level object in the product.
+#
+# Everything before this recorded CONVERSATION (messages, runs, errands); a
+# task existed only inside the turn that happened to be discussing it, so a
+# Leader's assignment died with its own run. The board is what lets a task
+# outlive the run that created it — and therefore what lets anyone notice it
+# stalled.
+#
+# Layered with, not merged into, the errand object (owner decision 2026-08-07):
+# an errand is a MESSAGE-level fact recorded automatically (A @ B opens it, B's
+# reply closes it), a work item is a TASK-level object maintained explicitly by
+# tools. One work item routinely spans several errands.
+# ---------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_work_items",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("item_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # The room this item lives in. Denormalised from team_id on purpose:
+            # patrol wakes the lead INTO a channel, and resolving it per item
+            # would be one join per candidate on every poll cycle.
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("title", "TEXT", "TEXT", nullable=False),
+            # NULL = unclaimed. Patrol reads this to tell "nobody picked it up"
+            # from "somebody has it and went quiet" — two different prompts.
+            Column("assignee_id", "TEXT", "VARCHAR(64)"),
+            # open | in_progress | stalled | done | paused | cancelled
+            #
+            # `stalled` is written by the PLATFORM, never by a model: it is
+            # derived from bus_agent_activity + errand timeouts (iron rule #15 —
+            # a correctness-critical fact must not depend on model obedience).
+            # The lead's judgement applies to what to DO about it, not to
+            # whether it is true.
+            #
+            # `paused` is what a stop leaves behind. Stopping a run tree stops
+            # the RUNNING, not the task; without this state the item stays
+            # "open" and the next patrol dutifully revives exactly what the
+            # owner just stopped. Resuming is an explicit user action.
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False, default="'open'"),
+            Column("created_by", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            # The trigger tree that was running when this item was created, so a
+            # cascade stop can pause the items it silenced. Shipped by #252.
+            Column("root_run_id", "TEXT", "VARCHAR(128)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_work_items_item_id", ["item_id"], unique=True),
+            # Patrol's only hot path: "does this team have anything unfinished".
+            Index("idx_work_items_team_status", ["team_id", "status"]),
+            # Stop → pause, by tree.
+            Index("idx_work_items_root", ["root_run_id"]),
         ],
     )
 )

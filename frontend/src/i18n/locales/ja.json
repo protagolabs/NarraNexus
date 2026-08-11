@@ -149,7 +149,25 @@
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応",
-      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました"
+      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました",
+      "patrolNotice": "リーダー巡回",
+      "board": {
+        "title": "作業ボード",
+        "unclaimed": "未割り当て",
+        "resume": "このタスクを再開",
+        "patrolOff": "巡回オフ",
+        "patrolPending": "未巡回",
+        "patrolledJustNow": "たった今巡回",
+        "patrolledAgo": "{{ago}}前に巡回",
+        "status": {
+          "open": "未着手",
+          "in_progress": "進行中",
+          "stalled": "停滞",
+          "paused": "一時停止"
+        },
+        "turnOff": "オフ",
+        "turnOn": "オン"
+      }
     },
     "execution": {
       "showSteps": "実行ステップを表示",

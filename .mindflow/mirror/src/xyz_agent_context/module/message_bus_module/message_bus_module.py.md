@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-05
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
+
+`create_mcp_server` 除 `_message_bus_mcp_tools` 外,还注册
+[[_work_board_mcp_tools]](5 个工具:add / list / claim / complete /
+update_status)。
+
+**挂同一台 server**:工作项的作用域是 team **房间**,而房间就是一个 bus
+channel —— 能在房间里说话的 agent,恰好就是该维护这块板子的 agent。独立 Module
+要新端口、新 instance 生命周期,还得反过来查 bus 的表(铁律 #3)。
+
+但它有**自己的状态机和自己的写入边界**(`stalled`/`paused`/`cancelled` 模型不
+可写),所以分文件。只读本文件会以为这台 server 上只有消息工具。
 
 ## 2026-08-05 — 指令不再把模型送去调一个会破坏名录的工具（review）
 

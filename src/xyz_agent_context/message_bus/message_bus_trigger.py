@@ -42,6 +42,7 @@ from xyz_agent_context.message_bus.local_bus import (
     LocalMessageBus,
     _as_utc,
 )
+from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
@@ -384,8 +385,17 @@ class MessageBusTrigger:
         candidates = await self._agents_with_pending()
         self._cycles += 1
         self._last_candidates = len(candidates)
+
+        # The patrol lane. A second candidate source on the same cycle: teams
+        # whose board has unfinished work and whose lead is due for a sweep.
+        # Runs through the same semaphore and the same per-agent lock as
+        # message dispatch, so a patrol can never double-run a lead that is
+        # already busy — and an empty board yields no candidates at all, which
+        # is the feature's whole cost guarantee.
+        dispatched_patrols = await self._dispatch_patrols()
+
         if not candidates:
-            return 0
+            return dispatched_patrols
 
         dispatched = 0
         for agent_id in candidates:
@@ -400,7 +410,90 @@ class MessageBusTrigger:
         if dispatched:
             self._dispatched_total += dispatched
             self._last_dispatch_at = datetime.now(timezone.utc).isoformat()
-        return dispatched
+        return dispatched + dispatched_patrols
+
+    async def _dispatch_patrols(self) -> int:
+        """Wake the leads whose boards are due for a sweep. Returns how many.
+
+        Failures are swallowed: the patrol lane is an addition to the poll
+        cycle, and a bad sweep must never cost the room its ordinary message
+        delivery.
+        """
+        try:
+            from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            due = await teams_due_for_patrol(await get_db_client())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[patrol] candidate sweep failed: {e}")
+            return 0
+
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
+        from xyz_agent_context.message_bus.patrol import mark_patrolled
+
+        count = 0
+        for team_id, lead_agent_id, channel_id in due:
+            # Its own turn is still going — a patrol would just queue behind the
+            # per-agent lock, and skipping is cheaper than holding a slot.
+            if lead_agent_id in self._in_flight:
+                continue
+            # Same gate message dispatch uses. Without it a lead with a dead key
+            # or exhausted quota gets woken every 180-600s, forever, to run a
+            # turn that cannot succeed — the exact loop the breaker exists to
+            # stop, entered through a lane that did not ask it.
+            # No try/except: `should_skip` already fails open internally
+            # (returns (False, None) on any read error), so wrapping it would
+            # be a handler that can never run — and dead handlers read as
+            # "this can throw", which is worse than none.
+            cb_skip, cb_reason = await should_skip(lead_agent_id)
+            if cb_skip:
+                logger.info(
+                    f"[patrol] skipping {lead_agent_id} (circuit-breaker: {cb_reason})"
+                )
+                # The cursor still moves: leaving it stale would make this team
+                # a candidate on every single cycle for as long as it is broken.
+                try:
+                    await mark_patrolled(await get_db_client(), team_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[patrol] cursor stamp failed for {team_id}: {e}")
+                continue
+            self._dispatch_patrol(team_id, lead_agent_id, channel_id)
+            count += 1
+        return count
+
+    def _dispatch_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
+        """Spawn one patrol sweep, gated exactly like a message dispatch.
+
+        Same per-agent lock and same semaphore as ``_process_agent``: a lead
+        that is already answering somebody must not be woken a second time to
+        patrol, and patrols must not escape the worker cap. Registering in
+        ``_in_flight`` is what makes the next cycle skip this lead — and what
+        makes a stuck patrol visible in the heartbeat like any other turn.
+        """
+
+        async def _guarded() -> None:
+            lock = self._agent_locks.setdefault(lead_agent_id, asyncio.Lock())
+            async with lock, self._semaphore:
+                # Same bookkeeping as `_process_agent`: liveness_snapshot's
+                # starvation check and `longest_running_agent` both count only
+                # `running` entries, so a patrol that never sets it would hold a
+                # worker slot while the heartbeat reported it as merely waiting
+                # — the 2026-07-27 shape (33 h of nothing, liveness still green)
+                # one lane over.
+                flight = self._in_flight.get(lead_agent_id)
+                if flight is not None:
+                    flight.running = True
+                await self._run_patrol(team_id, lead_agent_id, channel_id)
+
+        task = asyncio.create_task(_guarded())
+        self._in_flight[lead_agent_id] = _InFlight(
+            task=task, started_at=time.monotonic()
+        )
+        # Never a bare create_task: an exception in a fire-and-forget task is
+        # only reported during GC (incident lesson #2).
+        task.add_done_callback(
+            lambda t, a=lead_agent_id: self._on_dispatch_done(a, t)
+        )
 
     def _should_process_message(
         self, msg: BusMessage, agent_id: str, channel_type: str, channel_owner: str,
@@ -639,10 +732,13 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                lead_agent_id, work_items = await self._team_board(team_id)
                 prompt = self._build_team_prompt(
                     agent_id, history, member_map,
                     owner_user_id=team_owner, team_id=team_id,
                     trigger_messages=messages,
+                    lead_agent_id=lead_agent_id,
+                    work_items=work_items,
                 )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
@@ -1015,6 +1111,234 @@ class MessageBusTrigger:
                 out[m.agent_id] = row.get("agent_name") or m.agent_id
         return out
 
+    async def _run_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
+        """One patrol sweep: look at the board, chase what is stuck, or say nothing.
+
+        This is the periodic activation the team room otherwise has no way to
+        produce. Every member — the lead included — only wakes when @mentioned,
+        so a flow advances only while each hop remembers to pass the baton, and
+        a hop that forgets kills the chain with nobody structurally able to
+        notice. The sweep is what notices.
+
+        Silence is the NORMAL outcome. A patrol that announced "all good" every
+        ten minutes would be exactly the standing noise this room's design keeps
+        removing (the folded console, the lingering activity bubble). It speaks
+        only when the model produced something to say, and even then only within
+        the DB-backed speech cap.
+
+        The cursor moves however this ends, crash included: a failed patrol
+        still consumed its slot, and retrying it at once turns one broken team
+        into a hot loop.
+        """
+        from xyz_agent_context.message_bus.patrol import mark_patrolled
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        try:
+            # The stack owns the sweep's activity row and its cancellation
+            # registration. Both are entered inside `_patrol_body`, at the
+            # point a turn is actually going to run — see the note there for
+            # why opening the row earlier costs the roster the very link it
+            # exists to provide.
+            async with contextlib.AsyncExitStack() as stack:
+                await self._patrol_body(db, stack, team_id, lead_agent_id, channel_id)
+        except Exception as e:  # noqa: BLE001 — a bad sweep never breaks the poller
+            logger.warning(f"[patrol] sweep failed for {team_id}: {e}")
+        finally:
+            await mark_patrolled(db, team_id)
+
+    async def _patrol_body(
+        self,
+        db: Any,
+        stack: contextlib.AsyncExitStack,
+        team_id: str,
+        lead_agent_id: str,
+        channel_id: str,
+    ) -> None:
+        """The sweep proper, inside the caller's activity/cancellation scope."""
+        from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+        from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+        from xyz_agent_context.message_bus import _bus_activity
+        from xyz_agent_context.message_bus.patrol import (
+            detect_stalled_items,
+            may_patrol_speak,
+            note_patrol_spoke,
+        )
+
+        # Facts first, and the platform's own: "is this stalled" is derived
+        # from activity data, never from the model's read of the room
+        # (iron rule #15). The lead's judgement starts after this line.
+        #
+        # This runs BEFORE the speech cap on purpose. Detection is not part
+        # of speaking — it writes `stalled` through to the board, which is
+        # what the user's panel renders and what paces the next sweep. When
+        # the cap gated it too, a capped team stopped updating its board
+        # entirely: items that went quiet during the capped window still
+        # read as `in_progress` afterwards, so the UI under-reported and
+        # the adaptive interval stayed at the slow pace precisely when
+        # things were going wrong. A read plus a status write is also
+        # nothing next to the LLM turn the cap actually exists to save.
+        stalled = await detect_stalled_items(
+            db, team_id, executor_agent_id=lead_agent_id
+        )
+
+        # The speech cap is checked BEFORE the turn, not after it.
+        #
+        # Checking only at post time meant a capped patrol still ran a full
+        # LLM turn and threw the output away: with a stalled board the pace
+        # is 180s (10 sweeps per 30-minute window) against a cap of 6, so
+        # roughly four entire runs per window were burned for nothing —
+        # right next to the "empty board, zero runs" cost guarantee this
+        # feature advertises. The sweep still records its cursor below, so
+        # a capped team does not turn into a hot candidate.
+        if not await may_patrol_speak(db, team_id):
+            logger.info(
+                f"[patrol] speech cap reached for {team_id}; skipping the sweep"
+            )
+            return
+
+        member_map = await self._team_member_names(channel_id)
+        team_owner = await self._get_agent_owner(lead_agent_id)
+        history = await self._bus.get_recent_messages(
+            channel_id, limit=TEAM_HISTORY_LIMIT
+        )
+        lead, work_items = await self._team_board(team_id)
+        prompt = self._build_team_prompt(
+            lead_agent_id, history, member_map,
+            owner_user_id=team_owner, team_id=team_id,
+            trigger_messages=[],
+            lead_agent_id=lead or lead_agent_id,
+            work_items=work_items,
+            patrol_stalled=[
+                {
+                    "title": i.title,
+                    "assignee": member_map.get(i.assignee_id or "", i.assignee_id or ""),
+                    "item_id": i.item_id,
+                }
+                for i in stalled
+            ],
+        )
+
+        # A sweep is an ordinary run: it burns tokens, it can wedge, and the
+        # owner must be able to stop it. So it gets the same two bindings the
+        # message lane gives its runs, for the same reasons.
+        #
+        # `on_event_id` is the first moment the run HAS an id (Step 0 mints
+        # it). Two things hang off that moment:
+        #
+        #   * the activity row's `event_id`. `start()` writes NULL there, and
+        #     the roster's idle branch hands that column to the frontend as the
+        #     entry point into the run's event log. Opening the row for the
+        #     roster's sake and never filling this in would have cost the
+        #     roster the very link it wanted.
+        #   * the cancel watcher. The owner's stop lands in the backend
+        #     process, not here, so it arrives through the DB and needs a token
+        #     registered against the run id in order to fire.
+        # The activity row opens HERE — not at the top of the sweep.
+        #
+        # `start()` writes `event_id: None` and resets `steps` / `started_at`,
+        # and nothing writes the id back until `on_event_id` fires below. Open
+        # it any earlier and every sweep that returns before running a turn —
+        # the speech cap above, or a throw while assembling the prompt — blanks
+        # the lead's link to its LAST REAL run's event log on the way past.
+        # That is not a corner: with a stalled board the pace is 180s against a
+        # cap of 6 per 30 minutes, so the tail of every window is exactly those
+        # no-op sweeps.
+        #
+        # Opening it late costs nothing that was actually being bought. The
+        # roster misses the two DB reads above, and `detect_stalled_items` no
+        # longer consults this row for the sweeper at all (it takes
+        # `executor_agent_id` and skips it), so whether the row is open during
+        # detection cannot change a verdict. The board tools' fallback room
+        # resolver is only read from inside the runtime call.
+        act = await stack.enter_async_context(
+            _bus_activity.turn(db, lead_agent_id, channel_id)
+        )
+        cancellation = CancellationToken()
+        watcher = get_cancel_watcher(db)
+        watched_run_id: list[str] = [""]
+        # Unregister however the sweep exits — a token left behind keeps the
+        # poll loop alive for a run that is already gone.
+        stack.callback(lambda: watcher.unregister(watched_run_id[0]))
+
+        async def on_event_id(run_id: str) -> None:
+            watched_run_id[0] = run_id
+            watcher.register(run_id, cancellation)
+            await act.note_event_id(run_id)
+
+        response_text, _ = await self._invoke_runtime(
+            agent_id=lead_agent_id,
+            sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+            prompt=prompt,
+            channel_id=channel_id,
+            retrieval_anchor="team patrol",
+            include_monologue=True,
+            team_room=True,
+            on_progress=act.on_progress,
+            on_event_id=on_event_id,
+            cancellation=cancellation,
+            # The turn's team, for the MCP identity headers. Without it the
+            # board tools this very prompt asks the lead to call cannot prove
+            # which room they are in — tools must learn that from the server,
+            # never from a model parameter.
+            team_id=team_id,
+        )
+        text = (response_text or "").strip()
+        if not text:
+            return  # nothing wrong, nothing said
+        # Re-checked because the pre-turn gate opened minutes ago and a
+        # concurrent sweep in another process may have used the budget.
+        if not await may_patrol_speak(db, team_id):
+            logger.info(f"[patrol] speech cap reached for {team_id}; staying quiet")
+            return
+        # Posted under the ROOM's marker, not the lead's id: that is what
+        # keeps the line out of the agent-hop count, and it reads honestly
+        # — this is the platform taking stock, not the lead chatting.
+        await self._bus.send_message(
+            from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+            to_channel=channel_id,
+            content=text,
+            mentions=self._extract_team_mentions(text, member_map) or None,
+            msg_type=PATROL_MSG_TYPE,
+        )
+        await note_patrol_spoke(db, team_id)
+
+    async def _team_board(self, team_id: str) -> tuple[str, List[dict]]:
+        """``(lead_agent_id, unfinished work items)`` for a team room's prompt.
+
+        Best-effort: a board that cannot be read degrades to "no items" rather
+        than failing the turn. The room conversation is the primary surface —
+        losing the board section costs the lead some context, losing the turn
+        costs the user their answer.
+        """
+        if not team_id:
+            return ("", [])
+        try:
+            from xyz_agent_context.repository.team_work_repository import (
+                TeamWorkItemRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            team = await db.get_one("teams", {"team_id": team_id})
+            lead = str((team or {}).get("lead_agent_id") or "")
+            items = await TeamWorkItemRepository(db).list_active(team_id)
+            return (
+                lead,
+                [
+                    {
+                        "item_id": i.item_id,
+                        "title": i.title,
+                        "assignee_id": i.assignee_id or "",
+                        "status": i.status,
+                    }
+                    for i in items
+                ],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[work-board] could not load board for {team_id}: {e}")
+            return ("", [])
+
     def _build_team_prompt(
         self,
         agent_id: str,
@@ -1023,6 +1347,9 @@ class MessageBusTrigger:
         owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
+        lead_agent_id: str = "",
+        work_items: Optional[List[dict]] = None,
+        patrol_stalled: Optional[List[dict]] = None,
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1066,6 +1393,73 @@ class MessageBusTrigger:
                 f"own workspace is private to you, so work left there is work "
                 f"your teammates cannot open or continue."
             )
+
+        # --- The work board, and (for the lead) what it obliges -------------
+        #
+        # Injected rather than fetched: if seeing your own board required
+        # calling a tool, "what did I hand out" would depend on the model
+        # choosing to look — the same dependency iron rule #15 keeps off
+        # correctness-critical paths. Every member sees the board (it is how
+        # they know what they own); only the lead is given the duty to drive it.
+        lines += ["", "[Work board] — tasks that outlive this turn:"]
+        if work_items:
+            for item in work_items:
+                who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
+                lines.append(
+                    f"- [{item.get('status')}] {item.get('title')} "
+                    f"({who}) · id={item.get('item_id')}"
+                )
+        else:
+            lines.append("- (no open work items)")
+
+        if patrol_stalled is not None:
+            # A patrol sweep, not a reply to anyone. Nobody addressed this
+            # agent — the platform woke it because work is outstanding.
+            lines += [
+                "",
+                "[Patrol] Nobody messaged you. The platform woke you because "
+                "this team has unfinished work and you are its Leader.",
+            ]
+            if patrol_stalled:
+                lines.append(
+                    "These items are STALLED — their owner is idle or has gone "
+                    "silent. This is measured from real activity data, not a "
+                    "guess, so treat it as fact:"
+                )
+                for s in patrol_stalled:
+                    lines.append(f"- {s.get('title')} ({s.get('assignee')})")
+                lines += [
+                    "Chase them: @mention the owner and ask where it stands. "
+                    "DO NOT reassign the work to someone else — 'idle with "
+                    "unfinished work' is not 'never coming back', and two "
+                    "agents on one deliverable is worse than a late one.",
+                    "If something has clearly been delivered but the board "
+                    "still says otherwise, close it with work_complete_item.",
+                ]
+            else:
+                lines.append(
+                    "Nothing is stalled. If there is genuinely nothing worth "
+                    "saying, say NOTHING — reply with empty text. A routine "
+                    "'all good' every few minutes is noise in a room the user "
+                    "is trying to read."
+                )
+
+        if lead_agent_id and lead_agent_id == agent_id:
+            lines += [
+                "",
+                "[You are the Leader of this team]",
+                "Nobody else is watching whether this team's work actually "
+                "finishes — that is your job, and it does not end when you "
+                "hand something out.",
+                "- When you assign work, record it: work_add_item(title, "
+                "assignee_id). A task that exists only in your reply is a task "
+                "nobody can notice has stalled — including you, next time you "
+                "wake up, because this turn's memory is gone by then.",
+                "- When someone delivers, close it: work_complete_item(item_id).",
+                "- The board above is the team's real state. If it disagrees "
+                "with what you just read in the room, the room is right and the "
+                "board needs updating.",
+            ]
 
         def _sender(msg: BusMessage) -> str:
             return (
@@ -1150,10 +1544,26 @@ class MessageBusTrigger:
         how many agent hops have happened since the last human message. A user
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
+        # Patrol lines are excluded IN SQL, not skipped after the fact.
+        #
+        # A patrol line is the PLATFORM taking stock, not an agent taking a
+        # turn, so it must not count toward the cap (owner decision
+        # 2026-08-07, option a) — otherwise the exemption is self-defeating:
+        # patrol speaks into a room that is already at the cap precisely
+        # because the flow broke, and its own line would push every later
+        # chase @ out of reach.
+        #
+        # Filtering in Python was not enough. The window is a fixed LIMIT, so
+        # a skipped row still consumed a slot in it: with 3 patrol lines among
+        # the last 6 messages, only 3 countable hops fit, `depth` could never
+        # reach MAX_TEAM_AGENT_HOPS, and the runaway-@ cap silently stopped
+        # applying — in exactly the rooms patrol frequents, since it only
+        # speaks where a chain is already looping.
         rows = await self._bus._db.execute(
             f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+            f"AND (msg_type IS NULL OR msg_type != {ph}) "
             f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id,),
+            (channel_id, PATROL_MSG_TYPE),
         )
         depth = 0
         for r in rows or []:

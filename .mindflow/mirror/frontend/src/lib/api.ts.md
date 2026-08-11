@@ -3,6 +3,11 @@ code_file: frontend/src/lib/api.ts
 last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 工作板三个方法
+
+`getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
+`paused`**(agent 侧的列表刻意不含),因为要不要恢复是用户的决定 —— 隐藏它会
+让被停的任务看起来像被删了。
 
 ## 2026-08-10 (review 修正) — `mintTeamArtifactViewToken` 客户端方法已移除
 

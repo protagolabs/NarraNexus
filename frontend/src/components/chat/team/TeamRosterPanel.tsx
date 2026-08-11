@@ -46,10 +46,13 @@ import {
 } from '@/lib/teamActivity';
 import { LiveDot, friendlyToolName } from '../process/processShared';
 import { TeamMemberPanel } from './TeamMemberPanel';
+import { TeamWorkBoard } from './TeamWorkBoard';
 import type { AgentInfo } from '@/types';
 import type { TeamMemberActivity, TeamMemberStatus } from '@/types/teams';
 
 export interface TeamRosterPanelProps {
+  /** The room's team. Drives the work board under the member list. */
+  teamId: string;
   /** Every member of the room; only `agent_id` / `name` are consumed. */
   members: AgentInfo[];
   /** Polled activity. A member missing here is idle with no trace. */
@@ -250,6 +253,7 @@ function MemberRow({
 }
 
 export function TeamRosterPanel({
+  teamId,
   members,
   activity,
   leadAgentId,
@@ -335,6 +339,10 @@ export function TeamRosterPanel({
           ))}
         </div>
       )}
+      {/* Below the members, not among them: the roster is about who is busy
+          right now, the board about what the team owes — the second question
+          outlives every turn on the first. */}
+      <TeamWorkBoard teamId={teamId} now={now} />
     </aside>
   );
 }

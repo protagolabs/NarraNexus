@@ -1,9 +1,32 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-10 — Clear team data 增加 board 作用域
 
+`_wipe_team_data` 增加 `clear_board`,端点增加 `board` 查询参数。
+
+**独立作用域,不并进 `clear_chat`**:两者回答不同的问题 —— 聊天是「说过什么」,
+板子是「还欠什么」。清掉一段吵闹的对话记录的人,几乎不会同时是想「顺便忘掉我们
+说好要做的事」的人;反过来,放弃这批工作也不该要求先擦掉历史。
+
+`board` 默认 **False**:已有调用方请求清聊天时,并没有请求丢掉团队欠账 ——
+默认打开会悄悄扩大它们的爆炸半径。
+
+## 2026-08-10 — 工作板端点(只读 + 恢复)
+
+`GET /work-items`、`POST /work-items/{id}/resume`、`PUT /patrol`。
+
+**刻意没有创建/删除**:板子由 lead 通过 MCP 工具维护,一块用户还能手改的板子
+会和 lead 被问责的那块漂移。用户这一侧的动作只有两个:看,以及把停止 park 掉
+的项**恢复**。
+
+与 agent 侧列表的关键差别:**这里返回 `paused`**。那是停止留下的状态,而决定
+要不要恢复的是用户 —— 像 agent 侧那样隐藏它,会让被停的任务看起来像被删了。
+
+`Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
+`_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
 ## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
 
 **同一条规则改了两次，第二次才是重点。**
@@ -270,3 +293,23 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 alongside `thinking` (kept for back-compat). status = running (from [[_bus_activity]]
 `is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
 Drives the team status strip + activity bubbles.
+
+## 2026-08-10 — the work-board endpoint stopped writing its own SQL
+
+`GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
+show `paused` items alongside active ones. It now calls
+`TeamWorkItemRepository.list_visible`.
+
+The filtering itself was never the question — it has to happen in SQL, since the
+panel polls this endpoint every 5s and a long-lived team's `done`/`cancelled`
+history only grows, so reading it all to discard most of it scales with the
+team's age. What moved is WHERE the statement lives: keeping it in the
+repository leaves the feature with a single dialect surface to test, instead of
+a second raw statement in the route that the MySQL suite would have to grow a
+reason to reach into.
+
+## 2026-08-10 — 工作板端点直接用实体
+
+`list_visible` 返回的是 `List[WorkItem]`,端点原先又 `model_dump()` 拍回 dict
+再按字符串 key 取回来,把上一轮改动刚拿到的类型直接扔掉:`r["item_id"]` 拼错要
+到请求时才炸,`i.item_id` 在 pyright 就拦得住。

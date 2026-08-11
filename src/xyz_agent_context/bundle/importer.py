@@ -144,6 +144,7 @@ async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]
         for t in agent_tables:
             await _del(t, "agent_id", aid)
     for tid in new_team_ids:
+        await _del("team_work_items", "team_id", tid)
         await _del("team_members", "team_id", tid)
         await _del("teams", "team_id", tid)
     for cid in new_channel_ids:
@@ -689,6 +690,36 @@ async def _confirm_inner(
             "source": "bundle",
             "intro_md": intro,
         })
+        # The board comes back with the team. Ids are remapped here rather than
+        # in the bundle: `assignee_id` is a SOURCE agent id, and one that fell
+        # outside the export closure has no counterpart here — it becomes
+        # unclaimed work, which is true and actionable, instead of a dangling
+        # reference nobody can chase.
+        #
+        # `root_run_id` is left NULL on purpose (the exporter drops it): it
+        # named a run in the source environment, and honouring it would let a
+        # cascade stop here match items it never produced.
+        board = team.get("work_items") or []
+        for item in board:
+            old_assignee = item.get("assignee_id") or ""
+            await _ins("team_work_items", {
+                "item_id": gen_new_id("wi"),
+                "team_id": new_tid,
+                # Backfilled after the bus channels are restored (the team row
+                # is written before them). Left empty when the bundle carried
+                # no chat: the board is still fully usable in the UI (that view
+                # keys on team_id), only patrol waits — and patrol needs a room
+                # to speak into anyway.
+                "channel_id": "",
+                "title": item.get("title") or "",
+                "assignee_id": id_map.get(old_assignee) if old_assignee else None,
+                "status": item.get("status") or "open",
+                "created_by": id_map.get(item.get("created_by") or "", "") or "",
+                "root_run_id": None,
+            })
+        if board:
+            written_summary["work_items"] = len(board)
+
         new_team_id = new_tid
         written_summary["team_created"] = True
         written_summary["team_id"] = new_tid
@@ -1164,6 +1195,23 @@ async def _confirm_inner(
                     written_summary["bus_channels_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channels insert failed: {e}")
+            # The work board was written with the team, before this block, so
+            # its room reference is filled in now that the room exists.
+            if new_team_id:
+                try:
+                    room = await db.get_one(
+                        "bus_channels",
+                        {"created_by": f"team_{new_team_id}", "channel_type": "group"},
+                    )
+                    if room:
+                        await db.update(
+                            "team_work_items",
+                            {"team_id": new_team_id},
+                            {"channel_id": room["channel_id"]},
+                        )
+                except Exception as e:  # noqa: BLE001 — board keeps its UI value
+                    logger.warning(f"work-board channel backfill failed: {e}")
+
             for m in (bus.get("members") or []):
                 new_m = rewrite_row("bus_channel_members", m)
                 try:
