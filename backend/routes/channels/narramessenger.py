@@ -127,11 +127,11 @@ _PREWARM_STATE: dict[str, dict] = {}
 _PREWARM_TASKS: set[asyncio.Task] = set()
 
 
-async def _executor_alive(executor_url: str) -> bool:
+async def _executor_alive(executor_url: str, timeout: float = 5.0) -> bool:
     """200 on /health, never raises (mirrors broker_client._executor_healthy;
     private there, so restated rather than imported)."""
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(f"{executor_url.rstrip('/')}/health")
             return resp.status_code == 200
     except Exception:  # noqa: BLE001 — booting / absent both mean "not ready"
@@ -204,7 +204,13 @@ async def prewarm(request: Request, body: PrewarmRequest):
     if err is not None:
         return err
     state = _PREWARM_STATE.get(owner)
-    if state and state["status"] == "ready" and await _executor_alive(state["executor_url"]):
+    # timeout=1.0: the caller is mid-ring — a wedged container must not cost
+    # them the full 5s default before we fall through to re-warming.
+    if (
+        state
+        and state["status"] == "ready"
+        and await _executor_alive(state["executor_url"], timeout=1.0)
+    ):
         return JSONResponse(status_code=202, content={"status": "already_warm"})
     if broker_url() is None:  # local/desktop: nothing to warm — never an error
         return JSONResponse(status_code=202, content={"status": "skipped"})
