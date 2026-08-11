@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 原语) — credential-mutation primitives + deep_merge
+
+Protocol/DirectStore/HttpStore 加 `patch_credential`/`put_credential`/`delete_credential`——**通用凭据变更三原语**(任何 manager 实现 apply_patch/save_raw/delete_credential 即可经它写，不用每操作一路由)。模块级 `deep_merge`(嵌套 dict 递归合、标量替换)是 PATCH 承诺的合并语义、manager.apply_patch 用它，本地云端合并一致。HttpStore `_post_json`→`_send_json(method,…)` 泛化支持 PATCH/PUT/DELETE，写侧 never-raise→{success:False} 契约不变。lark 是首个用户。
+
 ## 2026-08-11 (lark 地基) — 三张平行表收成单 ChannelSpec descriptor
 
 `_MANAGER_REGISTRY`+`_BIND_SERVICE`+`_DISPLAY_NAME` 收成 **一个 `CHANNELS: dict[str, ChannelSpec]`**（review 一直诟病的三表漂移根除）。`ChannelSpec`=manager_module/class + read_method + display_name(unbind 措辞) + 可选 `_BindSpec`(do_bind 服务 + takes=mgr|db + has_test)。`_spec/_manager_class/_read_method_name` 及 DirectStore.bind/unbind/test_connection 全读单字段；`SUPPORTED_CHANNELS=frozenset(CHANNELS)`。**加 channel 真的=一行 ChannelSpec + to_raw_dict**。纯重构、行为不变（55 测试绿）。为 lark 写原语(patch/put/delete)打地基。

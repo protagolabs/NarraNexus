@@ -62,6 +62,22 @@ def _seg(value: str) -> str:
     return quote(str(value), safe="")
 
 
+def deep_merge(base: dict, patch: dict) -> dict:
+    """Merge ``patch`` INTO a copy of ``base``: where BOTH sides hold a dict,
+    recurse (so a ``patch_credential`` of ``{"permission_state": {k: v}}`` adds
+    ``k`` to the existing blob instead of replacing the whole blob); otherwise
+    ``patch`` wins. This is the one shared semantics the credential-mutation
+    ``PATCH`` primitive promises — a manager's ``apply_patch`` uses it so the
+    local and HTTP paths merge identically."""
+    out = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 class ChannelCredentialStore(Protocol):
     """Per-channel credential access a send/bind tool needs, transport-agnostic.
 
@@ -82,6 +98,16 @@ class ChannelCredentialStore(Protocol):
     async def unbind(self, channel: str, agent_id: str) -> dict: ...
 
     async def test_connection(self, channel: str, agent_id: str) -> dict: ...
+
+    # Generic credential-mutation primitives (blueprint P2 lark write leg). Any
+    # channel whose manager implements ``apply_patch`` / ``save_raw`` /
+    # ``delete_credential`` can be written through these without a per-op route —
+    # lark's CLI-OAuth flow is the first user. See the module docstring.
+    async def patch_credential(self, channel: str, agent_id: str, patch: dict) -> dict: ...
+
+    async def put_credential(self, channel: str, agent_id: str, raw: dict) -> dict: ...
+
+    async def delete_credential(self, channel: str, agent_id: str) -> dict: ...
 
 
 # One per-channel descriptor — the SINGLE source of truth. Everything (reads,
@@ -278,6 +304,24 @@ class DirectStore:
             )
         return await do_test((_manager_class(channel))(await self._db()), agent_id)
 
+    # -- credential-mutation primitives (delegate to the manager's write API) --
+
+    async def patch_credential(self, channel: str, agent_id: str, patch: dict) -> dict:
+        """Partial update — the manager deep-merges (nested dicts like
+        permission_state merged key-wise) and saves."""
+        await (_manager_class(channel))(await self._db()).apply_patch(agent_id, patch)
+        return {"success": True}
+
+    async def put_credential(self, channel: str, agent_id: str, raw: dict) -> dict:
+        """Full upsert of a raw cred dict — the manager rebuilds its dataclass
+        (its own _cred_from_raw) and saves."""
+        await (_manager_class(channel))(await self._db()).save_raw(agent_id, raw)
+        return {"success": True}
+
+    async def delete_credential(self, channel: str, agent_id: str) -> dict:
+        await (_manager_class(channel))(await self._db()).delete_credential(agent_id)
+        return {"success": True, "data": {"deleted": True}}
+
 
 class HttpStore:
     """Cloud: call the owner-gated backend endpoints, forwarding the caller
@@ -336,23 +380,40 @@ class HttpStore:
     async def test_connection(self, channel: str, agent_id: str) -> dict:
         return await self._post_json(f"/api/{_seg(channel)}/test", {"agent_id": agent_id})
 
+    # -- credential-mutation primitives: PATCH/PUT/DELETE the generic endpoint --
+
+    def _cred_path(self, channel: str, agent_id: str) -> str:
+        return f"/api/agents/{_seg(agent_id)}/channels/{_seg(channel)}/credential"
+
+    async def patch_credential(self, channel: str, agent_id: str, patch: dict) -> dict:
+        return await self._send_json("PATCH", self._cred_path(channel, agent_id), patch)
+
+    async def put_credential(self, channel: str, agent_id: str, raw: dict) -> dict:
+        return await self._send_json("PUT", self._cred_path(channel, agent_id), raw)
+
+    async def delete_credential(self, channel: str, agent_id: str) -> dict:
+        return await self._send_json("DELETE", self._cred_path(channel, agent_id), None)
+
     async def _post_json(self, path: str, body: dict) -> dict:
-        """POST + one HTTPError boundary. Writes must ALWAYS hand back a
-        {success, error?} dict the tool can relay — never raise, never None (a
-        failed unbind is not "unbound"), so transport failures degrade to
-        success:False with a readable reason."""
+        return await self._send_json("POST", path, body)
+
+    async def _send_json(self, method: str, path: str, body: Optional[dict]) -> dict:
+        """One HTTP-verb + HTTPError boundary for every WRITE. Writes must ALWAYS
+        hand back a {success, error?} dict the tool can relay — never raise, never
+        None (a failed unbind is not "unbound") — so transport failures / non-2xx /
+        non-JSON all degrade to success:False with a readable reason."""
         import httpx
 
         try:
             async with httpx.AsyncClient(
                 base_url=self._base, headers=self._headers, timeout=20.0
             ) as c:
-                r = await c.post(path, json=body)
+                r = await c.request(method, path, json=body)
         except httpx.HTTPError as e:
-            logger.warning(f"[channel-store] backend unreachable POST {path}: {e}")
+            logger.warning(f"[channel-store] backend unreachable {method} {path}: {e}")
             return {"success": False, "error": f"channel backend unreachable ({type(e).__name__})"}
         if r.status_code >= 400:
-            logger.warning(f"[channel-store] backend rejected POST {path}: {r.status_code}")
+            logger.warning(f"[channel-store] backend rejected {method} {path}: {r.status_code}")
             return {"success": False, "error": f"channel backend rejected the call ({r.status_code})"}
         try:
             return r.json() or {"success": False, "error": "channel backend returned an empty response"}

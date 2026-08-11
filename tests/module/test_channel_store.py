@@ -511,3 +511,90 @@ def test_http_write_non_json_degrades_to_success_false(monkeypatch):
     _patch_http(monkeypatch, handler)
     out = asyncio.run(_http().unbind("discord", AGENT))
     assert out["success"] is False and "non-JSON" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# credential-mutation primitives (lark write leg): deep_merge + patch/put/delete
+# ---------------------------------------------------------------------------
+
+
+def test_deep_merge_recurses_dicts_and_replaces_scalars():
+    from xyz_agent_context.module.data_access.channel_store import deep_merge
+
+    base = {"permission_state": {"a": 1, "b": 2}, "auth_status": "old", "x": {"k": 1}}
+    patch = {"permission_state": {"b": 9, "c": 3}, "auth_status": "new", "x": "flat"}
+    out = deep_merge(base, patch)
+    assert out == {"permission_state": {"a": 1, "b": 9, "c": 3}, "auth_status": "new", "x": "flat"}
+    assert base["permission_state"] == {"a": 1, "b": 2}  # base untouched (copy)
+
+
+def _direct_with_write_spy(monkeypatch):
+    calls = []
+
+    class _Mgr:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            calls.append(("apply_patch", agent_id, patch))
+
+        async def save_raw(self, agent_id, raw):
+            calls.append(("save_raw", agent_id, raw))
+
+        async def delete_credential(self, agent_id):
+            calls.append(("delete_credential", agent_id))
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _Mgr,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    return store, calls
+
+
+def test_direct_patch_put_delete_delegate_to_the_manager(monkeypatch):
+    store, calls = _direct_with_write_spy(monkeypatch)
+    assert asyncio.run(store.patch_credential("lark", AGENT, {"permission_state": {"k": 1}})) == {"success": True}
+    assert asyncio.run(store.put_credential("lark", AGENT, {"app_id": "x"})) == {"success": True}
+    assert asyncio.run(store.delete_credential("lark", AGENT)) == {"success": True, "data": {"deleted": True}}
+    assert calls == [
+        ("apply_patch", AGENT, {"permission_state": {"k": 1}}),
+        ("save_raw", AGENT, {"app_id": "x"}),
+        ("delete_credential", AGENT),
+    ]
+
+
+def test_http_patch_put_delete_use_the_right_verbs_and_path(monkeypatch):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"success": True})
+
+    _patch_http(monkeypatch, handler)
+    http = ChannelHttpStore("http://backend:8000")
+    asyncio.run(http.patch_credential("lark", AGENT, {"auth_status": "x"}))
+    asyncio.run(http.put_credential("lark", AGENT, {"app_id": "y"}))
+    asyncio.run(http.delete_credential("lark", AGENT))
+    p = f"/api/agents/{AGENT}/channels/lark/credential"
+    assert seen == [
+        ("PATCH", p, {"auth_status": "x"}),
+        ("PUT", p, {"app_id": "y"}),
+        ("DELETE", p, None),
+    ]
+
+
+def test_http_write_primitive_never_raises(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    out = asyncio.run(ChannelHttpStore("http://backend:8000").patch_credential("lark", AGENT, {"a": 1}))
+    assert out["success"] is False and "unreachable" in out["error"]

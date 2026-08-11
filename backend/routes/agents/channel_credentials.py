@@ -33,7 +33,7 @@ seam's DirectStore and passes the dict straight through, never touching fields.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 
 # Delegate the actual db access to the seam's DirectStore so this HTTP twin and
 # the in-process path are ONE implementation (same manager dispatch, same raw
@@ -86,6 +86,43 @@ async def get_channel_credential(request: Request, agent_id: str, channel: str) 
 
     raw = await ChannelDirectStore().get_credential(channel, agent_id)
     return raw if raw is not None else {"bound": False}
+
+
+async def _gate(request: Request, channel: str, agent_id: str) -> None:
+    """The shared double gate for the raw-credential resource: known channel,
+    verified nx-service caller, agent owner."""
+    if channel not in SUPPORTED_CHANNELS:
+        raise HTTPException(status_code=404, detail=f"unknown channel: {channel}")
+    _require_service_caller(request)
+    await assert_owned(request, agent_id)
+
+
+@router.patch("/{agent_id}/channels/{channel}/credential")
+async def patch_channel_credential(
+    request: Request, agent_id: str, channel: str, patch: dict = Body(...)
+) -> dict:
+    """Partial credential update — the WRITE side of the raw-secret resource
+    (same double gate as the GET). Delegates to the seam's DirectStore so the
+    deep-merge (nested dicts like lark's permission_state merged key-wise) is one
+    implementation shared with the local path."""
+    await _gate(request, channel, agent_id)
+    return await ChannelDirectStore().patch_credential(channel, agent_id, patch)
+
+
+@router.put("/{agent_id}/channels/{channel}/credential")
+async def put_channel_credential(
+    request: Request, agent_id: str, channel: str, raw: dict = Body(...)
+) -> dict:
+    """Full upsert of a raw credential dict (double-gated)."""
+    await _gate(request, channel, agent_id)
+    return await ChannelDirectStore().put_credential(channel, agent_id, raw)
+
+
+@router.delete("/{agent_id}/channels/{channel}/credential")
+async def delete_channel_credential(request: Request, agent_id: str, channel: str) -> dict:
+    """Remove the binding (double-gated)."""
+    await _gate(request, channel, agent_id)
+    return await ChannelDirectStore().delete_credential(channel, agent_id)
 
 
 @router.get("/{agent_id}/channels/name")

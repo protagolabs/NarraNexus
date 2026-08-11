@@ -312,6 +312,29 @@ class LarkCredentialManager:
             await self.db.insert(self.TABLE, data)
         logger.info(f"Saved Lark credential for agent {cred.agent_id} (app_id={cred.app_id})")
 
+    # -- ChannelCredentialStore write primitives (mcp routes through the seam) --
+
+    async def apply_patch(self, agent_id: str, patch: dict[str, Any]) -> None:
+        """Partial update in raw-cred-dict space: read the credential, deep-merge
+        ``patch`` (nested dicts like ``permission_state`` merged key-wise via the
+        seam's ``deep_merge``), rebuild, save. This is the one write path behind
+        both the local seam and the backend PATCH endpoint, and it subsumes the
+        old ``patch_permission_state`` / per-field setters: e.g. an admin-request
+        step passes ``{"permission_state": {"admin_request_url": …}}``, enabling
+        receive passes ``{"app_secret_encoded": …}``."""
+        from xyz_agent_context.module.data_access.channel_store import deep_merge
+
+        cred = await self.get_credential(agent_id)
+        if cred is None:
+            raise ValueError(f"no Lark credential to patch for agent {agent_id}")
+        merged = deep_merge(cred.to_raw_dict(), patch)
+        await self.save_credential(_cred_from_raw(merged))
+
+    async def save_raw(self, agent_id: str, raw: dict[str, Any]) -> None:
+        """Full upsert from a raw cred dict (the PUT primitive). ``agent_id`` is
+        pinned from the path so a mismatched body can't retarget another agent."""
+        await self.save_credential(_cred_from_raw({**raw, "agent_id": agent_id}))
+
     async def patch_permission_state(self, agent_id: str, updates: dict[str, Any]) -> dict:
         """Merge `updates` into the stored JSON permission_state and save.
 
