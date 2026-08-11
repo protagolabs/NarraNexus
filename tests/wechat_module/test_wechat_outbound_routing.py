@@ -184,12 +184,9 @@ class TestCallSitesDelegate:
         router = AsyncMock(return_value=True)
         monkeypatch.setattr(tools, "send_wechat_text", router)
 
-        mgr = SimpleNamespace(get=AsyncMock(return_value=_cred()))
-
-        async def _fake_get_manager():
-            return mgr
-
-        monkeypatch.setattr(tools, "_get_manager", _fake_get_manager)
+        # wechat_send now reads its credential through the seam helper
+        # (_get_credential -> ChannelCredentialStore), not a local manager.
+        monkeypatch.setattr(tools, "_get_credential", AsyncMock(return_value=_cred()))
 
         registered: dict[str, object] = {}
 

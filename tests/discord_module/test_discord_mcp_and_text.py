@@ -212,11 +212,15 @@ async def test_discord_list_channels_filters_to_postable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_discord_unbind_delegates(monkeypatch):
-    class _FakeMgr:
-        async def unbind(self, agent_id):
-            return True
+    # discord_unbind now routes through the ChannelCredentialStore seam
+    # (DirectStore local / HttpStore -> /api/discord/unbind in cloud); the tool
+    # just relays the seam's {success, data:{unbound}} envelope.
+    class _FakeStore:
+        async def unbind(self, channel, agent_id):
+            assert channel == "discord"
+            return {"success": True, "data": {"unbound": True}}
 
-    monkeypatch.setattr(mcp_mod, "_get_manager", lambda: _async(_FakeMgr()))
+    monkeypatch.setattr(mcp_mod, "get_channel_credential_store", lambda: _FakeStore())
     mcp = _register()
     res = await mcp.tools["discord_unbind"]("a")
     assert res["success"] is True

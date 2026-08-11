@@ -30,16 +30,19 @@ Telegram, WeChat, NarraMessenger, Lark) is its own PR per the migration design
 (``reference/self_notebook/specs/2026-08-10-mcp-channel-credential-migration-design.md``),
 adding one line to the dict — no seam change.
 
-Known gap (tracked, not hidden): write/lifecycle operations (bind / unbind /
-test-connection) are NOT part of this Protocol yet — only the read side
-(``get_credential`` / ``get_agent_name``) is migrated in PR-A. ``DirectStore``
-exposes an extra ``get_manager()`` convenience (outside the Protocol) so
-``_discord_mcp_tools.py``'s bind/status/unbind tools can keep working without
-a hand-rolled ``XYZBaseModule.get_mcp_db_client()`` call of their own — but
-that convenience has NO HttpStore counterpart, so those three tools still
-require local db access even when ``NARRANEXUS_BACKEND_URL`` is set. Removing
+Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``) and the
+clean writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
+owner-gated backend routes) are all Protocol methods with a DirectStore and an
+HttpStore side.
+
+Known gap (tracked, not hidden): lark's CLI-OAuth write flow (setup / the
+three-click permission advance / enable-receive) and narramessenger's
+``narra-cli`` passthrough are NOT migrated — they spawn a CLI subprocess and, in
+lark's case, do partial ``permission_state`` patches with no backend route, so
+they still reach the db directly via their own credential manager. Removing
 ``DB_PASSWORD`` from the mcp container (the definition of done for #2) is not
-real until a later PR gives bind/unbind their own HTTP-routed seam methods.
+real until that CLI-write leg gets a generic credential-upsert endpoint. That is
+deliberately deferred (Owner is deciding the approach).
 """
 from __future__ import annotations
 
@@ -193,13 +196,6 @@ class DirectStore:
         row = await db.get_one("agents", {"agent_id": agent_id})
         return (row or {}).get("created_by", "") or ""
 
-    async def get_manager(self, channel: str):
-        """A live per-channel manager for the write/lifecycle operations still
-        outside the Protocol (lark's CLI-OAuth flow — see module docstring's
-        "known gap"). DirectStore-only. bind/unbind now have first-class seam
-        methods below; this remains only for the un-migrated lark writes."""
-        return (_manager_class(channel))(await self._db())
-
     async def bind(self, channel: str, agent_id: str, fields: dict) -> dict:
         """Bind via the channel's own do_bind service (byte-identical to what the
         MCP tool did locally). do_bind takes either the manager or the raw db —
@@ -217,8 +213,16 @@ class DirectStore:
         return await do_bind(db, agent_id, **fields)
 
     async def unbind(self, channel: str, agent_id: str) -> dict:
-        """Uniform across channels: mgr.unbind + the same {success,...} envelope
-        the backend `/unbind` route returns (so Direct↔Http are parity)."""
+        """mgr.unbind + the nested {"success":True,"data":{"unbound":True}} the
+        discord/slack/telegram/wechat `/unbind` routes return, so Direct↔Http are
+        parity for the channels that actually expose an unbind MCP tool.
+
+        NOTE for a future narramessenger unbind tool: narra's own `/unbind` route
+        returns a FLAT `{"success":True,"unbound":ok}` and reports success even
+        when nothing was removed — it does NOT match this envelope. Wire such a
+        tool to this seam only after reconciling narra's route to this shape (or
+        special-casing narra here); today narra exposes only a bind tool, so the
+        mismatch is inert."""
         mgr = (_manager_class(channel))(await self._db())
         removed = await mgr.unbind(agent_id)
         if not removed:
@@ -229,11 +233,18 @@ class DirectStore:
         """Re-validate the stored credential against the platform (do_test_connection,
         which lives in the same _service module as do_bind). Read-only — no
         mutation — but it needs the manager, so it routes here rather than staying
-        a raw get_mcp_db_client call in the status tool."""
+        a raw get_mcp_db_client call in the status tool. Only the channels whose
+        _service defines do_test_connection AND expose a status tool
+        (discord/slack/telegram) call this — a clear error beats a raw
+        AttributeError for a channel (e.g. narramessenger) that has neither."""
         import importlib
 
         module_path = _BIND_SERVICE[channel][0]
-        do_test = getattr(importlib.import_module(module_path), "do_test_connection")
+        do_test = getattr(importlib.import_module(module_path), "do_test_connection", None)
+        if do_test is None:
+            raise ValueError(
+                f"channel {channel!r} has no test_connection (only its bind is seam-wired)"
+            )
         return await do_test((_manager_class(channel))(await self._db()), agent_id)
 
 

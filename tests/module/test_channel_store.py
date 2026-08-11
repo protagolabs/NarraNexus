@@ -403,3 +403,81 @@ def test_direct_bind_delegates_to_do_bind(monkeypatch):
     out = asyncio.run(store.bind("discord", AGENT, {"bot_token": "t", "owner_user_id": "o"}))
     assert out == {"success": True, "data": {"ok": 1}}
     assert captured == {"agent_id": AGENT, "fields": {"bot_token": "t", "owner_user_id": "o"}}
+
+
+def test_direct_bind_db_taker_passes_the_raw_db_not_a_manager(monkeypatch):
+    # narramessenger's do_bind takes (db, agent_id, bind_command) — takes="db".
+    captured = {}
+    sentinel_db = object()
+
+    async def fake_do_bind(db, agent_id, **fields):
+        captured["db_is_sentinel"] = db is sentinel_db
+        captured["fields"] = fields
+        return {"success": True, "data": {"bound": 1}}
+
+    import xyz_agent_context.module.narramessenger_module._narramessenger_service as ns
+    monkeypatch.setattr(ns, "do_bind", fake_do_bind)
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return sentinel_db
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.bind("narramessenger", AGENT, {"bind_command": "paste-me"}))
+    assert out == {"success": True, "data": {"bound": 1}}
+    # the raw db was handed to do_bind (NOT a manager) and the field rode through
+    assert captured == {"db_is_sentinel": True, "fields": {"bind_command": "paste-me"}}
+
+
+def test_direct_test_connection_delegates_to_do_test(monkeypatch):
+    async def fake_do_test(mgr, agent_id):
+        return {"success": True, "data": {"live": True}}
+
+    import xyz_agent_context.module.discord_module._discord_service as ds
+    monkeypatch.setattr(ds, "do_test_connection", fake_do_test)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    assert asyncio.run(store.test_connection("discord", AGENT)) == {"success": True, "data": {"live": True}}
+
+
+def test_direct_test_connection_unsupported_channel_raises_clearly():
+    # narramessenger has no do_test_connection — a clear ValueError, not a raw
+    # AttributeError, and never a silent wrong answer.
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="no test_connection"):
+        asyncio.run(store.test_connection("narramessenger", AGENT))
+
+
+def test_http_test_connection_posts_the_test_route(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"success": True, "data": {"live": True}})
+
+    _patch_http(monkeypatch, handler)
+    out = asyncio.run(_http().test_connection("telegram", AGENT))
+    assert seen["path"] == "/api/telegram/test"
+    assert out["success"] is True
+
+
+def test_http_write_non_json_degrades_to_success_false(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not json")
+
+    _patch_http(monkeypatch, handler)
+    out = asyncio.run(_http().unbind("discord", AGENT))
+    assert out["success"] is False and "non-JSON" in out["error"]

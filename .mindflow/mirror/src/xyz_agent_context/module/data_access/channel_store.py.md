@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (PR-H 预审收口) — 删 get_manager + test_connection 守卫
+
+写侧预审 Minor 清理：`DirectStore.get_manager()`（0 调用方，lark 也没用）**已删**（铁律 #2/#8）——lark 写另立时再加。`test_connection` 对无 `do_test_connection` 的 channel（narra）给**清晰 ValueError** 而非裸 AttributeError；`unbind` docstring 记下 **narra 路由 unbind 是扁平 `{success,unbound}` 且空删也报成功**、与本 seam 嵌套 envelope 不符——未来若加 narra_unbind 工具须先对齐(narra 现只有 bind 工具，分歧 inert)。补测：narra db-taker bind 分支/test_connection(两 store)+守卫/non-JSON 写降级。
+
 ## 2026-08-11 (PR-H) — 写侧 seam：bind/unbind/test_connection
 
 Protocol 加 `bind/unbind/test_connection`。unbind/test_connection **契约统一**(mgr.unbind / do_test_connection)；bind **异构**由 `_BIND_SERVICE`(模块,函数,takes=mgr|db)分派——discord/slack/telegram 收 mgr、narra 收 db。DirectStore 复刻路由 envelope(`{success,data:{unbound}}`)；HttpStore `_post_json` POST `/api/<ch>/<op>`、**never-raise 但返 `{success:False,error}`**(失败的 unbind 不是'已解绑')。lark 写整体排除(CLI-OAuth，另立)。已迁写：discord/slack/telegram/wechat(unbind)/narramessenger(bind)。
