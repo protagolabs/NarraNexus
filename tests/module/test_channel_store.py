@@ -659,14 +659,34 @@ def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
     assert seen == {"mgr_is": True, "db_is": True, "agent": AGENT}
 
 
-def test_http_lark_unbind_posts_the_lark_unbind_route(monkeypatch):
+def test_http_lark_unbind_is_byte_parity_with_direct(monkeypatch):
+    # The route (/api/lark/unbind) returns do_unbind's envelope VERBATIM, so the
+    # HttpStore result must equal the DirectStore result byte-for-byte — assert
+    # the WHOLE dict, not just success, against the real route body. Both the
+    # success envelope and the no_credential failure must round-trip unchanged
+    # (a reshaping route — the pre-2026-08-11 bug — would fail this).
     seen = {}
+    current = {}
 
+    # These are exactly what do_unbind returns (and hence what DirectStore.unbind
+    # returns — see test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db).
+    ROUTE_BODIES = {
+        "ok": {"success": True, "data": {"unbound": True}},
+        "none": {"success": False, "error": "no_credential",
+                 "message": "No Lark bot bound to this agent."},
+    }
+
+    # Patch httpx ONCE (nesting _patch_http would make the 2nd PatchedClient
+    # subclass the 1st, so the first transport would win); vary the body here.
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
-        return httpx.Response(200, json={"success": True, "data": {"unbound": True}})
+        return httpx.Response(200, json=current["body"])
 
     _patch_http(monkeypatch, handler)
-    out = asyncio.run(ChannelHttpStore("http://backend:8000").unbind("lark", AGENT))
-    assert seen["path"] == "/api/lark/unbind"
-    assert out["success"] is True
+    store = ChannelHttpStore("http://backend:8000")
+
+    for key, body in ROUTE_BODIES.items():
+        current["body"] = body
+        out = asyncio.run(store.unbind("lark", AGENT))
+        assert seen["path"] == "/api/lark/unbind"
+        assert out == body, f"{key}: HttpStore must return the route body verbatim"

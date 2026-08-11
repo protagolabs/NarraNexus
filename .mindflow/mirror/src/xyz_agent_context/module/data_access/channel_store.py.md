@@ -5,7 +5,7 @@ last_verified: 2026-08-11
 ---
 ## 2026-08-11 (lark 收尾) — lark 入 descriptor：bind + unbind_service
 
-lark 的 `ChannelSpec` 加 `bind=_BindSpec(_lark_service, mgr, has_test=False)`(绑已有 app)+ 新字段 `unbind_service`(do_unbind——unbind 不止删凭据、还拆 inbox 频道，非 mgr.unbind)。DirectStore.unbind 按 unbind_service 分支调 `do_unbind(mgr,agent_id,db)` 返其信封；HttpStore.unbind 打 /api/lark/unbind(通用)。CLI-OAuth 写走 patch/put/delete 原语。
+lark 的 `ChannelSpec` 加 `bind=_BindSpec(_lark_service, mgr, has_test=False)`(绑已有 app)+ 新字段 `unbind_service`(do_unbind——unbind 不止删凭据、还拆 inbox 频道，非 mgr.unbind)。DirectStore.unbind 按 unbind_service 分支调 `do_unbind(mgr,agent_id,db)` 返其信封；HttpStore.unbind 打 /api/lark/unbind。**byte-parity 前提**：该路由必须**原样返回** do_unbind 的 dict（2026-08-11 修——原路由 reshape 成旧 `{success:True}`/hoist error，与 Direct 不对齐；见 [[lark]] 路由 mirror）。CLI-OAuth 写走 patch/put/delete 原语。
 
 ## 2026-08-11 (lark 原语) — credential-mutation primitives + deep_merge
 

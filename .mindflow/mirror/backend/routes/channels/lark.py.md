@@ -3,6 +3,16 @@ code_file: backend/routes/channels/lark.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 — /unbind 返回 do_unbind 的信封 VERBATIM（seam byte-parity）
+
+原来 `/unbind` 把 do_unbind 的结果 reshape 成旧的 `{"success": True}`（成功丢 `data.unbound`）
+/ 把 `message`hoist 进 `error`（失败丢 `no_credential` 码 + `message` 键），只为迁就前端。
+但 seam 的 DirectStore.unbind("lark") 返回的是 do_unbind 原信封，HttpStore 经本路由取回——
+reshape 导致 Direct↔Http 不字节对齐（预审 Important）。改为**原样返回 do_unbind 的 dict**
+（同 wechat/slack/discord/telegram 兄弟路由）。LarkConfig.tsx 成功路径只读 `res.success`（不受影响）；
+`no_credential` 失败是近乎不可达的双重 unbind 竞态。do_unbind 的 `no_credential` 码/`message`
+保留（[[test_lark_unbind]] + lark_unbind 工具契约仍依赖）。
+
 ## 2026-08-11 — /bind 补传 owner_email
 
 路由 body 收了 owner_email 却没传给 do_bind(既有 bug)——补上，否则 lark_bind 经 seam→路由时 owner_email 在云端丢失。

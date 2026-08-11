@@ -68,7 +68,12 @@ def deep_merge(base: dict, patch: dict) -> dict:
     ``k`` to the existing blob instead of replacing the whole blob); otherwise
     ``patch`` wins. This is the one shared semantics the credential-mutation
     ``PATCH`` primitive promises — a manager's ``apply_patch`` uses it so the
-    local and HTTP paths merge identically."""
+    local and HTTP paths merge identically.
+
+    Note: only DICTS recurse — a list-valued field is REPLACED wholesale, not
+    element-merged (correct for the scalar/dict permission_state blobs this
+    serves today; a future channel storing list-valued creds that expects
+    append semantics would need its own merge, not this one)."""
     out = dict(base)
     for key, value in patch.items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
@@ -283,7 +288,9 @@ class DirectStore:
         Channels whose unbind is MORE than a credential delete (lark also tears
         down inbox channels) declare a ``unbind_service`` with a
         ``do_unbind(mgr, agent_id, db)`` that owns the full teardown + its own
-        envelope; the backend /unbind route runs the same function."""
+        envelope; the backend /unbind route returns that function's dict
+        VERBATIM (it does NOT reshape it), so DirectStore and HttpStore are
+        byte-identical for lark unbind too."""
         spec = _spec(channel)
         db = await self._db()
         mgr = (_manager_class(channel))(db)
