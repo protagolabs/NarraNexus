@@ -17,11 +17,13 @@ line with the envelope fields merged in):
 
     <DATA_DIR>/<env>/<runtime_id>/<service>/<YYYY-MM-DD>.jsonl
 
-Directory populations are bounded per level (16 envs / 256 runtimes /
-16 services; beyond the cap new names land in an "overflow" bucket) —
-the segment values come from untrusted record fields, and without a
-bound identity rotation would mint unlimited directories AND defeat
-partition-aware size-cap deletion. Attribution survives regardless:
+The <env> level is an ALLOWLIST, not a free value: env labels outside
+DIAG_COLLECT_KNOWN_ENVS collapse into the single "unknown" bucket at
+write time, and the size cap treats that whole subtree as ONE
+partition. Below the env level, directory populations are bounded
+(256 runtimes / 16 services per parent; beyond the cap new names land
+in an "overflow" bucket) purely as inode hygiene — the segment values
+come from untrusted record fields. Attribution survives regardless:
 every record keeps its envelope fields inline.
 
 Retention: files older than DIAG_COLLECT_RETENTION_DAYS (default 30)
@@ -45,6 +47,11 @@ Env:
                                   ingest URLs from (set on the PROD
                                   collector; carries the staging URL
                                   too)
+    DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
+                                  their own storage partition; default
+                                  "staging,cloud,local,desktop" (the
+                                  sender label vocabulary). Anything
+                                  else lands in unknown/
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
     DIAG_COLLECT_MAX_DATA_GB      default 20 — HARD footprint cap: the
@@ -87,6 +94,7 @@ import time
 import zlib
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from contextlib import asynccontextmanager
 
@@ -168,18 +176,19 @@ def enforce_size_cap() -> int:
     root = _data_dir()
     if not root.is_dir():
         return 0
-    # Partition = env/runtime (the first two path segments): deletion
-    # drains the LARGEST partition's oldest files first. This is a
-    # HEURISTIC, honest about its limits: partition keys come from
-    # record fields, so an adaptive attacker can spoof a known sender's
-    # env/runtime and land in its partition — no record-based scheme
-    # can tell friend from foe without authentication (that escape
-    # hatch is DIAG_COLLECT_TOKEN). What the heuristic does buy:
-    # a buggy legit sender spamming its own partition squeezes itself
-    # out, and identity ROTATION collapses into the overflow bucket
-    # (_bounded_segment) instead of minting enough small partitions to
-    # make the known sender's the largest. The hard guarantees remain
-    # the cap itself and the global byte budget.
+    # Partition = env/runtime for KNOWN envs, and the ENTIRE unknown/
+    # subtree as ONE partition. Deletion drains the largest partition's
+    # oldest files first — water-leveling — so the fairness claim only
+    # holds if strangers cannot spread across partitions. That is now a
+    # property of CONSTRUCTION: env values outside the deployment-owned
+    # allowlist collapse into unknown/ at write time (a population
+    # bound was not enough — 16×257 mintable partitions let a flood
+    # keep each of its partitions just below the victim's, and the
+    # leveling loop drained the victim). What remains possible, and is
+    # stated honestly: spoofing a KNOWN env/runtime lands in that
+    # partition and is indistinguishable without authentication
+    # (DIAG_COLLECT_TOKEN is the escape hatch). The hard guarantees
+    # stay the cap itself and the global byte budget.
     partitions: dict[tuple, list[tuple[float, int, Path]]] = {}
     sizes: dict[tuple, int] = {}
     total = 0
@@ -188,7 +197,8 @@ def enforce_size_cap() -> int:
             stat = path.stat()
         except OSError:
             continue
-        key = path.relative_to(root).parts[:2]
+        parts = path.relative_to(root).parts
+        key = parts[:1] if parts[0] == _UNKNOWN_ENV else parts[:2]
         partitions.setdefault(key, []).append((stat.st_mtime, stat.st_size, path))
         sizes[key] = sizes.get(key, 0) + stat.st_size
         total += stat.st_size
@@ -256,11 +266,15 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _prune(window: list, now: float, ts=lambda entry: entry) -> list:
-    """Drop entries older than the rate window. Both ledgers share this
-    one rule — `ts` extracts the timestamp from an entry (a bare float
-    in _rate_counts, the first tuple field in the byte ledgers) — so a
-    window change cannot land in one ledger and miss the other."""
+_E = TypeVar("_E")
+
+
+def _prune(window: list[_E], now: float, ts: Callable[[_E], float]) -> list[_E]:
+    """Drop entries older than the rate window. All THREE sliding-window
+    ledgers (_rate_counts, _rate_bytes, _global_window) share this one
+    rule — `ts` extracts the timestamp from an entry (a bare float in
+    _rate_counts, the first tuple field in the byte ledgers) — so a
+    window change cannot land in one ledger and miss the others."""
     return [e for e in window if now - ts(e) < _RATE_WINDOW_S]
 
 
@@ -280,7 +294,7 @@ def _rate_precheck(request: Request) -> str:
         for key, _ in stale:
             _rate_counts.pop(key, None)
             _rate_bytes.pop(key, None)
-    counts = _prune(_rate_counts.get(ip, []), now)
+    counts = _prune(_rate_counts.get(ip, []), now, ts=lambda e: e)
     if len(counts) >= _RATE_MAX_REQUESTS:
         _rate_counts[ip] = counts
         raise HTTPException(status_code=429, detail="rate limited")
@@ -331,14 +345,24 @@ def _segment(value: str) -> str:
     return cleaned or "unknown"
 
 
-# Directory-population bounds per tree level. _segment() whitelists
-# CHARACTERS but not the value set: per-batch identity rotation could
-# mint unbounded directories, which grows inodes without bound AND
-# inverts partition-aware size-cap deletion — spread a flood across
-# enough small partitions and the "largest partition" becomes the known
-# sender's. Past the cap, new names collapse into "overflow", so a
-# rotation re-concentrates into the one partition that drains first.
-_MAX_ENV_DIRS = 16
+# The env level is an ALLOWLIST — fairness lives here. The sender label
+# vocabulary (staging + NARRA_SURFACE values) is a closed set WE define
+# at deployment time, so narrowing the value domain is constructive:
+# strangers cannot mint env partitions at all, they share unknown/.
+_UNKNOWN_ENV = "unknown"
+_DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop"
+
+
+def _known_envs() -> frozenset[str]:
+    raw = os.environ.get("DIAG_COLLECT_KNOWN_ENVS", "") or _DEFAULT_KNOWN_ENVS
+    return frozenset(v.strip() for v in raw.split(",") if v.strip())
+
+
+# Below the env level the population bounds are INODE HYGIENE only —
+# runtime/service names come from untrusted record fields, and without
+# a cap rotation would mint unlimited directories (they carry no
+# fairness weight: the size-cap partition key never goes deeper than
+# env/runtime, and unknown/ is keyed as a single partition).
 _MAX_RUNTIME_DIRS = 256
 _MAX_SERVICE_DIRS = 16
 _OVERFLOW_SEGMENT = "overflow"
@@ -352,12 +376,18 @@ def _bounded_segment(
     dir_counts: dict[Path, int],
 ) -> str:
     """Sanitized segment, demoted to the overflow bucket once the parent
-    already holds `cap` child directories. `pending`/`dir_counts` are
-    per-request memos: directories are only created at write time, so
-    names admitted earlier in the same batch must count too."""
+    already holds `cap` child directories (the overflow dir itself takes
+    one slot once created, so real-name capacity is effectively cap-1).
+    `pending` memoizes dirs known to exist or admitted earlier in the
+    batch; `dir_counts` memoizes per-parent populations — both matter
+    under flood, where an unmemoized saturated parent would pay an
+    iterdir() per RECORD."""
     name = _segment(raw)
     child = parent / name
-    if child in pending or child.is_dir():
+    if child in pending:
+        return name
+    if child.is_dir():
+        pending.add(child)  # skip the stat for subsequent records
         return name
     count = dir_counts.get(parent)
     if count is None:
@@ -369,6 +399,7 @@ def _bounded_segment(
             )
         except OSError:
             count = 0
+        dir_counts[parent] = count
     if count >= cap:
         return _OVERFLOW_SEGMENT
     dir_counts[parent] = count + 1
@@ -376,25 +407,22 @@ def _bounded_segment(
     return name
 
 
-@app.post("/v1/ingest")
-async def ingest(request: Request):
-    _require_auth(request)
-    ip = _rate_precheck(request)
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > _MAX_WIRE_BYTES:
-            raise HTTPException(status_code=413, detail="request too large")
-        chunks.append(chunk)
-    _rate_settle_bytes(ip, total)
-    raw = b"".join(chunks)
-    if request.headers.get("content-encoding", "").lower() == "gzip":
-        # (plaintext needs no second cap: the wire cap above already
-        # bounds it below _MAX_BODY_BYTES — a dead branch here would be
-        # a kept-just-in-case path, rule #2)
+def _process_batch(raw: bytes, gzipped: bool) -> int:
+    """Decompress, parse, route, and write one batch. Runs OFF the
+    event loop (asyncio.to_thread): everything here is CPU- or disk-
+    bound — a 32MB inflate, ~100k json.loads on a full batch, stats
+    for directory admission, the appends themselves. Any of it inline
+    would stall every other sender past their 2s send timeout, which
+    on the sender side means dropped batches — the platform must not
+    be the interruption source. (Round-1 fixed this for the writes;
+    the parse stage grew its own I/O since, so the whole pipeline
+    moves off-loop together.) Returns accepted record count."""
+    if gzipped:
+        # (plaintext needs no second cap: the wire cap already bounds
+        # it below _MAX_BODY_BYTES — a dead branch here would be a
+        # kept-just-in-case path, rule #2)
         raw = _bounded_decompress(raw)
-
+    known = _known_envs()
     accepted = 0
     files: dict[Path, list[str]] = {}
     pending_dirs: set[Path] = set()
@@ -410,10 +438,10 @@ async def ingest(request: Request):
             record = json.loads(line)
         except ValueError:
             continue  # one broken line must not sink the batch
-        env_dir = _data_dir() / _bounded_segment(
-            _data_dir(), record.get("env", ""), _MAX_ENV_DIRS,
-            pending_dirs, dir_counts,
-        )
+        env_name = _segment(record.get("env", ""))
+        if env_name not in known:
+            env_name = _UNKNOWN_ENV
+        env_dir = _data_dir() / env_name
         runtime_dir = env_dir / _bounded_segment(
             env_dir, record.get("runtime_id", ""), _MAX_RUNTIME_DIRS,
             pending_dirs, dir_counts,
@@ -432,17 +460,37 @@ async def ingest(request: Request):
         )
         accepted += 1
 
-    def _write_all() -> None:
-        for target, lines in files.items():
+    for target, lines in files.items():
+        payload = "\n".join(lines) + "\n"
+        try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with target.open("a", encoding="utf-8") as fh:
-                fh.write("\n".join(lines) + "\n")
+                fh.write(payload)
+        except OSError:
+            # The retention sweep's empty-dir rmdir can race the gap
+            # between mkdir and open; one retry closes the window
+            # instead of turning the batch into a 500 (which the
+            # sender would count against its breaker).
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as fh:
+                fh.write(payload)
+    return accepted
 
-    # Disk writes off the event loop (same stance as _retention_loop) —
-    # a large batch inline would stall every other sender's POST past
-    # their 2s send timeout, which on the sender side means dropped
-    # batches.
-    await asyncio.to_thread(_write_all)
+
+@app.post("/v1/ingest")
+async def ingest(request: Request):
+    _require_auth(request)
+    ip = _rate_precheck(request)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WIRE_BYTES:
+            raise HTTPException(status_code=413, detail="request too large")
+        chunks.append(chunk)
+    _rate_settle_bytes(ip, total)
+    gzipped = request.headers.get("content-encoding", "").lower() == "gzip"
+    accepted = await asyncio.to_thread(_process_batch, b"".join(chunks), gzipped)
 
     global _size_check_appended
     _size_check_appended += total

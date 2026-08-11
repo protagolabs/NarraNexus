@@ -37,7 +37,9 @@ def env(monkeypatch, tmp_path):
     return tmp_path
 
 
-def _lines(*messages, env_label="manyfold-staging", runtime="rt_x", service="backend"):
+# "staging" is in the collector's default known-env allowlist — tests
+# should exercise the real label vocabulary (staging/cloud/local/desktop).
+def _lines(*messages, env_label="staging", runtime="rt_x", service="backend"):
     return "\n".join(
         json.dumps(
             {
@@ -70,7 +72,7 @@ async def test_ingest_writes_partitioned_jsonl(env):
     assert resp.json()["accepted"] == 2
     target = (
         env
-        / "manyfold-staging"
+        / "staging"
         / "rt_x"
         / "backend"
         / f"{datetime.now(timezone.utc).date():%Y-%m-%d}.jsonl"
@@ -116,9 +118,10 @@ async def test_path_segments_sanitized(env):
     written = list(env.rglob("*.jsonl"))
     assert len(written) == 1
     rel = written[0].relative_to(env)
-    # No separator survives sanitization; empty segments become "unknown".
+    # No separator survives sanitization; empty segments become "unknown";
+    # and a sanitized-but-unlisted env collapses into the unknown bucket.
     assert ".." not in rel.parts
-    assert rel.parts[0] == "etc" or "_" in rel.parts[0]
+    assert rel.parts[0] == "unknown"
     assert "unknown" in rel.parts
 
 
@@ -301,19 +304,83 @@ async def test_size_cap_noop_under_limit(env):
     assert collector.enforce_size_cap() == 0
 
 
+async def test_unlisted_env_collapses_into_unknown(env):
+    """Env values outside DIAG_COLLECT_KNOWN_ENVS are collapsed at
+    write time. The value domain is deployment-owned — 'stranger
+    traffic piles into ONE partition' is a property of construction,
+    not a population bound an attacker can spread under."""
+    await _post(gzip.compress(_lines("a", env_label="rot-1").encode()))
+    await _post(gzip.compress(_lines("b", env_label="rot-2").encode()))
+    assert not (env / "rot-1").exists() and not (env / "rot-2").exists()
+    rows = [
+        json.loads(ln)
+        for f in (env / "unknown").rglob("*.jsonl")
+        for ln in f.read_text().splitlines()
+    ]
+    assert {r["env"] for r in rows} == {"rot-1", "rot-2"}  # attribution inline
+
+
+async def test_known_envs_allowlist_is_env_tunable(env, monkeypatch):
+    monkeypatch.setenv("DIAG_COLLECT_KNOWN_ENVS", "prodx")
+    await _post(gzip.compress(_lines("a", env_label="prodx").encode()))
+    assert (env / "prodx").is_dir()
+    await _post(gzip.compress(_lines("b", env_label="staging").encode()))
+    assert not (env / "staging").exists()  # default list fully replaced
+
+
+async def test_size_cap_treats_unknown_subtree_as_one_partition(env, monkeypatch):
+    """Water-leveling countermeasure: rotation spread inside unknown/
+    cannot keep each flood dir just below the known sender's partition,
+    because the WHOLE unknown/ subtree is one partition — its dirs sum,
+    become the largest, and drain first."""
+    ours = env / "staging" / "rt_ours" / "s"
+    ours.mkdir(parents=True)
+    keep = ours / "2026-01-01.jsonl"
+    keep.write_text("o" * 400)
+    os.utime(keep, (500, 500))  # older than everything in the flood
+    for i in range(4):
+        d = env / "unknown" / f"rt_{i}" / "s"
+        d.mkdir(parents=True)
+        f = d / "2026-02-01.jsonl"
+        f.write_text("f" * 200)  # each individually SMALLER than ours
+        os.utime(f, (1000 + i, 1000 + i))
+    monkeypatch.setenv("DIAG_COLLECT_MAX_DATA_GB", str(700 / 1024**3))
+    deleted = collector.enforce_size_cap()
+    assert keep.exists()
+    assert deleted >= 3
+
+
+async def test_write_retries_when_dir_vanishes(env, monkeypatch):
+    """The retention sweep's empty-dir rmdir can race the mkdir→open
+    gap in the write path; one retry keeps the batch from becoming a
+    500 (which the sender would count against its breaker)."""
+    real_open = Path.open
+    calls = {"n": 0}
+
+    def flaky_open(self, *args, **kwargs):
+        if self.suffix == ".jsonl" and calls["n"] == 0:
+            calls["n"] += 1
+            raise FileNotFoundError("dir swept between mkdir and open")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+    resp = await _post(gzip.compress(_lines("x").encode()))
+    assert resp.status_code == 200
+    assert calls["n"] == 1
+    assert len(list(env.rglob("*.jsonl"))) == 1
+
+
 async def test_rotated_identities_collapse_into_overflow_dirs(env, monkeypatch):
-    """_segment() whitelists characters but not the VALUE SET: per-batch
-    identity rotation could mint unbounded directories, which both grows
-    inodes without bound and inverts partition-aware deletion (spread a
-    flood across many small partitions and the 'largest partition'
-    becomes the known sender's). Past the population cap, new names
-    collapse into overflow/ — the rotation re-concentrates into the one
-    partition that drains first. Attribution survives in record content."""
+    """Below the env level the population bound is INODE HYGIENE (the
+    fairness property lives in the env allowlist): runtime/service
+    names come from untrusted record fields, and without a cap rotation
+    would mint unlimited directories. Past the cap, new names collapse
+    into overflow/. Attribution survives in record content."""
     monkeypatch.setattr(collector, "_MAX_RUNTIME_DIRS", 2)
     for i in range(4):
         resp = await _post(gzip.compress(_lines("x", runtime=f"rt_{i}").encode()))
         assert resp.status_code == 200
-    base = env / "manyfold-staging"
+    base = env / "staging"
     assert (base / "rt_0").is_dir() and (base / "rt_1").is_dir()
     assert not (base / "rt_2").exists() and not (base / "rt_3").exists()
     rows = [

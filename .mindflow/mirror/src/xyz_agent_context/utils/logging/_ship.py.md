@@ -6,6 +6,10 @@ last_verified: 2026-08-11
 
 ## 2026-08-11(四)— 第 5 轮:atexit 顺序
 
+(第 6 轮备注:`logger.complete()` 使"每个进程退出时排空 loguru
+enqueue 队列"成为**全局**退出期行为——对默认 off 的部署它只是顺带
+排空文件 sink 队列,无害略有益,但它不再只属于遥测路径,记一笔。)
+
 atexit 是 LIFO,本模块 handler 在 import 时注册——晚于 loguru 自身
 的 teardown 注册,因此**先于** loguru 排空 enqueue 队列执行;直接
 flush+close 意味着队列尾部的记录在 close 之后才进 sink 缓冲,最后
