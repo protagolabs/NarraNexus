@@ -18,6 +18,10 @@ class _FakeCred:
     enabled = True
 
 
+class _FakeDisabledCred(_FakeCred):
+    enabled = False
+
+
 @pytest.fixture
 def app(monkeypatch):
     async def fake_get_db():
@@ -94,6 +98,35 @@ async def test_prewarm_unknown_agent_404(app):
         r = await c.post("/api/narramessenger/prewarm",
                          json={"agent_matrix_user_id": "@ghost:hs"}, headers=AUTH)
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_prewarm_disabled_binding_404_and_no_ensure(app, monkeypatch):
+    async def fake_disabled(self, mxid):
+        return _FakeDisabledCred() if mxid == "@agent-x:hs" else None
+    monkeypatch.setattr(
+        nm.NarramessengerCredentialManager, "get_by_matrix_user_id", fake_disabled
+    )
+    async with _client(app) as c:
+        r = await c.post("/api/narramessenger/prewarm", json=BODY, headers=AUTH)
+    assert r.status_code == 404
+    assert app.state.ensured == []
+
+
+@pytest.mark.asyncio
+async def test_prewarm_profile_id_path_202_and_ensures_owner(app, monkeypatch):
+    async def fake_by_profile(self, profile_id):
+        return _FakeCred() if profile_id == "prof-x" else None
+    monkeypatch.setattr(
+        nm.NarramessengerCredentialManager, "get_by_profile_id", fake_by_profile
+    )
+    async with _client(app) as c:
+        r = await c.post("/api/narramessenger/prewarm",
+                         json={"agent_profile_id": "prof-x"}, headers=AUTH)
+    assert r.status_code == 202
+    assert r.json()["status"] == "warming"
+    await asyncio.sleep(0)
+    assert app.state.ensured == ["user_1"]
 
 
 @pytest.mark.asyncio

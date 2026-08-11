@@ -121,6 +121,11 @@ class PrewarmRequest(BaseModel):
 # the next prewarm call re-ensures (idempotent at the broker).
 _PREWARM_STATE: dict[str, dict] = {}
 
+# Strong references to in-flight warmer tasks: the event loop only keeps weak
+# refs, so a fire-and-forget task with no other reference can be
+# garbage-collected mid-flight (asyncio docs). Discarded on completion.
+_PREWARM_TASKS: set[asyncio.Task] = set()
+
 
 async def _executor_alive(executor_url: str) -> bool:
     """200 on /health, never raises (mirrors broker_client._executor_healthy;
@@ -205,7 +210,8 @@ async def prewarm(request: Request, body: PrewarmRequest):
         return JSONResponse(status_code=202, content={"status": "skipped"})
     _PREWARM_STATE[owner] = {"status": "warming", "executor_url": "", "ts": time.time()}
     task = asyncio.create_task(_do_prewarm(owner))
-    del task  # exceptions handled inside _do_prewarm
+    _PREWARM_TASKS.add(task)  # exceptions handled inside _do_prewarm
+    task.add_done_callback(_PREWARM_TASKS.discard)
     logger.info(f"[prewarm] requested user={owner} rtc_session={body.rtc_session_id or '-'}")
     return JSONResponse(status_code=202, content={"status": "warming"})
 
