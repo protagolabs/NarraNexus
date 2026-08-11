@@ -142,7 +142,9 @@ class TeamOperationResponse(BaseModel):
     message: Optional[str] = None
     team: Optional[Team] = None
 
-def resolve_default_responder(team: Any, member_agent_ids: List[str]) -> Optional[str]:
+def resolve_default_responder(
+    lead_agent_id: Optional[str], member_agent_ids: List[str]
+) -> Optional[str]:
     """The member a team falls back to when nobody is named.
 
     ``lead_agent_id`` if it is set and still a member, else the earliest-joined
@@ -159,12 +161,15 @@ def resolve_default_responder(team: Any, member_agent_ids: List[str]) -> Optiona
     "whose token budget a team summary is recorded against" (the worker). They
     want the same answer because they are asking the same question — which
     member does this team treat as its default.
+
+    Takes the lead id, not a Team: one caller holds a model and the other a raw
+    row, and sniffing which one it got put a type check inside a rule that has
+    nothing to do with types. The callers know what they are holding.
     """
     if not member_agent_ids:
         return None
-    lead = getattr(team, "lead_agent_id", None) if not isinstance(team, dict) else team.get("lead_agent_id")
-    if lead and lead in member_agent_ids:
-        return lead
+    if lead_agent_id and lead_agent_id in member_agent_ids:
+        return lead_agent_id
     return member_agent_ids[0]
 
 

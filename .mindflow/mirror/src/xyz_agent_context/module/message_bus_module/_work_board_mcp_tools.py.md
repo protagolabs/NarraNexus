@@ -80,3 +80,8 @@ lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发�
 ## 2026-08-11 — `TEAM_ROOM_OWNER_PREFIX` 改为 import
 
 本文件此前自定义了同一个字面量。定义现在唯一地住在 [[team_schema]]。
+
+## 2026-08-11 (review 收口 3) — 删掉悬空注释
+
+同上：常量改为 import 后，那句「同 teams.py 和 trigger 的房间前缀约定」下面已无定义，
+且指向的两个模块都不再拥有它。

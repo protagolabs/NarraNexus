@@ -265,15 +265,19 @@ def test_the_bulletin_parameter_is_required():
     )
 
 
-def test_every_call_site_supplies_the_bulletin():
-    """Guards the shape rather than one caller: the fault was a NEW caller
-    appearing, so what matters is that none of them can omit it."""
-    import inspect
+def test_omitting_the_bulletin_is_a_hard_error():
+    """The property, not the spelling.
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
-
-    src = inspect.getsource(mod)
-    assert src.count("self._build_team_prompt(") == src.count("bulletin=bulletin")
+    This used to count substrings in the module source, which verified my own
+    formatting rather than anything about behaviour: renaming a local would have
+    broken it, and a new call site passing `bulletin=None` explicitly would have
+    satisfied it while dropping every rule. What actually matters is that a
+    caller cannot omit the argument at all.
+    """
+    with pytest.raises(TypeError):
+        MessageBusTrigger(bus=None)._build_team_prompt(
+            "agent_b", [], MEMBERS, owner_user_id="user_a", team_id="team_42",
+        )
 
 
 def test_the_patrol_path_loads_the_bulletin():
@@ -369,6 +373,13 @@ def test_a_patrol_chase_still_shows_what_it_asked():
     assert "where does it stand?" in out, (
         "the agent is told to respond to a message the prompt does not contain"
     )
+    # The other half of the same fix, and the half that had no assertion at all:
+    # the pointer line names the sender, and a patrol line's sender is the
+    # synthetic `team_<id>` marker. Printed verbatim it invents a teammate the
+    # agent may try to @mention back. Deleting that whole branch used to leave
+    # every test green.
+    assert "team_team_42" not in out
+    assert "the team's Leader check" in out
 
 
 def test_a_platform_line_is_labelled_rather_than_impersonating_a_member():

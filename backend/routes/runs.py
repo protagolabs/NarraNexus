@@ -46,9 +46,6 @@ class CancelRunResponse(BaseModel):
     cascaded: int = 1
 
 
-# A team room's channel is owned by the synthetic ``team_<id>`` marker rather
-# than by any agent — same convention as backend/routes/teams.py.
-
 # Marks the stop notice in the transcript. The frontend renders it from an i18n
 # key (the DB cannot know the reader's language); ``content`` carries an English
 # fallback for consumers that only read text, e.g. the memory index.

@@ -126,3 +126,8 @@ helper SDK 会丢弃整条成本记录，总结等于**烧了 owner 的 token �
 ## 2026-08-11 (review 收口 2) — 不再自定义房间前缀
 
 改为从 [[team_schema]] import。上一轮的注释宣称它已经统一了，实际没有。
+
+## 2026-08-11 (review 收口 3) — `bearer` 必填，import 提到模块级
+
+`_summarise` 的 `bearer` 去掉默认值：空 bearer 闸门的全部意义就是它不该是空的，
+留一个 `= ""` 等于把闸门要挡的状态设成默认。`_cost_bearer` 的函数内 import 也提到了模块级。

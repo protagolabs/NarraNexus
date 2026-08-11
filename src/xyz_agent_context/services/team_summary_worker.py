@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.repository import TeamMemberRepository
 from xyz_agent_context.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
@@ -57,13 +58,13 @@ from xyz_agent_context.message_bus.system_messages import (
     placeholders as _placeholders,
 )
 from xyz_agent_context.schema.team_schema import (
-    TEAM_ROOM_OWNER_PREFIX,
     BULLETIN_MAX_SUMMARY_CHARS,
     BULLETIN_SOURCE_SUMMARY,
+    TEAM_ROOM_OWNER_PREFIX,
+    resolve_default_responder,
 )
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_context
-
 
 
 _INSTRUCTIONS = (
@@ -338,7 +339,7 @@ class TeamSummaryWorker:
 
     # ── the LLM call (test seam) ────────────────────────────────────────────
 
-    async def _summarise(self, *, team_id: str, transcript: str, bearer: str = "") -> str:
+    async def _summarise(self, *, team_id: str, transcript: str, bearer: str) -> str:
         """Ask the helper LLM for the summary text.
 
         Goes through `get_helper_sdk()` so the platform is not bound to one
@@ -401,9 +402,6 @@ class TeamSummaryWorker:
         Empty when the team has no members, which `_summarise_team` treats as a
         reason not to summarise at all.
         """
-        from xyz_agent_context.repository import TeamMemberRepository
-        from xyz_agent_context.schema.team_schema import resolve_default_responder
-
         team = await self._db.get_one("teams", {"team_id": team_id})
         members = await TeamMemberRepository(self._db).list_members_by_team(team_id)
-        return resolve_default_responder(team or {}, members) or ""
+        return resolve_default_responder((team or {}).get("lead_agent_id"), members) or ""

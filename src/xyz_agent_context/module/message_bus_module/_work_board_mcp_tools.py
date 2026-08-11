@@ -37,7 +37,6 @@ from xyz_agent_context.module._mcp_identity import (
 )
 from xyz_agent_context.schema.team_work_schema import WorkItemStatus
 
-# The room prefix convention, same as backend/routes/teams.py and the trigger.
 
 
 async def _get_db():

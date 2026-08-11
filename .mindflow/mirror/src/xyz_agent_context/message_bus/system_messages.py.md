@@ -31,3 +31,11 @@ stub: false
 这样新增一种类型不需要先搬家。也避开了环：`team_bulletin` 不能 import 本模块。
 
 相关：[[message_bus_trigger]]（cascade 深度）、[[team_summary_worker]]（触发计数与总结素材）
+
+## 2026-08-11 — `trigger_label`
+
+平台行成为触发消息时，指认行该怎么称呼它。**按类型分派而不是在调用处硬编码**：
+原来那句 `"the team's Leader check"` 隐含「唯一会成为触发消息的平台类型是巡查」，
+今天成立（停止通知与公告栏通知都是 `mentions=None`），但这条前提只写在注释里，
+没有任何东西守住它——哪天另一种类型开始带 mentions，它就静默错了。
+未知类型落到中性兜底，而不是把 `team_<id>` 当成队友名字印出来。

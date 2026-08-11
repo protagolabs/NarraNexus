@@ -42,6 +42,30 @@ PLATFORM_MSG_TYPES = (
 )
 
 
+# How each platform line should be introduced when an agent is told to respond
+# to one. Keyed by type rather than hard-coded at the call site, which had
+# assumed patrol is the only platform message that can become a trigger — true
+# today (stop and bulletin notices send `mentions=None`, so they never trigger
+# anyone) but written nowhere except a comment, and silently wrong the day
+# another type starts carrying mentions.
+_TRIGGER_LABELS = {
+    PATROL_MSG_TYPE: "the team's Leader check",
+}
+# Neutral fallback: a new platform type gets a truthful vague label rather than
+# a synthetic `team_<id>` marker printed as if it were a teammate.
+_TRIGGER_FALLBACK = "a platform notice"
+
+
+def trigger_label(msg_type: str) -> str:
+    """How to name a platform line an agent is being told to answer.
+
+    Never the raw sender: a patrol line's `from_agent` is the synthetic
+    `team_<id>` marker, which resolves to no member, so printing it invents a
+    teammate the agent may then try to @mention back.
+    """
+    return _TRIGGER_LABELS.get(msg_type or "", _TRIGGER_FALLBACK)
+
+
 def placeholders(ph: str = "%s") -> str:
     """`%s, %s, %s` sized to the tuple.
 
@@ -55,4 +79,4 @@ def placeholders(ph: str = "%s") -> str:
     return ", ".join([ph] * len(PLATFORM_MSG_TYPES))
 
 
-__all__ = ["PLATFORM_MSG_TYPES", "placeholders"]
+__all__ = ["PLATFORM_MSG_TYPES", "placeholders", "trigger_label"]

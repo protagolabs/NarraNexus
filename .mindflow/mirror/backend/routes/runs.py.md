@@ -85,3 +85,9 @@ run 活在另一个进程(workers),HTTP 请求进不去。真正的中断由那�
 上一轮为了让核心包能共用 `STOP_NOTICE_MSG_TYPE`，这里留下了一个带 `# noqa: E402` 的
 中段 import。座位不用再动就能收拾干净：import 移到顶部，解释「为什么定义在核心包」的注释
 留在原处，`# noqa` 删除。同时不再自定义 `TEAM_ROOM_OWNER_PREFIX`。
+
+## 2026-08-11 (review 收口 3) — 删掉悬空注释
+
+`TEAM_ROOM_OWNER_PREFIX` 改为 import 之后，解释它的那段注释悬在原地，
+而且让读者去看 `backend/routes/teams.py`——**那里同样已经不再定义它**。
+这正是同一个 commit 刚在 `message_bus_trigger.py` 清掉的毛病，我在这里复现了一次。

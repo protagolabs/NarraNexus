@@ -50,6 +50,7 @@ from xyz_agent_context.schema.team_schema import (
 from xyz_agent_context.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
     placeholders as _platform_placeholders,
+    trigger_label as _platform_trigger_label,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
@@ -1629,7 +1630,7 @@ class MessageBusTrigger:
             # Naming it verbatim invents a teammate the agent may then try to
             # @mention back.
             if (tm.msg_type or "") in PLATFORM_MSG_TYPES:
-                who = "the team's Leader check"
+                who = _platform_trigger_label(tm.msg_type or "")
             else:
                 who = _sender(tm)
             lines += [

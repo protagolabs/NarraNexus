@@ -99,8 +99,6 @@ async def _user_id_for_request(request: Request) -> str:
 # replies post back into the same channel (see message_bus_trigger.py).
 
 
-
-
 class TeamChatSendRequest(BaseModel):
     """User message into a team group chat. ``mentions`` carries agent_ids
     and/or the literal ``"@all"`` (mapped to the bus "@everyone").
@@ -112,8 +110,6 @@ class TeamChatSendRequest(BaseModel):
     content: str
     mentions: list[str] = []
     attachments: list[dict] = []
-
-
 
 
 async def _wipe_team_data(
@@ -341,7 +337,7 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     # No @mention → route to the team's default responder so the room never
     # goes silent. Exactly one agent is triggered; it can @-delegate from there.
     if not resolved:
-        default_responder = resolve_default_responder(team, members)
+        default_responder = resolve_default_responder(getattr(team, "lead_agent_id", None), members)
         if default_responder:
             resolved = [default_responder]
     msg_id = await bus.send_message(
@@ -481,7 +477,7 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
         "channel_id": channel_id,
         "messages": out,
         "activity": activity,
-        "lead_agent_id": resolve_default_responder(team, members),
+        "lead_agent_id": resolve_default_responder(getattr(team, "lead_agent_id", None), members),
     }
 
 

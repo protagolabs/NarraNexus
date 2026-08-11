@@ -63,3 +63,9 @@ NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指�
 `message_bus_trigger` 里那两段「Keep in sync with backend/routes/teams.py」的注释也删了——
 定义搬走后它们悬在原地，而且要求读者去做的正是这次改动要消灭的事。其中「为什么必须是
 non-agent marker」那段理由有价值，搬到了定义处而不是丢掉。
+
+## 2026-08-11 (review 收口 3) — `resolve_default_responder` 收 lead id，不收 Team
+
+原来它在函数里嗅探拿到的是 model 还是 dict（一个调用方持模型、另一个持原始行）。
+**那是把一次类型检查塞进了一条与类型无关的规则里。** 现在直接收 `lead_agent_id`，
+由调用方说明自己手上是什么。

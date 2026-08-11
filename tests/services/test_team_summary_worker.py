@@ -663,10 +663,13 @@ async def test_the_bearer_rule_is_the_rooms_own_default_responder(db_client):
 
     bearer = await TeamSummaryWorker(db_client)._cost_bearer(TEAM)
     team = await db_client.get_one("teams", {"team_id": TEAM})
-    assert bearer == resolve_default_responder(team, ["agent_a", "agent_lead"])
+    assert bearer == resolve_default_responder(
+        team["lead_agent_id"], ["agent_a", "agent_lead"]
+    )
 
 
-def test_the_health_endpoint_exposes_the_last_pass():
+@pytest.mark.asyncio
+async def test_the_health_endpoint_exposes_the_last_pass():
     """Counters nothing reads are counters that do not exist. The blind spot
     they close — "quiet" versus "all failing" both looking like a worker that is
     simply up — stays open if they never leave the process.
@@ -674,11 +677,20 @@ def test_the_health_endpoint_exposes_the_last_pass():
     Reported, not judged: one team with a bad provider key must not fail the
     container's probe, so `status` does not depend on `failed`.
     """
-    import inspect
-
     import backend.main as main
 
-    src = inspect.getsource(main.health)
-    assert "team_summary_worker" in src
-    assert "last_pass" in src
-    assert '"status": "healthy"' in src
+    class _W:
+        running = True
+        last_pass = {"rooms": 3, "summarised": 1, "failed": 2}
+
+    main.app.state.team_summary_worker = _W()
+    try:
+        body = await main.health()
+    finally:
+        del main.app.state.team_summary_worker
+
+    assert body["team_summary"] == {
+        "running": True, "rooms": 3, "summarised": 1, "failed": 2,
+    }
+    # Reported, never judged: two failing teams must not fail the container.
+    assert body["status"] == "healthy"
