@@ -145,7 +145,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -222,7 +222,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
                   ({credential.connection_mode})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
               </span>
             </div>
@@ -231,7 +231,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
                 Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_matrix_user_id}</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 ⚠ No owner registered — the agent has no trust signal for NarraMessenger senders.
               </div>
             )}

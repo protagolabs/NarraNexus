@@ -37,7 +37,7 @@ export function ChannelActiveToggle({ active, onToggle }: ChannelActiveTogglePro
   return (
     <div className="flex items-center justify-between gap-3 py-2">
       <div className="flex items-center gap-2 text-xs">
-        <Power className={`w-3.5 h-3.5 ${active ? 'text-[var(--color-green-500)]' : 'text-[var(--text-tertiary)]'}`} />
+        <Power className={`w-3.5 h-3.5 ${active ? 'text-[var(--color-success)]' : 'text-[var(--text-tertiary)]'}`} />
         <span className={active ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}>
           {active ? t('channelActiveToggle.active') : t('channelActiveToggle.inactive')}
         </span>

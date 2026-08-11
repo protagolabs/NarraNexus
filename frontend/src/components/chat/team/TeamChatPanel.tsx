@@ -540,7 +540,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                         >
                           <div className="text-sm break-words leading-relaxed">
                             {mine ? (
-                              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">
+                              <span className="whitespace-pre-wrap text-sm">
                                 {m.content}
                               </span>
                             ) : (
@@ -610,7 +610,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
             {/* Transcription-unavailable notice (post-record). */}
             {transcriptionNotice && (
-              <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+              <div className="mb-2 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
                 <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
                 <span className="flex-1">{transcriptionNotice}</span>
                 <button
@@ -629,7 +629,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 {pending.map((att) => (
                   <div
                     key={att.file_id}
-                    className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                    className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                   >
                     {att.source === 'recording' ? (
                       <VoiceTranscript compact transcript={att.transcript} />
@@ -661,7 +661,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   </div>
                 ))}
                 {uploading && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     {t('chat.team.uploading')}
                   </div>

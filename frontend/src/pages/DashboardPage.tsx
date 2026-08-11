@@ -351,7 +351,7 @@ export function DashboardPage() {
         <div className="flex items-center justify-between gap-3 pr-10">
           <div className="flex items-center gap-4 min-w-0">
             <h1
-              className="text-[22px] font-bold tracking-tight"
+              className="text-xl font-bold tracking-tight"
               style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
             >
               {t('pages.dashboard.title')}
@@ -363,7 +363,7 @@ export function DashboardPage() {
                   type="button"
                   onClick={() => setView(v)}
                   className={cn(
-                    'rounded-[3px] px-3.5 py-1 text-[12px] transition-colors',
+                    'rounded-[var(--radius-sm)] px-3.5 py-1 text-[12px] transition-colors',
                     view === v
                       ? 'bg-[var(--nm-raised)] font-semibold text-[var(--nm-ink)]'
                       : 'font-medium text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
@@ -422,7 +422,7 @@ export function DashboardPage() {
               <select
                 value={filterTeam}
                 onChange={(e) => setFilterTeam(e.target.value)}
-                className={cn(inputBox, 'shrink-0 text-[12.5px] font-medium text-[var(--nm-ink70)] cursor-pointer')}
+                className={cn(inputBox, 'shrink-0 text-[12px] font-medium text-[var(--nm-ink70)] cursor-pointer')}
               >
                 <option value="">{t('pages.manageAgents.filterAll')}</option>
                 <option value="untagged">{t('pages.manageAgents.filterUntagged')}</option>
@@ -442,7 +442,7 @@ export function DashboardPage() {
                 ? 'border-[var(--border-strong)] bg-[var(--nm-paper)]'
                 : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)]',
             )}>
-              <label className="flex items-center gap-2 text-[12.5px] text-[var(--nm-ink70)] cursor-pointer select-none" onClick={toggleAll}>
+              <label className="flex items-center gap-2 text-[12px] text-[var(--nm-ink70)] cursor-pointer select-none" onClick={toggleAll}>
                 <TableCheckbox checked={allSelected} />
                 {allSelected ? t('pages.manageAgents.unselectAll') : t('pages.manageAgents.selectAllShown')}
               </label>
@@ -549,8 +549,8 @@ export function DashboardPage() {
                               className="shrink-0"
                             />
                             <span className="min-w-0 flex flex-col gap-px">
-                              <span className="text-[13.5px] font-semibold text-[var(--nm-ink)] truncate">{a.name || a.agent_id}</span>
-                              <span className="font-mono text-[10.5px] text-[var(--nm-ink30)] truncate">{a.agent_id}</span>
+                              <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{a.name || a.agent_id}</span>
+                              <span className="font-mono text-[10px] text-[var(--nm-ink30)] truncate">{a.agent_id}</span>
                             </span>
                           </span>
                           <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--nm-ink70)]">
@@ -564,7 +564,7 @@ export function DashboardPage() {
                             {aTeams.map((tm) => (
                               <span
                                 key={tm.team_id}
-                                className="text-[10px] font-mono px-1.5 py-0.5 rounded-[3px] border"
+                                className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-sm)] border"
                                 style={{
                                   borderColor: tm.color || 'var(--nm-hairline)',
                                   color: tm.color || 'var(--nm-ink70)',
@@ -574,7 +574,7 @@ export function DashboardPage() {
                               </span>
                             ))}
                           </span>
-                          <span className="text-[11.5px] text-[var(--nm-ink50)]">
+                          <span className="text-[11px] text-[var(--nm-ink50)]">
                             {isImported ? (
                               <span className="text-[var(--color-warning)]">{t('pages.manageAgents.fromBundle')}</span>
                             ) : (
@@ -646,7 +646,7 @@ export function DashboardPage() {
                         <span className="flex items-center gap-2.5 min-w-0 pl-[22px]">
                           <RingAvatar species="silicon" label={(a.name || a.agent_id).slice(0, 2)} size="sm" className="shrink-0" />
                           <span className="min-w-0 flex flex-col gap-px">
-                            <span className="text-[13.5px] font-semibold text-[var(--nm-ink)] truncate">{a.name}</span>
+                            <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{a.name}</span>
                             {a.description && (
                               <span className="text-[11px] text-[var(--nm-ink50)] italic truncate">{a.description}</span>
                             )}
@@ -657,7 +657,7 @@ export function DashboardPage() {
                           {cell.label}
                         </span>
                         <span className="text-[11px] text-[var(--nm-ink30)] italic">—</span>
-                        <span className="text-[11.5px] text-[var(--nm-ink50)]">{t('pages.dashboard.publicAgent')}</span>
+                        <span className="text-[11px] text-[var(--nm-ink50)]">{t('pages.dashboard.publicAgent')}</span>
                       </div>
                     );
                   })}
@@ -665,7 +665,7 @@ export function DashboardPage() {
               )}
             </div>
 
-            <p className="text-[11.5px] leading-relaxed text-[var(--nm-ink30)]">
+            <p className="text-[11px] leading-relaxed text-[var(--nm-ink30)]">
               {t('pages.manageAgents.tip')}
             </p>
           </>
@@ -698,12 +698,12 @@ export function DashboardPage() {
                         className="w-3 h-3 rounded-full shrink-0"
                         style={{ background: tm.team.color || 'var(--nm-ink30)' }}
                       />
-                      <span className="text-[13.5px] font-semibold text-[var(--nm-ink)] truncate">{tm.team.name}</span>
+                      <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{tm.team.name}</span>
                     </span>
                     <span className="text-[12px] text-[var(--nm-ink70)]">
                       {t('pages.dashboard.membersCount', { count: tm.member_agent_ids.length })}
                     </span>
-                    <span className="text-[11.5px] text-[var(--nm-ink50)]">
+                    <span className="text-[11px] text-[var(--nm-ink50)]">
                       {tm.team.source === 'bundle'
                         ? t('pages.manageAgents.fromBundle')
                         : t('pages.manageAgents.createdLocally')}
@@ -723,7 +723,7 @@ export function DashboardPage() {
                 ))
               )}
             </div>
-            <p className="text-[11.5px] leading-relaxed text-[var(--nm-ink30)]">
+            <p className="text-[11px] leading-relaxed text-[var(--nm-ink30)]">
               {t('pages.dashboard.teamsTip')}
             </p>
           </>

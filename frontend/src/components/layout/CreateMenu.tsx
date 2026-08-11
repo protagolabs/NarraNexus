@@ -54,7 +54,7 @@ export function CreateMenu({
         aria-label={t('layout.createMenu.createAgentOrTeam')}
         className={cn(
           'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)]',
-          'text-[13.5px] font-medium text-left text-[var(--nm-ink)] transition-colors',
+          'text-[13px] font-medium text-left text-[var(--nm-ink)] transition-colors',
           'hover:bg-[var(--nm-raised)]',
           open && 'bg-[var(--nm-raised)]',
           disabled && 'opacity-50 cursor-not-allowed',

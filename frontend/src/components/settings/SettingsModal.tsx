@@ -189,7 +189,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     key={section.id}
                     onClick={() => setActiveSection(section.id)}
                     className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm transition-colors',
                       isActive
                         ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]',
@@ -223,7 +223,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {SLOT_EXPLANATIONS.map((slot) => (
                         <div
                           key={slot.nameKey}
-                          className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+                          className="p-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <div
@@ -266,7 +266,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
 
                   {/* Analytics toggle row */}
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                  <div className="flex items-center justify-between p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {t('settings.modal.analyticsTitle')}
@@ -316,7 +316,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
 
                   {/* Locked Use toggle row */}
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                  <div className="flex items-center justify-between p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {t('settings.modal.lockedUseTitle')}

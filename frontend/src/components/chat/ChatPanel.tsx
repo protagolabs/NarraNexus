@@ -1153,7 +1153,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         {/* Audio transcription unavailable notice — only shown when an
             audio upload returned transcription_available=false. */}
         {transcriptionNotice && (
-          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+          <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
             <span className="flex-1">{transcriptionNotice}</span>
             <button
               type="button"
@@ -1176,7 +1176,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                  className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
                   {isVoiceMemo ? (
                     <VoiceTranscript compact transcript={att.transcript} />
@@ -1219,7 +1219,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               );
             })}
             {uploadingCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Uploading {uploadingCount}
               </div>

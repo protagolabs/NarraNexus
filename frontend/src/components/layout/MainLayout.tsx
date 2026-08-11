@@ -407,7 +407,7 @@ export function MainLayout() {
             onClick={() => navigate('/app/chat')}
             title={t('layout.subPage.closeTitle')}
             aria-label={t('layout.subPage.closeAriaLabel')}
-            className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+            className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
           >
             <X className="h-3.5 w-3.5" />
           </button>

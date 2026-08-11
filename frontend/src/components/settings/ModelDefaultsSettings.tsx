@@ -229,10 +229,10 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   };
 
   const selectCls =
-    'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
+    'w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
   const labelCls = 'block text-xs text-[var(--text-tertiary)] mb-1';
   const btnPrimary =
-    'px-5 py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
+    'px-5 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
 
   const helperRecModel =
     RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[providers[helperDraft.provider_id]?.protocol || 'openai'] || 'gpt-5.4-mini';
@@ -281,7 +281,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       </div>
 
       {/* ---- Agent slot ---- */}
-      <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
         <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.agentMain')}
         </div>
@@ -430,7 +430,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       </div>
 
       {/* ---- Helper slot ---- */}
-      <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
         <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.helperTitle')}
         </div>

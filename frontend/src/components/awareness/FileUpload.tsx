@@ -412,7 +412,7 @@ function RegisterModal({ agentId, node, onClose, onRegistered }: RegisterModalPr
           />
         </label>
         {error && (
-          <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)] rounded">
+          <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-error)] rounded">
             {error}
           </div>
         )}
@@ -584,7 +584,7 @@ export function FileUpload() {
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          'relative border-2 border-dashed rounded-lg p-4 transition-all',
+          'relative border-2 border-dashed rounded-[var(--radius-lg)] p-4 transition-all',
           'flex flex-col items-center justify-center gap-2',
           isDragging
             ? 'border-[var(--accent-primary)] bg-[var(--bg-elevated)]'
@@ -615,14 +615,14 @@ export function FileUpload() {
           )}
         </div>
         {uploading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/50 rounded-lg">
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/50 rounded-[var(--radius-lg)]">
             <RefreshCw className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
           </div>
         )}
       </div>
 
       {error && (
-        <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)]">
+        <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-error)]">
           {error}
         </div>
       )}

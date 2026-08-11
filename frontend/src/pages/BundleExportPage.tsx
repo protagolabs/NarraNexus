@@ -1332,7 +1332,7 @@ export default function BundleExportPage() {
           {t('pages.bundleExport.includeChannelCredentialsLabel')}
         </label>
         {includeChannelCredentials && (
-          <div className="mt-2 ml-6 text-[11px] text-[var(--color-yellow-500)] flex items-start gap-1.5">
+          <div className="mt-2 ml-6 text-[11px] text-[var(--color-warning)] flex items-start gap-1.5">
             <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
             <span>{t('pages.bundleExport.channelCredentialsWarning')}</span>
           </div>
@@ -1591,7 +1591,7 @@ function SkillsTab({
                         <div className="text-sm font-mono">{sk.name}</div>
                         <div className="text-[10px] text-[var(--text-tertiary)]">
                           {sameNameCount > 1 && (
-                            <span className="text-[var(--color-yellow-500)] mr-1">{t('pages.bundleExport.skills.dirPrefix', { dir: sk.dirName })}</span>
+                            <span className="text-[var(--color-warning)] mr-1">{t('pages.bundleExport.skills.dirPrefix', { dir: sk.dirName })}</span>
                           )}
                           {arch?.source_type
                             ? t('pages.bundleExport.skills.archived', { type: arch.source_type })
@@ -1599,7 +1599,7 @@ function SkillsTab({
                         </div>
                       </div>
                       {choice?.install_method === 'full_copy' && (
-                        <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
+                        <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-warning)] text-[var(--color-warning)]">
                           contains_secrets
                         </span>
                       )}
@@ -1696,7 +1696,7 @@ function SkillsTab({
                     )}
                     {!hasUrl && !hasZip && !isReadOnly && choice?.install_method !== 'url' && choice?.install_method !== 'zip' && (
                       <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
-                        <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
+                        <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-warning)] shrink-0" />
                         <span className="flex-1">
                           {t('pages.bundleExport.skills.noArchiveHint')}
                         </span>
@@ -1813,7 +1813,7 @@ function HistoryTab({
           <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.history.defaultsLabel')}</strong> {t('pages.bundleExport.history.intro2')}
         </p>
         {!chatHistoryEnabled && (
-          <p className="text-[var(--color-yellow-500)]">
+          <p className="text-[var(--color-warning)]">
             <strong>{t('pages.bundleExport.history.disabledTitle')}</strong> {t('pages.bundleExport.history.disabledBody')}
           </p>
         )}
@@ -2062,9 +2062,9 @@ function SensitiveZipConfirmModal({
       className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
       style={{ background: 'var(--nm-backdrop)' }}
     >
-      <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-red-500)] flex flex-col">
-        <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
-          <div className="flex items-center gap-2 text-[var(--color-red-500)]">
+      <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-error)] flex flex-col">
+        <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-error)]/10">
+          <div className="flex items-center gap-2 text-[var(--color-error)]">
             <AlertTriangle className="w-5 h-5" />
             <h2 className="font-mono text-sm">{t('pages.bundleExport.sensitiveZip.title')}</h2>
           </div>
@@ -2077,7 +2077,7 @@ function SensitiveZipConfirmModal({
           <ul className="list-disc list-inside space-y-1 text-xs font-mono bg-[var(--nm-card)] p-3 max-h-[200px] overflow-y-auto">
             {hits.map((w, i) => (
               <li key={i}>
-                <span className="text-[var(--color-red-500)]">{w.skill}</span>:{' '}
+                <span className="text-[var(--color-error)]">{w.skill}</span>:{' '}
                 {(w.hits || []).slice(0, 5).join(', ')}
                 {(w.hits || []).length > 5 && ` ${t('pages.bundleExport.sensitiveZip.moreHits', { count: (w.hits || []).length - 5 })}`}
               </li>
@@ -2099,7 +2099,7 @@ function SensitiveZipConfirmModal({
             onClick={onAccept}
             disabled={confirmText !== 'SHARE SECRETS'}
             size="sm"
-            className="bg-[var(--color-red-500)] text-white hover:bg-[var(--color-red-500)]/80"
+            className="bg-[var(--color-error)] text-white hover:bg-[var(--color-error)]/80"
           >
             {t('pages.bundleExport.sensitiveZip.shipAnyway')}
           </Button>
@@ -2263,10 +2263,10 @@ function SocialTab({
                 )}
                 {selSlice.map((e) => (
                   <div key={e.entity_id} className="flex items-center gap-2 px-2 py-1 text-xs font-mono">
-                    <Check className="w-3 h-3 text-[var(--color-green-500)] shrink-0" />
+                    <Check className="w-3 h-3 text-[var(--color-success)] shrink-0" />
                     <span className="flex-1 truncate">{e.entity_name || e.entity_id}</span>
                     <span className="text-[9px] text-[var(--text-tertiary)]">[{e.entity_type}]</span>
-                    <button onClick={() => onToggle(a.agent_id, e.entity_id)} className="text-[var(--color-red-500)] text-[10px]">{t('pages.bundleExport.social.remove')}</button>
+                    <button onClick={() => onToggle(a.agent_id, e.entity_id)} className="text-[var(--color-error)] text-[10px]">{t('pages.bundleExport.social.remove')}</button>
                   </div>
                 ))}
                 {selTotalPages > 1 && (
@@ -2423,7 +2423,7 @@ function BusTab({
         })}
       </div>
       {readOnly && (
-        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
+        <div className="text-[11px] text-[var(--color-warning)] flex items-center gap-1.5">
           <AlertTriangle className="w-3 h-3" />
           {t('pages.bundleExport.bus.fullModeNote')}
         </div>
@@ -2533,7 +2533,7 @@ function WorkspaceTab({
                     key={f.path}
                     className={cn(
                       "flex items-center gap-2 px-2 py-1 hover:bg-[var(--nm-paper-warm)]",
-                      sensitive && "bg-[var(--color-yellow-500)]/10",
+                      sensitive && "bg-[var(--color-warning)]/10",
                     )}
                   >
                     <input
@@ -2541,11 +2541,11 @@ function WorkspaceTab({
                       checked={willBeIncluded}
                       onChange={() => onToggle(a.agent_id, f.path)}
                     />
-                    <span className={cn('text-xs font-mono flex-1 truncate', sensitive && 'text-[var(--color-yellow-500)]')}>
+                    <span className={cn('text-xs font-mono flex-1 truncate', sensitive && 'text-[var(--color-warning)]')}>
                       {f.path}
                     </span>
                     {sensitive && (
-                      <span className="text-[9px] text-[var(--color-yellow-500)] uppercase tracking-wider font-mono">
+                      <span className="text-[9px] text-[var(--color-warning)] uppercase tracking-wider font-mono">
                         {willBeIncluded ? t('pages.bundleExport.workspace.sensitiveIncluded') : t('pages.bundleExport.workspace.sensitiveClickToInclude')}
                       </span>
                     )}
@@ -2633,7 +2633,7 @@ function ReviewSummaryModal({
           </div>
           {warnings.length > 0 && (
             <div>
-              <div className="text-[var(--color-yellow-500)] uppercase text-xs mb-1 flex items-center gap-1">
+              <div className="text-[var(--color-warning)] uppercase text-xs mb-1 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> {t('pages.bundleExport.review.warningsHeader')}
               </div>
               <ul className="list-disc list-inside text-[12px] text-[var(--text-secondary)] space-y-0.5">
@@ -2769,7 +2769,7 @@ function McpSection({
         })}
       </div>
       {readOnly && (
-        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
+        <div className="text-[11px] text-[var(--color-warning)] flex items-center gap-1.5 mt-3">
           <AlertTriangle className="w-3 h-3" />
           {t('pages.bundleExport.mcp.fullModeNote')}
         </div>
@@ -2900,7 +2900,7 @@ function ArtifactsTab({
         })}
       </div>
       {readOnly && (
-        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
+        <div className="text-[11px] text-[var(--color-warning)] flex items-center gap-1.5 mt-3">
           <AlertTriangle className="w-3 h-3" />
           {t('pages.bundleExport.artifacts.fullModeNote')}
         </div>
@@ -2991,7 +2991,7 @@ function ChoiceCard({
         />
         <span className="font-mono text-sm text-[var(--nm-ink)]">{title}</span>
         {badge && (
-          <span className="text-[10px] px-1.5 py-0.5 border rounded-[3px] border-[var(--color-warning)] text-[var(--color-warning)]">
+          <span className="text-[10px] px-1.5 py-0.5 border rounded-[var(--radius-sm)] border-[var(--color-warning)] text-[var(--color-warning)]">
             {badge}
           </span>
         )}

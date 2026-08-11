@@ -91,7 +91,7 @@ export function OnboardingJourney({ agentId, agentName, onPrompt }: OnboardingJo
               key={key}
               type="button"
               onClick={() => onPrompt(promptText)}
-              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-left text-[12.5px] text-[var(--nm-ink70)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--nm-ink)]"
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-left text-[12px] text-[var(--nm-ink70)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--nm-ink)]"
               style={{ borderColor: 'var(--nm-hairline)', background: 'var(--nm-card)' }}
             >
               {promptText}

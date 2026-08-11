@@ -200,7 +200,7 @@ export function LoginPage() {
   // Short caption explaining what each login method is (dual-mode clarity).
   const methodDesc = (text: string) => (
     <p
-      className="text-xs leading-relaxed rounded-lg p-3"
+      className="text-xs leading-relaxed rounded-[var(--radius-lg)] p-3"
       style={{
         color: 'var(--nm-ink70)',
         background: 'var(--nm-raised)',
@@ -278,7 +278,7 @@ export function LoginPage() {
       {!withNotice && methodDesc(t('pages.login.powerDesc'))}
       {withNotice && (
         <div
-          className="rounded-xl p-3 text-xs leading-relaxed"
+          className="rounded-[var(--radius-xl)] p-3 text-xs leading-relaxed"
           style={{
             background: 'var(--nm-card)',
             border: '1px solid var(--nm-hairline)',

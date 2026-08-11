@@ -23,15 +23,15 @@ const STATE_META: Record<
   JobQueueStatus | 'running',
   { icon: string; labelKey: string; cls: string }
 > = {
-  running:  { icon: '⚙️', labelKey: 'running', cls: 'text-[var(--color-green-500)]' },
+  running:  { icon: '⚙️', labelKey: 'running', cls: 'text-[var(--color-success)]' },
   active:   { icon: '🔵', labelKey: 'active',  cls: 'text-sky-600' },
   pending:  { icon: '⚪️', labelKey: 'pending', cls: 'text-gray-500' },
-  blocked:  { icon: '🟠', labelKey: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
-  paused:   { icon: '🟡', labelKey: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
-  failed:   { icon: '🔴', labelKey: 'failed',  cls: 'text-[var(--color-red-500)]' },
-  cooling:         { icon: '🕒', labelKey: 'retrying',  cls: 'text-[var(--color-yellow-500)]' },
-  paused_no_quota: { icon: '🟡', labelKey: 'noQuota',  cls: 'text-[var(--color-yellow-500)]' },
-  blocked_failed:  { icon: '🔴', labelKey: 'depFailed', cls: 'text-[var(--color-red-500)]' },
+  blocked:  { icon: '🟠', labelKey: 'blocked', cls: 'text-[var(--color-warning)]' },
+  paused:   { icon: '🟡', labelKey: 'paused',  cls: 'text-[var(--color-warning)]' },
+  failed:   { icon: '🔴', labelKey: 'failed',  cls: 'text-[var(--color-error)]' },
+  cooling:         { icon: '🕒', labelKey: 'retrying',  cls: 'text-[var(--color-warning)]' },
+  paused_no_quota: { icon: '🟡', labelKey: 'noQuota',  cls: 'text-[var(--color-warning)]' },
+  blocked_failed:  { icon: '🔴', labelKey: 'depFailed', cls: 'text-[var(--color-error)]' },
 };
 
 export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
@@ -51,7 +51,7 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
         <span>⚙️ {t('dashboard.jobs.title', { count: total })}</span>
         {runningJobs.length > 0 && (
-          <span className="text-[var(--color-green-500)]">· {t('dashboard.jobs.running', { count: runningJobs.length })}</span>
+          <span className="text-[var(--color-success)]">· {t('dashboard.jobs.running', { count: runningJobs.length })}</span>
         )}
       </button>
       {expanded && (
@@ -162,7 +162,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1.5">
           {subtitle && <div className="text-[var(--text-secondary)]">{subtitle}</div>}
           {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
-          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
+          {err && <div className="text-[var(--color-error)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && <JobDetailBody detail={detail} />}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {state === 'failed' && (
@@ -216,7 +216,7 @@ function JobDetailBody({ detail }: { detail: Record<string, unknown> }) {
       {iter > 0 && <div>{t('dashboard.jobs.detail.iterations')}: {iter}</div>}
       {trigger && <div className="truncate">{t('dashboard.jobs.detail.trigger')}: <span className="font-mono">{trigger}</span></div>}
       {lastErr && (
-        <div className="mt-1 rounded border border-[var(--color-red-500)] bg-[var(--color-red-500)]/5 p-1.5 text-[var(--color-red-500)]">
+        <div className="mt-1 rounded border border-[var(--color-error)] bg-[var(--color-error)]/5 p-1.5 text-[var(--color-error)]">
           <div className="font-semibold">{t('dashboard.jobs.detail.lastError')}</div>
           <div className="font-mono text-[10px] whitespace-pre-wrap">{lastErr}</div>
         </div>

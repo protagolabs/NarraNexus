@@ -198,7 +198,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -243,7 +243,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                     </li>
                     <li>
                       <Trans i18nKey="awareness.discord.step2">
-                        <strong className="text-[var(--color-yellow-500)]">REQUIRED:</strong> on the Bot page, under
+                        <strong className="text-[var(--color-warning)]">REQUIRED:</strong> on the Bot page, under
                         {' '}<strong>Privileged Gateway Intents</strong>, turn ON <strong>Message Content Intent</strong>.
                         Without it the bot receives messages with an empty body and can't read what people say.
                       </Trans>
@@ -331,7 +331,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.bot_user_id})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
@@ -341,7 +341,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 {t('awareness.discord.noOwner')}
               </div>
             )}
@@ -356,7 +356,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {testLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : testPassed ? (
-                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
+                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-success)]" />
                 ) : null}
                 {testPassed ? t('awareness.common.connected') : t('awareness.common.test')}
               </Button>

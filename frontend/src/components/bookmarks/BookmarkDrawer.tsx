@@ -255,7 +255,7 @@ function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: D
             </button>
             <span
               role="tooltip"
-              className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 w-max max-w-[280px] rounded-[var(--radius-sm)] px-2.5 py-2 text-[11.5px] leading-relaxed opacity-0 transition-opacity duration-100 group-hover/help:opacity-100 group-focus-within/help:opacity-100"
+              className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 w-max max-w-[280px] rounded-[var(--radius-sm)] px-2.5 py-2 text-[11px] leading-relaxed opacity-0 transition-opacity duration-100 group-hover/help:opacity-100 group-focus-within/help:opacity-100"
               style={{
                 background: 'var(--nm-ink)',
                 color: 'var(--nm-paper)',
@@ -277,7 +277,7 @@ function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: D
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.unpin')}
             className={cn(
-              'flex items-center justify-center w-6 h-6 rounded-sm',
+              'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
               'transition-colors duration-100 cursor-pointer',
               'hover:bg-[var(--nm-paper-warm)]',
             )}
@@ -297,7 +297,7 @@ function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: D
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.pin')}
             className={cn(
-              'flex items-center justify-center w-6 h-6 rounded-sm',
+              'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
               'transition-colors duration-100 cursor-pointer',
               'hover:bg-[var(--nm-paper-warm)]',
             )}
@@ -319,7 +319,7 @@ function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: D
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.close')}
           className={cn(
-            'flex items-center justify-center w-6 h-6 rounded-sm',
+            'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
             'transition-colors duration-100 cursor-pointer',
             'hover:bg-[var(--nm-paper-warm)]',
           )}

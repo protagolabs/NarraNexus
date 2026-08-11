@@ -403,7 +403,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
             {jobs.length === 0 ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center p-8">
-                  <div className="w-14 h-14 rounded-2xl bg-[var(--color-warning)]/10 mx-auto mb-4 flex items-center justify-center">
+                  <div className="w-14 h-14 rounded-[var(--radius-2xl)] bg-[var(--color-warning)]/10 mx-auto mb-4 flex items-center justify-center">
                     <Calendar className="w-7 h-7 text-[var(--color-warning)]" />
                   </div>
                   <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.list.title')}</p>
@@ -444,7 +444,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                     >
                       <div className="flex items-start gap-3">
                         <div className={cn(
-                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
+                          'w-8 h-8 rounded-[var(--radius-lg)] flex items-center justify-center shrink-0 transition-all duration-300',
                           config.bgColor,
                           job.status === 'running' && 'animate-pulse'
                         )}>
@@ -521,7 +521,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                         <button
                           onClick={() => setFailedExpanded(!failedExpanded)}
                           className={cn(
-                            'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all',
+                            'w-full flex items-center gap-2 px-3 py-2 rounded-[var(--radius-lg)] transition-all',
                             'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]',
                           )}
                         >
@@ -554,7 +554,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
           <div className="h-full flex flex-col">
             {!hasJobsWithDependencies ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                <div className="w-16 h-16 rounded-2xl bg-[var(--accent-secondary)]/10 mx-auto mb-4 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-[var(--radius-2xl)] bg-[var(--accent-secondary)]/10 mx-auto mb-4 flex items-center justify-center">
                   <GitBranch className="w-8 h-8 text-[var(--accent-secondary)]" />
                 </div>
                 <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
@@ -566,7 +566,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
               </div>
             ) : (
               <>
-                <div className="flex-1 min-h-[300px] rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+                <div className="flex-1 min-h-[300px] rounded-[var(--radius-xl)] overflow-hidden border border-[var(--border-subtle)]">
                   <JobDependencyGraph
                     jobs={jobNodes}
                     onNodeClick={setSelectedJobId}
@@ -592,7 +592,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
             {jobs.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center p-8">
-                  <div className="w-16 h-16 rounded-2xl bg-[var(--accent-primary)]/10 mx-auto mb-4 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-[var(--radius-2xl)] bg-[var(--accent-primary)]/10 mx-auto mb-4 flex items-center justify-center">
                     <GanttChartSquare className="w-8 h-8 text-[var(--accent-primary)]" />
                   </div>
                   <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.timeline.title')}</p>

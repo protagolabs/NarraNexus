@@ -403,7 +403,7 @@ function App() {
       )}
       {circuitOpen && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-error)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
           role="alert"
         >
           <span>

@@ -185,7 +185,7 @@ function UpdatesSection() {
         )}
 
         {state.kind === 'failed' && (
-          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-red-500)' }}>
+          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-error)' }}>
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <div>
               <div>{t('pages.settings.updates.failed', { stage: state.stage })}</div>
@@ -283,7 +283,7 @@ export default function SettingsPage() {
                 key={item.id}
                 type="button"
                 onClick={() => setActive(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors ${
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
                     : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]'

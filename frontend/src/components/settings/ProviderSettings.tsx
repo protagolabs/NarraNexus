@@ -137,7 +137,7 @@ function ModelBubbleInput({
             {m}
             <button
               onClick={() => onChange(models.filter((x) => x !== m))}
-              className="text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
+              className="text-[var(--text-tertiary)] hover:text-[var(--color-error)] transition-colors"
               aria-label={t('settings.provider.removeModel', { model: m })}
             >
               ×
@@ -669,7 +669,7 @@ export function ProviderSettings() {
                       type="button"
                       onClick={handleSyncDefaults}
                       disabled={syncing || !userId}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
                     >
                       <RefreshCw className={cn('w-3.5 h-3.5', syncing && 'animate-spin')} />
                       {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
@@ -689,7 +689,7 @@ export function ProviderSettings() {
             grid so it is read before someone goes looking for a Delete button
             on the free card — which is exactly what we block. */}
         {hasFreeTierCard && (
-          <div className="mb-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]/40 px-4 py-3 text-xs leading-relaxed text-[var(--text-secondary)] space-y-1.5">
+          <div className="mb-4 rounded-[var(--radius-xl)] border border-[var(--border-default)] bg-[var(--bg-tertiary)]/40 px-4 py-3 text-xs leading-relaxed text-[var(--text-secondary)] space-y-1.5">
             <div className="font-medium text-[var(--text-primary)]">
               {t('settings.provider.freeTierHowToTitle')}
             </div>
@@ -706,7 +706,7 @@ export function ProviderSettings() {
               'text-xs whitespace-pre-wrap leading-relaxed mb-3 ml-[34px] -mt-2',
               syncResult.kind === 'ok'
                 ? 'text-[var(--text-secondary)]'
-                : 'text-[var(--color-red-500)]'
+                : 'text-[var(--color-error)]'
             )}
           >
             {syncResult.text}
@@ -719,7 +719,7 @@ export function ProviderSettings() {
                 key={prov.provider_id}
                 type="button"
                 onClick={() => setDetailProviderId(prov.provider_id)}
-                className="text-left p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:border-[var(--accent-primary)]/40 transition-colors"
+                className="text-left p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:border-[var(--accent-primary)]/40 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
@@ -734,7 +734,7 @@ export function ProviderSettings() {
             <button
               type="button"
               onClick={() => { setAddMethod('onekey'); setAddModalOpen(true) }}
-              className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
+              className="flex flex-col items-center justify-center gap-1 p-4 rounded-[var(--radius-xl)] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
             >
               <Plus className="w-5 h-5" />
               <span className="text-sm">{t('settings.provider.addProviderTitle')}</span>
@@ -800,7 +800,7 @@ export function ProviderSettings() {
             * the two layers means a user can re-login, switch accounts,
             * or sign out without first having to delete the provider.
             */}
-          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+          <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
               <h4 className="text-sm font-medium text-[var(--text-primary)]">
                 {t('settings.provider.claudeLoginTitle')}
@@ -841,7 +841,7 @@ export function ProviderSettings() {
                         <>
                           <button onClick={handleClaudeLogin}
                             disabled={claudeLoggingIn || claudeLoggingOut}
-                            className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 transition-colors">
+                            className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 transition-colors">
                             {claudeLoggingIn
                               ? (claudeLoginRemaining !== null
                                   ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
@@ -850,14 +850,14 @@ export function ProviderSettings() {
                           </button>
                           <button onClick={handleClaudeLogout}
                             disabled={claudeLoggingIn || claudeLoggingOut}
-                            className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
+                            className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
                             {claudeLoggingOut ? t('settings.provider.loggingOut') : t('settings.provider.logout')}
                           </button>
                         </>
                       ) : (
                         <button onClick={handleClaudeLogin}
                           disabled={claudeLoggingIn}
-                          className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
+                          className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
                           {claudeLoggingIn
                             ? (claudeLoginRemaining !== null
                                 ? t('settings.provider.loggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
@@ -897,7 +897,7 @@ export function ProviderSettings() {
                     </div>
                   ) : claudeStatus.logged_in ? (
                     <button onClick={handleAddClaudeOAuth}
-                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                      className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
                       {t('settings.provider.addAsProvider')}
                     </button>
                   ) : (
@@ -929,12 +929,12 @@ export function ProviderSettings() {
                       value={setupToken}
                       onChange={(e) => setSetupToken(e.target.value)}
                       placeholder={t('settings.provider.setupTokenPlaceholder')}
-                      className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                      className="flex-1 px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
                     />
                     <button
                       onClick={handleSaveSetupToken}
                       disabled={savingSetupToken || !setupToken.trim()}
-                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
+                      className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
                     >
                       {savingSetupToken
                         ? t('settings.provider.setupTokenSaving')
@@ -966,7 +966,7 @@ export function ProviderSettings() {
             * user sees this card the binary is usually already on
             * PATH.
             */}
-          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+          <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
               <h4 className="text-sm font-medium text-[var(--text-primary)]">
                 {t('settings.provider.codexLoginTitle')}
@@ -1024,7 +1024,7 @@ export function ProviderSettings() {
                     </div>
                   ) : codexStatus.logged_in ? (
                     <button onClick={handleAddCodexOAuth}
-                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                      className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
                       {t('settings.provider.addAsProvider')}
                     </button>
                   ) : (
@@ -1050,7 +1050,7 @@ export function ProviderSettings() {
                   if (!v) setShowForm(null)
                   else openForm(v as 'anthropic' | 'openai')
                 }}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+                className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
               >
                 <option value="">{t('settings.provider.selectProtocol')}</option>
                 <option value="openai">{t('settings.provider.protocolOpenai')}</option>
@@ -1060,7 +1060,7 @@ export function ProviderSettings() {
 
             {/* Step 2: the endpoint fields (shown once a protocol is chosen). */}
             {showForm && (
-              <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
+              <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
                 <p className="text-sm text-[var(--text-tertiary)]">
                   {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
                 </p>
@@ -1069,13 +1069,13 @@ export function ProviderSettings() {
                     <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
                     <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
                       placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                      className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                   </div>
                   {showForm === 'anthropic' ? (
                     <div>
                       <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
                       <select value={formAuth} onChange={(e) => { setFormAuth(e.target.value as 'api_key' | 'bearer_token'); setFormTestResult(null) }}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                        className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                         <option value="api_key">{t('settings.provider.authApiKey')}</option>
                         <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
                       </select>
@@ -1086,13 +1086,13 @@ export function ProviderSettings() {
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
                   <input type="text" value={formUrl} onChange={(e) => { setFormUrl(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.baseUrl')}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                    className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
                   <input type="password" value={formKey} onChange={(e) => { setFormKey(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.yourApiKey')}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                    className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
@@ -1109,11 +1109,11 @@ export function ProviderSettings() {
                 )}
                 <div className="flex gap-2">
                   <button onClick={handleTestForm} disabled={formTesting || formAdding || !formKey.trim()}
-                    className="px-4 py-2.5 text-sm font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] disabled:opacity-40 transition-colors">
+                    className="px-4 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] disabled:opacity-40 transition-colors">
                     {formTesting ? '...' : t('settings.provider.testConnection')}
                   </button>
                   <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                    className="flex-1 py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
+                    className="flex-1 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                     {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
                   </button>
                 </div>
@@ -1181,7 +1181,7 @@ export function ProviderSettings() {
             </DialogContent>
             <DialogFooter>
               <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
-                className="px-4 py-2 text-sm rounded-lg text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 disabled:opacity-40 transition-colors">
+                className="px-4 py-2 text-sm rounded-[var(--radius-lg)] text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 disabled:opacity-40 transition-colors">
                 {testing === prov.provider_id ? '...' : t('settings.provider.test')}
               </button>
               {/* OAuth cards' model lists are code-owned (codex: curated
@@ -1190,12 +1190,12 @@ export function ProviderSettings() {
                   silent no-op. */}
               {prov.source !== 'claude_oauth' && prov.source !== 'codex_oauth' && (
                 <button onClick={() => openEditModels(prov)}
-                  className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                  className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
                   {t('settings.provider.edit')}
                 </button>
               )}
               <button onClick={() => { handleDelete(prov.provider_id); setDetailProviderId(null) }}
-                className="px-4 py-2 text-sm rounded-lg text-[var(--color-error)] hover:bg-[var(--color-error)]/5 transition-colors">
+                className="px-4 py-2 text-sm rounded-[var(--radius-lg)] text-[var(--color-error)] hover:bg-[var(--color-error)]/5 transition-colors">
                 {t('settings.provider.delete')}
               </button>
             </DialogFooter>
@@ -1233,14 +1233,14 @@ export function ProviderSettings() {
               <button
                 onClick={closeEditModels}
                 disabled={editSaving}
-                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
               >
                 {t('settings.provider.cancel')}
               </button>
               <button
                 onClick={saveEditModels}
                 disabled={editSaving}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors"
               >
                 {editSaving ? t('settings.provider.saving') : t('settings.provider.save')}
               </button>

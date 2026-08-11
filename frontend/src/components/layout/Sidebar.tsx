@@ -67,7 +67,7 @@ const prefetchDashboard = () => {
 // v4 nav row treatment: flat rows, raised bg on hover/active (design mock),
 // ink70 label brightening to ink.
 const NAV_ROW =
-  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13.5px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]';
+  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]';
 const NAV_ROW_ACTIVE = 'bg-[var(--nm-raised)] text-[var(--nm-ink)]';
 
 export function Sidebar() {
@@ -338,7 +338,7 @@ export function Sidebar() {
                 <div className="text-[13px] font-semibold text-[var(--nm-ink)] truncate" title={userLabel}>
                   {userLabel}
                 </div>
-                <div className="text-[10.5px] text-[var(--nm-ink50)]">
+                <div className="text-[10px] text-[var(--nm-ink50)]">
                   {t('sidebar.online')} · {modeLabel} · v{__APP_VERSION__}
                 </div>
               </div>
@@ -393,7 +393,7 @@ export function Sidebar() {
                         dir={l.code === 'ar' ? 'rtl' : undefined}
                         onClick={() => { void i18n.changeLanguage(l.code); setLangOpen(false); }}
                         className={cn(
-                          'w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left transition-colors',
+                          'w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left transition-colors',
                           'hover:bg-[var(--nm-raised)]',
                           active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
                         )}
@@ -464,7 +464,7 @@ export function Sidebar() {
               <span className="text-[13px] font-semibold leading-tight text-[var(--nm-ink)] truncate" title={userLabel}>
                 {userLabel}
               </span>
-              <span className="flex items-center gap-1.5 text-[10.5px] leading-tight text-[var(--nm-ink50)]">
+              <span className="flex items-center gap-1.5 text-[10px] leading-tight text-[var(--nm-ink50)]">
                 <StatusDot status="success" size={6} />
                 {t('sidebar.online')} · {modeLabel}
               </span>
@@ -479,7 +479,7 @@ export function Sidebar() {
             rel="noopener noreferrer"
             title={t('layout.topBar.findUsTitle')}
             data-help-id="sidebar.find-us"
-            className="shrink-0 inline-flex flex-col items-center justify-center gap-1 px-2.5 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] text-[var(--nm-ink50)] no-underline text-[9.5px] font-medium transition-colors hover:text-[var(--nm-ink)] hover:border-[var(--border-strong)]"
+            className="shrink-0 inline-flex flex-col items-center justify-center gap-1 px-2.5 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] text-[var(--nm-ink50)] no-underline text-[9px] font-medium transition-colors hover:text-[var(--nm-ink)] hover:border-[var(--border-strong)]"
           >
             <Users className="w-3.5 h-3.5" />
             {t('layout.topBar.findUs')}
@@ -517,7 +517,7 @@ function AccountItem({
       {icon}
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {hint && (
-        <span className="text-[10.5px] font-mono text-[var(--nm-ink30)] shrink-0">{hint}</span>
+        <span className="text-[10px] font-mono text-[var(--nm-ink30)] shrink-0">{hint}</span>
       )}
     </button>
   );

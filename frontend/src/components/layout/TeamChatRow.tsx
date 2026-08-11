@@ -103,7 +103,7 @@ export function TeamChatRow({
             title={t('layout.teamChatRow.toggleMembers')}
             aria-label={t('layout.teamChatRow.toggleMembers')}
             aria-expanded={expanded}
-            className="shrink-0 flex h-4 w-4 items-center justify-center rounded-[3px] text-[var(--nm-ink30)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
+            className="shrink-0 flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink30)] transition-colors hover:bg-[var(--nm-raised)] hover:text-[var(--nm-ink)]"
           >
             <ChevronRight
               className={cn('h-3 w-3 transition-transform duration-150', expanded && 'rotate-90')}
@@ -185,7 +185,7 @@ export function TeamChatRow({
                   type="button"
                   onClick={() => onSelectMember(m.agentId)}
                   className={cn(
-                    'w-full flex items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1 text-left text-[12.5px] transition-colors',
+                    'w-full flex items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1 text-left text-[12px] transition-colors',
                     isActive
                       ? 'bg-[var(--nm-row-active)] text-[var(--nm-ink)] font-medium'
                       : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]',

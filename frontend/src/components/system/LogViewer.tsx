@@ -26,7 +26,7 @@ interface LogViewerProps {
 const SERVICE_COLORS: Record<string, string> = {
   backend: 'text-blue-400',
   mcp: 'text-purple-400',
-  poller: 'text-[var(--color-green-500)]',
+  poller: 'text-[var(--color-success)]',
   frontend: 'text-cyan-400',
 };
 

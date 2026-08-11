@@ -489,10 +489,10 @@ export function AvatarWithStreaming({
       <div className="relative inline-flex items-center justify-center">
         <span
           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
-          style={{ border: '2px solid var(--color-yellow-500)' }}
+          style={{ border: '2px solid var(--color-warning)' }}
         />
         <RingAvatar species="silicon" label={label} size={size} />
-        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
+        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-warning)]" />
       </div>
     );
   }

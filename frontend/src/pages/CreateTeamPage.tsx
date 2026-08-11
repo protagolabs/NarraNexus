@@ -110,7 +110,7 @@ export default function CreateTeamPage() {
   const fieldLabel =
     'font-mono text-[11px] uppercase tracking-[0.1em] text-[var(--nm-ink50)]';
   const inputCls =
-    'w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)] px-3 text-[13.5px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none focus:border-[var(--border-strong)]';
+    'w-full rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)] px-3 text-[13px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none focus:border-[var(--border-strong)]';
 
   return (
     <div className="h-full flex flex-col">
@@ -129,7 +129,7 @@ export default function CreateTeamPage() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <h1
-            className="text-[20px] font-bold tracking-tight"
+            className="text-xl font-bold tracking-tight"
             style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
           >
             {t('pages.createTeam.title')}
@@ -191,16 +191,16 @@ export default function CreateTeamPage() {
                 value={memberQuery}
                 onChange={(e) => setMemberQuery(e.target.value)}
                 placeholder={t('pages.createTeam.searchPlaceholder')}
-                className="flex-1 bg-transparent text-[12.5px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none"
+                className="flex-1 bg-transparent text-[12px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none"
               />
             </div>
           )}
           {agents.length === 0 ? (
-            <div className="text-[12.5px] text-[var(--nm-ink50)]">
+            <div className="text-[12px] text-[var(--nm-ink50)]">
               {t('pages.createTeam.noAgents')}
             </div>
           ) : sortedAgents.length === 0 ? (
-            <div className="text-[12.5px] text-[var(--nm-ink50)]">
+            <div className="text-[12px] text-[var(--nm-ink50)]">
               {t('pages.createTeam.noMatch')}
             </div>
           ) : (
@@ -234,7 +234,7 @@ export default function CreateTeamPage() {
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--nm-ink)]">
                     {a.name || a.agent_id}
                   </span>
-                  <span className="shrink-0 font-mono text-[10.5px] text-[var(--nm-ink30)]">
+                  <span className="shrink-0 font-mono text-[10px] text-[var(--nm-ink30)]">
                     {a.agent_id}
                   </span>
                 </label>

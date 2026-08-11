@@ -290,13 +290,13 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {warnings.length > 0 && (
           <div
             role="status"
-            className="text-sm text-[var(--text-primary)] border border-[var(--color-yellow-500)] p-3 space-y-2 bg-[var(--color-yellow-500)]/5"
+            className="text-sm text-[var(--text-primary)] border border-[var(--color-warning)] p-3 space-y-2 bg-[var(--color-warning)]/5"
           >
             {warnings.map((w, idx) => (
               <div key={`${w.kind}-${idx}`} className="space-y-1">
                 <div className="flex items-start gap-2 font-medium">
                   <AlertCircle
-                    className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-yellow-500)]"
+                    className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-warning)]"
                     aria-hidden="true"
                   />
                   <span>{w.title}</span>
@@ -324,7 +324,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {errorDetail ? (
           <div
             role="alert"
-            className="text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-3 space-y-2"
+            className="text-sm text-[var(--color-error)] border border-[var(--color-error)] p-3 space-y-2"
           >
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
@@ -364,7 +364,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           error && (
             <div
               role="alert"
-              className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2"
+              className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2"
             >
               <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
               {error}
@@ -385,7 +385,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   placeholder={t('awareness.lark.appIdPlaceholder')}
                   value={appId}
                   onChange={(e) => setAppId(e.target.value)}
-                  className={`text-sm ${appIdValidationError ? 'border-[var(--color-red-500)]' : ''}`}
+                  className={`text-sm ${appIdValidationError ? 'border-[var(--color-error)]' : ''}`}
                   aria-label={t('awareness.lark.appId')}
                   aria-invalid={!!appIdValidationError}
                   aria-describedby={appIdValidationError ? 'app-id-error' : undefined}
@@ -393,7 +393,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {appIdValidationError && (
                   <div
                     id="app-id-error"
-                    className="text-[10px] text-[var(--color-red-500)] mt-1"
+                    className="text-[10px] text-[var(--color-error)] mt-1"
                   >
                     {appIdValidationError}
                   </div>
@@ -469,14 +469,14 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.botConnected')}
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
-                <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
+                <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" aria-hidden="true" />
                 {t('awareness.lark.linkedAs')} <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
@@ -485,7 +485,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               {t('awareness.lark.appIdLabel')} {credential.app_id}
             </div>
 
-            <div className="text-xs text-[var(--text-secondary)] border border-[var(--color-yellow-500)] p-2">
+            <div className="text-xs text-[var(--text-secondary)] border border-[var(--color-warning)] p-2">
               {t('awareness.lark.completeOauth')}
             </div>
 
@@ -506,7 +506,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               </Button>
             )}
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-error)] hover:opacity-80">
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.common.unbind')}
             </Button>
           </div>
@@ -524,14 +524,14 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.fullyConnected')}
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
-                <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
+                <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" aria-hidden="true" />
                 {t('awareness.lark.linkedAs')} <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
@@ -540,7 +540,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               {t('awareness.lark.appIdLabel')} {credential.app_id}
             </div>
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-error)] hover:opacity-80">
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.common.unbind')}
             </Button>
           </div>
@@ -554,12 +554,12 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 <span className="text-[var(--text-primary)]">{credential.app_id}</span>
                 <span className="text-[var(--text-secondary)] ml-2">({credential.brand})</span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-yellow-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-warning)]">
                 <AlertCircle className="w-3 h-3" aria-hidden="true" /> {credential.auth_status === 'expired' ? t('awareness.lark.statusExpired') : t('awareness.lark.statusNotActive')}
               </span>
             </div>
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-error)] hover:opacity-80">
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebind')}
             </Button>
           </div>
@@ -585,13 +585,13 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-red-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-error)]">
                 <AlertCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.brandMismatch')}
               </span>
             </div>
             <div
               role="alert"
-              className="text-xs text-[var(--text-primary)] border border-[var(--color-red-500)] p-3 space-y-2 bg-[var(--color-red-500)]/5"
+              className="text-xs text-[var(--text-primary)] border border-[var(--color-error)] p-3 space-y-2 bg-[var(--color-error)]/5"
             >
               <div className="font-medium">
                 {t('awareness.lark.mismatchTitle')}
@@ -611,7 +611,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>.
               </div>
             </div>
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-error)] hover:opacity-80">
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebindCorrect')}
             </Button>
           </div>

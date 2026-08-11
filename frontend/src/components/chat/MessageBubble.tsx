@@ -457,7 +457,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 return (
                   <div
                     key={att.file_id}
-                    className="flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
+                    className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
                   >
                     <div className="w-8 h-8 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
                       {att.category === 'image' ? (
@@ -503,7 +503,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // would inherit the parent .text-sm (0.85rem) and look smaller.
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
-              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">{message.content}</span>
+              <span className="whitespace-pre-wrap text-sm">{message.content}</span>
             ) : message.actionReason ? (
               // Self-serviceable failure: show a clean, localized "what you
               // can do" line in the body. The full (English) provider detail
@@ -527,7 +527,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           {message.warnings && message.warnings.length > 0 && (
             <div className="mt-2 pt-2 border-t border-[var(--rule)]">
               {message.warnings.map((warning, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-yellow-500)]">
+                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-warning)]">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                   <span>{warning}</span>
                 </div>

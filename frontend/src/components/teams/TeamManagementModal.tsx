@@ -18,6 +18,8 @@ interface Props {
   onClose: () => void;
 }
 
+// design_system.md §6.2 exemption: user-picked team accent presets are DATA
+// (stored per team), not UI styling — a fixed series palette, not tokens.
 const COLOR_PRESETS = [
   '#3b82f6', // blue
   '#22c55e', // green
@@ -279,7 +281,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                     {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     {t('teams.saveChanges')}
                   </Button>
-                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-red-500)]">
+                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
                     <Trash2 className="w-3.5 h-3.5" />
                     {t('teams.deleteTeam')}
                   </Button>
@@ -305,7 +307,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                             className={cn(
                               'text-xs px-2 py-1 border',
                               inTeam
-                                ? 'border-[var(--color-red-500)] text-[var(--color-red-500)] hover:bg-[var(--color-red-500)]/10'
+                                ? 'border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
                                 : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
                             )}
                           >

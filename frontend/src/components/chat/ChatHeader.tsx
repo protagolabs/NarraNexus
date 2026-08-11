@@ -145,7 +145,7 @@ export function ChatHeader({
           <ChevronDown className="h-3.5 w-3.5 text-[var(--nm-ink30)]" />
         </button>
         {sessionLabel && (
-          <span className="font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--nm-ink30)] truncate">
+          <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
             {sessionLabel}
           </span>
         )}
@@ -164,7 +164,7 @@ export function ChatHeader({
               type="button"
               onClick={() => onChatTabChange(tab)}
               className={cn(
-                'rounded-[3px] px-2.5 py-[3px] text-[11.5px] transition-colors',
+                'rounded-[var(--radius-sm)] px-2.5 py-[3px] text-[11px] transition-colors',
                 chatTab === tab
                   ? 'bg-[var(--nm-raised)] font-semibold text-[var(--nm-ink)]'
                   : 'font-medium text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
@@ -251,7 +251,7 @@ export function ChatHeader({
                       setDetailOpen(false);
                       onOpenAgentConfig();
                     }}
-                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13.5px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
+                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
                   >
                     <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
                     {t('chat.header.modelFramework')}
@@ -268,7 +268,7 @@ export function ChatHeader({
 
 function HeaderBadge({ count }: { count: number }) {
   return (
-    <span className="absolute right-[3px] top-[2px] flex h-3 min-w-3 items-center justify-center rounded-full bg-[var(--nm-ink)] px-0.5 text-[8px] font-bold leading-none text-[var(--nm-paper)]">
+    <span className="absolute right-[3px] top-[2px] flex h-3 min-w-3 items-center justify-center rounded-full bg-[var(--nm-ink)] px-0.5 text-[9px] font-bold leading-none text-[var(--nm-paper)]">
       {count > 99 ? '99+' : count}
     </span>
   );
@@ -288,7 +288,7 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
       // Hover title = the same one-sentence explainer the drawer header's
       // ? icon shows — orientation before the click, not only after.
       title={t(tabDescKey(id), '')}
-      className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13.5px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
+      className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-raised)]"
     >
       <Icon className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
       {t(labelKey, def.label)}

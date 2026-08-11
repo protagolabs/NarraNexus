@@ -22,7 +22,7 @@ function colorForSeed(seed: string): string {
     hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
   const palette = [
-    'bg-[var(--color-green-500)]', 'bg-sky-500', 'bg-[var(--color-yellow-500)]', 'bg-rose-500',
+    'bg-[var(--color-success)]', 'bg-sky-500', 'bg-[var(--color-warning)]', 'bg-rose-500',
     'bg-violet-500', 'bg-fuchsia-500', 'bg-teal-500', 'bg-indigo-500',
   ];
   return palette[Math.abs(hash) % palette.length];
@@ -136,7 +136,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       {expanded && (
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1">
           {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
-          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
+          {err && <div className="text-[var(--color-error)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && (
             <>
               <div className="text-[var(--text-secondary)]">

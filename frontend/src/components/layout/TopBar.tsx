@@ -68,7 +68,7 @@ export function TopBar() {
             type="button"
             onClick={toggleMobileNav}
             aria-label={t('layout.topBar.openMenu')}
-            className="-ml-1 flex h-7 w-7 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)] md:hidden"
+            className="-ml-1 flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)] md:hidden"
           >
             <Menu className="h-4 w-4" />
           </button>

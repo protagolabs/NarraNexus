@@ -212,7 +212,7 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
   return (
     <div
       data-testid={`member-panel-${activity.agent_id}`}
-      className="mx-2 mb-2 animate-fade-in overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
+      className="mx-2 mb-2 animate-fade-in overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
       style={{ fontFamily: 'var(--font-mono)' }}
     >
       {/* Terminal chrome — the member's own header bar. */}
