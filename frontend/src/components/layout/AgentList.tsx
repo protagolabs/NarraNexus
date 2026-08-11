@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Plus,
   Search,
+  ChevronRight,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
@@ -74,16 +75,16 @@ function CategoryHeader({
       <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--nm-ink30)' }}>
         {count}
       </span>
-      <span
+      {/* Lucide chevron, not a glyph — same linear icon language as the
+          team-row toggle (design_system.md §5: no solid/linear mixing). */}
+      <ChevronRight
         className={cn(
-          'text-[10px] shrink-0 transition-transform duration-150',
-          collapsed ? 'rotate-0' : 'rotate-90',
+          'h-3 w-3 shrink-0 transition-transform duration-150',
+          !collapsed && 'rotate-90',
         )}
         style={{ color: 'var(--nm-ink30)' }}
         aria-hidden
-      >
-        ▶
-      </span>
+      />
     </button>
   );
 }

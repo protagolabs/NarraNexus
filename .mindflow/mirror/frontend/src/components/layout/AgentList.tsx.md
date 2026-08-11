@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — TEAMS/AGENTS 分组头三角换 lucide
+
+"▶" 字符三角(渲染为实心)→ lucide ChevronRight + rotate-90,与
+TeamChatRow / AgentGroupSection 的展开箭头统一线性图标语言
+(design_system.md §5)。
 
 ## 2026-08-06 — Chat UI v4:回归纯列表
 

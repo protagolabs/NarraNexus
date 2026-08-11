@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-07-23
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 折叠三角换 lucide;kebab 钉到行尾
+
+Owner 对照截图两处修缮:1) 分组头的 "▶" 字符三角(实心)换成 lucide
+ChevronRight + rotate-90,与 TeamChatRow 的展开箭头同语言(design_system.md
+§5 禁实心/线性混用);2) AgentRowMenu kebab 从名字后面挪到行尾 meta
+(unread/时间)之后——原位置随名字长短漂移。opacity 显隐保留占位,悬停时
+时间戳不位移。
 
 ## 2026-07-23 — 透传 onEditAgent + inline 改名加 maxLength
 
