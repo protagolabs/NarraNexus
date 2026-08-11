@@ -164,7 +164,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
                 },
             )
         logger.exception("export build failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to build the export.")
 
     # Stream the file back; clean up on close.
     def iterfile():
@@ -210,7 +210,7 @@ async def import_preflight(file: UploadFile = File(...), request: Request = None
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("preflight failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Bundle preflight failed.")
     finally:
         # Bundle file copy is not needed beyond preflight (the extracted dir lives elsewhere)
         try:
@@ -233,7 +233,7 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("confirm failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Bundle import failed.")
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +410,7 @@ async def import_from_url(payload: ImportFromUrlRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("from-url import failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Import from URL failed.")
     finally:
         # preflight has already copied what it needs into its own work_dir,
         # so the staged download file is no longer needed.

@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/agents/files.py
-last_verified: 2026-05-14
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
+
+各 `except` 的 `error=str(e)` 收敛为固定文案；`ValueError`（上传校验）保留原文，其余内部异常只进日志、不回客户端（防泄工作区路径/主机名）。
 
 ## 2026-05-14 — recursive tree + nested raw / delete (pointer-model rework)
 

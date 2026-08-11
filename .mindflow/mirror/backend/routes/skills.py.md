@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-07-21
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — MCP egress SSRF 过滤（安全审计 P0-3）
+
+构造 `mcp_servers` 后调 `backend.routes._mcp_egress.filter_public_mcp_servers`（cloud only）：丢弃解析到内网地址的 MCP，防运行时把内网响应带进模型上下文。local 模式透传（localhost MCP 合法）。
 
 ## 2026-07-21 — 平台共享凭证的真实配置状态
 

@@ -4,6 +4,15 @@ last_verified: 2026-08-11
 stub: false
 ---
 
+## 2026-08-11 — cloud 关 API docs + JWT 启动 fail-fast（安全审计 P2-1/P0-2）
+
+两处安全接线：(1) `FastAPI(...)` 在 cloud 模式传 `docs_url=None, redoc_url=None,
+openapi_url=None`（`_docs_kwargs` 按 `_is_cloud_mode()` 组装、import 期求值）——不再
+把完整 API schema/Swagger 暴露给攻击者；开发者在 local/dev 仍有 docs。(2) lifespan 启动
+早段（建库前）调 `assert_jwt_secret_safe()`——cloud 模式 `JWT_SECRET` 未设/为默认值即
+`raise` 拒绝启动。**上线次序**：上 prod 前须先确认 prod `.env` 的 JWT_SECRET 是真值，
+否则守卫会自伤把服务拦在启动外。
+
 ## 2026-08-10 — product analytics ingestion router
 
 Registers authenticated `/api/analytics/events`. Startup schema migration runs

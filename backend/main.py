@@ -23,7 +23,7 @@ from loguru import logger
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
-from backend.auth import _is_cloud_mode
+from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 
 
 def _detect_bind_host() -> str:
@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
 
     # Dashboard v2 TDR-12: fail-fast if local mode is not bound to loopback
     _assert_local_bind_is_loopback(is_cloud_mode=_is_cloud_mode())
+    # Fail-fast in cloud mode if JWT_SECRET is unset / left at the public default
+    # (a known signing secret = anyone can forge any user's token).
+    assert_jwt_secret_safe()
     _warn_if_multi_worker()
 
     # Initialize database connection pool
@@ -378,11 +381,20 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
+# In cloud mode, don't expose the interactive API docs / schema — Swagger UI,
+# ReDoc and openapi.json hand an attacker the full endpoint surface. Developers
+# still get them in local/dev mode.
+_docs_kwargs = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if _is_cloud_mode()
+    else {}
+)
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",
     version="1.0.0",
     lifespan=lifespan,
+    **_docs_kwargs,
 )
 
 # Middleware order is LIFO: the LAST registration is the OUTERMOST layer

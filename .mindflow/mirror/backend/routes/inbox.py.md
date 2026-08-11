@@ -4,6 +4,10 @@ last_verified: 2026-08-11
 stub: false
 ---
 
+## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
+
+各 `except` 的 `error=str(e)` 收敛为固定文案（如 “Failed to mark room read.”），原始异常只进日志。
+
 ## 2026-07-20 — bus attachments surface in the inbox
 
 Each inbox message now carries `attachments` (parsed from the `bus_messages.attachments`

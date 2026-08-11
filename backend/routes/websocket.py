@@ -35,6 +35,7 @@ from loguru import logger
 
 from backend.config import settings
 from backend.auth import _is_cloud_mode, decode_token
+from backend.routes._mcp_egress import filter_public_mcp_servers
 from backend.auth_errors import (
     IDENTITY_MISSING,
     IDENTITY_UNRESOLVED,
@@ -841,6 +842,10 @@ async def websocket_agent_run(websocket: WebSocket):
                 if mcp.headers:
                     spec["headers"] = mcp.headers
                 mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only): the agent fetches these URLs at
+            # runtime and their responses enter the model's context, so drop any
+            # that resolve to an internal address before the run sees them.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
             if mcp_servers:
                 logger.info(f"Loaded {len(mcp_servers)} MCP servers: {list(mcp_servers.keys())}")
         except Exception as e:
@@ -1001,14 +1006,25 @@ async def websocket_agent_run(websocket: WebSocket):
 
     except Exception as e:
         logger.exception(f"WebSocket error: {e}")
-        logger.exception(traceback.format_exc())
         try:
-            await websocket.send_json({
-                "type": "error",
-                "error_message": str(e),
-                "error_type": type(e).__name__,
-                "traceback": traceback.format_exc(),
-            })
+            if _is_cloud_mode():
+                # Cloud: never leak internals to the client. A traceback (or raw
+                # exception text) exposes server paths, dependency versions and
+                # internal state; the full detail is in the server log above.
+                payload = {
+                    "type": "error",
+                    "error_message": "Internal server error.",
+                    "error_type": "InternalError",
+                }
+            else:
+                # Local / dev: full detail aids debugging.
+                payload = {
+                    "type": "error",
+                    "error_message": str(e),
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc(),
+                }
+            await websocket.send_json(payload)
         except Exception:
             pass
 

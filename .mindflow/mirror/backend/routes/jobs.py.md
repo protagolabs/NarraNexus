@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
+
+各 `except` 的 `error/message=str(e)` 收敛为固定文案，原始异常只进日志、不回客户端。
+
 ## 2026-08-10 (PR-8b) — PUT /{job_id} 收口到共享 update_job_from_args
 
 ~90 行 build-updates 逻辑删除、改调 [[_job_writes]]（与 seam DirectStore 及 agent 路由同源，

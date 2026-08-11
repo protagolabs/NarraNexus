@@ -305,7 +305,7 @@ async def list_jobs(
         logger.exception(f"Error listing jobs: {e}")
         return JobListResponse(
             success=False,
-            error=str(e)
+            error="Failed to list jobs."
         )
 
 
@@ -342,7 +342,7 @@ async def get_job_details(job_id: str):
         logger.exception(f"Error getting job details: {e}")
         return JobDetailResponse(
             success=False,
-            error=str(e)
+            error="Failed to get job details."
         )
 
 
@@ -395,7 +395,7 @@ async def cancel_job(job_id: str):
         logger.exception(f"Error cancelling job: {e}")
         return CancelJobResponse(
             success=False,
-            error=str(e)
+            error="Failed to cancel job."
         )
 
 
@@ -489,7 +489,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
         logger.exception(f"Error creating Job Complex: {e}")
         return CreateJobComplexResponse(
             success=False,
-            error=str(e)
+            error="Failed to create job."
         )
 
 
@@ -562,7 +562,7 @@ async def pause_job(job_id: str, request: Request, body: JobPauseBody):
 
     except Exception as e:
         logger.exception(f"Error pausing job {job_id}: {e}")
-        return JobPauseResponse(success=False, job_id=job_id, message=str(e))
+        return JobPauseResponse(success=False, job_id=job_id, message="Failed to pause job.")
 
 
 @router.get("/search/semantic", response_model=JobSemanticSearchResponse)
@@ -597,7 +597,7 @@ async def search_jobs_semantic(
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in semantic job search: {e}")
-        return JobSemanticSearchResponse(success=False, error=str(e))
+        return JobSemanticSearchResponse(success=False, error="Failed to search jobs.")
     result = await _shared_search_semantic(db_client, agent_id, query, user_id, status, limit)
     return JobSemanticSearchResponse(**result)
 
@@ -625,6 +625,6 @@ async def search_jobs_by_keywords(
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in keyword job search: {e}")
-        return JobKeywordSearchResponse(success=False, error=str(e))
+        return JobKeywordSearchResponse(success=False, error="Failed to search jobs.")
     result = await _shared_search_keywords(db_client, agent_id, keywords, user_id, status, limit)
     return JobKeywordSearchResponse(**result)

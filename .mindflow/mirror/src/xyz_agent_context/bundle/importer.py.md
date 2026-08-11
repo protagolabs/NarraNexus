@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/bundle/importer.py
 last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
+
+`mcp_urls` 写入路径（hint→`_ins`）此前**不做任何 URL 校验**，绕过了 create/update 路由的
+`_blocks_internal_url`——一个普通用户上传含内网 MCP URL 的 `.nxbundle` 就能把
+`http://169.254.169.254/...` 之类种进库，随后被 agent 运行时 fetch。现在写库前跑同一道
+**cloud-only** DNS-free 筛（`is_obviously_non_public_url`，**parse-safe**：畸形/非串 URL 判为不安全而非抛异常——裸 `urlparse` 会因坏 IPv6/非串炸出去、经 `_rollback_partial_import` 把整份 import 回滚）：命中即 skip 该行、warning 带 host、
+其余 import 照常。local/桌面不筛（localhost MCP 合法）。
+
 ## 2026-08-10 — 工作板还原、id 重映射与回滚
 
 board 随 team 行一起写入,三处 id 各有各的处理:
