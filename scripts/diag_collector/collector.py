@@ -366,8 +366,12 @@ _UNKNOWN_ENV = "unknown"
 # "dev" = OUR dev cloud stack: both EC2 stacks bake the same image
 # (NARRANEXUS_DEPLOYMENT_MODE=cloud), so prod keeps the "cloud" label
 # and the dev stack sets NEXUS_DIAG_ENV=dev in its compose .env — one
-# line on one host — to get its own partition AND its own discovery
-# route (dev noise never reaches the prod collector).
+# line on one host — to get its own STORAGE partition. The allowlist
+# decides directories only; which HOST receives the logs is the
+# discovery map's key set (third side of the contract, see
+# .env.example): the prod collector's DIAG_COLLECT_CONFIG_JSON must
+# carry a "dev" ingest entry, or the label silently routes to the
+# "default" (prod) ingest — no warning fires on either side.
 _DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev"
 
 # One warning per demoted label, not per record — silent collapse is how
@@ -459,6 +463,13 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
         # kept-just-in-case path, rule #2)
         raw = _bounded_decompress(raw)
     known = _known_envs()
+    # Collapse-warning window reset happens ONCE per batch, not per
+    # demoted record — a full batch can carry ~100k of them.
+    global _collapsed_reset_at
+    now_mono = time.monotonic()
+    if now_mono >= _collapsed_reset_at:
+        _collapsed_warned.clear()
+        _collapsed_reset_at = now_mono + _COLLAPSED_RESET_S
     accepted = 0
     files: dict[Path, list[str]] = {}
     pending_dirs: set[Path] = set()
@@ -476,11 +487,6 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
             continue  # one broken line must not sink the batch
         env_name = _segment(record.get("env", "")).lower()
         if env_name not in known:
-            global _collapsed_reset_at
-            now = time.monotonic()
-            if now >= _collapsed_reset_at:
-                _collapsed_warned.clear()
-                _collapsed_reset_at = now + _COLLAPSED_RESET_S
             if (
                 env_name not in _collapsed_warned
                 and len(_collapsed_warned) < _COLLAPSED_WARNED_MAX

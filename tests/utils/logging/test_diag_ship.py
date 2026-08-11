@@ -444,6 +444,26 @@ class TestDiscovery:
             "https://dev-agent.narra.nexus/telemetry/v1/ingest"
         )
 
+    def test_dev_label_routes_to_its_own_ingest(self, monkeypatch):
+        """Third side of the label contract: the discovery map must
+        carry a "dev" key (as .env.example's example does), or the dev
+        stack's traffic silently falls back to "default" — the prod
+        collector, the exact opposite of the label's purpose."""
+        hits: list = []
+        mapping = {
+            "default": "https://agent.narra.nexus/telemetry/v1/ingest",
+            "dev": "https://dev-agent.narra.nexus/telemetry/v1/ingest",
+        }
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None, env="dev"))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url == (
+            "https://dev-agent.narra.nexus/telemetry/v1/ingest"
+        )
+
     def test_unknown_label_falls_back_to_default(self, monkeypatch):
         hits: list = []
         mapping = {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}

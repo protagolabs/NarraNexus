@@ -4,13 +4,34 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(八)— 第 9 轮:契约是三边的,承诺要有配置落点
+
+第 8 轮写下的"dev 即获得独立 discovery 路由"**没有配置落点**:路由
+由发现文档的 map key 决定(`mapping.get(label) or mapping.get(
+"default")`),不由白名单决定——`.env.example` 示例里没有 "dev" 键,
+dev 流量会**静默**回落 "default" = prod ingest,与承诺恰好相反,且
+两端都不告警(dev 在白名单不触发降级 warning,发送端拿到的是合法
+URL)。修正:
+
+- **契约从"双边"改口为三边**:发送端标签 →(2)收集端白名单决定
+  **落在哪个目录** →(3)discovery map key 决定**送到哪台机器**。
+  少写的正是后果最重的第三边。三处文档(.env.example 双向条目、
+  _ship docstring、本注释)全部改口,示例补
+  `"dev":"https://dev-agent…/ingest"`,并注明 staging(manyfold
+  沙盒)与 dev(我方 dev EC2)是不同来源、两个 key 都要;
+- 发送端补路由测试守住第三边(map 带 dev 键 → 解析到 dev ingest);
+- 告警窗重置提升到**每批一次**(原在逐条循环里,满批可有 ~10 万条
+  降级记录);first-party import 挪到 stdlib 组之后(isort 规则未开,
+  纯人工纪律;已核无循环导入,且被 _setup 的 try 包住)。
+
 ## 2026-08-11(七)— 第 8 轮:双边契约补齐 + dev 标签决策(方案 A)
 
 - **决策(Owner 拍板):dev/prod 云栈用 `dev` 标签区分**。两个 EC2
   栈烘焙同一镜像(部署模式都是 cloud),部署模式分不开它们;prod
   保持 `cloud`,**dev 栈在 compose .env 设 `NEXUS_DIAG_ENV=dev`**
-  (一台机器一行),即获得独立分区 + 独立 discovery 路由(dev 噪声
-  不进 prod 收集器)。`dev` 已进默认词汇表;
+  (一台机器一行),即获得独立**存储分区**;独立路由是第三边契约
+  (discovery map 加 "dev" 键)的事,第 8 轮此处曾把两者混为一谈,
+  第 9 轮修正(见上)。`dev` 已进默认词汇表;
 - **词汇表是发送端/收集端的双边契约**,现在两边都写了:
   `.env.example` 的 `NEXUS_DIAG_ENV` 与 `DIAG_COLLECT_KNOWN_ENVS`
   条目互相指认("自定义标签必须两边同时加,否则整批降级进最先被删

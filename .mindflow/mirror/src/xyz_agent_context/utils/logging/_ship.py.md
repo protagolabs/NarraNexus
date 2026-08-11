@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(八)— 第 9 轮:契约实为三边
+
+第 8 轮的 BILATERAL 口径漏了后果最重的一边:白名单只决定目录,
+**discovery map 的 key 才决定送到哪台机器**,缺 key 的标签静默回落
+"default"(prod)。docstring 与 .env.example 全部改口为三边契约,
+路由测试守住 "dev" 键;import 位置归位(stdlib 组后)。
+
 ## 2026-08-11(七)— 第 8 轮:契约写全两边
 
 模块 docstring 的 URL 解析段补**双边契约**声明(自定义

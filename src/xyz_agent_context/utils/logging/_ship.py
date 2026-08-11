@@ -38,10 +38,16 @@ Ingest URL resolution (first match wins):
      "default" entry. Deployment-specific label derivation (e.g.
      manyfold staging detection) lives in run.sh container mode, which
      injects ``NEXUS_DIAG_ENV`` — this utility reads no other
-     integration's env vars. BILATERAL CONTRACT: any custom label set
-     here must also be added to the collector's
-     ``DIAG_COLLECT_KNOWN_ENVS``, or every record carrying it is
-     demoted into unknown/ — the partition its size cap drains first. Fetched LAZILY on
+     integration's env vars. THREE-SIDED CONTRACT — a label lives in
+     three places and introducing one means updating all three:
+     (1) the sender's env label (here); (2) the collector's
+     ``DIAG_COLLECT_KNOWN_ENVS``, which decides the STORAGE PARTITION
+     (a label missing there is demoted into unknown/, the partition
+     its size cap drains first); (3) the discovery document's ingest
+     map, which decides the RECEIVING HOST — ``mapping.get(label)``
+     falls back to "default", so a label missing from the map silently
+     ships to the default (prod) collector with no warning on either
+     side. Fetched LAZILY on
      the worker thread with a TTL cache — never at setup, so process
      start and test runs touch no network. Unresolvable discovery
      leaves the sink idle until the next probe.
@@ -101,12 +107,12 @@ import sys
 import threading
 import time
 import weakref
-
-from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+
+from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 
 # Test seam, mirroring integrations/manyfold_outbound.
 _transport_for_tests: Optional[httpx.BaseTransport] = None
