@@ -4,13 +4,22 @@
 @date: 2026-07-14
 @description: Resolve an agent's Home Assistant binding into a ready HAClient.
 
-The MCP tools call `resolve_client(db, agent_id)`; it reads the agent's binding
-row (keyed on agent_id), parses config_json into HAConfig, and returns an
-HAClient (or a human-readable reason the agent should relay to the user — "not
-connected yet", "corrupted binding", etc.).
+The MCP tools call `resolve_client(agent_id)`; it reads the agent's binding
+(keyed on agent_id) via the ChannelCredentialStore seam, parses config_json into
+HAConfig, and returns an HAClient (or a human-readable reason the agent should
+relay to the user — "not connected yet", "corrupted binding", etc.).
 
 Per-agent binding is the intended model: a user with multiple Home Assistant
 instances (home vs. office) can point different agents at different HAs.
+
+DEPLOY CONTRACT: the backend `/verify` route is ALSO a caller of this helper, so
+the backend process resolves the binding through the SAME env-gated seam. That is
+correct only while `NARRANEXUS_BACKEND_URL` is UNSET in the backend process
+(-> DirectStore -> direct db, byte-identical to the old direct read). Never set
+that var backend-side — the backend would then HTTP-call ITSELF with no service
+bearer, `_require_service_caller` would 403, and HttpStore would degrade to None
+so `/verify` falsely reports "not configured". Only the mcp/executor containers
+set `NARRANEXUS_BACKEND_URL`.
 """
 
 from __future__ import annotations
