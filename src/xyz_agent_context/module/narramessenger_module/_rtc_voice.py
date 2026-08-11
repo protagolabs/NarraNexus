@@ -57,19 +57,26 @@ def _non_blank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def parse_rtc_voice_input(event: dict) -> Optional[RtcVoiceInputV1]:
-    """Return the validated v1 payload, or None to mean "normal text message".
-
-    Implements every §3.2 rule strictly; voice_instructions is the only
-    forgiving field (missing / blank / mistyped -> None, turn stays valid).
-    """
+def _voice_metadata(event: Any) -> Optional[dict]:
+    """Shared event-shell guard: the RTC metadata dict, or None unless the
+    event is an m.text room message whose metadata object is a dict."""
     if not isinstance(event, dict) or event.get("type") != "m.room.message":
         return None
     content = event.get("content")
     if not isinstance(content, dict) or content.get("msgtype") != "m.text":
         return None
     meta = content.get(RTC_VOICE_INPUT_KEY)
-    if not isinstance(meta, dict):
+    return meta if isinstance(meta, dict) else None
+
+
+def parse_rtc_voice_input(event: Any) -> Optional[RtcVoiceInputV1]:
+    """Return the validated v1 payload, or None to mean "normal text message".
+
+    Implements every §3.2 rule strictly; voice_instructions is the only
+    forgiving field (missing / blank / mistyped -> None, turn stays valid).
+    """
+    meta = _voice_metadata(event)
+    if meta is None:
         return None
     if not _is_strict_int(meta.get("version"), 1):
         return None
@@ -105,13 +112,8 @@ def extract_common_voice_instructions(event: Any) -> Optional[str]:
     envelope is deliberately NOT consulted (mode detection must not depend
     on body-string parsing).
     """
-    if not isinstance(event, dict) or event.get("type") != "m.room.message":
-        return None
-    content = event.get("content")
-    if not isinstance(content, dict) or content.get("msgtype") != "m.text":
-        return None
-    meta = content.get(RTC_VOICE_INPUT_KEY)
-    if not isinstance(meta, dict):
+    meta = _voice_metadata(event)
+    if meta is None:
         return None
     instructions = meta.get("voice_instructions")
     return instructions if _non_blank_str(instructions) else None

@@ -214,10 +214,16 @@ def test_envelope_not_at_start_is_left_as_transcript():
 # --- common-trigger extractor ---------------------------------------------
 
 
+def test_rtc_voice_input_key_pins_the_wire_value():
+    # The metadata key is Hybrid's wire contract — a constant rename must
+    # never silently change what we look for on the event.
+    assert RTC_VOICE_INPUT_KEY == "ai.netmind.rtc.voice_input"
+
+
 def _event(meta):
     return {
         "type": "m.room.message",
-        "content": {"msgtype": "m.text", "body": "hi", "ai.netmind.rtc.voice_input": meta},
+        "content": {"msgtype": "m.text", "body": "hi", RTC_VOICE_INPUT_KEY: meta},
     }
 
 

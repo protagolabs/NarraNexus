@@ -46,9 +46,11 @@ F28 语音快速回答模式（voice fast mode）的入站契约层：Hybrid 把
 ## Downstream
 
 被 trigger 的 voice 检测分支消费（fast profile 触发 + envelope 注入 +
-rtc_session_id 通话级串行的 key 来源）。`extract_common_voice_instructions`
-是后续任务（common-trigger 接入检测分支）的纯函数依赖，目前尚未被
-`matrix_trigger` 调用。测试：
+rtc_session_id 通话级串行的 key 来源）。`parse_rtc_voice_input` 与
+`extract_common_voice_instructions` 自 2026-08-11 起是
+`matrix_trigger._detect_voice_turn` 两级检测的 Level 1 / Level 2 判据；
+两者共用私有 `_voice_metadata` 事件壳守卫（m.room.message + m.text +
+metadata 是 dict），壳判定永不分叉。测试：
 `tests/narramessenger_module/test_rtc_voice_input.py`（合法/全部非法变体/
 envelope 边界，含 bool-as-int 变异防护；common trigger 的独立用例组
-`TestExtractCommonVoiceInstructions`）。
+`TestExtractCommonVoiceInstructions`；`RTC_VOICE_INPUT_KEY` 字面量钉子）。

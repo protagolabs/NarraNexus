@@ -6,11 +6,16 @@
 Locks:
 - A valid RTC voice event parses into a ParsedMessage whose content is
   the TRANSCRIPT (envelope stripped) and whose raw["rtc_voice"] carries
-  the four binding IDs + the effective voice instructions.
+  the four binding IDs + the effective voice instructions
+  (degraded=False).
 - Instruction precedence: metadata voice_instructions wins; the
   narra-system-prompt envelope text is the fallback carrier.
-- Invalid metadata (any 3.2 rule) -> plain text message: no rtc_voice,
-  body untouched (envelope and all) — the normal path must not change.
+- Two-level detection (handoff 3.4): invalid metadata WITH a non-blank
+  voice_instructions string -> DEGRADED voice turn (degraded=True,
+  envelope stripped, all four binding IDs empty — they must never feed
+  correlation/serialization/security).
+- Invalid metadata WITHOUT usable voice_instructions -> plain text:
+  no rtc_voice, body untouched (envelope and all).
 - A plain text event without metadata is byte-identical to before.
 - _voice_profile_for maps rtc_voice presence to TurnProfile.voice_fast()
   and absence to None (the one-shot override: profile exists only on
@@ -114,6 +119,7 @@ def test_valid_voice_event_strips_envelope_and_tags_rtc():
     assert rtc["invocation_id"] == "inv1"
     assert rtc["agent_profile_id"] == "prof1"
     assert rtc["voice_instructions"] == "Reply for a real-time voice call."
+    assert rtc["degraded"] is False
 
 
 def test_envelope_is_fallback_when_metadata_has_no_instructions():
@@ -124,11 +130,33 @@ def test_envelope_is_fallback_when_metadata_has_no_instructions():
     assert msg.raw["rtc_voice"]["voice_instructions"] == "Speak casually."
 
 
-def test_invalid_metadata_degrades_to_plain_text():
+def test_invalid_metadata_with_instructions_becomes_degraded_voice_turn():
+    """Handoff 3.4 common trigger: a failed metadata block no longer
+    cancels voice mode when the backend-controlled voice_instructions
+    string is present — the turn degrades, it doesn't drop."""
     msg = _parse(_voice_event(meta=_rtc_meta(seq=2)))
-    assert "rtc_voice" not in msg.raw
-    # Envelope untouched: the normal path never strips body content.
-    assert msg.content == ENVELOPE + TRANSCRIPT
+    rtc = msg.raw["rtc_voice"]
+    assert rtc["degraded"] is True
+    assert rtc["voice_instructions"] == "Reply for a real-time voice call."
+    for field in ("rtc_session_id", "turn_id", "invocation_id", "agent_profile_id"):
+        assert rtc[field] == ""
+    # Voice behavior applies: the envelope IS stripped from the content.
+    assert msg.content == TRANSCRIPT
+
+
+def test_invalid_metadata_without_instructions_stays_plain_text():
+    """Neither level fires: strict parse failed AND no usable
+    voice_instructions -> plain text, body untouched (envelope kept)."""
+    no_instructions = _rtc_meta(seq=2)
+    del no_instructions["voice_instructions"]
+    for meta in (
+        no_instructions,
+        _rtc_meta(seq=2, voice_instructions="   "),
+        _rtc_meta(seq=2, voice_instructions=42),
+    ):
+        msg = _parse(_voice_event(meta=meta))
+        assert "rtc_voice" not in (msg.raw or {})
+        assert msg.content == ENVELOPE + TRANSCRIPT
 
 
 def test_plain_text_unchanged():
@@ -178,6 +206,7 @@ def test_late_voice_upgrade_recovers_cold_roster_cache():
     upgraded = trigger._late_voice_upgrade(msg, authoritative_dm=True)
     assert upgraded.content == TRANSCRIPT
     assert upgraded.raw["rtc_voice"]["rtc_session_id"] == "rtc-s1"
+    assert upgraded.raw["rtc_voice"]["degraded"] is False
 
     # Idempotent on already-upgraded and inert on plain messages.
     assert trigger._late_voice_upgrade(upgraded, authoritative_dm=True) is upgraded

@@ -112,29 +112,52 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
-from ._rtc_voice import parse_rtc_voice_input, split_narra_system_prompt
+from ._rtc_voice import (
+    extract_common_voice_instructions,
+    parse_rtc_voice_input,
+    split_narra_system_prompt,
+)
 from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
 def _detect_voice_turn(body: str, source: Any) -> Optional[tuple[str, dict]]:
-    """Pure detection shared by parse_event and the late (post-classify)
-    upgrade: ``(transcript, rtc_voice_dict)`` for a valid RTC voice event,
-    else None. The transcript may be empty (valid metadata, envelope-only
-    body) — callers decide whether that drops the turn or skips the
-    upgrade. voice_instructions precedence: explicit metadata field wins,
-    the narra-system-prompt envelope is the v1 fallback carrier.
+    """Two-level detection shared by parse_event and the late upgrade.
+
+    Level 1 — strict v1 metadata parses: full voice turn with the four
+    binding IDs (correlation, per-call serialization, [voice-timing]).
+    Level 2 — metadata failed but the common trigger holds (non-blank
+    backend-controlled voice_instructions inside the metadata object):
+    DEGRADED voice turn — voice behavior applies, binding IDs stay empty
+    and MUST NOT feed correlation or security decisions (handoff §3.4);
+    serialization falls back to the per-room key downstream.
+    Neither level => None (plain text; voice_instructions absent/blank).
+    The transcript may be empty — callers decide to drop or skip.
     """
-    rtc = parse_rtc_voice_input(source) if isinstance(source, dict) else None
-    if rtc is None:
+    if not isinstance(source, dict):
+        return None
+    rtc = parse_rtc_voice_input(source)
+    if rtc is not None:
+        envelope, transcript = split_narra_system_prompt(body)
+        return transcript, {
+            "rtc_session_id": rtc.rtc_session_id,
+            "turn_id": rtc.turn_id,
+            "invocation_id": rtc.invocation_id,
+            "agent_profile_id": rtc.agent_profile_id,
+            "voice_instructions": rtc.voice_instructions or envelope,
+            "degraded": False,
+        }
+    instructions = extract_common_voice_instructions(source)
+    if instructions is None:
         return None
     envelope, transcript = split_narra_system_prompt(body)
     return transcript, {
-        "rtc_session_id": rtc.rtc_session_id,
-        "turn_id": rtc.turn_id,
-        "invocation_id": rtc.invocation_id,
-        "agent_profile_id": rtc.agent_profile_id,
-        "voice_instructions": rtc.voice_instructions or envelope,
+        "rtc_session_id": "",
+        "turn_id": "",
+        "invocation_id": "",
+        "agent_profile_id": "",
+        "voice_instructions": instructions,
+        "degraded": True,
     }
 
 
@@ -1760,7 +1783,10 @@ class MatrixTrigger(ChannelTriggerBase):
             logger.info(_format_voice_timing(
                 agent_id=agent_id,
                 room_id=message.chat_id,
-                rtc_session_id=str((rtc_voice or {}).get("rtc_session_id", "")),
+                rtc_session_id=str(
+                    (rtc_voice or {}).get("rtc_session_id")
+                    or ("degraded" if (rtc_voice or {}).get("degraded") else "")
+                ),
                 received_at=_t_voice_received,
                 applied_at=_t_voice_applied,
                 request_started_at=_t_voice_request,
@@ -2523,24 +2549,35 @@ class MatrixTrigger(ChannelTriggerBase):
             body = raw.get("body") or ""
             if not body.strip():
                 return None
-            # ── F28 RTC voice turn detection ────────────────────────────
+            # ── F28 RTC voice turn detection (two-level, handoff §3.4) ──
             # Hybrid sends final STT as a normal m.text plus the
             # ai.netmind.rtc.voice_input v1 metadata on the same event.
-            # Strict validation lives in _rtc_voice; ANY miss keeps this a
-            # plain text message (contract: bad metadata must never break
-            # the normal reply path). Metadata is a presentation hint,
-            # NOT authorization — classify/authorize gates run unchanged.
+            # Level 1: the strict v1 block parses -> full voice turn with
+            # the four binding IDs. Level 2: strict parse failed but the
+            # metadata object still carries a non-blank backend-controlled
+            # voice_instructions string -> DEGRADED voice turn: voice
+            # behavior applies, binding IDs stay empty and never feed
+            # correlation, per-call serialization keys, or security
+            # decisions. Only when NEITHER level fires does the event stay
+            # a plain text message (contract: bad metadata must never
+            # break the normal reply path). Metadata is a presentation
+            # hint, NOT authorization — classify/authorize gates run
+            # unchanged.
             #
             # 1:1 rooms ONLY: the metadata has no source binding (format
             # is validated, provenance is not — and the handoff forbids a
             # sync backend round trip for the fast-mode decision), so a
             # group member could otherwise inject voice_instructions into
-            # the reply register. F13 RTC calls are Agent-Human 1:1 by
-            # product shape, so gating on PRIVATE loses nothing. A cold
-            # roster cache (unknown member count) parses as GROUP and is
-            # conservatively refused HERE; _process_message recovers it
-            # after _classify's authoritative dm verdict — see
-            # _late_voice_upgrade. The argument chain closes there.
+            # the reply register. On a DEGRADED turn the metadata was
+            # never trustworthy to begin with, so this PRIVATE gate
+            # carries the WHOLE injection argument for BOTH levels — do
+            # not weaken it on the theory that level 1 "validated" the
+            # block. F13 RTC calls are Agent-Human 1:1 by product shape,
+            # so gating on PRIVATE loses nothing. A cold roster cache
+            # (unknown member count) parses as GROUP and is conservatively
+            # refused HERE; _process_message recovers it after _classify's
+            # authoritative dm verdict — see _late_voice_upgrade. The
+            # argument chain closes there.
             detected = (
                 _detect_voice_turn(
                     body, getattr(raw.get("_nio_event"), "source", None)
