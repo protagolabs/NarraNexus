@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/factory.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 (PR-A) — 加 get_channel_credential_store
+
+同一组合根多出 `get_channel_credential_store()`，与 `get_agent_data_store` 完全同构：同一 `NARRANEXUS_BACKEND_URL`
+env 门（unset→[[channel_store]] DirectStore、set→ChannelHttpStore），同一 `current_identity_headers()` 转发。
+两条 seam 共用 env 开关与身份转发，但各自独立的 Protocol/实现。
 
 ## Why it exists
 

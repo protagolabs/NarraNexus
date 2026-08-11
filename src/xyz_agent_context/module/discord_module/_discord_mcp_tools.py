@@ -26,9 +26,10 @@ from typing import Any
 from loguru import logger
 
 from xyz_agent_context.channel.channel_reactions import best_effort_react
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.data_access import get_channel_credential_store
+from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
 
-from ._discord_credential_manager import DiscordCredentialManager
+from ._discord_credential_manager import DiscordCredentialManager, _cred_from_raw
 from ._discord_service import _friendly_discord_error, do_bind, do_test_connection
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
@@ -51,14 +52,22 @@ _DISCORD_REACTIONS = {
 
 
 async def _get_credential(agent_id: str):
-    db = await XYZBaseModule.get_mcp_db_client()
-    mgr = DiscordCredentialManager(db)
-    return await mgr.get(agent_id)
+    # Routes through the ChannelCredentialStore seam (blueprint P2, #2) so
+    # this file never touches the db directly: DirectStore dispatches to
+    # DiscordCredentialManager locally, HttpStore GETs the owner-gated
+    # backend endpoint in cloud. Rebuild the dataclass from the seam's raw
+    # dict so every caller below keeps using `cred.bot_token` unchanged.
+    raw = await get_channel_credential_store().get_credential("discord", agent_id)
+    return _cred_from_raw(raw) if raw is not None else None
 
 
 async def _get_manager() -> DiscordCredentialManager:
-    db = await XYZBaseModule.get_mcp_db_client()
-    return DiscordCredentialManager(db)
+    # Bind/status/unbind are write/lifecycle operations the read-only
+    # ChannelCredentialStore Protocol doesn't cover yet (see
+    # channel_store.py's module docstring, "known gap") — DirectStore's
+    # get_manager() convenience keeps the db-client acquisition centralised
+    # in the seam module instead of this file rolling its own.
+    return await ChannelDirectStore().get_manager("discord")
 
 
 def register_discord_mcp_tools(mcp: Any) -> None:

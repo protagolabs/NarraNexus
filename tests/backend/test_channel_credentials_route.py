@@ -1,0 +1,130 @@
+"""
+@file_name: test_channel_credentials_route.py
+@author:
+@date: 2026-08-10
+@description: Route-level proof for the raw-channel-credential endpoint
+(blueprint P2, #2 PR-A). This is the ONLY endpoint that returns a raw channel
+secret, so its two gates BOTH matter and are pinned here:
+
+  1. service-caller gate — only an nx-agent (nx-service) bearer may reach it;
+     a plain owner session must NOT be able to pull the raw token back through
+     the API (the panel masks it on purpose).
+  2. owner gate — the proven identity must own the agent (cross-tenant theft).
+
+The seam's own Direct↔Http parity lives in tests/module/test_channel_store.py;
+this file pins the HTTP twin's auth behaviour a TestClient can see.
+"""
+from __future__ import annotations
+
+import pytest
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+
+import backend.routes._ownership as own
+from backend.routes.agents.channel_credentials import router as cc_router
+from xyz_agent_context.module.discord_module import _discord_credential_manager as dcm
+
+_SERVICE_BEARER = "Bearer nx-agent:agent_mine~~~~u1~~~~sometoken"
+_CRED = dcm.DiscordCredential(
+    agent_id="agent_mine",
+    bot_token="RAW-BOT-TOKEN-secret",
+    bot_user_id="bot123",
+    owner_user_id="owner9",
+)
+
+
+@pytest.fixture
+def client(monkeypatch):
+    async def _db():
+        return object()
+
+    monkeypatch.setattr(own, "get_db_client", _db)
+
+    async def _resolve(self, agent_id):
+        # agent_mine -> u1 owns it; agent_theirs -> u2; anything else missing
+        return {"agent_mine": "u1", "agent_theirs": "u2"}.get(agent_id, "")
+
+    monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
+
+    # The route builds a DiscordCredentialManager(db) and calls .get(agent_id).
+    async def _get(self, agent_id):
+        return _CRED if agent_id == "agent_mine" else None
+
+    monkeypatch.setattr(dcm.DiscordCredentialManager, "get", _get)
+
+    # Route also acquires its own db for the manager.
+    import backend.routes.agents.channel_credentials as ccmod
+
+    monkeypatch.setattr(ccmod, "get_db_client", _db)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _identity(request: Request, call_next):
+        # Stand in for auth_middleware: the real one sets user_id ONLY after
+        # verifying the nx-service signature; here the test declares it.
+        request.state.user_id = request.headers.get("x-test-user") or None
+        return await call_next(request)
+
+    app.include_router(cc_router, prefix="/api/agents")
+    return TestClient(app)
+
+
+def _url(agent="agent_mine", channel="discord"):
+    return f"/api/agents/{agent}/channels/{channel}/credential"
+
+
+def test_service_owner_gets_raw_credential(client):
+    r = client.get(_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["bot_token"] == "RAW-BOT-TOKEN-secret"  # the raw secret is served
+    assert body["agent_id"] == "agent_mine"
+
+
+def test_non_service_caller_is_forbidden_even_as_owner(client):
+    # A logged-in USER session (no nx-agent bearer) owns the agent, yet must
+    # NOT get the raw token — the security fix this endpoint exists to enforce.
+    r = client.get(_url(), headers={"authorization": "Bearer user-jwt-abc", "x-test-user": "u1"})
+    assert r.status_code == 403
+    assert "nx-service" in r.json()["detail"]
+
+
+def test_no_bearer_is_forbidden(client):
+    r = client.get(_url(), headers={"x-test-user": "u1"})
+    assert r.status_code == 403
+
+
+def test_service_non_owner_is_forbidden(client):
+    r = client.get(
+        _url(agent="agent_theirs"),
+        headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"},
+    )
+    assert r.status_code == 403
+
+
+def test_unknown_agent_is_not_found(client):
+    r = client.get(
+        _url(agent="agent_ghost"),
+        headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"},
+    )
+    assert r.status_code == 404
+
+
+def test_unknown_channel_is_not_found_before_any_lookup(client):
+    r = client.get(
+        _url(channel="telegram"),
+        headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"},
+    )
+    assert r.status_code == 404
+    assert "unknown channel" in r.json()["detail"]
+
+
+def test_unbound_agent_returns_bound_false(client, monkeypatch):
+    async def _none(self, agent_id):
+        return None
+
+    monkeypatch.setattr(dcm.DiscordCredentialManager, "get", _none)
+    r = client.get(_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200
+    assert r.json() == {"bound": False}
