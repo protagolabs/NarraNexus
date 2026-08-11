@@ -131,6 +131,18 @@ _LIVE_SINKS: "weakref.WeakSet[ShipSink]" = weakref.WeakSet()
 
 
 def _flush_all_at_exit() -> None:
+    # atexit is LIFO and this handler registers at import time — AFTER
+    # loguru registers its own teardown — so it runs while records may
+    # still sit in loguru's enqueue worker. Drain that queue FIRST
+    # (complete() waits for it without tearing handlers down), or the
+    # tail of the final batch reaches the sink buffer only after
+    # close() has guaranteed it never goes out.
+    try:
+        from loguru import logger as _logger
+
+        _logger.complete()
+    except Exception:  # noqa: BLE001 — exiting; drain is best-effort
+        pass
     for sink in list(_LIVE_SINKS):
         try:
             sink.flush()

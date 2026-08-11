@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(四)— 第 5 轮:atexit 顺序
+
+atexit 是 LIFO,本模块 handler 在 import 时注册——晚于 loguru 自身
+的 teardown 注册,因此**先于** loguru 排空 enqueue 队列执行;直接
+flush+close 意味着队列尾部的记录在 close 之后才进 sink 缓冲,最后
+一批**必然**发不出。修法:handler 内先 `logger.complete()`(等队列
+排空且不拆 handler——review 建议的 `remove()` 会连文件 sink 一起
+拆掉,complete 语义更准)→ flush → close。conftest 的灭火开关同批
+改为**无条件**赋值(setdefault 挡不住开发者 shell 里的
+`export NEXUS_DIAG_SHIP=full`)并修正过期注释。
+
 ## 2026-08-11(三)— 第 4 轮收口
 
 Tier-1 docstring 的 URL 解析段同步删除 manyfold 嗅探描述(镜像与

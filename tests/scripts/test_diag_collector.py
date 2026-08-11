@@ -301,6 +301,43 @@ async def test_size_cap_noop_under_limit(env):
     assert collector.enforce_size_cap() == 0
 
 
+async def test_rotated_identities_collapse_into_overflow_dirs(env, monkeypatch):
+    """_segment() whitelists characters but not the VALUE SET: per-batch
+    identity rotation could mint unbounded directories, which both grows
+    inodes without bound and inverts partition-aware deletion (spread a
+    flood across many small partitions and the 'largest partition'
+    becomes the known sender's). Past the population cap, new names
+    collapse into overflow/ — the rotation re-concentrates into the one
+    partition that drains first. Attribution survives in record content."""
+    monkeypatch.setattr(collector, "_MAX_RUNTIME_DIRS", 2)
+    for i in range(4):
+        resp = await _post(gzip.compress(_lines("x", runtime=f"rt_{i}").encode()))
+        assert resp.status_code == 200
+    base = env / "manyfold-staging"
+    assert (base / "rt_0").is_dir() and (base / "rt_1").is_dir()
+    assert not (base / "rt_2").exists() and not (base / "rt_3").exists()
+    rows = [
+        json.loads(ln)
+        for f in (base / "overflow").rglob("*.jsonl")
+        for ln in f.read_text().splitlines()
+    ]
+    assert {r["runtime_id"] for r in rows} == {"rt_2", "rt_3"}
+
+
+async def test_retention_sweep_removes_empty_dirs(env):
+    """unlink() never removes directories: without bottom-up cleanup,
+    expired identities leave an ever-growing dir tree that every rglob
+    scan pays for. The data root itself must survive."""
+    d = env / "e" / "r" / "s"
+    d.mkdir(parents=True)
+    f = d / "2026-01-01.jsonl"
+    f.write_text("x")
+    os.utime(f, (1000, 1000))
+    assert collector.sweep_retention() == 1
+    assert not (env / "e").exists()
+    assert env.is_dir()
+
+
 async def test_size_cap_drains_largest_partition_first(env, monkeypatch):
     """A flood squeezes ITSELF out: deletion drains the biggest
     env/runtime partition's oldest files before touching known

@@ -374,6 +374,27 @@ class TestAtexitSweep:
         assert len(rec.requests) == 1
         assert rec.batches()[0][0]["message"] == "tail line"
 
+    def test_exit_sweep_drains_loguru_queue_before_flush(self, monkeypatch):
+        """atexit is LIFO and this module's handler registers at import
+        time — AFTER loguru registers its own remove — so it runs while
+        records may still sit in loguru's enqueue worker. The handler
+        must drain that queue FIRST (logger.complete()), then flush,
+        then close; any other order sends the final batch minus its
+        tail, with close() guaranteeing the leftovers never go out."""
+        import loguru
+
+        order: list = []
+        monkeypatch.setattr(
+            loguru.logger, "complete", lambda *a, **k: order.append("drain")
+        )
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        monkeypatch.setattr(sink, "flush", lambda: order.append("flush"))
+        monkeypatch.setattr(sink._client, "close", lambda: order.append("close"))
+        _ship._flush_all_at_exit()
+        assert order == ["drain", "flush", "close"]
+
 
 class TestDiscovery:
     def _routing_transport(self, mapping, hits):
@@ -443,6 +464,50 @@ class TestDiscovery:
         assert len(rec.requests) == 1  # straight POST, no GET
         assert rec.requests[0].method == "POST"
 
+
+    def test_bad_shape_document_keeps_stale_url(self, monkeypatch):
+        """Valid JSON that is not {"ingest": {...}} (e.g. a list) is a
+        failed refresh, not a crash: the previously resolved URL
+        survives (stale-if-error) and batches keep flowing on it."""
+        good = {
+            "ingest": {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}
+        }
+        state: dict = {"doc": good}
+        posts: list = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                return httpx.Response(200, json=state["doc"])
+            posts.append(request)
+            return httpx.Response(200, json={"ok": True})
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_handle)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("a"))
+        sink.flush()
+        assert sink._resolved_url == good["ingest"]["default"]
+        state["doc"] = ["not", "a", "mapping"]  # next refresh serves garbage
+        sink._url_expires = 0.0
+        sink._discovery_next = 0.0
+        sink(_message("b"))
+        sink.flush()
+        assert sink._resolved_url == good["ingest"]["default"]
+        assert len(posts) == 2
+
+    def test_bad_shape_document_with_no_stale_drops_quietly(self, monkeypatch):
+        def _garbage(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=["not", "a", "mapping"])
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_garbage)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()  # must not raise; nothing resolved, batch dropped
+        assert sink._resolved_url is None
+        assert sink._fail_streak == 0  # discovery failure ≠ breaker food
 
     def test_disallowed_discovery_url_rejected(self, monkeypatch):
         """The discovery document decides where user logs go and is

@@ -17,8 +17,16 @@ line with the envelope fields merged in):
 
     <DATA_DIR>/<env>/<runtime_id>/<service>/<YYYY-MM-DD>.jsonl
 
+Directory populations are bounded per level (16 envs / 256 runtimes /
+16 services; beyond the cap new names land in an "overflow" bucket) —
+the segment values come from untrusted record fields, and without a
+bound identity rotation would mint unlimited directories AND defeat
+partition-aware size-cap deletion. Attribution survives regardless:
+every record keeps its envelope fields inline.
+
 Retention: files older than DIAG_COLLECT_RETENTION_DAYS (default 30)
-are deleted by a daily sweep (startup + every 24h).
+are deleted by a daily sweep (startup + every 24h), which also removes
+emptied directories bottom-up.
 
 This is a PUBLIC telemetry endpoint by design (telemetry redesign,
 2026-08-11): the sender codebase is open source, so a baked or shared
@@ -161,9 +169,17 @@ def enforce_size_cap() -> int:
     if not root.is_dir():
         return 0
     # Partition = env/runtime (the first two path segments): deletion
-    # drains the LARGEST partition's oldest files first, so a flood of
-    # stranger traffic squeezes ITSELF out — known senders' partitions
-    # only shrink once the flood's partition no longer dominates.
+    # drains the LARGEST partition's oldest files first. This is a
+    # HEURISTIC, honest about its limits: partition keys come from
+    # record fields, so an adaptive attacker can spoof a known sender's
+    # env/runtime and land in its partition — no record-based scheme
+    # can tell friend from foe without authentication (that escape
+    # hatch is DIAG_COLLECT_TOKEN). What the heuristic does buy:
+    # a buggy legit sender spamming its own partition squeezes itself
+    # out, and identity ROTATION collapses into the overflow bucket
+    # (_bounded_segment) instead of minting enough small partitions to
+    # make the known sender's the largest. The hard guarantees remain
+    # the cap itself and the global byte budget.
     partitions: dict[tuple, list[tuple[float, int, Path]]] = {}
     sizes: dict[tuple, int] = {}
     total = 0
@@ -240,8 +256,12 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _prune(window: list[tuple[float, int]], now: float) -> list[tuple[float, int]]:
-    return [(ts, b) for ts, b in window if now - ts < _RATE_WINDOW_S]
+def _prune(window: list, now: float, ts=lambda entry: entry) -> list:
+    """Drop entries older than the rate window. Both ledgers share this
+    one rule — `ts` extracts the timestamp from an entry (a bare float
+    in _rate_counts, the first tuple field in the byte ledgers) — so a
+    window change cannot land in one ledger and miss the other."""
+    return [e for e in window if now - ts(e) < _RATE_WINDOW_S]
 
 
 def _rate_precheck(request: Request) -> str:
@@ -260,7 +280,7 @@ def _rate_precheck(request: Request) -> str:
         for key, _ in stale:
             _rate_counts.pop(key, None)
             _rate_bytes.pop(key, None)
-    counts = [ts for ts in _rate_counts.get(ip, []) if now - ts < _RATE_WINDOW_S]
+    counts = _prune(_rate_counts.get(ip, []), now)
     if len(counts) >= _RATE_MAX_REQUESTS:
         _rate_counts[ip] = counts
         raise HTTPException(status_code=429, detail="rate limited")
@@ -275,10 +295,10 @@ def _rate_settle_bytes(ip: str, wire_bytes: int) -> None:
     that matters, see the size cap) is only spent on accepted requests."""
     now = time.monotonic()
     global _global_window
-    window = _prune(_rate_bytes.get(ip, []), now)
+    window = _prune(_rate_bytes.get(ip, []), now, ts=lambda e: e[0])
     window.append((now, wire_bytes))
     _rate_bytes[ip] = window
-    _global_window = _prune(_global_window, now)
+    _global_window = _prune(_global_window, now, ts=lambda e: e[0])
     _global_window.append((now, wire_bytes))
     if sum(b for _, b in window) > _RATE_MAX_BYTES:
         raise HTTPException(status_code=429, detail="rate limited")
@@ -311,6 +331,51 @@ def _segment(value: str) -> str:
     return cleaned or "unknown"
 
 
+# Directory-population bounds per tree level. _segment() whitelists
+# CHARACTERS but not the value set: per-batch identity rotation could
+# mint unbounded directories, which grows inodes without bound AND
+# inverts partition-aware size-cap deletion — spread a flood across
+# enough small partitions and the "largest partition" becomes the known
+# sender's. Past the cap, new names collapse into "overflow", so a
+# rotation re-concentrates into the one partition that drains first.
+_MAX_ENV_DIRS = 16
+_MAX_RUNTIME_DIRS = 256
+_MAX_SERVICE_DIRS = 16
+_OVERFLOW_SEGMENT = "overflow"
+
+
+def _bounded_segment(
+    parent: Path,
+    raw: str,
+    cap: int,
+    pending: set[Path],
+    dir_counts: dict[Path, int],
+) -> str:
+    """Sanitized segment, demoted to the overflow bucket once the parent
+    already holds `cap` child directories. `pending`/`dir_counts` are
+    per-request memos: directories are only created at write time, so
+    names admitted earlier in the same batch must count too."""
+    name = _segment(raw)
+    child = parent / name
+    if child in pending or child.is_dir():
+        return name
+    count = dir_counts.get(parent)
+    if count is None:
+        try:
+            count = (
+                sum(1 for p in parent.iterdir() if p.is_dir())
+                if parent.is_dir()
+                else 0
+            )
+        except OSError:
+            count = 0
+    if count >= cap:
+        return _OVERFLOW_SEGMENT
+    dir_counts[parent] = count + 1
+    pending.add(child)
+    return name
+
+
 @app.post("/v1/ingest")
 async def ingest(request: Request):
     _require_auth(request)
@@ -332,6 +397,8 @@ async def ingest(request: Request):
 
     accepted = 0
     files: dict[Path, list[str]] = {}
+    pending_dirs: set[Path] = set()
+    dir_counts: dict[Path, int] = {}
     # Partition by UTC date — records carry UTC ts, and a local-date
     # filename would disagree with its own contents around midnight.
     day = datetime.now(timezone.utc).date()
@@ -343,11 +410,20 @@ async def ingest(request: Request):
             record = json.loads(line)
         except ValueError:
             continue  # one broken line must not sink the batch
+        env_dir = _data_dir() / _bounded_segment(
+            _data_dir(), record.get("env", ""), _MAX_ENV_DIRS,
+            pending_dirs, dir_counts,
+        )
+        runtime_dir = env_dir / _bounded_segment(
+            env_dir, record.get("runtime_id", ""), _MAX_RUNTIME_DIRS,
+            pending_dirs, dir_counts,
+        )
         target = (
-            _data_dir()
-            / _segment(record.get("env", ""))
-            / _segment(record.get("runtime_id", ""))
-            / _segment(record.get("service", ""))
+            runtime_dir
+            / _bounded_segment(
+                runtime_dir, record.get("service", ""), _MAX_SERVICE_DIRS,
+                pending_dirs, dir_counts,
+            )
             / f"{day:%Y-%m-%d}.jsonl"
         )
         record["received_at"] = datetime.now(timezone.utc).isoformat()
@@ -423,6 +499,20 @@ def sweep_retention() -> int:
             if path.stat().st_mtime < cutoff:
                 path.unlink()
                 deleted += 1
+        except OSError:
+            continue
+    # Bottom-up empty-dir cleanup: unlink() never removes directories,
+    # and expired/rotated identities would otherwise leave an ever-
+    # growing dir tree that every rglob scan here and in
+    # enforce_size_cap pays for. Children sort after their parents, so
+    # the reversed walk empties leaves first; rmdir refuses non-empty
+    # dirs, which is exactly the filter — and the root itself is not in
+    # its own rglob, so the data dir always survives.
+    for path in sorted(
+        (p for p in root.rglob("*") if p.is_dir()), reverse=True
+    ):
+        try:
+            path.rmdir()
         except OSError:
             continue
     return deleted
