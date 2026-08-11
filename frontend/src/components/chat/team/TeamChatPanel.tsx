@@ -403,32 +403,38 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           {members.length > 0 && (
             <span className="w-px h-5 bg-[var(--nm-hairline)] mx-0.5 shrink-0" aria-hidden />
           )}
-          {members.map((m) => {
+          {members.map((m, i) => {
             // The default responder wears a dot: "who answers when I address
             // nobody" is otherwise invisible, and it is the single most useful
             // thing to know about a room you just opened.
             const isLead = m.agent_id === leadAgentId;
+            const name = m.name || m.agent_id;
             return (
-              <button
-                key={m.agent_id}
-                type="button"
-                onClick={() => insertMention(m.name || m.agent_id)}
-                title={
-                  isLead
-                    ? t('chat.team.leadTitle', { name: m.name || m.agent_id })
-                    : `@${m.name || m.agent_id}`
-                }
-                className="relative shrink-0 rounded-full transition-transform hover:-translate-y-0.5"
-              >
-                <RingAvatar species="silicon" persona="person" label={(m.name || m.agent_id).slice(0, 2)} size="sm" />
-                {isLead && (
-                  <span
-                    className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--nm-paper)]"
-                    style={{ background: accent }}
-                    aria-hidden
-                  />
+              <span key={m.agent_id} className="flex shrink-0 items-center">
+                {i > 0 && (
+                  <span className="mx-1 h-5 w-px bg-[var(--nm-hairline)]" aria-hidden />
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => insertMention(name)}
+                  title={isLead ? t('chat.team.leadTitle', { name }) : `@${name}`}
+                  className="flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+                >
+                  <span className="relative shrink-0">
+                    <RingAvatar species="silicon" persona="person" label={name.slice(0, 2)} size="sm" />
+                    {isLead && (
+                      <span
+                        className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--nm-paper)]"
+                        style={{ background: accent }}
+                        aria-hidden
+                      />
+                    )}
+                  </span>
+                  <span className="max-w-[110px] truncate text-xs text-[var(--nm-ink)]">
+                    {name}
+                  </span>
+                </button>
+              </span>
             );
           })}
           {members.length === 0 && (
