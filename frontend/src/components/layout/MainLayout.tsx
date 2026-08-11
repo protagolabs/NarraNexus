@@ -428,9 +428,6 @@ export function ChatView() {
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
           is reserved for content and the page guide isn't tuned for touch. */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
-      {/* One-time telemetry disclosure (self-gating: renders nothing
-          once seen, or when telemetry is off for this install). */}
-      <TelemetryNotice />
 
     </main>
   );
@@ -523,6 +520,12 @@ export function MainLayout() {
           the chat view. Mobile keeps its entry in the sidebar drawer footer:
           the corner belongs to the composer there. */}
       {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
+      {/* One-time telemetry disclosure. Mounted HERE (MainLayout, like
+          FeedbackButton) and not inside ChatView: a team-first user or
+          a settings deep-link never renders ChatView, and a disclosure
+          that only chat users receive is not a disclosure. Self-gating:
+          renders nothing once seen or when telemetry is off. */}
+      <TelemetryNotice />
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (

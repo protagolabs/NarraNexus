@@ -30,10 +30,14 @@ describe('PrivacySettings', () => {
     mockApi.setTelemetryOptOut.mockResolvedValue(undefined);
   });
 
-  test('telemetry on + controllable: toggle flips the opt-out marker', async () => {
-    mockApi.getTelemetryConsent.mockResolvedValue({
-      mode: 'full', source: 'default', opted_out: false, controllable: true,
-    });
+  test('telemetry on + controllable: toggle writes, then RECONCILES from the server', async () => {
+    mockApi.getTelemetryConsent
+      .mockResolvedValueOnce({
+        mode: 'meta', source: 'default', opted_out: false, controllable: true, managed_by: null,
+      })
+      .mockResolvedValueOnce({
+        mode: 'off', source: 'optout', opted_out: true, controllable: true, managed_by: null,
+      });
     render(<PrivacySettings />);
     const toggle = await screen.findByRole('switch', {
       name: 'pages.settings.privacy.telemetryTitle',
@@ -43,12 +47,16 @@ describe('PrivacySettings', () => {
     await waitFor(() =>
       expect(mockApi.setTelemetryOptOut).toHaveBeenCalledWith(true),
     );
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    // The landed state comes from the second GET, never a client guess.
+    await waitFor(() =>
+      expect(mockApi.getTelemetryConsent).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
   });
 
-  test('failed write reverts the optimistic flip', async () => {
+  test('failed write says so and lands on the server truth', async () => {
     mockApi.getTelemetryConsent.mockResolvedValue({
-      mode: 'full', source: 'default', opted_out: false, controllable: true,
+      mode: 'meta', source: 'default', opted_out: false, controllable: true, managed_by: null,
     });
     mockApi.setTelemetryOptOut.mockRejectedValue(new Error('boom'));
     render(<PrivacySettings />);
@@ -57,14 +65,48 @@ describe('PrivacySettings', () => {
     });
     await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
     fireEvent.click(toggle);
+    // A silently-failed opt-out is the worst privacy failure: the
+    // error note must appear, and the switch stays on the true state.
     await waitFor(() =>
-      expect(toggle.getAttribute('aria-checked')).toBe('true'),
+      expect(
+        screen.getByText('pages.settings.privacy.telemetryError'),
+      ).toBeTruthy(),
+    );
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  test('consent fetch failure never renders a definite "off"', async () => {
+    mockApi.getTelemetryConsent.mockRejectedValue(new Error('401'));
+    render(<PrivacySettings />);
+    // The unavailable note replaces the row — an unchecked switch here
+    // would read "telemetry is off" while it may be on and shipping.
+    await waitFor(() =>
+      expect(
+        screen.getByText('pages.settings.privacy.telemetryUnavailable'),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole('switch', {
+        name: 'pages.settings.privacy.telemetryTitle',
+      }),
+    ).toBeNull();
+  });
+
+  test('cloud-managed install names the administrator, not an env var', async () => {
+    mockApi.getTelemetryConsent.mockResolvedValue({
+      mode: 'meta', source: 'default', opted_out: false, controllable: false, managed_by: 'cloud',
+    });
+    render(<PrivacySettings />);
+    await waitFor(() =>
+      expect(
+        screen.getByText('pages.settings.privacy.telemetryManagedCloud'),
+      ).toBeTruthy(),
     );
   });
 
   test('env-managed install: switch disabled, managed note shown, no writes', async () => {
     mockApi.getTelemetryConsent.mockResolvedValue({
-      mode: 'meta', source: 'env', opted_out: false, controllable: false,
+      mode: 'meta', source: 'env', opted_out: false, controllable: false, managed_by: 'env',
     });
     render(<PrivacySettings />);
     const toggle = await screen.findByRole('switch', {
@@ -82,7 +124,7 @@ describe('PrivacySettings', () => {
 
   test('analytics toggle round-trips through the per-user endpoint', async () => {
     mockApi.getTelemetryConsent.mockResolvedValue({
-      mode: 'full', source: 'default', opted_out: false, controllable: true,
+      mode: 'meta', source: 'default', opted_out: false, controllable: true, managed_by: null,
     });
     mockApi.getAnalyticsOptOut.mockResolvedValue(true); // opted out
     render(<PrivacySettings />);

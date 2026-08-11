@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,13 +87,17 @@ def _config(**over):
 
 
 class TestConsentGating:
-    def test_default_is_full_now_that_consent_basis_ships(self):
+    def test_default_is_meta_now_that_consent_basis_ships(self):
         """The default and its consent basis land TOGETHER: this PR
         ships the first-run disclosure + settings toggle, and flips
-        the default to full in the same change."""
+        the default from off in the same change. The level is META,
+        not full: full ships INFO bodies verbatim, and production INFO
+        includes entire user messages (agent_runtime logs
+        input_content) — content the disclosure copy does not cover.
+        full stays an explicit deployment knob."""
         config = _ship.ship_config()
         assert config is not None
-        assert config["mode"] == "full"
+        assert config["mode"] == "meta"
         assert config["url"] is None  # discovery path, resolved lazily
 
     def test_env_off_silences(self, monkeypatch):
@@ -115,7 +120,7 @@ class TestConsentGating:
         """The settings UI needs to know WHICH layer decided the mode:
         only "optout"/"default" are user-controllable — an env override
         is the deployment's decision, not the user's."""
-        assert _ship.telemetry_consent() == {"mode": "full", "source": "default"}
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
         _ship._OPTOUT_FILE.write_text("")
         assert _ship.telemetry_consent() == {"mode": "off", "source": "optout"}
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
@@ -133,7 +138,7 @@ class TestConsentGating:
     def test_package_reexports_consent_api(self):
         from xyz_agent_context.utils import logging as pkg
 
-        assert pkg.telemetry_consent() == {"mode": "full", "source": "default"}
+        assert pkg.telemetry_consent() == {"mode": "meta", "source": "default"}
         pkg.set_telemetry_optout(True)
         assert _ship.telemetry_consent()["source"] == "optout"
 
@@ -160,10 +165,10 @@ class TestConsentGating:
 
     def test_unknown_env_value_falls_to_default(self, monkeypatch):
         # A typo'd override neither silences nor forces a level — it
-        # falls through the whole chain to the default (full).
+        # falls through the whole chain to the default (meta).
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
         config = _ship.ship_config()
-        assert config is not None and config["mode"] == "full"
+        assert config is not None and config["mode"] == "meta"
 
     def test_env_label_no_longer_sniffs_manyfold(self, monkeypatch):
         """Deployment detection moved to run.sh (which injects
@@ -586,6 +591,28 @@ class TestDiscovery:
         sink.flush()
         assert sink._resolved_url == good["ingest"]["default"]
         assert len(posts) == 2
+
+    def test_html_answer_backs_off_a_full_ttl_not_60s(self, monkeypatch):
+        """A 200 whose body is not a discovery document (e.g. an SPA
+        serving index.html for every path) means "this deployment has
+        no telemetry service" — a fleet of idle installs must not
+        beacon the vendor every 60s for a service that is not there.
+        Next probe waits a full TTL; network errors keep the short
+        retry (a broken network is transient, a wrong endpoint isn't)."""
+        def _spa(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<!doctype html><html>app</html>")
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_spa)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert (
+            sink._discovery_next - time.monotonic()
+            > _ship._DISCOVERY_RETRY_S * 10
+        )
 
     def test_bad_shape_document_with_no_stale_drops_quietly(self, monkeypatch):
         def _garbage(request: httpx.Request) -> httpx.Response:

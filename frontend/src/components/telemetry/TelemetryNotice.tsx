@@ -22,10 +22,12 @@ import { api } from '@/lib/api';
 
 const DISCLOSURE_SEEN_KEY = 'telemetry_disclosure_seen_v1';
 
+type NoticeVariant = 'controllable' | 'managed';
+
 export function TelemetryNotice() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [visible, setVisible] = useState(false);
+  const [variant, setVariant] = useState<NoticeVariant | null>(null);
 
   useEffect(() => {
     try {
@@ -37,10 +39,15 @@ export function TelemetryNotice() {
     api
       .getTelemetryConsent()
       .then((state) => {
-        if (!cancelled && state.mode !== 'off') setVisible(true);
+        if (cancelled || state.mode === 'off') return;
+        // A notice that promises "turn it off in settings" to a user
+        // whose switch is disabled would be false — managed installs
+        // get their own wording and no settings button.
+        setVariant(state.controllable ? 'controllable' : 'managed');
       })
       .catch(() => {
-        /* backend unreachable — no telemetry is flowing, no notice due */
+        /* consent state unknowable from here — a notice we cannot
+           make truthful is worse than deferring it to the next load */
       });
     return () => {
       cancelled = true;
@@ -53,10 +60,10 @@ export function TelemetryNotice() {
     } catch {
       /* non-fatal */
     }
-    setVisible(false);
+    setVariant(null);
   }, []);
 
-  if (!visible) return null;
+  if (!variant) return null;
 
   return (
     <div
@@ -69,20 +76,24 @@ export function TelemetryNotice() {
       }}
     >
       <p className="text-sm" style={{ color: 'var(--nm-ink)' }}>
-        {t('telemetryNotice.body')}
+        {variant === 'managed'
+          ? t('telemetryNotice.bodyManaged')
+          : t('telemetryNotice.body')}
       </p>
       <div className="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            dismiss();
-            navigate('/app/settings?tab=privacy');
-          }}
-          className="px-3 py-1.5 rounded-lg text-sm border"
-          style={{ borderColor: 'var(--nm-line)', color: 'var(--nm-ink70)' }}
-        >
-          {t('telemetryNotice.settings')}
-        </button>
+        {variant === 'controllable' && (
+          <button
+            type="button"
+            onClick={() => {
+              dismiss();
+              navigate('/app/settings?tab=privacy');
+            }}
+            className="px-3 py-1.5 rounded-lg text-sm border"
+            style={{ borderColor: 'var(--nm-line)', color: 'var(--nm-ink70)' }}
+          >
+            {t('telemetryNotice.settings')}
+          </button>
+        )}
         <button
           type="button"
           onClick={dismiss}

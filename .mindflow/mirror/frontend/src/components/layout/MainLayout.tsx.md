@@ -6,8 +6,11 @@ stub: false
 
 ## 2026-08-11 — 挂载 TelemetryNotice(一次性遥测告知)
 
-与 HelpButton 同层挂载,自门控(看过 / 遥测未激活时渲染 null),
-不分移动端(告知义务不按屏宽豁免)。
+挂在 **MainLayout 层、FeedbackButton 旁**(预审修正:初版挂进了
+ChatView——团队页用户和 settings 深链用户永远不渲染 ChatView,
+"只有聊天用户收到的告知"不是告知;FeedbackButton 当年被提升到
+MainLayout 就是同一个原因,注释里写着)。自门控(看过 / 遥测未
+激活时渲染 null),不分移动端(告知义务不按屏宽豁免)。
 
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe（自带 vh 兜底）
 

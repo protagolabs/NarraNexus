@@ -1759,10 +1759,11 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
 # =============================================================================
 #
 # Unlike analytics (a per-USER row in user_settings), telemetry consent
-# is a per-MACHINE marker file (~/.narranexus/telemetry_optout) read by
+# is a marker file (~/.narranexus/telemetry_optout — per USER ACCOUNT
+# on this host, shared by all sidecars on a desktop install) read by
 # utils/logging at every send — logging starts before the DB does, so
-# the DB cannot hold this state. Per-machine has two consequences the
-# endpoints must enforce:
+# the DB cannot hold this state. Host-level scope has two consequences
+# the endpoints must enforce:
 #   - multi-tenant cloud: one user must not silence (or re-enable)
 #     telemetry for everyone → PUT is 403, GET says controllable=false
 #     (that surface is governed by the deployment env instead);
@@ -1777,11 +1778,22 @@ class SetTelemetryOptOutRequest(BaseModel):
 
 def _telemetry_state() -> dict:
     consent = telemetry_consent()
+    # managed_by tells the UI WHO owns a non-controllable state — "your
+    # deployment set an env var" and "this is a multi-tenant install"
+    # are different facts, and showing the env wording on a cloud
+    # install whose telemetry comes from the built-in default would
+    # attribute a decision nobody made.
+    managed_by = None
+    if consent["source"] == "env":
+        managed_by = "env"
+    elif _is_cloud_mode():
+        managed_by = "cloud"
     return {
         "mode": consent["mode"],
         "source": consent["source"],
         "opted_out": consent["source"] == "optout",
-        "controllable": consent["source"] != "env" and not _is_cloud_mode(),
+        "controllable": managed_by is None,
+        "managed_by": managed_by,
     }
 
 

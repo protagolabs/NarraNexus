@@ -20,6 +20,10 @@ last_verified: 2026-08-11
 - localStorage 只记"**展示过**",绝不记同意本身——同意状态在服务端
   标记文件里;清浏览器缓存只会让横幅再现,**不可能被读成重新授权**;
 - "打开设置"深链 `?tab=privacy`(SettingsPage nav 测试守住),点击
-  同时落 seen——横幅的两个出口都算"已告知"。
+  同时落 seen——横幅的两个出口都算"已告知";
+- **managed 变体**(预审修):`controllable=false` 时换 bodyManaged
+  文案并**去掉设置按钮**——对开关被禁用的用户承诺"可去设置关闭"
+  是假话;consent GET 失败则不展示也不烧标记(做不到诚实的告知,
+  宁可推迟到下次加载)。
 
 Tests: `__tests__/TelemetryNotice.test.tsx`。

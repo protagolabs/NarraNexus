@@ -52,10 +52,11 @@ def test_default_state_is_on_and_controllable(client):
     assert g.status_code == 200
     body = g.json()
     assert body == {
-        "mode": "full",
+        "mode": "meta",
         "source": "default",
         "opted_out": False,
         "controllable": True,
+        "managed_by": None,
     }
 
 
@@ -79,6 +80,9 @@ def test_cloud_mode_hides_the_knob_and_refuses_writes(client, monkeypatch):
     monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: True)
     g = client.get("/api/auth/settings/telemetry", headers=H)
     assert g.json()["controllable"] is False
+    # "cloud", not "env": attributing the built-in default to an env
+    # var nobody set would tell the user their deployment decided.
+    assert g.json()["managed_by"] == "cloud"
     p = client.put("/api/auth/settings/telemetry",
                    json={"opted_out": True}, headers=H)
     assert p.status_code == 403
@@ -93,6 +97,7 @@ def test_env_override_reports_env_source_and_refuses_writes(client, monkeypatch)
         "source": "env",
         "opted_out": False,
         "controllable": False,
+        "managed_by": "env",
     }
     p = client.put("/api/auth/settings/telemetry",
                    json={"opted_out": True}, headers=H)

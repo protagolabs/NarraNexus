@@ -4,11 +4,30 @@ stub: false
 last_verified: 2026-08-11
 ---
 
-## 2026-08-11(十)— 同意 UI PR:默认翻 full,撤回即时生效
+## 2026-08-11(十)— 同意 UI PR:默认 off→meta,撤回即时生效
 
-`_DEFAULT_MODE` 翻 **full**——与它的同意基础(首次告知横幅 +
-设置→隐私开关)同一变更落地,兑现第 3 轮立下的"默认值与同意基础
-同批到达"。三件配套:
+`_DEFAULT_MODE` 翻为 **meta**(非 full)——与它的同意基础(首次告知
+横幅 + 设置→隐私开关)同一变更落地,兑现第 3 轮立下的"默认值与
+同意基础同批到达"。**为什么是 meta 不是 full**(预审 Critical):
+full 逐字外发 INFO 行,而生产 INFO 含完整用户消息
+(agent_runtime 的 `Input content:`)、IM 入站正文、LLM 结构化输出
+——告知文案("启动、错误、诊断事件")没有覆盖这些;`redact()` 在
+ship 路径上也从未被调用。full 保留为显式部署旋钮(manyfold 沙盒/
+dev 栈的 env=full 不受影响);把**默认**抬到 full 的前置是 ship 侧
+脱敏 + 重写告知文案。配套:
+
+- **发现探测退避**:2xx 但非发现文档形状(如 SPA fallback 的
+  200+HTML)按"本部署没有遥测服务"处理,退避整个 TTL(1h)而非
+  60s 网络重试——闲置安装群不得每分钟向 vendor 发信标;网络错误
+  仍走短重试(网络坏是瞬态,端点错不是);
+- 时效措辞修正:重启只在"启动时遥测本就关闭"时才需要;运行中
+  off→on 经同一 `_send` 闸门下个 flush 即恢复(本 PR 自己的测试
+  证明了这点,文档曾与其矛盾);
+- 标记文件作用域如实改口:per-USER-ACCOUNT per-host(Path.home()),
+  非严格 per-machine——不同 HOME 的旁进程各持其态,桌面装机所有
+  sidecar 共享 HOME 时该区别潜伏。
+
+原"三件配套"如下:
 
 - **公开同意 API**:`telemetry_consent()`(mode + 决定它的层级
   env/optout/default——UI 只在 optout/default 时提供开关)与

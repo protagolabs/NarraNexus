@@ -1286,8 +1286,11 @@
         "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
         "telemetryTitle": "Télémétrie de diagnostic",
         "telemetryDesc": "Envoyer les journaux de service de cette installation (démarrage, erreurs, diagnostics d'intégration) au collecteur propre à NarraNexus afin de pouvoir déboguer les plantages et les pannes. Les lignes de journal peuvent contenir ce que les services consignent normalement ; rien n'est envoyé à un tiers.",
-        "telemetryTiming": "La désactivation prend effet en quelques secondes. La réactivation s'applique au prochain démarrage.",
-        "telemetryManaged": "Géré par votre déploiement (variable d'environnement) — l'interrupteur n'est pas disponible ici."
+        "telemetryTiming": "La désactivation prend effet en quelques secondes. Si la télémétrie était déjà désactivée au démarrage de l'application, l'activation prend effet au prochain démarrage.",
+        "telemetryManaged": "Géré par votre déploiement (variable d'environnement) — l'interrupteur n'est pas disponible ici.",
+        "telemetryManagedCloud": "Votre administrateur contrôle la télémétrie de diagnostic de cette installation.",
+        "telemetryUnavailable": "L'état de la télémétrie n'a pas pu être chargé — l'interrupteur est masqué plutôt que deviné. Rechargez pour réessayer.",
+        "telemetryError": "La modification n'a pas pu être enregistrée. L'interrupteur affiche l'état actuel réel."
       }
     },
     "system": {
@@ -2084,6 +2087,7 @@
   "telemetryNotice": {
     "body": "NarraNexus envoie désormais les journaux de service de diagnostic de cette installation à son propre collecteur, afin d'aider à déboguer les plantages et les pannes d'intégration. Vous pouvez le désactiver à tout moment dans Paramètres → Confidentialité.",
     "settings": "Ouvrir les paramètres",
-    "dismiss": "Compris"
+    "dismiss": "Compris",
+    "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur."
   }
 }

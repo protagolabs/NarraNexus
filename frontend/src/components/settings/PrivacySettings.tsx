@@ -8,14 +8,17 @@
  *     (/api/auth/settings/analytics). Existed in the backend since 06-08
  *     but its only UI lived in the never-mounted SettingsModal — this
  *     pane is what finally makes it reachable.
- *   - Diagnostic telemetry: per-MACHINE marker file
- *     (/api/auth/settings/telemetry). `controllable=false` (deployment
- *     env override, or multi-tenant cloud) renders the toggle disabled
- *     with an explanation instead of hiding it — a switch that silently
- *     vanishes reads as "there is no telemetry", which would be false.
+ *   - Diagnostic telemetry: marker file, per user account on the host
+ *     (/api/auth/settings/telemetry). `controllable=false` renders the
+ *     toggle disabled with a note naming WHO owns it (managed_by:
+ *     env override vs multi-tenant cloud) instead of hiding it — a
+ *     switch that silently vanishes reads as "there is no telemetry",
+ *     which would be false.
  *
- * Both toggles are optimistic with revert-on-error (the pattern the
- * analytics toggle already used).
+ * The analytics toggle is optimistic with revert-on-error. The
+ * telemetry toggle RECONCILES: after every PUT (success or failure) it
+ * re-GETs the server state — the switch always lands on truth, never
+ * on a client-fabricated guess, and a failed opt-out says so out loud.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -73,6 +76,12 @@ export function PrivacySettings() {
   const [analyticsBusy, setAnalyticsBusy] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetryConsentState | null>(null);
   const [telemetryBusy, setTelemetryBusy] = useState(false);
+  // Fetch failure is its own state: rendering an unchecked switch when
+  // the state is UNKNOWN would read as "telemetry is off" while it may
+  // well be on and shipping — the one direction a privacy pane must
+  // never err in.
+  const [telemetryFailed, setTelemetryFailed] = useState(false);
+  const [telemetryWriteError, setTelemetryWriteError] = useState(false);
 
   useEffect(() => {
     api
@@ -82,9 +91,7 @@ export function PrivacySettings() {
     api
       .getTelemetryConsent()
       .then(setTelemetry)
-      .catch(() => {
-        /* endpoint unreachable — leave the row in its loading state */
-      });
+      .catch(() => setTelemetryFailed(true));
   }, []);
 
   const toggleAnalytics = useCallback(
@@ -106,24 +113,36 @@ export function PrivacySettings() {
   const toggleTelemetry = useCallback(
     async (next: boolean) => {
       if (!telemetry || telemetryBusy || !telemetry.controllable) return;
-      const prev = telemetry;
-      setTelemetry({
-        ...telemetry,
-        mode: next ? 'full' : 'off',
-        source: next ? 'default' : 'optout',
-        opted_out: !next,
-      });
       setTelemetryBusy(true);
+      setTelemetryWriteError(false);
       try {
         await api.setTelemetryOptOut(!next);
       } catch {
-        setTelemetry(prev); // revert on failure
-      } finally {
-        setTelemetryBusy(false);
+        // A silently-failed opt-out is the worst failure a privacy
+        // control can have — say so, and let the re-GET below land the
+        // switch on the true state instead of a fabricated one.
+        setTelemetryWriteError(true);
       }
+      try {
+        setTelemetry(await api.getTelemetryConsent());
+      } catch {
+        setTelemetry(null);
+        setTelemetryFailed(true);
+      }
+      setTelemetryBusy(false);
     },
     [telemetry, telemetryBusy],
   );
+
+  const telemetryNote = () => {
+    if (telemetryWriteError) return t('pages.settings.privacy.telemetryError');
+    if (!telemetry) return undefined;
+    if (telemetry.managed_by === 'cloud')
+      return t('pages.settings.privacy.telemetryManagedCloud');
+    if (telemetry.managed_by === 'env')
+      return t('pages.settings.privacy.telemetryManaged');
+    return t('pages.settings.privacy.telemetryTiming');
+  };
 
   return (
     <div>
@@ -134,18 +153,25 @@ export function PrivacySettings() {
         disabled={analyticsEnabled === null || analyticsBusy}
         onChange={toggleAnalytics}
       />
-      <ConsentRow
-        title={t('pages.settings.privacy.telemetryTitle')}
-        desc={t('pages.settings.privacy.telemetryDesc')}
-        note={
-          telemetry && !telemetry.controllable
-            ? t('pages.settings.privacy.telemetryManaged')
-            : t('pages.settings.privacy.telemetryTiming')
-        }
-        checked={telemetry ? telemetry.mode !== 'off' : false}
-        disabled={!telemetry || telemetryBusy || !telemetry.controllable}
-        onChange={toggleTelemetry}
-      />
+      {telemetryFailed ? (
+        <div className="py-4 space-y-1">
+          <div className="text-sm font-medium" style={{ color: 'var(--nm-ink)' }}>
+            {t('pages.settings.privacy.telemetryTitle')}
+          </div>
+          <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+            {t('pages.settings.privacy.telemetryUnavailable')}
+          </p>
+        </div>
+      ) : (
+        <ConsentRow
+          title={t('pages.settings.privacy.telemetryTitle')}
+          desc={t('pages.settings.privacy.telemetryDesc')}
+          note={telemetryNote()}
+          checked={telemetry ? telemetry.mode !== 'off' : false}
+          disabled={!telemetry || telemetryBusy || !telemetry.controllable}
+          onChange={toggleTelemetry}
+        />
+      )}
     </div>
   );
 }

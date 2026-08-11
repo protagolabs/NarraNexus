@@ -20,16 +20,19 @@ Consent resolution (first match wins):
      by the settings UI (``set_telemetry_optout``) when the user turns
      telemetry off. Withdrawal is honoured WITHOUT a restart: ``_send``
      re-checks consent on every egress, so an opt-out written mid-run
-     silences shipping within one flush interval. Re-enabling waits
-     for the next process start (the sink was never registered) — an
-     asymmetry in privacy's favor. The file is PER-MACHINE: callers on
+     silences shipping within one flush interval. Re-enabling needs a
+     restart ONLY when telemetry was already off at process start (no
+     sink was registered then); a mid-run off→on flip resumes at the
+     next flush through the same gate. The file is PER-MACHINE: callers on
      multi-tenant surfaces must gate the write themselves (the backend
      route refuses it in cloud mode).
-  3. Default: ``_DEFAULT_MODE`` = **full** — the consent basis (the
+  3. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
      first-run disclosure + settings toggle) shipped in the same
-     change that flipped this, never apart. Single-tenant surfaces
-     (desktop, local, sprite sandboxes) show the toggle; multi-tenant
-     cloud is governed by the deployment env instead.
+     change that flipped this from off, never apart. meta (no INFO
+     bodies) is the highest level the disclosure copy honestly
+     describes; ``full`` is an explicit deployment knob. Single-tenant
+     surfaces (desktop, local, sprite sandboxes) show the toggle;
+     multi-tenant cloud is governed by the deployment env instead.
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -140,9 +143,15 @@ _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
 _OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
-# Flipped to "full" in the same change that shipped its consent basis
-# (first-run disclosure + settings toggle) — see the consent section.
-_DEFAULT_MODE = "full"
+# Default LEVEL is "meta" (AUDIT+ structured events, warnings, errors
+# — no INFO bodies), because "full" ships INFO lines verbatim and
+# production INFO includes entire user messages (agent_runtime logs
+# input_content) — content the disclosure copy explicitly does not
+# cover. "full" stays an explicit deployment knob (env override);
+# raising the DEFAULT to full requires a ship-side redaction pass and
+# rewritten disclosure copy first. Flipped from "off" in the same
+# change that shipped the consent basis (disclosure + settings toggle).
+_DEFAULT_MODE = "meta"
 # Discovery may only point telemetry at hosts we control: the document
 # is served from a PUBLIC endpoint, and this string decides where user
 # logs go. https-only + domain allowlist; a hijacked/misconfigured
@@ -191,7 +200,11 @@ def telemetry_consent() -> dict:
 
 
 def set_telemetry_optout(opted_out: bool) -> None:
-    """Create/remove the per-machine opt-out marker. Idempotent. The
+    """Create/remove the opt-out marker. Scope is per-USER-ACCOUNT on
+    this host (Path.home()), not strictly per-machine: a co-deployed
+    process under a different HOME keeps its own consent state — on a
+    desktop install all sidecars share HOME, so the distinction is
+    latent there. Idempotent. The
     module attribute is read at call time on purpose — tests repoint
     ``_OPTOUT_FILE`` and the settings route must follow."""
     if opted_out:
@@ -437,11 +450,23 @@ class ShipSink:
         try:
             resp = self._client.get(discovery)
             if 200 <= resp.status_code < 300:
-                document = resp.json()
+                try:
+                    document = resp.json()
+                except ValueError:
+                    document = None
                 mapping = (
                     document.get("ingest") if isinstance(document, dict) else None
                 )
                 if not isinstance(mapping, dict):
+                    # The endpoint ANSWERED but is not a discovery
+                    # endpoint (e.g. an SPA fallback serving index.html
+                    # with a 200): this deployment has no telemetry
+                    # service right now. Back off a full TTL instead of
+                    # the 60s network-retry cadence — a fleet of idle
+                    # installs must not beacon the vendor every minute
+                    # for a service that isn't there. Recovery after
+                    # ops deploys the document is within one TTL.
+                    self._discovery_next = now + _DISCOVERY_TTL_S
                     raise ValueError("discovery document is not {'ingest': {...}}")
                 url = mapping.get(self._config["env"]) or mapping.get("default")
                 if url and _allowed_ingest_url(str(url)):

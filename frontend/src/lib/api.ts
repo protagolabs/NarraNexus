@@ -140,6 +140,9 @@ export interface TelemetryConsentState {
   source: 'env' | 'optout' | 'default';
   opted_out: boolean;
   controllable: boolean;
+  /** Who owns a non-controllable state: deployment env var vs
+   *  multi-tenant cloud install. null when the user holds the switch. */
+  managed_by: 'env' | 'cloud' | null;
 }
 
 export type OnboardProviderType =
@@ -691,9 +694,10 @@ class ApiClient {
     return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
   }
 
-  /** Flip the per-machine telemetry opt-out marker. Opting out takes
-   *  effect within one flush interval; re-enabling starts shipping at
-   *  the next process launch. */
+  /** Flip the telemetry opt-out marker (per user account on the
+   *  host). Opting out takes effect within one flush interval;
+   *  re-enabling needs a restart only when telemetry was already off
+   *  at process start. */
   async setTelemetryOptOut(optedOut: boolean): Promise<void> {
     await this.request<{ success: boolean; opted_out: boolean }>(
       '/api/auth/settings/telemetry',
