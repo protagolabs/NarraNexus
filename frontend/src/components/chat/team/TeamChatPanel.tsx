@@ -420,7 +420,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 }
                 className="relative shrink-0 rounded-full transition-transform hover:-translate-y-0.5"
               >
-                <RingAvatar species="silicon" label={(m.name || m.agent_id).slice(0, 2)} size="sm" />
+                <RingAvatar species="silicon" persona="person" label={(m.name || m.agent_id).slice(0, 2)} size="sm" />
                 {isLead && (
                   <span
                     className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--nm-paper)]"

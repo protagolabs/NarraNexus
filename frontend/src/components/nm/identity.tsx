@@ -9,6 +9,7 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react';
+import { User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type NMSpecies = 'carbon' | 'silicon' | 'overlap' | 'neutral';
@@ -48,6 +49,10 @@ export interface RingAvatarProps {
   /** Optional image source. If provided, renders inside the ring instead of label. */
   src?: string;
   alt?: string;
+  /** Center content: 'initials' (default) shows the label chars; 'person'
+   *  shows a species-tinted lucide User glyph (sidebar/header identity rows,
+   *  Owner request 2026-08-11). `label` still feeds the tooltip. */
+  persona?: 'initials' | 'person';
   className?: string;
   title?: string;
   onClick?: () => void;
@@ -59,6 +64,7 @@ export function RingAvatar({
   label,
   src,
   alt,
+  persona = 'initials',
   className,
   title,
   onClick,
@@ -95,6 +101,13 @@ export function RingAvatar({
     >
       {src ? (
         <img src={src} alt={alt ?? label} className="w-full h-full object-cover" />
+      ) : persona === 'person' ? (
+        <User
+          size={Math.round(px * 0.5)}
+          strokeWidth={2}
+          style={{ color: speciesColor(species) }}
+          aria-hidden
+        />
       ) : (
         <span>{label.slice(0, 2).toUpperCase()}</span>
       )}
@@ -116,6 +129,10 @@ export interface GroupAvatarProps {
   size?: NMAvatarSize;
   /** Center label, e.g. total member count. Defaults to total members. */
   label?: string | number;
+  /** Center content: 'label' (default) shows label/count; 'people' shows the
+   *  carbon+silicon person pair — "a team is humans and agents together"
+   *  (Owner request 2026-08-11). */
+  persona?: 'label' | 'people';
   className?: string;
   title?: string;
 }
@@ -124,6 +141,7 @@ export function GroupAvatar({
   members,
   size = 'md',
   label,
+  persona = 'label',
   className,
   title,
 }: GroupAvatarProps) {
@@ -182,15 +200,40 @@ export function GroupAvatar({
           />
         ))}
       </svg>
-      <span
-        className="absolute font-semibold"
-        style={{
-          fontSize: font,
-          color: 'var(--nm-ink)',
-        }}
-      >
-        {label ?? members.length}
-      </span>
+      {persona === 'people' ? (
+        /* Carbon person in front, silicon person behind-right — the pair reads
+           "humans + agents". The front glyph carries a paper halo so the two
+           outlines don't interleave where they overlap. */
+        <span className="absolute inline-flex items-center" aria-hidden>
+          <User
+            size={Math.round(px * 0.44)}
+            strokeWidth={2}
+            style={{
+              color: 'var(--color-silicon)',
+              marginLeft: Math.round(px * 0.16),
+            }}
+          />
+          <User
+            size={Math.round(px * 0.44)}
+            strokeWidth={2}
+            style={{
+              color: 'var(--color-carbon)',
+              marginLeft: -Math.round(px * 0.2),
+              filter: 'drop-shadow(0 0 1.5px var(--nm-paper)) drop-shadow(0 0 1px var(--nm-paper))',
+            }}
+          />
+        </span>
+      ) : (
+        <span
+          className="absolute font-semibold"
+          style={{
+            fontSize: font,
+            color: 'var(--nm-ink)',
+          }}
+        >
+          {label ?? members.length}
+        </span>
+      )}
     </div>
   );
 }

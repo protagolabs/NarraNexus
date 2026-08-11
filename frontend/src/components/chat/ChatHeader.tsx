@@ -129,6 +129,7 @@ export function ChatHeader({
         )}
         <RingAvatar
           species="silicon"
+          persona="person"
           label={(agentName || 'AI').slice(0, 2)}
           size="sm"
           className="shrink-0"

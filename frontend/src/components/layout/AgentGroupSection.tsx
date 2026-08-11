@@ -492,10 +492,10 @@ export function AvatarWithStreaming({
           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
           style={{ border: '2px solid var(--color-warning)' }}
         />
-        <RingAvatar species="silicon" label={label} size={size} />
+        <RingAvatar species="silicon" persona="person" label={label} size={size} />
         <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-warning)]" />
       </div>
     );
   }
-  return <RingAvatar species="silicon" label={label} size={size} />;
+  return <RingAvatar species="silicon" persona="person" label={label} size={size} />;
 }

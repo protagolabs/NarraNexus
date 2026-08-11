@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/nm/identity.tsx
-last_verified: 2026-06-20
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — persona glyph 形态(Owner 参照图定案,试看版)
+
+`RingAvatar` 新增 `persona: 'initials' | 'person'`:'person' 在环内渲染
+species 色的 lucide User 小人(尺寸 ≈ 环径 50%),`label` 仍喂 tooltip。
+`GroupAvatar` 新增 `persona: 'label' | 'people'`:'people' 渲染蓝(silicon)
+橙(carbon)双人像——"团队 = 人类与 agent 同席";前层小人带 paper 光晕
+(drop-shadow)避免两个描边交叠混线。已翻转的调用点:侧栏 agent 行
+(AgentGroupSection)、侧栏 team 行(TeamChatRow)、单聊顶栏(ChatHeader)、
+团队房成员条(TeamChatPanel)。用户自己的 carbon 头像保持首字母。默认值
+不变——聊天气泡等其余场景仍是 initials。
 
 ## 2026-06-20 — added BindingDot ("carbon meets silicon" motif)
 
