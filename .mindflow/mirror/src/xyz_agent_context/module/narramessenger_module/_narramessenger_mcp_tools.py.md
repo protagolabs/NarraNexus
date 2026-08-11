@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mc
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (narra 零凭据) — narra_cli CLI 透传走 seam
+
+narra_cli 不再 `get_mcp_db_client()` 传 db 给 run_narra_cli；`run_narra_cli` 去 db 参数，凭据经 seam `get_credential("narramessenger")`、workspace owner 经 `_resolve_agent_workspace_cwd`→seam `get_agent_owner`。删死 import XYZBaseModule。**narra 模块 get_mcp_db_client==0**。
+
 ## 2026-08-11 (PR-H) — narra_bind 迁入 seam
 
 narra_bind→`seam.bind("narramessenger", {bind_command})`（seam 对 narra 的 do_bind 走 db 分支）。**留 narra_cli**（run_narra_cli 的 CLI 透传，同 lark CLI 归 deferred，仍 1 处 get_mcp_db_client）。
