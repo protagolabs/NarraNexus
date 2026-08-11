@@ -27,6 +27,7 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
@@ -37,6 +38,8 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 )
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
@@ -1550,6 +1553,26 @@ async def _confirm_inner(
             if not new_row.get("agent_id"):
                 logger.warning(
                     f"bundle_import.mcp.skip reason=agent_id_missing mcp_id={new_row.get('mcp_id')}"
+                )
+                continue
+            # SSRF: a bundle is attacker-supplied and this write bypasses the
+            # create/update route's screen. Don't let it plant an internal MCP
+            # URL that the agent would later fetch (cloud only — the same
+            # DNS-free screen the route applies; local/desktop keeps localhost).
+            # `is_obviously_non_public_url` is parse-safe: a malformed/garbage
+            # URL is screened out, NOT thrown — a raw urlparse here would raise
+            # (bad IPv6 / non-string) and roll the whole import back.
+            if is_cloud_mode() and is_obviously_non_public_url(new_row.get("url")):
+                try:
+                    _host = urlparse(new_row.get("url") or "").hostname or "(none)"
+                except Exception:  # noqa: BLE001
+                    _host = "(unparseable)"
+                logger.warning(
+                    f"bundle_import.mcp.skip reason=non_public_url mcp_id={new_row.get('mcp_id')}"
+                )
+                written_summary["warnings"].append(
+                    f"MCP {new_row.get('name') or new_row.get('mcp_id')}: "
+                    f"host {_host!r} is not a public endpoint — skipped"
                 )
                 continue
             try:

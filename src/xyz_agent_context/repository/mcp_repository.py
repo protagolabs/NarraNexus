@@ -12,8 +12,11 @@ Responsibilities:
 """
 
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
+
+if TYPE_CHECKING:
+    from xyz_agent_context.utils.url_safety import Resolver
 
 from .base import BaseRepository
 from xyz_agent_context.utils import utc_now
@@ -204,6 +207,8 @@ async def validate_mcp_sse_connection(
     url: str,
     headers: Optional[Dict[str, str]] = None,
     timeout: float = 10.0,
+    resolver: Optional["Resolver"] = None,
+    enforce_public_url: bool = True,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate whether an MCP SSE URL can connect normally
@@ -216,17 +221,45 @@ async def validate_mcp_sse_connection(
         headers: Custom HTTP headers to send (e.g. Authorization); values are
             secrets — never log them
         timeout: Timeout duration (seconds)
+        resolver: DNS resolver override (tests inject a fake); None → real DNS.
+        enforce_public_url: when True, reject URLs that resolve to a non-public
+            address (SSRF gate). The DEPLOYMENT-MODE decision is the caller's:
+            cloud passes True; local/desktop passes False, because a single-
+            trusted-user install legitimately runs MCP servers on localhost and
+            the OS user is already the trust boundary (a local agent has bash —
+            an HTTP-layer block stops the real user, not a real attacker).
 
     Returns:
         (success: bool, error_message: Optional[str])
     """
     import httpx
 
+    from xyz_agent_context.utils.url_safety import (
+        UnsafeUrlError,
+        assert_public_http_url,
+    )
+
+    # SSRF gate (cloud only; see enforce_public_url): this fetches a user-/agent-
+    # supplied URL from the server, so it can be pointed at internal targets —
+    # cloud metadata (169.254.169.254), litellm/admin on the docker network,
+    # loopback. Reject anything that resolves to a non-public address before
+    # connecting. Post-resolution checking NARROWS the DNS-rebinding window at
+    # validate time but does not close it — httpx re-resolves the hostname to
+    # connect, so a TTL=0 record can still flip to an internal IP (TOCTOU).
+    # Full closure needs connection pinning to the validated IP (tracked as a
+    # follow-up). Keep the reject message generic — never echo the resolved IP.
+    if enforce_public_url:
+        try:
+            await assert_public_http_url(url, resolver=resolver)
+        except UnsafeUrlError:
+            return False, "URL is not allowed: it must be a public http(s) endpoint."
+
     try:
         # Use streaming request to validate SSE endpoint
         # SSE is a continuous stream; just check if the connection was established successfully
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout, connect=5.0)
+            timeout=httpx.Timeout(timeout, connect=5.0),
+            follow_redirects=False,
         ) as client:
             # Custom headers first, SSE baseline last: the code below asserts
             # the response is text/event-stream, so a user-supplied Accept

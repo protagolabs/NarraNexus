@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — cloud 错误脱敏 + MCP egress SSRF 过滤（安全审计 P1-1/P0-3）
+
+构造 `mcp_servers` 后调 `backend.routes._mcp_egress.filter_public_mcp_servers`（cloud only）丢弃解析到内网的 MCP，防运行时把内网响应带进模型上下文（复用文件头已导入的 `_is_cloud_mode`，不再另 import）。
+
+顶层 `except` 原本把完整 `traceback.format_exc()` + `str(e)` 通过 `send_json` 发给前端，
+泄露服务器路径、依赖版本、内部变量。现在按 `is_cloud_mode()` 分流：cloud 只发通用
+`{"error_message": "Internal server error.", "error_type": "InternalError"}`（详情只进
+服务端日志）；local/dev 仍发完整 traceback 便于调试。
 
 ## 2026-08-10 — accepted and started message stages
 

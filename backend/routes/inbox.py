@@ -242,7 +242,7 @@ async def get_agent_inbox(
 
     except Exception as e:
         logger.exception(f"[get_agent_inbox] Error: {e}", exc_info=True)
-        return {"success": False, "rooms": [], "total_unread": 0, "error": str(e)}
+        return {"success": False, "rooms": [], "total_unread": 0, "error": "Failed to load inbox."}
 
 
 @router.put("/{message_id}/read")
@@ -280,7 +280,7 @@ async def mark_message_read(message_id: str, agent_id: str = Query(...)):
 
     except Exception as e:
         logger.exception(f"[mark_message_read] Error: {e}", exc_info=True)
-        return {"success": False, "error": str(e), "marked_count": 0}
+        return {"success": False, "error": "Failed to mark message read.", "marked_count": 0}
 
 
 @router.post("/rooms/{room_id}/read")
@@ -343,7 +343,7 @@ async def mark_room_read(room_id: str, agent_id: str = Query(...)):
 
     except Exception as e:
         logger.exception(f"[mark_room_read] Error: {e}", exc_info=True)
-        return {"success": False, "error": str(e), "marked_count": 0}
+        return {"success": False, "error": "Failed to mark room read.", "marked_count": 0}
 
 
 @router.get("/attachments/raw")

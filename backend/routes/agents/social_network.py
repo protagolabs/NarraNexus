@@ -94,17 +94,19 @@ def _parse_json(value: Any, default: Any) -> Any:
 @router.get("/{agent_id}/social-network/search", response_model=SocialNetworkSearchResponse)
 async def search_social_network_entities(
     agent_id: str,
+    request: Request,
     query: str = Query(..., description="Search query"),
     search_type: str = Query("semantic", description="Search type: 'keyword' or 'semantic'"),
     limit: int = Query(10, description="Maximum number of results")
 ):
     """
     Search social entities by keyword (entity_name, entity_description, tags).
-    `search_type` is accepted for API compatibility but always resolves to
-    keyword search — embedding/semantic search is retired.
+    Owner-only (cloud mode). `search_type` is accepted for API compatibility
+    but always resolves to keyword search — embedding/semantic search is retired.
 
     NOTE: This route MUST be registered before /{user_id} to avoid path shadowing.
     """
+    await assert_owned(request, agent_id)
     logger.info(f"Searching social network entities: agent={agent_id}, query='{query}', type={search_type}")
 
     try:
@@ -162,7 +164,7 @@ async def search_social_network_entities(
     except Exception as e:
         logger.exception(f"Error searching social network entities: {e}")
         return SocialNetworkSearchResponse(
-            success=False, error=str(e), search_type=search_type
+            success=False, error="Failed to search social network.", search_type=search_type
         )
 
 
@@ -190,12 +192,14 @@ def _entity_to_info(e) -> SocialNetworkEntityInfo:
 
 
 @router.get("/{agent_id}/social-network/{user_id}", response_model=SocialNetworkResponse)
-async def get_user_social_network_info(agent_id: str, user_id: str):
+async def get_user_social_network_info(agent_id: str, user_id: str, request: Request):
     """
     Get a user's information in the Agent's social network
 
-    Queries data from instance_social_entities table (via SocialNetworkModule's instance_id).
+    Owner-only (cloud mode). Queries data from instance_social_entities table
+    (via SocialNetworkModule's instance_id).
     """
+    await assert_owned(request, agent_id)
     logger.info(f"Getting social network info for user: {user_id}, agent: {agent_id}")
 
     try:
@@ -226,16 +230,18 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
 
     except Exception as e:
         logger.exception(f"Error getting social network info: {e}")
-        return SocialNetworkResponse(success=False, error=str(e))
+        return SocialNetworkResponse(success=False, error="Failed to get social network info.")
 
 
 @router.get("/{agent_id}/social-network", response_model=SocialNetworkListResponse)
-async def get_all_social_network_entities(agent_id: str):
+async def get_all_social_network_entities(agent_id: str, request: Request):
     """
     Get all social entities for an Agent
 
-    Queries data from instance_social_entities table (via SocialNetworkModule's instance_id).
+    Owner-only (cloud mode). Queries data from instance_social_entities table
+    (via SocialNetworkModule's instance_id).
     """
+    await assert_owned(request, agent_id)
     logger.debug(f"Getting all social network entities for agent: {agent_id}")
 
     try:
@@ -263,7 +269,7 @@ async def get_all_social_network_entities(agent_id: str):
 
     except Exception as e:
         logger.exception(f"Error getting social network entities: {e}")
-        return SocialNetworkListResponse(success=False, error=str(e))
+        return SocialNetworkListResponse(success=False, error="Failed to get social network entities.")
 
 
 # ============================================================================= Write endpoints
@@ -456,7 +462,7 @@ async def extract_entity_info(agent_id: str, body: ExtractEntityBody, request: R
 
     except Exception as e:
         logger.exception(f"Error extracting entity info: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to extract entity info."}
 
 
 @router.post("/{agent_id}/social-network/merge")
@@ -491,7 +497,7 @@ async def merge_entities(agent_id: str, body: MergeEntitiesBody, request: Reques
 
     except Exception as e:
         logger.exception(f"Error merging entities: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to merge entities."}
 
 
 @router.post("/{agent_id}/social-network/delete-entity")
@@ -519,7 +525,7 @@ async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request)
 
     except Exception as e:
         logger.exception(f"Error deleting entity: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to delete entity."}
 
 
 @router.post("/{agent_id}/social-network/create-agent")

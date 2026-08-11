@@ -86,6 +86,15 @@ def test_create_missing_false_errors_without_creating(client):
     assert client.upserts == []
 
 
+def test_get_does_not_auto_create(client):
+    # A read must never mint an instance (security audit P0-1): GET on an agent
+    # with no AwarenessModule instance returns not-found, it does not create one.
+    r = client.get("/api/agents/agent_unknown/awareness")
+    assert r.status_code == 200
+    assert r.json()["success"] is False
+    assert client.created == []
+
+
 def test_create_missing_false_updates_existing(client):
     r = client.put(
         "/api/agents/agent_known/awareness",

@@ -22,6 +22,8 @@ from loguru import logger
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
 from xyz_agent_context.repository import MCPRepository
 from xyz_agent_context.repository.mcp_repository import validate_mcp_sse_connection
 from xyz_agent_context.schema import (
@@ -37,6 +39,22 @@ from xyz_agent_context.schema import (
 
 
 router = APIRouter()
+
+
+def _blocks_internal_url(url: str) -> bool:
+    """True when this URL must be rejected at store time — i.e. we are in cloud
+    mode AND the host is obviously non-public (DNS-free screen: literal private/
+    loopback/link-local IP, localhost, .local, or a single-label docker service
+    name like ``narranexus-litellm``).
+
+    Cloud-gated on purpose (铁律 #7): a local/desktop install is a single trusted
+    user who legitimately runs MCP servers on localhost, so the screen is skipped
+    there. In cloud it blocks the obvious targets so they never persist; the full
+    post-resolution SSRF check runs at connect time in ``validate_mcp_sse_connection``.
+    """
+    if not is_cloud_mode():
+        return False
+    return is_obviously_non_public_url(url)
 
 
 def _mask_header_value(value: str) -> str:
@@ -104,7 +122,7 @@ async def list_mcps(
 
     except Exception as e:
         logger.exception(f"Error listing MCPs: {e}")
-        return MCPListResponse(success=False, error=str(e))
+        return MCPListResponse(success=False, error="Failed to list MCPs.")
 
 
 @router.post("/{agent_id}/mcps", response_model=MCPResponse)
@@ -122,6 +140,11 @@ async def create_mcp(
             return MCPResponse(
                 success=False,
                 error="URL must start with http:// or https://"
+            )
+        if _blocks_internal_url(payload.url):
+            return MCPResponse(
+                success=False,
+                error="URL is not allowed: it must be a public http(s) endpoint.",
             )
 
         db_client = await get_db_client()
@@ -150,7 +173,7 @@ async def create_mcp(
 
     except Exception as e:
         logger.exception(f"Error creating MCP: {e}")
-        return MCPResponse(success=False, error=str(e))
+        return MCPResponse(success=False, error="Failed to create MCP.")
 
 
 @router.put("/{agent_id}/mcps/{mcp_id}", response_model=MCPResponse)
@@ -177,6 +200,11 @@ async def update_mcp_endpoint(
 
         if payload.url and not payload.url.startswith(("http://", "https://")):
             return MCPResponse(success=False, error="URL must start with http:// or https://")
+        if payload.url and _blocks_internal_url(payload.url):
+            return MCPResponse(
+                success=False,
+                error="URL is not allowed: it must be a public http(s) endpoint.",
+            )
 
         # Build the column updates dict explicitly: update_mcp() takes a dict
         # (the old kwargs call was a latent TypeError). Only fields the client
@@ -205,7 +233,7 @@ async def update_mcp_endpoint(
 
     except Exception as e:
         logger.exception(f"Error updating MCP: {e}")
-        return MCPResponse(success=False, error=str(e))
+        return MCPResponse(success=False, error="Failed to update MCP.")
 
 
 @router.delete("/{agent_id}/mcps/{mcp_id}", response_model=MCPResponse)
@@ -235,7 +263,7 @@ async def delete_mcp_endpoint(
 
     except Exception as e:
         logger.exception(f"Error deleting MCP: {e}")
-        return MCPResponse(success=False, error=str(e))
+        return MCPResponse(success=False, error="Failed to delete MCP.")
 
 
 @router.post("/{agent_id}/mcps/{mcp_id}/validate", response_model=MCPValidateResponse)
@@ -266,7 +294,8 @@ async def validate_mcp_endpoint(
             )
 
         connected, error = await validate_mcp_sse_connection(
-            existing_mcp.url, headers=existing_mcp.headers
+            existing_mcp.url, headers=existing_mcp.headers,
+            enforce_public_url=is_cloud_mode(),
         )
 
         status = "connected" if connected else "failed"
@@ -279,7 +308,7 @@ async def validate_mcp_endpoint(
     except Exception as e:
         logger.exception(f"Error validating MCP: {e}")
         return MCPValidateResponse(
-            success=False, mcp_id=mcp_id, connected=False, error=str(e)
+            success=False, mcp_id=mcp_id, connected=False, error="Failed to validate MCP connection."
         )
 
 
@@ -304,7 +333,9 @@ async def validate_all_mcps_endpoint(
             )
 
         async def validate_single(mcp: MCPUrl) -> MCPValidateResponse:
-            connected, error = await validate_mcp_sse_connection(mcp.url, headers=mcp.headers)
+            connected, error = await validate_mcp_sse_connection(
+                mcp.url, headers=mcp.headers, enforce_public_url=is_cloud_mode()
+            )
             status = "connected" if connected else "failed"
             await repo.update_connection_status(
                 mcp_id=mcp.mcp_id, status=status, error=error
@@ -328,4 +359,4 @@ async def validate_all_mcps_endpoint(
 
     except Exception as e:
         logger.exception(f"Error validating all MCPs: {e}")
-        return MCPValidateAllResponse(success=False, error=str(e))
+        return MCPValidateAllResponse(success=False, error="Failed to validate MCPs.")
