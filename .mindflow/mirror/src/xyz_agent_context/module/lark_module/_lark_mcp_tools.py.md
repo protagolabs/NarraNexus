@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (三轮审查) — lark_setup 的 seeded 失败早返回先杀 proc
+
+`lark_setup` 里 `_put_cred` 失败的早返回（本身是修静默成功加的）会**跳过收割 `proc` 的 _finalize_setup 任务**——`proc` 是等浏览器流程的 `lark-cli config init --new`，云端 backend 不可达时每次重试都在容器里留一个僵尸子进程 + 占 workspace。改为返回前 `proc.kill()`+`await proc.wait()`（照抄同块内 URL 超时/抽不出 URL 两处早返回的既有姿势）。
+
 ## 2026-08-11 (二轮审查) — 补齐剩余 must-succeed 写检查
 
 独立复审又抓到几处静默成功：`_advance_user_authorized` 的**完成标记写**（`user_oauth_completed_at`/`bot_scopes_confirmed`——`current_click_stage()` 据此判 "completed"）原来 auth_status flip 检查了、紧接着的 permission_state 完成写没检查 → 云端失败会返 `stage_after="completed"` 但库里还是 `waiting_user_click`。已加检查。`_advance_admin_approved`(存 user_authz_device_code)、过期重生成 URL、`_advance_availability_ok`(可选标志) 也一并 guard。至此**全部 advance/mint 写点都检查信封**；仅 lark_status/lark_cli 自愈写（每调用重写）保持 best-effort。守卫测试 [[test_lark_permission_advance]]。

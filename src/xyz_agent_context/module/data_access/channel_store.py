@@ -350,12 +350,15 @@ class DirectStore:
         like test_connection does, never a bare AttributeError → 500."""
         try:
             db = await self._db()
-        except Exception as e:  # noqa: BLE001 — lazy MySQL pool build can raise
+        except Exception:  # noqa: BLE001 — lazy MySQL pool build can raise
             # Writes flow into lark tools that have no try/except and now check
             # the envelope, so a raised _db() would raw-throw to the model —
-            # degrade to an envelope instead (matches HttpStore).
-            logger.warning(f"[channel.{method}] {channel} db unavailable: {e}")
-            return {"success": False, "error": str(e)}
+            # degrade to an envelope. A connection-build exception's text carries
+            # the DB host/port/user (aiomysql "Can't connect to … (111)"), which
+            # would ride the envelope → tool → model → user, so surface a STABLE
+            # code and keep the detail in the log only.
+            logger.exception(f"[channel.{method}] {channel} db unavailable")
+            return {"success": False, "error": "db_unavailable"}
         mgr = (_manager_class(channel))(db)
         fn = getattr(mgr, method, None)
         if fn is None:
@@ -366,9 +369,16 @@ class DirectStore:
         try:
             await fn(agent_id, *args)
             return None
-        except Exception as e:  # noqa: BLE001 — degrade to an envelope, never raise
-            logger.warning(f"[channel.{method}] {channel} failed: {e}")
+        except ValueError as e:
+            # apply_patch's own validation (no credential to patch / unknown
+            # field) — a safe, actionable message; surface it verbatim.
+            logger.warning(f"[channel.{method}] {channel}: {e}")
             return {"success": False, "error": str(e)}
+        except Exception:  # noqa: BLE001 — degrade to an envelope, never raise
+            # A DB/connection error mid-write may carry host/port/user — log the
+            # detail, surface a stable code (same reason as the _db() branch).
+            logger.exception(f"[channel.{method}] {channel} write failed")
+            return {"success": False, "error": "write_failed"}
 
     async def patch_credential(self, channel: str, agent_id: str, patch: dict) -> dict:
         """Partial update — the manager deep-merges (nested dicts like

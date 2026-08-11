@@ -617,6 +617,50 @@ def test_direct_mutation_unsupported_channel_raises_clear_valueerror(monkeypatch
         asyncio.run(store.patch_credential("discord", AGENT, {"a": 1}))
 
 
+def test_direct_mutation_sanitizes_db_error_text(monkeypatch):
+    # A non-ValueError (a DB/connection error mid-write) can carry host/port/user
+    # in its text; the envelope must surface a STABLE code, not that text, since
+    # it rides envelope → tool → model → user.
+    class _DbErr:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            raise RuntimeError("Can't connect to MySQL server on 'db-host' (111) user='narranexus'")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _DbErr,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "write_failed"}
+    assert "db-host" not in str(out) and "narranexus" not in str(out)
+
+
+def test_direct_mutation_db_unavailable_is_a_stable_code(monkeypatch):
+    # A pool-build failure (_db() raises) must degrade to a stable code too — its
+    # text is the most likely to carry connection details.
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def boom_db():
+        raise RuntimeError("Can't connect to MySQL server on 'db-host:3306'")
+
+    store._db = boom_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "db_unavailable"}
+    assert "db-host" not in str(out)
+
+
 def test_http_patch_put_delete_use_the_right_verbs_and_path(monkeypatch):
     seen = []
 

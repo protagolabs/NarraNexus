@@ -103,7 +103,7 @@ mcp runner stands up its SSE server (the narrative-awareness tools — see
 
 **走 `run_sse_async` 而非 `run("sse")`**：`FastMCP.run("sse")` 内部调 `anyio.run(run_sse_async)`，anyio.run 会创建一个新的 asyncio loop，于是 thread 里 `asyncio.set_event_loop()` 设的 loop 和 anyio 跑的 loop 不是同一个——这是老架构的根因之一。`run_sse_async()` 直接在调用者的 loop 上 `await uvicorn.Server.serve()`，不套娃。
 
-**SQLite vs MySQL 路径共用**：之前 `_is_sqlite_mode()` 决定走单进程多线程 / 多进程，单 loop 后架构不再按 backend 分叉——SQLite 和 MySQL 都走 `run_mcp_servers_async()`，SQLite 用单连接（`SQLiteBackend`），MySQL 用 aiomysql pool，两者都在同一个 loop 上，语义一致。
+**进程拓扑：单进程 iff 本进程不持 MySQL 池**（`_is_single_process_mode()`，2026-08-11）：seam=HttpStore（`NARRANEXUS_BACKEND_URL` 置位，`_seam_uses_backend()` → 无池、跳 `auto_migrate`、`database_client=None`）**或** SQLite/空 `DATABASE_URL` → 单进程 `run_mcp_servers_async()`（所有 MCP 服务器同一 loop，SQLite 用 `SQLiteBackend`）；**直连 MySQL（无 seam）→ `run_all_mcp_servers()` 多进程**，每进程自带 aiomysql pool。即拓扑**按「本进程是否持池」分叉**，不是「都走单进程」。动机是内存：~17 个模块服务器各起一进程要各 `import xyz_agent_context`（~260MB/进程 → 数 GB），单进程只付一次。（旧代码曾按 `DATABASE_URL` 是否 sqlite 判断——那只是历史巧合，seam 进程并非 sqlite。）
 
 **端口配置分散在两处**：`MODULE_PORTS` 字典（`module_runner.py`）是文档用途，实际端口在各 Module 类的 `__init__` 里设置（如 `self.port = 7801`）。`module_runner` 里的端口数字只用于日志打印和 `_serve_one_mcp()` 的 `mcp_server.settings.port = port` 覆盖。两者必须保持一致。
 

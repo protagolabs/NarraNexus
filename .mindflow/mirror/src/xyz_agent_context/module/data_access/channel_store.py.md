@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (三轮审查) — 写失败信封用稳定错误码，不泄漏 DB 连接文本
+
+`_run_mutation` 的失败信封原来放 `str(e)`——连接期异常（aiomysql `Can't connect to … (111)`）带**主机/端口/用户名**，会经信封→工具→model→用户。改为：`_db()` 失败→`"db_unavailable"`、写失败（非 ValueError）→`"write_failed"`，细节只进 `logger.exception`。`ValueError` 单独接住（apply_patch 的「no credential」/「unknown field」是安全可行动信息，原样透出）。守卫测试 [[test_channel_store]]（含断言 host/user 不出现在信封）。
+
 ## 2026-08-11 (二轮审查) — 模块头「已知缺口」改写为「已迁完」+ _run_mutation 守 _db()
 
 模块 docstring 的 "Known gap"（说 lark CLI-OAuth 写 + narra 透传**未迁**、无后端路由、直连 db、strip DB_PASSWORD「不算数」）已**过时且矛盾**——本分支正是迁了这些。是 gates strip 决策的门面文档，误导 ops。改写为「已迁完：CLI 子进程留本地、DB 持久化经 patch/put/delete 原语；三文件 get_mcp_db_client==0；整个 mcp 模块树零凭据、可 strip DATABASE_URL」。另：`_run_mutation` 把 `await self._db()` 包进 try→失败返信封（写路径流入无 try 的 lark 工具、现在检查信封，裸抛会甩给 model）。

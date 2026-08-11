@@ -1003,7 +1003,15 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             ))
             if not seeded.get("success"):
                 # No pending row persisted → _finalize_setup would have nothing to
-                # patch (step 4 would fail on a missing cred). Fail here instead.
+                # patch (step 4 would fail on a missing cred). Fail here — but this
+                # early return skips the finalize task that normally reaps `proc`
+                # (the `lark-cli config init --new` waiting on the browser flow),
+                # so kill it first, mirroring the other early returns in this block.
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except (ProcessLookupError, OSError):
+                    pass
                 return {"success": False,
                         "error": f"Failed to persist the pending setup row: {seeded.get('error', 'unknown')}"}
 
