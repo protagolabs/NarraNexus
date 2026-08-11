@@ -131,13 +131,23 @@ export function TeamChatRow({
                 className="w-full px-2 py-0.5 text-sm text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
               />
             ) : (
-              /* Name line: the ⋮ menu sits right next to the name (like an agent row). */
+              /* Name line — trailing order mirrors an agent row exactly:
+                 meta (member count) then the ⋮ pinned at the row's right
+                 edge, so its position never depends on the name's length. */
               <div className="flex items-center gap-1">
                 <span
                   className="min-w-0 truncate text-sm font-medium"
                   style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
                 >
                   {teamName}
+                </span>
+
+                {/* Member count — on the right, like an agent row's timestamp */}
+                <span
+                  className="ml-auto pl-2 text-[10px] shrink-0"
+                  style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+                >
+                  {t('layout.teamChatRow.agentCount', { count: agentCount })}
                 </span>
                 <div
                   className={cn(
@@ -154,14 +164,6 @@ export function TeamChatRow({
                     onDelete={() => onDelete(teamId)}
                   />
                 </div>
-
-                {/* Member count — on the right, like an agent row's timestamp */}
-                <span
-                  className="ml-auto pl-2 text-[10px] shrink-0"
-                  style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
-                >
-                  {t('layout.teamChatRow.agentCount', { count: agentCount })}
-                </span>
               </div>
             )}
           </div>

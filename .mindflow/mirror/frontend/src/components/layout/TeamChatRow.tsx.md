@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — ⋮ 钉到行尾,与 agent 行同构
+
+kebab 原在名字后面(位置随名字长短漂移,Owner 截图指出与 agent 行改后不
+一致)。现行尾顺序与 AgentGroupSection 完全同构:meta(成员数)在前、⋮
+在最右缘;opacity 显隐保留占位。
 
 ## 2026-08-06 — 团队行可展开成员(UI/UX 设计文档采纳项)
 
