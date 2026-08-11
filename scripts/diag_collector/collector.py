@@ -47,16 +47,24 @@ Env:
                                   GET /telemetry/v1/config — the
                                   discovery document senders resolve
                                   ingest URLs from (set on the PROD
-                                  collector; carries the staging URL
-                                  too)
+                                  collector; carries the staging AND
+                                  dev ingest URLs — its keys are the
+                                  side of the label contract that
+                                  decides the RECEIVING HOST; a label
+                                  missing here silently routes to
+                                  "default" = prod)
     DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
                                   their own storage partition; default
                                   "staging,cloud,local,desktop,dev"
                                   (the sender label vocabulary + our
-                                  dev cloud stack). BILATERAL with the
-                                  senders' NEXUS_DIAG_ENV — extend both
-                                  together. Anything else lands in
-                                  unknown/ with a warning
+                                  dev cloud stack). THREE-SIDED with
+                                  the senders' NEXUS_DIAG_ENV and the
+                                  discovery map above: this list only
+                                  decides the STORAGE PARTITION, the
+                                  map's keys decide the receiving
+                                  host — extend all three together.
+                                  Anything else lands in unknown/
+                                  with a warning
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
     DIAG_COLLECT_MAX_DATA_GB      default 20 — HARD footprint cap: the
@@ -463,11 +471,13 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
         # kept-just-in-case path, rule #2)
         raw = _bounded_decompress(raw)
     known = _known_envs()
-    # Collapse-warning window reset happens ONCE per batch, not per
-    # demoted record — a full batch can carry ~100k of them.
+    # Per-batch hoists: _data_dir() (env read + Path build) and the
+    # collapse-warning window reset both run ONCE here, not per record
+    # — a full batch can carry ~100k records.
+    data_dir = _data_dir()
     global _collapsed_reset_at
     now_mono = time.monotonic()
-    if now_mono >= _collapsed_reset_at:
+    if now_mono >= _collapsed_reset_at and _collapsed_warned:
         _collapsed_warned.clear()
         _collapsed_reset_at = now_mono + _COLLAPSED_RESET_S
     accepted = 0
@@ -491,6 +501,11 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
                 env_name not in _collapsed_warned
                 and len(_collapsed_warned) < _COLLAPSED_WARNED_MAX
             ):
+                if not _collapsed_warned:
+                    # The window opens when the memo receives its FIRST
+                    # entry — a fixed cadence let a label warned just
+                    # before the boundary re-warn seconds later.
+                    _collapsed_reset_at = now_mono + _COLLAPSED_RESET_S
                 _collapsed_warned.add(env_name)
                 logger.warning(
                     f"[diag-collector] env label {env_name!r} not in "
@@ -498,7 +513,7 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
                     f"(the partition the size cap drains first)"
                 )
             env_name = _UNKNOWN_ENV
-        env_dir = _data_dir() / env_name
+        env_dir = data_dir / env_name
         runtime_dir = env_dir / _bounded_segment(
             env_dir, record.get("runtime_id", ""), _MAX_RUNTIME_DIRS,
             pending_dirs, dir_counts,

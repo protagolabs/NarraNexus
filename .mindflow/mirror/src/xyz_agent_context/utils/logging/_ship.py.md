@@ -4,12 +4,20 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(九)— 第 10 轮:路由测试的诚实边界
+
+路由测试守的是解析规则(注入 map)+ .env.example 示例内容(新增
+对示例 ingest key 集的断言);线上 DIAG_COLLECT_CONFIG_JSON 是 ops
+配置,代码不可达——"测试守住第三边"按此收窄口径。三个路由用例
+parametrize 合并;docstring 折行分段;import 位置进 first-party 组。
+
 ## 2026-08-11(八)— 第 9 轮:契约实为三边
 
 第 8 轮的 BILATERAL 口径漏了后果最重的一边:白名单只决定目录,
 **discovery map 的 key 才决定送到哪台机器**,缺 key 的标签静默回落
 "default"(prod)。docstring 与 .env.example 全部改口为三边契约,
-路由测试守住 "dev" 键;import 位置归位(stdlib 组后)。
+路由测试覆盖 "dev" 键的解析路径(诚实边界见第 10 轮);import
+位置归位。
 
 ## 2026-08-11(七)— 第 8 轮:契约写全两边
 

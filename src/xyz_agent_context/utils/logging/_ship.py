@@ -47,10 +47,12 @@ Ingest URL resolution (first match wins):
      map, which decides the RECEIVING HOST — ``mapping.get(label)``
      falls back to "default", so a label missing from the map silently
      ships to the default (prod) collector with no warning on either
-     side. Fetched LAZILY on
-     the worker thread with a TTL cache — never at setup, so process
-     start and test runs touch no network. Unresolvable discovery
-     leaves the sink idle until the next probe.
+     side.
+
+     The document is fetched LAZILY on the worker thread with a TTL
+     cache — never at setup, so process start and test runs touch no
+     network. Unresolvable discovery leaves the sink idle until the
+     next probe.
 
 No client secret: the repository is open source, so a baked or shared
 token authenticates nothing — the collector is a public endpoint

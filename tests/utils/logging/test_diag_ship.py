@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -444,38 +446,49 @@ class TestDiscovery:
             "https://dev-agent.narra.nexus/telemetry/v1/ingest"
         )
 
-    def test_dev_label_routes_to_its_own_ingest(self, monkeypatch):
-        """Third side of the label contract: the discovery map must
-        carry a "dev" key (as .env.example's example does), or the dev
-        stack's traffic silently falls back to "default" — the prod
-        collector, the exact opposite of the label's purpose."""
+    @pytest.mark.parametrize(
+        ("label", "expected"),
+        [
+            ("staging", "https://dev-agent.narra.nexus/telemetry/v1/ingest"),
+            ("dev", "https://dev-agent.narra.nexus/telemetry/v1/ingest"),
+            # absent from the map → silent fallback to "default"
+            ("local", "https://agent.narra.nexus/telemetry/v1/ingest"),
+        ],
+    )
+    def test_label_routing_follows_map_keys(self, monkeypatch, label, expected):
+        """Resolution rule: mapping.get(label) or mapping.get("default").
+        HONEST SCOPE: this guards the rule against an injected map; the
+        real third side of the label contract — whether the live
+        DIAG_COLLECT_CONFIG_JSON carries the right keys — is ops
+        configuration code cannot reach. The example ops copy from is
+        guarded by test_env_example_discovery_example_covers_own_host_labels."""
         hits: list = []
         mapping = {
             "default": "https://agent.narra.nexus/telemetry/v1/ingest",
+            "staging": "https://dev-agent.narra.nexus/telemetry/v1/ingest",
             "dev": "https://dev-agent.narra.nexus/telemetry/v1/ingest",
         }
         monkeypatch.setattr(
             _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
         )
-        sink = _ship.ShipSink("backend", _config(url=None, env="dev"))
+        sink = _ship.ShipSink("backend", _config(url=None, env=label))
         sink(_message("x"))
         sink.flush()
-        assert sink._resolved_url == (
-            "https://dev-agent.narra.nexus/telemetry/v1/ingest"
-        )
+        assert sink._resolved_url == expected
 
-    def test_unknown_label_falls_back_to_default(self, monkeypatch):
-        hits: list = []
-        mapping = {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}
-        monkeypatch.setattr(
-            _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
+    def test_env_example_discovery_example_covers_own_host_labels(self):
+        """Executable version of ".env.example configured as-is will
+        not send dev traffic to prod": every label that needs its own
+        receiving host (staging = manyfold sandboxes, dev = our dev
+        EC2 stack — different sources) must appear in the example
+        discovery document's ingest keys, alongside "default"."""
+        text = (
+            Path(__file__).resolve().parents[3] / ".env.example"
+        ).read_text(encoding="utf-8")
+        keys = set(
+            re.findall(r'"(\w+)":"https://[^"]+/telemetry/v1/ingest"', text)
         )
-        sink = _ship.ShipSink("backend", _config(url=None, env="local"))
-        sink(_message("x"))
-        sink.flush()
-        assert sink._resolved_url == (
-            "https://agent.narra.nexus/telemetry/v1/ingest"
-        )
+        assert {"default", "staging", "dev"} <= keys
 
     def test_unresolvable_discovery_drops_quietly(self, monkeypatch):
         def _dead(request: httpx.Request) -> httpx.Response:
