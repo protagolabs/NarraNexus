@@ -159,6 +159,15 @@ def test_invalid_metadata_without_instructions_stays_plain_text():
         assert msg.content == ENVELOPE + TRANSCRIPT
 
 
+def test_interim_transcript_final_false_stays_plain_text():
+    """transcript_final=False fails the strict parse AND is carved out of
+    the common trigger (explicit turn-boundary signal, not malformed
+    data): an interim STT fragment never enters degraded voice mode."""
+    msg = _parse(_voice_event(meta=_rtc_meta(transcript_final=False)))
+    assert "rtc_voice" not in (msg.raw or {})
+    assert msg.content == ENVELOPE + TRANSCRIPT
+
+
 def test_plain_text_unchanged():
     msg = _parse(_voice_event(meta=None, body="just text"))
     assert "rtc_voice" not in msg.raw

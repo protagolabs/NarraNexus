@@ -24,6 +24,10 @@ from typing import Any, Optional, Tuple
 
 RTC_VOICE_INPUT_KEY = "ai.netmind.rtc.voice_input"
 
+# Cap for instructions accepted through the degraded common trigger, where
+# nothing else bounds the string (the strict parser's contract does).
+COMMON_INSTRUCTIONS_MAX_CHARS = 2000
+
 _BINDING_ID_FIELDS = (
     "rtc_session_id",
     "turn_id",
@@ -111,12 +115,28 @@ def extract_common_voice_instructions(event: Any) -> Optional[str]:
     whose metadata is a dict carrying a non-blank string field — the body
     envelope is deliberately NOT consulted (mode detection must not depend
     on body-string parsing).
+
+    Carve-out — ``transcript_final is False``: the backend explicitly
+    saying "not final" is a turn-boundary signal, not malformed data, so
+    an interim STT fragment must NOT enter degraded voice mode (it would
+    be spoken aloud mid-utterance). The check is identity (``is False``)
+    on purpose: a missing or mistyped value (including ``0`` / ``"false"``)
+    is malformed data and still falls through to the common trigger.
+
+    The returned instructions are capped at
+    ``COMMON_INSTRUCTIONS_MAX_CHARS``: this path already lowered the
+    construction bar (no strict validation), so an unbounded string must
+    not be allowed to inflate the prompt.
     """
     meta = _voice_metadata(event)
     if meta is None:
         return None
+    if meta.get("transcript_final") is False:
+        return None
     instructions = meta.get("voice_instructions")
-    return instructions if _non_blank_str(instructions) else None
+    if not _non_blank_str(instructions):
+        return None
+    return instructions[:COMMON_INSTRUCTIONS_MAX_CHARS]
 
 
 def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:
