@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(七)— 第 8 轮:契约写全两边
+
+模块 docstring 的 URL 解析段补**双边契约**声明(自定义
+`NEXUS_DIAG_ENV` 必须同时进收集端 `DIAG_COLLECT_KNOWN_ENVS`)与
+标签链第三级的真实语义(部署模式兜底第二档是 DB-URL 猜测——
+best-effort 路由,不是强身份);`get_deployment_mode` import 挪到
+模块顶。dev 云栈标签决策(方案 A,`NEXUS_DIAG_ENV=dev`)见
+collector 镜像第 8 轮条目。
+
 ## 2026-08-11(六)— 第 7 轮:标签兜底改读部署契约
 
 `_env_label()` 第三级回落从字面量 "unknown" 改为

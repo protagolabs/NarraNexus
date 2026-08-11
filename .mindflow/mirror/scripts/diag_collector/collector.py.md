@@ -4,6 +4,30 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(七)— 第 8 轮:双边契约补齐 + dev 标签决策(方案 A)
+
+- **决策(Owner 拍板):dev/prod 云栈用 `dev` 标签区分**。两个 EC2
+  栈烘焙同一镜像(部署模式都是 cloud),部署模式分不开它们;prod
+  保持 `cloud`,**dev 栈在 compose .env 设 `NEXUS_DIAG_ENV=dev`**
+  (一台机器一行),即获得独立分区 + 独立 discovery 路由(dev 噪声
+  不进 prod 收集器)。`dev` 已进默认词汇表;
+- **词汇表是发送端/收集端的双边契约**,现在两边都写了:
+  `.env.example` 的 `NEXUS_DIAG_ENV` 与 `DIAG_COLLECT_KNOWN_ENVS`
+  条目互相指认("自定义标签必须两边同时加,否则整批降级进最先被删
+  的 unknown/"),_ship 模块 docstring 同步;
+- **同 env 内合法发送端之间没有隔离**(高音量发送端会挤掉同伴历史)
+  ——诚实段补上了良性场景,不只写假冒;并给后人留了升级路径:
+  `DIAG_COLLECT_TOKEN` 启用后标签不可假冒,runtime 维度可以安全恢复
+  分区权重——token 不只是逃生阀,是两级找平变 sound 的前提;
+- **告警 memo 按时间窗重置**(1h):100 个轮换垃圾 label 填满一次
+  就永久压制"我方词汇漂移"告警——那正是它存在的唯一理由;现在垃圾
+  最多压制一个窗口(跨 worker 无锁 check-then-add 偶尔重复一条,
+  已接受并注明);
+- 旧行为描述补 "previously" 消歧;`get_deployment_mode` import 挪到
+  模块顶;其兜底第二档是 DB-URL 猜测(本地开发指 MySQL 会自标
+  cloud)已在 _ship docstring 点明——标签是 best-effort 路由,不是
+  强身份。
+
 ## 2026-08-11(六)— 第 7 轮:词汇表要和部署路径核对,分区收敛到 env 单维
 
 第 6 轮的白名单默认值和**现网发送端实际发出的标签对不上**:云栈

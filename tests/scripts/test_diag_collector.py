@@ -340,6 +340,37 @@ async def test_allowlist_entries_are_normalized(env, monkeypatch):
     assert (env / "staging").is_dir()  # case-insensitive both directions
 
 
+async def test_dev_label_has_own_partition(env):
+    """Plan A: our dev cloud stack sets NEXUS_DIAG_ENV=dev (both EC2
+    stacks bake the same cloud image, so deployment mode alone cannot
+    tell them apart) — "dev" is first-class vocabulary, not a stranger."""
+    resp = await _post(gzip.compress(_lines("x", env_label="dev").encode()))
+    assert resp.status_code == 200
+    assert (env / "dev").is_dir()
+    assert not (env / "unknown").exists()
+
+
+async def test_collapse_warning_memo_resets_after_window(env, monkeypatch):
+    """A hundred rotated garbage labels must not permanently silence
+    the warning this memo exists FOR — our own vocabulary drifting.
+    After the reset window the memo clears and the label warns again."""
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        collector, "logger", SimpleNamespace(
+            warning=lambda m: warnings.append(m),
+            info=lambda m: None,
+        )
+    )
+    monkeypatch.setattr(collector, "_collapsed_warned", set())
+    monkeypatch.setattr(collector, "_collapsed_reset_at", 0.0)
+    await _post(gzip.compress(_lines("a", env_label="drift-env").encode()))
+    await _post(gzip.compress(_lines("b", env_label="drift-env").encode()))
+    assert sum("drift-env" in w for w in warnings) == 1
+    monkeypatch.setattr(collector, "_collapsed_reset_at", 0.0)  # window expiry
+    await _post(gzip.compress(_lines("c", env_label="drift-env").encode()))
+    assert sum("drift-env" in w for w in warnings) == 2
+
+
 async def test_collapse_to_unknown_warns_once_per_label(env, monkeypatch):
     """Silent collapse is how our own data would rot unnoticed if the
     label vocabulary drifts (incident lessons #3/#4): the collector must

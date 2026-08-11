@@ -51,9 +51,12 @@ Env:
                                   too)
     DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
                                   their own storage partition; default
-                                  "staging,cloud,local,desktop" (the
-                                  sender label vocabulary). Anything
-                                  else lands in unknown/
+                                  "staging,cloud,local,desktop,dev"
+                                  (the sender label vocabulary + our
+                                  dev cloud stack). BILATERAL with the
+                                  senders' NEXUS_DIAG_ENV — extend both
+                                  together. Anything else lands in
+                                  unknown/ with a warning
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
     DIAG_COLLECT_MAX_DATA_GB      default 20 — HARD footprint cap: the
@@ -185,14 +188,21 @@ def enforce_size_cap() -> int:
     # the deployment-owned allowlist collapse into unknown/ at write
     # time, and WITHIN an env the runtime dimension carries no
     # partition weight — spoofing a known env and rotating runtime_id
-    # mints nothing (keyed per env/runtime, 257 mintable sub-partitions
-    # let a flood keep each just below the victim's and the leveling
-    # loop drained the victim). What remains, stated honestly: traffic
-    # claiming a known env IS that one partition — indistinguishable
-    # from the legit sender without authentication (DIAG_COLLECT_TOKEN
-    # is the escape hatch), so a spoofing flood rotates that env's
-    # data, ours included, oldest first. The hard guarantees stay the
-    # cap itself and the global byte budget.
+    # mints nothing (previously keyed per env/runtime, 257 mintable
+    # sub-partitions let a flood keep each just below the victim's and
+    # the leveling loop drained the victim). What remains, stated
+    # honestly: traffic claiming a known env IS that one partition —
+    # indistinguishable from the legit sender without authentication,
+    # so a spoofing flood rotates that env's data, ours included,
+    # oldest first. The same collapse means NO isolation between
+    # LEGITIMATE senders sharing an env: one high-volume sender rotates
+    # its same-env peers' history out — accepted while unauthenticated.
+    # Upgrade path for whoever hardens this next: once
+    # DIAG_COLLECT_TOKEN is enabled labels stop being forgeable, and
+    # the runtime dimension can safely regain partition weight — the
+    # token is not just an escape hatch, it is the precondition that
+    # makes two-level leveling sound. The hard guarantees stay the cap
+    # itself and the global byte budget.
     partitions: dict[tuple, list[tuple[float, int, Path]]] = {}
     sizes: dict[tuple, int] = {}
     total = 0
@@ -353,7 +363,12 @@ def _segment(value: str) -> str:
 # at deployment time, so narrowing the value domain is constructive:
 # strangers cannot mint env partitions at all, they share unknown/.
 _UNKNOWN_ENV = "unknown"
-_DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop"
+# "dev" = OUR dev cloud stack: both EC2 stacks bake the same image
+# (NARRANEXUS_DEPLOYMENT_MODE=cloud), so prod keeps the "cloud" label
+# and the dev stack sets NEXUS_DIAG_ENV=dev in its compose .env — one
+# line on one host — to get its own partition AND its own discovery
+# route (dev noise never reaches the prod collector).
+_DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev"
 
 # One warning per demoted label, not per record — silent collapse is how
 # our own data would rot unnoticed if the sender vocabulary drifts
@@ -361,6 +376,13 @@ _DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop"
 # be detectable). Bounded so label rotation cannot flood the log.
 _collapsed_warned: set[str] = set()
 _COLLAPSED_WARNED_MAX = 100
+# The memo resets on a time window: without it, 100 rotated garbage
+# labels would fill the set once and the warning this exists FOR — our
+# own vocabulary drifting — would never fire again. Rotation garbage
+# now suppresses at most one window. (The check-then-add below is
+# unlocked across to_thread workers; a duplicated line is accepted.)
+_COLLAPSED_RESET_S = 3600.0
+_collapsed_reset_at = 0.0
 
 
 def _known_envs() -> frozenset[str]:
@@ -454,6 +476,11 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
             continue  # one broken line must not sink the batch
         env_name = _segment(record.get("env", "")).lower()
         if env_name not in known:
+            global _collapsed_reset_at
+            now = time.monotonic()
+            if now >= _collapsed_reset_at:
+                _collapsed_warned.clear()
+                _collapsed_reset_at = now + _COLLAPSED_RESET_S
             if (
                 env_name not in _collapsed_warned
                 and len(_collapsed_warned) < _COLLAPSED_WARNED_MAX

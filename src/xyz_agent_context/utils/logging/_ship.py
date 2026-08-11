@@ -34,10 +34,14 @@ Ingest URL resolution (first match wins):
      https://agent.narra.nexus/telemetry/v1/config>`` returns
      ``{"ingest": {"default": url, "staging": url, ...}}``; the sender
      picks by its env label — ``NEXUS_DIAG_ENV`` > ``NARRA_SURFACE`` >
-     "unknown", falling back to the map's "default" entry. Deployment-
-     specific label derivation (e.g. manyfold staging detection) lives
-     in run.sh container mode, which injects ``NEXUS_DIAG_ENV`` — this
-     utility reads no other integration's env vars. Fetched LAZILY on
+     deployment mode ("cloud"/"local") — falling back to the map's
+     "default" entry. Deployment-specific label derivation (e.g.
+     manyfold staging detection) lives in run.sh container mode, which
+     injects ``NEXUS_DIAG_ENV`` — this utility reads no other
+     integration's env vars. BILATERAL CONTRACT: any custom label set
+     here must also be added to the collector's
+     ``DIAG_COLLECT_KNOWN_ENVS``, or every record carrying it is
+     demoted into unknown/ — the partition its size cap drains first. Fetched LAZILY on
      the worker thread with a TTL cache — never at setup, so process
      start and test runs touch no network. Unresolvable discovery
      leaves the sink idle until the next probe.
@@ -97,6 +101,8 @@ import sys
 import threading
 import time
 import weakref
+
+from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 from pathlib import Path
 from typing import Any, Optional
 
@@ -175,15 +181,18 @@ def _env_label() -> str:
     started by compose directly (no run.sh, no NARRA_SURFACE), so
     without the ``get_deployment_mode()`` fallback every cloud record
     would be labeled "unknown" and land in the collector's stranger
-    bucket — the partition its size cap drains FIRST."""
+    bucket — the partition its size cap drains FIRST. Caveat: that
+    fallback is contract-first but HEURISTIC second — absent
+    ``NARRANEXUS_DEPLOYMENT_MODE`` it guesses from the database URL
+    (non-sqlite → "cloud"), so a local dev install pointed at MySQL
+    self-labels "cloud"; treat the label as best-effort routing, not
+    a strong identity."""
     label = (
         os.environ.get("NEXUS_DIAG_ENV", "").strip()
         or os.environ.get("NARRA_SURFACE", "").strip()
     )
     if label:
         return label
-    from xyz_agent_context.utils.deployment_mode import get_deployment_mode
-
     return get_deployment_mode()
 
 
