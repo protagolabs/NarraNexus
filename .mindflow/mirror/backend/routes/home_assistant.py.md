@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/home_assistant.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (PR-G) — /verify 的 resolve_client 去 db 参数
+
+`resolve_client(db, agent_id)` → `resolve_client(agent_id)`（[[binding]] 现自取 seam；backend 进程内 seam=DirectStore→本地 db）。db 仍用于 _require_agent_owner。
+
 
 # home_assistant.py — HA 绑定的后端路由(配置页用)
 

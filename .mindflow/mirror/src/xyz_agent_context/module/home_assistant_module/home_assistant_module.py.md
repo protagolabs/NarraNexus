@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/home_assistant_module/home_assistant_module.py
-last_verified: 2026-07-14
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (PR-G) — 4 个 HA 工具去 db，走 seam
+
+`ha_list_entities/ha_get_entity/ha_list_services/ha_call_service` 不再 `get_mcp_db_client()` + `resolve_client(db, …)`，改 `resolve_client(agent_id)`（[[binding]] 内部经 ChannelCredentialStore seam）。本模块 get_mcp_db_client == 0。HA 无 bind/unbind MCP 工具（绑定 100% 后端面板 PUT /binding），故无写留尾。
+
 
 # home_assistant_module.py — 经 Home Assistant 查/控智能家居
 

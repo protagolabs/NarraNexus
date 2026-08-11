@@ -124,7 +124,7 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     # Import here to avoid pulling module code into route import time.
     from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import resolve_client
 
-    client, reason = await resolve_client(db, body.agent_id)
+    client, reason = await resolve_client(body.agent_id)
     if client is None:
         return {"ok": False, "error": reason}
     try:

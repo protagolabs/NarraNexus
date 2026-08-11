@@ -152,8 +152,14 @@ def test_resolve_client_unconfigured(monkeypatch):
 
     monkeypatch.setattr(b, "HomeAssistantBindingRepository", _StubBindingRepo)
 
+    # resolve_client no longer takes a db — it reads through the
+    # ChannelCredentialStore seam. Env unset -> DirectStore -> the
+    # (monkeypatched) HomeAssistantBindingRepository, so the stub still drives
+    # the "no binding row" scenario.
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+
     async def run():
-        client, msg = await resolve_client(db=object(), agent_id="a1")
+        client, msg = await resolve_client(agent_id="a1")
         assert client is None
         assert msg == NOT_CONFIGURED
 

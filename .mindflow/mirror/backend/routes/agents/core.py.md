@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents/core.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 (PR-A) — 挂载 channel_credentials_router
+
+新增 [[channel_credentials]] 路由（`GET /{agent_id}/channels/{channel}/credential` + `/channels/name`）到 /api/agents，
+是 [[channel_store]] HttpStore 的后端孪生（返回原始 channel 密钥，service+owner 双门）。
 
 ## 2026-08-10 (PR-9) — 挂载 profile_router
 
