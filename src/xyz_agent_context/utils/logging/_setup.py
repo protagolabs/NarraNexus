@@ -262,9 +262,19 @@ def setup_logging(
     # broken collector config can never cost the stderr/file sinks. Own
     # queue via enqueue=True: a slow collector backs up its own worker,
     # never the emitting coroutine and never the file sink.
-    from ._ship import ShipSink, ship_config, ship_sink_level
+    try:
+        # Import INSIDE the guard: "_shipping is optional, logging is
+        # not" must hold for import-time failures too — a broken optional
+        # dependency in _ship must never take setup_logging down.
+        from ._ship import ShipSink, ship_config, ship_sink_level
 
-    config = ship_config()
+        config = ship_config()
+    except Exception as e:  # noqa: BLE001 — shipping is optional, logging is not
+        logger.warning(
+            f"diag ship unavailable ({type(e).__name__}: {e}); "
+            f"continuing without ship"
+        )
+        config = None
     if config is not None:
         try:
             sink = ShipSink(service_name, config)

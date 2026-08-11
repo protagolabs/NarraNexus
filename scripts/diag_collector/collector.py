@@ -47,9 +47,22 @@ Env:
                                   achieves is rotating OUR buffer.
     DIAG_COLLECT_PORT             default 9880
 
-Deployment constraint: expose ONLY behind our caddy, which must
-overwrite X-Real-IP (identity for rate limiting) and should cap
-request_body size at the same 8MB wire limit.
+Deployment (EXACT caddy directives — constraints in prose don't get
+executed):
+
+    handle_path /telemetry/* {
+        request_body { max_size 8MB }
+        reverse_proxy 127.0.0.1:9880 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+…and set DIAG_COLLECT_TRUST_REAL_IP=1 on the collector. Without the
+flag the X-Real-IP header is IGNORED (a client can send it too — 
+trusting it unconditionally re-opens the client-authored-identity hole
+this design closed); the failure mode of a missed flag is then "rate
+limit degrades to one global bucket", never "rate limit silently
+bypassed".
 
 Run: uv run python scripts/diag_collector/collector.py
 """
@@ -147,29 +160,44 @@ def enforce_size_cap() -> int:
     root = _data_dir()
     if not root.is_dir():
         return 0
-    files = []
+    # Partition = env/runtime (the first two path segments): deletion
+    # drains the LARGEST partition's oldest files first, so a flood of
+    # stranger traffic squeezes ITSELF out — known senders' partitions
+    # only shrink once the flood's partition no longer dominates.
+    partitions: dict[tuple, list[tuple[float, int, Path]]] = {}
+    sizes: dict[tuple, int] = {}
     total = 0
     for path in root.rglob("*.jsonl"):
         try:
             stat = path.stat()
         except OSError:
             continue
-        files.append((stat.st_mtime, stat.st_size, path))
+        key = path.relative_to(root).parts[:2]
+        partitions.setdefault(key, []).append((stat.st_mtime, stat.st_size, path))
+        sizes[key] = sizes.get(key, 0) + stat.st_size
         total += stat.st_size
     cap = _max_data_bytes()
     if total <= cap:
         return 0
     target = int(cap * 0.9)  # free headroom so we don't re-enter per write
+    for files in partitions.values():
+        files.sort()  # oldest first within each partition
     deleted = 0
-    for _, size, path in sorted(files):
-        if total <= target:
-            break
+    while total > target and sizes:
+        key = max(sizes, key=lambda k: sizes[k])
+        files = partitions[key]
+        if not files:
+            sizes.pop(key, None)
+            partitions.pop(key, None)
+            continue
+        _, size, path = files.pop(0)
         try:
             path.unlink()
-            total -= size
-            deleted += 1
         except OSError:
             continue
+        total -= size
+        sizes[key] -= size
+        deleted += 1
     if deleted:
         logger.warning(
             f"[diag-collector] size cap: dropped {deleted} oldest files "
@@ -188,19 +216,27 @@ _RATE_MAX_IPS = 10_000
 # rotates identities. Per-IP fairness is best-effort; this is the cap.
 _GLOBAL_MAX_BYTES = 256 * 1024 * 1024
 
-_rate_state: dict[str, list[tuple[float, int]]] = {}
+# Separate ledgers: request timestamps and byte entries. Settlement
+# appends its OWN byte entry — the earlier fill-the-last-slot scheme
+# crossed accounts when two same-IP requests interleaved
+# (precheck A → precheck B → settle A landed in B's slot).
+_rate_counts: dict[str, list[float]] = {}
+_rate_bytes: dict[str, list[tuple[float, int]]] = {}
 _global_window: list[tuple[float, int]] = []
 
 
 def _client_ip(request: Request) -> str:
-    """Trusted-hop identity ONLY: X-Real-IP as overwritten by OUR
-    caddy (deployment constraint: the collector is reachable solely
-    through it). X-Forwarded-For's first element is client-authored —
-    keying buckets on it hands every attacker a fresh bucket per
-    request."""
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
+    """Rate-limit identity. X-Real-IP is honoured ONLY when
+    DIAG_COLLECT_TRUST_REAL_IP=1 says our proxy overwrites it (see the
+    module docstring's caddy block) — a client can send that header
+    too, and trusting it by default would re-open the client-authored-
+    identity hole (XFF's first hop) this design closed. Unflagged, the
+    peer address is used even though behind a proxy that collapses to
+    one global bucket: degraded fairness beats silent bypass."""
+    if os.environ.get("DIAG_COLLECT_TRUST_REAL_IP", "") == "1":
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            return real_ip
     return request.client.host if request.client else "unknown"
 
 
@@ -213,22 +249,23 @@ def _rate_precheck(request: Request) -> str:
     after the stream is read (Content-Length is client-authored)."""
     now = time.monotonic()
     ip = _client_ip(request)
-    if len(_rate_state) > _RATE_MAX_IPS:
+    if len(_rate_counts) > _RATE_MAX_IPS:
         # Evict the ~10% least-recently-active IPs. clear() was an
         # attacker primitive: flood with fake identities, reset
         # EVERYONE's counters including your own.
         stale = sorted(
-            _rate_state.items(),
-            key=lambda kv: kv[1][-1][0] if kv[1] else 0.0,
+            _rate_counts.items(),
+            key=lambda kv: kv[1][-1] if kv[1] else 0.0,
         )[: max(1, _RATE_MAX_IPS // 10)]
         for key, _ in stale:
-            _rate_state.pop(key, None)
-    window = _prune(_rate_state.get(ip, []), now)
-    if len(window) >= _RATE_MAX_REQUESTS:
-        _rate_state[ip] = window
+            _rate_counts.pop(key, None)
+            _rate_bytes.pop(key, None)
+    counts = [ts for ts in _rate_counts.get(ip, []) if now - ts < _RATE_WINDOW_S]
+    if len(counts) >= _RATE_MAX_REQUESTS:
+        _rate_counts[ip] = counts
         raise HTTPException(status_code=429, detail="rate limited")
-    window.append((now, 0))
-    _rate_state[ip] = window
+    counts.append(now)
+    _rate_counts[ip] = counts
     return ip
 
 
@@ -238,11 +275,9 @@ def _rate_settle_bytes(ip: str, wire_bytes: int) -> None:
     that matters, see the size cap) is only spent on accepted requests."""
     now = time.monotonic()
     global _global_window
-    window = _prune(_rate_state.get(ip, []), now)
-    if window:
-        ts, b = window[-1]
-        window[-1] = (ts, b + wire_bytes)
-    _rate_state[ip] = window
+    window = _prune(_rate_bytes.get(ip, []), now)
+    window.append((now, wire_bytes))
+    _rate_bytes[ip] = window
     _global_window = _prune(_global_window, now)
     _global_window.append((now, wire_bytes))
     if sum(b for _, b in window) > _RATE_MAX_BYTES:
@@ -357,11 +392,23 @@ async def discovery_config():
     if not raw:
         raise HTTPException(status_code=404, detail="no discovery config set")
     try:
-        return json.loads(raw)
+        document = json.loads(raw)
     except ValueError:
         raise HTTPException(
             status_code=500, detail="DIAG_COLLECT_CONFIG_JSON is not valid JSON"
         ) from None
+    # Shape check here, loudly — a scalar/array served as a discovery
+    # document would fail SILENTLY at every sender (their defensive
+    # parse just skips resolution), which reads as "telemetry is dark"
+    # with no error anywhere.
+    if not isinstance(document, dict) or not isinstance(
+        document.get("ingest"), dict
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail='DIAG_COLLECT_CONFIG_JSON must be {"ingest": {...}}',
+        )
+    return document
 
 
 def sweep_retention() -> int:

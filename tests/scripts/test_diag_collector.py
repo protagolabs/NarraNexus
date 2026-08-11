@@ -32,7 +32,8 @@ _SPEC.loader.exec_module(collector)
 def env(monkeypatch, tmp_path):
     monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("DIAG_COLLECT_TOKEN", "coll-tok")
-    monkeypatch.setattr(collector, "_rate_state", {})
+    monkeypatch.setattr(collector, "_rate_counts", {})
+    monkeypatch.setattr(collector, "_rate_bytes", {})
     return tmp_path
 
 
@@ -167,7 +168,8 @@ async def test_set_token_is_still_enforced(env):
 
 async def test_rate_limit_429(env, monkeypatch):
     monkeypatch.setattr(collector, "_RATE_MAX_REQUESTS", 2)
-    monkeypatch.setattr(collector, "_rate_state", {})
+    monkeypatch.setattr(collector, "_rate_counts", {})
+    monkeypatch.setattr(collector, "_rate_bytes", {})
     body = gzip.compress(_lines("x").encode())
     assert (await _post(body)).status_code == 200
     assert (await _post(body)).status_code == 200
@@ -211,12 +213,12 @@ async def test_non_ascii_auth_header_is_401_not_500(env):
     assert resp.status_code == 401
 
 
-async def test_trusted_hop_identity_ignores_xff(env, monkeypatch):
-    """Rate-limit identity comes from X-Real-IP (our caddy's overwrite),
-    never from client-authored X-Forwarded-For — rotating XFF must not
-    mint fresh buckets."""
+async def test_rotating_identity_headers_cannot_mint_buckets(env, monkeypatch):
+    """Without DIAG_COLLECT_TRUST_REAL_IP, BOTH identity headers are
+    ignored (X-Real-IP is client-sendable too) — rotating them must not
+    mint fresh buckets; everyone shares the peer-address bucket."""
+    monkeypatch.delenv("DIAG_COLLECT_TRUST_REAL_IP", raising=False)
     monkeypatch.setattr(collector, "_RATE_MAX_REQUESTS", 2)
-    monkeypatch.setattr(collector, "_rate_state", {})
     body = gzip.compress(_lines("x").encode())
     transport = ASGITransport(app=collector.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
@@ -228,15 +230,43 @@ async def test_trusted_hop_identity_ignores_xff(env, monkeypatch):
                     "Authorization": "Bearer coll-tok",
                     "Content-Encoding": "gzip",
                     "X-Forwarded-For": f"10.0.0.{i}",  # attacker-rotated
-                    "X-Real-IP": "203.0.113.7",  # what OUR caddy wrote
+                    "X-Real-IP": f"10.1.0.{i}",  # attacker-rotated too
                 },
             )
-    assert resp.status_code == 429  # third request over the 2-req cap
+    assert resp.status_code == 429
+
+
+async def test_trusted_hop_used_only_when_flagged(env, monkeypatch):
+    """With the flag on (deployment declares caddy overwrites the
+    header), X-Real-IP keys the buckets — distinct real clients get
+    distinct budgets."""
+    monkeypatch.setenv("DIAG_COLLECT_TRUST_REAL_IP", "1")
+    monkeypatch.setattr(collector, "_RATE_MAX_REQUESTS", 1)
+    body = gzip.compress(_lines("x").encode())
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        r1 = await c.post(
+            "/v1/ingest", content=body,
+            headers={"Authorization": "Bearer coll-tok",
+                     "Content-Encoding": "gzip", "X-Real-IP": "203.0.113.7"},
+        )
+        r2 = await c.post(
+            "/v1/ingest", content=body,
+            headers={"Authorization": "Bearer coll-tok",
+                     "Content-Encoding": "gzip", "X-Real-IP": "203.0.113.8"},
+        )
+        r3 = await c.post(
+            "/v1/ingest", content=body,
+            headers={"Authorization": "Bearer coll-tok",
+                     "Content-Encoding": "gzip", "X-Real-IP": "203.0.113.7"},
+        )
+    assert (r1.status_code, r2.status_code, r3.status_code) == (200, 200, 429)
 
 
 async def test_byte_budget_uses_actual_stream_not_header(env, monkeypatch):
     monkeypatch.setattr(collector, "_RATE_MAX_BYTES", 100)
-    monkeypatch.setattr(collector, "_rate_state", {})
+    monkeypatch.setattr(collector, "_rate_counts", {})
+    monkeypatch.setattr(collector, "_rate_bytes", {})
     big = _lines("y" * 400).encode()  # plain, well over 100 bytes actual
     transport = ASGITransport(app=collector.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
@@ -269,3 +299,26 @@ async def test_size_cap_deletes_oldest_first(env, monkeypatch):
 async def test_size_cap_noop_under_limit(env):
     (env / "a.jsonl").write_text("x")
     assert collector.enforce_size_cap() == 0
+
+
+async def test_size_cap_drains_largest_partition_first(env, monkeypatch):
+    """A flood squeezes ITSELF out: deletion drains the biggest
+    env/runtime partition's oldest files before touching known
+    senders' data."""
+    flood = env / "unknown" / "rt_flood" / "s"
+    ours = env / "manyfold-prod" / "rt_ours" / "s"
+    flood.mkdir(parents=True)
+    ours.mkdir(parents=True)
+    for i in range(3):
+        f = flood / f"2026-0{i+1}-01.jsonl"
+        f.write_text("f" * 300)
+        os.utime(f, (1000 + i, 1000 + i))
+    keep = ours / "2026-01-01.jsonl"
+    keep.write_text("o" * 100)
+    os.utime(keep, (500, 500))  # OLDER than everything in the flood
+    monkeypatch.setenv("DIAG_COLLECT_MAX_DATA_GB", str(600 / 1024**3))
+    deleted = collector.enforce_size_cap()
+    # Global-oldest deletion would have taken `keep` first; partition-
+    # aware deletion drains the flood instead.
+    assert keep.exists()
+    assert deleted >= 2

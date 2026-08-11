@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(三)— 第 4 轮收口
+
+Tier-1 docstring 的 URL 解析段同步删除 manyfold 嗅探描述(镜像与
+docstring 曾互相矛盾);`_setup` 的 `from ._ship import` 移入 try
+("shipping is optional, logging is not" 必须覆盖 import 期失败);
+发现文档防御性解析(非 `{"ingest": {...}}` 形状按无效处理,收集端
+`/v1/config` 同步做形状校验以免发送端静默不解析);atexit 扫尾补
+`client.close()`。
+
 ## 2026-08-11(二)— 安全轮:默认 off 合入 + 发现 URL 白名单 + 并发/字节修正
 
 - **默认改回 off**(`_DEFAULT_MODE`):review Critical——"默认开"所

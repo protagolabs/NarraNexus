@@ -33,11 +33,14 @@ Ingest URL resolution (first match wins):
   2. Discovery: ``GET <NEXUS_DIAG_DISCOVERY_URL or the built-in
      https://agent.narra.nexus/telemetry/v1/config>`` returns
      ``{"ingest": {"default": url, "staging": url, ...}}``; the sender
-     picks by its env label (explicit ``NEXUS_DIAG_ENV``, else
-     "staging" when the manyfold webhook URL names api-staging, else
-     "default"). Fetched LAZILY on the worker thread with a TTL cache —
-     never at setup, so process start and test runs touch no network.
-     Unresolvable discovery leaves the sink idle until the next probe.
+     picks by its env label — ``NEXUS_DIAG_ENV`` > ``NARRA_SURFACE`` >
+     "unknown", falling back to the map's "default" entry. Deployment-
+     specific label derivation (e.g. manyfold staging detection) lives
+     in run.sh container mode, which injects ``NEXUS_DIAG_ENV`` — this
+     utility reads no other integration's env vars. Fetched LAZILY on
+     the worker thread with a TTL cache — never at setup, so process
+     start and test runs touch no network. Unresolvable discovery
+     leaves the sink idle until the next probe.
 
 No client secret: the repository is open source, so a baked or shared
 token authenticates nothing — the collector is a public endpoint
@@ -131,6 +134,7 @@ def _flush_all_at_exit() -> None:
     for sink in list(_LIVE_SINKS):
         try:
             sink.flush()
+            sink._client.close()
         except Exception:  # noqa: BLE001 — exiting; nothing left to report to
             pass
 
@@ -370,7 +374,12 @@ class ShipSink:
         try:
             resp = self._client.get(discovery)
             if 200 <= resp.status_code < 300:
-                mapping = (resp.json() or {}).get("ingest", {})
+                document = resp.json()
+                mapping = (
+                    document.get("ingest") if isinstance(document, dict) else None
+                )
+                if not isinstance(mapping, dict):
+                    raise ValueError("discovery document is not {'ingest': {...}}")
                 url = mapping.get(self._config["env"]) or mapping.get("default")
                 if url and _allowed_ingest_url(str(url)):
                     self._resolved_url = str(url)
