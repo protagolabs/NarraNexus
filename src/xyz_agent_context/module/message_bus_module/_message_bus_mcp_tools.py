@@ -26,6 +26,7 @@ from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 from xyz_agent_context.module._mcp_identity import (
     caller_errand_scope,
     caller_root_run_id,
+    caller_team_id_from_request,
     caller_turn_source,
 )
 
@@ -421,6 +422,88 @@ def register_message_bus_mcp_tools(
             if staged is None:
                 return {"success": False, "error": f"file not found: {file_path}"}
             return {"success": True, "path": staged["path"], "name": staged["original_name"]}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_pin_team_rule(
+        agent_id: str,
+        content: str,
+        tier: str = "long_term",
+    ) -> dict:
+        """
+        Pin a standing rule onto the team bulletin, so it is never said twice.
+
+        Every teammate loads the bulletin at the start of EVERY team turn, no
+        matter how long ago it was written and no matter when they joined. That
+        is what makes it different from saying something in the chat, which
+        scrolls out of view after about twenty messages and is invisible to
+        anyone who joins later.
+
+        Pin something only when it should govern FUTURE replies: a convention
+        the team settled on, an output format, a place files must go. Do not
+        pin conversation, findings, status, or anything you would not want
+        prepended to every teammate's next twenty turns. Space is small and
+        shared with the user's own rules — if it is a fact rather than a rule,
+        say it in the chat instead.
+
+        You can remove a rule YOU pinned with bus_unpin_team_rule. You cannot
+        remove the user's rules; ask them.
+
+        Args:
+            agent_id: Your agent ID
+            content: The rule, in one sentence
+            tier: "long_term" for a standing rule, "current_task" for one that
+                stops applying when this task is done
+
+        Returns:
+            Result dict with entry_id on success, or error details
+        """
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.message_bus.team_bulletin import post_team_bulletin
+
+            # The turn's team, from the server-side identity headers — never a
+            # tool argument. An agent cannot name a team it is not currently
+            # working in, so cross-team writes are not expressible rather than
+            # merely forbidden.
+            return await post_team_bulletin(
+                db=await get_db_client(),
+                agent_id=agent_id,
+                team_id=caller_team_id_from_request() or "",
+                content=content,
+                tier=tier,
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_unpin_team_rule(agent_id: str, entry_id: str) -> dict:
+        """
+        Remove a bulletin rule that YOU pinned earlier.
+
+        Use this when a rule you added no longer holds — a superseded format, a
+        finished task's setup. You can only remove your own; the user's rules
+        and your teammates' are not yours to retract, and neither is the
+        auto-generated team progress summary. Ask the user instead.
+
+        Args:
+            agent_id: Your agent ID
+            entry_id: The bulletin entry id returned when you pinned it
+
+        Returns:
+            Result dict, or error details explaining why it was refused
+        """
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.message_bus.team_bulletin import remove_team_bulletin
+
+            return await remove_team_bulletin(
+                db=await get_db_client(),
+                agent_id=agent_id,
+                team_id=caller_team_id_from_request() or "",
+                entry_id=entry_id,
+            )
         except Exception as e:
             return {"success": False, "error": str(e)}
 

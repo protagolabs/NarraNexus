@@ -32,6 +32,10 @@ from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
+from xyz_agent_context.bundle.team_bulletin_transfer import (
+    write_imported_bulletin,
+)
+
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
@@ -145,6 +149,12 @@ async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]
             await _del(t, "agent_id", aid)
     for tid in new_team_ids:
         await _del("team_work_items", "team_id", tid)
+        # The bulletin too. The agent_tables sweep above only covers tables with
+        # an agent_id column, and team_bulletin_entries has team_id/author_id —
+        # so rows written by write_imported_bulletin survived a rollback keyed on
+        # a team_id deleted on the next line: unreachable by every query path,
+        # which is exactly the orphan `_wipe_team_data` argues against.
+        await _del("team_bulletin_entries", "team_id", tid)
         await _del("team_members", "team_id", tid)
         await _del("teams", "team_id", tid)
     for cid in new_channel_ids:
@@ -690,6 +700,11 @@ async def _confirm_inner(
             "source": "bundle",
             "intro_md": intro,
         })
+        # The rules land under the NEW team id, with the ceilings re-applied:
+        # a bundle is untrusted input and may have been hand-edited.
+        written_summary["bulletin_entries"] = await write_imported_bulletin(
+            db, new_tid, team.get("bulletin") or []
+        )
         # The board comes back with the team. Ids are remapped here rather than
         # in the bundle: `assignee_id` is a SOURCE agent id, and one that fell
         # outside the export closure has no counterpart here — it becomes

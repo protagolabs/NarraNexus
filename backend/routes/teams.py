@@ -43,7 +43,28 @@ from xyz_agent_context.repository.team_workspace_repository import (
     TeamFileRepository,
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.repository.team_bulletin_repository import TeamBulletinRepository
+
+# Budget rules live in the core package, not here: the MCP tool enforces the
+# same ceilings for agents, and a core module importing a FastAPI route to get
+# them would invert the layering the architecture depends on.
+from xyz_agent_context.message_bus.team_bulletin import (
+    BulletinLimitExceeded,
+    post_bulletin_notice as _post_bulletin_notice,
+    add_bulletin_entry,
+    check_bulletin_budget,
+    edit_bulletin_entry,
+)
 from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+    resolve_default_responder,
+    BULLETIN_MAX_ENTRIES,
+    BULLETIN_MAX_ENTRY_CHARS,
+    BULLETIN_MAX_TOTAL_CHARS,
+    BULLETIN_SOURCE_USER,
+    BULLETIN_TIER_CURRENT_TASK,
+    BULLETIN_TIER_LONG_TERM,
     CreateTeamRequest,
     UpdateTeamRequest,
     AddMemberRequest,
@@ -77,9 +98,6 @@ async def _user_id_for_request(request: Request) -> str:
 # MessageBusTrigger picks the message up and runs the @mentioned agents; their
 # replies post back into the same channel (see message_bus_trigger.py).
 
-TEAM_ROOM_OWNER_PREFIX = "team_"
-USER_SENDER_PREFIX = "usr_"
-
 
 class TeamChatSendRequest(BaseModel):
     """User message into a team group chat. ``mentions`` carries agent_ids
@@ -94,21 +112,6 @@ class TeamChatSendRequest(BaseModel):
     attachments: list[dict] = []
 
 
-def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
-    """The agent that answers a team message with NO @mention.
-
-    ``team.lead_agent_id`` if it's set and still a member; otherwise the
-    earliest-joined member (``member_agent_ids`` is ordered by join time). A
-    single-agent team therefore auto-responds. Returns None for an empty team.
-    """
-    if not member_agent_ids:
-        return None
-    lead = getattr(team, "lead_agent_id", None)
-    if lead and lead in member_agent_ids:
-        return lead
-    return member_agent_ids[0]
-
-
 async def _wipe_team_data(
     db,
     team,
@@ -116,6 +119,7 @@ async def _wipe_team_data(
     clear_chat: bool,
     clear_files: bool,
     clear_artifacts: bool = False,
+    clear_bulletin: bool = False,
     clear_board: bool = False,
 ) -> dict:
     """Clear a team's group-chat history and/or its shared files.
@@ -144,6 +148,11 @@ async def _wipe_team_data(
       attribution history WITHOUT touching the folder. Used when the TEAM
       itself goes away, and available on its own for dropping the tabs while
       keeping the files.
+    - clear_bulletin: delete the team's standing rules and its auto-summary.
+      Deliberately its OWN scope and not folded into ``clear_chat``: the
+      bulletin exists precisely because it is not chat, so wiping the
+      transcript must not take the rules with it — that would recreate the
+      "say it again" loop the bulletin was built to end.
     - clear_board: delete the team's work items.
 
     The board is a SEPARATE scope rather than part of ``clear_chat``, because
@@ -161,6 +170,7 @@ async def _wipe_team_data(
         "files_removed": False,
         "file_rows": 0,
         "artifacts": 0,
+        "bulletin_entries": 0,
         "work_items": 0,
         "errors": [],
     }
@@ -219,6 +229,9 @@ async def _wipe_team_data(
             )
             await ArtifactHistoryRepository(db).delete_for_artifacts([row["artifact_id"] for row in arts or []])
             result["artifacts"] = await db.delete("instance_artifacts", {"team_id": team.team_id})
+
+    if clear_bulletin:
+        result["bulletin_entries"] = await TeamBulletinRepository(db).delete_for_team(team.team_id)
 
     logger.info(
         f"[team wipe] team={team.team_id} chat={clear_chat} files={clear_files} "
@@ -324,7 +337,7 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     # No @mention → route to the team's default responder so the room never
     # goes silent. Exactly one agent is triggered; it can @-delegate from there.
     if not resolved:
-        default_responder = _resolve_default_responder(team, members)
+        default_responder = resolve_default_responder(getattr(team, "lead_agent_id", None), members)
         if default_responder:
             resolved = [default_responder]
     msg_id = await bus.send_message(
@@ -464,7 +477,7 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
         "channel_id": channel_id,
         "messages": out,
         "activity": activity,
-        "lead_agent_id": _resolve_default_responder(team, members),
+        "lead_agent_id": resolve_default_responder(getattr(team, "lead_agent_id", None), members),
     }
 
 
@@ -645,13 +658,17 @@ async def delete_team(team_id: str, request: Request):
     # (team_id IS NULL), list_by_team needs a team that no longer exists, and
     # list_for_agent_context joins team_members, which the next line empties.
     # Rows nothing can ever read again are precisely the orphans the acceptance
-    # criterion is about; leaving them is not "harmless clutter".
-    # The board goes too: its rows key on a team_id that is about to stop
-    # existing, so nothing could ever read them again — the same orphan the
-    # artifact sweep above is about.
+    # criterion is about; leaving them is not "harmless clutter". The bulletin
+    # and the work board are in the same position: both key on a team_id that is
+    # about to stop existing, so their only readers vanish with the team.
     await _wipe_team_data(
-        db, team, clear_chat=True, clear_files=True,
-        clear_artifacts=True, clear_board=True,
+        db,
+        team,
+        clear_chat=True,
+        clear_files=True,
+        clear_artifacts=True,
+        clear_bulletin=True,
+        clear_board=True,
     )
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
@@ -667,6 +684,10 @@ async def clear_team_data(
         True,
         description="Delete the team's shared files AND its artifacts — team artifacts live in this folder, so removing it destroys their content",
     ),
+    bulletin: bool = Query(
+        False,
+        description="Delete the team's bulletin — its standing rules and auto-summary",
+    ),
     board: bool = Query(
         False,
         description=(
@@ -675,12 +696,19 @@ async def clear_team_data(
         ),
     ),
 ):
-    """Clear a team's collaboration data (chat and/or shared files), keeping the
-    team, its members, and the bus channel. Owner-only. The team counterpart to
-    the per-agent ``DELETE /{agent_id}/history``."""
-    if not chat and not files and not board:
+    """Clear a team's collaboration data, keeping the team, its members, and the
+    bus channel. Owner-only. The team counterpart to the per-agent
+    ``DELETE /{agent_id}/history``.
+
+    Four independent scopes. Neither the bulletin nor the board is folded into
+    ``chat``, and for the same reason: both are the team's standing state rather
+    than its conversation, so clearing a noisy transcript must not silently take
+    the rules it was given or the work it still owes.
+    """
+    if not any((chat, files, bulletin, board)):
         raise HTTPException(
-            status_code=400, detail="Select at least one scope: chat, files and/or board"
+            status_code=400,
+            detail="Select at least one scope: chat, files, bulletin and/or board",
         )
 
     user_id = await _user_id_for_request(request)
@@ -692,7 +720,12 @@ async def clear_team_data(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     result = await _wipe_team_data(
-        db, team, clear_chat=chat, clear_files=files, clear_board=board
+        db,
+        team,
+        clear_chat=chat,
+        clear_files=files,
+        clear_bulletin=bulletin,
+        clear_board=board,
     )
     return {"success": True, **result}
 
@@ -709,6 +742,127 @@ async def _team_files(db, team_id: str) -> list[dict]:
     """A team's shared files, newest first. Thin wrapper so the route reads
     naturally and the test can call it without an HTTP client."""
     return await TeamFileRepository(db).list_by_team(team_id)
+
+
+# --- Team bulletin ---------------------------------------------------------
+#
+# The standing rules every member loads on every team turn. Everything here
+# reaches every prompt, which is why the budget below is enforced rather than
+# advisory: an unbounded bulletin is an unbounded prompt on the hottest path
+# the team feature has.
+
+
+class CreateBulletinEntryRequest(BaseModel):
+    content: str
+    tier: str = BULLETIN_TIER_LONG_TERM
+
+
+class UpdateBulletinEntryRequest(BaseModel):
+    content: str
+
+
+@router.get("/{team_id}/bulletin")
+async def list_team_bulletin(team_id: str, request: Request):
+    """The team's bulletin plus its current budget usage.
+
+    Usage rides along with the list so the panel can grey out "add" BEFORE the
+    user types a rule, instead of rejecting it once written.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    repo = TeamBulletinRepository(db)
+    entries = await repo.list_for_team(team_id)
+    usage = await check_bulletin_budget(repo, team_id)
+    return {
+        "entries": [format_for_api(e.model_dump()) for e in entries],
+        "usage": usage.model_dump(),
+        "limits": {
+            "max_entries": BULLETIN_MAX_ENTRIES,
+            "max_entry_chars": BULLETIN_MAX_ENTRY_CHARS,
+            "max_total_chars": BULLETIN_MAX_TOTAL_CHARS,
+        },
+    }
+
+
+@router.post("/{team_id}/bulletin")
+async def create_team_bulletin_entry(team_id: str, payload: CreateBulletinEntryRequest, request: Request):
+    """Add a rule. Over-budget is a 400 that names the limit — never a trim."""
+    db, _team = await _require_team_owner(request, team_id)
+    user_id = await _user_id_for_request(request)
+    tier = BULLETIN_TIER_CURRENT_TASK if payload.tier == BULLETIN_TIER_CURRENT_TASK else BULLETIN_TIER_LONG_TERM
+    try:
+        entry = await add_bulletin_entry(
+            TeamBulletinRepository(db),
+            team_id=team_id,
+            content=payload.content,
+            source=BULLETIN_SOURCE_USER,
+            author_id=user_id,
+            tier=tier,
+        )
+    except BulletinLimitExceeded as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True, "entry": format_for_api(entry.model_dump())}
+
+
+@router.patch("/{team_id}/bulletin/{entry_id}")
+async def update_team_bulletin_entry(
+    team_id: str, entry_id: str, payload: UpdateBulletinEntryRequest, request: Request
+):
+    """Edit any entry — the owner's authority covers agent-written rules and
+    the auto-summary alike. An agent editing its own goes through the tool."""
+    db, _team = await _require_team_owner(request, team_id)
+    try:
+        entry = await edit_bulletin_entry(
+            TeamBulletinRepository(db),
+            team_id=team_id,
+            entry_id=entry_id,
+            content=payload.content,
+        )
+    except BulletinLimitExceeded as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Bulletin entry not found")
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True}
+
+
+@router.delete("/{team_id}/bulletin/{entry_id}")
+async def delete_team_bulletin_entry(team_id: str, entry_id: str, request: Request):
+    """Remove one entry. The owner may remove anything, including what an agent
+    wrote and the auto-summary — that is the escape hatch that makes agent
+    write access safe to grant."""
+    db, _team = await _require_team_owner(request, team_id)
+    repo = TeamBulletinRepository(db)
+    entry = await repo.get(entry_id)
+    if entry is None or entry.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Bulletin entry not found")
+    await repo.delete(entry_id)
+    await _post_bulletin_notice(db, team_id, "updated")
+    return {"success": True}
+
+
+@router.delete("/{team_id}/bulletin")
+async def clear_team_bulletin_tier(
+    team_id: str,
+    request: Request,
+    tier: str = Query(
+        BULLETIN_TIER_CURRENT_TASK,
+        description="Which tier to clear; the auto-summary belongs to no tier and survives",
+    ),
+):
+    """Clear one tier in a single action — the "this task is done" button.
+
+    Deliberately tier-scoped rather than a blanket clear: the standing rules
+    are the part the user least wants to retype, and they are what the whole
+    feature exists to stop retyping.
+    """
+    db, _team = await _require_team_owner(request, team_id)
+    if tier not in (BULLETIN_TIER_CURRENT_TASK, BULLETIN_TIER_LONG_TERM):
+        raise HTTPException(status_code=400, detail="Unknown bulletin tier")
+    removed = await TeamBulletinRepository(db).delete_tier(team_id, tier)
+    if removed:
+        await _post_bulletin_notice(db, team_id, "cleared")
+    return {"success": True, "removed": removed}
 
 
 async def _require_team_owner(request: Request, team_id: str):

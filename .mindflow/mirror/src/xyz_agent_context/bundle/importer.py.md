@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-10 — 工作板还原、id 重映射与回滚
@@ -194,3 +194,16 @@ pre-collect 阶段扫每个 `agents/<aid>/artifacts.json` 把 `artifact_id` 加�
 - 重启后 confirm 报 "preflight working dir missing" = 用户中间发版了，让用户重传。
 - ID rewrite 在自由文本里**有概率误命中**普通 hex 串（极低，可接受）。
 - 整个 confirm 是非事务的（一个 insert 一个 insert），失败时 staging dir 清掉但已经入库的 row 不会回滚。这是 v1 简化，spec 阶段需要包 transaction。
+
+## 2026-08-11 — 导入公告栏到**新** team id
+
+走 [[team_bulletin_transfer]] 的 `write_imported_bulletin`，落在 id map 铸出的新 team id 上。
+bundle 是不可信输入：上限重新施加，且无论 payload 声称什么都不写自动总结。
+
+## 2026-08-11 (review) — 回滚也要扫公告栏表
+
+导入失败的回滚里，通用的 agent 表清扫只覆盖**带 `agent_id` 列**的表，
+而 `team_bulletin_entries` 只有 `team_id` / `author_id`，两边都不命中。
+于是 `write_imported_bulletin` 写进去的行会留在一个下一行就被删掉的 `team_id` 上——
+**任何查询路径都读不到**，正是 `_wipe_team_data` 自己论证过的那种孤儿行。
+#259 在紧挨着的一行把 `team_work_items` 加了进去，对比之下这个缺口才显出来。

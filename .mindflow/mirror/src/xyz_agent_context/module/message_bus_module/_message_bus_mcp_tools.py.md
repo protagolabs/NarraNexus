@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-07 — 两个发送工具盖上 root_run_id
@@ -99,3 +99,10 @@ from the LLM.
 ## 新人易踩的坑
 
 工具函数名（如 `"send_message"`）就是 LLM 调用时使用的工具名，必须和 MCP 服务器注册时的名称一致。如果修改函数名，需要同时更新 `MessageBusModule.get_mcp_config()` 里注册工具时使用的名称字符串，否则 LLM 调用会报"工具不存在"。
+
+## 2026-08-11 — `bus_pin_team_rule` / `bus_unpin_team_rule`
+
+薄包装，规则在 [[team_bulletin]]。**没有 `team_id` 参数**：来自
+`caller_team_id_from_request()` 的服务端身份头。这比隔壁 `bus_share_to_team`
+（模型传 team_id + 三段校验）更强——agent 无法指认自己当前不在的团队，
+于是跨团队写入不是要防的攻击，而是**不可表达的状态**。有测试断言签名里没有 `team_id`。

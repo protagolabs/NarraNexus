@@ -44,21 +44,20 @@ from xyz_agent_context.message_bus.local_bus import (
     canonical_ts,
 )
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+)
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES,
+    placeholders as _platform_placeholders,
+    trigger_label as _platform_trigger_label,
+)
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
-
-# A team group-chat channel's ``created_by`` is this prefix + team_id (a
-# non-agent marker), set by the team-chat route. It both identifies the
-# room and ensures no member agent is the always-activated channel owner —
-# delivery is purely @-mention driven. Keep in sync with backend/routes/teams.py.
-TEAM_ROOM_OWNER_PREFIX = "team_"
-
-# The user posts into a team room as this prefix + user_id (a non-agent
-# sender). Keep in sync with backend/routes/teams.py.
-USER_SENDER_PREFIX = "usr_"
 
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
@@ -818,12 +817,14 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                bulletin = await self._load_bulletin(team_id)
                 rendered_from = history[0].created_at if history else None
                 lead_agent_id, work_items = await self._team_board(team_id)
                 prompt = self._build_team_prompt(
                     agent_id, history, member_map,
                     owner_user_id=team_owner, team_id=team_id,
                     trigger_messages=messages,
+                    bulletin=bulletin,
                     lead_agent_id=lead_agent_id,
                     work_items=work_items,
                 )
@@ -1207,6 +1208,101 @@ class MessageBusTrigger:
                 out[m.agent_id] = row.get("agent_name") or m.agent_id
         return out
 
+    async def _load_bulletin(self, team_id: str) -> List[Any]:
+        """The team's standing rules, or [] if they cannot be read.
+
+        Its own method so the degradation is testable rather than buried in the
+        dispatch path. A read failure must NOT take the turn down: the turn is
+        still perfectly answerable without the bulletin, so losing it is a
+        degradation while losing the reply is an outage. The warning is what
+        makes the degradation visible — silently returning [] would present an
+        unreachable database as "this team has no rules".
+        """
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.repository import TeamBulletinRepository
+
+            return await TeamBulletinRepository(await get_db_client()).list_for_team(team_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[team-bulletin] could not load bulletin for {team_id}, "
+                f"continuing without it: {e}"
+            )
+            return []
+
+    @staticmethod
+    def _render_bulletin(bulletin: Optional[List[Any]], member_map: Dict[str, str]) -> List[str]:
+        """Render the team bulletin block, or nothing at all.
+
+        Returns [] for an empty/absent bulletin — a stated acceptance criterion,
+        not an optimisation. A header with "(none)" under it would ride along in
+        every turn of every team that never touches the feature.
+
+        Three groups, in this order:
+
+        1. long-term rules, 2. current-task rules, 3. the auto-summary.
+
+        Rules before summary because the summary is machine guesswork sitting
+        next to instructions a human typed; rendered as another numbered rule it
+        would be *obeyed* rather than read. It is labelled as automatic and
+        possibly stale for the same reason — an agent needs some way to weigh
+        the two apart, and there is none in the text itself.
+
+        Agent-written entries are attributed, user-written ones are not: the
+        attribution exists so the reader can tell which rules the team invented
+        for itself. Everything unattributed came from the person in charge.
+        """
+        if not bulletin:
+            return []
+
+        from xyz_agent_context.schema.team_schema import (
+            BULLETIN_SOURCE_AGENT,
+            BULLETIN_SOURCE_SUMMARY,
+            BULLETIN_TIER_CURRENT_TASK,
+        )
+
+        rules = [e for e in bulletin if e.source != BULLETIN_SOURCE_SUMMARY]
+        summary = next(
+            (e for e in bulletin if e.source == BULLETIN_SOURCE_SUMMARY), None
+        )
+        if not rules and summary is None:
+            return []
+
+        def _label(entry) -> str:
+            if entry.source != BULLETIN_SOURCE_AGENT or not entry.author_id:
+                return ""
+            return f"  (added by {member_map.get(entry.author_id, entry.author_id)})"
+
+        out: List[str] = []
+        if rules:
+            out += [
+                "",
+                "[Team Bulletin] — standing rules for this team. They apply to "
+                "every reply you make here, including ones the conversation "
+                "below says nothing about. Follow them without being reminded.",
+            ]
+            n = 0
+            for e in [r for r in rules if r.tier != BULLETIN_TIER_CURRENT_TASK]:
+                n += 1
+                out.append(f"{n}. {e.content}{_label(e)}")
+            current = [r for r in rules if r.tier == BULLETIN_TIER_CURRENT_TASK]
+            if current:
+                out.append("For the CURRENT TASK only:")
+                for e in current:
+                    n += 1
+                    out.append(f"{n}. {e.content}{_label(e)}")
+
+        if summary is not None and (summary.content or "").strip():
+            out += [
+                "",
+                "[Team progress] — auto-summarised by the platform, NOT written "
+                "by anyone, and it may lag behind what just happened. Treat it "
+                "as background, and trust the conversation below over it where "
+                "they disagree.",
+                summary.content,
+            ]
+        return out
+
     async def _run_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
         """One patrol sweep: look at the board, chase what is stuck, or say nothing.
 
@@ -1299,10 +1395,17 @@ class MessageBusTrigger:
             channel_id, limit=TEAM_HISTORY_LIMIT
         )
         lead, work_items = await self._team_board(team_id)
+        # The patrol sweep is a real turn whose reply lands in the room with
+        # @mentions, so it is bound by the team's rules exactly as an @mentioned
+        # member is. Omitting this made the Leader the one member the bulletin
+        # did not reach — while the tool blurb below still told it the bulletin
+        # loads every turn.
+        bulletin = await self._load_bulletin(team_id)
         prompt = self._build_team_prompt(
             lead_agent_id, history, member_map,
             owner_user_id=team_owner, team_id=team_id,
             trigger_messages=[],
+            bulletin=bulletin,
             lead_agent_id=lead or lead_agent_id,
             work_items=work_items,
             patrol_stalled=[
@@ -1446,6 +1549,8 @@ class MessageBusTrigger:
         lead_agent_id: str = "",
         work_items: Optional[List[dict]] = None,
         patrol_stalled: Optional[List[dict]] = None,
+        *,
+        bulletin: Optional[List[Any]],
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1490,6 +1595,27 @@ class MessageBusTrigger:
                 f"your teammates cannot open or continue."
             )
 
+        # Two standing blocks now precede the conversation, in this order:
+        # the bulletin (rules that govern HOW you reply), then the work
+        # board (WHAT is outstanding) and the Leader's duties. Rules first
+        # because they frame everything after them, including the board.
+        # A tool nobody is told about is a tool nobody uses. Kept to one line
+        # and worded to discourage over-pinning: the bulletin's budget is small
+        # and shared with the user's own rules, so an agent that treats it as a
+        # notepad crowds out the very rules it is supposed to obey.
+        lines += [
+            "",
+            "If the team settles on a convention that should govern FUTURE "
+            "replies (an output format, where files go), pin it with "
+            "bus_pin_team_rule so nobody has to repeat it — every teammate "
+            "loads it every turn. Findings, status and conversation belong in "
+            "the chat, not the bulletin.",
+        ]
+
+        # Before the conversation on purpose: these are the standing constraints
+        # the messages are to be read UNDER. Appended after twenty lines of chat
+        # they would read as a footnote to the chat instead of a frame for it.
+        lines += self._render_bulletin(bulletin, member_map)
         # --- The work board, and (for the lead) what it obliges -------------
         #
         # Injected rather than fetched: if seeing your own board required
@@ -1568,6 +1694,23 @@ class MessageBusTrigger:
                   "including any files posted by anyone; open a file path with Read "
                   "if you need its contents:"]
         for msg in history:
+            # Platform lines are LABELLED, not dropped.
+            #
+            # Rendered the normal way they read as a member speaking — "Alice:
+            # Team bulletin updated." — because a notice's sender is whoever
+            # triggered it, and patrol's `team_<id>` marker does not resolve
+            # through member_map at all, so it prints raw as a phantom teammate.
+            #
+            # But dropping them was worse, and briefly shipped: a patrol reply
+            # is posted WITH @mentions, so it becomes the mentioned member's
+            # trigger message, and the pointer line below prints only the sender
+            # — "Respond to that message" — precisely because the text is
+            # supposed to be here in the history. Removing it aimed that
+            # instruction at nothing. The one sender this filter exists to
+            # silence was the only one it broke.
+            if (msg.msg_type or "") in PLATFORM_MSG_TYPES:
+                lines.append(f"[system] {msg.content}")
+                continue
             sender = _sender(msg)
             lines.append(f"{sender}: {msg.content}")
             marker = build_bus_markers(msg.attachments, from_agent=sender)
@@ -1578,9 +1721,17 @@ class MessageBusTrigger:
         # @mentioned it (it's already in the history above, shown in order).
         if trigger_messages:
             tm = trigger_messages[-1]
+            # A patrol chase reaches here as a real trigger, and its sender is
+            # the synthetic `team_<id>` marker, which member_map cannot resolve.
+            # Naming it verbatim invents a teammate the agent may then try to
+            # @mention back.
+            if (tm.msg_type or "") in PLATFORM_MSG_TYPES:
+                who = _platform_trigger_label(tm.msg_type or "")
+            else:
+                who = _sender(tm)
             lines += [
                 "",
-                f"You were just @mentioned by {_sender(tm)}. Respond to that "
+                f"You were just @mentioned by {who}. Respond to that "
                 f"message. If it refers to a file/image shown above, open the "
                 f"path with the Read tool first, then reply.",
             ]
@@ -1640,7 +1791,7 @@ class MessageBusTrigger:
         how many agent hops have happened since the last human message. A user
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
-        # Patrol lines are excluded IN SQL, not skipped after the fact.
+        # Platform lines are excluded IN SQL, not skipped after the fact.
         #
         # A patrol line is the PLATFORM taking stock, not an agent taking a
         # turn, so it must not count toward the cap (owner decision
@@ -1648,6 +1799,12 @@ class MessageBusTrigger:
         # patrol speaks into a room that is already at the cap precisely
         # because the flow broke, and its own line would push every later
         # chase @ out of reach.
+        #
+        # The same sentence is true word for word of the stop notice and the
+        # bulletin notice, which were left in when this was written because
+        # patrol was the only one that existed. They are now all excluded
+        # through one shared tuple, so the next platform message type cannot
+        # be forgotten here (see `system_messages`).
         #
         # Filtering in Python was not enough. The window is a fixed LIMIT, so
         # a skipped row still consumed a slot in it: with 3 patrol lines among
@@ -1657,9 +1814,9 @@ class MessageBusTrigger:
         # speaks where a chain is already looping.
         rows = await self._bus._db.execute(
             f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-            f"AND (msg_type IS NULL OR msg_type != {ph}) "
+            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders(ph)})) "
             f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id, PATROL_MSG_TYPE),
+            (channel_id, *PLATFORM_MSG_TYPES),
         )
         depth = 0
         for r in rows or []:

@@ -29,14 +29,14 @@ from typing import Any, Callable, Optional, Tuple
 
 from loguru import logger
 
+from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+
 from xyz_agent_context.module._mcp_identity import (
     caller_root_run_id,
     caller_team_id_from_request,
 )
 from xyz_agent_context.schema.team_work_schema import WorkItemStatus
 
-# The room prefix convention, same as backend/routes/teams.py and the trigger.
-TEAM_ROOM_OWNER_PREFIX = "team_"
 
 
 async def _get_db():

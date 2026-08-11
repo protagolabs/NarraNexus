@@ -200,6 +200,28 @@
         },
         "turnOff": "Turn off",
         "turnOn": "Turn on"
+      },
+      "bulletin": {
+        "title": "Bulletin",
+        "intro": "Standing rules for this team. Every member loads them at the start of every turn — no matter how long ago you wrote them, or when they joined.",
+        "empty": "No rules yet. Add one and the whole team follows it from their next reply.",
+        "longTerm": "Standing",
+        "currentTask": "Current task",
+        "clearCurrentTask": "Clear current task",
+        "progress": "Team progress",
+        "progressHint": "Summarised automatically from the room. It may lag behind what just happened.",
+        "placeholder": "e.g. Always reply in English. Reports go in the shared folder.",
+        "fullPlaceholder": "The bulletin is full — remove a rule to add another.",
+        "newEntry": "New rule",
+        "editLabel": "Edit rule",
+        "editEntry": "Edit this rule",
+        "deleteEntry": "Delete this rule",
+        "tierLabel": "How long this rule applies",
+        "add": "Add",
+        "addedBy": "added by {{name}}",
+        "usage": "{{entries}}/{{maxEntries}} rules · {{chars}}/{{maxChars}} chars",
+        "updatedNotice": "Bulletin updated",
+        "clearedNotice": "Bulletin cleared"
       }
     },
     "execution": {
@@ -1252,7 +1274,9 @@
       "optFilesDesc": "Delete files shared into this team, AND the team's artifacts — team artifacts live in this folder, so their content goes with it.",
       "keepNote": "The team, members, and each agent's own data are preserved.",
       "cancel": "Cancel",
-      "confirm": "Clear"
+      "confirm": "Clear",
+      "optBulletin": "Bulletin",
+      "optBulletinDesc": "Delete the team's standing rules and its progress summary. The team will need to be told them again."
     },
     "alert": {
       "createFailed": "Create team failed: {{error}}",

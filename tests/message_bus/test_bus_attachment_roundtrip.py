@@ -114,6 +114,7 @@ def test_team_prompt_injects_marker_and_shared_folder():
         member_map,
         owner_user_id="user_a",
         team_id="team_42",
+        bulletin=None,
     )
     assert "use Read tool" in prompt  # attachment marker
     assert "Team shared folder" in prompt  # collaboration hint
@@ -132,6 +133,7 @@ def test_team_prompt_shows_history_from_others_and_points_at_trigger():
     prompt = trig._build_team_prompt(
         "agent_b", [user_img, ask], member_map,
         owner_user_id="user_a", team_id="team_42", trigger_messages=[ask],
+        bulletin=None,
     )
     # The image (from the user, NOT @Bob) is visible to Bob in the scrollback.
     assert "use Read tool" in prompt
@@ -150,6 +152,7 @@ def test_team_prompt_allows_action_tools_forbids_reply_delivery():
             "agent_b",
             [_msg(attachments=atts, msg_type=mtype, content="see the path")],
             {"agent_a": "Alice", "agent_b": "Bob"},
+            bulletin=None,
         )
         assert "Do NOT use any tools" not in prompt          # no blanket ban
         assert "built-in Read tool" in prompt                # Read allowed

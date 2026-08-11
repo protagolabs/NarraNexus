@@ -238,6 +238,18 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Team bulletin — keep each team's progress summary fresh so a member
+    # joining a long task does not have to reconstruct it from scrollback.
+    # Same opportunistic contract as the memory worker: per-team isolation, a
+    # failure keeps the previous summary, and nothing ever waits on it
+    # (iron rule #14).
+    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+
+    team_summary_worker = TeamSummaryWorker(db)
+    await team_summary_worker.start()
+    app.state.team_summary_worker = team_summary_worker
+    logger.info("Team summary worker started")
+
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
@@ -350,6 +362,12 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()
+    # Stopped BEFORE the db client closes: its poll loop holds that client, and
+    # a pass landing mid-teardown would log a confusing connection error on
+    # every clean shutdown.
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        await summary_worker.stop()
     await close_db_client()
     logger.info("Database connections closed")
 
@@ -518,11 +536,28 @@ app.include_router(
 
 @app.get("/health")
 async def health():
-    """Detailed health check"""
-    return {
+    """Detailed health check.
+
+    Carries the team-summary worker's last pass so its liveness is observable
+    from outside the process. Recording the counters and never exposing them
+    would leave the same blind spot they were added for: "every room is quiet"
+    and "every room is failing" both look like a worker that is simply up.
+
+    Reported, never judged — a non-zero ``failed`` is not an unhealthy service
+    (a single team with a bad provider key must not fail the container's probe),
+    so ``status`` does not depend on it.
+    """
+    body = {
         "status": "healthy",
         "database": "connected",
     }
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        body["team_summary"] = {
+            "running": summary_worker.running,
+            **summary_worker.last_pass,
+        }
+    return body
 
 
 @app.get("/healthz")

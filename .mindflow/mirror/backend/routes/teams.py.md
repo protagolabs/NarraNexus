@@ -294,6 +294,27 @@ alongside `thinking` (kept for back-compat). status = running (from [[_bus_activ
 `is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
 Drives the team status strip + activity bubbles.
 
+## 2026-08-11 — 公告栏子资源 + `clear_bulletin` scope
+
+新增 5 个端点（list / create / patch / delete / 按 tier 清空）。预算规则**不在这里**，
+在核心包 [[team_bulletin]]：MCP 工具要强制同一套上限，而核心包反向 import 一个 FastAPI
+路由会把分层倒过来。第一版就是那么写的，提交前修正。
+
+`clear_bulletin` 是**独立 scope，绝不并入 `clear_chat`**。公告栏之所以存在恰恰因为它不是聊天；
+并进去就意味着「清掉一段吵闹的 transcript」会静默销毁团队被交代过的每一条规则——
+把用户直接送回公告栏本来要终结的那个复读循环。默认关。
+
+`delete_team` **会**带走它，理由与工作台相同：team 行一没，公告栏唯一的读者
+（这个团队的 prompt 构造器）也随之消失，剩下的是任何查询路径都读不到的孤儿行。
+
+条目查找按 **(team_id, entry_id)** 而非仅 id：同一 owner 另一个团队的 entry_id
+不该能从这个团队的路径上打开。
+
+## 2026-08-11 (review) — 通知助手移出，两个未用 import 清掉
+
+`_post_bulletin_notice` 移到核心包 [[team_bulletin]]（agent 写入也需要它，而核心包不能反向
+import 路由），这里改为 import。`Optional` / `BulletinUsage` 在预算函数搬走后成了未用 import，
+已删。
 ## 2026-08-10 — the work-board endpoint stopped writing its own SQL
 
 `GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
@@ -313,3 +334,14 @@ reason to reach into.
 `list_visible` 返回的是 `List[WorkItem]`,端点原先又 `model_dump()` 拍回 dict
 再按字符串 key 取回来,把上一轮改动刚拿到的类型直接扔掉:`r["item_id"]` 拼错要
 到请求时才炸,`i.item_id` 在 pyright 就拦得住。
+
+## 2026-08-11 (review 收口) — 默认应答者规则与房间前缀改为 import
+
+`_resolve_default_responder` 变成一层薄委托，实现移入 [[team_schema]]，好让总结 worker
+用同一条规则而不是自己再写一份。两个房间前缀同样改为 import。
+
+## 2026-08-11 (review 收口 2) — 删掉转发壳
+
+`_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
+import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
+测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。

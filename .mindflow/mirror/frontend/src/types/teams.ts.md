@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
@@ -83,3 +83,8 @@ then mirror it here — otherwise runtime field-name drift bites silently.
 
 `Team` gained `lead_agent_id?` (default responder; null = earliest member). Set via the
 TeamManagementModal picker → `updateTeam`. See backend [[teams]].
+
+## 2026-08-11 — `BulletinEntry` / `TeamBulletin`
+
+`source` 驱动权限与渲染，`author_id` 只驱动「由谁添加」标签、自动总结为 null。
+`TeamBulletin` 把 usage/limits 一起带上，见 [[api]]。
