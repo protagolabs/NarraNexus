@@ -13,6 +13,10 @@ turn（keyed on session）和 degraded turn（keyed on room）若走不同 key�
 一次 metadata 校验失败就会裂成两条并发 drain loop → 两路 TTS 流交错。
 per-room key 让同一通话的两级 turn 共用一条串行队列；不同房间（≠同一
 通话）仍完全并行。2026-08-06 条目里的「per-rtc_session」描述自此过时。
+连带后果（故意的取舍）：`_merge_voice_batch` 合并跨级 batch 时最新一条
+的 metadata 整体胜出——degraded 尾巴会丢掉更早 strict turn 的
+correlation ID、`[voice-timing]` 打成 `degraded`。correlation 永远跟
+最新 turn，不做拼接。
 
 ## 2026-08-11 — voice 检测升级为两级（common trigger + degraded 打戳）
 

@@ -228,7 +228,11 @@ def _merge_voice_batch(batch: list) -> tuple:
     transcripts concatenate in arrival order into ONE message. The last
     utterance's metadata (event id, rtc ids, timestamps) is the base:
     correlation follows the newest turn_id, matching Hybrid's view that
-    earlier turns were superseded.
+    earlier turns were superseded. When a batch mixes strict and degraded
+    turns this means the newest utterance's metadata wins outright — a
+    degraded tail drops the earlier turns' correlation IDs and the
+    [voice-timing] line stamps "degraded". Deliberate trade-off:
+    correlation follows the newest turn, never a stitched-together one.
     """
     if len(batch) == 1:
         return batch[0]

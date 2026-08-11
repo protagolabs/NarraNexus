@@ -24,10 +24,9 @@ import asyncio
 import hmac
 import itertools
 
-from typing import Any
+from typing import Any, Optional
 
-import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from loguru import logger
@@ -36,6 +35,7 @@ from xyz_agent_context.agent_framework.loop.broker_client import (
     ExecutorEnsureResult,
     broker_url,
     ensure_executor,
+    executor_healthy,
     wait_until_ready,
 )
 from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
@@ -131,22 +131,14 @@ _PREWARM_STATE: dict[str, dict] = {}
 
 # Monotonic generation per warmer task: every ledger write inside _do_prewarm
 # is guarded by "my gen is still the current entry's gen", so a stale task can
-# never clobber a newer entry (e.g. failed(old) landing after warming(new)).
+# never clobber a newer entry (e.g. a stale failure-pop landing after a
+# newer request already started warming).
 _PREWARM_GEN = itertools.count(1)
 
 
-async def _executor_alive(executor_url: str, timeout: float = 5.0) -> bool:
-    """200 on /health, never raises (mirrors broker_client._executor_healthy;
-    private there, so restated rather than imported)."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(f"{executor_url.rstrip('/')}/health")
-            return resp.status_code == 200
-    except Exception:  # noqa: BLE001 — booting / absent both mean "not ready"
-        return False
-
-
-async def _resolve_prewarm_target(request: Request, body_mxid: str, body_profile: str):
+async def _resolve_prewarm_target(
+    request: Request, body_mxid: str, body_profile: str
+) -> tuple[Optional[str], Optional[JSONResponse]]:
     """Shared auth + resolution for both prewarm endpoints.
 
     Returns (owner_user_id, None) on success or (None, JSONResponse) on
@@ -193,9 +185,10 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
     unawaited task must never carry a live exception).
 
     Every ledger write is generation-guarded: if a newer prewarm replaced
-    our entry while we awaited, our late result must not clobber it. Writes
-    mutate the entry in place so the entry keeps holding this task's strong
-    reference for its whole lifetime.
+    our entry while we awaited, our late result must not clobber it. The
+    ready write mutates the entry in place so the entry keeps holding this
+    task's strong reference; failure (like broker-vanished) pops the entry
+    entirely — the next POST re-warms either way.
     """
     try:
         result = await ensure_executor(user_id)
@@ -210,10 +203,11 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
             state["executor_url"] = result.url
         logger.info(f"[prewarm] executor ready user={user_id} cold={result.cold_started}")
     except Exception as e:  # noqa: BLE001
+        # A failed entry carries no information the next POST could use —
+        # it re-warms regardless — so drop the entry instead of parking a
+        # "failed" status in the ledger.
         if _owns_ledger_entry(user_id, gen):
-            state = _PREWARM_STATE[user_id]
-            state["status"] = "failed"
-            state["executor_url"] = ""
+            _PREWARM_STATE.pop(user_id, None)
         logger.warning(f"[prewarm] failed user={user_id}: {type(e).__name__}: {e}")
 
 
@@ -233,7 +227,7 @@ async def prewarm(request: Request, body: PrewarmRequest):
     if (
         state
         and state["status"] == "ready"
-        and await _executor_alive(state["executor_url"], timeout=1.0)
+        and await executor_healthy(state["executor_url"], timeout=1.0)
     ):
         return JSONResponse(status_code=202, content={"status": "already_warm"})
     if (
@@ -244,7 +238,8 @@ async def prewarm(request: Request, body: PrewarmRequest):
     ):
         # In-flight dedup: a call rings once but the partner may POST several
         # times — piling extra ensure_executor calls onto the broker helps
-        # nobody. The live task will flip this very entry to ready/failed.
+        # nobody. The live task will flip this entry to ready, or pop it
+        # on failure.
         return JSONResponse(status_code=202, content={"status": "warming"})
     if broker_url() is None:  # local/desktop: nothing to warm — never an error
         return JSONResponse(status_code=202, content={"status": "skipped"})
@@ -265,9 +260,15 @@ async def prewarm(request: Request, body: PrewarmRequest):
 
 @router.get("/prewarm/status")
 async def prewarm_status(
-    request: Request, agent_matrix_user_id: str = "", agent_profile_id: str = ""
+    request: Request,
+    agent_matrix_user_id: str = Query(default="", max_length=255),
+    agent_profile_id: str = Query(default="", max_length=64),
 ):
-    """Optional readiness probe so the caller can size the "connecting" UI."""
+    """Optional readiness probe so the caller can size the "connecting" UI.
+
+    Query constraints mirror the POST body's (PrewarmRequest): same fields,
+    same bounds.
+    """
     owner, err = await _resolve_prewarm_target(
         request, agent_matrix_user_id, agent_profile_id
     )
@@ -278,5 +279,5 @@ async def prewarm_status(
         # timeout=1.0 like the POST's already-warm probe: the partner polls
         # this mid-ring — a wedged container must not stall the poll for the
         # 5s default when "not ready yet" is a perfectly good answer.
-        return {"ready": await _executor_alive(state["executor_url"], timeout=1.0)}
+        return {"ready": await executor_healthy(state["executor_url"], timeout=1.0)}
     return {"ready": False}

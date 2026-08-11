@@ -37,12 +37,16 @@ the partner.
 - **In-flight dedup**: a POST that finds a live `"warming"` entry (task not
   done) answers 202 `"warming"` WITHOUT spawning another task — the partner
   may POST several times per ring, and piling ensure calls onto the broker
-  helps nobody. `"failed"`/dead entries fall through, so retries never wedge.
+  helps nobody. Dead entries fall through, so retries never wedge.
+- **Failure drops the entry** (no `"failed"` status): a failed warm pops
+  the ledger entry entirely — a parked failure status carries no
+  information the next POST could use (it re-warms regardless), and the
+  absence of an entry already means "not ready" to the status probe.
 - **Generation guard**: each warmer task carries a `gen` from
-  `_PREWARM_GEN`; every ledger write inside `_do_prewarm` (ready, failed,
-  broker-vanished pop) fires only if the entry's gen is still its own, so a
-  stale task can never clobber a newer entry. `_do_prewarm` mutates the
-  entry in place (never replaces it) — the ledger entry IS the task's strong
+  `_PREWARM_GEN`; every ledger write inside `_do_prewarm` (ready mutates in
+  place; failure and broker-vanished pop) fires only if the entry's gen is
+  still its own, so a stale task can never clobber a newer entry. The
+  in-place ready write matters — the ledger entry IS the task's strong
   reference (the event loop only keeps weak refs; the old `_PREWARM_TASKS`
   set is gone). The dedup check means the route only ever replaces an entry
   whose task is already done (live warming entries return early), so no
@@ -54,9 +58,12 @@ the partner.
   entry (see the inline comment).
 - The warmer is a fire-and-forget task that catches ALL its own exceptions
   (engineering lesson #2); prewarm failure must never block the call itself.
-- Both liveness probes (POST already-warm check and `/prewarm/status`) use
-  `timeout=1.0`: the caller is mid-ring; a wedged container must not cost
-  the full 5s default.
+- Liveness probing is `broker_client.executor_healthy` (made public
+  2026-08-11 — the route no longer restates its own copy). Both call sites
+  (POST already-warm check and `/prewarm/status`) pass `timeout=1.0`: the
+  caller is mid-ring; a wedged container must not cost the full 5s default.
+- `/prewarm/status` query params carry the same `max_length` bounds as the
+  POST body (`fastapi.Query`): 255 for the matrix id, 64 for the profile id.
 
 ## Why it exists
 

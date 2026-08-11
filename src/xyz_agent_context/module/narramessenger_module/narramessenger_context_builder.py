@@ -65,10 +65,12 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         gc = (self._message.raw or {}).get("group_context") or {}
         room_name = ((gc.get("room") or {}).get("name")) or ""
 
-        # F28 voice turn: parse_event stamped raw["rtc_voice"] after strict
-        # metadata validation — swap the reply register for the spoken one.
-        # The voice template is channel-agnostic (channel_prompts); only
-        # the detection is narramessenger-specific.
+        # F28 voice turn: parse_event stamped raw["rtc_voice"] at either
+        # detection level (strict OR degraded) — its presence does NOT
+        # imply trusted metadata; the 1:1 PRIVATE gate carries the
+        # injection argument. Here it only swaps the reply register for
+        # the spoken one. The voice template is channel-agnostic
+        # (channel_prompts); only the detection is narramessenger-specific.
         rtc_voice = (self._message.raw or {}).get("rtc_voice")
         if rtc_voice:
             instructions = (rtc_voice.get("voice_instructions") or "").strip()

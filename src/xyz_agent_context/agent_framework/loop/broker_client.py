@@ -115,11 +115,16 @@ async def ensure_executor(
     )
 
 
-async def _executor_healthy(health_url: str) -> bool:
-    """True iff the executor answers 200 on its /health. Never raises."""
+async def executor_healthy(executor_url: str, *, timeout: float = 5.0) -> bool:
+    """True iff the executor answers 200 on its /health. Never raises.
+
+    Public: the one health probe for executor containers — callers pass the
+    executor's base URL and this appends ``/health`` itself. Hot paths that
+    must not stall on a wedged container pass a shorter ``timeout``.
+    """
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(health_url)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{executor_url.rstrip('/')}/health")
             return resp.status_code == 200
     except Exception:  # noqa: BLE001 — still booting / not reachable yet
         return False
@@ -140,10 +145,9 @@ async def wait_until_ready(
     correct, and the typed exception lets step_3 surface an actionable
     ``infra_transient`` error rather than a bare RuntimeError).
     """
-    health = f"{executor_url.rstrip('/')}/health"
     deadline = time.monotonic() + timeout
     while True:
-        if await _executor_healthy(health):
+        if await executor_healthy(executor_url):
             return
         if time.monotonic() >= deadline:
             raise ExecutorUnreachableError(
