@@ -99,12 +99,23 @@ async def get_agent_inbox(
             return {"success": True, "rooms": [], "total_unread": 0}
 
         channel_ids = [r["channel_id"] for r in member_rows]
-        # Build cursor map: channel_id -> last_processed_at (normalised
-        # to ISO string — see `_to_iso` for why).
+        # Build cursor map: channel_id -> last_read_at (normalised to ISO
+        # string — see `_to_iso` for why).
+        #
+        # `last_read_at` ONLY. The two cursors answer different questions:
+        # `last_processed_at` is the trigger's bookmark ("I drove this agent
+        # past here"), `last_read_at` is what the agent has actually been
+        # shown — and it is the one this panel's "mark read" button writes.
+        #
+        # Preferring `last_processed_at` made the two disagree in the worst
+        # possible direction. The trigger advances it on every poll, so the
+        # count read 0 forever; the frontend only fires the mark-read request
+        # when the count is above zero; so the single control that could move
+        # `last_read_at` was unreachable, precisely in the rooms whose backlog
+        # was growing. The panel said "nothing here" while every turn's context
+        # was being handed the pile it was denying.
         cursor_map = {
-            r["channel_id"]: _to_iso(
-                r.get("last_processed_at") or r.get("last_read_at") or "1970-01-01"
-            )
+            r["channel_id"]: _to_iso(r.get("last_read_at") or "1970-01-01")
             for r in member_rows
         }
 

@@ -320,8 +320,11 @@ class MessageBusModule(XYZBaseModule):
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
-            total = len(unread)
-            shown = min(total, MAX_UNREAD_IN_CONTEXT)
+            # The window is what we render; the total is what the reader needs
+            # in order to know a window is what it is looking at. They stopped
+            # being the same number when the cap moved into the query.
+            shown = len(unread)
+            total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
             parts.append("")
             parts.append(f"### Unread Messages: {total} (showing {shown})")
             parts.append("> Remember: apply Reply Discipline. Ignored messages stay unread.")
@@ -462,14 +465,27 @@ class MessageBusModule(XYZBaseModule):
                 logger.debug(f"Failed to fetch known agents: {e}")
 
             # --- 3. Fetch unread messages (capped) ---
+            # The cap is pushed into the query, and it selects the NEWEST ones.
+            # Slicing an oldest-first list in Python (what this used to do) kept
+            # handing the model the most ancient messages in the backlog — and
+            # since the read cursor never advanced in team rooms, that window
+            # was frozen: the same 20 lines, turn after turn, described as if
+            # they were the room's current state.
             unread_models = []
             try:
-                unread = await bus.get_unread(self.agent_id)
+                unread = await bus.get_unread(
+                    self.agent_id, limit=MAX_UNREAD_IN_CONTEXT
+                )
                 if unread:
-                    unread_models = unread[:MAX_UNREAD_IN_CONTEXT]
+                    unread_models = unread
                     ctx_data.extra_data["bus_unread_messages"] = [
                         msg.model_dump() for msg in unread_models
                     ]
+                    # The total is a separate question once the fetch is capped:
+                    # len() of a window always equals the window.
+                    ctx_data.extra_data["bus_unread_total"] = await bus.count_unread(
+                        self.agent_id
+                    )
             except Exception as e:
                 logger.debug(f"Failed to fetch unread messages: {e}")
 
@@ -495,8 +511,10 @@ class MessageBusModule(XYZBaseModule):
             try:
                 working_source = ctx_data.extra_data.get("working_source")
                 if working_source == WorkingSource.MESSAGE_BUS and unread_models:
-                    # Use the first unread message as the source (most recent trigger)
-                    trigger = unread_models[0]
+                    # The LAST one: the list is oldest-first, so [0] is the
+                    # oldest message in the backlog — this said "most recent
+                    # trigger" and reached for the opposite end.
+                    trigger = unread_models[-1]
                     from_agent = trigger.from_agent if hasattr(trigger, 'from_agent') else ""
                     channel_id = trigger.channel_id if hasattr(trigger, 'channel_id') else ""
                     tag = f"[MessageBus · {from_agent} · {channel_id}]"

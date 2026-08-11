@@ -110,15 +110,36 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
-    async def get_unread(self, agent_id: str) -> List[BusMessage]:
+    async def get_unread(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[BusMessage]:
         """
-        Get all unread messages for an agent across all channels.
+        Get unread messages for an agent across all channels, oldest first.
+
+        Never includes the agent's own posts.
 
         Args:
             agent_id: The agent to fetch unread messages for.
+            limit: Cap the result at the NEWEST ``limit`` messages, still
+                returned in reading order. ``None`` returns the whole backlog —
+                required by callers that must decide which messages a reply
+                covers, since a window would leave older ones unread forever.
 
         Returns:
             List of BusMessage that the agent has not yet read.
+        """
+        ...
+
+    @abstractmethod
+    async def count_unread(self, agent_id: str) -> int:
+        """
+        How many unread messages exist, independent of any window.
+
+        Args:
+            agent_id: The agent to count unread messages for.
+
+        Returns:
+            The full unread backlog size.
         """
         ...
 
@@ -294,6 +315,30 @@ class MessageBusService(ABC):
             agent_id: The agent acknowledging processing.
             channel_id: The channel being acknowledged.
             up_to_timestamp: ISO 8601 timestamp of the latest processed message.
+        """
+        ...
+
+    @abstractmethod
+    async def ack_read(
+        self,
+        agent_id: str,
+        channel_id: str,
+        up_to_timestamp: str,
+    ) -> None:
+        """
+        Acknowledge that messages up to a timestamp were SHOWN to the agent.
+
+        The twin of ``ack_processed`` on the other cursor: processed means the
+        trigger drove the agent past a point, read means the agent was actually
+        shown what was there. Only the read cursor gates the unread list that
+        rides every turn's context.
+
+        Implementations must only move the cursor forward.
+
+        Args:
+            agent_id: The agent that has seen the messages.
+            channel_id: The channel being acknowledged.
+            up_to_timestamp: ISO 8601 timestamp of the latest message shown.
         """
         ...
 

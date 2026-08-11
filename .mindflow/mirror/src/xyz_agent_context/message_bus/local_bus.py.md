@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
@@ -163,3 +163,37 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 ## 新人易踩的坑
 
 所有 SQL 里用的是 `%s` 占位符（不是 `?`），这依赖 `DatabaseBackend.execute()` 的参数处理层把 `%s` 自动转成目标数据库的占位符格式。不要改成 `?` 或 f-string 直接拼接。
+
+## 2026-08-11 — 未读的三个契约:`ack_read` / `get_unread(limit)` / `count_unread`
+
+`get_unread` 此前**没有契约**,三个缺陷叠在一起:
+
+1. **不排除自己发的帖。** `get_pending_messages` 从写下来就有 `from_agent != me`,
+   这条一直没有。于是 agent 在活跃房间里把自己说的话当成别人的待回消息读回来。
+2. **返回最旧 N 条。** `ORDER BY created_at ASC` + 无 SQL LIMIT + 调用方 Python 切片。
+   `get_recent_messages` 早就把正确形状(DESC + `reversed()`)连同理由写在 docstring 里
+   了,这里没采纳。配上永不推进的读游标,每一轮拿到的是**同一批最古老的消息**,却被
+   当作"房间现在的动静"呈现。
+3. **无 LIMIT**,整个积压过一趟网络再被切掉。
+
+现在 `limit` 选**最新的 N 条**、仍按阅读顺序返回;`limit=None` 保留全量模式,
+**这不是可选项**:模块的 turn 后钩子要拿全量来判断"这一轮的回复覆盖了哪些消息"。
+给它一个窗口,一个安静频道就可能被繁忙频道整个挤出窗口 —— agent 回了那个频道,
+游标却一动不动,它刚回答过的消息永远留在未读里,下一轮再被要求回答一次。
+`test_get_unread_contract.py` 里有一条专门的看门狗钉这个形状。
+
+`count_unread` 是新的:渲染是 `N unread (showing M)`,查询一旦加了 LIMIT,N 就不能
+再从结果 `len()` 来 —— 那样 N 恒等于 M,读者永远不知道自己看的是个窗口。
+
+`ack_read` 是 `ack_processed` 在另一根游标上的孪生。两根游标语义不同、不能合并
+(`inbox.py` 合并过一次,后果见那份 mirror)。时间戳归一化直接委托给 `ack_processed`
+的同一段逻辑而不是重写一遍 —— 那个 `'T'(0x54) > ' '(0x20)` 的坑值不得踩第二次。
+它**只前进**:`ack_processed` 能不带这个保护是因为它的调用方总是传批次自己的水位线,
+而 `ack_read` 有多个调用点,一个能被往回拨的游标会让已读消息重新冒出来。
+
+## 2026-08-11 (补) — `canonical_ts`:那个坑只留一个落点
+
+两个 ack 各自抄了一遍 `isoformat()` 归一化,而 `ack_read` 的 docstring 却写着它
+"delegated" 给了 `ack_processed` —— 注释和代码不一致,偏偏这是个踩过的坑
+(`'T'(0x54) > ' '(0x20)`,空格格式的游标沉到所有 `created_at` 之下,消息永远显示
+未处理)。抽成模块级 `canonical_ts`,两个 ack 和 trigger 的缺口判定共用一份。

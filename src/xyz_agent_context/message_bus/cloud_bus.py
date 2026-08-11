@@ -56,7 +56,9 @@ class CloudMessageBus(MessageBusService):
     ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
-    async def get_unread(self, agent_id: str) -> List[BusMessage]:
+    async def get_unread(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def mark_read(self, agent_id: str, message_ids: List[str]) -> None:
@@ -104,6 +106,12 @@ class CloudMessageBus(MessageBusService):
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def ack_processed(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def count_unread(self, agent_id: str) -> int:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def ack_read(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def record_failure(self, message_id: str, agent_id: str, error: str) -> None:
