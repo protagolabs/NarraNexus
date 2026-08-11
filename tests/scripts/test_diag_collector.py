@@ -32,6 +32,7 @@ _SPEC.loader.exec_module(collector)
 def env(monkeypatch, tmp_path):
     monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("DIAG_COLLECT_TOKEN", "coll-tok")
+    monkeypatch.setattr(collector, "_rate_state", {})
     return tmp_path
 
 
@@ -148,20 +149,47 @@ async def test_truncated_gzip_is_400_not_500(env):
     assert resp.status_code == 400
 
 
-async def test_no_token_fails_closed_by_default(monkeypatch, tmp_path):
+async def test_no_token_is_public_mode(monkeypatch, tmp_path):
+    """Telemetry redesign (2026-08-11): the collector is a PUBLIC
+    endpoint by default — open-source senders can't hold a secret, so
+    defense is rate limiting + size caps, not tokens."""
     monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("DIAG_COLLECT_TOKEN", raising=False)
-    monkeypatch.delenv("DIAG_COLLECT_ALLOW_ANONYMOUS", raising=False)
     resp = await _post(gzip.compress(_lines("x").encode()), token=None)
+    assert resp.status_code == 200
+
+
+async def test_set_token_is_still_enforced(env):
+    # Private-deployment knob: once configured, it is required.
+    resp = await _post(gzip.compress(_lines("x").encode()), token="wrong")
     assert resp.status_code == 401
 
 
-async def test_anonymous_requires_explicit_opt_in(monkeypatch, tmp_path):
-    monkeypatch.setenv("DIAG_COLLECT_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("DIAG_COLLECT_TOKEN", raising=False)
-    monkeypatch.setenv("DIAG_COLLECT_ALLOW_ANONYMOUS", "1")
-    resp = await _post(gzip.compress(_lines("x").encode()), token=None)
+async def test_rate_limit_429(env, monkeypatch):
+    monkeypatch.setattr(collector, "_RATE_MAX_REQUESTS", 2)
+    monkeypatch.setattr(collector, "_rate_state", {})
+    body = gzip.compress(_lines("x").encode())
+    assert (await _post(body)).status_code == 200
+    assert (await _post(body)).status_code == 200
+    assert (await _post(body)).status_code == 429
+
+
+async def test_discovery_config_served_verbatim(env, monkeypatch):
+    doc = {"ingest": {"default": "https://a/v1/ingest", "staging": "https://b/v1/ingest"}}
+    monkeypatch.setenv("DIAG_COLLECT_CONFIG_JSON", json.dumps(doc))
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.get("/v1/config")
     assert resp.status_code == 200
+    assert resp.json() == doc
+
+
+async def test_discovery_config_404_when_unset(env, monkeypatch):
+    monkeypatch.delenv("DIAG_COLLECT_CONFIG_JSON", raising=False)
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.get("/v1/config")
+    assert resp.status_code == 404
 
 
 async def test_wire_size_cap_precedes_buffering(env, monkeypatch):

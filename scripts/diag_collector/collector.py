@@ -20,12 +20,23 @@ line with the envelope fields merged in):
 Retention: files older than DIAG_COLLECT_RETENTION_DAYS (default 30)
 are deleted by a daily sweep (startup + every 24h).
 
+This is a PUBLIC telemetry endpoint by design (telemetry redesign,
+2026-08-11): the sender codebase is open source, so a baked or shared
+client secret authenticates nothing — security here is abuse control
+(streaming size caps, gzip-bomb bounds, per-IP rate limits), not
+secrecy. A spoofed envelope pollutes only our own diagnostics data.
+``DIAG_COLLECT_TOKEN`` remains an optional knob for private
+deployments; when set, requests must present it.
+
 Env:
-    DIAG_COLLECT_TOKEN            REQUIRED bearer — without it the
-                                  service refuses to start and every
-                                  request 401s
-    DIAG_COLLECT_ALLOW_ANONYMOUS  set to 1 to run open anyway (private
-                                  network only; must be a typed decision)
+    DIAG_COLLECT_TOKEN            optional bearer; set → required on
+                                  every request (private deployments)
+    DIAG_COLLECT_CONFIG_JSON      optional JSON served verbatim at
+                                  GET /telemetry/v1/config — the
+                                  discovery document senders resolve
+                                  ingest URLs from (set on the PROD
+                                  collector; carries the staging URL
+                                  too)
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
     DIAG_COLLECT_PORT             default 9880
@@ -102,18 +113,51 @@ def _retention_days() -> int:
     return int(os.environ.get("DIAG_COLLECT_RETENTION_DAYS", "30"))
 
 
+# --- per-IP rate limiting (the public endpoint's actual defense) -----------
+
+_RATE_WINDOW_S = 60.0
+_RATE_MAX_REQUESTS = 120
+_RATE_MAX_BYTES = 64 * 1024 * 1024  # wire bytes per IP per window
+_RATE_MAX_IPS = 10_000
+
+_rate_state: dict[str, list[tuple[float, int]]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit(request: Request, wire_bytes: int) -> None:
+    """Sliding-window per-IP limit on request count and wire bytes.
+    In-memory on purpose: a restart forgiving all counters is fine for
+    abuse control, and the collector is a single process."""
+    now = time.monotonic()
+    ip = _client_ip(request)
+    if len(_rate_state) > _RATE_MAX_IPS:
+        _rate_state.clear()  # crude flood shed; counters are advisory
+    window = [
+        (ts, b) for ts, b in _rate_state.get(ip, [])
+        if now - ts < _RATE_WINDOW_S
+    ]
+    if (
+        len(window) >= _RATE_MAX_REQUESTS
+        or sum(b for _, b in window) + wire_bytes > _RATE_MAX_BYTES
+    ):
+        _rate_state[ip] = window
+        raise HTTPException(status_code=429, detail="rate limited")
+    window.append((now, wire_bytes))
+    _rate_state[ip] = window
+
+
 def _require_auth(request: Request) -> None:
     token = os.environ.get("DIAG_COLLECT_TOKEN", "").strip()
     if not token:
-        # Fail CLOSED: an unset token must be an explicit decision, not
-        # the accident of a missing env line. main() refuses to start in
-        # this state; this guard covers embedded/test deployments too.
-        if os.environ.get("DIAG_COLLECT_ALLOW_ANONYMOUS", "") == "1":
-            return
-        raise HTTPException(
-            status_code=401,
-            detail="collector has no DIAG_COLLECT_TOKEN configured",
-        )
+        # Public mode — the default for the open-source telemetry
+        # design. Defense is the rate limiter + size caps, not secrecy.
+        return
     header = request.headers.get("authorization", "")
     # Constant-time comparison, over BYTES: compare_digest raises
     # TypeError on non-ASCII str (headers decode as latin-1, so any
@@ -136,6 +180,7 @@ def _segment(value: str) -> str:
 @app.post("/v1/ingest")
 async def ingest(request: Request):
     _require_auth(request)
+    _rate_limit(request, int(request.headers.get("content-length", "0") or 0))
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():
@@ -196,6 +241,23 @@ async def healthz():
     return {"ok": True, "data_dir": str(_data_dir())}
 
 
+@app.get("/v1/config")
+async def discovery_config():
+    """The discovery document senders resolve their ingest URL from
+    (see _ship.py). Served verbatim from env so URL rotation is an env
+    change on ONE host — the prod collector — with zero client releases.
+    Public and unauthenticated on purpose: it contains only URLs."""
+    raw = os.environ.get("DIAG_COLLECT_CONFIG_JSON", "").strip()
+    if not raw:
+        raise HTTPException(status_code=404, detail="no discovery config set")
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=500, detail="DIAG_COLLECT_CONFIG_JSON is not valid JSON"
+        ) from None
+
+
 def sweep_retention() -> int:
     """Delete .jsonl files older than the retention window. Returns count."""
     cutoff = time.time() - _retention_days() * 86400
@@ -224,14 +286,10 @@ async def _retention_loop() -> None:
 def main() -> None:
     import uvicorn
 
-    if (
-        not os.environ.get("DIAG_COLLECT_TOKEN", "").strip()
-        and os.environ.get("DIAG_COLLECT_ALLOW_ANONYMOUS", "") != "1"
-    ):
-        raise SystemExit(
-            "refusing to start without DIAG_COLLECT_TOKEN "
-            "(set DIAG_COLLECT_ALLOW_ANONYMOUS=1 to run open on a "
-            "private network — that must be a typed decision)"
+    if not os.environ.get("DIAG_COLLECT_TOKEN", "").strip():
+        logger.info(
+            "[diag-collector] running PUBLIC (no token) — the intended "
+            "open-source telemetry mode; abuse control = rate limits + caps"
         )
     port = int(os.environ.get("DIAG_COLLECT_PORT", "9880"))
     uvicorn.run(app, host="0.0.0.0", port=port)

@@ -24,6 +24,13 @@ Also owns two suite-wide safety nets:
 import asyncio
 
 import pytest
+
+# Telemetry defaults ON in production code (consent model); the test
+# suite must never phone home — force the sink off for every test
+# process before any setup_logging call.
+import os as _os
+
+_os.environ.setdefault("NEXUS_DIAG_SHIP", "off")
 import pytest_asyncio
 
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend

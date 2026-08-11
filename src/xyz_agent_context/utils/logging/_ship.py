@@ -6,16 +6,41 @@
 design (pull half = the manyfold diagnostics endpoints; the two share
 no machinery on purpose).
 
-``setup_logging`` registers this as one more loguru sink when the
-deployer's env opts in; the file sink stays the source of truth and this
-ships a copy to the collector (scripts/diag_collector). Levels:
+``setup_logging`` registers this as one more loguru sink; the file sink
+stays the source of truth and this ships a copy to the collector
+(scripts/diag_collector). This is product TELEMETRY, not an operator
+feature: no deployer has to configure anything, and the authorization
+basis is the user's own consent.
 
-  NEXUS_DIAG_SHIP=off   (or unset) — never registered. Local / self-
-                        hosted deployments ship nothing, ever.
-  NEXUS_DIAG_SHIP=meta  — AUDIT (25) and up: structured lifecycle
-                        events + warnings/errors, no INFO bodies.
-  NEXUS_DIAG_SHIP=full  — everything the file sink sees, at the file
-                        sink's resolved level.
+Consent resolution (first match wins):
+  1. ``NEXUS_DIAG_SHIP`` env — explicit override: ``off`` silences,
+     ``meta``/``full`` force a level (dev/self-host knob, and the test
+     suite's kill switch).
+  2. Opt-out marker file ``~/.narranexus/telemetry_optout`` — written
+     by the settings UI when the user turns telemetry off.
+  3. Default: ON at ``full`` (with first-run disclosure in the UI).
+
+  meta — AUDIT (25) and up: structured lifecycle events + warnings,
+         no INFO bodies.
+  full — everything the file sink sees, at its resolved level.
+
+Ingest URL resolution (first match wins):
+  1. ``NEXUS_DIAG_SHIP_URL`` env — direct override (points a dev/self-
+     hosted deployment at its own collector; skips discovery).
+  2. Discovery: ``GET <NEXUS_DIAG_DISCOVERY_URL or the built-in
+     https://agent.narra.nexus/telemetry/v1/config>`` returns
+     ``{"ingest": {"default": url, "staging": url, ...}}``; the sender
+     picks by its env label (explicit ``NEXUS_DIAG_ENV``, else
+     "staging" when the manyfold webhook URL names api-staging, else
+     "default"). Fetched LAZILY on the worker thread with a TTL cache —
+     never at setup, so process start and test runs touch no network.
+     Unresolvable discovery leaves the sink idle until the next probe.
+
+No client secret: the repository is open source, so a baked or shared
+token authenticates nothing — the collector is a public endpoint
+hardened by abuse controls (size caps, rate limits), and a spoofed
+envelope only pollutes our own diagnostics. ``NEXUS_DIAG_SHIP_TOKEN``
+remains an optional knob for private collectors.
 
 The ship level is enforced at loguru dispatch (the sink is registered
 WITH that minimum level), so filtered records cost nothing.
@@ -83,6 +108,11 @@ _AUDIT_LEVEL_NO = 25
 _BREAKER_THRESHOLD = 5
 _BREAKER_COOLDOWN_S = 60.0
 
+_DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
+_DISCOVERY_TTL_S = 3600.0
+_DISCOVERY_RETRY_S = 60.0
+_OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
+
 _LIVE_SINKS: "weakref.WeakSet[ShipSink]" = weakref.WeakSet()
 
 
@@ -98,25 +128,44 @@ atexit.register(_flush_all_at_exit)
 
 
 def ship_mode() -> str:
-    mode = os.environ.get("NEXUS_DIAG_SHIP", "off").strip().lower()
-    return mode if mode in ("meta", "full") else "off"
+    """Consent + level resolution. See the module docstring for the
+    precedence; "off" means "do not register the sink at all"."""
+    raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
+    if raw == "off":
+        return "off"
+    if raw in ("meta", "full"):
+        return raw
+    if _OPTOUT_FILE.exists():
+        return "off"
+    return "full"
+
+
+def _env_label() -> str:
+    explicit = os.environ.get("NEXUS_DIAG_ENV", "").strip()
+    if explicit:
+        return explicit
+    # Staging manyfold sandboxes self-identify by the platform webhook
+    # they were provisioned with — routing their telemetry to the dev
+    # collector keeps test noise out of the prod dataset.
+    if "api-staging" in os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", ""):
+        return "staging"
+    return os.environ.get("NARRA_SURFACE", "").strip() or "unknown"
 
 
 def ship_config() -> Optional[dict]:
-    """Resolved sender config, or None when shipping is off/unconfigured."""
+    """Resolved sender config, or None when telemetry is off.
+
+    ``url`` may be None here: without an env override the ingest URL
+    comes from discovery, resolved lazily on the worker thread (process
+    start and test runs must not touch the network)."""
     mode = ship_mode()
-    url = os.environ.get("NEXUS_DIAG_SHIP_URL", "").strip()
-    if mode == "off" or not url:
+    if mode == "off":
         return None
     return {
         "mode": mode,
-        "url": url,
+        "url": os.environ.get("NEXUS_DIAG_SHIP_URL", "").strip() or None,
         "token": os.environ.get("NEXUS_DIAG_SHIP_TOKEN", "").strip(),
-        "env": (
-            os.environ.get("NEXUS_DIAG_ENV", "").strip()
-            or os.environ.get("NARRA_SURFACE", "").strip()
-            or "unknown"
-        ),
+        "env": _env_label(),
         "runtime_id": os.environ.get("MANYFOLD_RUNTIME_ID", "").strip() or "-",
     }
 
@@ -144,6 +193,12 @@ class ShipSink:
         self._cooldown_until = 0.0
         self._half_open = False
         self._dropped_in_cooldown = 0
+        # Lazy discovery state: url resolves on the worker thread at
+        # first send, refreshes on TTL, backs off between failed probes.
+        self._resolved_url: Optional[str] = None
+        self._url_expires = 0.0
+        self._discovery_next = 0.0
+        self._discovery_noted = False
         _LIVE_SINKS.add(self)
         # Periodic flusher so a quiet process still delivers its tail.
         # Daemon: never blocks interpreter shutdown.
@@ -248,7 +303,52 @@ class ShipSink:
             self._last_flush = time.monotonic()
         self._send(batch)
 
+    def _ingest_url(self) -> Optional[str]:
+        """Env override, else discovery with TTL cache + retry backoff.
+
+        Runs only on the worker/timer threads (send path) — never at
+        setup. Stale-if-error: a previously resolved URL outlives a
+        failed refresh; with nothing resolved the batch is dropped
+        quietly until a probe succeeds."""
+        if self._config["url"]:
+            return self._config["url"]
+        now = time.monotonic()
+        if self._resolved_url and now < self._url_expires:
+            return self._resolved_url
+        if now < self._discovery_next:
+            return self._resolved_url
+        self._discovery_next = now + _DISCOVERY_RETRY_S
+        discovery = (
+            os.environ.get("NEXUS_DIAG_DISCOVERY_URL", "").strip()
+            or _DISCOVERY_URL_DEFAULT
+        )
+        try:
+            with httpx.Client(
+                timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
+            ) as client:
+                resp = client.get(discovery)
+            if 200 <= resp.status_code < 300:
+                mapping = (resp.json() or {}).get("ingest", {})
+                url = mapping.get(self._config["env"]) or mapping.get("default")
+                if url:
+                    self._resolved_url = str(url)
+                    self._url_expires = now + _DISCOVERY_TTL_S
+                    self._discovery_noted = False
+                    return self._resolved_url
+        except Exception:  # noqa: BLE001 — discovery is best-effort
+            pass
+        if not self._discovery_noted:
+            self._discovery_noted = True
+            sys.stderr.write(
+                f"[diag-ship] telemetry discovery unresolved via {discovery}; "
+                f"batches dropped until it answers (file log intact)\n"
+            )
+        return self._resolved_url
+
     def _send(self, lines: list[str]) -> None:
+        url = self._ingest_url()
+        if not url:
+            return  # noted once by _ingest_url; file log has everything
         body = gzip.compress("\n".join(lines).encode())
         headers = {
             "Content-Type": "application/x-ndjson",
@@ -257,14 +357,14 @@ class ShipSink:
         if self._config["token"]:
             headers["Authorization"] = f"Bearer {self._config['token']}"
         with self._send_lock:
-            self._send_locked(body, headers)
+            self._send_locked(url, body, headers)
 
-    def _send_locked(self, body: bytes, headers: dict) -> None:
+    def _send_locked(self, url: str, body: bytes, headers: dict) -> None:
         try:
             with httpx.Client(
                 timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
             ) as client:
-                resp = client.post(self._config["url"], content=body, headers=headers)
+                resp = client.post(url, content=body, headers=headers)
             if 200 <= resp.status_code < 300:
                 self._fail_streak = 0
                 self._half_open = False

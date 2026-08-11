@@ -4,6 +4,27 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-11 — 遥测化重构 v2(与 manyfold 负责人对齐后)
+
+从"运维特性(平台注入 env)"改为**产品遥测(用户同意)**,对
+manyfold 的观测性依赖清零,且顺带覆盖本地 DMG 用户:
+
+- **同意模型**:env 显式覆盖(off/meta/full,也是测试套件灭火开关,
+  见 tests/conftest.py)> `~/.narranexus/telemetry_optout` 标记文件
+  (设置 UI 写)> **缺省 full 开**(首次告知在 UI);
+- **URL 发现**:代码只写死一个入口
+  `https://agent.narra.nexus/telemetry/v1/config`(prod collector 的
+  `/v1/config` 伺服,env 可覆盖),响应是 env→ingest URL 的 map,
+  发送端按自身标签选路(显式 `NEXUS_DIAG_ENV` > manyfold webhook
+  含 api-staging 判 staging > NARRA_SURFACE)——staging 噪声进
+  dev-agent.narra.nexus,URL 轮换零发版。**惰性解析**:只在 worker
+  线程首发时拉取,TTL 1h、失败退避 60s、stale-if-error——进程启动
+  与测试永不碰网;解析不出 = 静默丢批(stderr 一次),不入熔断账;
+- **去 token**:仓库开源,任何内置/共享 secret 都等于公开——收集端
+  转公开形态,防线是滥用控制;复用 manyfold token 被否(受众错位、
+  我方无法校验、本地面根本没有)。`NEXUS_DIAG_SHIP_TOKEN` 留作私有
+  收集端旋钮。
+
 # _ship.py — 网络日志 sink(观测性 push 半边)
 
 ## 为什么存在

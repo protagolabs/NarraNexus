@@ -4,6 +4,19 @@ stub: false
 last_verified: 2026-08-10
 ---
 
+## 2026-08-11 — 公开遥测端点形态(v2)
+
+无 token 即公开是**设计而非疏漏**(前一轮的 fail-closed 被遥测化
+重构取代):开源发送端持不了 secret,防线 = per-IP 滑窗限速
+(120 req / 64MB 每分钟,内存态,重启即赦)+ 既有体积/炸弹防护;
+伪造信封只污染我方诊断数据,换不到权限。`DIAG_COLLECT_TOKEN` 设置
+即强制(私有部署旋钮)。新增 `GET /v1/config`:从
+`DIAG_COLLECT_CONFIG_JSON` 原样伺服发现文档(只含 URL,公开无鉴权)
+——URL 轮换 = prod collector 一处 env 变更,零客户端发版。部署面:
+prod = xyz-algo(agent.narra.nexus),staging = NarraNexus-dev
+(**dev-agent.narra.nexus,需新增 DNS A 记录**),各一容器 + caddy
+`/telemetry/*` 路由;"默认开"的版本发布必须晚于两台部署。
+
 # collector.py — 诊断日志收集器(push 的接收端)
 
 ## 为什么存在

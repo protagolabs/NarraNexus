@@ -19,16 +19,20 @@ from xyz_agent_context.utils.logging import _ship
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
+def _clean_env(monkeypatch, tmp_path):
     for key in (
         "NEXUS_DIAG_SHIP",
         "NEXUS_DIAG_SHIP_URL",
         "NEXUS_DIAG_SHIP_TOKEN",
         "NEXUS_DIAG_ENV",
+        "NEXUS_DIAG_DISCOVERY_URL",
         "MANYFOLD_RUNTIME_ID",
+        "MANYFOLD_SYNC_WEBHOOK_URL",
         "NARRA_SURFACE",
     ):
         monkeypatch.delenv(key, raising=False)
+    # Isolate from any real opt-out marker on the developer machine.
+    monkeypatch.setattr(_ship, "_OPTOUT_FILE", tmp_path / "telemetry_optout")
 
 
 class _Recorder:
@@ -74,30 +78,52 @@ def _config(**over):
         "runtime_id": "rt_x",
     }
     base.update(over)
-    return base
+    return base  # url=None in overrides exercises the discovery path
 
 
-class TestConfigGating:
-    def test_off_by_default(self):
-        assert _ship.ship_config() is None
-
-    def test_mode_without_url_is_off(self, monkeypatch):
-        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
-        assert _ship.ship_config() is None
-
-    def test_unknown_mode_is_off(self, monkeypatch):
-        monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
-        monkeypatch.setenv("NEXUS_DIAG_SHIP_URL", "https://c/v1/ingest")
-        assert _ship.ship_config() is None
-
-    def test_full_resolves_with_env_label_fallback(self, monkeypatch):
-        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
-        monkeypatch.setenv("NEXUS_DIAG_SHIP_URL", "https://c/v1/ingest")
-        monkeypatch.setenv("NARRA_SURFACE", "local")
+class TestConsentGating:
+    def test_default_is_full_with_lazy_url(self):
+        # Telemetry consent model: ON by default (first-run disclosure
+        # lives in the UI); the ingest URL resolves later via discovery.
         config = _ship.ship_config()
         assert config is not None
-        assert config["env"] == "local"
-        assert config["runtime_id"] == "-"
+        assert config["mode"] == "full"
+        assert config["url"] is None
+
+    def test_env_off_silences(self, monkeypatch):
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "off")
+        assert _ship.ship_config() is None
+
+    def test_optout_file_silences(self):
+        _ship._OPTOUT_FILE.write_text("")
+        assert _ship.ship_config() is None
+
+    def test_env_override_beats_optout_file(self, monkeypatch):
+        # Explicit env is the dev/self-host knob and outranks the UI
+        # marker in both directions.
+        _ship._OPTOUT_FILE.write_text("")
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
+        config = _ship.ship_config()
+        assert config is not None and config["mode"] == "meta"
+
+    def test_unknown_env_value_falls_to_default(self, monkeypatch):
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
+        config = _ship.ship_config()
+        assert config is not None and config["mode"] == "full"
+
+    def test_env_label_staging_from_manyfold_webhook(self, monkeypatch):
+        monkeypatch.setenv(
+            "MANYFOLD_SYNC_WEBHOOK_URL",
+            "https://api-staging.manyfold.ai/api/internal/narranexus-sync/notify",
+        )
+        assert _ship.ship_config()["env"] == "staging"
+
+    def test_env_label_explicit_wins(self, monkeypatch):
+        monkeypatch.setenv("NEXUS_DIAG_ENV", "canary")
+        monkeypatch.setenv(
+            "MANYFOLD_SYNC_WEBHOOK_URL", "https://api-staging.manyfold.ai/x"
+        )
+        assert _ship.ship_config()["env"] == "canary"
 
     def test_meta_level_is_audit_and_up(self):
         assert _ship.ship_sink_level("meta") == 25
@@ -340,3 +366,68 @@ class TestAtexitSweep:
         _ship._flush_all_at_exit()
         assert len(rec.requests) == 1
         assert rec.batches()[0][0]["message"] == "tail line"
+
+
+class TestDiscovery:
+    def _routing_transport(self, mapping, hits):
+        def _handle(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                hits.append(str(request.url))
+                return httpx.Response(200, json={"ingest": mapping})
+            hits.append("POST")
+            return httpx.Response(200, json={"ok": True})
+
+        return httpx.MockTransport(_handle)
+
+    def test_resolves_by_env_label_and_caches(self, monkeypatch):
+        hits: list = []
+        mapping = {
+            "default": "https://prod.example.com/v1/ingest",
+            "staging": "https://dev.example.com/v1/ingest",
+        }
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None, env="staging"))
+        sink(_message("a"))
+        sink.flush()
+        sink(_message("b"))
+        sink.flush()
+        # One discovery GET (TTL-cached), two ingest POSTs.
+        gets = [h for h in hits if h != "POST"]
+        assert len(gets) == 1
+        assert hits.count("POST") == 2
+        assert sink._resolved_url == "https://dev.example.com/v1/ingest"
+
+    def test_unknown_label_falls_back_to_default(self, monkeypatch):
+        hits: list = []
+        mapping = {"default": "https://prod.example.com/v1/ingest"}
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None, env="local"))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url == "https://prod.example.com/v1/ingest"
+
+    def test_unresolvable_discovery_drops_quietly(self, monkeypatch):
+        def _dead(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("no dns", request=request)
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_dead)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()  # must not raise; batch dropped, breaker untouched
+        assert sink._fail_streak == 0
+        assert sink._cooldown_until == 0.0
+
+    def test_env_url_override_skips_discovery(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())  # url set in _config
+        sink(_message("x"))
+        sink.flush()
+        assert len(rec.requests) == 1  # straight POST, no GET
+        assert rec.requests[0].method == "POST"
