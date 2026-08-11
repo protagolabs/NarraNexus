@@ -169,7 +169,7 @@ def _narra_cli_home() -> str:
 _agent_user_id_cache: dict[str, str] = {}
 
 
-async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
+async def _resolve_agent_workspace_cwd(agent_id: str) -> Optional[Path]:
     """Return the agent's workspace dir for the subprocess CWD, or None.
 
     None means "inherit parent CWD" — tolerable for send/query, wrong only for
@@ -178,10 +178,11 @@ async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
     user_id = _agent_user_id_cache.get(agent_id)
     if user_id is None:
         try:
-            row = await db.get_one("agents", {"agent_id": agent_id})
-            if not row or not row.get("created_by"):
+            from xyz_agent_context.module.data_access import get_channel_credential_store
+
+            user_id = await get_channel_credential_store().get_agent_owner(agent_id)
+            if not user_id:
                 return None
-            user_id = row["created_by"]
             _agent_user_id_cache[agent_id] = user_id
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[narra-cli] user_id resolve failed for {agent_id}: {e}")
@@ -315,7 +316,6 @@ async def run_narra_cli(
     agent_id: str,
     command_args: list[str],
     *,
-    db,
     timeout: float = 120.0,
 ) -> dict:
     """Resolve the agent's bearer + workspace, then run a narra-cli command.
@@ -331,13 +331,15 @@ async def run_narra_cli(
     would need a per-agent HOME override with its own config.json — deliberately
     NOT built yet; ``cred.backend_base_url`` is only used here to sanity-warn.
     """
-    from ._narramessenger_credential_manager import NarramessengerCredentialManager
+    from xyz_agent_context.module.data_access import get_channel_credential_store
+    from ._narramessenger_credential_manager import _cred_from_raw
 
-    cred = await NarramessengerCredentialManager(db).get(agent_id)
+    raw = await get_channel_credential_store().get_credential("narramessenger", agent_id)
+    cred = _cred_from_raw(raw) if raw is not None else None
     if not cred or not getattr(cred, "bearer_token", ""):
         return {"success": False, "error": "no_credential",
                 "message": "no NarraMessenger binding for this agent"}
 
-    cwd = await _resolve_agent_workspace_cwd(agent_id, db)
+    cwd = await _resolve_agent_workspace_cwd(agent_id)
     client = NarraCliClient(cred.bearer_token)
     return await client.run(command_args, cwd=cwd, timeout=timeout)

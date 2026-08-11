@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-07 — 签名跟随抽象契约增加 root_run_id
@@ -49,3 +49,7 @@ TypeError), defeating its placeholder purpose.
 ## 新人易踩的坑
 
 这是一个占位文件。在它真正实现之前，任何想在生产环境使用云端 MessageBus 的尝试都会在第一次方法调用时崩溃。确认当前系统用的是 `LocalMessageBus`，不要期望 `CloudMessageBus` 可用。
+
+## 2026-08-11 — 两个新方法的 NotImplementedError 占位
+
+`ack_read` / `count_unread` 随协议加入。云实现整体仍未落地,占位与同文件其余方法一致。

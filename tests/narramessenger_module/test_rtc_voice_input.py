@@ -17,6 +17,9 @@ Locks:
 - split_narra_system_prompt() separates the <narra-system-prompt> envelope
   from the transcript; malformed / absent envelope leaves the body untouched
   (raw transcript must never be promoted to system content).
+- Common trigger carve-out: transcript_final IS False (identity) means an
+  interim STT fragment — never degraded voice; 0 / "false" / missing still
+  fall through. Returned instructions are capped at 2000 chars.
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ import copy
 from xyz_agent_context.module.narramessenger_module._rtc_voice import (
     RTC_VOICE_INPUT_KEY,
     RtcVoiceInputV1,
+    extract_common_voice_instructions,
     parse_rtc_voice_input,
     split_narra_system_prompt,
 )
@@ -208,3 +212,70 @@ def test_envelope_not_at_start_is_left_as_transcript():
     envelope, transcript = split_narra_system_prompt(body)
     assert envelope is None
     assert transcript == body
+
+
+# --- common-trigger extractor ---------------------------------------------
+
+
+def test_rtc_voice_input_key_pins_the_wire_value():
+    # The metadata key is Hybrid's wire contract — a constant rename must
+    # never silently change what we look for on the event.
+    assert RTC_VOICE_INPUT_KEY == "ai.netmind.rtc.voice_input"
+
+
+def _event(meta):
+    return {
+        "type": "m.room.message",
+        "content": {"msgtype": "m.text", "body": "hi", RTC_VOICE_INPUT_KEY: meta},
+    }
+
+
+class TestExtractCommonVoiceInstructions:
+    def test_broken_metadata_with_instructions_returns_them(self):
+        meta = {"version": 1, "seq": 2, "transport": "matrix",
+                "transcript_final": True, "voice_instructions": "Reply for a call."}
+        assert extract_common_voice_instructions(_event(meta)) == "Reply for a call."
+
+    def test_missing_instructions_returns_none(self):
+        assert extract_common_voice_instructions(_event({"seq": 2})) is None
+
+    def test_blank_or_mistyped_instructions_return_none(self):
+        assert extract_common_voice_instructions(_event({"voice_instructions": "   "})) is None
+        assert extract_common_voice_instructions(_event({"voice_instructions": 7})) is None
+
+    def test_transcript_final_false_carve_out_returns_none(self):
+        # An explicit "not final" is a turn-boundary signal, not malformed
+        # data: interim STT must never enter degraded voice mode (it would
+        # be spoken aloud mid-utterance).
+        meta = {"transcript_final": False, "voice_instructions": "Reply for a call."}
+        assert extract_common_voice_instructions(_event(meta)) is None
+
+    def test_transcript_final_missing_still_returns_instructions(self):
+        meta = {"seq": 2, "voice_instructions": "Reply for a call."}
+        assert extract_common_voice_instructions(_event(meta)) == "Reply for a call."
+
+    def test_transcript_final_identity_check_lets_mistyped_values_through(self):
+        # The carve-out is `is False` (identity): 0 / "false" are malformed
+        # data, not an explicit turn-boundary signal, and keep the common
+        # trigger alive.
+        for mistyped in (0, "false"):
+            meta = {"transcript_final": mistyped,
+                    "voice_instructions": "Reply for a call."}
+            assert extract_common_voice_instructions(_event(meta)) == (
+                "Reply for a call."
+            ), f"carve-out swallowed transcript_final={mistyped!r}"
+
+    def test_instructions_capped_at_2000_chars(self):
+        meta = {"voice_instructions": "x" * 3000}
+        out = extract_common_voice_instructions(_event(meta))
+        assert out == "x" * 2000
+
+    def test_metadata_not_a_dict_returns_none(self):
+        assert extract_common_voice_instructions(_event("nope")) is None
+
+    def test_non_text_event_returns_none(self):
+        ev = _event({"voice_instructions": "x"})
+        ev["content"]["msgtype"] = "m.audio"
+        assert extract_common_voice_instructions(ev) is None
+        assert extract_common_voice_instructions({"type": "m.reaction"}) is None
+        assert extract_common_voice_instructions(None) is None

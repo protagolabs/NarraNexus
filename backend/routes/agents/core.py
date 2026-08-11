@@ -29,6 +29,7 @@ from backend.routes.agents.general_memory import router as general_memory_router
 from backend.routes.agents.narrative import router as narrative_router
 from backend.routes.agents.jobs import router as jobs_router
 from backend.routes.agents.profile import router as profile_router
+from backend.routes.agents.channel_credentials import router as channel_credentials_router
 
 
 router = APIRouter()
@@ -47,3 +48,4 @@ router.include_router(narrative_router)
 router.include_router(jobs_router)
 router.include_router(profile_router)
 router.include_router(circuit_breaker_router)
+router.include_router(channel_credentials_router)

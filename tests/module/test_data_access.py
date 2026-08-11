@@ -1384,6 +1384,134 @@ def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
     assert updates["next_run_tz"] == "UTC"
 
 
+# ---------------------------------------------------------------------------
+# job_create / job_pause / job_cancel: the writes, via the shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _create_fields(**kw):
+    base = {"user_id": "u1", "title": "T", "description": "d", "job_type": "one_off",
+            "trigger_config": {"run_at": "2026-09-01T09:00:00", "timezone": "UTC"},
+            "payload": "p", "notification_method": "direct", "task_key": None,
+            "depends_on_job_ids": None, "related_entity_id": None, "narrative_id": None,
+            "confirm_new": False}
+    base.update(kw)
+    return base
+
+
+def _patch_job_create(monkeypatch, *, result, capture=None):
+    """Fake create_job_from_args' two collaborators: setup_mcp_llm_context (the
+    owner LLM-context load, patched no-op) and JobInstanceService, so the parity
+    tests don't need a DB or live LLM config."""
+    import xyz_agent_context.agent_framework.api_config as _api
+
+    async def _noop(agent_id):
+        return None
+
+    monkeypatch.setattr(_api, "setup_mcp_llm_context", _noop)
+
+    class _FakeService:
+        def __init__(self, db):
+            pass
+
+        async def create_job_with_instance(self, **kw):
+            if capture is not None:
+                capture.update(kw)
+            return result
+
+    monkeypatch.setattr("xyz_agent_context.module.job_module.job_service.JobInstanceService", _FakeService)
+
+
+def _patch_job_pause_cancel(monkeypatch, *, job, rows=1):
+    class _FakeJobRepo:
+        def __init__(self, db):
+            pass
+
+        async def get_job(self, job_id):
+            return job if (job and job.job_id == job_id) else None
+
+        async def pause_job(self, job_id):
+            return rows
+
+        async def cancel_job(self, job_id):
+            return rows
+
+    monkeypatch.setattr("xyz_agent_context.module.job_module._job_writes.JobRepository", _FakeJobRepo)
+
+
+def test_job_create_parity(monkeypatch):
+    result = {"success": True, "job_id": "job_1", "instance_id": "job_abc", "message": "Created"}
+    _patch_job_create(monkeypatch, result=result)
+    d = _basic_direct(monkeypatch, object())
+    dr = asyncio.run(d.job_create(AGENT, _create_fields()))
+    assert dr == result
+    # The route returns create_job_from_args' dict verbatim (a success body is
+    # untouched), so HttpStore matches DirectStore byte-for-byte.
+    h = _social_http(monkeypatch, route_body=result)
+    assert asyncio.run(h.job_create(AGENT, _create_fields())) == result == dr
+
+
+def test_job_create_applies_task_key_on_success(monkeypatch):
+    # task_key is stamped onto a successful result by the shared helper, not the
+    # service — so it must appear on the DirectStore path.
+    _patch_job_create(monkeypatch, result={"success": True, "job_id": "job_1"})
+    d = _basic_direct(monkeypatch, object())
+    dr = asyncio.run(d.job_create(AGENT, _create_fields(task_key="tk1")))
+    assert dr["task_key"] == "tk1"
+
+
+def test_job_pause_parity(monkeypatch):
+    _patch_job_pause_cancel(monkeypatch, job=_FakeJob())
+    expected = {"success": True, "job_id": "job_1", "status": "paused",
+                "message": "Job paused successfully"}
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_pause(AGENT, "job_1")) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_pause(AGENT, "job_1")) == expected
+
+
+def test_job_pause_cross_agent_is_not_found(monkeypatch):
+    # No existence oracle — a job owned by another agent reads as "not found"
+    # (matches job_update's posture; safer than the old "does not belong").
+    _patch_job_pause_cancel(monkeypatch, job=_FakeJob(agent_id="other_agent"))
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_pause(AGENT, "job_1")) == {
+        "success": False, "job_id": "job_1", "message": "Job job_1 not found"}
+
+
+def test_job_cancel_parity(monkeypatch):
+    # related_entity_id is None (the _FakeJob default) so the best-effort social
+    # unlink is skipped — the cancel result shape is what parity asserts.
+    _patch_job_pause_cancel(monkeypatch, job=_FakeJob())
+    expected = {"success": True, "job_id": "job_1", "status": "cancelled",
+                "message": "Job cancelled successfully"}
+    d = _basic_direct(monkeypatch, object())
+    assert asyncio.run(d.job_cancel(AGENT, "job_1")) == expected
+    h = _social_http(monkeypatch, route_body=expected)
+    assert asyncio.run(h.job_cancel(AGENT, "job_1")) == expected
+
+
+def test_job_write_http_forwards_to_the_right_routes(monkeypatch):
+    import json as _json
+
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"success": True, "message": "ok"})
+
+    _patch_http(monkeypatch, handler)
+    h = HttpStore("http://backend:8000")
+    asyncio.run(h.job_create(AGENT, _create_fields(title="X")))
+    asyncio.run(h.job_pause(AGENT, "job_1"))
+    asyncio.run(h.job_cancel(AGENT, "job_1"))
+    assert seen[0][0:2] == ("POST", f"/api/agents/{AGENT}/jobs")
+    assert seen[0][2]["title"] == "X"
+    assert seen[1] == ("PUT", f"/api/agents/{AGENT}/jobs/job_1/pause", None)
+    assert seen[2] == ("PUT", f"/api/agents/{AGENT}/jobs/job_1/cancel", None)
+
+
 # --------------------------------------------------------------------------- update_agent_profile
 
 

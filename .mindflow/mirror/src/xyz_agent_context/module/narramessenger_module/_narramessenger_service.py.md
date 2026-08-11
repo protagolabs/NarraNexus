@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — `do_bind` now persists `profileId`
+
+The `runtime-ready` response's `data.profileId` (when present) is now
+written to `nexus_profile_id` on the upserted credential — previously it
+was read nowhere, so the column stayed `""` for every row despite existing
+in the schema since inception. This unblocks the credential manager's new
+`get_by_profile_id` reverse lookup (see that file's mirror doc) for the
+prewarm endpoint. `rdata.get("profileId", "") or ""` mirrors the existing
+`principalId` / `roomId` handling — tolerant of the field being absent
+(current prod behaviour) or explicitly `None`.
 
 ## 2026-07-02 (Commit 6) — bind flow switched to Direct Matrix
 

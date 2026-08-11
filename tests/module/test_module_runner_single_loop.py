@@ -259,6 +259,59 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
     )
 
 
+@pytest.mark.asyncio
+async def test_async_runner_is_credfree_when_seam_is_httpstore(monkeypatch, fake_uvicorn):
+    """When NARRANEXUS_BACKEND_URL is set (seam=HttpStore, the creds-stripped
+    cloud shape), run_mcp_servers_async must NOT open a DB pool or run
+    auto_migrate, and must construct modules with database_client=None — else
+    stripping DB_PASSWORD crashes bootstrap and the mcp container runs DDL."""
+    runner = ModuleRunner()
+    seen = {"db_client_calls": 0, "auto_migrate_calls": 0, "database_clients": []}
+
+    fake = _FakeMCPServer()
+
+    class _FakeModule:
+        def __init__(self, agent_id, user_id, database_client):
+            seen["database_clients"].append(database_client)
+
+        def build_instrumented_mcp_server(self):
+            return fake
+
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_FakeModule])
+    monkeypatch.setattr(
+        "xyz_agent_context.module.module_runner.MODULE_PORTS", {"_FakeModule": 19921}
+    )
+
+    async def _boom_db():
+        seen["db_client_calls"] += 1
+        raise AssertionError("get_db_client must not run in seam/HttpStore mode")
+
+    async def _boom_migrate(_backend):
+        seen["auto_migrate_calls"] += 1
+        raise AssertionError("auto_migrate must not run in seam/HttpStore mode")
+
+    monkeypatch.setattr("xyz_agent_context.module.module_runner.get_db_client", _boom_db)
+    monkeypatch.setattr("xyz_agent_context.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+
+    async def _stopper():
+        await asyncio.sleep(0.1)
+        fake_uvicorn.release.set()
+
+    stopper_task = asyncio.create_task(_stopper())
+    try:
+        await asyncio.wait_for(
+            runner.run_mcp_servers_async(agent_id="a", user_id="u", modules=[_FakeModule]),
+            timeout=5.0,
+        )
+    finally:
+        await stopper_task
+
+    assert seen["db_client_calls"] == 0
+    assert seen["auto_migrate_calls"] == 0
+    assert seen["database_clients"] == [None], "modules must get database_client=None"
+
+
 def _stub_db(monkeypatch):
     """Stub get_db_client + auto_migrate so run_mcp_servers_async does no IO."""
 
@@ -384,3 +437,40 @@ def test_build_mcp_server_neutralises_uvicorn_signal_capture():
             assert signal.getsignal(signal.SIGTERM) is sentinel
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+# ---------------------------------------------------------------------------
+# _is_single_process_mode — when to run all module servers in ONE process
+# ---------------------------------------------------------------------------
+
+def test_single_process_when_seam_is_httpstore(monkeypatch):
+    # NARRANEXUS_BACKEND_URL set → the data-access seam is HttpStore, this
+    # process opens no MySQL pool → single process (saves ~260 MB per module
+    # server), EVEN with a MySQL DATABASE_URL present.
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+    monkeypatch.setenv("DATABASE_URL", "mysql://u:p@host:3306/db")
+    assert _is_single_process_mode() is True
+
+
+def test_multi_process_when_direct_mysql(monkeypatch):
+    # No backend URL + a MySQL DATABASE_URL → each process holds its own pool →
+    # multi-process (the unchanged direct-DB cloud shape).
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "mysql://u:p@host:3306/db")
+    assert _is_single_process_mode() is False
+
+
+def test_single_process_for_sqlite_or_blank(monkeypatch):
+    # Local dev: SQLite or unset DATABASE_URL → single process (the original
+    # aiomysql-loop-binding reason). Unchanged.
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///tmp/x.db")
+    assert _is_single_process_mode() is True
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert _is_single_process_mode() is True

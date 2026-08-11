@@ -105,7 +105,9 @@ async def bind_lark_bot(request: Request, body: BindRequest) -> dict[str, Any]:
     mgr = LarkCredentialManager(db)
 
     # Core bind logic (shared with MCP tool via _lark_service)
-    bind_result = await do_bind(mgr, body.agent_id, body.app_id, body.app_secret, body.brand)
+    bind_result = await do_bind(
+        mgr, body.agent_id, body.app_id, body.app_secret, body.brand, body.owner_email
+    )
     if not bind_result["success"]:
         return bind_result
 
@@ -247,17 +249,14 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
 
     db = await _get_db()
     mgr = LarkCredentialManager(db)
-    result = await do_unbind(mgr, body.agent_id, db)
-    if not result.get("success"):
-        # Surface the message field (or the raw error code) to keep the
-        # legacy "No Lark bot bound to this agent." UX intact.
-        return {
-            "success": False,
-            "error": result.get("message") or result.get("error", "unknown"),
-        }
-    # Legacy response shape: ``{"success": True}`` — kept so frontend
-    # LarkConfig.tsx doesn't need to change.
-    return {"success": True}
+    # Return do_unbind's envelope VERBATIM. The data-access seam's
+    # DirectStore.unbind("lark") returns this exact dict, so the HttpStore twin
+    # (which POSTs here) must too, or local and cloud diverge — the byte-parity
+    # the seam exists to guarantee. This matches every sibling channel /unbind
+    # route (wechat/slack/discord/telegram return do_unbind / mgr.unbind verbatim
+    # too). LarkConfig.tsx reads only `success` on the happy path; the
+    # `no_credential` failure is a near-unreachable double-unbind race.
+    return await do_unbind(mgr, body.agent_id, db)
 
 
 @router.post("/set-active")

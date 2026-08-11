@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narra_cli_client.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — 凭据 + workspace owner 改走 seam（narra 零凭据）
+
+`run_narra_cli(...)` 和 `_resolve_agent_workspace_cwd(...)` **去掉 `db` 参数**：不再
+`db.get_one("agents"/credential 表)`，改经 [[store]] 的 `get_channel_credential_store()`
+——bearer 走 `get_credential("narramessenger")` + `_cred_from_raw`，workspace owner 走
+`get_agent_owner(agent_id)`。CLI 子进程仍本地跑（纯 compute），只有 DB 持久化那一跳去
+backend。这样 mcp 里 narra 相关代码 `get_mcp_db_client()` 残留=0，配合 lark/job 零凭据，
+mcp 容器可 strip `DB_PASSWORD`。
 
 ## 2026-07-21 — redirect HOME so narra-cli can chmod its config dir (EPERM fix)
 

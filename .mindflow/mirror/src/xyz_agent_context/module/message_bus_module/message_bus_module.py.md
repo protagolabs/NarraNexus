@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
@@ -138,7 +138,16 @@ Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有�
 
 `hook_data_gathering()` 中注入的消息格式以 `[MessageBus · {from_agent}]` 开头（类似 Matrix 的 `[Matrix · ...]` 前缀），让 continuity.py 的 `_extract_core_content()` 能识别并提取核心内容。如果这个前缀格式改变，需要同步更新 `continuity.py` 的处理逻辑。
 
-在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简（可能不注入 "已知 Agent" 等非关键列表），以减少 token 消耗——因为此时 LLM 的主要任务是回复特定消息，不需要完整的 bus 状态概览。
+~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简。~~
+**2026-08-11 更正:这句是反的,而且从来没实现过。** `hook_data_gathering` 里没有任何
+`working_source` 分支 —— Known Agents / Your Channels / Unread Messages 三份列表对
+**每一个**场景一视同仁地注入,包括 owner 私聊、job、以及各 IM 渠道的轮次。本文件里
+唯一读 `working_source` 的地方只用来给 input 加 `[MessageBus · …]` 源标签。
+
+这句反话的代价是它掩盖了真实形状:团队房间的未读因为读游标死锁而无限堆积,再被原样
+灌进该 agent 所有场景的上下文。游标已在 2026-08-11 修复(见 `local_bus` 与
+`message_bus_trigger` 的同日条目),注入范围本身保持不变 —— 那是「顺带瞥一眼群里
+动静」的能力所在,污染是死锁的症状,不是注入设计的错。
 
 ## Gotcha / 边界情况
 
@@ -149,3 +158,15 @@ Module 实例是 Agent-level 的，但 `hook_data_gathering()` 运行时的 `age
 ## 新人易踩的坑
 
 `MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.hook_data_gathering()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
+
+## 2026-08-11 — 未读注入:窗口取最新、总数单独查、源标签取对头
+
+抓取改为把上限**下推进查询**并取**最新** N 条。此前是拿全量再 Python 切片,切的是
+oldest-first 列表的头部 —— 拿到的是积压里最古老的那些;再叠加 team 房间读游标永不
+推进,这个窗口是**冻结**的:同样 20 行,一轮又一轮,以"房间当前状态"的名义呈现。
+
+`bus_unread_total` 是新的 extra_data 键:查询加了 LIMIT 之后,`N unread (showing M)`
+里的 N 不能再是结果的 `len()`,否则 N 恒等于 M。
+
+`unread_models[0]` → `[-1]`:那行注释写着 "most recent trigger",而列表是 oldest-first,
+`[0]` 是积压里**最旧**的一条。注释和代码指着相反的两端。

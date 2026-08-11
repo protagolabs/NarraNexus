@@ -1,8 +1,52 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — 通话级串行 key 统一为 per-room（review Important #2）
+
+`_run_voice_serialized` 的 key 从「`rtc_session_id`、缺省回落
+`agent_id:room`」改为**无条件 `agent_id:room`**。理由：1:1 PRIVATE 门保证
+一个房间同时只有一路 RTC 通话，房间即通话；而两级检测下同一通话的严格
+turn（keyed on session）和 degraded turn（keyed on room）若走不同 key，
+一次 metadata 校验失败就会裂成两条并发 drain loop → 两路 TTS 流交错。
+per-room key 让同一通话的两级 turn 共用一条串行队列；不同房间（≠同一
+通话）仍完全并行。2026-08-06 条目里的「per-rtc_session」描述自此过时。
+连带后果（故意的取舍）：`_merge_voice_batch` 合并跨级 batch 时最新一条
+的 metadata 整体胜出——degraded 尾巴会丢掉更早 strict turn 的
+correlation ID、`[voice-timing]` 打成 `degraded`。correlation 永远跟
+最新 turn，不做拼接。
+
+## 2026-08-11 — voice 检测升级为两级（common trigger + degraded 打戳）
+
+`_detect_voice_turn` 从「严格 v1 全对才算 voice」改为 handoff §3.4 的两级
+契约：Level 1 = 严格 metadata 解析成功 → 完整 voice turn（四 correlation
+ID + `degraded: False`）；Level 2 = 严格解析失败但 metadata 对象里仍有非
+空白的后端控制 `voice_instructions` 字符串（`_rtc_voice.
+extract_common_voice_instructions`）→ **DEGRADED voice turn**：语音行为
+照常（剥 envelope、fast profile、voice bridge），但四个绑定 ID 一律置空
+串且 `degraded: True`——空 ID **绝不能**喂给 correlation、通话级串行 key
+或任何安全判断。两级都不中 → 普通文字消息（信封保留、正文不动）。
+
+承重不变量：
+- **1:1 PRIVATE 门现在对两级承担全部注入论证。** degraded turn 的
+  metadata 本来就不可信，所以「level 1 校验过格式」从来不是放宽房型门的
+  理由——parse_event 的注释块已改写成这个论证，别回退。
+- 下游零改动即继承：`_run_voice_serialized` 统一按
+  `f"{agent_id}:{chat_id}"` per-room key 串行（见上一条——两级 turn 共用
+  一条队列）；`_voice_profile_for` / `_late_voice_upgrade` 只看
+  `raw["rtc_voice"]` 真值/复用 `_detect_voice_turn`，自动两级。
+- `[voice-timing]` 行在 degraded turn 上把 rtc_session 打成字面量
+  `degraded`（原来是空串），让延迟样本能按级分桶。
+- 空 transcript 丢 turn、streaming kill-switch 剥 rtc_voice 整轮降级两条
+  规则对两级同样生效，未动。
+
+测试：`test_voice_turn_detection.py` 翻转原「invalid → plain text」用例为
+degraded 断言（degraded=True、四 ID 空串、envelope 剥离），新增「invalid
+且 instructions 缺失/空白/类型错 → 纯文本、信封保留」钉子；valid 路径加
+`degraded is False` 钉子。voice_sim 的 S5（钉旧降级行为）本改动后必红，
+翻转归下一任务，不在本 commit 处理。
 
 ## 2026-08-07 (二次) — 流式路径也认平台代投递的回复（review 收口）
 

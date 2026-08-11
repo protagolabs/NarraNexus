@@ -133,6 +133,12 @@ class AgentDataStore(Protocol):
 
     async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict: ...
 
+    async def job_create(self, agent_id: str, fields: dict) -> dict: ...
+
+    async def job_pause(self, agent_id: str, job_id: str) -> dict: ...
+
+    async def job_cancel(self, agent_id: str, job_id: str) -> dict: ...
+
     async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict: ...
 
 
@@ -653,6 +659,43 @@ class DirectStore:
             logger.warning(f"[job.job_update] failed: {e}")
             return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
 
+    async def job_create(self, agent_id: str, fields: dict) -> dict:
+        # create_job_from_args is self-contained (sets up the owner LLM context,
+        # returns an error-keyed dict, never raises) — the backend job route
+        # calls the SAME function, so Direct and Http are byte-identical. The
+        # outer try only guards _db().
+        from xyz_agent_context.module.job_module import create_job_from_args
+
+        try:
+            return await create_job_from_args(await self._db(), agent_id, **fields)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_create] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def job_pause(self, agent_id: str, job_id: str) -> dict:
+        # pause_job_from_args is self-contained (message-keyed dict, never
+        # raises); the backend route calls the SAME function. Outer try guards
+        # _db() only.
+        from xyz_agent_context.module.job_module import pause_job_from_args
+
+        try:
+            return await pause_job_from_args(await self._db(), agent_id, job_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_pause] failed: {e}")
+            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
+    async def job_cancel(self, agent_id: str, job_id: str) -> dict:
+        # cancel_job_from_args is self-contained (message-keyed dict, entity
+        # cleanup best-effort, never raises); the backend route calls the SAME
+        # function. Outer try guards _db() only.
+        from xyz_agent_context.module.job_module import cancel_job_from_args
+
+        try:
+            return await cancel_job_from_args(await self._db(), agent_id, job_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[job.job_cancel] failed: {e}")
+            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
     async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
         # fetch_chat_history is self-contained (instance-scoped, de-rawed, returns
         # the tool's dict, never raises) — the backend twin route calls the SAME
@@ -957,6 +1000,31 @@ class HttpStore:
             failure_extra={"job_id": job_id},
         ))
 
+    async def job_create(self, agent_id: str, fields: dict) -> dict:
+        # The route calls the SAME create_job_from_args and returns its dict
+        # verbatim, so a 2xx body already matches DirectStore. job_create's
+        # failure contract is the `error` key (like the reads), so a transport
+        # degradation stays under `error` — no _write_message_key remap.
+        return await self._post_dict(
+            f"/api/agents/{agent_id}/jobs",
+            json=fields,
+            failure_extra={},
+        )
+
+    async def job_pause(self, agent_id: str, job_id: str) -> dict:
+        # pause's contract is the `message` key (never `error`), like job_update,
+        # so a transport degradation is remapped back to `message` (with job_id).
+        return _write_message_key(await self._put_dict(
+            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/pause",
+            failure_extra={"job_id": job_id},
+        ))
+
+    async def job_cancel(self, agent_id: str, job_id: str) -> dict:
+        return _write_message_key(await self._put_dict(
+            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/cancel",
+            failure_extra={"job_id": job_id},
+        ))
+
     async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
         # The route returns the EXACT dict fetch_chat_history produces, so a 2xx
         # body is returned verbatim. Transport degradations fall back to the
@@ -995,6 +1063,15 @@ class HttpStore:
 
     async def _post_dict(self, path: str, *, json: dict, failure_extra: dict) -> dict:
         r = await self._send("POST", path, json=json)
+        if r is None:
+            return {"success": False, "error": "backend unreachable", **failure_extra}
+        return self._parse_dict(r, path, failure_extra)
+
+    async def _put_dict(self, path: str, *, failure_extra: dict) -> dict:
+        # Bodyless PUT (the target lives entirely in the path — job_id + the
+        # pause/cancel verb). Same None→failure + _parse_dict handling as the
+        # other verbs so DirectStore's "never raises" invariant holds.
+        r = await self._send("PUT", path)
         if r is None:
             return {"success": False, "error": "backend unreachable", **failure_extra}
         return self._parse_dict(r, path, failure_extra)

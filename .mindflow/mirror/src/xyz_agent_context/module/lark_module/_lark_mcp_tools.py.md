@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (三轮审查) — lark_setup 的 seeded 失败早返回先杀 proc
+
+`lark_setup` 里 `_put_cred` 失败的早返回（本身是修静默成功加的）会**跳过收割 `proc` 的 _finalize_setup 任务**——`proc` 是等浏览器流程的 `lark-cli config init --new`，云端 backend 不可达时每次重试都在容器里留一个僵尸子进程 + 占 workspace。改为返回前 `proc.kill()`+`await proc.wait()`（照抄同块内 URL 超时/抽不出 URL 两处早返回的既有姿势）。
+
+## 2026-08-11 (二轮审查) — 补齐剩余 must-succeed 写检查
+
+独立复审又抓到几处静默成功：`_advance_user_authorized` 的**完成标记写**（`user_oauth_completed_at`/`bot_scopes_confirmed`——`current_click_stage()` 据此判 "completed"）原来 auth_status flip 检查了、紧接着的 permission_state 完成写没检查 → 云端失败会返 `stage_after="completed"` 但库里还是 `waiting_user_click`。已加检查。`_advance_admin_approved`(存 user_authz_device_code)、过期重生成 URL、`_advance_availability_ok`(可选标志) 也一并 guard。至此**全部 advance/mint 写点都检查信封**；仅 lark_status/lark_cli 自愈写（每调用重写）保持 best-effort。守卫测试 [[test_lark_permission_advance]]。
+
+## 2026-08-11 (审查收口) — 写助手返回信封，调用点检查 success（不再静默成功）
+
+4 个写助手从 `-> None` 改 `-> dict`，**原样返回 seam 信封**。seam 永不抛（HttpStore 把 unreachable/非2xx/非JSON 降级成 `{success:False}`；DirectStore 现在也 catch→信封），所以「返 None、丢掉信封」= 云端写失败被静默当成功、工具骗 agent「已写入」（铁律 #5 / incident #3）。修：`_advance_start`(device_code 必存)、`lark_enable_receive`(app_secret 必存)、`lark_setup`(pending 行必存)、`_finalize_setup` step4(finalize 失败→清 pending 行) 全部检查 `success`、失败返结构化 error；`_delete_cred` 清理保持 best-effort（seam 内部已 log）。另：bot identity 回写用 `{k:v for … if v}` 过滤空值，恢复旧 update_bot_identity 的「空不覆盖好值」保护（deep_merge 标量 patch 胜出，`""` 会抹掉）。守卫测试 [[test_lark_permission_advance]] 新增「seam 写失败→工具报错非静默成功」。
+
+## 2026-08-11 (lark 写迁移) — 全部写点走 ChannelCredentialStore seam
+
+三击 OAuth 的 CLI 子进程 + 轮询留本地(纯计算)，只 DB 持久化经 seam：4 个薄助手 `_patch_ps`(permission_state 深合并)/`_patch_fields`(顶层列)/`_delete_cred`/`_put_cred` 包装 patch/put/delete 原语，替换掉全部 `get_mcp_db_client()+LarkCredentialManager(db).*`。lark_bind→`seam.bind`(do_bind 经 /api/lark/bind)、lark_unbind→`seam.unbind`(do_unbind 含 inbox 拆除)。**本文件 get_mcp_db_client==0**。删 XYZBaseModule/LarkCredentialManager 死 import。
+
+## 2026-08-11 (PR-F) — 读凭据 + agent 名改走 ChannelCredentialStore seam
+
+`_get_credential` 改 `get_channel_credential_store().get_credential("lark", …)` → `_cred_from_raw` 重建（cred.get_app_secret()/permission_state/current_click_stage() 用法零变化）；`_get_agent_name` 改 seam `get_agent_name`。**写/CLI 大量留尾**：三击 OAuth 全流程（_finalize_setup/_advance_*/lark_setup/lark_bind/lark_unbind/lark_enable_receive/delete_credential）仍 `LarkCredentialManager(db)`——这些是 **CLI 子进程驱动、无后端路由** 的写，是 #2 里唯一真正卡住 strip DB_PASSWORD 的硬骨头，需另立后端基础设施，本期不动（见 [[channel_store]] 已知缺口 + 迁移 spec）。
+
 
 ## 2026-08-04 — lark_cli docstring 增补消息正文规则
 

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-07-20
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -99,3 +99,17 @@ ISO 8601 字符串按字典序就是时间序，跨后端等价。
 ## 新人易踩的坑
 
 SQL 查询里用了 `%s` 占位符（MySQL 风格），靠 `db.execute` 内部的 SQLite 适配层自动转换为 `?`。如果直接用 `db._backend` 执行原始 SQL，需要自己处理方言差异。
+
+## 2026-08-11 — 未读数只认 `last_read_at`
+
+原先取 `last_processed_at or last_read_at`。两根游标回答的是不同问题:
+`last_processed_at` 是 trigger 的书签(「我把这个 agent 推过这里了」),`last_read_at`
+才是 agent 真正被展示过的位置 —— 也是本面板「标记已读」按钮写的那一根。
+
+优先取前者让两者往最坏的方向背离:trigger 每轮轮询都推进它,于是计数恒为 0;而前端
+只在计数大于 0 时才发那次标记已读请求;于是**唯一能复位 `last_read_at` 的控件不可达**,
+恰恰是在积压正在增长的那些房间里。面板说"这儿没东西",而每一轮的上下文都在被塞进
+它否认存在的那一堆。
+
+修完之后 inbox 会开始显示真实积压(可能不小)。这是特性不是回归 —— 用户终于看得见,
+也就点得动了。

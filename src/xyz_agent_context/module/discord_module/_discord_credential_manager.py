@@ -73,6 +73,43 @@ class DiscordCredential:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    def to_raw_dict(self) -> dict[str, Any]:
+        """RAW view INCLUDING the decoded ``bot_token`` — distinct from
+        ``to_public_dict``. Only ever handed to the ChannelCredentialStore
+        seam's owner-gated backend endpoint (``channel_credentials.py``) and
+        the MCP send tools that need to authenticate to Discord; never
+        logged, never returned from a panel-facing route."""
+        return {
+            "agent_id": self.agent_id,
+            "bot_token": self.bot_token,
+            "bot_user_id": self.bot_user_id,
+            "bot_username": self.bot_username,
+            "owner_user_id": self.owner_user_id,
+            "owner_name": self.owner_name,
+            "enabled": self.enabled,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> DiscordCredential:
+    """Rebuild a DiscordCredential from the ChannelCredentialStore seam's raw
+    dict (the exact inverse of ``to_raw_dict``) — the tool-boundary helper the
+    MCP tools use so an HttpStore-backed lookup reconstructs the SAME
+    dataclass a DirectStore lookup does. Datetime fields round-trip through
+    ISO strings (the dict's wire shape), not the manager's own row shape."""
+    return DiscordCredential(
+        agent_id=raw.get("agent_id", "") or "",
+        bot_token=raw.get("bot_token", "") or "",
+        bot_user_id=raw.get("bot_user_id", "") or "",
+        bot_username=raw.get("bot_username", "") or "",
+        owner_user_id=raw.get("owner_user_id", "") or "",
+        owner_name=raw.get("owner_name", "") or "",
+        enabled=bool(raw.get("enabled", True)),
+        created_at=DiscordCredentialManager._parse_dt(raw.get("created_at")),
+        updated_at=DiscordCredentialManager._parse_dt(raw.get("updated_at")),
+    )
+
 
 class DiscordCredentialManager:
     """Manages per-agent Discord credentials in `channel_discord_credentials`."""
