@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/_setup.py
-last_verified: 2026-05-22
+last_verified: 2026-08-11
 stub: false
 ---
 

@@ -39,7 +39,17 @@ Env:
                                   too)
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
     DIAG_COLLECT_RETENTION_DAYS   default 30
+    DIAG_COLLECT_MAX_DATA_GB      default 20 — HARD footprint cap: the
+                                  collector deletes its own oldest
+                                  files to stay under it. The host's
+                                  disk can never fill because of
+                                  telemetry; the worst an attacker
+                                  achieves is rotating OUR buffer.
     DIAG_COLLECT_PORT             default 9880
+
+Deployment constraint: expose ONLY behind our caddy, which must
+overwrite X-Real-IP (identity for rate limiting) and should cap
+request_body size at the same 8MB wire limit.
 
 Run: uv run python scripts/diag_collector/collector.py
 """
@@ -113,43 +123,132 @@ def _retention_days() -> int:
     return int(os.environ.get("DIAG_COLLECT_RETENTION_DAYS", "30"))
 
 
+def _max_data_bytes() -> int:
+    return int(
+        float(os.environ.get("DIAG_COLLECT_MAX_DATA_GB", "20")) * 1024**3
+    )
+
+
+# Size-cap bookkeeping: a full tree scan per request would be absurd, so
+# writes accumulate into a counter and the enforcement pass runs when
+# the estimate says it could matter (or on the daily retention tick).
+_size_check_appended = 0
+_SIZE_CHECK_EVERY_BYTES = 512 * 1024 * 1024
+
+
+def enforce_size_cap() -> int:
+    """Delete oldest .jsonl files until the data dir fits the cap.
+
+    THE load-bearing defense of the public-endpoint design: the
+    collector's footprint is capped by construction, independent of any
+    judgment about the sender. A flood degrades to "our telemetry
+    buffer rotates faster", never "the shared host's disk fills".
+    Returns files deleted."""
+    root = _data_dir()
+    if not root.is_dir():
+        return 0
+    files = []
+    total = 0
+    for path in root.rglob("*.jsonl"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append((stat.st_mtime, stat.st_size, path))
+        total += stat.st_size
+    cap = _max_data_bytes()
+    if total <= cap:
+        return 0
+    target = int(cap * 0.9)  # free headroom so we don't re-enter per write
+    deleted = 0
+    for _, size, path in sorted(files):
+        if total <= target:
+            break
+        try:
+            path.unlink()
+            total -= size
+            deleted += 1
+        except OSError:
+            continue
+    if deleted:
+        logger.warning(
+            f"[diag-collector] size cap: dropped {deleted} oldest files "
+            f"to stay under {cap} bytes"
+        )
+    return deleted
+
+
 # --- per-IP rate limiting (the public endpoint's actual defense) -----------
 
 _RATE_WINDOW_S = 60.0
 _RATE_MAX_REQUESTS = 120
 _RATE_MAX_BYTES = 64 * 1024 * 1024  # wire bytes per IP per window
 _RATE_MAX_IPS = 10_000
+# Global (all-IPs) budget: the layer that still binds when an attacker
+# rotates identities. Per-IP fairness is best-effort; this is the cap.
+_GLOBAL_MAX_BYTES = 256 * 1024 * 1024
 
 _rate_state: dict[str, list[tuple[float, int]]] = {}
+_global_window: list[tuple[float, int]] = []
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Trusted-hop identity ONLY: X-Real-IP as overwritten by OUR
+    caddy (deployment constraint: the collector is reachable solely
+    through it). X-Forwarded-For's first element is client-authored —
+    keying buckets on it hands every attacker a fresh bucket per
+    request."""
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
     return request.client.host if request.client else "unknown"
 
 
-def _rate_limit(request: Request, wire_bytes: int) -> None:
-    """Sliding-window per-IP limit on request count and wire bytes.
-    In-memory on purpose: a restart forgiving all counters is fine for
-    abuse control, and the collector is a single process."""
+def _prune(window: list[tuple[float, int]], now: float) -> list[tuple[float, int]]:
+    return [(ts, b) for ts, b in window if now - ts < _RATE_WINDOW_S]
+
+
+def _rate_precheck(request: Request) -> str:
+    """Request-count gate BEFORE reading the body. Byte budgets settle
+    after the stream is read (Content-Length is client-authored)."""
     now = time.monotonic()
     ip = _client_ip(request)
     if len(_rate_state) > _RATE_MAX_IPS:
-        _rate_state.clear()  # crude flood shed; counters are advisory
-    window = [
-        (ts, b) for ts, b in _rate_state.get(ip, [])
-        if now - ts < _RATE_WINDOW_S
-    ]
-    if (
-        len(window) >= _RATE_MAX_REQUESTS
-        or sum(b for _, b in window) + wire_bytes > _RATE_MAX_BYTES
-    ):
+        # Evict the ~10% least-recently-active IPs. clear() was an
+        # attacker primitive: flood with fake identities, reset
+        # EVERYONE's counters including your own.
+        stale = sorted(
+            _rate_state.items(),
+            key=lambda kv: kv[1][-1][0] if kv[1] else 0.0,
+        )[: max(1, _RATE_MAX_IPS // 10)]
+        for key, _ in stale:
+            _rate_state.pop(key, None)
+    window = _prune(_rate_state.get(ip, []), now)
+    if len(window) >= _RATE_MAX_REQUESTS:
         _rate_state[ip] = window
         raise HTTPException(status_code=429, detail="rate limited")
-    window.append((now, wire_bytes))
+    window.append((now, 0))
     _rate_state[ip] = window
+    return ip
+
+
+def _rate_settle_bytes(ip: str, wire_bytes: int) -> None:
+    """Charge ACTUAL streamed bytes; reject when either budget is
+    blown. Post-consumption by necessity — but storage (the resource
+    that matters, see the size cap) is only spent on accepted requests."""
+    now = time.monotonic()
+    global _global_window
+    window = _prune(_rate_state.get(ip, []), now)
+    if window:
+        ts, b = window[-1]
+        window[-1] = (ts, b + wire_bytes)
+    _rate_state[ip] = window
+    _global_window = _prune(_global_window, now)
+    _global_window.append((now, wire_bytes))
+    if sum(b for _, b in window) > _RATE_MAX_BYTES:
+        raise HTTPException(status_code=429, detail="rate limited")
+    if sum(b for _, b in _global_window) > _GLOBAL_MAX_BYTES:
+        raise HTTPException(status_code=429, detail="global budget exceeded")
 
 
 def _require_auth(request: Request) -> None:
@@ -180,7 +279,7 @@ def _segment(value: str) -> str:
 @app.post("/v1/ingest")
 async def ingest(request: Request):
     _require_auth(request)
-    _rate_limit(request, int(request.headers.get("content-length", "0") or 0))
+    ip = _rate_precheck(request)
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():
@@ -188,6 +287,7 @@ async def ingest(request: Request):
         if total > _MAX_WIRE_BYTES:
             raise HTTPException(status_code=413, detail="request too large")
         chunks.append(chunk)
+    _rate_settle_bytes(ip, total)
     raw = b"".join(chunks)
     if request.headers.get("content-encoding", "").lower() == "gzip":
         # (plaintext needs no second cap: the wire cap above already
@@ -232,6 +332,12 @@ async def ingest(request: Request):
     # their 2s send timeout, which on the sender side means dropped
     # batches.
     await asyncio.to_thread(_write_all)
+
+    global _size_check_appended
+    _size_check_appended += total
+    if _size_check_appended >= _SIZE_CHECK_EVERY_BYTES:
+        _size_check_appended = 0
+        await asyncio.to_thread(enforce_size_cap)
 
     return {"ok": True, "accepted": accepted}
 
@@ -280,6 +386,7 @@ async def _retention_loop() -> None:
         deleted = await asyncio.to_thread(sweep_retention)
         if deleted:
             logger.info(f"[diag-collector] retention: dropped {deleted} files")
+        await asyncio.to_thread(enforce_size_cap)
         await asyncio.sleep(24 * 3600)
 
 

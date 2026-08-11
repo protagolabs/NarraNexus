@@ -82,19 +82,27 @@ def _config(**over):
 
 
 class TestConsentGating:
-    def test_default_is_full_with_lazy_url(self):
-        # Telemetry consent model: ON by default (first-run disclosure
-        # lives in the UI); the ingest URL resolves later via discovery.
+    def test_default_is_off_until_consent_ui_ships(self):
+        """The default flips to full ONLY in the PR that ships the
+        first-run disclosure + settings toggle: a default and its
+        consent basis must land together, never apart."""
+        assert _ship.ship_config() is None
+
+    def test_future_default_full_resolves_lazily(self, monkeypatch):
+        # Exercise the post-UI default without shipping it.
+        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
         config = _ship.ship_config()
         assert config is not None
         assert config["mode"] == "full"
         assert config["url"] is None
 
     def test_env_off_silences(self, monkeypatch):
+        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "off")
         assert _ship.ship_config() is None
 
-    def test_optout_file_silences(self):
+    def test_optout_file_silences_future_default(self, monkeypatch):
+        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
         _ship._OPTOUT_FILE.write_text("")
         assert _ship.ship_config() is None
 
@@ -108,21 +116,23 @@ class TestConsentGating:
 
     def test_unknown_env_value_falls_to_default(self, monkeypatch):
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
-        config = _ship.ship_config()
-        assert config is not None and config["mode"] == "full"
+        assert _ship.ship_config() is None  # default is off today
 
-    def test_env_label_staging_from_manyfold_webhook(self, monkeypatch):
-        monkeypatch.setenv(
-            "MANYFOLD_SYNC_WEBHOOK_URL",
-            "https://api-staging.manyfold.ai/api/internal/narranexus-sync/notify",
-        )
-        assert _ship.ship_config()["env"] == "staging"
-
-    def test_env_label_explicit_wins(self, monkeypatch):
-        monkeypatch.setenv("NEXUS_DIAG_ENV", "canary")
+    def test_env_label_no_longer_sniffs_manyfold(self, monkeypatch):
+        """Deployment detection moved to run.sh (which injects
+        NEXUS_DIAG_ENV); the generic logging utility must not read
+        another integration's env vars."""
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
         monkeypatch.setenv(
             "MANYFOLD_SYNC_WEBHOOK_URL", "https://api-staging.manyfold.ai/x"
         )
+        assert _ship.ship_config()["env"] == "unknown"
+
+    def test_env_label_explicit_and_surface_fallback(self, monkeypatch):
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
+        monkeypatch.setenv("NARRA_SURFACE", "local")
+        assert _ship.ship_config()["env"] == "local"
+        monkeypatch.setenv("NEXUS_DIAG_ENV", "canary")
         assert _ship.ship_config()["env"] == "canary"
 
     def test_meta_level_is_audit_and_up(self):
@@ -297,9 +307,6 @@ class TestBreakerHalfOpen:
         """Half-open means ONE failed probe re-opens — not re-earning the
         threshold (the doc-only version wasted 5 batches × 2s timeout per
         cooldown cycle against a long-dead collector)."""
-        def _boom(request: httpx.Request) -> httpx.Response:
-            raise httpx.ConnectError("dead", request=request)
-
         calls = {"n": 0}
 
         class _Counting(httpx.BaseTransport):
@@ -382,8 +389,8 @@ class TestDiscovery:
     def test_resolves_by_env_label_and_caches(self, monkeypatch):
         hits: list = []
         mapping = {
-            "default": "https://prod.example.com/v1/ingest",
-            "staging": "https://dev.example.com/v1/ingest",
+            "default": "https://agent.narra.nexus/telemetry/v1/ingest",
+            "staging": "https://dev-agent.narra.nexus/telemetry/v1/ingest",
         }
         monkeypatch.setattr(
             _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
@@ -397,18 +404,22 @@ class TestDiscovery:
         gets = [h for h in hits if h != "POST"]
         assert len(gets) == 1
         assert hits.count("POST") == 2
-        assert sink._resolved_url == "https://dev.example.com/v1/ingest"
+        assert sink._resolved_url == (
+            "https://dev-agent.narra.nexus/telemetry/v1/ingest"
+        )
 
     def test_unknown_label_falls_back_to_default(self, monkeypatch):
         hits: list = []
-        mapping = {"default": "https://prod.example.com/v1/ingest"}
+        mapping = {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}
         monkeypatch.setattr(
             _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
         )
         sink = _ship.ShipSink("backend", _config(url=None, env="local"))
         sink(_message("x"))
         sink.flush()
-        assert sink._resolved_url == "https://prod.example.com/v1/ingest"
+        assert sink._resolved_url == (
+            "https://agent.narra.nexus/telemetry/v1/ingest"
+        )
 
     def test_unresolvable_discovery_drops_quietly(self, monkeypatch):
         def _dead(request: httpx.Request) -> httpx.Response:
@@ -431,3 +442,27 @@ class TestDiscovery:
         sink.flush()
         assert len(rec.requests) == 1  # straight POST, no GET
         assert rec.requests[0].method == "POST"
+
+
+    def test_disallowed_discovery_url_rejected(self, monkeypatch):
+        """The discovery document decides where user logs go and is
+        served from a public endpoint — https + *.narra.nexus only; a
+        hijacked or misconfigured document must not redirect telemetry."""
+        hits: list = []
+        mapping = {"default": "https://evil.example.com/v1/ingest"}
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", self._routing_transport(mapping, hits)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert hits.count("POST") == 0
+
+    def test_allowlist_shapes(self):
+        ok = _ship._allowed_ingest_url
+        assert ok("https://agent.narra.nexus/telemetry/v1/ingest")
+        assert ok("https://dev-agent.narra.nexus/x")
+        assert not ok("http://agent.narra.nexus/x")  # https only
+        assert not ok("https://narra.nexus.evil.com/x")  # suffix trick
+        assert not ok("https://evil.com/narra.nexus")

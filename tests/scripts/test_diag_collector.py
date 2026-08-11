@@ -209,3 +209,63 @@ async def test_non_ascii_auth_header_is_401_not_500(env):
             headers={"Authorization": "Bearer café-token".encode("latin-1")},
         )
     assert resp.status_code == 401
+
+
+async def test_trusted_hop_identity_ignores_xff(env, monkeypatch):
+    """Rate-limit identity comes from X-Real-IP (our caddy's overwrite),
+    never from client-authored X-Forwarded-For — rotating XFF must not
+    mint fresh buckets."""
+    monkeypatch.setattr(collector, "_RATE_MAX_REQUESTS", 2)
+    monkeypatch.setattr(collector, "_rate_state", {})
+    body = gzip.compress(_lines("x").encode())
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        for i in range(3):
+            resp = await c.post(
+                "/v1/ingest",
+                content=body,
+                headers={
+                    "Authorization": "Bearer coll-tok",
+                    "Content-Encoding": "gzip",
+                    "X-Forwarded-For": f"10.0.0.{i}",  # attacker-rotated
+                    "X-Real-IP": "203.0.113.7",  # what OUR caddy wrote
+                },
+            )
+    assert resp.status_code == 429  # third request over the 2-req cap
+
+
+async def test_byte_budget_uses_actual_stream_not_header(env, monkeypatch):
+    monkeypatch.setattr(collector, "_RATE_MAX_BYTES", 100)
+    monkeypatch.setattr(collector, "_rate_state", {})
+    big = _lines("y" * 400).encode()  # plain, well over 100 bytes actual
+    transport = ASGITransport(app=collector.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.post(
+            "/v1/ingest",
+            content=big,
+            headers={
+                "Authorization": "Bearer coll-tok",
+                # lying header must not matter — settlement reads the stream
+                "Content-Length": str(len(big)),
+            },
+        )
+    assert resp.status_code == 429
+
+
+async def test_size_cap_deletes_oldest_first(env, monkeypatch):
+    d = env / "e" / "r" / "s"
+    d.mkdir(parents=True)
+    old = d / "2026-01-01.jsonl"
+    new = d / "2026-06-01.jsonl"
+    old.write_text("o" * 600)
+    new.write_text("n" * 600)
+    os.utime(old, (1000, 1000))
+    monkeypatch.setenv("DIAG_COLLECT_MAX_DATA_GB", str(1000 / 1024**3))  # 1000 bytes
+    deleted = collector.enforce_size_cap()
+    assert deleted == 1
+    assert not old.exists() and new.exists()
+
+
+async def test_size_cap_noop_under_limit(env):
+    (env / "a.jsonl").write_text("x")
+    assert collector.enforce_size_cap() == 0

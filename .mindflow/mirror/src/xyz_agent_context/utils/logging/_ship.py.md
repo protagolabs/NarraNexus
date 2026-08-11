@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/_ship.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11(二)— 安全轮:默认 off 合入 + 发现 URL 白名单 + 并发/字节修正
+
+- **默认改回 off**(`_DEFAULT_MODE`):review Critical——"默认开"所
+  依赖的同意基础(首次告知 UI + optout 写入)不在本 PR;默认值与其
+  同意基础必须**同批到达**,UI PR 落地时翻 full。顺带消解"合并即
+  dev 环境未经 ops 同意定时打 prod 域名";
+- **发现 URL 白名单**:`https` + `*.narra.nexus` 才接受——发现文档
+  来自公开端点且决定用户日志去向,被劫持/配错时拒绝切换、保留旧值;
+- **长生命周期 httpx.Client**(发现与发送共用):每请求新建客户端 =
+  一次投递吃两回 TCP+TLS 冷握手、各自只有 2s——健康但握手慢的
+  收集器会被误判成 5 连超时而熔断;
+- manyfold env 嗅探移出(通用工具不读别家集成的 env)——staging
+  判定移到 run.sh 容器模式,派生注入 `NEXUS_DIAG_ENV`;
+- 缓冲改存 **encoded bytes**(len(str) 数字符,中文正文约 12MB 才触
+  "4MB"阈值);熔断状态加 `_state_lock`(RLock);4xx 应答同时清
+  半开(收集器活着即视为探测成功,否则半开态粘住)。
 
 ## 2026-08-11 — 遥测化重构 v2(与 manyfold 负责人对齐后)
 

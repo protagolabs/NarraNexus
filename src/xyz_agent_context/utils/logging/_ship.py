@@ -18,7 +18,10 @@ Consent resolution (first match wins):
      suite's kill switch).
   2. Opt-out marker file ``~/.narranexus/telemetry_optout`` — written
      by the settings UI when the user turns telemetry off.
-  3. Default: ON at ``full`` (with first-run disclosure in the UI).
+  3. Default: ``_DEFAULT_MODE`` — currently **off**. It flips to
+     ``full`` ONLY in the PR that ships the consent UI (first-run
+     disclosure + settings toggle): the default and its consent basis
+     must land in the same change, never apart.
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -112,6 +115,14 @@ _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
 _OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
+# Flips to "full" in the consent-UI PR — see the docstring's consent
+# section. Until the disclosure exists, nothing ships by default.
+_DEFAULT_MODE = "off"
+# Discovery may only point telemetry at hosts we control: the document
+# is served from a PUBLIC endpoint, and this string decides where user
+# logs go. https-only + domain allowlist; a hijacked/misconfigured
+# document is rejected and the previous resolution (if any) survives.
+_ALLOWED_INGEST_SUFFIXES = ("narra.nexus",)
 
 _LIVE_SINKS: "weakref.WeakSet[ShipSink]" = weakref.WeakSet()
 
@@ -137,19 +148,33 @@ def ship_mode() -> str:
         return raw
     if _OPTOUT_FILE.exists():
         return "off"
-    return "full"
+    return _DEFAULT_MODE
 
 
 def _env_label() -> str:
-    explicit = os.environ.get("NEXUS_DIAG_ENV", "").strip()
-    if explicit:
-        return explicit
-    # Staging manyfold sandboxes self-identify by the platform webhook
-    # they were provisioned with — routing their telemetry to the dev
-    # collector keeps test noise out of the prod dataset.
-    if "api-staging" in os.environ.get("MANYFOLD_SYNC_WEBHOOK_URL", ""):
-        return "staging"
-    return os.environ.get("NARRA_SURFACE", "").strip() or "unknown"
+    """Envelope + routing label. Deployment-specific detection does
+    NOT live here — a generic logging utility must not sniff another
+    integration's env vars; run.sh (container mode) derives and injects
+    ``NEXUS_DIAG_ENV`` instead."""
+    return (
+        os.environ.get("NEXUS_DIAG_ENV", "").strip()
+        or os.environ.get("NARRA_SURFACE", "").strip()
+        or "unknown"
+    )
+
+
+def _allowed_ingest_url(url: str) -> bool:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and any(
+        host == sfx or host.endswith("." + sfx)
+        for sfx in _ALLOWED_INGEST_SUFFIXES
+    )
 
 
 def ship_config() -> Optional[dict]:
@@ -177,11 +202,25 @@ class ShipSink:
         self._service = service
         self._config = config
         self._host = socket.gethostname()
-        # Buffer holds SERIALIZED lines: the byte-based flush condition
-        # then costs nothing extra (each record serializes exactly once).
-        self._buf: list[str] = []
+        # Buffer holds ENCODED lines: bytes are what both the flush
+        # threshold and the wire measure, and each record is serialized
+        # + encoded exactly once (len(str) counts characters — CJK text
+        # would have tripped the "4MB" threshold around 12MB).
+        self._buf: list[bytes] = []
         self._buf_bytes = 0
         self._lock = threading.Lock()
+        # One long-lived connection pool for discovery AND sends: a
+        # fresh client per request pays TCP+TLS twice per delivery
+        # inside a 2s budget — a healthy-but-slow-handshake collector
+        # would read as five straight timeouts and OPEN the breaker.
+        self._client = httpx.Client(
+            timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
+        )
+        # Guards breaker state (_cooldown_until/_half_open/_fail_streak):
+        # read on the loguru worker (__call__) and written on whichever
+        # thread ran the send. RLock: the send path holds it across
+        # _send_locked → _note_transient_failure → _open_breaker.
+        self._state_lock = threading.RLock()
         # Serializes _send: both the enqueue worker (size-triggered flush)
         # and the timer thread can reach it; without this the breaker
         # accounting races and two batches can interleave on the wire.
@@ -227,11 +266,11 @@ class ShipSink:
                 "logger": f"{record['name']}:{record['function']}:{record['line']}",
                 "message": record["message"],
             }
-            self._push(json.dumps(entry, ensure_ascii=False))
+            self._push(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
         except Exception as e:  # noqa: BLE001 — a broken ship must stay silent
             sys.stderr.write(f"[diag-ship] record build failed: {e}\n")
 
-    def _push(self, line: str) -> None:
+    def _push(self, line: bytes) -> None:
         with self._lock:
             self._buf.append(line)
             self._buf_bytes += len(line)
@@ -251,27 +290,28 @@ class ShipSink:
     # -- circuit breaker ---------------------------------------------------
 
     def _breaker_open(self) -> bool:
-        if self._cooldown_until <= 0:
-            return False
-        if time.monotonic() < self._cooldown_until:
-            return True
-        # Cooldown elapsed → HALF-OPEN: admit traffic; the next probe
-        # batch settles it (failure re-opens immediately, success closes).
-        self._cooldown_until = 0.0
-        self._half_open = True
-        if self._dropped_in_cooldown:
+        with self._state_lock:
+            if self._cooldown_until <= 0:
+                return False
+            if time.monotonic() < self._cooldown_until:
+                return True
+            # Cooldown elapsed → HALF-OPEN: admit traffic; the next probe
+            # batch settles it (failure re-opens, success closes).
+            self._cooldown_until = 0.0
+            self._half_open = True
+            dropped, self._dropped_in_cooldown = self._dropped_in_cooldown, 0
+        if dropped:
             sys.stderr.write(
                 f"[diag-ship] breaker half-open after cooldown; "
-                f"{self._dropped_in_cooldown} records dropped while open "
-                f"(file log intact)\n"
+                f"{dropped} records dropped while open (file log intact)\n"
             )
-            self._dropped_in_cooldown = 0
         return False
 
     def _open_breaker(self, reason: str) -> None:
-        self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
-        self._half_open = False
-        self._fail_streak = 0
+        with self._state_lock:
+            self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
+            self._half_open = False
+            self._fail_streak = 0
         with self._lock:
             dropped = len(self._buf)
             self._buf.clear()
@@ -289,7 +329,12 @@ class ShipSink:
         # With the breaker open the door is already starving the buffer;
         # anything still here (e.g. the atexit sweep racing a fresh OPEN)
         # must not spend a timeout on a known-dead collector.
-        if self._cooldown_until > 0 and time.monotonic() < self._cooldown_until:
+        with self._state_lock:
+            breaker_holding = (
+                self._cooldown_until > 0
+                and time.monotonic() < self._cooldown_until
+            )
+        if breaker_holding:
             with self._lock:
                 self._dropped_in_cooldown += len(self._buf)
                 self._buf.clear()
@@ -323,18 +368,20 @@ class ShipSink:
             or _DISCOVERY_URL_DEFAULT
         )
         try:
-            with httpx.Client(
-                timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
-            ) as client:
-                resp = client.get(discovery)
+            resp = self._client.get(discovery)
             if 200 <= resp.status_code < 300:
                 mapping = (resp.json() or {}).get("ingest", {})
                 url = mapping.get(self._config["env"]) or mapping.get("default")
-                if url:
+                if url and _allowed_ingest_url(str(url)):
                     self._resolved_url = str(url)
                     self._url_expires = now + _DISCOVERY_TTL_S
                     self._discovery_noted = False
                     return self._resolved_url
+                if url:
+                    sys.stderr.write(
+                        f"[diag-ship] discovery offered disallowed ingest "
+                        f"url {url!r} (https + *.narra.nexus only); ignored\n"
+                    )
         except Exception:  # noqa: BLE001 — discovery is best-effort
             pass
         if not self._discovery_noted:
@@ -345,11 +392,11 @@ class ShipSink:
             )
         return self._resolved_url
 
-    def _send(self, lines: list[str]) -> None:
+    def _send(self, lines: list[bytes]) -> None:
         url = self._ingest_url()
         if not url:
             return  # noted once by _ingest_url; file log has everything
-        body = gzip.compress("\n".join(lines).encode())
+        body = gzip.compress(b"\n".join(lines))
         headers = {
             "Content-Type": "application/x-ndjson",
             "Content-Encoding": "gzip",
@@ -361,18 +408,21 @@ class ShipSink:
 
     def _send_locked(self, url: str, body: bytes, headers: dict) -> None:
         try:
-            with httpx.Client(
-                timeout=_SEND_TIMEOUT_S, transport=_transport_for_tests
-            ) as client:
-                resp = client.post(url, content=body, headers=headers)
+            resp = self._client.post(url, content=body, headers=headers)
             if 200 <= resp.status_code < 300:
-                self._fail_streak = 0
-                self._half_open = False
+                with self._state_lock:
+                    self._fail_streak = 0
+                    self._half_open = False
                 return
             if 400 <= resp.status_code < 500:
                 # Permanent rejection (413 over-size, 401 misconfig):
                 # "this batch is unacceptable" is not "the collector is
-                # down" — drop it, say so, do NOT feed the breaker.
+                # down" — drop it, say so, do NOT feed the breaker. The
+                # collector answered, so a half-open probe counts as
+                # settled-alive (without this the half-open flag stuck).
+                with self._state_lock:
+                    self._half_open = False
+                    self._fail_streak = 0
                 sys.stderr.write(
                     f"[diag-ship] batch rejected (HTTP {resp.status_code}); "
                     f"dropped without breaker accounting\n"
@@ -383,15 +433,19 @@ class ShipSink:
             self._note_transient_failure(f"{type(e).__name__}: {e}")
 
     def _note_transient_failure(self, reason: str) -> None:
-        if self._half_open:
+        with self._state_lock:
+            if self._half_open:
+                half_open_probe = True
+            else:
+                half_open_probe = False
+                self._fail_streak += 1
+                threshold_hit = self._fail_streak >= _BREAKER_THRESHOLD
+        if half_open_probe:
             # The probe failed — straight back to OPEN.
             self._open_breaker(f"probe failed: {reason}")
             return
-        self._fail_streak += 1
-        if self._fail_streak >= _BREAKER_THRESHOLD:
-            self._open_breaker(
-                f"{self._fail_streak} consecutive failures ({reason})"
-            )
+        if threshold_hit:
+            self._open_breaker(f"consecutive failures ({reason})")
             return
         # First failure and every 50th after: enough signal to notice a
         # dead collector without scrolling stderr off a cliff.
@@ -447,7 +501,7 @@ class ShipSink:
                         "backfill": True,
                     },
                     ensure_ascii=False,
-                )
+                ).encode("utf-8")
                 for line in lines
             ]
             self._send(batch)
