@@ -951,7 +951,7 @@ async def get_work_board(team_id: str, request: Request):
 
 
 def _patrol_enabled(team) -> bool:
-    """See ``team_work_schema.patrol_is_on`` — one implementation, two callers."""
+    """See ``team_schema.patrol_is_on`` — one implementation, two callers."""
     from xyz_agent_context.schema.team_schema import patrol_is_on
 
     return patrol_is_on(team)

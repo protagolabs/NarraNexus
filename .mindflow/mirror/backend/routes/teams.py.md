@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-10 — Clear team data 增加 board 作用域

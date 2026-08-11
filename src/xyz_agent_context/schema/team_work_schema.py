@@ -15,7 +15,7 @@ reply closes it); a work item is a TASK-level object maintained explicitly
 through tools, and routinely spans several errands.
 """
 
-from typing import Any, Optional
+from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel
 

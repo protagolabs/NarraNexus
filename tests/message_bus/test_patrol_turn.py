@@ -292,11 +292,14 @@ async def test_the_patrol_turn_carries_its_team_identity(db_client):
 async def test_the_patrol_turn_mirrors_itself_into_bus_activity(db_client):
     """A patrol is a turn in a team room, so it leaves the same trace as one.
 
-    Three readers depend on this row, and each broke in its own way while it
-    was missing: the board tools' fallback room resolver (every tool answered
-    "not found"), `detect_stalled_items` (a lead that is also an assignee
-    diagnosed ITSELF as idle mid-sweep and stalled its own item), and the
-    roster (the lead showed idle for the whole patrol).
+    Two readers depend on this row, and both broke while it was missing: the
+    board tools' fallback room resolver (every tool answered "not found") and
+    the roster (the lead showed idle for the whole patrol).
+
+    Deliberately NOT a third: `detect_stalled_items` does not consult this row
+    for the sweeper — see `test_a_lead_does_not_stall_its_own_work_by_patrolling`.
+    Opening the row does not make the sweeper's own activity meaningful; it
+    only changes which wrong answer you get.
     """
     await _seed_room(db_client)
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
@@ -366,3 +369,87 @@ async def test_a_capped_patrol_still_updates_the_board(db_client):
     assert called is False
     # But the board learned the truth anyway.
     assert (await repo.get(item.item_id)).status == WorkItemStatus.STALLED
+
+
+# ── the sweep is a run like any other ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_the_sweep_writes_its_run_id_back_into_the_activity_row(db_client):
+    """`start()` blanks `event_id`; something has to fill it back in.
+
+    The roster's idle branch hands the frontend this column as the entry point
+    into a run's event log. A sweep that opened the row and never wrote its run
+    id left the lead's row with `event_id = NULL` permanently — so opening the
+    row for the roster's benefit would have cost the roster its link.
+    """
+    await _seed_room(db_client)
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+
+    async def _invoke(**kwargs):
+        await kwargs["on_event_id"]("evt_sweep")
+        return ("", "evt_sweep")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    row = await db_client.get_one("bus_agent_activity", {"agent_id": "agent_lead"})
+    assert (row or {}).get("event_id") == "evt_sweep"
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_can_be_stopped(db_client):
+    """A patrol burns tokens like any other run, so the owner must be able to
+    stop it. The stop arrives through the DB (the click lands in the backend
+    process), so the run has to be registered with the watcher — and dropped
+    again however the sweep ends, or the poll loop outlives it."""
+    from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+
+    await _seed_room(db_client)
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    watcher = get_cancel_watcher(db_client)
+    seen: dict = {}
+
+    async def _invoke(**kwargs):
+        await kwargs["on_event_id"]("evt_sweep")
+        seen["watching"] = "evt_sweep" in watcher._tokens
+        seen["token"] = kwargs.get("cancellation")
+        return ("", "evt_sweep")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    assert seen["watching"] is True
+    assert seen["token"] is not None
+    # Unregistered on the way out — a token left behind keeps the poll loop
+    # alive for a run that is already gone.
+    assert "evt_sweep" not in watcher._tokens
+
+
+@pytest.mark.asyncio
+async def test_a_lead_does_not_stall_its_own_work_by_patrolling(db_client):
+    """The sweeper is not evidence about itself.
+
+    `detect_stalled_items` asks "is the assignee live" of `bus_agent_activity`.
+    For the agent RUNNING the sweep that row describes the sweep, not the item:
+    read before its turn opens it says idle (so the lead stalls its own item
+    every single cycle, permanently, and the prompt then tells the lead to
+    chase itself), read after it says running (so the lead's items can never
+    stall). Neither answer is about the item, so the item is skipped.
+    """
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    await _seed_room(db_client)
+    repo = TeamWorkItemRepository(db_client)
+    mine = await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="lead's own",
+                                  created_by="agent_lead", assignee_id="agent_lead")
+    theirs = await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="worker's",
+                                    created_by="agent_lead", assignee_id="agent_worker")
+    trigger, _ = _trigger(db_client, "")
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    assert (await repo.get(mine.item_id)).status != WorkItemStatus.STALLED
+    # The rest of the board is judged normally — the worker never showed up.
+    assert (await repo.get(theirs.item_id)).status == WorkItemStatus.STALLED

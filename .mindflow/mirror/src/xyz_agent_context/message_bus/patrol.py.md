@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/patrol.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -66,3 +66,19 @@ team 房间是**纯 @ 驱动**的:每个成员(lead 也不例外)只在被 @ 时
 
 只是引入位置变了,判定规则一字未动:那条规则读的两个字段都属于 Team,所以归
 Team 的 schema 管(见 `team_schema.py.md`)。本文件仍是它唯一的 agent 侧调用方。
+
+## 2026-08-11 — `executor_agent_id`:巡查者不是关于自己的证据
+
+`detect_stalled_items` 判「assignee 是不是还活着」看 `bus_agent_activity`。对
+**正在跑这次 sweep 的那个 agent**,这行描述的是 sweep 本身,不是它的条目:
+
+* 在 sweep 开活动行**之前**读 → idle → 巡查者每一轮都把自己的条目标 `stalled`,
+  永不恢复;`has_stalled` 把这个 team 永久钉在 180s 档;prompt 再把 `@lead`
+  发进房间 —— lead 被平台安排去催自己。
+* 在**之后**读 → running → 巡查者的条目永远不会 stalled。
+
+两个读数都不携带「这个条目有没有在推进」的信息,所以不是「挑一个时机」的问题,
+而是**这行对巡查者无信息**。跳过它的条目。
+
+代价明写接受:lead 真卡在自己条目上时,它自己的巡查抓不到。别人的 sweep 仍然
+抓得到,而另一个选项是一个没有恢复路径的永久自我催办。

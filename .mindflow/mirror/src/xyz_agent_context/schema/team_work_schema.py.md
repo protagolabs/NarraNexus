@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/team_work_schema.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 

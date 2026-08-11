@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
@@ -652,9 +652,16 @@ inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢�
 「少个 UI 指示」而是这条主线上工作板工具全废:`_work_board_mcp_tools` 当时只从
 `bus_agent_activity` 认房间,巡查不写这张表,于是 5 个工具在**平台自己叫 lead
 调 `work_complete_item` 的那一轮**统一返回 no room / not found。连带两处:
-`detect_stalled_items` 问「assignee 是不是没动静」时,身兼 assignee 的 lead 会
-在巡查途中把**自己**判成 idle 进而给自己的条目标 `stalled`;roster 整个 sweep
-期间显示 lead 空闲。
+roster 整个 sweep 期间显示 lead 空闲。
+
+**开这行**不能**顺带解决自我 stall**——这点最初写错了,更正在此:活动行是
+per-agent 单行,描述的是**当前这一轮**,而巡查者当前这一轮就是巡查本身。检测在
+开行之前读到 idle(于是 lead 每轮把自己的条目标 stalled,永不恢复,prompt 还会
+让 lead 去催自己),开行之后读到 running(于是 lead 的条目永远不会 stalled)。
+两个读数都不携带「这个条目有没有在推进」的信息。所以真正的修法是
+`detect_stalled_items(executor_agent_id=...)` **把巡查者自己的条目跳过** ——
+代价是「lead 卡在自己条目上时,它自己的巡查抓不到」,这个代价是明写接受的:
+别人的 sweep 仍然抓得到,而另一个选项是一个没有任何恢复路径的永久自我催办。
 
 **同时给 `_invoke_runtime` 传 `team_id=`**,MCP 身份头才有 team 可注入。这与上一
 条是同一个洞的两头:工具必须从服务端知道自己在哪个 team,不能从模型参数知道。
@@ -677,3 +684,28 @@ handler,而死 handler 会让读者以为它会抛。
 定速的依据。频控一并挡住它时,被 cap 的团队整个窗口都不刷新板子:窗口内变哑的
 条目事后仍显示 `in_progress`,UI 少报,自适应间隔还停在慢档 —— 恰恰在出问题的
 时候。一次读加一次状态写,和频控真正要省的那轮 LLM 不在一个量级。
+
+## 2026-08-11 — sweep 是一次完整的 run,不是「顺带开一行」
+
+上一轮只把活动行开在 `_invoke_runtime` 外面,开了行却不填它。三个后果,严重度
+递减:
+
+**(1) 用户可见回退,而且是本 PR 自己造的。** `bus_agent_activity` 是
+per (agent, channel) 单行,`start()` 往 `event_id` 写 NULL。一次 sweep 之后 lead
+那行的 `event_id` 被清空、再没写回,而 `_member_activity` 的 idle 分支正是把这
+一列交给前端当**事件日志入口**。为了 roster 去开这行,结果把 roster 要的那个
+链接弄丢了。
+
+**(2) 巡查 run 停不掉。** 消息 lane 建 `CancellationToken` + `watcher.register`,
+巡查没有,于是 owner 的停止对巡查 run 不生效,`_leave_room_trace` 按
+`bus_agent_activity.event_id` 反查房间也落不到。
+
+**(3) 巡查自己不可观测**:sweep 期间 roster 显示 running,点进去没有 event_log。
+
+现在照消息 lane 的完整形状补齐:`on_event_id` 里同时 `watcher.register` 和
+`act.note_event_id`,`stack.callback` 反注册。活动行也从「只包 LLM 调用」改成
+**包住整个 sweep**——检测开始那一刻 lead 就被占用了,roster 该如实说这段时间。
+
+顺带把 sweep 主体拆成 `_patrol_body`:`_run_patrol` 现在只负责 activity/取消的
+作用域 + 「无论如何都推进游标」这条不变量,主体在里面平铺,不用为了一个
+`async with` 再缩进一层。

@@ -48,7 +48,9 @@ PATROL_INTERVAL_S = 600
 PATROL_STALLED_INTERVAL_S = 180
 
 
-async def detect_stalled_items(db: Any, team_id: str) -> List[WorkItem]:
+async def detect_stalled_items(
+    db: Any, team_id: str, *, executor_agent_id: str = ""
+) -> List[WorkItem]:
     """Items whose assignee has gone quiet. Writes ``stalled`` through.
 
     The evidence is ``bus_agent_activity``, never a model's read of the room
@@ -67,6 +69,21 @@ async def detect_stalled_items(db: Any, team_id: str) -> List[WorkItem]:
     Unclaimed items are excluded: nobody is late on a task nobody took. That
     needs handing out, which is a different prompt.
 
+    ``executor_agent_id`` — the agent running this sweep — is excluded for a
+    different reason: **its activity row is not evidence about its items.**
+    That row describes the current turn, and the current turn is the sweep.
+    Read before the sweep opens its row it says idle, so the sweeper would
+    stall its own items on every single cycle, permanently, and the prompt
+    would then instruct the lead to chase itself. Read after, it says running,
+    so the sweeper's items could never stall. Neither reading carries any
+    information about whether the item is progressing, and a verdict from
+    absent evidence is worse than no verdict.
+
+    The cost is real and accepted: a lead genuinely stuck on its own item is
+    not caught by its own patrol. Someone else's sweep still catches it, and
+    the alternative on offer was a permanent self-nag that no recovery path
+    could clear.
+
     Recovery is written through too — an assignee that comes back leaves the
     stalled set, so patrol stops chasing someone already working again.
     """
@@ -76,6 +93,8 @@ async def detect_stalled_items(db: Any, team_id: str) -> List[WorkItem]:
     for item in items:
         if not item.assignee_id:
             continue  # unclaimed: needs assigning, not chasing
+        if executor_agent_id and item.assignee_id == executor_agent_id:
+            continue  # the sweeper is not evidence about itself (see above)
         try:
             row = await db.get_one(
                 "bus_agent_activity", {"agent_id": item.assignee_id}
