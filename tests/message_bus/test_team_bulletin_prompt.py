@@ -105,13 +105,21 @@ def test_an_empty_bulletin_adds_nothing_at_all():
 
 
 def test_an_unused_bulletin_leaves_the_prompt_byte_identical():
-    """The regression that matters for every team not using the feature."""
+    """The regression that matters for every team not using the feature.
+
+    "Byte-identical" is scoped to the BULLETIN's contribution: a team with no
+    rules must get the same prompt whether the bulletin is absent (None, e.g. a
+    failed read) or present-and-empty. It is not a claim that the prompt is
+    unchanged from before the feature existed — the tool blurb is unconditional,
+    and #259's work board adds a block of its own.
+    """
     baseline = MessageBusTrigger(bus=None)._build_team_prompt(
         "agent_b",
         [],
         MEMBERS,
         owner_user_id="user_a",
         team_id="team_42",
+        bulletin=None,
     )
     assert _prompt([]) == baseline
 
@@ -228,3 +236,52 @@ async def test_a_failed_read_is_logged_rather_than_swallowed(monkeypatch):
 
     await MessageBusTrigger(bus=None)._load_bulletin("team_42")
     assert any("team_42" in m for m in seen)
+
+
+# ── every path that speaks in the room loads the rules ──────────────────────
+#
+# Merging #259 created a SECOND caller of _build_team_prompt (the patrol sweep),
+# and `bulletin` being optional turned that into a silent off switch: the whole
+# rules block vanished from patrol turns with no error and no log.
+#
+# Patrol is not internal bookkeeping. It is a real LLM turn whose reply is posted
+# into the same room with @mentions, so a rule the user pinned bound every member
+# who was @mentioned and did NOT bind the Leader the platform woke — while the
+# tool blurb in the same prompt still told it the bulletin loads every turn. That
+# is the direct negation of this feature's first acceptance criterion.
+#
+# The parameter is now required, so the omission is no longer expressible.
+
+
+def test_the_bulletin_parameter_is_required():
+    """A caller that forgets it should fail loudly rather than quietly produce a
+    prompt with no rules in it. That is the difference between a bug someone
+    notices immediately and one that ships."""
+    import inspect
+
+    sig = inspect.signature(MessageBusTrigger._build_team_prompt)
+    assert sig.parameters["bulletin"].default is inspect.Parameter.empty, (
+        "bulletin is optional again — a new call site can now drop the rules silently"
+    )
+
+
+def test_every_call_site_supplies_the_bulletin():
+    """Guards the shape rather than one caller: the fault was a NEW caller
+    appearing, so what matters is that none of them can omit it."""
+    import inspect
+
+    from xyz_agent_context.message_bus import message_bus_trigger as mod
+
+    src = inspect.getsource(mod)
+    assert src.count("self._build_team_prompt(") == src.count("bulletin=bulletin")
+
+
+def test_the_patrol_path_loads_the_bulletin():
+    """The specific caller that was missing it."""
+    import inspect
+
+    from xyz_agent_context.message_bus import message_bus_trigger as mod
+
+    body = inspect.getsource(mod.MessageBusTrigger._patrol_body)
+    assert "_load_bulletin(" in body
+    assert "bulletin=bulletin" in body

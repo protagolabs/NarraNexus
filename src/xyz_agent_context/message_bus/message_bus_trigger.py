@@ -1300,10 +1300,17 @@ class MessageBusTrigger:
             channel_id, limit=TEAM_HISTORY_LIMIT
         )
         lead, work_items = await self._team_board(team_id)
+        # The patrol sweep is a real turn whose reply lands in the room with
+        # @mentions, so it is bound by the team's rules exactly as an @mentioned
+        # member is. Omitting this made the Leader the one member the bulletin
+        # did not reach — while the tool blurb below still told it the bulletin
+        # loads every turn.
+        bulletin = await self._load_bulletin(team_id)
         prompt = self._build_team_prompt(
             lead_agent_id, history, member_map,
             owner_user_id=team_owner, team_id=team_id,
             trigger_messages=[],
+            bulletin=bulletin,
             lead_agent_id=lead or lead_agent_id,
             work_items=work_items,
             patrol_stalled=[
@@ -1444,10 +1451,11 @@ class MessageBusTrigger:
         owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
-        bulletin: Optional[List[Any]] = None,
         lead_agent_id: str = "",
         work_items: Optional[List[dict]] = None,
         patrol_stalled: Optional[List[dict]] = None,
+        *,
+        bulletin: Optional[List[Any]],
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
@@ -1500,13 +1508,14 @@ class MessageBusTrigger:
         # and worded to discourage over-pinning: the bulletin's budget is small
         # and shared with the user's own rules, so an agent that treats it as a
         # notepad crowds out the very rules it is supposed to obey.
-        lines.append(
+        lines += [
+            "",
             "If the team settles on a convention that should govern FUTURE "
             "replies (an output format, where files go), pin it with "
             "bus_pin_team_rule so nobody has to repeat it — every teammate "
             "loads it every turn. Findings, status and conversation belong in "
-            "the chat, not the bulletin."
-        )
+            "the chat, not the bulletin.",
+        ]
 
         # Before the conversation on purpose: these are the standing constraints
         # the messages are to be read UNDER. Appended after twenty lines of chat

@@ -674,9 +674,6 @@ async def delete_team(team_id: str, request: Request):
     # list_for_agent_context joins team_members, which the next line empties.
     # Rows nothing can ever read again are precisely the orphans the acceptance
     # criterion is about; leaving them is not "harmless clutter". The bulletin
-    # is in the same position: its only reader is this team's turn builder.
-    # Rows nothing can ever read again are precisely the orphans the acceptance
-    # criterion is about; leaving them is not "harmless clutter". The bulletin
     # and the work board are in the same position: both key on a team_id that is
     # about to stop existing, so their only readers vanish with the team.
     await _wipe_team_data(

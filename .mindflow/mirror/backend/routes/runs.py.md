@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/runs.py
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-07 (四次) — 停止顺带把工作板停下(第 7 条落地)
@@ -73,3 +73,9 @@ run 活在另一个进程(workers),HTTP 请求进不去。真正的中断由那�
 - 挂载:`backend/main.py`,prefix `/api/runs`
 
 测试:`tests/backend/test_run_cancel_route.py`
+
+## 2026-08-11 — `STOP_NOTICE_MSG_TYPE` 移到核心包
+
+常量本身不变，定义处从这里移到 [[team_bulletin]]，本文件改为 import。
+原因是又多了一个消费者：团队总结 worker 要把它排除在「团队活动」之外，
+而核心包不能反向 import 路由。

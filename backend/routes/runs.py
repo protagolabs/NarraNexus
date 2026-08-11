@@ -51,7 +51,9 @@ TEAM_ROOM_OWNER_PREFIX = "team_"
 # Marks the stop notice in the transcript. The frontend renders it from an i18n
 # key (the DB cannot know the reader's language); ``content`` carries an English
 # fallback for consumers that only read text, e.g. the memory index.
-STOP_NOTICE_MSG_TYPE = "system_stop"
+# Defined in the core package: the team-summary worker also has to recognise it,
+# and core cannot import a route.
+from xyz_agent_context.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE  # noqa: E402
 
 
 async def _leave_room_trace(db, stopped_runs: list[dict]) -> None:

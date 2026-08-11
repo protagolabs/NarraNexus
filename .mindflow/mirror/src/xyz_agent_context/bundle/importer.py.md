@@ -199,3 +199,11 @@ pre-collect 阶段扫每个 `agents/<aid>/artifacts.json` 把 `artifact_id` 加�
 
 走 [[team_bulletin_transfer]] 的 `write_imported_bulletin`，落在 id map 铸出的新 team id 上。
 bundle 是不可信输入：上限重新施加，且无论 payload 声称什么都不写自动总结。
+
+## 2026-08-11 (review) — 回滚也要扫公告栏表
+
+导入失败的回滚里，通用的 agent 表清扫只覆盖**带 `agent_id` 列**的表，
+而 `team_bulletin_entries` 只有 `team_id` / `author_id`，两边都不命中。
+于是 `write_imported_bulletin` 写进去的行会留在一个下一行就被删掉的 `team_id` 上——
+**任何查询路径都读不到**，正是 `_wipe_team_data` 自己论证过的那种孤儿行。
+#259 在紧挨着的一行把 `team_work_items` 加了进去，对比之下这个缺口才显出来。

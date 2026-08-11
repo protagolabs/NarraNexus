@@ -248,3 +248,30 @@ def test_the_importer_writes_it_under_the_new_team():
     # Under the NEW id, not the exporter's — the whole point of the id map.
     call = src[src.index("write_imported_bulletin(") :]
     assert "new_tid" in call[: call.index(")")]
+
+
+# ── rollback ────────────────────────────────────────────────────────────────
+
+
+def test_the_import_rollback_sweeps_the_bulletin_table():
+    """A failed import must not leave bulletin rows keyed on a team_id it is
+    about to delete.
+
+    The generic agent-table sweep only covers tables with an `agent_id` column,
+    and team_bulletin_entries has team_id/author_id — so it fell through both
+    and left rows no query path could ever reach. That is precisely the orphan
+    `_wipe_team_data` argues against, and #259 added its own table to this same
+    loop one line above, which is what made the gap visible.
+
+    Asserted on the rollback list rather than by driving a failing import: the
+    sweep is a fixed sequence of deletes, and what matters is that this table is
+    in it.
+    """
+    import inspect
+
+    from xyz_agent_context.bundle import importer
+
+    src = inspect.getsource(importer)
+    rollback = src[src.index("for tid in new_team_ids"):]
+    rollback = rollback[: rollback.index('await _del("teams"')]
+    assert '_del("team_bulletin_entries", "team_id", tid)' in rollback

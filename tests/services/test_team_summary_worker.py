@@ -557,3 +557,60 @@ async def test_without_a_lead_the_earliest_member_bears_it(db_client):
 async def test_a_team_with_no_members_has_no_bearer(db_client):
     await db_client.insert("teams", {"team_id": "team_empty", "owner_user_id": OWNER, "name": "E"})
     assert await TeamSummaryWorker(db_client)._cost_bearer("team_empty") == ""
+
+
+@pytest.mark.asyncio
+async def test_patrol_lines_do_not_count_toward_the_threshold(db_client):
+    """#259's patrol messages are the platform chasing stalled work, not team
+    activity. Patrol speaks precisely in rooms where nothing is moving (rate cap
+    6 per 30 min), so counting it lets a room with NO real work reach the
+    threshold on the platform's own chase messages inside a couple of hours."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    await _seed_room(db_client, messages=0)
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD * 2):
+        await db_client.insert("bus_messages", {
+            "message_id": f"pat{i}", "channel_id": CHANNEL,
+            "from_agent": f"team_{TEAM}", "content": "where does this stand?",
+            "msg_type": PATROL_MSG_TYPE, "created_at": _ts(i),
+        })
+
+    w = _worker(db_client)
+    await w.run_once()
+
+    assert w.calls == [], "patrol chase messages were counted as team activity"
+
+
+@pytest.mark.asyncio
+async def test_patrol_lines_are_not_shown_to_the_summariser(db_client):
+    """Their from_agent is a synthetic `team_<id>` marker that never resolves
+    through member_map, so they would also read as a member speaking."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    await db_client.insert("bus_messages", {
+        "message_id": "pat", "channel_id": CHANNEL, "from_agent": f"team_{TEAM}",
+        "content": "chasing the parser task", "msg_type": PATROL_MSG_TYPE,
+        "created_at": _ts(950),
+    })
+
+    w = _worker(db_client)
+    await w.run_once()
+
+    assert "chasing the parser task" not in w.calls[0]["transcript"]
+
+
+def test_the_filter_is_built_from_constants_not_retyped_strings():
+    """The first version hard-coded two literals and #259's third type slipped
+    past it. Importing the constants is what makes the next one impossible to
+    miss silently."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from xyz_agent_context.message_bus.team_bulletin import (
+        BULLETIN_NOTICE_MSG_TYPE,
+        STOP_NOTICE_MSG_TYPE,
+    )
+    from xyz_agent_context.services.team_summary_worker import _SYSTEM_MSG_TYPES
+
+    assert set(_SYSTEM_MSG_TYPES) == {
+        PATROL_MSG_TYPE, BULLETIN_NOTICE_MSG_TYPE, STOP_NOTICE_MSG_TYPE,
+    }

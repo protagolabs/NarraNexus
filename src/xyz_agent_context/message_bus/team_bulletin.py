@@ -61,6 +61,12 @@ from xyz_agent_context.schema.team_schema import (
 # carries an English fallback for consumers that only read text.
 BULLETIN_NOTICE_MSG_TYPE = "system_bulletin"
 
+# The owner-stopped-a-run notice. Defined here rather than in
+# ``backend/routes/runs.py`` (which now imports it) because core modules need it
+# too — the summary worker filters it out of team activity — and a core package
+# reaching into a route to borrow a string inverts the layering.
+STOP_NOTICE_MSG_TYPE = "system_stop"
+
 
 # ── budget ──────────────────────────────────────────────────────────────────
 

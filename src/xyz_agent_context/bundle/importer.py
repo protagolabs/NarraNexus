@@ -149,6 +149,12 @@ async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]
             await _del(t, "agent_id", aid)
     for tid in new_team_ids:
         await _del("team_work_items", "team_id", tid)
+        # The bulletin too. The agent_tables sweep above only covers tables with
+        # an agent_id column, and team_bulletin_entries has team_id/author_id —
+        # so rows written by write_imported_bulletin survived a rollback keyed on
+        # a team_id deleted on the next line: unreachable by every query path,
+        # which is exactly the orphan `_wipe_team_data` argues against.
+        await _del("team_bulletin_entries", "team_id", tid)
         await _del("team_members", "team_id", tid)
         await _del("teams", "team_id", tid)
     for cid in new_channel_ids:

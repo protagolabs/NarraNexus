@@ -52,6 +52,11 @@ from loguru import logger
 from xyz_agent_context.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
+from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+from xyz_agent_context.message_bus.team_bulletin import (
+    BULLETIN_NOTICE_MSG_TYPE,
+    STOP_NOTICE_MSG_TYPE,
+)
 from xyz_agent_context.schema.team_schema import (
     BULLETIN_MAX_SUMMARY_CHARS,
     BULLETIN_SOURCE_SUMMARY,
@@ -61,9 +66,21 @@ from xyz_agent_context.utils.cost_tracker import clear_cost_context, set_cost_co
 
 TEAM_ROOM_OWNER_PREFIX = "team_"
 
-# Room lines the platform wrote about itself. Neither counts as team activity,
-# and one of them is this feature's own bulletin notice.
-_SYSTEM_MSG_TYPES = ("system_bulletin", "system_stop")
+# Room lines the PLATFORM wrote about itself. None of them is team activity.
+#
+# Imported rather than retyped. The first version hard-coded two string literals
+# and then #259 added a third type (`patrol`) that nothing told this filter
+# about — so the "platform triggering itself" hole this filter exists to close
+# reopened through a different door: a stalled room with no real work can reach
+# the threshold on the platform's own chase messages alone.
+_SYSTEM_MSG_TYPES = (
+    BULLETIN_NOTICE_MSG_TYPE,
+    PATROL_MSG_TYPE,
+    STOP_NOTICE_MSG_TYPE,
+)
+# Placeholders are generated from the tuple, so adding a type does not mean
+# editing three SQL strings and hoping all three were found.
+_SYSTEM_MSG_PLACEHOLDERS = ", ".join(["%s"] * len(_SYSTEM_MSG_TYPES))
 
 _INSTRUCTIONS = (
     "You are summarising a team's group chat so every teammate can see where "
@@ -230,14 +247,14 @@ class TeamSummaryWorker:
         if since is None:
             rows = await self._db.execute(
                 "SELECT COUNT(*) AS n FROM bus_messages "
-                "WHERE channel_id = %s AND msg_type NOT IN (%s, %s)",
+                f"WHERE channel_id = %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS})",
                 (channel_id, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
         else:
             rows = await self._db.execute(
                 "SELECT COUNT(*) AS n FROM bus_messages "
-                "WHERE channel_id = %s AND created_at > %s AND msg_type NOT IN (%s, %s)",
+                f"WHERE channel_id = %s AND created_at > %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS})",
                 (channel_id, since, *_SYSTEM_MSG_TYPES),
                 fetch=True,
             )
@@ -280,7 +297,7 @@ class TeamSummaryWorker:
         # team progress.
         rows = await self._db.execute(
             "SELECT created_at, from_agent, content FROM bus_messages "
-            "WHERE channel_id = %s AND msg_type NOT IN (%s, %s) "
+            f"WHERE channel_id = %s AND msg_type NOT IN ({_SYSTEM_MSG_PLACEHOLDERS}) "
             "ORDER BY created_at DESC LIMIT %s",
             (channel_id, *_SYSTEM_MSG_TYPES, self.TRANSCRIPT_LIMIT),
             fetch=True,

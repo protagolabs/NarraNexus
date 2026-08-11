@@ -199,6 +199,7 @@ def test_the_agent_is_told_the_tool_exists():
         {"agent_a": "Alice", "agent_b": "Bob"},
         owner_user_id="user_a",
         team_id="team_42",
+        bulletin=None,
     )
     assert "bus_pin_team_rule" in prompt
 
@@ -214,6 +215,7 @@ def test_the_prompt_discourages_using_the_bulletin_as_a_notepad():
         {"agent_a": "Alice", "agent_b": "Bob"},
         owner_user_id="user_a",
         team_id="team_42",
+        bulletin=None,
     )
     assert "chat, not the bulletin" in prompt
 

@@ -96,3 +96,16 @@ warning，于是「每个房间都很安静」和「每个房间都在失败」�
 
 `clear_user_config()` 补进 `finally`，与 `clear_cost_context()` 对称；clear-first 序列改为委托
 `resolver.inject_user_helper_credentials`，因为它是**跨租户不变量**，两份实现意味着将来有人只改一处。
+
+## 2026-08-11 (review 第三轮) — 过滤器改为 import 常量
+
+`_SYSTEM_MSG_TYPES` 原本硬编码两个字符串字面量，于是 #259 新增的第三种类型
+（`patrol`）没有任何东西告诉它——「平台自己触发自己」这个本来关掉的门，**从另一侧敞开了**：
+巡查恰恰只在流程卡住的房间说话（30 分钟 6 条上限），所以一个**完全没有真实工作发生**的
+停滞房间，光靠平台自己的催办行就能在一个多小时内凑够 15 条阈值，触发一次真实 LLM 调用；
+而且它们的 `from_agent` 是合成标记 `team_<id>`，不过 `member_map`，喂进 summariser 会被
+读成某个成员在发言。
+
+现在三个类型都从各自的定义处 import（`PATROL_MSG_TYPE` / `BULLETIN_NOTICE_MSG_TYPE` /
+`STOP_NOTICE_MSG_TYPE`），SQL 占位符按元组长度生成——否则下次加类型要同步改三处 SQL 字符串，
+而这次的教训正是「有一处没人改」。
