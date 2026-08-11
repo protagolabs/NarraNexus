@@ -39,6 +39,10 @@ def _cases():
         WeChatCredential,
         _cred_from_raw as wechat_from_raw,
     )
+    from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+        NarramessengerCredential,
+        _cred_from_raw as narra_from_raw,
+    )
 
     return [
         ("discord", DiscordCredential(agent_id="agent_x", bot_token="d-secret",
@@ -54,6 +58,11 @@ def _cases():
         ("wechat", WeChatCredential(agent_id="agent_x", bot_token="w-secret",
                                     base_url="https://x", created_at=_DT, updated_at=_DT),
          wechat_from_raw, ["bot_token"]),
+        ("narramessenger", NarramessengerCredential(
+            agent_id="agent_x", bearer_token="n-bearer", matrix_access_token="syt_secret",
+            matrix_homeserver_url="https://m", matrix_since_token="s_123",
+            created_at=_DT, updated_at=_DT),
+         narra_from_raw, ["bearer_token", "matrix_access_token"]),
     ]
 
 

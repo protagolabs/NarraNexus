@@ -19,6 +19,7 @@ last_verified: 2026-08-10
 channel→manager 用 `_MANAGER_REGISTRY`（channel → (模块路径, 类名, **读方法名**)，按名懒 import）集中登记，`SUPPORTED_CHANNELS`
 由它派生（端点 allowlist 不会与 DirectStore 能解析的漂移）。读方法名**不统一**（discord/slack/telegram/wechat=`get`，lark=`get_credential`）
 故入表第三字段，`_read_method_name` 取之、DirectStore 用 getattr 调用。加一个 channel = 注册表加一行 + 该 channel 凭据类加 `to_raw_dict`/`_cred_from_raw`，
-seam / 端点 / allowlist 全跟随。已接入：discord/slack/telegram/wechat（读侧）。**已知缺口（明写不藏）**：写/生命周期（bind/unbind/setup）尚未进本 Protocol，
+seam / 端点 / allowlist 全跟随。已接入：discord/slack/telegram/wechat/narramessenger（读侧）。
+Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents.created_by）——narra 的媒体发送 + CLI 工作区解析要它；DirectStore 读库、HttpStore 打 `/channels/owner`。**已知缺口（明写不藏）**：写/生命周期（bind/unbind/setup）尚未进本 Protocol，
 `DirectStore.get_manager()` 是给 discord 写工具的**本地专用**便利、无 HttpStore 对应——所以云端写工具仍需本地 db，
 `DB_PASSWORD` 要等写路径也迁移（另一 PR）才能从 mcp 摘掉。这是 #2「mcp 零 db 凭据」的收口条件。

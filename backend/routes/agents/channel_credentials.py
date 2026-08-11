@@ -90,3 +90,15 @@ async def get_agent_channel_name(request: Request, agent_id: str) -> dict:
     _require_service_caller(request)
     await assert_owned(request, agent_id)
     return {"agent_name": await ChannelDirectStore().get_agent_name(agent_id)}
+
+
+@router.get("/{agent_id}/channels/owner")
+async def get_agent_channel_owner(request: Request, agent_id: str) -> dict:
+    """The agent's owner (created_by) user id (service + owner gated) — the HTTP
+    twin of ChannelCredentialStore.DirectStore.get_agent_owner. NarraMessenger's
+    media send + CLI workspace resolution need it. Since assert_owned already
+    proved the caller owns the agent, this necessarily equals the caller's own
+    identity, but it is served explicitly so the tool need not re-derive it."""
+    _require_service_caller(request)
+    await assert_owned(request, agent_id)
+    return {"owner_user_id": await ChannelDirectStore().get_agent_owner(agent_id)}

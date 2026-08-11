@@ -64,6 +64,8 @@ class ChannelCredentialStore(Protocol):
 
     async def get_agent_name(self, agent_id: str) -> str: ...
 
+    async def get_agent_owner(self, agent_id: str) -> str: ...
+
 
 # channel -> (module path, manager class name, read-method name). Lazy (import
 # by name only when a call actually needs that channel) so this module never
@@ -92,6 +94,11 @@ _MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
     "wechat": (
         "xyz_agent_context.module.wechat_module._wechat_credential_manager",
         "WeChatCredentialManager",
+        "get",
+    ),
+    "narramessenger": (
+        "xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager",
+        "NarramessengerCredentialManager",
         "get",
     ),
 }
@@ -146,6 +153,14 @@ class DirectStore:
         row = await db.get_one("agents", {"agent_id": agent_id})
         return (row or {}).get("agent_name", "") or agent_id
 
+    async def get_agent_owner(self, agent_id: str) -> str:
+        # created_by (the workspace owner's user id) — NarraMessenger's media
+        # send + CLI workspace resolution need it. Returns "" when the agent
+        # row is missing (callers treat empty as "no owner signal").
+        db = await self._db()
+        row = await db.get_one("agents", {"agent_id": agent_id})
+        return (row or {}).get("created_by", "") or ""
+
     async def get_manager(self, channel: str):
         """A live per-channel manager for write/lifecycle operations the
         read-only Protocol doesn't cover (see module docstring's "known gap").
@@ -181,6 +196,13 @@ class HttpStore:
         if not body:
             return agent_id
         return body.get("agent_name") or agent_id
+
+    async def get_agent_owner(self, agent_id: str) -> str:
+        path = f"/api/agents/{_seg(agent_id)}/channels/owner"
+        body = await self._get_json(path)
+        if not body:
+            return ""
+        return body.get("owner_user_id") or ""
 
     async def _get_json(self, path: str) -> Optional[dict[str, Any]]:
         """One transport + HTTPError boundary, mirroring store.py's HttpStore.

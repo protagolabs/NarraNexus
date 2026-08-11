@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (PR-E) — 读凭据 + owner 改走 ChannelCredentialStore seam
+
+`_get_credential` 改 `get_channel_credential_store().get_credential("narramessenger", …)` → `_cred_from_raw` 重建（cred.matrix_access_token/bearer_token 用法零变化）；`_get_owner`（agents.created_by）改 seam `get_agent_owner`（新 Protocol 方法 + 后端 `/channels/owner` 端点，同 service+owner 双门）。**写/CLI 留尾**：narra_bind（do_bind）+ narra_cli（run_narra_cli 透传 db）仍 `get_mcp_db_client`——写路径与 CLI 透传后延，同其它 channel。
+
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
 

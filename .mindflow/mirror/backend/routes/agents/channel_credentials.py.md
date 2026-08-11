@@ -18,4 +18,4 @@ last_verified: 2026-08-11
 不能拿来探测未接线的 channel。命中则**委托 seam 的 `ChannelDirectStore().get_credential(channel, agent_id)`**
 （不再硬编码某个 manager）——HTTP 孪生与进程内路径共用**同一份** db 访问，加 channel 只在 channel_store 注册表加一行、
 本文件零改。None→`{"bound": false}`，否则透传 raw dict。**绝不 log 密钥**（raw 只在 `to_raw_dict` 一处离开管理器）。
-附带 `GET /{agent_id}/channels/name`（同两道门）委托 seam 的 get_agent_name。
+附带 `GET /{agent_id}/channels/name`（委托 get_agent_name）+ `GET /{agent_id}/channels/owner`（委托 get_agent_owner，返回 created_by，narra 用），均同两道门。
