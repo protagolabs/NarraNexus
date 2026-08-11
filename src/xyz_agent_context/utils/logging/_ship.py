@@ -168,15 +168,23 @@ def ship_mode() -> str:
 
 
 def _env_label() -> str:
-    """Envelope + routing label. Deployment-specific detection does
-    NOT live here — a generic logging utility must not sniff another
-    integration's env vars; run.sh (container mode) derives and injects
-    ``NEXUS_DIAG_ENV`` instead."""
-    return (
+    """Envelope + routing label. Another INTEGRATION's env vars are
+    off-limits here (run.sh container mode derives and injects
+    ``NEXUS_DIAG_ENV`` from them instead) — but our OWN deployment
+    contract is fair game, and necessary: cloud-stack containers are
+    started by compose directly (no run.sh, no NARRA_SURFACE), so
+    without the ``get_deployment_mode()`` fallback every cloud record
+    would be labeled "unknown" and land in the collector's stranger
+    bucket — the partition its size cap drains FIRST."""
+    label = (
         os.environ.get("NEXUS_DIAG_ENV", "").strip()
         or os.environ.get("NARRA_SURFACE", "").strip()
-        or "unknown"
     )
+    if label:
+        return label
+    from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+
+    return get_deployment_mode()
 
 
 def _allowed_ingest_url(url: str) -> bool:

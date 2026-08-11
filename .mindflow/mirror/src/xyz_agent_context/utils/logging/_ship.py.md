@@ -4,11 +4,24 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(六)— 第 7 轮:标签兜底改读部署契约
+
+`_env_label()` 第三级回落从字面量 "unknown" 改为
+`get_deployment_mode()`(纯 env 叶子模块):云栈容器不经 run.sh,
+`NARRA_SURFACE` 没人注入,原实现让**所有云上记录**自标 unknown、
+落进收集端最先排干的陌生桶。"不嗅探别家集成的 env"(manyfold)与
+"读自家部署契约"(`NARRANEXUS_DEPLOYMENT_MODE`,云镜像已烘焙)是
+两回事。桌面侧同批修:process_manager.rs 给全部 sidecar 注入
+`NARRA_SURFACE=desktop`(原来只有 backend)。
+
 ## 2026-08-11(四)— 第 5 轮:atexit 顺序
 
-(第 6 轮备注:`logger.complete()` 使"每个进程退出时排空 loguru
-enqueue 队列"成为**全局**退出期行为——对默认 off 的部署它只是顺带
-排空文件 sink 队列,无害略有益,但它不再只属于遥测路径,记一笔。)
+(第 6/7 轮备注:`logger.complete()` 使"每个进程退出时排空 loguru
+enqueue 队列"成为**全局**退出期行为——这是**已知且被接受的退出期
+代价**:默认 off 时它只是顺带排空文件 sink 队列(无害略有益);
+sink 开启时退出期最多多等一次队列排空 + flush 超时。接受理由:不
+排空则最后一批必然丢,而"崩溃尾巴靠下次启动 backfill 找回"只覆盖
+文件本源,不覆盖立即外发。)
 
 atexit 是 LIFO,本模块 handler 在 import 时注册——晚于 loguru 自身
 的 teardown 注册,因此**先于** loguru 排空 enqueue 队列执行;直接

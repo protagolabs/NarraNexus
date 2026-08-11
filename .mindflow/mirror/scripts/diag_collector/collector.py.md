@@ -4,6 +4,30 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(六)— 第 7 轮:词汇表要和部署路径核对,分区收敛到 env 单维
+
+第 6 轮的白名单默认值和**现网发送端实际发出的标签对不上**:云栈
+容器由 compose 直接起(不经 run.sh),`NARRA_SURFACE`/`NEXUS_DIAG_ENV`
+都拿不到 → 每条云上记录 env="unknown" → 恰好落进最先被排干的陌生
+桶。三处修:
+
+- **发送端兜底改读我方部署契约**(`_ship._env_label` 第三级回落
+  `get_deployment_mode()`,云镜像已烘焙 `NARRANEXUS_DEPLOYMENT_MODE`
+  =cloud → 零部署改动自标 "cloud";桌面 sidecar 全部注入
+  `NARRA_SURFACE=desktop`,原来只有 backend 有);"不嗅探别家集成
+  的 env"与"读自家部署契约"是两回事,docstring 已区分;
+- **分区键收敛为 env 单维**(`parts[:1]`,对所有 env):假冒已知
+  env + 轮换 runtime 曾能铸 257 个子分区做水位找平(反噬阈值
+  ~78MB);现在声称某个 env 就**是**那一个分区,轮换一无所获。
+  诚实边界:假冒已知 env 的洪水会连我方数据一起从最旧轮转——无
+  鉴权不可分辨,逃生阀 `DIAG_COLLECT_TOKEN`;
+- **坍缩必须出声**:名单外 label 降级进 unknown/ 时按 label 记
+  warning 一次(memo 上限 100 防轮换刷日志)——静默坍缩正是事故
+  沉淀 #3/#4 说的"可观测系统自己失效不可检测";白名单条目与来件
+  label 过**同一套归一化**(_segment + lower),ops 手滑的空格/大小
+  写不再造成全量静默坍缩;写路径的 mkdir/open 重试范围收窄,
+  fh.write 移出 try(中途失败重追加会留下"半截+完整"重复内容)。
+
 ## 2026-08-11(五)— 第 6 轮:收窄取值域,而不是收窄数量
 
 第 5 轮的"上界 + overflow 坍缩"代入数字仍不成立:16×257 ≈ 4100 个

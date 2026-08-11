@@ -28,6 +28,8 @@ def _clean_env(monkeypatch, tmp_path):
         "NEXUS_DIAG_DISCOVERY_URL",
         "MANYFOLD_RUNTIME_ID",
         "MANYFOLD_SYNC_WEBHOOK_URL",
+        "NARRANEXUS_DEPLOYMENT_MODE",
+        "DATABASE_URL",
         "NARRA_SURFACE",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -121,12 +123,14 @@ class TestConsentGating:
     def test_env_label_no_longer_sniffs_manyfold(self, monkeypatch):
         """Deployment detection moved to run.sh (which injects
         NEXUS_DIAG_ENV); the generic logging utility must not read
-        another integration's env vars."""
+        another integration's env vars. Absent all labels it falls to
+        OUR deployment contract (get_deployment_mode → "local" here),
+        never to the manyfold URL."""
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
         monkeypatch.setenv(
             "MANYFOLD_SYNC_WEBHOOK_URL", "https://api-staging.manyfold.ai/x"
         )
-        assert _ship.ship_config()["env"] == "unknown"
+        assert _ship.ship_config()["env"] == "local"
 
     def test_env_label_explicit_and_surface_fallback(self, monkeypatch):
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
@@ -134,6 +138,17 @@ class TestConsentGating:
         assert _ship.ship_config()["env"] == "local"
         monkeypatch.setenv("NEXUS_DIAG_ENV", "canary")
         assert _ship.ship_config()["env"] == "canary"
+
+    def test_env_label_falls_back_to_deployment_mode(self, monkeypatch):
+        """Cloud stack containers are started by compose directly (no
+        run.sh, no NARRA_SURFACE) — their label must come from the
+        deployment-mode contract (NARRANEXUS_DEPLOYMENT_MODE, baked in
+        the cloud image), or every cloud record would carry "unknown"
+        and land in the collector's stranger bucket — the partition
+        that drains FIRST."""
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
+        monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+        assert _ship.ship_config()["env"] == "cloud"
 
     def test_meta_level_is_audit_and_up(self):
         assert _ship.ship_sink_level("meta") == 25

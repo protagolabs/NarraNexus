@@ -17,14 +17,16 @@ line with the envelope fields merged in):
 
     <DATA_DIR>/<env>/<runtime_id>/<service>/<YYYY-MM-DD>.jsonl
 
-The <env> level is an ALLOWLIST, not a free value: env labels outside
+The <env> level is an ALLOWLIST, not a free value: labels outside
 DIAG_COLLECT_KNOWN_ENVS collapse into the single "unknown" bucket at
-write time, and the size cap treats that whole subtree as ONE
-partition. Below the env level, directory populations are bounded
-(256 runtimes / 16 services per parent; beyond the cap new names land
-in an "overflow" bucket) purely as inode hygiene — the segment values
-come from untrusted record fields. Attribution survives regardless:
-every record keeps its envelope fields inline.
+write time (with a warning naming the demoted label — silent collapse
+would let vocabulary drift rot our own data unnoticed), and the size
+cap partitions by the env alone. Below the env level, directory
+populations are bounded (256 runtimes / 16 services per parent; beyond
+the cap new names land in an "overflow" bucket) purely as inode
+hygiene — the segment values come from untrusted record fields.
+Attribution survives regardless: every record keeps its envelope
+fields inline.
 
 Retention: files older than DIAG_COLLECT_RETENTION_DAYS (default 30)
 are deleted by a daily sweep (startup + every 24h), which also removes
@@ -176,19 +178,21 @@ def enforce_size_cap() -> int:
     root = _data_dir()
     if not root.is_dir():
         return 0
-    # Partition = env/runtime for KNOWN envs, and the ENTIRE unknown/
-    # subtree as ONE partition. Deletion drains the largest partition's
-    # oldest files first — water-leveling — so the fairness claim only
-    # holds if strangers cannot spread across partitions. That is now a
-    # property of CONSTRUCTION: env values outside the deployment-owned
-    # allowlist collapse into unknown/ at write time (a population
-    # bound was not enough — 16×257 mintable partitions let a flood
-    # keep each of its partitions just below the victim's, and the
-    # leveling loop drained the victim). What remains possible, and is
-    # stated honestly: spoofing a KNOWN env/runtime lands in that
-    # partition and is indistinguishable without authentication
-    # (DIAG_COLLECT_TOKEN is the escape hatch). The hard guarantees
-    # stay the cap itself and the global byte budget.
+    # Partition = the ENV alone, for every env. Deletion drains the
+    # largest partition's oldest files first — water-leveling — so the
+    # fairness claim only holds if strangers cannot spread across
+    # partitions. Both halves are now constructive: env values outside
+    # the deployment-owned allowlist collapse into unknown/ at write
+    # time, and WITHIN an env the runtime dimension carries no
+    # partition weight — spoofing a known env and rotating runtime_id
+    # mints nothing (keyed per env/runtime, 257 mintable sub-partitions
+    # let a flood keep each just below the victim's and the leveling
+    # loop drained the victim). What remains, stated honestly: traffic
+    # claiming a known env IS that one partition — indistinguishable
+    # from the legit sender without authentication (DIAG_COLLECT_TOKEN
+    # is the escape hatch), so a spoofing flood rotates that env's
+    # data, ours included, oldest first. The hard guarantees stay the
+    # cap itself and the global byte budget.
     partitions: dict[tuple, list[tuple[float, int, Path]]] = {}
     sizes: dict[tuple, int] = {}
     total = 0
@@ -197,8 +201,7 @@ def enforce_size_cap() -> int:
             stat = path.stat()
         except OSError:
             continue
-        parts = path.relative_to(root).parts
-        key = parts[:1] if parts[0] == _UNKNOWN_ENV else parts[:2]
+        key = path.relative_to(root).parts[:1]
         partitions.setdefault(key, []).append((stat.st_mtime, stat.st_size, path))
         sizes[key] = sizes.get(key, 0) + stat.st_size
         total += stat.st_size
@@ -352,17 +355,28 @@ def _segment(value: str) -> str:
 _UNKNOWN_ENV = "unknown"
 _DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop"
 
+# One warning per demoted label, not per record — silent collapse is how
+# our own data would rot unnoticed if the sender vocabulary drifts
+# (incident lessons #3/#4: the observability system's own failure must
+# be detectable). Bounded so label rotation cannot flood the log.
+_collapsed_warned: set[str] = set()
+_COLLAPSED_WARNED_MAX = 100
+
 
 def _known_envs() -> frozenset[str]:
+    """Allowlist entries pass the SAME normalization as incoming labels
+    (_segment + lowercase): an ops typo — a stray space, 'Cloud' — must
+    not silently collapse all traffic into unknown/."""
     raw = os.environ.get("DIAG_COLLECT_KNOWN_ENVS", "") or _DEFAULT_KNOWN_ENVS
-    return frozenset(v.strip() for v in raw.split(",") if v.strip())
+    return frozenset(
+        _segment(v).lower() for v in raw.split(",") if v.strip()
+    )
 
 
 # Below the env level the population bounds are INODE HYGIENE only —
 # runtime/service names come from untrusted record fields, and without
 # a cap rotation would mint unlimited directories (they carry no
-# fairness weight: the size-cap partition key never goes deeper than
-# env/runtime, and unknown/ is keyed as a single partition).
+# fairness weight: the size-cap partition key is the env alone).
 _MAX_RUNTIME_DIRS = 256
 _MAX_SERVICE_DIRS = 16
 _OVERFLOW_SEGMENT = "overflow"
@@ -438,8 +452,18 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
             record = json.loads(line)
         except ValueError:
             continue  # one broken line must not sink the batch
-        env_name = _segment(record.get("env", ""))
+        env_name = _segment(record.get("env", "")).lower()
         if env_name not in known:
+            if (
+                env_name not in _collapsed_warned
+                and len(_collapsed_warned) < _COLLAPSED_WARNED_MAX
+            ):
+                _collapsed_warned.add(env_name)
+                logger.warning(
+                    f"[diag-collector] env label {env_name!r} not in "
+                    f"DIAG_COLLECT_KNOWN_ENVS; storing under unknown/ "
+                    f"(the partition the size cap drains first)"
+                )
             env_name = _UNKNOWN_ENV
         env_dir = _data_dir() / env_name
         runtime_dir = env_dir / _bounded_segment(
@@ -464,16 +488,19 @@ def _process_batch(raw: bytes, gzipped: bool) -> int:
         payload = "\n".join(lines) + "\n"
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("a", encoding="utf-8") as fh:
-                fh.write(payload)
+            fh = target.open("a", encoding="utf-8")
         except OSError:
             # The retention sweep's empty-dir rmdir can race the gap
             # between mkdir and open; one retry closes the window
             # instead of turning the batch into a 500 (which the
-            # sender would count against its breaker).
+            # sender would count against its breaker). The write itself
+            # stays OUTSIDE the retry: re-appending after a mid-stream
+            # failure (ENOSPC/EIO) would leave "half + full" duplicate
+            # content in the file.
             target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("a", encoding="utf-8") as fh:
-                fh.write(payload)
+            fh = target.open("a", encoding="utf-8")
+        with fh:
+            fh.write(payload)
     return accepted
 
 

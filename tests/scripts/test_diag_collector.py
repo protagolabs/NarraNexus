@@ -14,6 +14,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -326,6 +327,87 @@ async def test_known_envs_allowlist_is_env_tunable(env, monkeypatch):
     assert (env / "prodx").is_dir()
     await _post(gzip.compress(_lines("b", env_label="staging").encode()))
     assert not (env / "staging").exists()  # default list fully replaced
+
+
+async def test_allowlist_entries_are_normalized(env, monkeypatch):
+    """Allowlist entries pass the same normalization as incoming labels
+    (_segment + lowercase): an ops typo like ' Cloud ' must not silently
+    collapse ALL traffic into unknown/ — the partition that drains first."""
+    monkeypatch.setenv("DIAG_COLLECT_KNOWN_ENVS", " Cloud , staging ")
+    await _post(gzip.compress(_lines("a", env_label="cloud").encode()))
+    assert (env / "cloud").is_dir()
+    await _post(gzip.compress(_lines("b", env_label="Staging").encode()))
+    assert (env / "staging").is_dir()  # case-insensitive both directions
+
+
+async def test_collapse_to_unknown_warns_once_per_label(env, monkeypatch):
+    """Silent collapse is how our own data would rot unnoticed if the
+    label vocabulary drifts (incident lessons #3/#4): the collector must
+    say WHICH label it demoted, once per label, not per record."""
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        collector, "logger", SimpleNamespace(
+            warning=lambda m: warnings.append(m),
+            info=lambda m: None,
+        )
+    )
+    monkeypatch.setattr(collector, "_collapsed_warned", set())
+    await _post(gzip.compress(_lines("a", "b", env_label="typo-env").encode()))
+    await _post(gzip.compress(_lines("c", env_label="typo-env").encode()))
+    assert sum("typo-env" in w for w in warnings) == 1
+
+
+async def test_runtime_rotation_within_known_env_is_one_partition(env, monkeypatch):
+    """Partition key is the ENV alone: spoofing a known env and rotating
+    runtime_id must not mint 257 small partitions to water-level the
+    victim — everything claiming env X IS partition X, so the rotation
+    buys nothing and the flooded env drains as one block."""
+    ours = env / "cloud" / "rt_ours" / "s"
+    ours.mkdir(parents=True)
+    keep = ours / "2026-01-01.jsonl"
+    keep.write_text("o" * 400)
+    os.utime(keep, (500, 500))  # older than everything in the flood
+    for i in range(4):
+        d = env / "staging" / f"rt_{i}" / "s"
+        d.mkdir(parents=True)
+        f = d / "2026-02-01.jsonl"
+        f.write_text("f" * 300)  # each individually smaller than ours
+        os.utime(f, (1000 + i, 1000 + i))
+    # 1600 total, cap 900: leveling must take three flood files (1200 →
+    # 300, staying above ours at every step) and never touch `keep`.
+    monkeypatch.setenv("DIAG_COLLECT_MAX_DATA_GB", str(900 / 1024**3))
+    deleted = collector.enforce_size_cap()
+    assert keep.exists()
+    assert deleted >= 3
+
+
+async def test_write_failure_is_not_retried(env, monkeypatch):
+    """The vanished-dir retry covers ONLY mkdir→open: a write() that
+    fails mid-stream (ENOSPC/EIO) must not re-append the whole payload
+    — that would leave 'half + full' duplicate content in the file."""
+    writes = {"n": 0}
+    real_open = Path.open
+
+    class _FailingFile:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def write(self, payload):
+            writes["n"] += 1
+            raise OSError("disk full mid-write")
+
+    def fake_open(self, *args, **kwargs):
+        if self.suffix == ".jsonl":
+            return _FailingFile()
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fake_open)
+    with pytest.raises(OSError):
+        await _post(gzip.compress(_lines("x").encode()))
+    assert writes["n"] == 1  # write is outside the retry scope
 
 
 async def test_size_cap_treats_unknown_subtree_as_one_partition(env, monkeypatch):
