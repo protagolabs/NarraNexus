@@ -747,7 +747,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 }}
                 rows={1}
                 placeholder={t('chat.team.placeholder')}
-                className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
+                className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)] hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
               />
               <Button
                 variant="ghost"

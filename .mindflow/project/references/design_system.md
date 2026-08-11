@@ -17,6 +17,7 @@
 | 要做的事 | 规范 |
 |---|---|
 | 用颜色 | 只用**语义层** token(§2),禁止 `--color-red-500` 直连、禁止 hex |
+| 中性底色 | 按 §2.5 四层表面阶梯取层;一屏 ≤4 层;同一功能件跨页面同层 |
 | 圆角 | 只用 `var(--radius-*)`(§3),禁止 Tailwind `rounded-sm/md/lg/xl/2xl`;正圆用 `rounded-full` |
 | 嵌套框圆角 | **内层圆角 = 外层圆角 − 间距**,内层永远 ≤ 外层(§3.2) |
 | 字号 | 按 §4 阶梯取档,不再发明 `text-[12.5px]` 这类中间值 |
@@ -70,6 +71,32 @@ DM Mono 大写宽字距的小标签、少量语义色点缀。它刻意**不是*
 
 > 现状债(收敛 PR 处理,写新代码不许再加):`--color-red-500` 直连 75 处、
 > `--color-yellow-500` 直连 61 处、tsx 内 hex 32 处(清单见附录)。
+> (2026-08-11 收敛后:调色板直连与非豁免 hex 已清零。)
+
+### 2.5 表面层级(surface ladder)
+
+中性底色是一个**封闭的四层阶梯**,组件按职责取层,不按局部好看取色
+(2026-08-11 Owner 对照 team/单聊双截图定案——此前两个 composer 各选各的
+灰,就是因为没有这张表):
+
+| 层 | token | 职责 |
+|---|---|---|
+| **L0 画布** | `--nm-paper`(=`--bg-deep`) | app 背景、侧栏、页脚 |
+| **L1 内容面** | `--nm-card`(=`--bg-primary`) | 主区、卡片、弹窗 |
+| **L2 沉底/搁起** | `--nm-paper-warm` / `--nm-raised` | hero 卡、wells、rest 态按钮填充 |
+| **选中/悬停纱** | `--nm-row-active` / `--nm-paper-warm`(hover) | 列表行选中、hover 洗色 |
+
+**规则**:
+1. **一屏可辨识的中性底 ≤ 4 层**(行业惯例 3-4;Material 3 / Apple HIG /
+   shadcn 的 background/card/muted 同构)。
+2. **输入面与其容器必须差一层**:card 容器里的表单件用 warm filled
+   (`nm/form` 现状);坐在 L1 内容面上的 **Composer 用 card 白底 +
+   hairline 边框、聚焦换 ink 边**(`Composer.tsx` 现状)。同层叠同层
+   (白上白、warm 上 warm)靠不住边框救。
+3. **同一功能件跨页面必须同层**:单聊和团队房的 composer 是同一个功能件,
+   必须长得完全一样——用户对输入框的肌肉记忆是全局的(Slack/Discord/
+   Linear 的 composer 在一切房间形态里一致)。任何"这个页面想要更深一点"
+   都是在消费层级预算,先查这张表。
 
 ---
 
@@ -241,6 +268,7 @@ Dialog、Textarea、StatStrip 双份)——这是视觉不一致的制度性来�
 ## 9. PR 自查清单(UI 改动)
 
 - [ ] 颜色全部来自 ①② 层 token,无 hex、无 `--color-<hue>-<n>` 直连
+- [ ] 中性底按 §2.5 阶梯取层;输入面与容器差一层;同一功能件跨页面同层
 - [ ] 圆角全部 `var(--radius-*)` 或 `rounded-full`,无 Tailwind 圆角标尺
 - [ ] 嵌套框满足"内 ≤ 外 − 间距"
 - [ ] 字号在 §4 阶梯上,无新造中间值
