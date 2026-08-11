@@ -6,8 +6,15 @@
 Contract source: Hybrid "Direct Matrix RTC fast reply" handoff, sections 3.1/3.2/4.2.
 The metadata is a performance / presentation hint, NOT an authorization
 credential: callers must keep every existing sender / room check in place.
-Any validation miss degrades the event to a normal Matrix text message —
-it must never break the normal reply path.
+
+Two-level trigger contract: a strictly-validated v1 metadata block
+(parse_rtc_voice_input) starts a full voice turn with correlation IDs
+(rtc_session_id/turn_id/invocation_id/agent_profile_id). When that strict
+parse fails but the metadata still carries a non-blank `voice_instructions`
+string (extract_common_voice_instructions), the event starts a degraded
+voice turn — voice mode without correlation. When neither is present, the
+event is plain text. In every case, nothing here may ever break the normal
+reply path.
 """
 from __future__ import annotations
 
@@ -86,6 +93,28 @@ def parse_rtc_voice_input(event: dict) -> Optional[RtcVoiceInputV1]:
         agent_profile_id=meta["agent_profile_id"],
         voice_instructions=instructions,
     )
+
+
+def extract_common_voice_instructions(event: Any) -> Optional[str]:
+    """Handoff §3.1/§3.4 common trigger: the backend-controlled, non-blank
+    ``voice_instructions`` string inside the (possibly INVALID) v1 metadata
+    object. Used only after ``parse_rtc_voice_input`` returned None: a failed
+    metadata block no longer cancels voice mode, it only forfeits
+    correlation. Returns None unless the event is an m.text room message
+    whose metadata is a dict carrying a non-blank string field — the body
+    envelope is deliberately NOT consulted (mode detection must not depend
+    on body-string parsing).
+    """
+    if not isinstance(event, dict) or event.get("type") != "m.room.message":
+        return None
+    content = event.get("content")
+    if not isinstance(content, dict) or content.get("msgtype") != "m.text":
+        return None
+    meta = content.get(RTC_VOICE_INPUT_KEY)
+    if not isinstance(meta, dict):
+        return None
+    instructions = meta.get("voice_instructions")
+    return instructions if _non_blank_str(instructions) else None
 
 
 def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:

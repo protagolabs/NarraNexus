@@ -25,6 +25,7 @@ import copy
 from xyz_agent_context.module.narramessenger_module._rtc_voice import (
     RTC_VOICE_INPUT_KEY,
     RtcVoiceInputV1,
+    extract_common_voice_instructions,
     parse_rtc_voice_input,
     split_narra_system_prompt,
 )
@@ -208,3 +209,37 @@ def test_envelope_not_at_start_is_left_as_transcript():
     envelope, transcript = split_narra_system_prompt(body)
     assert envelope is None
     assert transcript == body
+
+
+# --- common-trigger extractor ---------------------------------------------
+
+
+def _event(meta):
+    return {
+        "type": "m.room.message",
+        "content": {"msgtype": "m.text", "body": "hi", "ai.netmind.rtc.voice_input": meta},
+    }
+
+
+class TestExtractCommonVoiceInstructions:
+    def test_broken_metadata_with_instructions_returns_them(self):
+        meta = {"version": 1, "seq": 2, "transport": "matrix",
+                "transcript_final": True, "voice_instructions": "Reply for a call."}
+        assert extract_common_voice_instructions(_event(meta)) == "Reply for a call."
+
+    def test_missing_instructions_returns_none(self):
+        assert extract_common_voice_instructions(_event({"seq": 2})) is None
+
+    def test_blank_or_mistyped_instructions_return_none(self):
+        assert extract_common_voice_instructions(_event({"voice_instructions": "   "})) is None
+        assert extract_common_voice_instructions(_event({"voice_instructions": 7})) is None
+
+    def test_metadata_not_a_dict_returns_none(self):
+        assert extract_common_voice_instructions(_event("nope")) is None
+
+    def test_non_text_event_returns_none(self):
+        ev = _event({"voice_instructions": "x"})
+        ev["content"]["msgtype"] = "m.audio"
+        assert extract_common_voice_instructions(ev) is None
+        assert extract_common_voice_instructions({"type": "m.reaction"}) is None
+        assert extract_common_voice_instructions(None) is None
