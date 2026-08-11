@@ -24,7 +24,14 @@ stub: false
 拍板口径 (a)。不跳过的话豁免会自我拆台:巡查开口的那个房间**正因为流程断了**
 才处在深度上限上,它自己那一行会把后续所有催办 @ 顶出可用区间。
 
-用户消息仍然清零(计数器原本的用途没变),查询相应多取一列 `msg_type`。
+用户消息仍然清零(计数器原本的用途没变)。
+
+**过滤下推到 SQL,不在 Python 里跳过**:`AND (msg_type IS NULL OR msg_type != ?)`。
+这不是写法偏好 —— 深度窗口是固定 `LIMIT MAX_TEAM_AGENT_HOPS + 2` 的定长窗口,
+在 Python 里跳过的巡查行**仍然占着窗口的格子**。一个流程断掉的房间恰恰是巡查
+最常光顾的地方,几条巡查行就能把窗口填满,`depth` 从此永远够不到
+`MAX_TEAM_AGENT_HOPS` —— 防 @ 风暴的上限在最需要它的房间里静默失效。`IS NULL`
+那一半是必须的:老消息没有 `msg_type`,漏掉它等于把历史全部排除在计数外。
 
 ## 2026-08-07 (三次) — lead 知道自己是 lead;工作板随 prompt 注入
 
@@ -638,3 +645,35 @@ turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime
 hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
 inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
 已回写进代码注释）。
+
+## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
+
+**巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
+「少个 UI 指示」而是这条主线上工作板工具全废:`_work_board_mcp_tools` 当时只从
+`bus_agent_activity` 认房间,巡查不写这张表,于是 5 个工具在**平台自己叫 lead
+调 `work_complete_item` 的那一轮**统一返回 no room / not found。连带两处:
+`detect_stalled_items` 问「assignee 是不是没动静」时,身兼 assignee 的 lead 会
+在巡查途中把**自己**判成 idle 进而给自己的条目标 `stalled`;roster 整个 sweep
+期间显示 lead 空闲。
+
+**同时给 `_invoke_runtime` 传 `team_id=`**,MCP 身份头才有 team 可注入。这与上一
+条是同一个洞的两头:工具必须从服务端知道自己在哪个 team,不能从模型参数知道。
+resolver 那侧也改成**优先读注入身份**、activity 行退化为兜底 —— 见
+`_work_board_mcp_tools.py.md`,那份文档原本就写下了「依赖 activity 写入时机」
+这个风险预判,巡查 lane 正是把它兑现的那个分支。
+
+**熔断门**:`_dispatch_patrols` 在唤醒 lead 前过 `should_skip`,和消息派发同一道
+闸。没有它,一个 key 失效或额度耗尽的 lead 会被每 180–600s 唤醒一次去跑一轮
+注定失败的 turn —— 正是熔断器要掐断的循环,只是从一条没问过它的 lane 进来。
+外层不包 try/except:`should_skip` 自己 fail-open,包了就是个永远跑不到的
+handler,而死 handler 会让读者以为它会抛。
+
+**`flight.running` 置位**:`liveness_snapshot` 的饥饿检查和 `longest_running_agent`
+都只数 `running`,不置位的巡查会占着 worker 槽却在心跳里显示为「仅在等待」——
+2026-07-27 那种「33 小时什么都没发生,liveness 全绿」的形状。
+
+**事实采集先于说话权**:`detect_stalled_items` 挪到频控门之前。检测不是「说话」
+的一部分 —— 它把 `stalled` 写进板子,那是用户面板渲染的东西,也是下一次 sweep
+定速的依据。频控一并挡住它时,被 cap 的团队整个窗口都不刷新板子:窗口内变哑的
+条目事后仍显示 `in_progress`,UI 少报,自适应间隔还停在慢档 —— 恰恰在出问题的
+时候。一次读加一次状态写,和频控真正要省的那轮 LLM 不在一个量级。

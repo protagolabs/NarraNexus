@@ -61,3 +61,8 @@ team 房间是**纯 @ 驱动**的:每个成员(lead 也不例外)只在被 @ 时
 - **上游**:`MessageBusTrigger._dispatch_patrols`(poll cycle 的第二个候选源)
 - **下游**:[[team_work_repository]](板子)、`_bus_activity` 的 `is_live`
 - **相邻**:`PATROL_MSG_TYPE` 被 `_team_cascade_depth` 用来跳过巡查行
+
+## 2026-08-10 — `patrol_is_on` 改从 `team_schema` 引入
+
+只是引入位置变了,判定规则一字未动:那条规则读的两个字段都属于 Team,所以归
+Team 的 schema 管(见 `team_schema.py.md`)。本文件仍是它唯一的 agent 侧调用方。

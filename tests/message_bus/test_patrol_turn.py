@@ -266,3 +266,103 @@ async def test_a_capped_patrol_does_not_run_the_turn_at_all(db_client):
     assert ran["count"] == 0, "capped patrol must not spend an LLM turn"
     # The cursor still moves, or a capped team becomes a hot candidate.
     assert (await db_client.get_one("teams", {"team_id": TEAM}))["last_patrol_at"]
+
+
+# ── the turn's identity ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_the_patrol_turn_carries_its_team_identity(db_client):
+    """Without `team_id` the board tools cannot prove which room they are in.
+
+    The patrol prompt tells the lead to close delivered items with
+    `work_complete_item`. That tool learns its team from the server-injected
+    MCP identity — a model parameter would let any turn claim any team. Drop
+    the argument here and the platform is asking for a tool call it has made
+    unanswerable.
+    """
+    await _seed_room(db_client)
+    trigger, seen = _trigger(db_client, "")
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    assert seen["team_id"] == TEAM
+
+
+@pytest.mark.asyncio
+async def test_the_patrol_turn_mirrors_itself_into_bus_activity(db_client):
+    """A patrol is a turn in a team room, so it leaves the same trace as one.
+
+    Three readers depend on this row, and each broke in its own way while it
+    was missing: the board tools' fallback room resolver (every tool answered
+    "not found"), `detect_stalled_items` (a lead that is also an assignee
+    diagnosed ITSELF as idle mid-sweep and stalled its own item), and the
+    roster (the lead showed idle for the whole patrol).
+    """
+    await _seed_room(db_client)
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    during: dict = {}
+
+    async def _invoke(**kwargs):
+        row = await db_client.get_one(
+            "bus_agent_activity", {"agent_id": "agent_lead"}
+        )
+        during.update(row or {})
+        return ("", "evt_patrol")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    assert during.get("state") == "running"
+    assert during.get("channel_id") == CHANNEL
+    # And it is handed back on the way out, however the turn ended.
+    after = await db_client.get_one("bus_agent_activity", {"agent_id": "agent_lead"})
+    assert (after or {}).get("state") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_a_capped_patrol_still_updates_the_board(db_client):
+    """The speech cap limits SPEAKING, not seeing.
+
+    When the cap gated detection too, a capped team stopped refreshing its
+    board: items that went quiet during the capped window still read
+    `in_progress` afterwards, so the user's panel under-reported and the
+    adaptive interval stayed slow exactly when things were going wrong.
+    """
+    from datetime import timedelta
+
+    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    await _seed_room(db_client)
+    repo = TeamWorkItemRepository(db_client)
+    item = await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="OCR",
+                                  created_by="agent_lead", assignee_id="agent_worker")
+    # The assignee has been silent long enough to count as stalled.
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": "agent_worker", "channel_id": CHANNEL, "state": "idle",
+        "updated_at": utc_now() - timedelta(hours=2),
+    })
+    # Burn the whole speech budget for the current window. The cap lives on the
+    # team row (a counter + a window stamp), not on a message count.
+    await db_client.update("teams", {"team_id": TEAM}, {
+        "patrol_spoke_at": utc_now(),
+        "patrol_spoke_count": PATROL_SPEECH_MAX,
+    })
+
+    called = False
+
+    async def _invoke(**kwargs):
+        nonlocal called
+        called = True
+        return ("something", "evt_patrol")
+
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+
+    # No LLM turn — that is what the cap is for.
+    assert called is False
+    # But the board learned the truth anyway.
+    assert (await repo.get(item.item_id)).status == WorkItemStatus.STALLED

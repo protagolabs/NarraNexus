@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/team_work_schema.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
 
@@ -29,3 +29,9 @@ routinely 跨越多次差事。
 
 `ACTIVE` 三态是巡查唯一关心的集合,`paused` 不在其中——这正是它的全部意义。
 `MODEL_SETTABLE` 是工具层的白名单,见 [[_work_board_mcp_tools]]。
+
+## 2026-08-10 — `patrol_is_on` 移出
+
+搬到 `team_schema.py`:它读的两个字段都属于 Team,放在这里等于把一条 Team 规则
+藏进工作项模块。本文件回到只管工作项状态机(`ACTIVE` / `MODEL_SETTABLE` 两个
+集合,以及它们各自划的那条平台/模型界线)。

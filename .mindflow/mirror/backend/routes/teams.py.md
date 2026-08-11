@@ -307,3 +307,9 @@ team's age. What moved is WHERE the statement lives: keeping it in the
 repository leaves the feature with a single dialect surface to test, instead of
 a second raw statement in the route that the MySQL suite would have to grow a
 reason to reach into.
+
+## 2026-08-10 — 工作板端点直接用实体
+
+`list_visible` 返回的是 `List[WorkItem]`,端点原先又 `model_dump()` 拍回 dict
+再按字符串 key 取回来,把上一轮改动刚拿到的类型直接扔掉:`r["item_id"]` 拼错要
+到请求时才炸,`i.item_id` 在 pyright 就拦得住。

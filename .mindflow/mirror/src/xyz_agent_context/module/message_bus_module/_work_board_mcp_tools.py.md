@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_work_board_mcp_tools.py
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 stub: false
 ---
 
@@ -37,3 +37,42 @@ team,写下一个永远不会有人看到的工作项。
 
 代价:这依赖 activity 行的写入时机。若将来 team 分支不再写它,这里会静默退化
 成「没有板子」(而不是写错板子)——方向是安全的。
+
+## 2026-08-10 — 本文件有**两条**边界,不是一条
+
+这份文档原来把「平台/模型边界」等同于 `MODEL_SETTABLE` 白名单(哪些状态模型不
+准写)。那只是第一条。第二条是 `_item_in_my_room`,挂在三个写工具上,管的是
+**哪些条目模型不准写**。
+
+`item_id` 全局唯一,所以一个只收 id 的工具天然可以跨 team 写。这条路**不需要
+攻击者**:一个 agent 可以同时属于多个 team,而 prompt 的工作板段落对每个条目都
+印了 `id=`,于是上一轮 team A 的板子就躺在上下文里,这一轮跑在 team B。
+
+不匹配时**一律报 `not found`,不能报「存在但不属于你」** —— 后者会把另一个
+team 的 id 存在性回泄进同一个上下文,而那个上下文正是 id 的来源。
+
+守卫**接收 repo 而不是自己 new 一个**:工具本来就有 `get_repo_fn` 注入缝,守卫
+另开一条连接的话,它读真表、它守的工具读注入表,两边会对「这个条目存不存在」
+给出不同答案。
+
+## 2026-08-10 — 房间解析:注入身份第一,activity 行退居兜底
+
+原来只认 `bus_agent_activity` 的 running 行,理由是「那行只由 trigger 的 team
+分支写,所以『在 team 房间有活跃行』恰好等价于『有板子』」。这个等价在**第二条
+lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发之外唤醒 lead、不写
+这张表,于是 5 个工具在平台自己叫 lead 调 `work_complete_item` 的那轮全部失败。
+
+本文档原先就写下过这个风险 ——「代价:这依赖 activity 行的写入时机。若将来 team
+分支不再写它,这里会静默退化成『没有板子』」。巡查 lane 就是那个分支,隐患已经
+兑现,所以现在:
+
+1. **`caller_team_id_from_request()`** —— 这一轮能**证明**的东西,平台盖进 MCP
+   头,模型无法伪造。房间 channel 由 team 推出(team 房间就是 `created_by` 为
+   `team_<id>` 的那个 group channel,确定性的)。
+2. **activity 行** —— 没有注入身份时的兜底。
+
+两者冲突时**身份赢**:activity 行说的是 agent 最后被看见的地方,可能是它已经
+离开的房间,往那里写条目就是一次带着合理外观的跨房间写入。
+
+注入了 team 但房间还不存在时返回 `(None, None)` 而不是 `(team, "")` —— 每个写
+入都要 channel_id,半个答案会把条目落进空字符串。

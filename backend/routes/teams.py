@@ -921,25 +921,26 @@ async def get_work_board(team_id: str, request: Request):
     # `done`/`cancelled` history only ever grows — reading all of it to throw
     # most of it away scales with age. Keeping the query in the repository also
     # keeps the dialect surface single (new raw SQL owes a MySQL test).
-    visible = [
-        i.model_dump() for i in await TeamWorkItemRepository(db).list_visible(team_id)
-    ]
+    visible = await TeamWorkItemRepository(db).list_visible(team_id)
     # list_members_by_team returns agent_ids, not rows (see the callers above).
     member_ids = list(await TeamMemberRepository(db).list_members_by_team(team_id))
     agent_rows = await db.get_by_ids("agents", "agent_id", member_ids) if member_ids else []
     name_by_agent = {
         r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in agent_rows if r
     }
+    # Straight off the entity: the repository already returned typed
+    # `WorkItem`s, and round-tripping them through `model_dump()` would trade
+    # that away for string keys a typo only breaks at request time.
     items = [
         WorkItemView(
-            item_id=r["item_id"],
-            title=r["title"],
-            assignee_id=r.get("assignee_id"),
-            assignee_name=name_by_agent.get(r.get("assignee_id") or ""),
-            status=r["status"],
-            created_at=format_for_api(r.get("created_at")),
+            item_id=i.item_id,
+            title=i.title,
+            assignee_id=i.assignee_id,
+            assignee_name=name_by_agent.get(i.assignee_id or ""),
+            status=i.status,
+            created_at=format_for_api(i.created_at),
         )
-        for r in visible
+        for i in visible
     ]
     return WorkBoardResponse(
         success=True,
@@ -951,7 +952,7 @@ async def get_work_board(team_id: str, request: Request):
 
 def _patrol_enabled(team) -> bool:
     """See ``team_work_schema.patrol_is_on`` — one implementation, two callers."""
-    from xyz_agent_context.schema.team_work_schema import patrol_is_on
+    from xyz_agent_context.schema.team_schema import patrol_is_on
 
     return patrol_is_on(team)
 

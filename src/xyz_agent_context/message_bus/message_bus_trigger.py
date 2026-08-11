@@ -440,10 +440,11 @@ class MessageBusTrigger:
             # or exhausted quota gets woken every 180-600s, forever, to run a
             # turn that cannot succeed — the exact loop the breaker exists to
             # stop, entered through a lane that did not ask it.
-            try:
-                cb_skip, cb_reason = await should_skip(lead_agent_id)
-            except Exception:  # noqa: BLE001 — an unreadable breaker never blocks
-                cb_skip, cb_reason = False, ""
+            # No try/except: `should_skip` already fails open internally
+            # (returns (False, None) on any read error), so wrapping it would
+            # be a handler that can never run — and dead handlers read as
+            # "this can throw", which is worse than none.
+            cb_skip, cb_reason = await should_skip(lead_agent_id)
             if cb_skip:
                 logger.info(
                     f"[patrol] skipping {lead_agent_id} (circuit-breaker: {cb_reason})"
@@ -452,7 +453,6 @@ class MessageBusTrigger:
                 # a candidate on every single cycle for as long as it is broken.
                 try:
                     from xyz_agent_context.message_bus.patrol import mark_patrolled
-                    from xyz_agent_context.utils.db.db_factory import get_db_client
 
                     await mark_patrolled(await get_db_client(), team_id)
                 except Exception as e:  # noqa: BLE001
@@ -1144,6 +1144,18 @@ class MessageBusTrigger:
             # Facts first, and the platform's own: "is this stalled" is derived
             # from activity data, never from the model's read of the room
             # (iron rule #15). The lead's judgement starts after this line.
+            #
+            # This runs BEFORE the speech cap on purpose. Detection is not part
+            # of speaking — it writes `stalled` through to the board, which is
+            # what the user's panel renders and what paces the next sweep. When
+            # the cap gated it too, a capped team stopped updating its board
+            # entirely: items that went quiet during the capped window still
+            # read as `in_progress` afterwards, so the UI under-reported and
+            # the adaptive interval stayed at the slow pace precisely when
+            # things were going wrong. A read plus a status write is also
+            # nothing next to the LLM turn the cap actually exists to save.
+            stalled = await detect_stalled_items(db, team_id)
+
             # The speech cap is checked BEFORE the turn, not after it.
             #
             # Checking only at post time meant a capped patrol still ran a full
@@ -1159,7 +1171,6 @@ class MessageBusTrigger:
                 )
                 return
 
-            stalled = await detect_stalled_items(db, team_id)
             member_map = await self._team_member_names(channel_id)
             team_owner = await self._get_agent_owner(lead_agent_id)
             history = await self._bus.get_recent_messages(
@@ -1181,15 +1192,36 @@ class MessageBusTrigger:
                     for i in stalled
                 ],
             )
-            response_text, _ = await self._invoke_runtime(
-                agent_id=lead_agent_id,
-                sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
-                prompt=prompt,
-                channel_id=channel_id,
-                retrieval_anchor="team patrol",
-                include_monologue=True,
-                team_room=True,
-            )
+            # The SAME activity mirror the message lane opens (see
+            # `_process_agent`). Not decoration — three things read this row:
+            #
+            #   * the work-board tools' room resolver, whose fallback source it
+            #     is (identity headers are source 1, but only because this lane
+            #     taught us not to depend on a single one);
+            #   * `detect_stalled_items`, which asks "has the assignee gone
+            #     quiet" — a lead that is also an assignee would otherwise
+            #     diagnose ITSELF as idle while mid-patrol and mark its own
+            #     item stalled;
+            #   * the team-chat roster, which showed the lead as idle for the
+            #     whole sweep.
+            from xyz_agent_context.message_bus import _bus_activity
+
+            async with _bus_activity.turn(db, lead_agent_id, channel_id) as act:
+                response_text, _ = await self._invoke_runtime(
+                    agent_id=lead_agent_id,
+                    sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                    prompt=prompt,
+                    channel_id=channel_id,
+                    retrieval_anchor="team patrol",
+                    include_monologue=True,
+                    team_room=True,
+                    on_progress=act.on_progress,
+                    # The turn's team, for the MCP identity headers. Without it
+                    # the board tools this very prompt asks the lead to call
+                    # cannot prove which room they are in — tools must learn
+                    # that from the server, never from a model parameter.
+                    team_id=team_id,
+                )
             text = (response_text or "").strip()
             if not text:
                 return  # nothing wrong, nothing said

@@ -13,7 +13,7 @@ one has two consumers that are not the module: the patrol lane in
 from __future__ import annotations
 
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
 
@@ -55,16 +55,7 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
         producing patrol work, or the owner's stop gets undone by the next
         patrol cycle.
         """
-        if not team_id:
-            return []
-        marks = ",".join(["%s"] * len(WorkItemStatus.ACTIVE))
-        rows = await self._db.execute(
-            f"SELECT * FROM {self.table_name} "
-            f"WHERE team_id = %s AND status IN ({marks}) "
-            f"ORDER BY created_at ASC",
-            (team_id, *WorkItemStatus.ACTIVE),
-        )
-        return [self._row_to_entity(r) for r in rows or []]
+        return await self._list_by_status(team_id, WorkItemStatus.ACTIVE)
 
     async def list_visible(self, team_id: str) -> List[WorkItem]:
         """What the USER's board shows: unfinished work plus parked items.
@@ -79,14 +70,36 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
         validated against a real MySQL, and a second copy in `routes/` would be
         a second thing to keep covered.
         """
-        if not team_id:
+        return await self._list_by_status(
+            team_id, (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
+        )
+
+    async def _list_by_status(
+        self, team_id: str, states: Sequence[str]
+    ) -> List[WorkItem]:
+        """One team's items in the given states, in board order.
+
+        The single place this table's `IN (%s, ...)` list is assembled. That is
+        the point rather than an aesthetic: every copy of the shape is another
+        statement the real-MySQL suite has to cover, because a generated
+        placeholder list is exactly what produced a 1064 in this codebase
+        before. `list_active` and `list_visible` differ by one state and
+        nothing else, so they should not be two dialect surfaces.
+
+        Board order is `created_at, id`. `created_at` alone is not deterministic
+        on SQLite — the registry gives the column second precision there while
+        MySQL gets `DATETIME(6)` — so two items added in the same second would
+        come back in whatever order the engine felt like, and SQLite is the
+        desktop build's production backend. `id` is the autoincrement key, i.e.
+        insertion order, which is what "oldest first" means here anyway.
+        """
+        if not team_id or not states:
             return []
-        states = (*WorkItemStatus.ACTIVE, WorkItemStatus.PAUSED)
         marks = ",".join(["%s"] * len(states))
         rows = await self._db.execute(
             f"SELECT * FROM {self.table_name} "
             f"WHERE team_id = %s AND status IN ({marks}) "
-            f"ORDER BY created_at ASC",
+            f"ORDER BY created_at ASC, id ASC",
             (team_id, *states),
         )
         return [self._row_to_entity(r) for r in rows or []]

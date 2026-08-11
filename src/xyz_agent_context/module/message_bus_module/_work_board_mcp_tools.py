@@ -29,7 +29,10 @@ from typing import Any, Callable, Optional, Tuple
 
 from loguru import logger
 
-from xyz_agent_context.module._mcp_identity import caller_root_run_id
+from xyz_agent_context.module._mcp_identity import (
+    caller_root_run_id,
+    caller_team_id_from_request,
+)
 from xyz_agent_context.schema.team_work_schema import WorkItemStatus
 
 # The room prefix convention, same as backend/routes/teams.py and the trigger.
@@ -43,18 +46,52 @@ async def _get_db():
 
 
 async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional[str]]:
-    """``(team_id, channel_id)`` for the room this agent is currently working in.
+    """``(team_id, channel_id)`` for the room this turn is running in.
 
-    Derived from ``bus_agent_activity`` rather than from an injected header:
-    that mirror row is written ONLY by the trigger's team branch, so "has a
-    live activity row in a team-owned channel" is exactly the condition under
-    which a work board exists. A peer DM or an owner-chat turn resolves to
-    ``(None, None)`` and the tools decline with a reason — better than
-    inventing a team and writing an item nobody will ever see.
+    Two sources, in this order:
+
+    1. **The server-injected team identity** (``caller_team_id_from_request``).
+       This is what the turn can PROVE — the platform stamps it into the MCP
+       headers, a model cannot supply it. The room's channel then follows from
+       the team, since a team room is deterministically the group channel whose
+       ``created_by`` is the ``team_<id>`` marker.
+    2. **The ``bus_agent_activity`` mirror**, for turns that carry no injected
+       team.
+
+    Order matters, and not only as a preference. This resolver originally had
+    source 2 ALONE, and the reasoning was that the mirror row is written by the
+    trigger's team branch, so "live activity row in a team-owned channel" is
+    exactly when a board exists. That held right up until a second lane started
+    running agents in team rooms: patrol wakes the lead outside message
+    dispatch, wrote no activity row, and so every board tool answered "no room"
+    / "not found" in precisely the turn whose prompt tells the lead to call
+    ``work_complete_item``. Deriving from identity removes the dependency on
+    another lane remembering to mirror its turn.
+
+    When the two disagree, identity wins: the activity row says where the agent
+    was last seen, which can be a room it has since left, and writing an item
+    there is a cross-room write with a plausible-looking cause.
+
+    ``(None, None)`` for a peer DM or an owner-chat turn — the tools then
+    decline with a reason, which beats inventing a team and writing an item
+    nobody will ever see.
     """
     if not agent_id:
         return (None, None)
     try:
+        injected = caller_team_id_from_request()
+        if injected:
+            channel = await db.get_one(
+                "bus_channels",
+                {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{injected}",
+                 "channel_type": "group"},
+            )
+            channel_id = (channel or {}).get("channel_id") or ""
+            # A team whose room does not exist yet resolves to nothing rather
+            # than to a team with no channel: every write needs a channel_id,
+            # and half an answer would land items in an empty string.
+            return (injected, channel_id) if channel_id else (None, None)
+
         row = await db.get_one(
             "bus_agent_activity", {"agent_id": agent_id, "state": "running"}
         )
@@ -71,7 +108,7 @@ async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional
         return (None, None)
 
 
-async def _item_in_my_room(db, agent_id: str, item_id: str):
+async def _item_in_my_room(db, agent_id: str, item_id: str, repo):
     """The item, if it belongs to the team this turn is running in — else None.
 
     `item_id` is globally unique, so a tool that only takes an id will happily
@@ -82,15 +119,17 @@ async def _item_in_my_room(db, agent_id: str, item_id: str):
 
     Callers must report a plain "not found" on None — "exists but is not yours"
     would leak the other team's ids back into the same context.
-    """
-    from xyz_agent_context.repository.team_work_repository import (
-        TeamWorkItemRepository,
-    )
 
+    Takes the repository rather than building one: the tools already receive a
+    factory (`get_repo_fn`) so a caller can substitute the data layer, and a
+    guard that quietly opened its own connection would read the real table
+    while the tool it guards read the injected one — the two could disagree
+    about whether an item exists at all.
+    """
     team_id, _ = await _resolve_team_room(db, agent_id)
     if not team_id:
         return None
-    item = await TeamWorkItemRepository(db).get(item_id)
+    item = await repo.get(item_id)
     return item if item and item.team_id == team_id else None
 
 
@@ -208,9 +247,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
             dict with success.
         """
         db = await _get_db()
-        if not await _item_in_my_room(db, agent_id, item_id):
-            return _not_found(item_id)
         repo = await _repo()
+        if not await _item_in_my_room(db, agent_id, item_id, repo):
+            return _not_found(item_id)
         if not await repo.claim(item_id, agent_id):
             return _not_found(item_id)
         return {"success": True, "item_id": item_id, "status": WorkItemStatus.IN_PROGRESS}
@@ -231,9 +270,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
             dict with success.
         """
         db = await _get_db()
-        if not await _item_in_my_room(db, agent_id, item_id):
-            return _not_found(item_id)
         repo = await _repo()
+        if not await _item_in_my_room(db, agent_id, item_id, repo):
+            return _not_found(item_id)
         if not await repo.set_status(item_id, WorkItemStatus.DONE):
             return _not_found(item_id)
         return {"success": True, "item_id": item_id, "status": WorkItemStatus.DONE}
@@ -268,9 +307,9 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
                 ),
             }
         db = await _get_db()
-        if not await _item_in_my_room(db, agent_id, item_id):
-            return _not_found(item_id)
         repo = await _repo()
+        if not await _item_in_my_room(db, agent_id, item_id, repo):
+            return _not_found(item_id)
         if not await repo.set_status(item_id, status):
             return _not_found(item_id)
         return {"success": True, "item_id": item_id, "status": status}

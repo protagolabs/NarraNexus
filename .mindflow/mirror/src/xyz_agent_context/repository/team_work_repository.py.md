@@ -54,3 +54,17 @@ So the variant lives here instead. The pair reads as one decision:
 Both are covered against a real MySQL (`test_team_work_repository_mysql.py`):
 they share the generated-placeholder `IN (...)` shape, which is the shape that
 has produced a 1064 in this codebase before.
+
+## 2026-08-10 — `_list_by_status`:方言面收敛成一条,顺带修掉排序不确定
+
+`list_active` / `list_visible` 只差一个状态,却各自拼一遍 `IN (%s, ...)`。代价
+不是「不好看」:**每复制一次语句形状,真 MySQL 套件就得多一个用例**,因为生成
+式占位符正是这个仓库出过 1064 的那个形状。两个方法现在各剩一行,语句只有一份,
+MySQL 用例覆盖的是**唯一**那份拼装,而不是「碰巧两份长得一样」。
+
+排序同时从 `ORDER BY created_at ASC` 改成 `created_at ASC, id ASC`。
+`schema_registry` 给 `created_at` 在 SQLite 是**秒**精度(MySQL 是
+`DATETIME(6)`),所以同一秒创建的两个条目在 SQLite 上时间戳完全相同,顺序退化
+成引擎的实现细节 —— 而 SQLite 就是桌面版的生产后端,用户板子上的条目顺序因此
+是不确定的。`id` 是自增主键,语义上正好是插入顺序,也就是「oldest first」本来
+的意思。

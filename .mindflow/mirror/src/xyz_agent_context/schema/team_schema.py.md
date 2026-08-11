@@ -26,3 +26,13 @@ CRUD 的话,一次无关的改名就会把巡查游标清掉。
 
 `Team` + `UpdateTeamRequest` gained `lead_agent_id` — the default responder for a team-chat
 message with no @mention (None = earliest-joined member). See [[teams]].
+
+## 2026-08-10 — `patrol_is_on` 搬到这里
+
+规则读的两个字段(`lead_agent_id` / `patrol_enabled`)都是 Team 的字段,所以规则
+归 Team。它此前住在 `team_work_schema.py`,只因为巡查是当时唯一的调用方 —— 结果
+是一条 Team 规则藏在工作项模块里,看 Team 的人找不到。
+
+规则本身容易说、也容易说错:`patrol_enabled` 对所有早于该列的 team 是 NULL,
+NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指定了负责人」这个
+动作,没有 lead 的 team 永不巡查,平台不替用户指派。

@@ -27,10 +27,10 @@ from loguru import logger
 
 from xyz_agent_context.message_bus._bus_activity import is_live
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
+from xyz_agent_context.schema.team_schema import patrol_is_on
 from xyz_agent_context.schema.team_work_schema import (
     WorkItem,
     WorkItemStatus,
-    patrol_is_on,
 )
 from xyz_agent_context.utils.timezone import utc_now
 
