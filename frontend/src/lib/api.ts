@@ -134,7 +134,6 @@ export class ApiError extends Error {
   }
 }
 
-/** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export interface TelemetryConsentState {
   mode: 'off' | 'meta' | 'full';
   source: 'env' | 'optout' | 'default';
@@ -145,6 +144,7 @@ export interface TelemetryConsentState {
   managed_by: 'env' | 'cloud' | null;
 }
 
+/** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
   | 'anthropic'
   | 'openai'

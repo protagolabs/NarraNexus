@@ -25,7 +25,13 @@ dev 栈的 env=full 不受影响);把**默认**抬到 full 的前置是 ship 侧
   证明了这点,文档曾与其矛盾);
 - 标记文件作用域如实改口:per-USER-ACCOUNT per-host(Path.home()),
   非严格 per-machine——不同 HOME 的旁进程各持其态,桌面装机所有
-  sidecar 共享 HOME 时该区别潜伏。
+  sidecar 共享 HOME 时该区别潜伏;
+- **标记路径可配置**(`NEXUS_DIAG_OPTOUT_FILE`,二审补):容器化
+  单租户自托管(SQLite+compose,cloud 判定走 local、PUT 放行)下
+  `~/.narranexus` 不是卷——backend 容器写的 marker 其他容器看不见
+  (它们继续外发而 UI 报"已关闭"),且随可写层在 recreate 时消失。
+  补一个共享挂载点的路径旋钮;我方 compose 栈的跟进(挂卷 + 设变量)
+  记在 deploy 侧待办。
 
 原"三件配套"如下:
 
@@ -106,7 +112,8 @@ docstring 曾互相矛盾);`_setup` 的 `from ._ship import` 移入 try
 
 - **默认改回 off**(`_DEFAULT_MODE`):review Critical——"默认开"所
   依赖的同意基础(首次告知 UI + optout 写入)不在本 PR;默认值与其
-  同意基础必须**同批到达**,UI PR 落地时翻 full。顺带消解"合并即
+  同意基础必须**同批到达**,UI PR 落地时再翻(当时预期 full,实际
+  落地为 meta,见第十条)。顺带消解"合并即
   dev 环境未经 ops 同意定时打 prod 域名";
 - **发现 URL 白名单**:`https` + `*.narra.nexus` 才接受——发现文档
   来自公开端点且决定用户日志去向,被劫持/配错时拒绝切换、保留旧值;
@@ -126,7 +133,8 @@ manyfold 的观测性依赖清零,且顺带覆盖本地 DMG 用户:
 
 - **同意模型**:env 显式覆盖(off/meta/full,也是测试套件灭火开关,
   见 tests/conftest.py)> `~/.narranexus/telemetry_optout` 标记文件
-  (设置 UI 写)> **缺省 full 开**(首次告知在 UI);
+  (设置 UI 写)> 缺省开(首次告知在 UI;当时预期 full,同意 UI
+  落地时定为 **meta**,理由见第十条);
 - **URL 发现**:代码只写死一个入口
   `https://agent.narra.nexus/telemetry/v1/config`(prod collector 的
   `/v1/config` 伺服,env 可覆盖),响应是 env→ingest URL 的 map,

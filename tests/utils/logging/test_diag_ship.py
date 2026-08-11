@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,6 +137,22 @@ class TestConsentGating:
         assert not _ship._OPTOUT_FILE.exists()
         assert _ship.ship_config() is not None
         _ship.set_telemetry_optout(False)  # idempotent on a missing file
+
+    def test_optout_path_env_override_resolves_at_import(self, tmp_path):
+        """NEXUS_DIAG_OPTOUT_FILE points every service at one shared
+        mounted path — without it, a containerized self-host's opt-out
+        written by the backend container silences only itself and dies
+        on recreate. Import-time resolution, so verified in a child
+        interpreter."""
+        marker = tmp_path / "shared" / "optout"
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from xyz_agent_context.utils.logging import _ship; "
+             "print(_ship._OPTOUT_FILE)"],
+            env={**os.environ, "NEXUS_DIAG_OPTOUT_FILE": str(marker)},
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+        assert out.stdout.strip() == str(marker)
 
     def test_package_reexports_consent_api(self):
         from xyz_agent_context.utils import logging as pkg

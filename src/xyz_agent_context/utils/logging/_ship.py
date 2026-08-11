@@ -16,7 +16,9 @@ Consent resolution (first match wins):
   1. ``NEXUS_DIAG_SHIP`` env — explicit override: ``off`` silences,
      ``meta``/``full`` force a level (dev/self-host knob, and the test
      suite's kill switch).
-  2. Opt-out marker file ``~/.narranexus/telemetry_optout`` — written
+  2. Opt-out marker file ``~/.narranexus/telemetry_optout`` (path
+     overridable via ``NEXUS_DIAG_OPTOUT_FILE`` — containerized
+     self-hosts must point every service at ONE mounted path) — written
      by the settings UI (``set_telemetry_optout``) when the user turns
      telemetry off. Withdrawal is honoured WITHOUT a restart: ``_send``
      re-checks consent on every egress, so an opt-out written mid-run
@@ -142,7 +144,15 @@ _BREAKER_COOLDOWN_S = 60.0
 _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
-_OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
+# Overridable for containerized single-tenant self-hosts: with one
+# container per service and no shared HOME mount, a marker written by
+# the backend container is invisible to poller/mcp/workers (they keep
+# shipping while the UI reports "off") and dies with the writable
+# layer on recreate. Point every service at one mounted path instead.
+_OPTOUT_FILE = Path(
+    os.environ.get("NEXUS_DIAG_OPTOUT_FILE", "").strip()
+    or Path.home() / ".narranexus" / "telemetry_optout"
+)
 # Default LEVEL is "meta" (AUDIT+ structured events, warnings, errors
 # — no INFO bodies), because "full" ships INFO lines verbatim and
 # production INFO includes entire user messages (agent_runtime logs
