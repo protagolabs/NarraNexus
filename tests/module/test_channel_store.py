@@ -82,10 +82,6 @@ class _FakeDiscordManager:
 
 
 def _direct_store(monkeypatch):
-    async def fake_manager_class(channel):
-        assert channel == "discord"
-        return _FakeDiscordManager
-
     monkeypatch.setattr(
         "xyz_agent_context.module.data_access.channel_store._manager_class",
         lambda channel: _FakeDiscordManager if channel == "discord" else (_ for _ in ()).throw(
@@ -218,6 +214,37 @@ def test_get_agent_name_parity(monkeypatch):
     http = ChannelHttpStore("http://backend:8000")
     h = asyncio.run(http.get_agent_name(AGENT))
     assert h == d == "Scout"
+
+
+def test_get_agent_owner_parity(monkeypatch):
+    # created_by (workspace owner) — narra's media send + CLI need it; empty
+    # when the agent row is missing. Direct reads `created_by`; Http GETs
+    # /channels/owner -> owner_user_id.
+    async def fake_get_one(table, filters):
+        assert table == "agents"
+        return {"created_by": "owner_u"} if filters["agent_id"] == AGENT else None
+
+    class _FakeDb:
+        get_one = staticmethod(fake_get_one)
+
+    direct = ChannelDirectStore()
+
+    async def fake_db():
+        return _FakeDb()
+
+    direct._db = fake_db  # type: ignore[method-assign]
+    d = asyncio.run(direct.get_agent_owner(AGENT))
+    assert d == "owner_u"
+    assert asyncio.run(direct.get_agent_owner("nobody")) == ""  # missing row -> ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/channels/owner")
+        return httpx.Response(200, json={"owner_user_id": "owner_u"})
+
+    _patch_http(monkeypatch, handler)
+    http = ChannelHttpStore("http://backend:8000")
+    h = asyncio.run(http.get_agent_owner(AGENT))
+    assert h == d == "owner_u"
 
 
 def test_get_agent_name_falls_back_to_agent_id_when_missing(monkeypatch):

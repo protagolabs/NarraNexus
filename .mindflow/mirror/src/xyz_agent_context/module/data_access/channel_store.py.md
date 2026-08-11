@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (审查 round-3 收口)
+
+模块头 3 处矛盾扫清：`_MANAGER_FOR`→`_MANAGER_REGISTRY`(全仓不存在的符号)；HttpStore 段改成如实的「读 GET→None / 写 POST→{success:False}」两种降级；并如实说明**加 channel 不是一行**——读走 _MANAGER_REGISTRY、写走 _BIND_SERVICE、unbind 文案走 _DISPLAY_NAME(三张平行表，未来可收成单 descriptor)。`_DISPLAY_NAME` 精确到**有 seam-unbind 工具的 4 个 channel**(discord/slack/telegram/wechat)并注明 narra/lark/HA 为何不入表(消除�the漂移质疑)。端点测试：假中间件用 `x-test-unverify` 把 `nx_service_authed` 与前缀**解耦**，新增「前缀在但未验签→403」一条(对旧前缀实现会红)，真正锁住「门读已验签 flag」。补 get_agent_owner Direct↔Http parity。删 slack/telegram 死 import + 测试死代码。
+
 ## 2026-08-11 (审查 round-2 收口)
 
 管线审查清零：模块/Protocol/HttpStore docstring 全扫新（Protocol 不再写 read-only、HttpStore 写「GET→None / POST→{success:False}」两种降级、删对 gitignored spec 的死指针，铁律 #22）。`_DISPLAY_NAME` 让 DirectStore.unbind 的 not-found 措辞与路由 byte 一致(no **Discord**…)。test_connection 用 `_BIND_SERVICE.get` 避免不在表内的 channel(wechat/lark/HA)抛 KeyError→统一清晰 ValueError。HttpStore.bind 注明 route Pydantic 值约束会 422、降级成 {success:False}(never-raise 不破，仅坏输入措辞不同)。

@@ -15,19 +15,26 @@ DirectStore/HttpStore) as AgentDataStore for consistency, not by folding one
 into the other.
 
 - DirectStore: local — dispatches ``channel`` to the matching per-channel
-  credential manager (``_MANAGER_FOR``) and returns the manager's dataclass
+  credential manager (``_MANAGER_REGISTRY``) and returns the manager's dataclass
   serialised via ``to_raw_dict()`` (NOT ``to_public_dict()`` — the whole
   reason this seam exists is to carry the secret across the HTTP hop).
-- HttpStore: cloud — GETs the owner-gated backend endpoint
-  (``backend/routes/agents/channel_credentials.py``), forwarding the caller
-  identity headers the same way AgentDataStore's HttpStore does. Never
-  raises: an unreachable backend, a non-2xx, or an unbound credential all
-  degrade to ``None`` so a send tool falls through to its existing
-  "no_credential" branch instead of crashing the agent's turn.
+- HttpStore: cloud — calls the owner-gated backend endpoints
+  (``backend/routes/agents/channel_credentials.py`` for reads, the per-channel
+  ``/api/<channel>/<op>`` routes for writes), forwarding the caller identity
+  headers the same way AgentDataStore's HttpStore does. Never raises, but the
+  degradation shape differs by call kind: a READ (GET) failure — unreachable,
+  non-2xx, unbound, non-JSON — degrades to ``None`` so a send tool falls to its
+  "no_credential" branch; a WRITE (POST bind/unbind/test) failure degrades to
+  ``{success: False, error}`` (a failed unbind is NOT "unbound").
 
-All 7 channels (discord/slack/telegram/wechat/narramessenger/lark/
-home_assistant) are wired into ``_MANAGER_REGISTRY``; adding another is one
-registry line + a ``to_raw_dict()`` on its credential dataclass — no seam change.
+All 7 channels are wired here, but across a few per-channel tables, so adding a
+channel is NOT literally one line: reads go through ``_MANAGER_REGISTRY``
+(manager class + read-method name); the clean write-leg adds ``_BIND_SERVICE``
+(bind's do_bind module + mgr/db shape) for channels with a bind tool and
+``_DISPLAY_NAME`` (unbind wording) for channels with an unbind tool; plus a
+``to_raw_dict()`` on the dataclass. A future consolidation of these parallel
+dicts into one per-channel descriptor (review 🟢) would make "one line" true
+again.
 
 Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``) and the
 clean writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
@@ -142,13 +149,16 @@ SUPPORTED_CHANNELS = frozenset(_MANAGER_REGISTRY)
 # ("no <Name> credential bound for this agent") — so DirectStore.unbind is
 # byte-identical to the HTTP route (the whole point of this seam), not just
 # "close". A plain channel.title() would give "Wechat", not "WeChat".
+# ONLY the channels whose unbind is actually reachable through this seam need an
+# entry: discord/slack/telegram/wechat (their `<ch>_unbind` MCP tool calls
+# seam.unbind). narramessenger has no unbind tool, and lark's unbind uses
+# delete_credential directly (CLI-write leg, excluded), so neither routes here;
+# any channel absent from this map just falls back to the raw channel string.
 _DISPLAY_NAME: dict[str, str] = {
     "discord": "Discord",
     "slack": "Slack",
     "telegram": "Telegram",
     "wechat": "WeChat",
-    "narramessenger": "NarraMessenger",
-    "lark": "Lark",
 }
 
 _BIND_SERVICE: dict[str, tuple[str, str, str]] = {

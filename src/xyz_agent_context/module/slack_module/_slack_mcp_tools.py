@@ -25,7 +25,6 @@ from typing import Any
 from loguru import logger
 
 from xyz_agent_context.channel.channel_reactions import best_effort_react
-from xyz_agent_context.module.base import XYZBaseModule
 
 from xyz_agent_context.module.data_access import get_channel_credential_store
 

@@ -69,12 +69,16 @@ def client(monkeypatch):
     @app.middleware("http")
     async def _identity(request: Request, call_next):
         # Stand in for auth_middleware: the real one sets user_id AND, ONLY when
-        # it actually verified the broker-signed nx-agent bearer, the
-        # nx_service_authed flag. Simulate that: the flag is True iff a service
-        # bearer is present (a plain user JWT / no bearer leaves it False).
+        # it actually VERIFIED the broker-signed nx-agent bearer, the
+        # nx_service_authed flag. The flag is DECOUPLED from the raw prefix here
+        # (via x-test-unverify) precisely so a test can prove the endpoint gates
+        # on the verified flag, not the prefix: an nx-agent bearer that the
+        # middleware did NOT verify (local mode / forgery) leaves the flag False.
         request.state.user_id = request.headers.get("x-test-user") or None
         auth = request.headers.get("authorization") or ""
-        request.state.nx_service_authed = auth.startswith("Bearer nx-agent:")
+        request.state.nx_service_authed = (
+            auth.startswith("Bearer nx-agent:") and not request.headers.get("x-test-unverify")
+        )
         return await call_next(request)
 
     app.include_router(cc_router, prefix="/api/agents")
@@ -103,6 +107,21 @@ def test_non_service_caller_is_forbidden_even_as_owner(client):
 
 def test_no_bearer_is_forbidden(client):
     r = client.get(_url(), headers={"x-test-user": "u1"})
+    assert r.status_code == 403
+
+
+def test_gate_reads_the_verified_flag_not_the_header_prefix(client):
+    # The whole point of the security fix: an nx-agent bearer whose signature the
+    # middleware did NOT verify (local mode trusts X-User-Id and never enters the
+    # nx-service branch; or an outright forgery) must be 403 even though the raw
+    # Authorization prefix "looks like" a service caller. This is the ONE test
+    # that would FAIL against the reverted _is_nx_service_bearer(header) gate
+    # (which passes on the prefix alone) — it locks in "the gate reads
+    # request.state.nx_service_authed", not "there is some gate".
+    r = client.get(
+        _url(),
+        headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1", "x-test-unverify": "1"},
+    )
     assert r.status_code == 403
 
 
