@@ -271,7 +271,7 @@ export function JobExpandedDetail({
             {job.process.map((entry, idx) => (
               <div
                 key={idx}
-                className="font-mono text-[10px] text-[var(--text-secondary)] px-1.5 py-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="font-mono text-[10px] text-[var(--text-secondary)] px-1.5 py-0.5 rounded hover:bg-[var(--nm-paper-warm)] transition-colors"
               >
                 <span className="text-[var(--text-tertiary)] mr-1.5 select-none">{idx + 1}.</span>
                 {entry}
@@ -330,7 +330,7 @@ export function JobExpandedDetail({
               variant="ghost"
               size="sm"
               onClick={(e) => onEdit(e, job)}
-              className="text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+              className="text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]"
             >
               <CalendarClock className="w-3 h-3 mr-1.5" />
               {t('jobs.action.editSchedule')}

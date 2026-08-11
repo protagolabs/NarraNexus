@@ -142,7 +142,7 @@ export default function ArtifactColumn({
     // — that's exactly when the user wants to force a re-sync but the
     // expanded-header refresh button isn't reachable.
     return (
-      <div className="group chat-frosted w-9 hover:bg-[var(--bg-secondary)] transition-colors flex flex-col items-center pt-3 pb-2 gap-2">
+      <div className="group chat-frosted w-9 hover:bg-[var(--nm-paper-warm)] transition-colors flex flex-col items-center pt-3 pb-2 gap-2">
         <button
           onClick={() => setCollapsed(false)}
           className="flex-1 flex flex-col items-center w-full"
@@ -236,7 +236,7 @@ export default function ArtifactColumn({
               <button
                 key={a.artifact_id}
                 onClick={() => restoreTab(a.artifact_id)}
-                className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] truncate max-w-[14rem] text-left"
+                className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--nm-paper-warm)] truncate max-w-[14rem] text-left"
                 title={t('artifacts.restore', { title: a.title })}
               >
                 ↺ {a.title}

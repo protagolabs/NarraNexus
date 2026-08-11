@@ -111,7 +111,7 @@ export function TreeNode({
   return (
     <div>
       <div
-        className="flex items-center gap-1 px-1 py-1 rounded hover:bg-[var(--bg-tertiary)] group"
+        className="flex items-center gap-1 px-1 py-1 rounded hover:bg-[var(--nm-paper-warm)] group"
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
         {node.is_dir ? (

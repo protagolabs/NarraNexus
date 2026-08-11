@@ -250,7 +250,7 @@ export function IMChannelsSection() {
               >
                 <button
                   onClick={() => toggleChannel(ch.key)}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)] transition-colors text-left"
                   aria-expanded={isExpanded}
                 >
                   <span className="flex items-center gap-2 text-sm text-[var(--text-primary)]">

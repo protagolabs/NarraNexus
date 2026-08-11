@@ -669,7 +669,7 @@ export function ProviderSettings() {
                       type="button"
                       onClick={handleSyncDefaults}
                       disabled={syncing || !userId}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors"
                     >
                       <RefreshCw className={cn('w-3.5 h-3.5', syncing && 'animate-spin')} />
                       {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
@@ -841,7 +841,7 @@ export function ProviderSettings() {
                         <>
                           <button onClick={handleClaudeLogin}
                             disabled={claudeLoggingIn || claudeLoggingOut}
-                            className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 transition-colors">
+                            className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-50 transition-colors">
                             {claudeLoggingIn
                               ? (claudeLoginRemaining !== null
                                   ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
@@ -1109,7 +1109,7 @@ export function ProviderSettings() {
                 )}
                 <div className="flex gap-2">
                   <button onClick={handleTestForm} disabled={formTesting || formAdding || !formKey.trim()}
-                    className="px-4 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] disabled:opacity-40 transition-colors">
+                    className="px-4 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors">
                     {formTesting ? '...' : t('settings.provider.testConnection')}
                   </button>
                   <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
@@ -1190,7 +1190,7 @@ export function ProviderSettings() {
                   silent no-op. */}
               {prov.source !== 'claude_oauth' && prov.source !== 'codex_oauth' && (
                 <button onClick={() => openEditModels(prov)}
-                  className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                  className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] transition-colors">
                   {t('settings.provider.edit')}
                 </button>
               )}
@@ -1233,7 +1233,7 @@ export function ProviderSettings() {
               <button
                 onClick={closeEditModels}
                 disabled={editSaving}
-                className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                className="px-4 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors"
               >
                 {t('settings.provider.cancel')}
               </button>

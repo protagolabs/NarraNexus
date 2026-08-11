@@ -71,14 +71,14 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
   return (
     <div
       className={cn(
-        'flex items-center gap-2 p-2 bg-[var(--bg-secondary)] rounded group hover:bg-[var(--bg-tertiary)] transition-colors',
+        'flex items-center gap-2 p-2 bg-[var(--bg-secondary)] rounded group hover:bg-[var(--nm-paper-warm)] transition-colors',
         !mcp.is_enabled && 'opacity-50'
       )}
     >
       {/* Status Indicator */}
       <button
         onClick={() => onValidate(mcp.mcp_id)}
-        className="shrink-0 p-0.5 hover:bg-[var(--bg-tertiary)] rounded"
+        className="shrink-0 p-0.5 hover:bg-[var(--nm-paper-warm)] rounded"
         // Full error in the tooltip (the inline label is truncated). Click to
         // re-validate. A Failed dot here means the URL is unreachable or not a
         // valid SSE endpoint — see the add-form hints.

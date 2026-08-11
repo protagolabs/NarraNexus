@@ -616,7 +616,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 <button
                   type="button"
                   onClick={() => setTranscriptionNotice(null)}
-                  className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                 >
                   <X className="w-3 h-3 text-[var(--text-tertiary)]" />
                 </button>
@@ -653,7 +653,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                     <button
                       type="button"
                       onClick={() => setPending((prev) => prev.filter((a) => a.file_id !== att.file_id))}
-                      className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                      className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                       title={t('chat.team.removeAttachment')}
                     >
                       <X className="w-3 h-3 text-[var(--text-tertiary)]" />

@@ -522,7 +522,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                           onClick={() => setFailedExpanded(!failedExpanded)}
                           className={cn(
                             'w-full flex items-center gap-2 px-3 py-2 rounded-[var(--radius-lg)] transition-all',
-                            'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]',
+                            'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]',
                           )}
                         >
                           {failedExpanded ? (

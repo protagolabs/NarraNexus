@@ -230,7 +230,7 @@ export default function BundleImportPage() {
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       <div className="px-6 py-4 border-b border-[var(--border-default)] flex items-center gap-3">
-        <button onClick={exitToOrigin} className="p-1 hover:bg-[var(--bg-tertiary)]">
+        <button onClick={exitToOrigin} className="p-1 hover:bg-[var(--nm-paper-warm)]">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Package className="w-5 h-5" />

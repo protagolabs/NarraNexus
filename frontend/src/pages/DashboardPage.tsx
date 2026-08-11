@@ -525,7 +525,7 @@ export function DashboardPage() {
                         <div
                           className={cn(
                             'grid grid-cols-[36px_1fr_130px_140px_130px] items-center gap-0 px-3 py-2.5 border-b border-[var(--nm-hairline)] cursor-pointer transition-colors',
-                            isOpen ? 'bg-[var(--nm-paper)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-paper)]',
+                            isOpen ? 'bg-[var(--nm-paper)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-paper-warm)]',
                           )}
                           onClick={() => toggleExpand(a.agent_id)}
                         >

@@ -64,7 +64,7 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
         {/* Close Button */}
         <button
           onClick={() => !loading && onClose()}
-          className="absolute top-4 right-4 p-2 rounded-[var(--radius-xl)] hover:bg-[var(--bg-secondary)] transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-[var(--radius-xl)] hover:bg-[var(--nm-paper-warm)] transition-colors"
           disabled={loading}
         >
           <X className="w-5 h-5 text-[var(--text-tertiary)]" />

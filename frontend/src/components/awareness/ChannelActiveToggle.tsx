@@ -46,7 +46,7 @@ export function ChannelActiveToggle({ active, onToggle }: ChannelActiveTogglePro
         type="button"
         onClick={handleClick}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-50"
       >
         {busy && <Loader2 className="w-3 h-3 animate-spin" />}
         {active ? t('channelActiveToggle.disable') : t('channelActiveToggle.enable')}

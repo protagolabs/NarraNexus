@@ -170,7 +170,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="w-8 h-8 hover:bg-[var(--bg-tertiary)]"
+              className="w-8 h-8 hover:bg-[var(--nm-paper-warm)]"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -192,7 +192,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm transition-colors',
                       isActive
                         ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]',
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--text-primary)]',
                     )}
                   >
                     <Icon className="w-4 h-4 shrink-0" />

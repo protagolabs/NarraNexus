@@ -78,7 +78,7 @@ export function SkillMarketplaceTab() {
                 'px-2.5 py-1 rounded-[var(--radius-lg)] text-xs transition-colors',
                 category === c
                   ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                  : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)]'
+                  : 'text-[var(--text-tertiary)] hover:bg-[var(--nm-paper-warm)]'
               )}
             >
               {t(`skills.marketplace.category.${c}`)}

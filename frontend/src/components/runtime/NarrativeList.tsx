@@ -49,7 +49,7 @@ function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
           'w-full p-2.5 flex items-center gap-2.5 text-left transition-all duration-300 rounded-[var(--radius-xl)] group',
           isExpanded
             ? 'bg-[var(--color-success)]/10 shadow-[0_0_15px_var(--color-success)/20]'
-            : 'hover:bg-[var(--bg-elevated)] hover:shadow-[0_0_10px_var(--color-success)/10]'
+            : 'hover:bg-[var(--nm-paper-warm)] hover:shadow-[0_0_10px_var(--color-success)/10]'
         )}
       >
         <span className={cn(
@@ -119,7 +119,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
           'w-full py-2 px-2.5 flex items-center gap-2.5 text-left transition-colors duration-150 group',
           isExpanded
             ? 'bg-[var(--bg-secondary)]'
-            : 'hover:bg-[var(--bg-secondary)]'
+            : 'hover:bg-[var(--nm-paper-warm)]'
         )}
       >
         <span className={cn(
@@ -270,7 +270,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
           'w-full p-4 flex items-start gap-3 text-left transition-all duration-300 group',
           isExpanded
             ? 'bg-gradient-to-r from-[var(--accent-glow)] to-transparent'
-            : 'hover:bg-[var(--bg-elevated)]'
+            : 'hover:bg-[var(--nm-paper-warm)]'
         )}
       >
         <span className={cn(

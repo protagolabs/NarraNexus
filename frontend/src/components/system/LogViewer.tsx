@@ -167,7 +167,7 @@ export function LogViewer({
           </p>
         ) : (
           visibleLogs.map((entry, i) => (
-            <div key={i} className="flex gap-2 hover:bg-[var(--bg-secondary)]/30 px-1 rounded">
+            <div key={i} className="flex gap-2 hover:bg-[var(--nm-paper-warm)] px-1 rounded">
               <span className="text-[var(--text-tertiary)] shrink-0 select-none">
                 {formatLogTimestamp(entry.timestamp)}
               </span>

@@ -264,7 +264,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         <button
           onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -293,7 +293,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <div className="border border-[var(--border-default)] rounded">
               <button
                 onClick={() => setSetupOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--nm-paper-warm)] transition-colors"
                 aria-expanded={setupOpen}
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
@@ -357,7 +357,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                       <span className="text-[var(--text-primary)] font-medium">{t('awareness.slack.manifestTitle')}</span>
                       <button
                         onClick={handleCopyManifest}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         title={t('awareness.slack.copyYamlTitle')}
                       >
                         {manifestCopied ? (

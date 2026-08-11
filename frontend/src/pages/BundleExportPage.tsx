@@ -2938,7 +2938,7 @@ function ScopeHeader({
       onClick={() => onToggle(id)}
       className={cn(
         'w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left border-b border-[var(--nm-hairline)] transition-colors',
-        open ? 'bg-[var(--nm-paper)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-paper)]',
+        open ? 'bg-[var(--nm-paper)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-paper-warm)]',
       )}
     >
       <ChevronRight

@@ -1158,7 +1158,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <button
               type="button"
               onClick={() => setTranscriptionNotice(null)}
-              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
               title="Dismiss"
             >
               <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1210,7 +1210,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
-                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                     title="Remove"
                   >
                     <X className="w-3 h-3 text-[var(--text-tertiary)]" />

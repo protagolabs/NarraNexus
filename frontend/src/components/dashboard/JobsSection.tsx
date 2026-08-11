@@ -147,7 +147,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--bg-tertiary)] rounded"
+        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--nm-paper-warm)] rounded"
         aria-expanded={expanded}
       >
         <span aria-hidden>{meta.icon}</span>

@@ -137,7 +137,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
         <button
           onClick={() => fetchCredential()}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title="Refresh"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -162,7 +162,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
             <div className="border border-[var(--border-default)] rounded">
               <button
                 onClick={() => setSetupOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--nm-paper-warm)] transition-colors"
                 aria-expanded={setupOpen}
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">

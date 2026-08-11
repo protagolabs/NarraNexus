@@ -37,7 +37,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
         'rounded-[var(--radius-xl)] border overflow-hidden transition-all duration-300',
         isExpanded
           ? 'border-[var(--accent-primary)]/30 bg-[var(--bg-elevated)] shadow-[0_0_15px_var(--accent-glow)]'
-          : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--accent-primary)]/20 hover:bg-[var(--bg-elevated)]'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--accent-primary)]/20 hover:bg-[var(--nm-paper-warm)]'
       )}
     >
       {/* Event Header */}

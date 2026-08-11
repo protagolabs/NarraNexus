@@ -65,7 +65,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
       onClick={() => setOmniboxOpen(true)}
       title={t('artifacts.tabStrip.newTab', 'New tab (open a URL or pick an artifact)')}
       aria-label={t('artifacts.tabStrip.newTab', 'New tab')}
-      className="flex items-center px-2 py-2 opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors shrink-0"
+      className="flex items-center px-2 py-2 opacity-60 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors shrink-0"
     >
       <Plus className="w-4 h-4" />
     </button>
@@ -190,7 +190,7 @@ function TabButton({
         <button
           onClick={(e) => { e.stopPropagation(); onZoom(); }}
           title={t('artifacts.tabStrip.zoomTitle')}
-          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors"
           aria-label={t('artifacts.zoom')}
         >
           <Maximize2 className="w-3.5 h-3.5" />
@@ -198,7 +198,7 @@ function TabButton({
         <button
           onClick={(e) => { e.stopPropagation(); onMinimize(); }}
           title={t('artifacts.tabStrip.minimizeTitle')}
-          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors"
           aria-label={t('artifacts.tabStrip.minimizeAria')}
         >
           <Minus className="w-3.5 h-3.5" />

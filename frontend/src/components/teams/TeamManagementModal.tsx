@@ -168,7 +168,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
             <h2 className="font-mono text-sm">{t('teams.title')}</h2>
             <span className="text-xs text-[var(--text-tertiary)]">{t('teams.teamCount', { count: teams.length })}</span>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-[var(--bg-tertiary)]"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1 hover:bg-[var(--nm-paper-warm)]"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
@@ -210,7 +210,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                   key={tm.team.team_id}
                   onClick={() => setSelectedTeamId(tm.team.team_id)}
                   className={cn(
-                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] flex items-center gap-2',
+                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] flex items-center gap-2',
                     selectedTeamId === tm.team.team_id && 'bg-[var(--bg-elevated)]'
                   )}
                 >
@@ -297,7 +297,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                     {agents.map((a) => {
                       const inTeam = selected.member_agent_ids.includes(a.agent_id);
                       return (
-                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)]">
+                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)]">
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-mono truncate">{a.name || a.agent_id}</div>
                             <div className="text-[10px] text-[var(--text-tertiary)] truncate">{a.agent_id}</div>
@@ -308,7 +308,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                               'text-xs px-2 py-1 border',
                               inTeam
                                 ? 'border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
-                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
+                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]'
                             )}
                           >
                             {inTeam ? t('teams.remove') : t('teams.add')}

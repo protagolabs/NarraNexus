@@ -53,7 +53,7 @@ export function LanguageToggle() {
                 dir={l.code === 'ar' ? 'rtl' : undefined}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors',
-                  'hover:bg-[var(--bg-tertiary)]',
+                  'hover:bg-[var(--nm-paper-warm)]',
                   active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]',
                 )}
               >
