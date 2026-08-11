@@ -24,19 +24,10 @@ from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
-    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
-    EVENT_SETUP_COMPLETED, PROP_METHOD,
+    EVENT_SIGNED_UP, PROP_METHOD,
 )
-
-# Whitelist of frontend-reportable funnel events. The setup_* events are pure
-# UI actions (page view, skip/done clicks) that have no backend signal, so the
-# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
-# endpoint from being a generic event firehose.
-_ALLOWED_FUNNEL_EVENTS = frozenset({
-    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
-})
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
@@ -517,8 +508,12 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if is_new:
         try:
-            identify_user(user.user_id, {"signup_method": "netmind"})
-            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+            await track(
+                user_id=user.user_id,
+                event=EVENT_SIGNED_UP,
+                properties={PROP_METHOD: "netmind"},
+                event_id=f"signed_up:{user.user_id}",
+            )
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
@@ -823,67 +818,24 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # the agent records a real description during bootstrap.
         agent_description = request.agent_description or ""
 
-        # Add agent to database
-        repo = AgentRepository(db_client)
-        record_id = await repo.add_agent(
+        # Provisioning (agent row + default instances + peer-discovery
+        # registration + bootstrap profile + default skills) is the
+        # canonical sequence in `provision_new_agent` — this route is its
+        # semantic source. `bootstrap` in the request
+        # picks a profile; unknown/None falls back to "default" inside
+        # `get_profile`. This route stays the SEMANTIC SOURCE the seam mirrors;
+        # everything below that ISN'T the shared sequence (team assignment #43,
+        # response shape) stays here.
+        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        provision_result = await provision_new_agent(
+            db_client,
             agent_id=agent_id,
+            user_id=created_by,
             agent_name=agent_name,
-            created_by=created_by,
             agent_description=agent_description,
-            agent_type="chat"
+            bootstrap_profile=getattr(request, "bootstrap", None) or "default",
         )
-
-        logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
-
-        # Create the default agent-level instances (Awareness, SocialNetwork,
-        # BasicInfo, MessageBus, Lark). Without this the HTTP-created agent has
-        # no AwarenessModule instance and downstream provisioning / awareness
-        # writes have nothing to attach to. Idempotent (factory checks first);
-        # best-effort so a transient failure never blocks agent creation.
-        try:
-            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
-            await InstanceFactory(db_client).create_agent_level_instances(agent_id)
-        except Exception as inst_err:
-            logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
-
-        # Enter the peer-discovery directory NOW. Registration used to be a
-        # side effect of taking a turn (MessageBusModule's data-gathering
-        # hook), so a freshly created agent was invisible to its owner's other
-        # agents until it happened to run — one half of why "ask agent X" came
-        # back empty (P1 section 02, target 2). Runs after the instances exist so the
-        # capability snapshot is not empty. Best-effort: the agent is created
-        # either way, and the per-turn hook re-syncs.
-        await sync_agent_discovery(db_client, agent_id)
-
-        # First-run flow via a bootstrap PROFILE (default = today's behavior).
-        # The profile renders Bootstrap.md + the greeting + the deletion rule and
-        # apply_bootstrap stores them (workspace + agent_metadata). Pass
-        # `bootstrap` in the request to pick a profile; unknown/None → "default".
-        from xyz_agent_context.settings import settings
-        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-        workspace_path = str(
-            agent_workspace_path(agent_id, created_by, base=settings.base_working_path)
-        )
-        bootstrap_active = False
-        try:
-            from xyz_agent_context.bootstrap.profiles import (
-                apply_bootstrap, get_profile, BootstrapContext,
-            )
-            profile = get_profile(getattr(request, "bootstrap", None) or "default")
-            await apply_bootstrap(
-                db_client,
-                agent_id=agent_id,
-                user_id=created_by,
-                profile=profile,
-                ctx=BootstrapContext(
-                    agent_id=agent_id, user_id=created_by, agent_name=agent_name,
-                ),
-            )
-            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
-            logger.info(f"Bootstrap profile '{profile.name}' applied to {agent_id}")
-        except Exception as bootstrap_err:
-            # Non-fatal: agent is already created, bootstrap is best-effort
-            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
+        logger.info(f"Agent created: {agent_id}")
 
         # Team assignment (#43): when the sidebar "Add agent" was clicked under
         # a specific team, attach the new agent to that team so it lands in the
@@ -910,38 +862,8 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             except Exception as team_err:
                 logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
 
-        # Default skills — fire-and-forget install of every marketplace skill
-        # flagged is_default into the new agent's workspace. Never blocks or
-        # fails creation: an unreachable registry (desktop offline, cloud
-        # marketplace not yet live) degrades to a no-op inside the service.
-        try:
-            import asyncio as _asyncio
-
-            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
-
-            async def _install_default_skills(aid: str, uid: str) -> None:
-                try:
-                    summary = await SkillMarketplaceService().install_defaults(aid, uid)
-                    if summary.get("failed"):
-                        logger.warning(
-                            f"Default skills for {aid}: failed={summary['failed']}"
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Default skills install for {aid} skipped: {exc}")
-
-            _task = _asyncio.create_task(_install_default_skills(agent_id, created_by))
-            # Fire-and-forget needs a done callback (incident lesson #2);
-            # the inner try/except already swallows, this catches cancellation-
-            # adjacent surprises.
-            _task.add_done_callback(
-                lambda t: (
-                    logger.warning(f"default-skills task died: {t.exception()}")
-                    if not t.cancelled() and t.exception() is not None
-                    else None
-                )
-            )
-        except Exception as defaults_err:  # noqa: BLE001
-            logger.warning(f"Failed to schedule default skills: {defaults_err}")
+        # Default skills install is scheduled inside `provision_new_agent`
+        # (fire-and-forget, same shape as before this extraction).
 
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
@@ -953,7 +875,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
             created_by=created_by,
-            bootstrap_active=bootstrap_active,
+            bootstrap_active=provision_result.bootstrap_active,
         )
 
         return CreateAgentResponse(
@@ -1575,13 +1497,6 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
-        # Only non-identifying traits — the distinct_id is hashed and we
-        # deliberately do NOT ship display_name, so no real names reach
-        # PostHog.
-        await identify_user(
-            user_id=request.user_id,
-            traits={"role": "individual"},
-        )
         await track(
             user_id=request.user_id,
             event=EVENT_SIGNED_UP,
@@ -1833,28 +1748,3 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     repo = UserSettingsRepository(await get_db_client())
     await repo.set_analytics_opt_out(uid, request.opted_out)
     return {"success": True, "opted_out": request.opted_out}
-
-
-class FunnelEventRequest(BaseModel):
-    event: str
-
-
-@router.post("/funnel")
-async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
-    """Report a frontend-originated funnel event (setup page UI actions).
-
-    Identity comes from auth_middleware (request.state.user_id) — never the
-    body — so events can't be spoofed onto another user. Only whitelisted
-    setup_* events are accepted, and no client-supplied properties are
-    forwarded: the setup_* events carry no payload by design, so accepting a
-    properties dict would only let a client inject arbitrary data (or
-    override the server-derived `surface`) into PostHog. track() applies
-    opt-out, distinct_id hashing, and the surface label, and never raises.
-    """
-    uid = _require_request_user(http_request)
-    if request.event not in _ALLOWED_FUNNEL_EVENTS:
-        raise HTTPException(
-            status_code=400, detail=f"Unknown funnel event: {request.event}"
-        )
-    await track(user_id=uid, event=request.event)
-    return {"success": True}

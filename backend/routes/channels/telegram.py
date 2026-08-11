@@ -26,6 +26,10 @@ from xyz_agent_context.module.telegram_module._telegram_service import (
     do_test_connection,
 )
 
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
 
 router = APIRouter()
 
@@ -65,23 +69,6 @@ async def _get_db():
     from xyz_agent_context.utils.db.db_factory import get_db_client
 
     return await get_db_client()
-
-
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    # Local-mode caveat: in environments without the auth middleware,
-    # request.state.user_id is unset and EVERY route below is effectively
-    # unauthenticated. Mirror of slack.py's _verify_agent_ownership — see
-    # that docstring for the full posture note.
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
 
 
 # =========================================================================

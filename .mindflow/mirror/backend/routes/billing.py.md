@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — checkout and subscription facts
+
+Successful subscribe responses record `checkout_created` keyed by Stripe
+session. Because this repository receives no Stripe/NetMind webhook, an ACTIVE
+subscription read records `subscription_activated` only when the upstream also
+returns a stable subscription/cycle identity and authoritative start time. The
+event ID hashes user plus that identity (so re-subscriptions can fire without
+leaking the user ID), and `occurred_at` uses the upstream timestamp instead of
+poll time. A bare ACTIVE snapshot is deliberately not guessed into a fact.
 
 ## 2026-08-06 — 7 处 NetMind 401 改带 `netmind_token_invalid`
 

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — workspace-ready after session validation
+
+ProtectedRoute records `workspace_ready` only after the session probe succeeds.
+Failed or unreachable sessions do not count as product entry.
 
 ## 2026-08-06 (自审补) — ProtectedRoute 不再因 `success:false` 登出
 

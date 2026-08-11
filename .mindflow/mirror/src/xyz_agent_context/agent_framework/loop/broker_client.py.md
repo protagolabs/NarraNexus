@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — ensure 响应透传 identity_token（MCP caller auth）
+
+`ExecutorEnsureResult` 新增 `identity_token`(默认 None):broker 用私钥签的
+per-user Ed25519 token,**每次 ensure 都新鲜**(暖复用也返新 token,这正是选
+「ensure 响应」而不是「executor env 注入」的原因——容器跨 run 长活,env 只在
+创建时注入,短 TTL 会过期)。旧 broker 响应缺字段 → None,dispatch 侧不 stamp,
+无 lockstep 硬依赖。消费方:[[step_3_agent_loop.py]] `_dispatch_identity_token`。
 
 ## 2026-07-31 — executor_seam_active():「本进程不跑 CLI」的单一判据
 

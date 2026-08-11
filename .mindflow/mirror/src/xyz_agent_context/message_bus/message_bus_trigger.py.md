@@ -4,6 +4,13 @@ last_verified: 2026-08-11
 stub: false
 ---
 
+## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
+
+`resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
+wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
+只是签名与 docstring 不再谎称"永远返回 str"。
+
+
 ## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
 
 共享目录那句补上：**要给团队看的东西也写这里**（报告、页面、准备注册成 artifact 的数据文件）。
@@ -192,7 +199,7 @@ agent 两条互相矛盾的指令里的哪一条,漏传不该静默继承 Owner 
 
 ## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
 
-行为不变（异常仍回 '' + warn），实现收敛到 repository seam。
+实现收敛到 repository seam。2026-08-10 起契约随 resolve_owner 拆分:DB 异常在 repository 层就转成 None,外层 except→'' 那条路基本不再触发——别按「异常回 ''」推理(见顶部条目)。
 
 ## 2026-07-31 — team reply rows are stamped with their turn's event_id
 

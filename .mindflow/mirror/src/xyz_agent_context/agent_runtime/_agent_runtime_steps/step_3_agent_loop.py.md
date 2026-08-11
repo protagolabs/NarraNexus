@@ -4,6 +4,23 @@ last_verified: 2026-08-10
 stub: false
 ---
 
+## 2026-08-10 — dispatch 时 stamp MCP 身份 token（蓝图 P1）
+
+`_dispatch_identity_token(ensured, user_id)`:云取 ensure() 返回的 broker 签名
+token(每 run 新鲜);本地在 `NX_MCP_AUTH_MODE != off` 时才让进程自签
+([[identity/tokens]] LocalEphemeralIssuer)——默认 off 时零 keygen 零文件写,
+铁律 #7。**云端绝不自签**(review #1):`ensured is not None or is_cloud_mode()`
+时无 broker token 就返回 None——进程内临时签名对不上 mcp 挂载的部署公钥,
+audit 期会把「谁还没 token」的核心测量污染成 invalid 噪音,enforce 期则全站
+401;测试钉住 audit 模式下旧 broker/云无 broker 两种形态都不 stamp。选中的
+token 经 `stamp_identity_token` 原地写进 `ctx.mcp_servers` 的 headers
+(bearer 第 **9** 位——与 #255 的 team_id/event_id 撞位后按「先到 dev 者得位」
+让位,stamp 重建时透传全部既有字段,漏一个=codex 通道静默丢该事实):放在
+TurnInput 之后是**故意的**——turn_input.py 文档明言 mcp_servers 按引用传递、
+"step_3 merges into mcp_servers before the call",本处沿用同一契约。云 token
+只在 ensure 后存在,所以 stamp 不能提前到 context_runtime 盖章处。测试:
+`test_step3_identity_stamp.py`。
+
 ## 2026-08-10 (review 修正) — 授予收窄到本回合 team
 
 改用 [[workspace_paths.py]] 的 `turn_accessible_roots`，team 取自

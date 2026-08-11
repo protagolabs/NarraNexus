@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/channels/discord.py
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-08-10
 ---
+
+> 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
+> `backend/routes/_ownership.py::check_owned`(canonical;DB 故障走 503 而非 200)。
+
 
 ## 2026-07-13 — `/set-active` endpoint (activation)
 

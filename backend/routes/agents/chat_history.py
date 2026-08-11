@@ -8,6 +8,8 @@ Provides endpoints for:
 - GET /{agent_id}/chat-history - Get all Narratives and Events
 - DELETE /{agent_id}/history - Clear conversation history
 - GET /{agent_id}/simple-chat-history - Get simplified chat message list
+- GET /{agent_id}/event-log/{event_id} - Get one event's timeline
+- POST /{agent_id}/chat-history/by-instance - MCP seam twin of get_chat_history
 """
 
 import json
@@ -16,8 +18,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
+from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
+from backend.routes._ownership import assert_owned
+from xyz_agent_context.module.chat_module import fetch_chat_history
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository
@@ -889,3 +894,39 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
         cache_creation_tokens=cache_creation_tokens,
         tool_call_count=tool_call_count,
     )
+
+
+# --------------------------------------------------------------------------- MCP data-access seam twin
+
+
+class ChatHistoryByInstanceBody(BaseModel):
+    """Body for POST .../chat-history/by-instance — the get_chat_history tool's
+    args (instance_id + limit; limit=-1 means all).
+
+    No Field(min_length) on instance_id on purpose: a route-level 422 for an
+    empty id would degrade to a DIFFERENT dict on the HttpStore side than
+    DirectStore's uniform empty-history dict (fetch_chat_history returns _empty
+    for any unknown/foreign/blank id), breaking byte-parity. An empty id is
+    harmless — it simply matches no instance and reads as empty on both paths."""
+    instance_id: str
+    limit: int = 20
+
+
+@router.post("/{agent_id}/chat-history/by-instance")
+async def get_chat_history_by_instance(
+    agent_id: str, body: ChatHistoryByInstanceBody, request: Request
+) -> dict:
+    """Byte-parity Http twin of the ``get_chat_history`` MCP tool: returns the
+    EXACT dict the seam's DirectStore returns (both call the shared, dialect-safe
+    ``fetch_chat_history``). Owner-gated; the instance is additionally scoped to
+    ``agent_id`` inside the shared fn (a foreign instance reads as empty — no
+    existence oracle). Distinct from GET /{agent_id}/chat-history (the frontend
+    narratives+events view)."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — fetch_chat_history never raises
+        logger.warning(f"get_chat_history_by_instance failed: {e}")
+        return {"success": False, "instance_id": body.instance_id, "error": str(e),
+                "total_messages": 0, "messages": []}
+    return await fetch_chat_history(db, agent_id, body.instance_id, body.limit)

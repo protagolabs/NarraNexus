@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — managed 面 + manyfold files 写入的事件常量
+
+`managed_ingress_denied` / `managed_ingress_silent` /
+`managed_attachments_converted` / `manyfold_files_write`。动机 = 教训
+#5:托管消息"没结果"必须和原生一样可从 DB 回答;`managed_ingress_processed`
+(run 完结行)早于本批,由 `managed_after_run` 写。files_write 行的
+channel 列固定 "manyfold"(它不是渠道,是平台 ingest 腿)。
 
 ## 2026-08-06 — ingress_dropped_empty
 

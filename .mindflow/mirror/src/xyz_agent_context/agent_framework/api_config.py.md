@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-29
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — per-slot provider attribution ContextVar
+
+The task-local map records exact `agent` and `helper_llm` card sources for cost
+attribution. It is cleared with per-user configuration so sequential scopes
+cannot inherit another tenant's source. Its ContextVar default is `None`, not a
+shared mutable dictionary; reads normalize that to an empty mapping.
 
 ## 2026-07-29 (二次) — 删除 resume_fingerprint()
 

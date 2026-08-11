@@ -9,7 +9,7 @@ stub: false
 ## Why it exists
 
 Backs the `user_settings` table — per-user flat-column preferences introduced
-with the analytics funnel instrumentation (Task 4 of the PostHog spec). The
+with the product funnel instrumentation. The
 first (and currently only) preference column is `analytics_opt_out`.
 
 The class does NOT subclass `BaseRepository` because there is no Pydantic
@@ -19,7 +19,7 @@ focused methods.
 
 ## Upstream / downstream
 
-- **Consumed by**: `analytics/_opted_out_sink.py` (or equivalent) — checks
+- **Consumed by**: `analytics._opted_out()` — checks
   `is_analytics_opted_out(user_id)` before emitting any funnel event so that
   users who have opted out receive no tracking.
 - **Depends on**: `AsyncDatabaseClient` from `xyz_agent_context.utils`, and

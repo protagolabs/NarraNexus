@@ -34,6 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { captureProductEvent } from '@/lib/productAnalytics';
 import { platform } from '@/lib/platform';
 import type {
   FeeInfo,
@@ -228,10 +229,12 @@ export function NetmindAccountPanel() {
     busyRef.current = true;
     setBusy(true);
     setActionError(null);
+    captureProductEvent('subscribe_clicked');
     try {
       const r = await api.subscribe();
       const url = r.data?.checkout_url;
       if (!url) throw new Error('No checkout URL returned');
+      captureProductEvent('checkout_opened');
       await platform.openExternal(url);
       void pollUntilActive(); // reflect the result when payment completes
     } catch (e) {

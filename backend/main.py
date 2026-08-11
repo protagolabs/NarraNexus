@@ -371,14 +371,6 @@ async def lifespan(app: FastAPI):
     await close_db_client()
     logger.info("Database connections closed")
 
-    # Drain analytics queue so buffered funnel events are not lost on exit.
-    try:
-        from xyz_agent_context.analytics import shutdown_analytics
-
-        await shutdown_analytics()
-    except Exception:  # noqa: BLE001
-        pass
-
     # Flush any enqueue=True records still in the multiprocessing queue
     # before the interpreter exits — otherwise the last few lines (the
     # ones describing the actual shutdown) get dropped.
@@ -386,12 +378,6 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
-# Vendor analytics sink is platform code — install the seam before any
-# route can fire track() (kernel default is NullSink otherwise).
-from backend.analytics import register_posthog_sink  # noqa: E402
-
-register_posthog_sink()
-
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",
@@ -486,6 +472,7 @@ from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
 from backend.routes.billing import router as billing_router
 from backend.routes.feedback import router as feedback_router
+from backend.routes.analytics import router as product_analytics_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -509,6 +496,7 @@ app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
 app.include_router(feedback_router, prefix="/api", tags=["Feedback"])
+app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])

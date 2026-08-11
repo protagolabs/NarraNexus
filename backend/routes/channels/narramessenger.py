@@ -29,6 +29,12 @@ from xyz_agent_context.module.narramessenger_module._narramessenger_service impo
     do_unbind,
 )
 
+
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
+
 router = APIRouter()
 
 _SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
@@ -46,20 +52,6 @@ class BindRequest(BaseModel):
 async def _get_db():
     from xyz_agent_context.utils.db.db_factory import get_db_client
     return await get_db_client()
-
-
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Local mode: no enforcement. Cloud mode: agent.created_by must match JWT."""
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
 
 
 @router.get("/credential")

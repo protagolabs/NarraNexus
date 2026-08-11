@@ -337,6 +337,7 @@ class RunRecorder:
         self.had_fatal_error: bool = False
         self.last_error_type: Optional[str] = None
         self.last_error_message: Optional[str] = None
+        self.last_action_reason: Optional[str] = None
         # Accumulated AGENT_RESPONSE deltas — the terminal write fills
         # events.final_output from this only when nothing else did.
         self.final_output_buffer: list[str] = []
@@ -415,6 +416,7 @@ class RunRecorder:
                 self.had_fatal_error = True
                 self.last_error_type = event.get("error_type")
                 self.last_error_message = event.get("error_message")
+                self.last_action_reason = event.get("action_reason")
             await self._write_stream_row("error", event_to_wire(event))
         else:
             # Catch-all — preserve in the stream for full replay fidelity.

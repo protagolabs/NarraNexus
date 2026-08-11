@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — processed 行合并 audit_details(review 后:seam 撤销)
+
+`managed_after_run` 新增 `audit_details`(completions 端点才知道的
+turn 事实:route/duration_ms),合并进 `managed_ingress_processed`
+行(事件名改用 `EVENT_MANAGED_INGRESS_PROCESSED` 常量);本方法自己
+的 `replied`/`error` 键**后写覆盖**,调用方伪造不了。初版加过
+`managed_audit` seam 供 coordinator 借道写审计,review 指出两条
+deny 路径在 trigger 不可用时触发、借道机制天然记不了——coordinator
+改为直接持仓库写,seam 撤销。
+
+## 2026-08-10 — managed_reply_kwargs seam(managed turn 的信封第二半)
+
+新 seam:managed turn 不跑 context builder,#254 信封的
+`channel_reply_kwargs` 由 ingress coordinator 向 trigger 索取
+(trigger 懂自己渠道的寻址,coordinator 保持渠道无关)。基类缺省
+`{}` —— step_3 兜底只用 channel_tag.room_id 投递,对房间寻址渠道
+(matrix/telegram)天然正确;token 寻址渠道覆写(wechat 用
+`reply_token`)。native 路径不受影响(builder 的 reply_kwargs 照旧)。
+
+## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
+
+`resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
+wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
+只是签名与 docstring 不再谎称"永远返回 str"。
+
 
 ## 2026-08-07 (二次) — 两处小收口
 
@@ -153,7 +179,7 @@ audit repo),幂等。覆写:wechat(认主)、matrix(authorize)。
 
 ## 2026-07-31 — _resolve_agent_owner 委托 AgentRepository.resolve_owner
 
-行为不变（miss/异常仍回 ''），实现收敛到 repository seam——属主语义
+实现收敛到 repository seam;2026-08-10 起契约随 resolve_owner 拆分:miss 回 '',lookup 失败回 None(见顶部条目)——属主语义
 从此一个家（PR #219 review 收敛三份拷贝）。
 
 ## 2026-07-22 — _sniff_mime delegates to the shared utils helper

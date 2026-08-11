@@ -17,6 +17,7 @@ upstream -> 502).
 from __future__ import annotations
 
 import pytest
+from unittest.mock import AsyncMock
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -31,6 +32,13 @@ from backend.integrations.netmind.netmind_billing_client import (
 
 USER = {"X-User-Id": "user_test"}
 _ME_FREE = {"plan_id": "free", "subscription": None}
+
+
+@pytest.fixture(autouse=True)
+def analytics_capture(monkeypatch):
+    capture = AsyncMock()
+    monkeypatch.setattr(billing_mod, "track", capture)
+    return capture
 
 
 @pytest.fixture
@@ -203,6 +211,48 @@ def test_subscription_ok(make_client, monkeypatch):
     r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
     assert r.status_code == 200
     assert r.json()["data"]["subscription"]["status"] == "ACTIVE"
+
+
+def test_subscription_activation_uses_subscription_cycle_identity(
+    make_client, monkeypatch, analytics_capture,
+):
+    subscription = {
+        "status": "ACTIVE",
+        "subscription_id": "sub_123",
+        "current_period_start": "2026-08-01T00:00:00Z",
+    }
+    _stub_client(monkeypatch, me={"plan_id": "pro", "subscription": subscription})
+    client = make_client(cloud=True)
+
+    response = client.get(
+        "/api/billing/subscription",
+        headers={**USER, "X-Netmind-Token": "jwt"},
+    )
+
+    assert response.status_code == 200
+    event = analytics_capture.await_args.kwargs
+    assert event["event"] == "subscription_activated"
+    assert event["event_id"].startswith("subscription_activated:")
+    assert "user_test" not in event["event_id"]
+    assert event["occurred_at"] == "2026-08-01 00:00:00.000000"
+
+
+def test_active_subscription_without_stable_cycle_is_not_inferred(
+    make_client, monkeypatch, analytics_capture,
+):
+    _stub_client(
+        monkeypatch,
+        me={"plan_id": "pro", "subscription": {"status": "ACTIVE"}},
+    )
+    client = make_client(cloud=True)
+
+    response = client.get(
+        "/api/billing/subscription",
+        headers={**USER, "X-Netmind-Token": "jwt"},
+    )
+
+    assert response.status_code == 200
+    analytics_capture.assert_not_awaited()
 
 
 def test_subscription_missing_netmind_token_401(make_client, monkeypatch):

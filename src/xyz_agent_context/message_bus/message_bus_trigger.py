@@ -551,8 +551,10 @@ class MessageBusTrigger:
                 )
                 return False
 
-    async def _get_agent_owner(self, agent_id: str) -> str:
-        """Look up the owner user_id for an agent. Returns "" if unknown.
+    async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
+        """Look up the owner user_id for an agent. Returns "" when the agent
+        is unknown and None when the LOOKUP failed (resolve_owner's split) —
+        every consumer gates on truthiness, so both degrade the same way.
         Delegates to the shared AgentRepository.resolve_owner seam."""
         try:
             from xyz_agent_context.repository.agent_repository import AgentRepository
@@ -1115,7 +1117,7 @@ class MessageBusTrigger:
         agent_id: str,
         history: List[BusMessage],
         member_map: Dict[str, str],
-        owner_user_id: str = "",
+        owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
         bulletin: Optional[List[Any]] = None,
@@ -1444,7 +1446,7 @@ class MessageBusTrigger:
     def _build_prompt(
         self,
         messages: List[BusMessage],
-        owner_user_id: str = "",
+        owner_user_id: Optional[str] = "",
         owner_name: str = "",
         *,
         i_started_this_exchange: bool,

@@ -27,6 +27,13 @@ from xyz_agent_context.repository import HomeAssistantBindingRepository
 from xyz_agent_context.schema.home_assistant_schema import HAConfig
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
+# Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
+# controlled input — without the owner check a cross-tenant IDOR opens up
+# (read/overwrite others' HA bindings, or ping a victim's home with their
+# stored token). Local mode (no JWT identity) does not enforce; see the
+# helper's security-posture docstring before adding sensitive operations.
+from backend.routes._ownership import assert_owned
+
 router = APIRouter()
 
 
@@ -52,25 +59,6 @@ def _mask(token: str) -> str:
     return f"••••{token[-4:]}" if token and len(token) > 4 else "••••"
 
 
-async def _require_agent_owner(request: Request, db, agent_id: str) -> None:
-    """Authorize: the caller must OWN this agent, not just be authenticated.
-
-    `resolve_current_user_id` only answers "who are you". The agent_id is
-    attacker-controlled input, so we must verify it belongs to the current user
-    or a cross-tenant IDOR opens up (read/overwrite others' HA bindings, or make
-    the backend ping a victim's home with their stored token). Mirrors
-    `backend/routes/channels/lark.py::_verify_agent_ownership`.
-
-    Local mode (no JWT identity) does not enforce ownership.
-    """
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        return  # local mode
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
-    if agent.get("created_by") != user_id:
-        raise HTTPException(status_code=403, detail="Permission denied: you do not own this agent.")
 
 
 @router.get("/binding")
@@ -78,7 +66,7 @@ async def get_binding(request: Request, agent_id: str) -> dict:
     """Return the agent's HA binding with the token masked (or {bound: False})."""
     await resolve_current_user_id(request)
     db = await get_db_client()
-    await _require_agent_owner(request, db, agent_id)
+    await assert_owned(request, agent_id)
     row = await HomeAssistantBindingRepository(db).get_by_agent(agent_id)
     if not row or not row.config_json:
         return {"bound": False}
@@ -94,7 +82,7 @@ async def put_binding(request: Request, body: HABindingBody) -> dict:
     """Save/replace the agent's HA binding (base_url + token + verify_tls)."""
     await resolve_current_user_id(request)
     db = await get_db_client()
-    await _require_agent_owner(request, db, body.agent_id)
+    await assert_owned(request, body.agent_id)
     cfg = HAConfig(base_url=body.base_url, token=body.token, verify_tls=body.verify_tls)
     ok = await HomeAssistantBindingRepository(db).upsert_config(body.agent_id, cfg.model_dump_json())
     if not ok:
@@ -132,7 +120,7 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     """
     await resolve_current_user_id(request)
     db = await get_db_client()
-    await _require_agent_owner(request, db, body.agent_id)
+    await assert_owned(request, body.agent_id)
     # Import here to avoid pulling module code into route import time.
     from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import resolve_client
 

@@ -649,17 +649,6 @@ class ApiClient {
     );
   }
 
-  /** Report a frontend funnel event (setup page UI actions). Identity comes
-   *  from the auth header server-side; no client properties are accepted
-   *  (the server stamps surface etc. itself). Best-effort: callers should
-   *  not block on it (fire-and-forget with a .catch). */
-  async trackFunnelEvent(event: string): Promise<void> {
-    await this.request<{ success: boolean }>('/api/auth/funnel', {
-      method: 'POST',
-      body: JSON.stringify({ event }),
-    });
-  }
-
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }

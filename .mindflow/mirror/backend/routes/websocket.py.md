@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-06
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — accepted and started message stages
+
+After validation a fresh turn records `message_accepted`; after Step 0 assigns
+the durable run ID it records idempotent `run_started`. Their gap isolates
+runtime-start failures from browser submission failures. The accepted fact is
+keyed by the already-created WebSocket session ID and includes that ID as a
+dimension, so reconnect/retry paths cannot inflate the stage count. Small
+module-level helpers make both capture contracts directly testable.
 
 ## 2026-08-06 — AuthError 帧带 `error_code`
 

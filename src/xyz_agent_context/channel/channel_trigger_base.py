@@ -59,6 +59,7 @@ from loguru import logger
 # client seam (agent_runtime/client.py) is itself import-safe, but we
 # keep the call-site import lazy to preserve this guarantee.
 from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_MANAGED_INGRESS_PROCESSED,
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_HISTORIC,
@@ -1813,9 +1814,11 @@ class ChannelTriggerBase(ABC):
     # Owner resolution + agent output extraction (subclass override hooks)
     # ────────────────────────────────────────────────────────────────────
 
-    async def _resolve_agent_owner(self, agent_id: str) -> str:
+    async def _resolve_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the agent's owner user_id from the agents table.
-        Returns empty string on miss; caller falls back to agent_id.
+        Returns "" when the agent is unknown, None when the lookup failed
+        (resolve_owner's split) — callers gate on truthiness / `or agent_id`,
+        so both degrade identically.
         Delegates to the shared AgentRepository.resolve_owner seam so
         ownership semantics have one home."""
         if self._db is None or not agent_id:
@@ -1850,6 +1853,20 @@ class ChannelTriggerBase(ABC):
         (message_bus stays quiet, job has its own delivery) simply inherit it.
         """
         return None
+
+    def managed_reply_kwargs(self, trigger_extra_data: dict) -> dict:
+        """Channel-specific delivery kwargs for a MANAGED turn's envelope.
+
+        Native turns get ``channel_reply_kwargs`` from the context
+        builder's ``reply_kwargs()``; managed turns never run a builder,
+        so the ingress coordinator asks the trigger instead (it knows its
+        channel's addressing, the coordinator stays channel-agnostic).
+        Default: empty — step_3's fallback then delivers with the
+        channel_tag's ``room_id`` alone, which is right for room-addressed
+        channels (matrix/telegram); token-addressed channels override
+        (wechat needs the inbound ``reply_token``).
+        """
+        return {}
 
     async def _send_error_fallback(
         self,
@@ -2014,11 +2031,17 @@ class ChannelTriggerBase(ABC):
         db: Any,
         reply_text: str,
         error_text: str = "",
+        audit_details: Optional[dict] = None,
     ) -> None:
         """Post-run bookkeeping for a managed inbound: error fallback when
         the run failed before any reply, then the native inbox write and a
         minimal audit row. Best-effort throughout — this runs after the
-        reply stream closed and must never raise."""
+        reply stream closed and must never raise.
+
+        ``audit_details`` carries turn facts only the completions endpoint
+        knows (route, duration) into the ``managed_ingress_processed``
+        row — merged under the caller's keys so this method's own
+        ``replied`` / ``error`` stay authoritative."""
         self._managed_bind(db)
         replied = bool((reply_text or "").strip())
         if error_text and not replied:
@@ -2052,16 +2075,16 @@ class ChannelTriggerBase(ABC):
                 f"{type(self).__name__}: managed inbox write failed "
                 f"({type(e).__name__}: {e})"
             )
+        details = dict(audit_details or {})
+        details["replied"] = replied
+        details["error"] = (error_text or "")[:200]
         await self._audit(
-            "managed_ingress_processed",
+            EVENT_MANAGED_INGRESS_PROCESSED,
             agent_id=agent_id,
             message_id=message.message_id,
             chat_id=message.chat_id,
             sender_id=message.sender_id,
-            details={
-                "replied": replied,
-                "error": (error_text or "")[:200],
-            },
+            details=details,
         )
 
     async def managed_silent_ingest(

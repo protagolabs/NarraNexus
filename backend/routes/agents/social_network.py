@@ -4,27 +4,60 @@
 @date: 2025-11-28
 @description: Agent Social Network routes
 
-Provides endpoints for:
+Read endpoints:
 - GET /{agent_id}/social-network - Get all social entities for an Agent
 - GET /{agent_id}/social-network/{user_id} - Get social network info for a specific user
 - GET /{agent_id}/social-network/search - Search social entities (keyword/semantic)
+
+Write endpoints (2026-08-10, PR-2 · MCP data-access seam backend half):
+- POST /{agent_id}/social-network/extract - extract/update entity info
+- POST /{agent_id}/social-network/merge - merge two entity records
+- POST /{agent_id}/social-network/delete-entity - permanently delete an entity
+- POST /{agent_id}/social-network/create-agent - create a new agent owned by the caller
+
+Every write endpoint mirrors the corresponding tool in
+`xyz_agent_context/module/social_network_module/_social_mcp_tools.py`
+(same repository/module calls, same data semantics) so an HTTP caller and an
+agent's own MCP tool call produce identical results — this route is the
+non-agent-triggered path to the same data.
 """
 
 import json
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import SocialNetworkRepository, InstanceRepository
+from xyz_agent_context.repository import (
+    SocialNetworkRepository,
+    InstanceRepository,
+    AgentRepository,
+)
+from xyz_agent_context.bootstrap.provision import provision_new_agent
+from xyz_agent_context.module.social_network_module import (
+    SocialNetworkModule,
+    social_instance_not_found_msg,
+    format_contact_result,
+    format_stats_result,
+    format_create_agent_success,
+    CREATE_AGENT_NO_OWNER_MSG,
+)
 from xyz_agent_context.schema import (
     SocialNetworkEntityInfo,
     SocialNetworkResponse,
     SocialNetworkListResponse,
     SocialNetworkSearchResponse,
 )
+
+# Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
+# controlled path input — without the owner check any caller could extract/
+# merge/delete another user's social-network entities, or spin up agents
+# under someone else's account. Local mode (no JWT identity) does not
+# enforce; see the helper's security-posture docstring before assuming auth.
+from backend.routes._ownership import assert_owned
 
 
 router = APIRouter()
@@ -177,7 +210,7 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
         if not instances:
             return SocialNetworkResponse(
                 success=False,
-                error=f"No SocialNetworkModule instance found for agent: {agent_id}"
+                error=social_instance_not_found_msg(agent_id)
             )
 
         instance_id = instances[0].instance_id
@@ -232,4 +265,305 @@ async def get_all_social_network_entities(agent_id: str):
         logger.exception(f"Error getting social network entities: {e}")
         return SocialNetworkListResponse(success=False, error=str(e))
 
+
+# ============================================================================= Write endpoints
+
+
+class ExtractEntityBody(BaseModel):
+    """Body for POST .../extract — mirrors the `extract_entity_info` MCP
+    tool's params minus `agent_id` (taken from the path instead)."""
+    entity_id: str = Field(min_length=1, max_length=128)
+    updates: dict[str, Any]
+    update_mode: str = "merge"
+
+
+class MergeEntitiesBody(BaseModel):
+    """Body for POST .../merge — mirrors the `merge_entities` MCP tool's params."""
+    source_entity_id: str = Field(min_length=1, max_length=128)
+    target_entity_id: str = Field(min_length=1, max_length=128)
+    keep_target_name: bool = True
+
+
+class DeleteEntityBody(BaseModel):
+    """Body for POST .../delete-entity — mirrors the `delete_entity` MCP tool's params."""
+    entity_id: str = Field(min_length=1, max_length=128)
+
+
+class CreateAgentBody(BaseModel):
+    """Body for POST .../create-agent — mirrors the `create_agent` MCP tool's
+    params minus `agent_id` (the creator, taken from the path instead).
+
+    `new_agent_id` is MINTED BY THE CALLER (the MCP tool) and passed in, so the
+    seam's DirectStore and this route provision the SAME id and return
+    byte-identical output — the route no longer generates its own. It is
+    CONSTRAINED to the tool's minted form `agent_<12 hex>` by the pattern below:
+    the id becomes a filesystem path segment (agent_workspace_path builds
+    base/{user_id}/{agent_id}), so an unconstrained value like
+    "../other_user/agent" would traverse into another tenant's workspace — the
+    pattern makes that impossible, and provision_new_agent re-checks it as a
+    defense-in-depth backstop for every call site."""
+    new_agent_id: str = Field(min_length=1, max_length=64, pattern=r"^agent_[0-9a-f]{12}$")
+    agent_name: str = Field(min_length=1, max_length=128)
+    awareness: str = Field(default="", max_length=65536)
+    agent_description: str = Field(default="", max_length=2000)
+
+
+# ============================================================================= Read (seam-twin) endpoints
+# These are the byte-parity HTTP twins of the READ MCP tools (search /
+# get_contact_info / get_agent_social_stats). They are POST — not GET — so their
+# action sub-paths (/recall, /contact, /stats) can't collide with the existing
+# GET /{agent_id}/social-network/{user_id} path parameter, and they return the
+# tool's dict shape verbatim (message-keyed failures, no _normalize_write_result)
+# so the HttpStore path passes the body straight through. Owner-gated like the
+# write twins.
+
+
+class RecallSocialBody(BaseModel):
+    """Body for POST .../recall — mirrors `search_social_network` tool params."""
+    search_keyword: str = Field(min_length=1, max_length=512)
+    search_type: str = "auto"
+    top_k: int = Field(default=5, ge=1, le=100)
+
+
+class ContactInfoBody(BaseModel):
+    """Body for POST .../contact — mirrors `get_contact_info` tool params."""
+    entity_id: str = Field(min_length=1, max_length=128)
+
+
+class AgentStatsBody(BaseModel):
+    """Body for POST .../stats — mirrors `get_agent_social_stats` tool params.
+    filter_tags is already the parsed list (the tool splits the comma string)."""
+    sort_by: str = "recent"
+    top_k: int = Field(default=5, ge=1, le=100)
+    filter_tags: list[str] | None = None
+
+
+@router.post("/{agent_id}/social-network/recall")
+async def recall_social_network(agent_id: str, body: RecallSocialBody, request: Request) -> dict:
+    """Search the social network — byte-parity twin of the `search_social_network`
+    MCP tool: same `SocialNetworkModule.search_network` call, same raw dict.
+    The whole body is wrapped so an instance-resolution db failure answers 200
+    with the tool's message shape (matching DirectStore), never a 500 — the
+    store docstring's 'handlers answer 200' contract."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error, "results": []}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        return await temp_module.search_network(
+            search_keyword=body.search_keyword, instance_id=instance_id,
+            search_type=body.search_type, top_k=body.top_k,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error searching social network for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}", "results": []}
+
+
+@router.post("/{agent_id}/social-network/contact")
+async def contact_info(agent_id: str, body: ContactInfoBody, request: Request) -> dict:
+    """Contact details for one entity — byte-parity twin of `get_contact_info`.
+    Shapes `recall_entity_info` via the shared `format_contact_result`."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        recall = await temp_module.recall_entity_info(body.entity_id, instance_id)
+        return format_contact_result(body.entity_id, recall)
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error reading contact info for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}"}
+
+
+@router.post("/{agent_id}/social-network/stats")
+async def agent_social_stats(agent_id: str, body: AgentStatsBody, request: Request) -> dict:
+    """Owner-perspective social stats — byte-parity twin of `get_agent_social_stats`.
+    Shapes `get_agent_stats` via the shared `format_stats_result`."""
+    await assert_owned(request, agent_id)
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "message": error, "results": []}
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        stats = await temp_module.get_agent_stats(
+            instance_id=instance_id, sort_by=body.sort_by, top_k=body.top_k, filter_tags=body.filter_tags,
+        )
+        return format_stats_result(body.sort_by, stats)
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Error reading social stats for {agent_id}: {e}")
+        return {"success": False, "message": f"Error: {e}", "results": []}
+
+
+async def _resolve_social_instance_id(db_client, agent_id: str) -> tuple[str | None, str | None]:
+    """Resolve the agent's SocialNetworkModule instance id.
+
+    Same repository call as the instance-lookup half of
+    `_get_instance_and_module` in `_social_mcp_tools.py`. The "no instance"
+    error text now comes from the shared `social_instance_not_found_msg` so the
+    AgentDataStore seam's DirectStore and this route (the HttpStore path) return
+    byte-identical text — the write tools migrated onto the seam depend on that.
+    Its wording matches this file's sibling GET endpoints ("... for agent: X").
+    """
+    instance_repo = InstanceRepository(db_client)
+    instances = await instance_repo.get_by_agent(agent_id=agent_id, module_class="SocialNetworkModule")
+    if not instances:
+        return None, social_instance_not_found_msg(agent_id)
+    return instances[0].instance_id, None
+
+
+def _normalize_write_result(result: dict) -> dict:
+    """Map the wrapped module/tool 'message' failure key onto this route
+    family's 'error' key (the shape the GET endpoints above use), leaving
+    success payloads untouched. The MCP tools this file wraps always report
+    failure via 'message', not 'error'."""
+    if isinstance(result, dict) and result.get("success") is False and "error" not in result and "message" in result:
+        result = dict(result)
+        result["error"] = result.pop("message")
+    return result
+
+
+@router.post("/{agent_id}/social-network/extract")
+async def extract_entity_info(agent_id: str, body: ExtractEntityBody, request: Request) -> dict:
+    """
+    Extract/update entity info — same operation as the `extract_entity_info`
+    MCP tool, reached over HTTP instead of an agent tool call. Delegates to
+    `SocialNetworkModule.extract_and_update_entity_info` so merge/replace
+    semantics (tag dedup capped at 10, identity/contact deep-merge,
+    entity_description protected from direct overwrite) stay identical to
+    the agent-facing path.
+    """
+    await assert_owned(request, agent_id)
+
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "error": error}
+
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        result = await temp_module.extract_and_update_entity_info(
+            entity_id=body.entity_id,
+            instance_id=instance_id,
+            updates=dict(body.updates),
+            update_mode=body.update_mode,
+        )
+        return _normalize_write_result(result)
+
+    except Exception as e:
+        logger.exception(f"Error extracting entity info: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/{agent_id}/social-network/merge")
+async def merge_entities(agent_id: str, body: MergeEntitiesBody, request: Request) -> dict:
+    """
+    Merge two entity records — same operation as the `merge_entities` MCP
+    tool: source is folded into target (tags/identity/contact_info/
+    related_job_ids unioned, descriptions appended, interaction counts
+    summed, newest last_interaction_time kept) then the source is deleted.
+
+    Delegates to `SocialNetworkModule.merge_entities` (pre-open review #2:
+    this used to be a byte-for-byte copy of the MCP tool's inline closure
+    body; both the tool and this route now call the same module method so
+    the merge semantics can't drift between the two entry points).
+    """
+    await assert_owned(request, agent_id)
+
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "error": error}
+
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        result = await temp_module.merge_entities(
+            source_entity_id=body.source_entity_id,
+            target_entity_id=body.target_entity_id,
+            instance_id=instance_id,
+            keep_target_name=body.keep_target_name,
+        )
+        return _normalize_write_result(result)
+
+    except Exception as e:
+        logger.exception(f"Error merging entities: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/{agent_id}/social-network/delete-entity")
+async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request) -> dict:
+    """
+    Permanently delete a social network entity — same operation as the
+    `delete_entity` MCP tool. POST (not HTTP DELETE) so the target entity_id
+    travels in the body, consistent with this route family's other write
+    endpoints.
+
+    Delegates to `SocialNetworkModule.delete_entity` (pre-open review #2 —
+    see the `merge` endpoint above for the same rationale).
+    """
+    await assert_owned(request, agent_id)
+
+    try:
+        db_client = await get_db_client()
+        instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
+        if error:
+            return {"success": False, "error": error}
+
+        temp_module = SocialNetworkModule(agent_id=agent_id, database_client=db_client, instance_id=instance_id)
+        result = await temp_module.delete_entity(entity_id=body.entity_id, instance_id=instance_id)
+        return _normalize_write_result(result)
+
+    except Exception as e:
+        logger.exception(f"Error deleting entity: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/{agent_id}/social-network/create-agent")
+async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -> dict:
+    """
+    Create a new agent owned by the caller — same operation as the
+    `create_agent` MCP tool, via the shared `provision_new_agent` seam: agent
+    row + default module instances + peer-discovery registration + bootstrap
+    profile + default-skill install + awareness seed. `agent_id` in the path
+    is the CREATOR (must be owned by the caller); the new agent inherits the
+    creator's `created_by`, i.e. it lands in the same user's account, not the
+    creator agent's. Any non-fatal provisioning warning (a half-provisioned
+    agent) is surfaced in the response so ops can see it (incident lesson #5).
+    """
+    await assert_owned(request, agent_id)
+
+    try:
+        db_client = await get_db_client()
+        agent_repo = AgentRepository(db_client)
+        caller = await agent_repo.get_agent(agent_id)
+        if not caller or not caller.created_by:
+            return {"success": False, "error": CREATE_AGENT_NO_OWNER_MSG}
+
+        owner_user_id = caller.created_by
+        new_agent_id = body.new_agent_id  # minted by the caller (parity — see body doc)
+
+        # Canonical provisioning seam (pre-open review #3): agent row +
+        # default module instances + peer-discovery registration + bootstrap
+        # profile + default-skill install + awareness seed, all in one call.
+        # Both this route and the MCP `create_agent` tool go through the same
+        # `provision_new_agent` (via the AgentDataStore seam's DirectStore) and
+        # the shared `format_create_agent_success`, so they can't drift.
+        result = await provision_new_agent(
+            db_client,
+            agent_id=new_agent_id,
+            user_id=owner_user_id,
+            agent_name=body.agent_name,
+            agent_description=body.agent_description or f"Agent created by {caller.agent_name or agent_id}",
+            awareness=body.awareness,
+        )
+        logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
+        return format_create_agent_success(body.agent_name, new_agent_id, result.warnings)
+
+    except Exception as e:
+        logger.exception(f"Error creating agent: {e}")
+        return {"success": False, "error": f"Error: {e}"}
 

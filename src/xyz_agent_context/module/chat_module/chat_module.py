@@ -294,7 +294,7 @@ class ChatModule(XYZBaseModule):
         Delegates tool registration to _chat_mcp_tools module.
         """
         from xyz_agent_context.module.chat_module._chat_mcp_tools import create_chat_mcp_server
-        return create_chat_mcp_server(self.port, ChatModule.get_mcp_db_client)
+        return create_chat_mcp_server(self.port)
 
 
     # ============================================================================= Private Helper Methods

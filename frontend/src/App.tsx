@@ -21,6 +21,7 @@ import {
   shouldShowExpiryWarning,
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
+import { captureProductEvent } from '@/lib/productAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
@@ -103,6 +104,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     //   say. That is not an authentication failure, and ending the session
     //   over it is the same nuclear reflex the 401 path just stopped doing.
     api.getSession()
+      .then(() => captureProductEvent('workspace_ready'))
       .catch(() => {
         // Backend unreachable, or a 401 already handed to the session
         // guard by lib/api. Either way, nothing to do here.

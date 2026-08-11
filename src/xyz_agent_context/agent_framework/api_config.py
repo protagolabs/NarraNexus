@@ -685,6 +685,9 @@ _provider_source_ctx: ContextVar[Optional[str]] = ContextVar(
 _current_user_id_ctx: ContextVar[Optional[str]] = ContextVar(
     "current_user_id", default=None
 )
+_provider_card_sources_ctx: ContextVar[Optional[dict[str, str]]] = ContextVar(
+    "provider_card_sources", default=None
+)
 
 
 
@@ -707,6 +710,7 @@ def clear_user_config() -> None:
     _codex_ctx.set(CodexConfig())
     _anthropic_helper_ctx.set(None)
     _cli_helper_ctx.set(None)
+    _provider_card_sources_ctx.set({})
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
@@ -714,6 +718,17 @@ def set_provider_source(src: Optional[str]) -> None:
 
 def get_provider_source() -> Optional[str]:
     return _provider_source_ctx.get()
+
+
+def set_provider_card_sources(sources: dict[str, str]) -> None:
+    """Record the exact provider-card source selected for each LLM slot."""
+    _provider_card_sources_ctx.set(dict(sources))
+
+
+def get_provider_card_source(call_type: str) -> Optional[str]:
+    """Return the exact card source responsible for a cost ledger row."""
+    slot = "agent" if call_type == "agent_loop" else "helper_llm"
+    return (_provider_card_sources_ctx.get() or {}).get(slot)
 
 
 def set_current_user_id(uid: Optional[str]) -> None:

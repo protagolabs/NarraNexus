@@ -1,10 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/cost_tracker.py
-last_verified: 2026-08-03
+last_verified: 2026-08-10
 stub: false
 ---
 
 # cost_tracker.py
+
+## 2026-08-10 — exact provider-card attribution
+
+Ledger rows now capture the selected slot card's source. Agent-loop costs use
+the agent slot; helper calls use helper_llm. This makes real free-tier usage
+measurable without provider-branch heuristics.
 
 ## 2026-07-30 — 手写价目表移出；成本按 cache 三档计价
 
