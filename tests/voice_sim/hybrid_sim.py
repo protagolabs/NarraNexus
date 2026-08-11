@@ -80,6 +80,9 @@ def build_voice_content(
         meta["transcript_final"] = False
     elif invalid == "missing-id":
         del meta["rtc_session_id"]
+    elif invalid == "silent":
+        meta["seq"] = 2
+        del meta["voice_instructions"]
     body = (ENVELOPE + text) if with_envelope else text
     return {"msgtype": "m.text", "body": body, RTC_KEY: meta}
 

@@ -138,3 +138,53 @@ async def test_streaming_kill_switch_degrades_voice_to_text_turn(monkeypatch):
     assert trigger._voice_calls == {}
     passed_msg = atomic.await_args.args[1]
     assert "rtc_voice" not in (passed_msg.raw or {})
+
+
+def _degraded_msg(text: str, room: str = "!call:h") -> ParsedMessage:
+    """Handoff §3.4 DEGRADED turn: empty binding IDs, per-room key."""
+    return replace(
+        _voice_msg(text),
+        chat_id=room,
+        raw={"rtc_voice": {"rtc_session_id": "", "turn_id": "",
+                           "invocation_id": "", "agent_profile_id": "",
+                           "voice_instructions": "Speak for a call.",
+                           "degraded": True}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_degraded_turns_serialize_per_room_and_parallel_across_rooms():
+    """Without an rtc_session_id the call key falls back to
+    (agent, room): same-room degraded turns still run one at a time,
+    while degraded turns in different rooms stay fully parallel."""
+    trigger = MatrixTrigger()
+    runner = _SlowRunner()
+    trigger._build_and_run_agent_streaming = runner  # type: ignore[assignment]
+
+    t1 = asyncio.create_task(
+        trigger._build_and_run_agent(None, _degraded_msg("first."), "Caller")
+    )
+    await asyncio.sleep(0)  # first same-room run is now in flight
+    assert len(runner.calls) == 1
+
+    t2 = asyncio.create_task(
+        trigger._build_and_run_agent(None, _degraded_msg("second."), "Caller")
+    )
+    other = asyncio.create_task(
+        trigger._build_and_run_agent(
+            None, _degraded_msg("elsewhere.", room="!other:h"), "Caller"
+        )
+    )
+    await asyncio.sleep(0)
+    # Same room buffered; the other room ran immediately in parallel.
+    assert [c[0] for c in runner.calls] == ["first.", "elsewhere."]
+
+    runner.calls[0][1].set()  # finish the first same-room run
+    await asyncio.sleep(0.01)
+    # The buffered same-room utterance now runs as the follow-up turn.
+    assert [c[0] for c in runner.calls] == ["first.", "elsewhere.", "second."]
+
+    for _, gate in runner.calls[1:]:
+        gate.set()
+    await asyncio.gather(t1, t2, other)
+    assert trigger._voice_calls == {}  # both room keys cleaned up
