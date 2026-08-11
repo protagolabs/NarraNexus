@@ -536,7 +536,8 @@ class MatrixTrigger(ChannelTriggerBase):
         self._silent_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
         # ── F28 voice-call serialization ─────────────────────────────────
-        # Keyed by rtc_session_id (fallback agent_id:room_id). One worker
+        # Keyed by agent_id:room_id — room ≡ call under the 1:1 gate, so
+        # strict and degraded turns of one call share the key. One worker
         # holds a call's drain loop; overlapping utterances buffer and
         # merge into one follow-up turn. Entries die when the call idles.
         self._voice_calls: dict[str, _VoiceCallState] = {}
@@ -1503,7 +1504,8 @@ class MatrixTrigger(ChannelTriggerBase):
         # worker pool runs same-room messages concurrently (by design for
         # text), but two overlapping voice runs would interleave two TTS
         # streams on one call. Modeled on the group_silent per-(agent, room)
-        # buffer; the call key is rtc_session_id.
+        # buffer; the call key is agent_id:room_id (room ≡ call under the
+        # 1:1 gate).
         if (getattr(message, "raw", None) or {}).get("rtc_voice"):
             if not self.STREAMING_ENABLED:
                 # The streaming kill switch governs voice too: live
@@ -1579,19 +1581,19 @@ class MatrixTrigger(ChannelTriggerBase):
         *,
         attachments: Optional[list] = None,
     ) -> str:
-        """Serialize voice turns per call; merge utterances that queue up.
+        """Serialize voice turns per room ≡ per call under the 1:1 gate.
 
         One worker holds a call's drain loop; messages arriving while a
         run is active are buffered and merged into ONE follow-up turn
         (consecutive utterances concatenate — the caller kept talking).
-        Different calls (different rtc_session_id) stay fully parallel.
+        Different rooms (hence different calls) stay fully parallel.
         State is per-trigger-instance and dies with the call going idle.
         """
-        rtc = (getattr(message, "raw", None) or {}).get("rtc_voice") or {}
-        key = (
-            rtc.get("rtc_session_id")
-            or f"{getattr(credential, 'agent_id', '?')}:{message.chat_id}"
-        )
+        # One live RTC call per room is guaranteed by the PRIVATE 1:1 gate, so the
+        # room is the call: keying on it serializes strict and degraded turns of the
+        # SAME call together (a per-session key would split-brain the moment one
+        # utterance's metadata fails validation — two concurrent TTS streams).
+        key = f"{getattr(credential, 'agent_id', '?')}:{message.chat_id}"
         call = self._voice_calls.setdefault(key, _VoiceCallState())
         call.pending.append((message, sender_name, attachments))
         if call.running:

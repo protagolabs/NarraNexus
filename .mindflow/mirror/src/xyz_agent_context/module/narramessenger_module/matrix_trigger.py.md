@@ -4,6 +4,16 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11 — 通话级串行 key 统一为 per-room（review Important #2）
+
+`_run_voice_serialized` 的 key 从「`rtc_session_id`、缺省回落
+`agent_id:room`」改为**无条件 `agent_id:room`**。理由：1:1 PRIVATE 门保证
+一个房间同时只有一路 RTC 通话，房间即通话；而两级检测下同一通话的严格
+turn（keyed on session）和 degraded turn（keyed on room）若走不同 key，
+一次 metadata 校验失败就会裂成两条并发 drain loop → 两路 TTS 流交错。
+per-room key 让同一通话的两级 turn 共用一条串行队列；不同房间（≠同一
+通话）仍完全并行。2026-08-06 条目里的「per-rtc_session」描述自此过时。
+
 ## 2026-08-11 — voice 检测升级为两级（common trigger + degraded 打戳）
 
 `_detect_voice_turn` 从「严格 v1 全对才算 voice」改为 handoff §3.4 的两级
@@ -19,9 +29,9 @@ extract_common_voice_instructions`）→ **DEGRADED voice turn**：语音行为
 - **1:1 PRIVATE 门现在对两级承担全部注入论证。** degraded turn 的
   metadata 本来就不可信，所以「level 1 校验过格式」从来不是放宽房型门的
   理由——parse_event 的注释块已改写成这个论证，别回退。
-- 下游零改动即继承：`_run_voice_serialized` 在 `rtc_session_id` 为空时
-  本就回落 `f"{agent_id}:{chat_id}"` per-room key（degraded 得到
-  per-room 串行）；`_voice_profile_for` / `_late_voice_upgrade` 只看
+- 下游零改动即继承：`_run_voice_serialized` 统一按
+  `f"{agent_id}:{chat_id}"` per-room key 串行（见上一条——两级 turn 共用
+  一条队列）；`_voice_profile_for` / `_late_voice_upgrade` 只看
   `raw["rtc_voice"]` 真值/复用 `_detect_voice_turn`，自动两级。
 - `[voice-timing]` 行在 degraded turn 上把 rtc_session 打成字面量
   `degraded`（原来是空串），让延迟样本能按级分桶。

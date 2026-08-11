@@ -1,13 +1,17 @@
 """
 @file_name: test_voice_call_serialization.py
 @date: 2026-08-06
-@description: F28 per-call serialization — one run at a time, merged queue.
+@description: F28 per-room voice serialization — one run at a time, merged queue.
 
 Locks:
-- Two overlapping utterances on ONE rtc_session run strictly serially;
+- Two overlapping utterances in ONE room run strictly serially;
   the one that queued merges into a single follow-up turn whose content
   concatenates the transcripts in arrival order.
-- Different rtc_sessions stay fully parallel (no cross-call coupling).
+- The key is the ROOM (≡ the call under the 1:1 gate), NOT rtc_session_id:
+  strict and degraded turns of one call serialize together — a per-session
+  key would split-brain into two concurrent TTS streams the moment one
+  utterance's metadata failed validation.
+- Different rooms stay fully parallel (no cross-call coupling).
 - A non-voice message never enters the voice queue (dispatch unchanged).
 - Call state dies when the call idles (no leak in _voice_calls).
 """
@@ -92,7 +96,11 @@ async def test_same_call_serializes_and_merges():
 
 
 @pytest.mark.asyncio
-async def test_different_calls_run_in_parallel():
+async def test_different_sessions_same_room_serialize():
+    """Room is the key, not rtc_session_id: two turns of one call that
+    carry different session ids (e.g. metadata drift across a reconnect)
+    must still run one at a time — a per-session key would give each its
+    own drain loop and interleave two TTS streams on the one call."""
     trigger = MatrixTrigger()
     runner = _SlowRunner()
     trigger._build_and_run_agent_streaming = runner  # type: ignore[assignment]
@@ -100,14 +108,68 @@ async def test_different_calls_run_in_parallel():
     a = asyncio.create_task(
         trigger._build_and_run_agent(None, _voice_msg("a.", session="s-A"), "C")
     )
+    await asyncio.sleep(0)
+    assert len(runner.calls) == 1
     b = asyncio.create_task(
         trigger._build_and_run_agent(None, _voice_msg("b.", session="s-B"), "C")
+    )
+    await asyncio.sleep(0)
+    assert len(runner.calls) == 1  # buffered behind the same room key
+    runner.calls[0][1].set()
+    await asyncio.sleep(0.01)
+    assert [c[0] for c in runner.calls] == ["a.", "b."]
+    runner.calls[1][1].set()
+    await asyncio.gather(a, b)
+    assert trigger._voice_calls == {}
+
+
+@pytest.mark.asyncio
+async def test_strict_and_degraded_turns_of_one_call_serialize():
+    """The review's mixed-level scenario: a strict turn (full rtc ids)
+    and a degraded turn (empty ids) in the SAME room are the same call
+    and must share one drain loop."""
+    trigger = MatrixTrigger()
+    runner = _SlowRunner()
+    trigger._build_and_run_agent_streaming = runner  # type: ignore[assignment]
+
+    strict = asyncio.create_task(
+        trigger._build_and_run_agent(None, _voice_msg("strict."), "Caller")
+    )
+    await asyncio.sleep(0)
+    assert len(runner.calls) == 1
+    degraded = asyncio.create_task(
+        trigger._build_and_run_agent(None, _degraded_msg("degraded."), "Caller")
+    )
+    await asyncio.sleep(0)
+    assert len(runner.calls) == 1  # degraded turn buffered, not parallel
+    runner.calls[0][1].set()
+    await asyncio.sleep(0.01)
+    assert [c[0] for c in runner.calls] == ["strict.", "degraded."]
+    runner.calls[1][1].set()
+    await asyncio.gather(strict, degraded)
+    assert trigger._voice_calls == {}
+
+
+@pytest.mark.asyncio
+async def test_different_rooms_run_in_parallel():
+    trigger = MatrixTrigger()
+    runner = _SlowRunner()
+    trigger._build_and_run_agent_streaming = runner  # type: ignore[assignment]
+
+    a = asyncio.create_task(
+        trigger._build_and_run_agent(None, _voice_msg("a."), "C")
+    )
+    b = asyncio.create_task(
+        trigger._build_and_run_agent(
+            None, replace(_voice_msg("b."), chat_id="!other:h"), "C"
+        )
     )
     await asyncio.sleep(0)
     assert len(runner.calls) == 2  # both in flight simultaneously
     for _, gate in runner.calls:
         gate.set()
     await asyncio.gather(a, b)
+    assert trigger._voice_calls == {}
 
 
 @pytest.mark.asyncio
@@ -154,9 +216,9 @@ def _degraded_msg(text: str, room: str = "!call:h") -> ParsedMessage:
 
 @pytest.mark.asyncio
 async def test_degraded_turns_serialize_per_room_and_parallel_across_rooms():
-    """Without an rtc_session_id the call key falls back to
-    (agent, room): same-room degraded turns still run one at a time,
-    while degraded turns in different rooms stay fully parallel."""
+    """Degraded turns key on (agent, room) like every voice turn:
+    same-room degraded turns run one at a time, while degraded turns
+    in different rooms stay fully parallel."""
     trigger = MatrixTrigger()
     runner = _SlowRunner()
     trigger._build_and_run_agent_streaming = runner  # type: ignore[assignment]
