@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 地基) — 三张平行表收成单 ChannelSpec descriptor
+
+`_MANAGER_REGISTRY`+`_BIND_SERVICE`+`_DISPLAY_NAME` 收成 **一个 `CHANNELS: dict[str, ChannelSpec]`**（review 一直诟病的三表漂移根除）。`ChannelSpec`=manager_module/class + read_method + display_name(unbind 措辞) + 可选 `_BindSpec`(do_bind 服务 + takes=mgr|db + has_test)。`_spec/_manager_class/_read_method_name` 及 DirectStore.bind/unbind/test_connection 全读单字段；`SUPPORTED_CHANNELS=frozenset(CHANNELS)`。**加 channel 真的=一行 ChannelSpec + to_raw_dict**。纯重构、行为不变（55 测试绿）。为 lark 写原语(patch/put/delete)打地基。
+
 ## 2026-08-11 (审查 round-3 收口)
 
 模块头 3 处矛盾扫清：`_MANAGER_FOR`→`_MANAGER_REGISTRY`(全仓不存在的符号)；HttpStore 段改成如实的「读 GET→None / 写 POST→{success:False}」两种降级；并如实说明**加 channel 不是一行**——读走 _MANAGER_REGISTRY、写走 _BIND_SERVICE、unbind 文案走 _DISPLAY_NAME(三张平行表，未来可收成单 descriptor)。`_DISPLAY_NAME` 精确到**有 seam-unbind 工具的 4 个 channel**(discord/slack/telegram/wechat)并注明 narra/lark/HA 为何不入表(消除�the漂移质疑)。端点测试：假中间件用 `x-test-unverify` 把 `nx_service_authed` 与前缀**解耦**，新增「前缀在但未验签→403」一条(对旧前缀实现会红)，真正锁住「门读已验签 flag」。补 get_agent_owner Direct↔Http parity。删 slack/telegram 死 import + 测试死代码。

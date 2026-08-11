@@ -15,7 +15,7 @@ DirectStore/HttpStore) as AgentDataStore for consistency, not by folding one
 into the other.
 
 - DirectStore: local — dispatches ``channel`` to the matching per-channel
-  credential manager (``_MANAGER_REGISTRY``) and returns the manager's dataclass
+  credential manager (from its ``ChannelSpec``) and returns the dataclass
   serialised via ``to_raw_dict()`` (NOT ``to_public_dict()`` — the whole
   reason this seam exists is to carry the secret across the HTTP hop).
 - HttpStore: cloud — calls the owner-gated backend endpoints
@@ -27,14 +27,11 @@ into the other.
   "no_credential" branch; a WRITE (POST bind/unbind/test) failure degrades to
   ``{success: False, error}`` (a failed unbind is NOT "unbound").
 
-All 7 channels are wired here, but across a few per-channel tables, so adding a
-channel is NOT literally one line: reads go through ``_MANAGER_REGISTRY``
-(manager class + read-method name); the clean write-leg adds ``_BIND_SERVICE``
-(bind's do_bind module + mgr/db shape) for channels with a bind tool and
-``_DISPLAY_NAME`` (unbind wording) for channels with an unbind tool; plus a
-``to_raw_dict()`` on the dataclass. A future consolidation of these parallel
-dicts into one per-channel descriptor (review 🟢) would make "one line" true
-again.
+All 7 channels are wired through ONE ``ChannelSpec`` descriptor per channel (the
+``CHANNELS`` table) — manager + read-method + unbind display-name + optional
+bind service, each a lazily-resolved name. Adding a channel is genuinely one
+``ChannelSpec(...)`` line + a ``to_raw_dict()`` on its dataclass; nothing here
+can drift because there is a single source of truth, not parallel dicts.
 
 Reads (``get_credential`` / ``get_agent_name`` / ``get_agent_owner``) and the
 clean writes (``bind`` / ``unbind`` / ``test_connection``, which map to existing
@@ -52,6 +49,7 @@ deliberately deferred (Owner is deciding the approach).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
 
@@ -86,106 +84,105 @@ class ChannelCredentialStore(Protocol):
     async def test_connection(self, channel: str, agent_id: str) -> dict: ...
 
 
-# channel -> (module path, manager class name, read-method name). Lazy (import
-# by name only when a call actually needs that channel) so this module never
-# pulls every channel package in just to define the dispatch table. The read
-# method name is NOT uniform across channels (discord/slack/telegram/wechat use
-# `get`; lark uses `get_credential`), hence the third field. Adding a channel =
-# one line here + a `to_raw_dict()` on its credential dataclass; the seam, the
-# backend endpoint (which delegates to DirectStore), and SUPPORTED_CHANNELS all
-# follow.
-_MANAGER_REGISTRY: dict[str, tuple[str, str, str]] = {
-    "discord": (
-        "xyz_agent_context.module.discord_module._discord_credential_manager",
-        "DiscordCredentialManager",
-        "get",
+# One per-channel descriptor — the SINGLE source of truth. Everything (reads,
+# the write-leg, the endpoint allowlist, unbind wording) reads one field of it,
+# so there are no parallel channel-keyed dicts to drift out of sync. Adding a
+# channel is genuinely one ``ChannelSpec(...)`` line + a ``to_raw_dict()`` on
+# its dataclass. All resolution is lazy by NAME (module path strings) so this
+# module never imports every channel package just to hold the table.
+
+
+@dataclass(frozen=True)
+class _BindSpec:
+    """A channel's do_bind service — present only for channels with a bind tool.
+
+    ``do_bind`` is NOT uniform: discord/slack/telegram take the manager,
+    narramessenger's gateway-bind takes the raw db (``takes``). ``do_test_connection``
+    lives in the SAME service module, so the status live-check resolves from here
+    too (``has_test``)."""
+
+    service_module: str
+    do_bind: str = "do_bind"
+    takes: str = "mgr"  # "mgr" | "db"
+    has_test: bool = True  # service module also defines do_test_connection
+
+
+@dataclass(frozen=True)
+class ChannelSpec:
+    manager_module: str
+    manager_class: str
+    read_method: str = "get"  # "get" | "get_credential" (lark)
+    # Backend /unbind route's not-found wording ("no <display_name> credential
+    # bound…") — set ONLY for channels whose unbind is reachable through the seam
+    # (they have a ``<ch>_unbind`` MCP tool). "" means DirectStore.unbind falls
+    # back to the raw channel string (fine: those channels never call it).
+    display_name: str = ""
+    bind: Optional[_BindSpec] = None  # None → no bind tool (wechat QR / lark CLI / HA panel)
+
+
+_CM = "xyz_agent_context.module"
+CHANNELS: dict[str, ChannelSpec] = {
+    "discord": ChannelSpec(
+        f"{_CM}.discord_module._discord_credential_manager", "DiscordCredentialManager",
+        display_name="Discord",
+        bind=_BindSpec(f"{_CM}.discord_module._discord_service"),
     ),
-    "slack": (
-        "xyz_agent_context.module.slack_module._slack_credential_manager",
-        "SlackCredentialManager",
-        "get",
+    "slack": ChannelSpec(
+        f"{_CM}.slack_module._slack_credential_manager", "SlackCredentialManager",
+        display_name="Slack",
+        bind=_BindSpec(f"{_CM}.slack_module._slack_service"),
     ),
-    "telegram": (
-        "xyz_agent_context.module.telegram_module._telegram_credential_manager",
-        "TelegramCredentialManager",
-        "get",
+    "telegram": ChannelSpec(
+        f"{_CM}.telegram_module._telegram_credential_manager", "TelegramCredentialManager",
+        display_name="Telegram",
+        bind=_BindSpec(f"{_CM}.telegram_module._telegram_service"),
     ),
-    "wechat": (
-        "xyz_agent_context.module.wechat_module._wechat_credential_manager",
-        "WeChatCredentialManager",
-        "get",
+    "wechat": ChannelSpec(
+        f"{_CM}.wechat_module._wechat_credential_manager", "WeChatCredentialManager",
+        display_name="WeChat",  # has an unbind tool; bind is QR (backend-only), so no _BindSpec
     ),
-    "narramessenger": (
-        "xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager",
-        "NarramessengerCredentialManager",
-        "get",
+    "narramessenger": ChannelSpec(
+        f"{_CM}.narramessenger_module._narramessenger_credential_manager", "NarramessengerCredentialManager",
+        # bind tool exists (gateway-bind takes the raw db); NO unbind tool + no
+        # do_test_connection, so display_name="" and has_test=False.
+        bind=_BindSpec(f"{_CM}.narramessenger_module._narramessenger_service", takes="db", has_test=False),
     ),
-    "lark": (
-        "xyz_agent_context.module.lark_module._lark_credential_manager",
-        "LarkCredentialManager",
-        "get_credential",
+    "lark": ChannelSpec(
+        f"{_CM}.lark_module._lark_credential_manager", "LarkCredentialManager",
+        read_method="get_credential",
+        # bind/unbind + the CLI-OAuth writes go through the credential-mutation
+        # primitives (patch/put/delete), not a typed do_bind — so no _BindSpec.
     ),
     # Home Assistant has no bot credential — a JSON config blob (base_url + LLAT).
     # A thin repository-backed adapter gives it the seam's uniform read shape.
-    "home_assistant": (
-        "xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding",
-        "HomeAssistantCredentialManager",
-        "get",
+    "home_assistant": ChannelSpec(
+        f"{_CM}.home_assistant_module._home_assistant_impl.binding", "HomeAssistantCredentialManager",
     ),
 }
 
-# The allowlist the backend endpoint gates on — derived from the registry so it
-# can never drift from what DirectStore can actually resolve.
-SUPPORTED_CHANNELS = frozenset(_MANAGER_REGISTRY)
+# The allowlist the backend endpoint gates on — derived from the descriptor so
+# it can never drift from what DirectStore can actually resolve.
+SUPPORTED_CHANNELS = frozenset(CHANNELS)
 
-# Write dispatch for bind (blueprint P2 write leg). unbind is uniform across all
-# channels (mgr.unbind(agent_id)) so it needs no per-channel entry; bind is NOT
-# — each channel's do_bind lives in its own service module and takes either the
-# manager (discord/slack/telegram) or the raw db (narramessenger's gateway-bind).
-# ``bind_takes`` records which. Lark is intentionally absent — its bind is part of
-# the deferred CLI-OAuth write leg. Channels with no bind MCP tool (wechat: QR)
-# simply never call bind() and need no entry.
-# Display names the backend `/unbind` routes use in their not-found message
-# ("no <Name> credential bound for this agent") — so DirectStore.unbind is
-# byte-identical to the HTTP route (the whole point of this seam), not just
-# "close". A plain channel.title() would give "Wechat", not "WeChat".
-# ONLY the channels whose unbind is actually reachable through this seam need an
-# entry: discord/slack/telegram/wechat (their `<ch>_unbind` MCP tool calls
-# seam.unbind). narramessenger has no unbind tool, and lark's unbind uses
-# delete_credential directly (CLI-write leg, excluded), so neither routes here;
-# any channel absent from this map just falls back to the raw channel string.
-_DISPLAY_NAME: dict[str, str] = {
-    "discord": "Discord",
-    "slack": "Slack",
-    "telegram": "Telegram",
-    "wechat": "WeChat",
-}
 
-_BIND_SERVICE: dict[str, tuple[str, str, str]] = {
-    "discord": ("xyz_agent_context.module.discord_module._discord_service", "do_bind", "mgr"),
-    "slack": ("xyz_agent_context.module.slack_module._slack_service", "do_bind", "mgr"),
-    "telegram": ("xyz_agent_context.module.telegram_module._telegram_service", "do_bind", "mgr"),
-    "narramessenger": ("xyz_agent_context.module.narramessenger_module._narramessenger_service", "do_bind", "db"),
-}
+def _spec(channel: str) -> ChannelSpec:
+    spec = CHANNELS.get(channel)
+    if spec is None:
+        raise ValueError(f"unknown channel: {channel!r}")
+    return spec
 
 
 def _manager_class(channel: str):
     """Resolve ``channel`` to its credential-manager class, importing lazily."""
-    entry = _MANAGER_REGISTRY.get(channel)
-    if entry is None:
-        raise ValueError(f"unknown channel: {channel!r}")
-    module_path, class_name, _read_method = entry
     import importlib
 
-    return getattr(importlib.import_module(module_path), class_name)
+    spec = _spec(channel)
+    return getattr(importlib.import_module(spec.manager_module), spec.manager_class)
 
 
 def _read_method_name(channel: str) -> str:
     """The manager's read method for ``channel`` (get / get_credential / …)."""
-    entry = _MANAGER_REGISTRY.get(channel)
-    if entry is None:
-        raise ValueError(f"unknown channel: {channel!r}")
-    return entry[2]
+    return _spec(channel).read_method
 
 
 class DirectStore:
@@ -225,16 +222,16 @@ class DirectStore:
     async def bind(self, channel: str, agent_id: str, fields: dict) -> dict:
         """Bind via the channel's own do_bind service (byte-identical to what the
         MCP tool did locally). do_bind takes either the manager or the raw db —
-        `_BIND_SERVICE` records which. Returns do_bind's {success, error?, data?}."""
-        entry = _BIND_SERVICE.get(channel)
-        if entry is None:
+        the ChannelSpec's ``_BindSpec.takes`` records which. Returns do_bind's
+        {success, error?, data?}."""
+        bind = _spec(channel).bind
+        if bind is None:
             raise ValueError(f"channel {channel!r} has no bind service")
         import importlib
 
-        module_path, fn_name, takes = entry
-        do_bind = getattr(importlib.import_module(module_path), fn_name)
+        do_bind = getattr(importlib.import_module(bind.service_module), bind.do_bind)
         db = await self._db()
-        if takes == "mgr":
+        if bind.takes == "mgr":
             return await do_bind((_manager_class(channel))(db), agent_id, **fields)
         return await do_bind(db, agent_id, **fields)
 
@@ -252,7 +249,7 @@ class DirectStore:
         mgr = (_manager_class(channel))(await self._db())
         removed = await mgr.unbind(agent_id)
         if not removed:
-            name = _DISPLAY_NAME.get(channel, channel)
+            name = _spec(channel).display_name or channel
             return {"success": False, "error": f"no {name} credential bound for this agent"}
         return {"success": True, "data": {"unbound": True}}
 
@@ -266,13 +263,13 @@ class DirectStore:
         AttributeError for a channel (e.g. narramessenger) that has neither."""
         import importlib
 
-        # `.get` first: a channel outside _BIND_SERVICE (wechat/lark/
-        # home_assistant) must ALSO get the clear ValueError below, not a bare
-        # KeyError one line up.
-        entry = _BIND_SERVICE.get(channel)
+        # A channel with no bind service (wechat/lark/home_assistant) or one
+        # whose service has no do_test_connection (narramessenger, has_test=False)
+        # gets a clear ValueError — never a bare KeyError / AttributeError.
+        bind = _spec(channel).bind
         do_test = (
-            getattr(importlib.import_module(entry[0]), "do_test_connection", None)
-            if entry is not None
+            getattr(importlib.import_module(bind.service_module), "do_test_connection", None)
+            if bind is not None and bind.has_test
             else None
         )
         if do_test is None:
