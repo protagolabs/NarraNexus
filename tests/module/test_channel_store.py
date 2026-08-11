@@ -511,3 +511,274 @@ def test_http_write_non_json_degrades_to_success_false(monkeypatch):
     _patch_http(monkeypatch, handler)
     out = asyncio.run(_http().unbind("discord", AGENT))
     assert out["success"] is False and "non-JSON" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# credential-mutation primitives (lark write leg): deep_merge + patch/put/delete
+# ---------------------------------------------------------------------------
+
+
+def test_deep_merge_recurses_dicts_and_replaces_scalars():
+    from xyz_agent_context.module.data_access.channel_store import deep_merge
+
+    base = {"permission_state": {"a": 1, "b": 2}, "auth_status": "old", "x": {"k": 1}}
+    patch = {"permission_state": {"b": 9, "c": 3}, "auth_status": "new", "x": "flat"}
+    out = deep_merge(base, patch)
+    assert out == {"permission_state": {"a": 1, "b": 9, "c": 3}, "auth_status": "new", "x": "flat"}
+    assert base["permission_state"] == {"a": 1, "b": 2}  # base untouched (copy)
+
+
+def _direct_with_write_spy(monkeypatch):
+    calls = []
+
+    class _Mgr:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            calls.append(("apply_patch", agent_id, patch))
+
+        async def save_raw(self, agent_id, raw):
+            calls.append(("save_raw", agent_id, raw))
+
+        async def delete_credential(self, agent_id):
+            calls.append(("delete_credential", agent_id))
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _Mgr,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    return store, calls
+
+
+def test_direct_patch_put_delete_delegate_to_the_manager(monkeypatch):
+    store, calls = _direct_with_write_spy(monkeypatch)
+    assert asyncio.run(store.patch_credential("lark", AGENT, {"permission_state": {"k": 1}})) == {"success": True}
+    assert asyncio.run(store.put_credential("lark", AGENT, {"app_id": "x"})) == {"success": True}
+    assert asyncio.run(store.delete_credential("lark", AGENT)) == {"success": True, "data": {"deleted": True}}
+    assert calls == [
+        ("apply_patch", AGENT, {"permission_state": {"k": 1}}),
+        ("save_raw", AGENT, {"app_id": "x"}),
+        ("delete_credential", AGENT),
+    ]
+
+
+def test_direct_patch_degrades_runtime_failure_to_envelope(monkeypatch):
+    # DirectStore must NOT raise on a runtime write failure — it degrades to
+    # {"success": False, "error": ...} exactly like HttpStore, so the caller sees
+    # the SAME failure shape on both legs (before this, apply_patch's exception
+    # propagated on the local leg while the cloud leg returned an envelope, so a
+    # cloud write failure silently read as success in the tool wrappers).
+    class _Boom:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            raise ValueError("no credential to patch")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _Boom,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "no credential to patch"}
+
+
+def test_direct_mutation_unsupported_channel_raises_clear_valueerror(monkeypatch):
+    # A channel whose manager doesn't implement the write primitive gets a clear
+    # ValueError (like test_connection), not a bare AttributeError → 500.
+    class _NoWrites:
+        def __init__(self, db):
+            pass
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _NoWrites,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="does not support credential apply_patch"):
+        asyncio.run(store.patch_credential("discord", AGENT, {"a": 1}))
+
+
+def test_direct_mutation_sanitizes_db_error_text(monkeypatch):
+    # A non-ValueError (a DB/connection error mid-write) can carry host/port/user
+    # in its text; the envelope must surface a STABLE code, not that text, since
+    # it rides envelope → tool → model → user.
+    class _DbErr:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            raise RuntimeError("Can't connect to MySQL server on 'db-host' (111) user='narranexus'")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _DbErr,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "write_failed"}
+    assert "db-host" not in str(out) and "narranexus" not in str(out)
+
+
+def test_direct_mutation_db_unavailable_is_a_stable_code(monkeypatch):
+    # A pool-build failure (_db() raises) must degrade to a stable code too — its
+    # text is the most likely to carry connection details.
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def boom_db():
+        raise RuntimeError("Can't connect to MySQL server on 'db-host:3306'")
+
+    store._db = boom_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "db_unavailable"}
+    assert "db-host" not in str(out)
+
+
+def test_http_patch_put_delete_use_the_right_verbs_and_path(monkeypatch):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"success": True})
+
+    _patch_http(monkeypatch, handler)
+    http = ChannelHttpStore("http://backend:8000")
+    asyncio.run(http.patch_credential("lark", AGENT, {"auth_status": "x"}))
+    asyncio.run(http.put_credential("lark", AGENT, {"app_id": "y"}))
+    asyncio.run(http.delete_credential("lark", AGENT))
+    p = f"/api/agents/{AGENT}/channels/lark/credential"
+    assert seen == [
+        ("PATCH", p, {"auth_status": "x"}),
+        ("PUT", p, {"app_id": "y"}),
+        ("DELETE", p, None),
+    ]
+
+
+def test_http_write_primitive_never_raises(monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("no route")
+
+    _patch_http(monkeypatch, boom)
+    out = asyncio.run(ChannelHttpStore("http://backend:8000").patch_credential("lark", AGENT, {"a": 1}))
+    assert out["success"] is False and "unreachable" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# lark's typed bind (do_bind) + special unbind (do_unbind teardown)
+# ---------------------------------------------------------------------------
+
+
+def test_direct_lark_bind_dispatches_to_do_bind(monkeypatch):
+    captured = {}
+
+    async def fake_do_bind(mgr, agent_id, **fields):
+        captured["fields"] = fields
+        return {"success": True, "data": {"bound": True}}
+
+    import xyz_agent_context.module.lark_module._lark_service as ls
+    monkeypatch.setattr(ls, "do_bind", fake_do_bind)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: object()),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.bind("lark", AGENT, {"app_id": "cli", "app_secret": "s", "brand": "feishu", "owner_email": ""}))
+    assert out == {"success": True, "data": {"bound": True}}
+    assert captured["fields"] == {"app_id": "cli", "app_secret": "s", "brand": "feishu", "owner_email": ""}
+
+
+def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
+    # lark's unbind is do_unbind(mgr, agent_id, db) — credential + inbox teardown —
+    # NOT the generic mgr.unbind; the seam must route to it and return its envelope.
+    seen = {}
+    sentinel_db = object()
+    fake_mgr = object()
+
+    async def fake_do_unbind(mgr, agent_id, db):
+        seen["mgr_is"] = mgr is fake_mgr
+        seen["db_is"] = db is sentinel_db
+        seen["agent"] = agent_id
+        return {"success": True, "data": {"unbound": True}}
+
+    import xyz_agent_context.module.lark_module._lark_service as ls
+    monkeypatch.setattr(ls, "do_unbind", fake_do_unbind)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: (lambda db: fake_mgr),
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return sentinel_db
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.unbind("lark", AGENT))
+    assert out == {"success": True, "data": {"unbound": True}}
+    assert seen == {"mgr_is": True, "db_is": True, "agent": AGENT}
+
+
+def test_http_lark_unbind_is_byte_parity_with_direct(monkeypatch):
+    # The route (/api/lark/unbind) returns do_unbind's envelope VERBATIM, so the
+    # HttpStore result must equal the DirectStore result byte-for-byte — assert
+    # the WHOLE dict, not just success, against the real route body. Both the
+    # success envelope and the no_credential failure must round-trip unchanged
+    # (a reshaping route — the pre-2026-08-11 bug — would fail this).
+    seen = {}
+    current = {}
+
+    # These are exactly what do_unbind returns (and hence what DirectStore.unbind
+    # returns — see test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db).
+    ROUTE_BODIES = {
+        "ok": {"success": True, "data": {"unbound": True}},
+        "none": {"success": False, "error": "no_credential",
+                 "message": "No Lark bot bound to this agent."},
+    }
+
+    # Patch httpx ONCE (nesting _patch_http would make the 2nd PatchedClient
+    # subclass the 1st, so the first transport would win); vary the body here.
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json=current["body"])
+
+    _patch_http(monkeypatch, handler)
+    store = ChannelHttpStore("http://backend:8000")
+
+    for key, body in ROUTE_BODIES.items():
+        current["body"] = body
+        out = asyncio.run(store.unbind("lark", AGENT))
+        assert seen["path"] == "/api/lark/unbind"
+        assert out == body, f"{key}: HttpStore must return the route body verbatim"

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/store.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — job_create / job_pause / job_cancel 迁入 seam（job 写收尾）
+
+Protocol+DirectStore+HttpStore 加三写：`job_create(agent_id, fields)`、`job_pause(agent_id, job_id)`、
+`job_cancel(agent_id, job_id)`。DirectStore 委托 [[_job_writes]] 的 `create_job_from_args`/
+`pause_job_from_args`/`cancel_job_from_args`（backend agent-scoped 路由 [[jobs]] 调同一函数 → byte-parity）。
+create 失败键 `error`（同读，不走 `_write_message_key`）；pause/cancel 失败键 `message`(+job_id)，走
+`_write_message_key` 把传输降级折回 message。pause/cancel 是 **bodyless PUT**，新增 `_put_dict` helper
+（同 `_post_dict` 的 None→降级 + `_parse_dict`，只是 PUT 无 body）。**三写迁完 → job mcp 弃 db 凭据**，
+配合 lark/narra 零凭据，mcp 容器可 strip `DB_PASSWORD`。
 
 ## 2026-08-10 (PR-11) — grep_memory 迁入 seam（memory 收尾）
 

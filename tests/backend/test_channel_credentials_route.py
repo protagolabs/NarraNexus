@@ -60,9 +60,21 @@ def client(monkeypatch):
     async def _get_owner(self, agent_id):
         return "u1"
 
+    async def _patch(self, channel, agent_id, patch):
+        return {"success": True, "op": "patch"}
+
+    async def _put(self, channel, agent_id, raw):
+        return {"success": True, "op": "put"}
+
+    async def _delete(self, channel, agent_id):
+        return {"success": True, "data": {"deleted": True}}
+
     monkeypatch.setattr(ChannelDirectStore, "get_credential", _get_cred)
     monkeypatch.setattr(ChannelDirectStore, "get_agent_name", _get_name)
     monkeypatch.setattr(ChannelDirectStore, "get_agent_owner", _get_owner)
+    monkeypatch.setattr(ChannelDirectStore, "patch_credential", _patch)
+    monkeypatch.setattr(ChannelDirectStore, "put_credential", _put)
+    monkeypatch.setattr(ChannelDirectStore, "delete_credential", _delete)
 
     app = FastAPI()
 
@@ -205,3 +217,44 @@ def test_owner_non_service_caller_is_forbidden(client):
 def test_owner_service_non_owner_is_forbidden(client):
     r = client.get(_owner_url(agent="agent_theirs"), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# credential-mutation primitives (PATCH/PUT/DELETE) — same double gate as GET
+# ---------------------------------------------------------------------------
+
+
+def test_patch_service_owner_ok(client):
+    r = client.patch(_url(), json={"permission_state": {"k": "v"}},
+                     headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200 and r.json()["op"] == "patch"
+
+
+def test_put_service_owner_ok(client):
+    r = client.put(_url(), json={"app_id": "x"},
+                   headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200 and r.json()["op"] == "put"
+
+
+def test_delete_service_owner_ok(client):
+    r = client.delete(_url(), headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 200 and r.json()["data"]["deleted"] is True
+
+
+def test_write_primitives_reject_non_service_caller(client):
+    for m, kw in [("patch", {"json": {"a": 1}}), ("put", {"json": {"a": 1}}), ("delete", {})]:
+        r = getattr(client, m)(_url(), headers={"authorization": "Bearer user-jwt", "x-test-user": "u1"}, **kw)
+        assert r.status_code == 403, m
+
+
+def test_write_primitives_reject_non_owner(client):
+    for m, kw in [("patch", {"json": {"a": 1}}), ("put", {"json": {"a": 1}}), ("delete", {})]:
+        r = getattr(client, m)(_url(agent="agent_theirs"),
+                               headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"}, **kw)
+        assert r.status_code == 403, m
+
+
+def test_write_primitives_unknown_channel_404(client):
+    r = client.patch(_url(channel="signal"), json={"a": 1},
+                     headers={"authorization": _SERVICE_BEARER, "x-test-user": "u1"})
+    assert r.status_code == 404

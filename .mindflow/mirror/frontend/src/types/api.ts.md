@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-07
+last_verified: 2026-08-11
 stub: true
 ---
+
+## 2026-08-11 — ApiResponse 加可选 `message`
+
+一些后端信封带机器码 `error` + 人话 `message`（如 lark unbind 返回
+do_unbind 原信封 `error:"no_credential"` / `message:"No Lark bot bound…"`）。
+`message?` 让 [[LarkConfig]] 等优先显示人话。
 
 ## 2026-08-07 — CancelRunResponse
 

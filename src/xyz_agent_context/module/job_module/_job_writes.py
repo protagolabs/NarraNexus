@@ -134,3 +134,142 @@ async def update_job_from_args(
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[job.update_job_from_args] failed: {e}")
         return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
+
+async def create_job_from_args(
+    db,
+    agent_id: str,
+    *,
+    user_id: str,
+    title: str,
+    description: str,
+    job_type: str,
+    trigger_config: dict,
+    payload: str,
+    notification_method: str = "direct",
+    task_key: Optional[str] = None,
+    depends_on_job_ids: Optional[list] = None,
+    related_entity_id: Optional[str] = None,
+    narrative_id: Optional[str] = None,
+    confirm_new: bool = False,
+) -> dict:
+    """Create a Job + its ModuleInstance (the job_create tool body, shared).
+
+    ``setup_mcp_llm_context`` lives HERE, not in the tool: create_job_with_instance
+    runs the similar-title embedding check, which needs the owner's LLM config on
+    the ContextVar — and that config load reads the DB. So the setup MUST run in
+    whichever process actually holds the DB: the mcp process for DirectStore
+    (local), the backend for the seam route (cloud, where the mcp container has
+    no creds). Keeping it in the tool would fail in cloud (no DB to load config
+    from). Returns the COMPLETE result dict and never raises — the outer excepts
+    preserve the W1 hardening (a raw exception here once produced "I can't do
+    that" replies): LLMConfigNotConfigured is almost always a guessed agent_id,
+    surfaced as an actionable retry; any other error becomes a structured dict.
+    """
+    from xyz_agent_context.agent_framework.api_config import (
+        setup_mcp_llm_context,
+        LLMConfigNotConfigured,
+    )
+    from xyz_agent_context.module.job_module.job_service import JobInstanceService
+
+    try:
+        await setup_mcp_llm_context(agent_id)
+        result = await JobInstanceService(db).create_job_with_instance(
+            agent_id=agent_id,
+            user_id=user_id,
+            title=title,
+            description=description,
+            job_type=job_type,
+            trigger_config=trigger_config,
+            payload=payload,
+            notification_method=notification_method,
+            dependencies=depends_on_job_ids,
+            related_entity_id=related_entity_id,
+            narrative_id=narrative_id,
+            confirm_new=confirm_new,
+        )
+        if result.get("success") and task_key:
+            result["task_key"] = task_key
+        return result
+    except LLMConfigNotConfigured as e:
+        # The one failure a model can fix by itself: it almost always means
+        # agent_id was a guess. Raw exception text here read as "impossible"
+        # and produced "I can't do that" replies (W1).
+        logger.warning(f"[job.create] LLM context failed for agent_id={agent_id!r}: {e}")
+        return {
+            "success": False,
+            "error": (
+                f"Could not resolve the agent context for agent_id={agent_id!r}. "
+                "Retry with the exact Agent ID stated in your instructions — "
+                "never a placeholder like 'agent_current'."
+            ),
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[job.create] failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def pause_job_from_args(db, agent_id: str, job_id: str) -> dict:
+    """Pause a Job (set status PAUSED so JobTrigger skips it) — the job_pause
+    tool body, shared. Agent-scoped: a job owned by another agent reads as "not
+    found" (no existence oracle — matches update_job_from_args' posture, safer
+    than the old tool's "does not belong to agent X"). Never raises."""
+    try:
+        job_repo = JobRepository(db)
+        job = await job_repo.get_job(job_id)
+        if not job or job.agent_id != agent_id:
+            return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
+
+        updated_rows = await job_repo.pause_job(job_id)
+        return {
+            "success": updated_rows > 0,
+            "job_id": job_id,
+            "status": "paused",
+            "message": "Job paused successfully" if updated_rows > 0 else "Failed to pause job",
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[job.pause] failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+
+
+async def cancel_job_from_args(db, agent_id: str, job_id: str) -> dict:
+    """Cancel a Job (terminal) and unlink it from its related entity — the
+    job_cancel tool body, shared. Same no-existence-oracle posture as pause. The
+    entity cleanup is best-effort (logged, never fails the cancel). Never raises."""
+    try:
+        from xyz_agent_context.repository import SocialNetworkRepository
+        from xyz_agent_context.module.job_module.job_service import JobInstanceService
+
+        job_repo = JobRepository(db)
+        job = await job_repo.get_job(job_id)
+        if not job or job.agent_id != agent_id:
+            return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
+
+        updated_rows = await job_repo.cancel_job(job_id)
+
+        # Clean up entity associations (best-effort; a failure here must not
+        # undo the cancel the caller already observed as done).
+        if job.related_entity_id:
+            social_instance_id = await JobInstanceService(db)._get_social_network_instance_id(agent_id)
+            if social_instance_id:
+                try:
+                    await SocialNetworkRepository(db).remove_related_job_ids(
+                        entity_id=job.related_entity_id,
+                        instance_id=social_instance_id,
+                        job_ids=[job_id],
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.exception(
+                        f"[job.cancel] failed to remove job {job_id} from entity "
+                        f"{job.related_entity_id}: {e}"
+                    )
+
+        return {
+            "success": updated_rows > 0,
+            "job_id": job_id,
+            "status": "cancelled",
+            "message": "Job cancelled successfully" if updated_rows > 0 else "Failed to cancel job",
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[job.cancel] failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}

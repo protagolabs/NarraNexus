@@ -287,9 +287,33 @@ class LarkCredentialManager:
             logger.info(f"Migrated {count} lark_credentials from 'logged_in' to 'bot_ready'")
         return count
 
-    async def save_credential(self, cred: LarkCredential) -> None:
-        """Insert or update a credential."""
-        data = {
+    # raw-cred-dict key -> DB column. Identity except app_secret_encoded, which
+    # is stored in app_secret_encrypted. The single source apply_patch uses to
+    # write ONLY the columns its patch names (see apply_patch); the serialized
+    # values come from _cred_to_columns.
+    _PATCHABLE_COLUMN = {
+        "app_id": "app_id",
+        "app_secret_ref": "app_secret_ref",
+        "app_secret_encoded": "app_secret_encrypted",
+        "brand": "brand",
+        "profile_name": "profile_name",
+        "workspace_path": "workspace_path",
+        "bot_name": "bot_name",
+        "bot_open_id": "bot_open_id",
+        "owner_open_id": "owner_open_id",
+        "owner_name": "owner_name",
+        "auth_status": "auth_status",
+        "is_active": "is_active",
+        "permission_state": "permission_state",
+    }
+
+    @staticmethod
+    def _cred_to_columns(cred: LarkCredential) -> dict[str, Any]:
+        """Serialize a credential to its DB columns — the single source of the
+        column mapping (is_active→0/1, permission_state→json, the
+        app_secret_encoded→app_secret_encrypted rename). save_credential writes
+        all of these; apply_patch writes the subset its patch names."""
+        return {
             "agent_id": cred.agent_id,
             "app_id": cred.app_id,
             "app_secret_ref": cred.app_secret_ref,
@@ -305,6 +329,10 @@ class LarkCredentialManager:
             "is_active": 1 if cred.is_active else 0,
             "permission_state": json.dumps(cred.permission_state or {}),
         }
+
+    async def save_credential(self, cred: LarkCredential) -> None:
+        """Insert or update a credential."""
+        data = self._cred_to_columns(cred)
         existing = await self.get_credential(cred.agent_id)
         if existing:
             await self.db.update(self.TABLE, {"agent_id": cred.agent_id}, data)
@@ -312,21 +340,45 @@ class LarkCredentialManager:
             await self.db.insert(self.TABLE, data)
         logger.info(f"Saved Lark credential for agent {cred.agent_id} (app_id={cred.app_id})")
 
-    async def patch_permission_state(self, agent_id: str, updates: dict[str, Any]) -> dict:
-        """Merge `updates` into the stored JSON permission_state and save.
+    # -- ChannelCredentialStore write primitives (mcp routes through the seam) --
 
-        Read-modify-write by design — the same agent rarely has concurrent
-        permission-config writers. Returns the merged state.
-        """
+    async def apply_patch(self, agent_id: str, patch: dict[str, Any]) -> None:
+        """Partial update in raw-cred-dict space: read the credential, deep-merge
+        ``patch`` (nested dicts like ``permission_state`` merged key-wise via the
+        seam's ``deep_merge``), rebuild, save. This is the one write path behind
+        both the local seam and the backend PATCH endpoint, and it subsumes the
+        old ``patch_permission_state`` / per-field setters: e.g. an admin-request
+        step passes ``{"permission_state": {"admin_request_url": …}}``, enabling
+        receive passes ``{"app_secret_encoded": …}``.
+
+        Writes ONLY the columns the patch names (resolved via ``_PATCHABLE_COLUMN``),
+        not the whole row — so a concurrent single-column writer on a DISJOINT
+        column (``update_auth_status`` from lark_trigger writing BRAND_MISMATCH,
+        the lazy ``update_workspace_path``) is not clobbered by a whole-row
+        rewrite. Two writers on the SAME column still race (inherent without a row
+        lock), but the three-click flow's per-key writes rarely overlap those."""
+        from xyz_agent_context.module.data_access.channel_store import deep_merge
+
         cred = await self.get_credential(agent_id)
-        current = dict(cred.permission_state) if cred else {}
-        current.update(updates)
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"permission_state": json.dumps(current)},
-        )
-        return current
+        if cred is None:
+            raise ValueError(f"no Lark credential to patch for agent {agent_id}")
+        # deep_merge so nested permission_state is key-wise merged; then serialize
+        # via the shared column mapping and keep only the patched keys' columns.
+        merged = deep_merge(cred.to_raw_dict(), patch)
+        all_columns = self._cred_to_columns(_cred_from_raw(merged))
+        changed: dict[str, Any] = {}
+        for key in patch:
+            column = self._PATCHABLE_COLUMN.get(key)
+            if column is None:
+                raise ValueError(f"apply_patch: unknown lark credential field {key!r}")
+            changed[column] = all_columns[column]
+        if changed:
+            await self.db.update(self.TABLE, {"agent_id": agent_id}, changed)
+
+    async def save_raw(self, agent_id: str, raw: dict[str, Any]) -> None:
+        """Full upsert from a raw cred dict (the PUT primitive). ``agent_id`` is
+        pinned from the path so a mismatched body can't retarget another agent."""
+        await self.save_credential(_cred_from_raw({**raw, "agent_id": agent_id}))
 
     async def update_auth_status(self, agent_id: str, status: str) -> None:
         """Update authentication status."""
@@ -392,54 +444,6 @@ class LarkCredentialManager:
             self.TABLE,
             {"agent_id": agent_id},
             {"workspace_path": workspace_path},
-        )
-
-    async def set_app_secret_encoded(self, agent_id: str, plain_secret: str) -> None:
-        """Store a base64-encoded copy of the plain app secret.
-
-        Needed for the SDK-based LarkTrigger subscriber, which requires the
-        plain secret at `lark.ws.Client` construction time. For agent-
-        assisted setups, this is populated via `lark_enable_receive` after
-        the user pastes the secret from the Lark developer console.
-        """
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"app_secret_encrypted": _encode_secret(plain_secret)},
-        )
-        logger.info(
-            f"Stored app_secret_encoded for agent {agent_id} — "
-            f"LarkTrigger subscriber will start on next watcher tick."
-        )
-
-    async def update_app_credentials(
-        self,
-        agent_id: str,
-        app_id: str,
-        app_secret_ref: str,
-        is_active: bool = True,
-        auth_status: str = "bot_ready",
-    ) -> None:
-        """Finalize a pending credential after agent-assisted setup completes.
-
-        Called by _finalize_setup once `config init --new` exits successfully.
-        We can read app_id and the keychain reference (app_secret_ref) from
-        the CLI-written config.json, but the plain secret stays in the
-        system keychain — so app_secret_encoded remains empty for this path.
-        """
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {
-                "app_id": app_id,
-                "app_secret_ref": app_secret_ref,
-                "is_active": 1 if is_active else 0,
-                "auth_status": auth_status,
-            },
-        )
-        logger.info(
-            f"Finalized Lark credential for agent {agent_id} "
-            f"(app_id={app_id}, is_active={is_active})"
         )
 
     async def delete_credential(self, agent_id: str) -> None:

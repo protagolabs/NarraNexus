@@ -19,12 +19,10 @@ Tools:
 
 from typing import Annotated, Optional, List, Any, NotRequired, TypedDict
 
-from loguru import logger
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, TypeAdapter, WithJsonSchema
 
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
+from xyz_agent_context.module.data_access import get_agent_data_store
 
 
 class TriggerConfigArg(TypedDict):
@@ -64,13 +62,16 @@ OptionalTriggerConfigInput = Annotated[
 ]
 
 
-def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
+def create_job_mcp_server(port: int) -> FastMCP:
     """
     Create a JobModule MCP Server instance
 
+    Every tool routes DB access through the AgentDataStore seam
+    (get_agent_data_store) — DirectStore locally, HttpStore in cloud — so the
+    mcp container needs no DB credentials. No get_db_client_fn is threaded in.
+
     Args:
         port: MCP Server port
-        get_db_client_fn: Async function to get database connection (JobModule.get_mcp_db_client)
 
     Returns:
         FastMCP instance with all tools configured
@@ -142,48 +143,27 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         Common errors: missing "timezone"; run_at with "Z"/offset; "scheduled"
         with end_condition (use "ongoing"); DB job_id in depends_on_job_ids.
         """
-        from xyz_agent_context.module.job_module.job_service import JobInstanceService
-
-        try:
-            await setup_mcp_llm_context(agent_id)
-            db = await get_db_client_fn()
-            service = JobInstanceService(db)
-            result = await service.create_job_with_instance(
-                agent_id=agent_id,
-                user_id=user_id,
-                title=title,
-                description=description,
-                job_type=job_type,
-                trigger_config=dict(trigger_config),
-                payload=payload,
-                notification_method=notification_method,
-                dependencies=depends_on_job_ids,
-                related_entity_id=related_entity_id,
-                narrative_id=narrative_id,
-                confirm_new=confirm_new
-            )
-
-            if result.get("success") and task_key:
-                result["task_key"] = task_key
-
-            return result
-
-        except LLMConfigNotConfigured as e:
-            # The one failure a model can fix by itself: it almost always
-            # means agent_id was a guess. Raw exception text here read as
-            # "impossible" and produced "I can't do that" replies (W1).
-            logger.warning(f"job_create LLM context failed for agent_id={agent_id!r}: {e}")
-            return {
-                "success": False,
-                "error": (
-                    f"Could not resolve the agent context for agent_id={agent_id!r}. "
-                    "Retry with the exact Agent ID stated in your instructions — "
-                    "never a placeholder like 'agent_current'."
-                ),
-            }
-        except Exception as e:
-            logger.exception(f"Error in job_create: {e}")
-            return {"success": False, "error": str(e)}
+        # Routes through the AgentDataStore seam (DirectStore local / HttpStore
+        # cloud). create_job_from_args owns the LLM-context setup + similar-title
+        # embedding check + W1 structured-error handling, so it runs in whichever
+        # process holds the DB (mcp locally, backend in cloud).
+        return await get_agent_data_store().job_create(
+            agent_id,
+            {
+                "user_id": user_id,
+                "title": title,
+                "description": description,
+                "job_type": job_type,
+                "trigger_config": dict(trigger_config),
+                "payload": payload,
+                "notification_method": notification_method,
+                "task_key": task_key,
+                "depends_on_job_ids": depends_on_job_ids,
+                "related_entity_id": related_entity_id,
+                "narrative_id": narrative_id,
+                "confirm_new": confirm_new,
+            },
+        )
 
     # -----------------------------------------------------------------
     # Tool: job_retrieval_semantic
@@ -238,7 +218,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         # Routes through the seam. setup_mcp_llm_context is gone: search_keyword
         # is BM25 (vectors retired), so the call only added a db read + a raise
         # path. Status validation lives in the shared helper (parity).
-        from xyz_agent_context.module.data_access import get_agent_data_store
 
         return await get_agent_data_store().job_retrieval_semantic(
             agent_id, query, user_id, status, limit
@@ -273,7 +252,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         """
         # Routes through the AgentDataStore seam (DirectStore local / HttpStore
         # cloud, via job_module's shared read helpers). Agent-scoping preserved.
-        from xyz_agent_context.module.data_access import get_agent_data_store
 
         return await get_agent_data_store().job_retrieval_by_id(agent_id, job_id)
 
@@ -312,7 +290,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             )
         """
         # Routes through the seam (see the other job reads).
-        from xyz_agent_context.module.data_access import get_agent_data_store
 
         return await get_agent_data_store().job_retrieval_by_keywords(
             agent_id, keywords, user_id, status, limit
@@ -375,7 +352,6 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         # validation) is now the shared update_job_from_args (DirectStore local /
         # HttpStore cloud). A cross-agent job now reads as "not found" (no
         # existence oracle — the old tool leaked "does not belong to agent X").
-        from xyz_agent_context.module.data_access import get_agent_data_store
 
         fields = {
             "title": title,
@@ -419,28 +395,9 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 job_id="job_xiaoming_followup"
             )
         """
-        try:
-            db = await get_db_client_fn()
-            job_repo = JobRepository(db)
-
-            job = await job_repo.get_job(job_id)
-            if not job:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
-            if job.agent_id != agent_id:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} does not belong to agent {agent_id}"}
-
-            updated_rows = await job_repo.pause_job(job_id)
-
-            return {
-                "success": updated_rows > 0,
-                "job_id": job_id,
-                "status": "paused",
-                "message": "Job paused successfully" if updated_rows > 0 else "Failed to pause job"
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_pause: {e}")
-            return {"success": False, "error": str(e)}
+        # Routes through the AgentDataStore seam (DirectStore local / HttpStore
+        # cloud). pause_job_from_args owns ownership check + pause.
+        return await get_agent_data_store().job_pause(agent_id, job_id)
 
     # -----------------------------------------------------------------
     # Tool: job_cancel (Feature 2.2.2)
@@ -473,46 +430,9 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 job_id="job_customer_followup"
             )
         """
-        try:
-            from xyz_agent_context.repository import SocialNetworkRepository
-            from xyz_agent_context.module.job_module.job_service import JobInstanceService
-
-            db = await get_db_client_fn()
-            job_repo = JobRepository(db)
-
-            job = await job_repo.get_job(job_id)
-            if not job:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
-            if job.agent_id != agent_id:
-                return {"success": False, "job_id": job_id, "message": f"Job {job_id} does not belong to agent {agent_id}"}
-
-            # 1. Cancel Job
-            updated_rows = await job_repo.cancel_job(job_id)
-
-            # 2. Clean up Entity associations
-            if job.related_entity_id:
-                service = JobInstanceService(db)
-                social_instance_id = await service._get_social_network_instance_id(agent_id)
-                if social_instance_id:
-                    social_repo = SocialNetworkRepository(db)
-                    try:
-                        await social_repo.remove_related_job_ids(
-                            entity_id=job.related_entity_id,
-                            instance_id=social_instance_id,
-                            job_ids=[job_id]
-                        )
-                    except Exception as e:
-                        logger.exception(f"Failed to remove job {job_id} from entity {job.related_entity_id}: {e}")
-
-            return {
-                "success": updated_rows > 0,
-                "job_id": job_id,
-                "status": "cancelled",
-                "message": "Job cancelled successfully" if updated_rows > 0 else "Failed to cancel job"
-            }
-
-        except Exception as e:
-            logger.exception(f"Error in job_cancel: {e}")
-            return {"success": False, "error": str(e)}
+        # Routes through the AgentDataStore seam (DirectStore local / HttpStore
+        # cloud). cancel_job_from_args owns ownership check + cancel + the
+        # best-effort entity unlink.
+        return await get_agent_data_store().job_cancel(agent_id, job_id)
 
     return mcp

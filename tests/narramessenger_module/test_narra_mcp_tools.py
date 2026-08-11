@@ -49,16 +49,14 @@ async def test_narra_cli_blocked_command_short_circuits(monkeypatch):
 async def test_narra_cli_valid_command_is_sanitized_and_forwarded(monkeypatch):
     seen = {}
 
-    async def fake_run(agent_id, args, *, db):
+    async def fake_run(agent_id, args):
         seen["agent_id"] = agent_id
         seen["args"] = args
         return {"success": True, "data": []}
 
-    async def fake_db():
-        return object()
-
+    # narra_cli now calls run_narra_cli(agent_id, args) — no db (it reads the
+    # bearer + workspace owner through the ChannelCredentialStore seam).
     monkeypatch.setattr(mt, "run_narra_cli", fake_run)
-    monkeypatch.setattr(mt.XYZBaseModule, "get_mcp_db_client", fake_db)
     narra_cli = _register_tools()["narra_cli"]
 
     out = await narra_cli("agent_x", 'im messages --room-id !r:h --keyword "a b"')

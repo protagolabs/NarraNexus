@@ -109,6 +109,31 @@ async def test_event_empty_from_scratch_generates_click2(fake_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_event_empty_surfaces_seam_write_failure_not_silent_success(fake_db, monkeypatch):
+    # Finding #1: the seam never raises — a cloud write failure comes back as
+    # {"success": False, ...}. _advance_start MUST check it and surface an error,
+    # not hand the model a Click-2 URL whose device_code was never persisted
+    # (the next click would fail with a misleading "no device_code").
+    await _seed(fake_db, _make_cred())
+    cred = await LarkCredentialManager(fake_db).get_credential("agent_test")
+
+    monkeypatch.setattr(tools._cli, "_run_with_agent_id", AsyncMock(return_value={
+        "success": True,
+        "data": {"verification_url": "https://lark.example/click2", "device_code": "DC"},
+    }))
+
+    class _FailingStore:
+        async def patch_credential(self, channel, agent_id, patch):
+            return {"success": False, "error": "backend unreachable"}
+
+    monkeypatch.setattr(tools, "get_channel_credential_store", lambda *a, **k: _FailingStore())
+
+    result = await tools._advance_start("agent_test", cred)
+    assert result["success"] is False
+    assert "backend unreachable" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_event_empty_idempotent_when_click2_already_exists(fake_db, monkeypatch):
     """If admin_request_url already present, return it — do NOT re-run CLI."""
     await _seed(fake_db, _make_cred({
@@ -226,6 +251,38 @@ async def test_event_user_authorized_success_flips_completed(fake_db, monkeypatc
     assert ps["user_authz_device_code"] is None  # cleared
     assert saved.current_click_stage() == "completed"
     assert saved.auth_status == "user_logged_in"
+
+
+@pytest.mark.asyncio
+async def test_event_user_authorized_completion_write_failure_surfaces(fake_db, monkeypatch):
+    # The token is minted (CLI login OK) and the auth_status flip succeeds, but
+    # the COMPLETION permission_state write (the marker current_click_stage()
+    # reads to derive "completed") fails in cloud. The tool must NOT report
+    # stage_after="completed" — it must surface the persist failure.
+    await _seed(fake_db, _make_cred({
+        "user_authz_url": "https://lark.example/click3",
+        "user_authz_device_code": "DC_CLICK3",
+    }))
+    cred = await LarkCredentialManager(fake_db).get_credential("agent_test")
+
+    monkeypatch.setattr(tools._cli, "_run_with_agent_id", AsyncMock(return_value={
+        "success": True, "data": {"scopes": ["im:message"]},
+    }))
+
+    class _FailCompletionStore:
+        # auth_status flip (_patch_fields) succeeds; the permission_state
+        # completion write (_patch_ps) fails.
+        async def patch_credential(self, channel, agent_id, patch):
+            if "permission_state" in patch:
+                return {"success": False, "error": "backend unreachable"}
+            return {"success": True}
+
+    monkeypatch.setattr(tools, "get_channel_credential_store", lambda *a, **k: _FailCompletionStore())
+
+    result = await tools._advance_user_authorized("agent_test", cred)
+    assert result["success"] is False
+    assert "completion state" in result["error"]
+    assert "backend unreachable" in result["error"]
 
 
 @pytest.mark.asyncio

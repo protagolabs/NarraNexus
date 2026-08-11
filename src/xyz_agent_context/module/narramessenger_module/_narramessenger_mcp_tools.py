@@ -39,7 +39,6 @@ from typing import Any
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.module.data_access import get_channel_credential_store
 
 from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
@@ -264,8 +263,7 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
             args = sanitize_command(command)
         except ValueError as e:
             return {"success": False, "error": "invalid_command", "message": str(e)}
-        db = await XYZBaseModule.get_mcp_db_client()
-        return await run_narra_cli(agent_id, args, db=db)
+        return await run_narra_cli(agent_id, args)
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

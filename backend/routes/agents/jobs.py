@@ -2,15 +2,18 @@
 @file_name: jobs.py
 @author:
 @date: 2026-08-10
-@description: Job READ + UPDATE endpoints for the MCP data-access seam
+@description: Job READ + WRITE endpoints for the MCP data-access seam
 (agent-scoped, owner-gated).
 
-Byte-parity Http twins of the JobModule tools (job_retrieval_by_id / _semantic
-/ _by_keywords reads, and job_update writes) so the HttpStore path of
-AgentDataStore can serve them without db credentials in the mcp container. Each
-endpoint returns the EXACT dict the seam's DirectStore returns — both call the
-shared, dialect-safe ``xyz_agent_context.module.job_module`` helpers — so the
-Http and in-process paths are byte-identical.
+Byte-parity Http twins of the JobModule tools — reads (job_retrieval_by_id /
+_semantic / _by_keywords) and writes (job_update, job_create, job_pause,
+job_cancel) — so the HttpStore path of AgentDataStore can serve them without db
+credentials in the mcp container. Each endpoint returns the EXACT dict the
+seam's DirectStore returns — both call the shared, dialect-safe
+``xyz_agent_context.module.job_module`` helpers — so the Http and in-process
+paths are byte-identical. job_create's owner LLM-context setup + similar-title
+embedding check run backend-side here (create_job_from_args), which is where the
+DB lives in cloud; the mcp container has no creds to load the owner's config.
 
 Distinct from ``backend/routes/jobs.py`` (the frontend-facing job API under
 ``/jobs`` with response_model shapes): these live under
@@ -43,6 +46,9 @@ from xyz_agent_context.module.job_module import (
     search_jobs_semantic,
     search_jobs_by_keywords,
     update_job_from_args,
+    create_job_from_args,
+    pause_job_from_args,
+    cancel_job_from_args,
 )
 from xyz_agent_context.schema import JobUpdateFields
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -68,6 +74,31 @@ class JobUpdateSeamBody(JobUpdateFields):
     it calls update_job_from_args in-process, so it has no silent-drop path to
     guard, and it adds a required field rather than forbidding unknown ones.)"""
     model_config = ConfigDict(extra="forbid")
+
+
+class JobCreateSeamBody(BaseModel):
+    """Body for POST .../jobs — the job_create tool's arguments (agent_id comes
+    from the path). ``extra="forbid"`` is load-bearing for the same reason as
+    JobUpdateSeamBody: this is the HttpStore write path, so a create field added
+    to the MCP tool + create_job_from_args but forgotten HERE must 422 loudly
+    (→ HttpStore surfaces "invalid arguments") rather than be silently dropped
+    while DirectStore applies it. trigger_config stays a free dict here — its
+    shape is validated downstream by create_job_with_instance (per job_type),
+    exactly as the in-process tool path does."""
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    title: str
+    description: str
+    job_type: str
+    trigger_config: dict
+    payload: str
+    notification_method: str = "direct"
+    task_key: Optional[str] = None
+    depends_on_job_ids: Optional[List[str]] = None
+    related_entity_id: Optional[str] = None
+    narrative_id: Optional[str] = None
+    confirm_new: bool = False
 
 
 class JobSemanticSearchBody(BaseModel):
@@ -133,3 +164,45 @@ async def job_update(agent_id: str, job_id: str, body: JobUpdateSeamBody, reques
         logger.warning(f"job_update failed: {e}")
         return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
     return await update_job_from_args(db, agent_id, job_id, **body.model_dump())
+
+
+@router.post("/{agent_id}/jobs")
+async def job_create(agent_id: str, body: JobCreateSeamBody, request: Request) -> dict:
+    """Create a job — twin of the ``job_create`` MCP tool. Shares the
+    ``create_job_from_args`` implementation with DirectStore (byte-parity); the
+    similar-title embedding check + owner LLM-context setup run HERE, backend
+    side, which is where the DB (and thus the owner's LLM config) lives in
+    cloud."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — create_job_from_args never raises
+        logger.warning(f"job_create failed: {e}")
+        return {"success": False, "error": str(e)}
+    return await create_job_from_args(db, agent_id, **body.model_dump())
+
+
+@router.put("/{agent_id}/jobs/{job_id}/pause")
+async def job_pause(agent_id: str, job_id: str, request: Request) -> dict:
+    """Pause a job — twin of the ``job_pause`` MCP tool. Shares
+    ``pause_job_from_args`` with DirectStore (byte-parity)."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — pause_job_from_args never raises
+        logger.warning(f"job_pause failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+    return await pause_job_from_args(db, agent_id, job_id)
+
+
+@router.put("/{agent_id}/jobs/{job_id}/cancel")
+async def job_cancel(agent_id: str, job_id: str, request: Request) -> dict:
+    """Cancel a job (terminal) — twin of the ``job_cancel`` MCP tool. Shares
+    ``cancel_job_from_args`` with DirectStore (byte-parity)."""
+    await assert_owned(request, agent_id)
+    try:
+        db = await get_db_client()
+    except Exception as e:  # noqa: BLE001 — cancel_job_from_args never raises
+        logger.warning(f"job_cancel failed: {e}")
+        return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+    return await cancel_job_from_args(db, agent_id, job_id)

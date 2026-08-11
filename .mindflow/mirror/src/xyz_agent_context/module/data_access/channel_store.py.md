@@ -3,6 +3,30 @@ code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (三轮审查) — 写失败信封用稳定错误码，不泄漏 DB 连接文本
+
+`_run_mutation` 的失败信封原来放 `str(e)`——连接期异常（aiomysql `Can't connect to … (111)`）带**主机/端口/用户名**，会经信封→工具→model→用户。改为：`_db()` 失败→`"db_unavailable"`、写失败（非 ValueError）→`"write_failed"`，细节只进 `logger.exception`。`ValueError` 单独接住（apply_patch 的「no credential」/「unknown field」是安全可行动信息，原样透出）。守卫测试 [[test_channel_store]]（含断言 host/user 不出现在信封）。
+
+## 2026-08-11 (二轮审查) — 模块头「已知缺口」改写为「已迁完」+ _run_mutation 守 _db()
+
+模块 docstring 的 "Known gap"（说 lark CLI-OAuth 写 + narra 透传**未迁**、无后端路由、直连 db、strip DB_PASSWORD「不算数」）已**过时且矛盾**——本分支正是迁了这些。是 gates strip 决策的门面文档，误导 ops。改写为「已迁完：CLI 子进程留本地、DB 持久化经 patch/put/delete 原语；三文件 get_mcp_db_client==0；整个 mcp 模块树零凭据、可 strip DATABASE_URL」。另：`_run_mutation` 把 `await self._db()` 包进 try→失败返信封（写路径流入无 try 的 lark 工具、现在检查信封，裸抛会甩给 model）。
+
+## 2026-08-11 (审查收口) — DirectStore 写原语永不抛（对齐 seam 契约）+ 能力守卫
+
+`patch/put/delete_credential` 合成一个 `_run_mutation`：**运行时失败 catch→`{success:False,error}`**（不再让 apply_patch 的 ValueError 冒泡），这样 DirectStore 与 HttpStore **失败语义对齐**——原来本地抛、云端返信封，导致工具写助手在云端把失败静默当成功（预审 Important）。能力缺失（非 lark channel 无 apply_patch/save_raw）→**清晰 ValueError**（像 test_connection），不再裸 AttributeError→500。守卫测试 [[test_channel_store]]：runtime 失败降级成信封 + 不支持 channel 报 ValueError。
+
+## 2026-08-11 (lark 收尾) — lark 入 descriptor：bind + unbind_service
+
+lark 的 `ChannelSpec` 加 `bind=_BindSpec(_lark_service, mgr, has_test=False)`(绑已有 app)+ 新字段 `unbind_service`(do_unbind——unbind 不止删凭据、还拆 inbox 频道，非 mgr.unbind)。DirectStore.unbind 按 unbind_service 分支调 `do_unbind(mgr,agent_id,db)` 返其信封；HttpStore.unbind 打 /api/lark/unbind。**byte-parity 前提**：该路由必须**原样返回** do_unbind 的 dict（2026-08-11 修——原路由 reshape 成旧 `{success:True}`/hoist error，与 Direct 不对齐；见 [[lark]] 路由 mirror）。CLI-OAuth 写走 patch/put/delete 原语。
+
+## 2026-08-11 (lark 原语) — credential-mutation primitives + deep_merge
+
+Protocol/DirectStore/HttpStore 加 `patch_credential`/`put_credential`/`delete_credential`——**通用凭据变更三原语**(任何 manager 实现 apply_patch/save_raw/delete_credential 即可经它写，不用每操作一路由)。模块级 `deep_merge`(嵌套 dict 递归合、标量替换)是 PATCH 承诺的合并语义、manager.apply_patch 用它，本地云端合并一致。HttpStore `_post_json`→`_send_json(method,…)` 泛化支持 PATCH/PUT/DELETE，写侧 never-raise→{success:False} 契约不变。lark 是首个用户。
+
+## 2026-08-11 (lark 地基) — 三张平行表收成单 ChannelSpec descriptor
+
+`_MANAGER_REGISTRY`+`_BIND_SERVICE`+`_DISPLAY_NAME` 收成 **一个 `CHANNELS: dict[str, ChannelSpec]`**（review 一直诟病的三表漂移根除）。`ChannelSpec`=manager_module/class + read_method + display_name(unbind 措辞) + 可选 `_BindSpec`(do_bind 服务 + takes=mgr|db + has_test)。`_spec/_manager_class/_read_method_name` 及 DirectStore.bind/unbind/test_connection 全读单字段；`SUPPORTED_CHANNELS=frozenset(CHANNELS)`。**加 channel 真的=一行 ChannelSpec + to_raw_dict**。纯重构、行为不变（55 测试绿）。为 lark 写原语(patch/put/delete)打地基。
+
 ## 2026-08-11 (审查 round-3 收口)
 
 模块头 3 处矛盾扫清：`_MANAGER_FOR`→`_MANAGER_REGISTRY`(全仓不存在的符号)；HttpStore 段改成如实的「读 GET→None / 写 POST→{success:False}」两种降级；并如实说明**加 channel 不是一行**——读走 _MANAGER_REGISTRY、写走 _BIND_SERVICE、unbind 文案走 _DISPLAY_NAME(三张平行表，未来可收成单 descriptor)。`_DISPLAY_NAME` 精确到**有 seam-unbind 工具的 4 个 channel**(discord/slack/telegram/wechat)并注明 narra/lark/HA 为何不入表(消除�the漂移质疑)。端点测试：假中间件用 `x-test-unverify` 把 `nx_service_authed` 与前缀**解耦**，新增「前缀在但未验签→403」一条(对旧前缀实现会红)，真正锁住「门读已验签 flag」。补 get_agent_owner Direct↔Http parity。删 slack/telegram 死 import + 测试死代码。
