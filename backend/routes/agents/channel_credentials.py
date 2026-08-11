@@ -79,11 +79,7 @@ async def get_channel_credential(request: Request, agent_id: str, channel: str) 
     ``{"bound": false}`` when the agent has no binding. Delegates to
     ChannelCredentialStore.DirectStore so this HTTP twin returns byte-identical
     payloads to the in-process seam a local caller would get."""
-    if channel not in SUPPORTED_CHANNELS:
-        raise HTTPException(status_code=404, detail=f"unknown channel: {channel}")
-    _require_service_caller(request)
-    await assert_owned(request, agent_id)
-
+    await _gate(request, channel, agent_id)  # same double gate as the write endpoints
     raw = await ChannelDirectStore().get_credential(channel, agent_id)
     return raw if raw is not None else {"bound": False}
 

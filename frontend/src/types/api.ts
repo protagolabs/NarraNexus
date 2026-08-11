@@ -8,6 +8,10 @@ import type { BusAttachment } from './messages';
 export interface ApiResponse {
   success: boolean;
   error?: string;
+  // Some backend envelopes carry a human-readable message alongside a machine
+  // error code (e.g. lark unbind: error="no_credential", message="No Lark bot
+  // bound to this agent."). Prefer `message` for display when present.
+  message?: string;
 }
 
 // Job types

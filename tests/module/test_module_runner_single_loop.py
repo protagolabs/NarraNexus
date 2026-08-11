@@ -384,3 +384,40 @@ def test_build_mcp_server_neutralises_uvicorn_signal_capture():
             assert signal.getsignal(signal.SIGTERM) is sentinel
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+# ---------------------------------------------------------------------------
+# _is_single_process_mode — when to run all module servers in ONE process
+# ---------------------------------------------------------------------------
+
+def test_single_process_when_seam_is_httpstore(monkeypatch):
+    # NARRANEXUS_BACKEND_URL set → the data-access seam is HttpStore, this
+    # process opens no MySQL pool → single process (saves ~260 MB per module
+    # server), EVEN with a MySQL DATABASE_URL present.
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+    monkeypatch.setenv("DATABASE_URL", "mysql://u:p@host:3306/db")
+    assert _is_single_process_mode() is True
+
+
+def test_multi_process_when_direct_mysql(monkeypatch):
+    # No backend URL + a MySQL DATABASE_URL → each process holds its own pool →
+    # multi-process (the unchanged direct-DB cloud shape).
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "mysql://u:p@host:3306/db")
+    assert _is_single_process_mode() is False
+
+
+def test_single_process_for_sqlite_or_blank(monkeypatch):
+    # Local dev: SQLite or unset DATABASE_URL → single process (the original
+    # aiomysql-loop-binding reason). Unchanged.
+    from xyz_agent_context.module.module_runner import _is_single_process_mode
+
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///tmp/x.db")
+    assert _is_single_process_mode() is True
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert _is_single_process_mode() is True

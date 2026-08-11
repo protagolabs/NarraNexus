@@ -569,6 +569,54 @@ def test_direct_patch_put_delete_delegate_to_the_manager(monkeypatch):
     ]
 
 
+def test_direct_patch_degrades_runtime_failure_to_envelope(monkeypatch):
+    # DirectStore must NOT raise on a runtime write failure — it degrades to
+    # {"success": False, "error": ...} exactly like HttpStore, so the caller sees
+    # the SAME failure shape on both legs (before this, apply_patch's exception
+    # propagated on the local leg while the cloud leg returned an envelope, so a
+    # cloud write failure silently read as success in the tool wrappers).
+    class _Boom:
+        def __init__(self, db):
+            pass
+
+        async def apply_patch(self, agent_id, patch):
+            raise ValueError("no credential to patch")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _Boom,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    out = asyncio.run(store.patch_credential("lark", AGENT, {"a": 1}))
+    assert out == {"success": False, "error": "no credential to patch"}
+
+
+def test_direct_mutation_unsupported_channel_raises_clear_valueerror(monkeypatch):
+    # A channel whose manager doesn't implement the write primitive gets a clear
+    # ValueError (like test_connection), not a bare AttributeError → 500.
+    class _NoWrites:
+        def __init__(self, db):
+            pass
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        lambda channel: _NoWrites,
+    )
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return object()
+
+    store._db = fake_db  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="does not support credential apply_patch"):
+        asyncio.run(store.patch_credential("discord", AGENT, {"a": 1}))
+
+
 def test_http_patch_put_delete_use_the_right_verbs_and_path(monkeypatch):
     seen = []
 

@@ -16,7 +16,10 @@ from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
 import backend.routes.agents.jobs as jr
+import xyz_agent_context.agent_framework.api_config as japi
 import xyz_agent_context.module.job_module._job_reads as jreads
+import xyz_agent_context.module.job_module._job_writes as jwrites
+import xyz_agent_context.module.job_module.job_service as jsvc
 
 
 class _V:
@@ -157,10 +160,6 @@ def test_job_search_keywords_requires_keywords(client):
 # --------------------------------------------------------------------------- job_update twin
 
 
-import xyz_agent_context.module.job_module._job_writes as jwrites  # noqa: E402
-import xyz_agent_context.module.job_module.job_service as jsvc  # noqa: E402
-
-
 def _patch_update(monkeypatch, *, job, result):
     class _Repo:
         def __init__(self, db):
@@ -231,9 +230,6 @@ def test_job_update_seam_body_accepts_the_known_fields(client, monkeypatch):
 # --------------------------------------------------------------------------- job_create / job_pause / job_cancel twins
 
 
-import xyz_agent_context.agent_framework.api_config as japi  # noqa: E402
-
-
 def _patch_create(monkeypatch, *, result, capture=None):
     """Fake create_job_from_args' collaborators: the owner LLM-context setup
     (no-op) and JobInstanceService.create_job_with_instance."""
@@ -294,6 +290,23 @@ def test_job_create_seam_body_forbids_unknown_fields(client, monkeypatch):
     _patch_create(monkeypatch, result={"success": True})
     r = client.post("/api/agents/agent_mine/jobs", headers=OWNER, json={**_CREATE_BODY, "bogus": 1})
     assert r.status_code == 422
+
+
+def test_job_create_seam_body_accepts_every_known_field(client, monkeypatch):
+    # The other side of the forbid guard: all 12 fields the MCP tool +
+    # create_job_from_args accept must pass extra="forbid" through the REAL route
+    # (a fake handler can't prove this). If a field is added to the tool but not
+    # to JobCreateSeamBody, this 422s — the drift is caught at its source.
+    _patch_create(monkeypatch, result={"success": True, "job_id": "job_new"})
+    r = client.post("/api/agents/agent_mine/jobs", headers=OWNER, json={
+        "user_id": "u1", "title": "T", "description": "d", "job_type": "one_off",
+        "trigger_config": {"run_at": "2026-09-01T09:00:00", "timezone": "UTC"},
+        "payload": "p", "notification_method": "direct", "task_key": "tk1",
+        "depends_on_job_ids": ["job_a1b2c3d4"], "related_entity_id": "u2",
+        "narrative_id": "nar_1", "confirm_new": True,
+    })
+    assert r.status_code == 200
+    assert r.json()["success"] is True
 
 
 def test_job_pause_non_owner_is_denied(client):

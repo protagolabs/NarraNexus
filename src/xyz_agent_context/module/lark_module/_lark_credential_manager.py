@@ -321,7 +321,14 @@ class LarkCredentialManager:
         both the local seam and the backend PATCH endpoint, and it subsumes the
         old ``patch_permission_state`` / per-field setters: e.g. an admin-request
         step passes ``{"permission_state": {"admin_request_url": …}}``, enabling
-        receive passes ``{"app_secret_encoded": …}``."""
+        receive passes ``{"app_secret_encoded": …}``.
+
+        Concurrency note: this is a read-modify-write of the WHOLE row, so it can
+        lose a concurrent single-column update (e.g. ``update_auth_status`` from
+        lark_trigger writing BRAND_MISMATCH) that lands between the read and the
+        save. Tolerated: three-click setup writes are user-paced and serial per
+        agent, and the trigger's single-column writes hit a rare path — but if a
+        future flow writes this row concurrently, it needs row-level locking."""
         from xyz_agent_context.module.data_access.channel_store import deep_merge
 
         cred = await self.get_credential(agent_id)
@@ -334,22 +341,6 @@ class LarkCredentialManager:
         """Full upsert from a raw cred dict (the PUT primitive). ``agent_id`` is
         pinned from the path so a mismatched body can't retarget another agent."""
         await self.save_credential(_cred_from_raw({**raw, "agent_id": agent_id}))
-
-    async def patch_permission_state(self, agent_id: str, updates: dict[str, Any]) -> dict:
-        """Merge `updates` into the stored JSON permission_state and save.
-
-        Read-modify-write by design — the same agent rarely has concurrent
-        permission-config writers. Returns the merged state.
-        """
-        cred = await self.get_credential(agent_id)
-        current = dict(cred.permission_state) if cred else {}
-        current.update(updates)
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"permission_state": json.dumps(current)},
-        )
-        return current
 
     async def update_auth_status(self, agent_id: str, status: str) -> None:
         """Update authentication status."""
@@ -415,54 +406,6 @@ class LarkCredentialManager:
             self.TABLE,
             {"agent_id": agent_id},
             {"workspace_path": workspace_path},
-        )
-
-    async def set_app_secret_encoded(self, agent_id: str, plain_secret: str) -> None:
-        """Store a base64-encoded copy of the plain app secret.
-
-        Needed for the SDK-based LarkTrigger subscriber, which requires the
-        plain secret at `lark.ws.Client` construction time. For agent-
-        assisted setups, this is populated via `lark_enable_receive` after
-        the user pastes the secret from the Lark developer console.
-        """
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"app_secret_encrypted": _encode_secret(plain_secret)},
-        )
-        logger.info(
-            f"Stored app_secret_encoded for agent {agent_id} — "
-            f"LarkTrigger subscriber will start on next watcher tick."
-        )
-
-    async def update_app_credentials(
-        self,
-        agent_id: str,
-        app_id: str,
-        app_secret_ref: str,
-        is_active: bool = True,
-        auth_status: str = "bot_ready",
-    ) -> None:
-        """Finalize a pending credential after agent-assisted setup completes.
-
-        Called by _finalize_setup once `config init --new` exits successfully.
-        We can read app_id and the keychain reference (app_secret_ref) from
-        the CLI-written config.json, but the plain secret stays in the
-        system keychain — so app_secret_encoded remains empty for this path.
-        """
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {
-                "app_id": app_id,
-                "app_secret_ref": app_secret_ref,
-                "is_active": 1 if is_active else 0,
-                "auth_status": auth_status,
-            },
-        )
-        logger.info(
-            f"Finalized Lark credential for agent {agent_id} "
-            f"(app_id={app_id}, is_active={is_active})"
         )
 
     async def delete_credential(self, agent_id: str) -> None:

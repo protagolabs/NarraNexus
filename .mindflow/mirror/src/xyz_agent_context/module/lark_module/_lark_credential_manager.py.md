@@ -3,9 +3,13 @@ code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
 last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (审查收口) — 删除被 apply_patch 取代的 3 个死写方法
+
+`patch_permission_state` / `set_app_secret_encoded` / `update_app_credentials` 已**删除**（铁律 #8/#2）——`apply_patch` 是唯一写路径，全仓零调用者。留着危险不在体积：那三个是**按列 UPDATE**、`apply_patch` 是**整行 read-modify-write**，语义不同，并存会让下个改 lark 的人挑错 API。`update_auth_status`/`update_bot_identity`/`set_is_active` 仍有 backend 路由 + [[lark_trigger]] 调用，保留。`apply_patch` docstring 记下**整行写 vs 单列写的丢更新窗口**（trigger 的 update_auth_status 罕见路径），当前 setup 用户步进+每 agent 串行故可容忍。
+
 ## 2026-08-11 (lark 原语) — apply_patch / save_raw（seam 写接口）
 
-`apply_patch(agent_id, patch)`=读→`to_raw_dict`→`deep_merge`→`_cred_from_raw`→`save_credential`(复用现有序列化+列映射 app_secret_encoded↔encrypted/permission_state↔json)，subsume 旧 patch_permission_state/set_app_secret_encoded；`save_raw`=PUT，**agent_id 从 path 钉死**防改包重定向别人。缺凭据 patch→清晰 ValueError。
+`apply_patch(agent_id, patch)`=读→`to_raw_dict`→`deep_merge`→`_cred_from_raw`→`save_credential`(复用现有序列化+列映射 app_secret_encoded↔encrypted/permission_state↔json)，是唯一写路径（取代已删的 patch_permission_state/set_app_secret_encoded/update_app_credentials）；`save_raw`=PUT，**agent_id 从 path 钉死**防改包重定向别人。缺凭据 patch→清晰 ValueError。
 
 ## 2026-08-11 (PR-F) — 原始视图 + 反序列化助手（channel seam 接入）
 

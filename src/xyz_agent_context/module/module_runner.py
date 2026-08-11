@@ -817,10 +817,29 @@ class ModuleRunner:
         return all_mcp_modules().copy()
 
 
-def _is_sqlite_mode() -> bool:
-    """Check if the current DATABASE_URL points to SQLite."""
+def _is_single_process_mode() -> bool:
+    """Run all module MCP servers in ONE process (shared event loop) instead of
+    one process per module.
+
+    True when this process holds NO MySQL pool — running ~17 module servers as
+    ~17 processes would pay the ~260 MB `import xyz_agent_context` cost per
+    process (several GB); one process pays it once. Two ways to hold no pool:
+
+    - ``NARRANEXUS_BACKEND_URL`` set → the data-access seam is in HttpStore mode,
+      so every DB-touching tool forwards to the backend and this process opens no
+      MySQL pool. Single-process is the intended cloud shape once the mcp
+      container drops its DB creds.
+    - SQLite (or no ``DATABASE_URL`` — the `bash run.sh` local default): the
+      original reason this mode exists — aiomysql.Pool binds its Futures to the
+      loop that created it, so SQLite/local dev must share one loop.
+
+    Multi-process only earns its per-process import cost when each process runs
+    its own MySQL pool (a direct-DB cloud deploy with no seam).
+    """
     import os
 
+    if os.environ.get("NARRANEXUS_BACKEND_URL", "").strip():
+        return True
     url = os.environ.get("DATABASE_URL", "")
     return url.startswith("sqlite") or not url
 
@@ -906,9 +925,10 @@ Supported JSON-RPC Methods:
             # A2A API Server only
             runner.run_api_server()
         elif command == "mcp" or command == "all":
-            # All MCP servers — use async (single-process) mode for SQLite
-            # to avoid multi-process write lock contention
-            if _is_sqlite_mode():
+            # All MCP servers in one process when we hold no MySQL pool (seam in
+            # HttpStore mode, or SQLite) — saves the ~260 MB per-process import;
+            # multi-process only when each process runs its own pool.
+            if _is_single_process_mode():
                 import asyncio
 
                 asyncio.run(runner.run_mcp_servers_async())
@@ -930,7 +950,7 @@ Supported JSON-RPC Methods:
         # Default: run all MCP servers
         print("🚀 Starting default MCP servers...")
         print("   (Use 'module' command for full deployment with A2A API)\n")
-        if _is_sqlite_mode():
+        if _is_single_process_mode():
             import asyncio
 
             asyncio.run(runner.run_mcp_servers_async())

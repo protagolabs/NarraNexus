@@ -332,21 +332,43 @@ class DirectStore:
 
     # -- credential-mutation primitives (delegate to the manager's write API) --
 
+    async def _run_mutation(self, channel: str, method: str, agent_id: str, *args) -> Optional[dict]:
+        """Shared body for the three write primitives. Returns None on success,
+        or the {"success": False, "error": ...} envelope on a RUNTIME failure —
+        DirectStore must NOT raise on those, so it matches HttpStore + the seam's
+        "never raises, returns an envelope" contract (before this, apply_patch's
+        ValueError propagated on the local leg while the cloud leg returned an
+        envelope — the two failure semantics diverged, defeating the seam). A
+        channel whose manager lacks the primitive raises ValueError — a DEV error
+        (only lark's manager implements the write primitives), surfaced clearly
+        like test_connection does, never a bare AttributeError → 500."""
+        mgr = (_manager_class(channel))(await self._db())
+        fn = getattr(mgr, method, None)
+        if fn is None:
+            raise ValueError(
+                f"channel {channel!r} does not support credential {method} — only "
+                f"lark's manager implements the write primitives"
+            )
+        try:
+            await fn(agent_id, *args)
+            return None
+        except Exception as e:  # noqa: BLE001 — degrade to an envelope, never raise
+            logger.warning(f"[channel.{method}] {channel} failed: {e}")
+            return {"success": False, "error": str(e)}
+
     async def patch_credential(self, channel: str, agent_id: str, patch: dict) -> dict:
         """Partial update — the manager deep-merges (nested dicts like
         permission_state merged key-wise) and saves."""
-        await (_manager_class(channel))(await self._db()).apply_patch(agent_id, patch)
-        return {"success": True}
+        return await self._run_mutation(channel, "apply_patch", agent_id, patch) or {"success": True}
 
     async def put_credential(self, channel: str, agent_id: str, raw: dict) -> dict:
         """Full upsert of a raw cred dict — the manager rebuilds its dataclass
         (its own _cred_from_raw) and saves."""
-        await (_manager_class(channel))(await self._db()).save_raw(agent_id, raw)
-        return {"success": True}
+        return await self._run_mutation(channel, "save_raw", agent_id, raw) or {"success": True}
 
     async def delete_credential(self, channel: str, agent_id: str) -> dict:
-        await (_manager_class(channel))(await self._db()).delete_credential(agent_id)
-        return {"success": True, "data": {"deleted": True}}
+        return await self._run_mutation(channel, "delete_credential", agent_id) or {
+            "success": True, "data": {"deleted": True}}
 
 
 class HttpStore:

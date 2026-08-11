@@ -87,27 +87,32 @@ async def _get_agent_name(agent_id: str) -> str:
 # lark-semantic wrappers over the generic patch/put/delete primitives. --
 
 
-async def _patch_ps(agent_id: str, updates: dict) -> None:
-    """Merge keys INTO the three-click permission_state blob (was
-    LarkCredentialManager.patch_permission_state)."""
-    await get_channel_credential_store().patch_credential(
+# Each RETURNS the seam's {"success": bool, "error"?: str} envelope — the seam
+# never raises (HttpStore degrades unreachable/non-2xx/non-JSON to
+# {"success": False, ...}; DirectStore now degrades runtime failures the same
+# way), so a caller that must persist MUST check `success`, else a cloud write
+# failure reads as success and the tool tells the agent the write happened when
+# the DB holds nothing (铁律 #5 / incident lesson #3).
+async def _patch_ps(agent_id: str, updates: dict) -> dict:
+    """Merge keys INTO the three-click permission_state blob."""
+    return await get_channel_credential_store().patch_credential(
         "lark", agent_id, {"permission_state": updates}
     )
 
 
-async def _patch_fields(agent_id: str, **fields) -> None:
+async def _patch_fields(agent_id: str, **fields) -> dict:
     """Set top-level credential columns (auth_status / is_active / app_id /
     app_secret_ref / bot_name / bot_open_id / app_secret_encoded …) — the raw-dict
     field names, deep-merged server-side."""
-    await get_channel_credential_store().patch_credential("lark", agent_id, fields)
+    return await get_channel_credential_store().patch_credential("lark", agent_id, fields)
 
 
-async def _delete_cred(agent_id: str) -> None:
-    await get_channel_credential_store().delete_credential("lark", agent_id)
+async def _delete_cred(agent_id: str) -> dict:
+    return await get_channel_credential_store().delete_credential("lark", agent_id)
 
 
-async def _put_cred(agent_id: str, cred) -> None:
-    await get_channel_credential_store().put_credential("lark", agent_id, cred.to_raw_dict())
+async def _put_cred(agent_id: str, cred) -> dict:
+    return await get_channel_credential_store().put_credential("lark", agent_id, cred.to_raw_dict())
 
 
 def _command_uses_user_identity(args: list[str]) -> bool:
@@ -395,13 +400,22 @@ async def _finalize_setup(
             return
 
         # Step 4: flip the DB row to ready
-        await _patch_fields(
+        ready = await _patch_fields(
             agent_id,
             app_id=app_id,
             app_secret_ref=app_secret_ref,
             is_active=True,
             auth_status=AUTH_STATUS_BOT_READY,
         )
+        if not ready.get("success"):
+            # The finalize write failed — leave nothing half-bound; drop the
+            # pending row so the next lark_setup starts clean (the outer except
+            # does the same on a raise).
+            logger.error(
+                f"lark_setup: {agent_id} finalize write failed: {ready.get('error')}"
+            )
+            await _delete_cred(agent_id)
+            return
         logger.info(
             f"lark_setup: {agent_id} finalized — app_id={app_id}, "
             f"profile={profile_name}"
@@ -424,9 +438,13 @@ async def _finalize_setup(
                 data = bot_info.get("data", {})
                 bdata = data.get("bot", data)
                 name = bdata.get("app_name") or bdata.get("name") or ""
-                await _patch_fields(
-                    agent_id, bot_name=name, bot_open_id=bdata.get("open_id", "")
-                )
+                # Write ONLY the fields we actually got — deep_merge lets a
+                # scalar patch win, so a blank "" would overwrite a good stored
+                # value (the old update_bot_identity guarded this explicitly).
+                identity = {k: v for k, v in
+                            {"bot_name": name, "bot_open_id": bdata.get("open_id", "")}.items() if v}
+                if identity:
+                    await _patch_fields(agent_id, **identity)
         except Exception as e:
             logger.warning(f"lark_setup: {agent_id} bot identity lookup failed: {e}")
 
@@ -480,11 +498,16 @@ async def _advance_start(agent_id: str, cred) -> dict:
         return {"success": False, "error": "CLI did not return URL/device_code."}
 
     now = datetime.now(timezone.utc).isoformat()
-    await _patch_ps(agent_id, {
+    persisted = await _patch_ps(agent_id, {
         "admin_request_url": url,
         "admin_request_device_code": device_code,
         "admin_request_generated_at": now,
     })
+    if not persisted.get("success"):
+        # The device_code MUST be stored or the next click fails with a
+        # misleading "no device_code" — surface the write failure now.
+        return {"success": False,
+                "error": f"Generated the URL but failed to persist it: {persisted.get('error', 'unknown')}"}
 
     return {
         "success": True,
@@ -936,7 +959,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
             from ._lark_credential_manager import LarkCredential
 
-            await _put_cred(agent_id, LarkCredential(
+            seeded = await _put_cred(agent_id, LarkCredential(
                 agent_id=agent_id,
                 app_id="pending_setup",
                 app_secret_ref="",
@@ -946,6 +969,11 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 auth_status="not_logged_in",
                 is_active=False,
             ))
+            if not seeded.get("success"):
+                # No pending row persisted → _finalize_setup would have nothing to
+                # patch (step 4 would fail on a missing cred). Fail here instead.
+                return {"success": False,
+                        "error": f"Failed to persist the pending setup row: {seeded.get('error', 'unknown')}"}
 
             _finalize_task = asyncio.create_task(
                 _finalize_setup(agent_id, proc, workspace, profile_name),
@@ -1169,9 +1197,14 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 "error": "app_secret is empty. Re-copy from the dev console and try again.",
             }
 
-        # set_app_secret_encoded encoded a PLAIN secret; the patch primitive
-        # carries the raw-dict field, so encode here (the one place) and patch it.
-        await _patch_fields(agent_id, app_secret_encoded=_encode_secret(secret))
+        # The raw-dict field carries the ENCODED secret, so encode here (the one
+        # place a plain secret enters) and patch that field.
+        persisted = await _patch_fields(agent_id, app_secret_encoded=_encode_secret(secret))
+        if not persisted.get("success"):
+            # Don't tell the agent "stored, trigger will start" when the DB write
+            # failed — the subscriber would never come up (铁律 #5).
+            return {"success": False,
+                    "error": f"Failed to store the App Secret: {persisted.get('error', 'unknown')}"}
 
         return {
             "success": True,

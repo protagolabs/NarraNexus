@@ -150,6 +150,29 @@ async def test_unexpected_exception_returns_structured_error():
 
 
 @pytest.mark.asyncio
+async def test_job_create_tool_surfaces_seam_error_not_raises(monkeypatch):
+    # W1 at the tool layer: job_create now delegates to the seam, which NEVER
+    # raises (DirectStore try/except + HttpStore degradation). Prove the tool
+    # returns that structured error verbatim rather than throwing it at the model.
+    class _FakeStore:
+        async def job_create(self, agent_id, fields):
+            return {"success": False, "error": "structured, not an exception"}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.job_module._job_mcp_tools.get_agent_data_store",
+        lambda *a, **k: _FakeStore(),
+    )
+    fn = _tool(_server(), "job_create").fn
+    result = await fn(
+        agent_id="agent_1", user_id="u1", title="T", description="d",
+        job_type="one_off",
+        trigger_config={"run_at": "2026-09-01T09:00:00", "timezone": "UTC"},
+        payload="p",
+    )
+    assert result == {"success": False, "error": "structured, not an exception"}
+
+
+@pytest.mark.asyncio
 async def test_missing_timezone_reaches_job_create_structured_error(db_client):
     with patch(f"{API_MOD}.setup_mcp_llm_context", AsyncMock()):
         result = await create_job_from_args(

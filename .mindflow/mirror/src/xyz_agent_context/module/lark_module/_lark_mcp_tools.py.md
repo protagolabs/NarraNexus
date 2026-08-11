@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
 last_verified: 2026-08-11
 ---
+## 2026-08-11 (审查收口) — 写助手返回信封，调用点检查 success（不再静默成功）
+
+4 个写助手从 `-> None` 改 `-> dict`，**原样返回 seam 信封**。seam 永不抛（HttpStore 把 unreachable/非2xx/非JSON 降级成 `{success:False}`；DirectStore 现在也 catch→信封），所以「返 None、丢掉信封」= 云端写失败被静默当成功、工具骗 agent「已写入」（铁律 #5 / incident #3）。修：`_advance_start`(device_code 必存)、`lark_enable_receive`(app_secret 必存)、`lark_setup`(pending 行必存)、`_finalize_setup` step4(finalize 失败→清 pending 行) 全部检查 `success`、失败返结构化 error；`_delete_cred` 清理保持 best-effort（seam 内部已 log）。另：bot identity 回写用 `{k:v for … if v}` 过滤空值，恢复旧 update_bot_identity 的「空不覆盖好值」保护（deep_merge 标量 patch 胜出，`""` 会抹掉）。守卫测试 [[test_lark_permission_advance]] 新增「seam 写失败→工具报错非静默成功」。
+
 ## 2026-08-11 (lark 写迁移) — 全部写点走 ChannelCredentialStore seam
 
 三击 OAuth 的 CLI 子进程 + 轮询留本地(纯计算)，只 DB 持久化经 seam：4 个薄助手 `_patch_ps`(permission_state 深合并)/`_patch_fields`(顶层列)/`_delete_cred`/`_put_cred` 包装 patch/put/delete 原语，替换掉全部 `get_mcp_db_client()+LarkCredentialManager(db).*`。lark_bind→`seam.bind`(do_bind 经 /api/lark/bind)、lark_unbind→`seam.unbind`(do_unbind 含 inbox 拆除)。**本文件 get_mcp_db_client==0**。删 XYZBaseModule/LarkCredentialManager 死 import。

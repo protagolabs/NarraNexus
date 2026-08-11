@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — 单进程判据从「是否 sqlite」改成「是否持 MySQL 池」
+
+`_is_sqlite_mode` → **`_is_single_process_mode`**：`NARRANEXUS_BACKEND_URL` 置位（seam=HttpStore，本进程不开 MySQL 池）**或** sqlite/空 → 单进程 async（`run_mcp_servers_async`）。原来只看 DATABASE_URL 空不空——空判成 sqlite，纯属巧合，且语义错位（云端 seam 进程不是 sqlite）。动机是**内存**：~17 个模块服务器各起一进程要各 `import xyz_agent_context`（~260MB/进程 → 数 GB），单进程只付一次；多进程只在「每进程自带 MySQL 池」（无 seam 的直连云端）时才值得。本地 dev（不设 BACKEND_URL）走老 sqlite 判断，不变。守卫测试见 [[test_module_runner_single_loop]]。
 
 ## 2026-08-10 — wrapped app 佩戴 IdentityAuthMiddleware（MCP caller auth）
 

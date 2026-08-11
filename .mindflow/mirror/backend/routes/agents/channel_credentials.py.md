@@ -5,7 +5,7 @@ last_verified: 2026-08-11
 ---
 ## 2026-08-11 (lark 原语) — PATCH/PUT/DELETE credential 端点 + _gate
 
-加 `PATCH`(部分更新深合并)/`PUT`(整条 upsert)/`DELETE`(解绑) 到 `/api/agents/{id}/channels/{ch}/credential`——原始密钥资源的**写侧**，同 GET 的 service+owner 双门(抽成 `_gate` DRY)。全委托 seam DirectStore→manager 的 apply_patch/save_raw/delete，深合并只有一份实现。
+加 `PATCH`(部分更新深合并)/`PUT`(整条 upsert)/`DELETE`(解绑) 到 `/api/agents/{id}/channels/{ch}/credential`——原始密钥资源的**写侧**，同 GET 的 service+owner 双门(抽成 `_gate` DRY，2026-08-11 审查后 GET credential 也复用 `_gate`，四端点门禁单点定义)。全委托 seam DirectStore→manager 的 apply_patch/save_raw/delete，深合并只有一份实现。非 lark channel 命中写原语时 DirectStore 给清晰 ValueError（而非裸 AttributeError→500）。
 
 ## 2026-08-11 (审查收口) — service 门改用已验签标志 + /owner + 全 7 channel
 
