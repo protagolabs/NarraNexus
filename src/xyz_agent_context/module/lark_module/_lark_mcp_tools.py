@@ -555,12 +555,17 @@ async def _advance_admin_approved(agent_id: str, cred) -> dict:
         return {"success": False, "error": "CLI did not return URL/device_code."}
 
     now = datetime.now(timezone.utc).isoformat()
-    await _patch_ps(agent_id, {
+    persisted = await _patch_ps(agent_id, {
         "admin_approved_at": now,
         "user_authz_url": url,
         "user_authz_device_code": device_code,
         "user_authz_generated_at": now,
     })
+    if not persisted.get("success"):
+        # user_authz_device_code MUST be stored — _advance_user_authorized reads
+        # it to mint the token; a silent write failure breaks Click 3 next.
+        return {"success": False,
+                "error": f"Generated the Click 3 URL but failed to persist it: {persisted.get('error', 'unknown')}"}
 
     return {
         "success": True,
@@ -602,7 +607,15 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             or data.get("user", {}).get("scopes", [])
             or []
         )
-        await _patch_fields(agent_id, auth_status=AUTH_STATUS_USER_LOGGED_IN)
+        # The token is minted (CLI-side, in the keychain), but the DB must record
+        # logged-in or the state is inconsistent — don't report "completed" on a
+        # failed persist (lark_status can self-heal on retry, but the caller must
+        # know the write didn't land).
+        flipped = await _patch_fields(agent_id, auth_status=AUTH_STATUS_USER_LOGGED_IN)
+        if not flipped.get("success"):
+            return {"success": False,
+                    "error": (f"Login succeeded but failed to persist the logged-in state: "
+                              f"{flipped.get('error', 'unknown')}. Retry lark_status to reconcile.")}
         await _patch_ps(agent_id, {
             "user_oauth_completed_at": now,
             "user_scopes_granted": list(granted) if isinstance(granted, (list, tuple)) else [],
@@ -663,11 +676,17 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
             new_code = regen_data.get("device_code", "")
             if new_url and new_code:
                 now = datetime.now(timezone.utc).isoformat()
-                await _patch_ps(agent_id, {
+                persisted = await _patch_ps(agent_id, {
                     "user_authz_url": new_url,
                     "user_authz_device_code": new_code,
                     "user_authz_generated_at": now,
                 })
+                if not persisted.get("success"):
+                    # Same must-persist rule as the first mint: the fresh URL is
+                    # useless if its device_code isn't stored.
+                    return {"success": False,
+                            "error": (f"Regenerated the Click 3 URL but failed to persist it: "
+                                      f"{persisted.get('error', 'unknown')}")}
                 return {
                     "success": False,
                     "error": "Previous Click 3 URL expired; fresh URL generated.",

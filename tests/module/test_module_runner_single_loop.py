@@ -259,6 +259,59 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
     )
 
 
+@pytest.mark.asyncio
+async def test_async_runner_is_credfree_when_seam_is_httpstore(monkeypatch, fake_uvicorn):
+    """When NARRANEXUS_BACKEND_URL is set (seam=HttpStore, the creds-stripped
+    cloud shape), run_mcp_servers_async must NOT open a DB pool or run
+    auto_migrate, and must construct modules with database_client=None — else
+    stripping DB_PASSWORD crashes bootstrap and the mcp container runs DDL."""
+    runner = ModuleRunner()
+    seen = {"db_client_calls": 0, "auto_migrate_calls": 0, "database_clients": []}
+
+    fake = _FakeMCPServer()
+
+    class _FakeModule:
+        def __init__(self, agent_id, user_id, database_client):
+            seen["database_clients"].append(database_client)
+
+        def build_instrumented_mcp_server(self):
+            return fake
+
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_FakeModule])
+    monkeypatch.setattr(
+        "xyz_agent_context.module.module_runner.MODULE_PORTS", {"_FakeModule": 19921}
+    )
+
+    async def _boom_db():
+        seen["db_client_calls"] += 1
+        raise AssertionError("get_db_client must not run in seam/HttpStore mode")
+
+    async def _boom_migrate(_backend):
+        seen["auto_migrate_calls"] += 1
+        raise AssertionError("auto_migrate must not run in seam/HttpStore mode")
+
+    monkeypatch.setattr("xyz_agent_context.module.module_runner.get_db_client", _boom_db)
+    monkeypatch.setattr("xyz_agent_context.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+
+    async def _stopper():
+        await asyncio.sleep(0.1)
+        fake_uvicorn.release.set()
+
+    stopper_task = asyncio.create_task(_stopper())
+    try:
+        await asyncio.wait_for(
+            runner.run_mcp_servers_async(agent_id="a", user_id="u", modules=[_FakeModule]),
+            timeout=5.0,
+        )
+    finally:
+        await stopper_task
+
+    assert seen["db_client_calls"] == 0
+    assert seen["auto_migrate_calls"] == 0
+    assert seen["database_clients"] == [None], "modules must get database_client=None"
+
+
 def _stub_db(monkeypatch):
     """Stub get_db_client + auto_migrate so run_mcp_servers_async does no IO."""
 

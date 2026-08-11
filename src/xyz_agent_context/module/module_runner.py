@@ -462,13 +462,25 @@ class ModuleRunner:
             return
 
         user = user_id or agent_id
-        db = await get_db_client()
 
-        # Ensure all tables exist (MCP runs as separate process)
-        from xyz_agent_context.utils.db.schema_registry import auto_migrate
+        if _seam_uses_backend():
+            # Seam is HttpStore: every DB-touching tool forwards to the backend,
+            # so this process needs no pool and must NOT run migrations (backend
+            # owns them; the mcp container may hold no DB creds / DDL grant).
+            # Modules get database_client=None, exactly like the multi-process
+            # path (_run_single_mcp) — that is what makes single-process cloud mcp
+            # genuinely creds-free.
+            db = None
+            logger.info("MCP async mode: seam=HttpStore → no DB pool, skipping auto_migrate")
+        else:
+            # SQLite / local dev: this runner DOES hold the pool. Build it on THIS
+            # loop (aiomysql binds Futures to the creating loop) and ensure tables
+            # exist (MCP runs as a separate process from the backend here).
+            db = await get_db_client()
+            from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-        await auto_migrate(db._backend)
-        logger.info("Schema auto-migration complete")
+            await auto_migrate(db._backend)
+            logger.info("Schema auto-migration complete")
 
         logger.info("Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
@@ -817,6 +829,16 @@ class ModuleRunner:
         return all_mcp_modules().copy()
 
 
+def _seam_uses_backend() -> bool:
+    """True when ``NARRANEXUS_BACKEND_URL`` is set — the data-access seam runs in
+    HttpStore mode, so this process forwards every DB-touching tool to the backend
+    and opens NO MySQL pool of its own (and must not run migrations: the backend
+    owns them in cloud, and the mcp container may hold no DB creds / DDL grant)."""
+    import os
+
+    return bool(os.environ.get("NARRANEXUS_BACKEND_URL", "").strip())
+
+
 def _is_single_process_mode() -> bool:
     """Run all module MCP servers in ONE process (shared event loop) instead of
     one process per module.
@@ -825,20 +847,22 @@ def _is_single_process_mode() -> bool:
     ~17 processes would pay the ~260 MB `import xyz_agent_context` cost per
     process (several GB); one process pays it once. Two ways to hold no pool:
 
-    - ``NARRANEXUS_BACKEND_URL`` set → the data-access seam is in HttpStore mode,
-      so every DB-touching tool forwards to the backend and this process opens no
-      MySQL pool. Single-process is the intended cloud shape once the mcp
-      container drops its DB creds.
+    - ``NARRANEXUS_BACKEND_URL`` set → the data-access seam is in HttpStore mode
+      (see ``_seam_uses_backend``); the single-process runner constructs modules
+      with ``database_client=None`` and skips ``auto_migrate``, so it is
+      genuinely creds-free — the intended cloud shape once the mcp container
+      drops its DB creds.
     - SQLite (or no ``DATABASE_URL`` — the `bash run.sh` local default): the
       original reason this mode exists — aiomysql.Pool binds its Futures to the
-      loop that created it, so SQLite/local dev must share one loop.
+      loop that created it, so SQLite/local dev must share one loop. This path
+      DOES hold a pool (built on the runner's loop).
 
     Multi-process only earns its per-process import cost when each process runs
     its own MySQL pool (a direct-DB cloud deploy with no seam).
     """
     import os
 
-    if os.environ.get("NARRANEXUS_BACKEND_URL", "").strip():
+    if _seam_uses_backend():
         return True
     url = os.environ.get("DATABASE_URL", "")
     return url.startswith("sqlite") or not url

@@ -3,9 +3,11 @@ code_file: src/xyz_agent_context/module/module_runner.py
 last_verified: 2026-08-11
 ---
 
-## 2026-08-11 — 单进程判据从「是否 sqlite」改成「是否持 MySQL 池」
+## 2026-08-11 — 单进程判据从「是否 sqlite」改成「是否持 MySQL 池」；async runner 无 seam 时零凭据
 
-`_is_sqlite_mode` → **`_is_single_process_mode`**：`NARRANEXUS_BACKEND_URL` 置位（seam=HttpStore，本进程不开 MySQL 池）**或** sqlite/空 → 单进程 async（`run_mcp_servers_async`）。原来只看 DATABASE_URL 空不空——空判成 sqlite，纯属巧合，且语义错位（云端 seam 进程不是 sqlite）。动机是**内存**：~17 个模块服务器各起一进程要各 `import xyz_agent_context`（~260MB/进程 → 数 GB），单进程只付一次；多进程只在「每进程自带 MySQL 池」（无 seam 的直连云端）时才值得。本地 dev（不设 BACKEND_URL）走老 sqlite 判断，不变。守卫测试见 [[test_module_runner_single_loop]]。
+`_is_sqlite_mode` → **`_is_single_process_mode`**：`NARRANEXUS_BACKEND_URL` 置位（seam=HttpStore，`_seam_uses_backend()`）**或** sqlite/空 → 单进程 async（`run_mcp_servers_async`）。原来只看 DATABASE_URL 空不空——空判成 sqlite，纯属巧合，且语义错位（云端 seam 进程不是 sqlite）。动机是**内存**：~17 个模块服务器各起一进程要各 `import xyz_agent_context`（~260MB/进程 → 数 GB），单进程只付一次；多进程只在「每进程自带 MySQL 池」（无 seam 的直连云端）时才值得。本地 dev（不设 BACKEND_URL）走老 sqlite 判断，不变。
+
+**承重（预审 Important）**：`run_mcp_servers_async` 原来**无条件** `get_db_client()` + `auto_migrate()` + 注入 `database_client=db`——那样单进程 seam 模式并非零凭据（strip DATABASE_URL 会开机崩），且会让云端 mcp 从多进程翻单进程后**在 mcp 容器里跑 DDL**（多进程路 `_run_single_mcp` 用 `database_client=None`、不迁移）。改为：`_seam_uses_backend()` 为真时**跳过 get_db_client+auto_migrate、`database_client=None`**（同多进程路，工具全走 HttpStore，迁移归 backend）；仅 sqlite/local 才建池+迁移（aiomysql 循环绑定）。守卫测试见 [[test_module_runner_single_loop]]（`test_async_runner_is_credfree_when_seam_is_httpstore` + 三个模式判据用例）。
 
 ## 2026-08-10 — wrapped app 佩戴 IdentityAuthMiddleware（MCP caller auth）
 
