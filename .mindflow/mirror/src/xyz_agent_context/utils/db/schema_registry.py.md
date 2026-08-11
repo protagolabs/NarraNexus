@@ -3,6 +3,11 @@ code_file: src/xyz_agent_context/utils/db/schema_registry.py
 last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+`user_settings` 新增 `reply_language`(VARCHAR(16),NULL=从未设置=模型自由)。auto_migrate 增量加列,无危险变更。
+
 ## 2026-08-11 — channel_narramessenger_credentials gains idx_nm_cred_profile
 
 Added a non-unique `Index("idx_nm_cred_profile", ["nexus_profile_id"])`

@@ -1729,6 +1729,11 @@ class SetAnalyticsOptOutRequest(BaseModel):
     opted_out: bool
 
 
+class SetReplyLanguageRequest(BaseModel):
+    # i18n code ("zh", "en", ...); empty string clears the preference.
+    language: str = Field(default="", max_length=16, pattern=r"^[a-zA-Z-]*$")
+
+
 @router.get("/settings/analytics")
 async def get_analytics_opt_out(http_request: Request):
     """Return whether the current user has opted out of product analytics.
@@ -1748,3 +1753,26 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     repo = UserSettingsRepository(await get_db_client())
     await repo.set_analytics_opt_out(uid, request.opted_out)
     return {"success": True, "opted_out": request.opted_out}
+
+
+@router.get("/settings/reply-language")
+async def get_reply_language(http_request: Request):
+    """The user's reply-language preference; null = never set (model free)."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"language": await repo.get_reply_language(uid)}
+
+
+@router.put("/settings/reply-language")
+async def set_reply_language(request: SetReplyLanguageRequest,
+                             http_request: Request):
+    """Persist the reply-language preference (empty clears it).
+
+    Written by the frontend LanguageToggle on every switch, read by
+    ContextRuntime into the system prompt — the fix for "UI set to
+    Chinese but replies stay English": the preference used to live only
+    in frontend i18n and never reached the model."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_reply_language(uid, request.language)
+    return {"success": True, "language": request.language or None}

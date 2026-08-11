@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+新增 GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由前端 LanguageToggle 每次切换写透,读方是 [[context_runtime.py]] 的 system prompt 注入。
 
 ## 2026-08-10 — cloud signup capture repaired
 

@@ -45,6 +45,36 @@ from xyz_agent_context.context_runtime.prompts import (
 )
 
 
+# Reply-language directive (fix: UI language never reached the model).
+# Code -> English display name for the directive line; unknown codes fall
+# back to the bare code. Kept tiny on purpose — the code itself is what
+# the model needs.
+_REPLY_LANGUAGE_NAMES = {
+    "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
+    "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese",
+    "ru": "Russian", "ar": "Arabic", "it": "Italian", "nl": "Dutch",
+}
+
+
+def build_reply_language_section(language: str | None) -> str:
+    """One byte-stable system-prompt section, empty when unset.
+
+    Stable per user (changes only when the user flips the toggle), so it
+    is safe in the cacheable prompt region — R4 discipline. "unless the
+    user explicitly asks otherwise" keeps per-message override natural.
+    """
+    code = (language or "").strip()
+    if not code:
+        return ""
+    name = _REPLY_LANGUAGE_NAMES.get(code.lower().split("-")[0], code)
+    return (
+        f"## Reply language\n"
+        f"The user's preferred language is {name} ({code}). Write every "
+        f"user-facing reply in {name}, unless the user explicitly asks "
+        f"for another language in their message."
+    )
+
+
 class ContextRuntime:
     """
     ContextRuntime is responsible for building the Context required for the Agent Loop.
@@ -924,6 +954,26 @@ class ContextRuntime:
         if recent_actions and not relocation_enabled:
             enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
+
+        # Reply language: the user's persisted preference reaches the model
+        # here (it used to live only in frontend i18n — the "UI set to
+        # Chinese, replies stay English" bug). Byte-stable per user, so the
+        # cacheable region is safe; fail-open — a settings read must never
+        # break a turn.
+        if self.user_id:
+            try:
+                from xyz_agent_context.repository.user_settings_repository import (
+                    UserSettingsRepository,
+                )
+
+                reply_lang = await UserSettingsRepository(self.db).get_reply_language(
+                    self.user_id
+                )
+                section = build_reply_language_section(reply_lang)
+                if section:
+                    enhanced_system_prompt += "\n\n" + section
+            except Exception as e:  # noqa: BLE001 — preference is enrichment
+                logger.warning(f"[ReplyLanguage] lookup failed, skipping: {e}")
 
         final_messages = [
             {"role": "system", "content": enhanced_system_prompt}

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/repository/user_settings_repository.py
-last_verified: 2026-06-08
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+新增 `get_reply_language`/`set_reply_language`(空串=清除,读侧归一为 None)。修「UI 选中文仍英文回复」:语言偏好此前只活在前端 i18n,从未落库。
 
 # user_settings_repository.py
 

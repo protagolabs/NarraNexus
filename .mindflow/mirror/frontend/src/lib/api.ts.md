@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+新增 `setReplyLanguage(language)`(PUT reply-language;'' 清除)。
+
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含

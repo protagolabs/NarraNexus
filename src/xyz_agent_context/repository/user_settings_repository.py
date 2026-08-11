@@ -28,6 +28,30 @@ class UserSettingsRepository:
             return False
         return bool(row.get("analytics_opt_out"))
 
+    async def get_reply_language(self, user_id: str) -> str | None:
+        """The user's preferred reply language (i18n code) or None when
+        never set — None means the model keeps its historical freedom."""
+        row: dict[str, Any] | None = await self.db.get_one(
+            self.table_name, {"user_id": user_id}
+        )
+        if not row:
+            return None
+        value = (row.get("reply_language") or "").strip()
+        return value or None
+
+    async def set_reply_language(self, user_id: str, language: str | None) -> None:
+        """Persist the reply-language preference (None/empty clears it)."""
+        value = (language or "").strip()
+        existing = await self.db.get_one(self.table_name, {"user_id": user_id})
+        if existing:
+            await self.db.update(
+                self.table_name, {"user_id": user_id}, {"reply_language": value}
+            )
+        else:
+            await self.db.insert(
+                self.table_name, {"user_id": user_id, "reply_language": value}
+            )
+
     async def set_analytics_opt_out(self, user_id: str, opted_out: bool) -> None:
         existing = await self.db.get_one(self.table_name, {"user_id": user_id})
         value = 1 if opted_out else 0

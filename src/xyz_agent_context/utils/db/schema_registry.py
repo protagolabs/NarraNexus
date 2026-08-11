@@ -2146,6 +2146,9 @@ _register(
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
             Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
             Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # Reply language preference (i18n code, e.g. "zh"); NULL = never
+            # set — the model picks freely (historical behavior).
+            Column("reply_language", "TEXT", "VARCHAR(16)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

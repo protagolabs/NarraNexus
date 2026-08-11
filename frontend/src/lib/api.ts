@@ -673,6 +673,19 @@ class ApiClient {
     );
   }
 
+  /** Persist the reply-language preference (i18n code; '' clears). The
+   *  backend injects it into the agent's system prompt — without this
+   *  write the language choice never reaches the model. */
+  async setReplyLanguage(language: string): Promise<void> {
+    await this.request<{ success: boolean; language: string | null }>(
+      '/api/auth/settings/reply-language',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ language }),
+      },
+    );
+  }
+
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }
