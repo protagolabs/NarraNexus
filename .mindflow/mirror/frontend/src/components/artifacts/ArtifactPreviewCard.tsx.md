@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-15
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+同 InlineBadge:激活改 `restoreTab`,防激活到最小化 tab。
 
 ## 2026-05-15 — no longer mounted from chat
 
