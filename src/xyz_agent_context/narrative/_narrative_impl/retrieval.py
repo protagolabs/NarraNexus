@@ -34,17 +34,44 @@ from xyz_agent_context.utils.logging import timed
 # Use common utilities from utils
 from xyz_agent_context.utils.text import extract_keywords, truncate_text
 from xyz_agent_context.utils.db.db_factory import get_db_client
-from ._retrieval_llm import (
-    RelationType,
-    NarrativeMatchOutput,
-    UnifiedMatchOutput,
-    llm_confirm,
-    llm_judge_unified,
-)
+from ._retrieval_llm import llm_judge_unified
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.repository import NarrativeRepository
+
+# How much of a candidate reaches the judge. The judge prompt is rebuilt from
+# scratch on every crowded turn, so each of these is paid per candidate per
+# judged turn — hence bounded here rather than "whatever fits".
+MAX_MATCHED_TERMS = 5  # Terms shown per candidate, highest contribution first
+CANDIDATE_DESC_MAX_CHARS = 300  # Summary excerpt shown per candidate
+
+
+def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
+    """The (name, description) a narrative shows the LLM judge — ONE definition.
+
+    Every branch that assembles a judge candidate goes through here. That is
+    the actual fix, not an aesthetic one: the search branch and the PARTICIPANT
+    branch of `_llm_unified_match` were two implementations of this same
+    decision, 50 lines apart, and on 2026-04-15 only the search branch was
+    moved onto the live `narrative_info` fields. The PARTICIPANT branch kept
+    reading `topic_hint`, which the 2026-06-09 unified-memory refactor then
+    froze into a write-once-at-creation tombstone — 84% empty on the local dev
+    DB, and stale wherever it is not. Measured worst cases: a 72-event
+    narrative described to the judge by its first sentence from three months
+    earlier, and one whose label was a `[:50]` cut through the middle of an
+    open_id. That branch FORCES the judge to run (a task someone invited the
+    user into must not lose to a keyword hit on the user's own narrative), so
+    a blind label there decides the turn.
+
+    "Untitled" with an empty description is the honest answer for a narrative
+    whose metadata the async updater has not written yet; a frozen creation-time
+    hint is not, because it reads to the LLM as current fact.
+    """
+    info = narrative.narrative_info
+    name = (info.name if info and info.name else "") or "Untitled"
+    summary = (info.current_summary if info and info.current_summary else "")
+    return name, summary[:CANDIDATE_DESC_MAX_CHARS]
 
 
 class NarrativeRetrieval:
@@ -444,20 +471,37 @@ class NarrativeRetrieval:
         top_k: int,
     ) -> List[NarrativeSearchResult]:
         """Rank an already-loaded pool. Pure — no DB, so the audit replay and
-        the live decision run byte-identical code."""
-        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+        the live decision run byte-identical code.
 
-        scores = bm25_rank(query, [(nid, text) for nid, text, _ in pool])
-        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-        return [
-            NarrativeSearchResult(
+        Ranks via ``bm25_explain`` rather than ``bm25_rank``: same arithmetic
+        and the same score to the last bit, but it also hands back WHICH query
+        terms earned that score. That evidence travels to the LLM judge
+        (`_llm_unified_match`), and this is the only moment it is free — the
+        scored text is in hand here, and reconstructing it later is impossible
+        because the async updater rewrites it wholesale with no history.
+        """
+        from xyz_agent_context.memory._memory_impl.retrieval import (
+            bm25_explain,
+            bm25_snippet,
+        )
+
+        explained = bm25_explain(query, [(nid, text) for nid, text, _ in pool])
+        texts = {nid: text for nid, text, _ in pool}
+        ranked = sorted(
+            explained.items(), key=lambda kv: kv[1][0], reverse=True
+        )[:top_k]
+        results = []
+        for i, (nid, (score, contributions)) in enumerate(ranked):
+            terms = [term for term, _ in contributions]
+            results.append(NarrativeSearchResult(
                 narrative_id=nid,
-                similarity_score=s / (s + 1.0),
+                similarity_score=score / (score + 1.0),
                 rank=i + 1,
-                raw_score=s,
-            )
-            for i, (nid, s) in enumerate(ranked)
-        ]
+                raw_score=score,
+                matched_terms=terms[:MAX_MATCHED_TERMS],
+                matched_snippet=bm25_snippet(texts[nid], terms),
+            ))
+        return results
 
     async def keyword_search(
         self,
@@ -530,24 +574,28 @@ class NarrativeRetrieval:
         for result in search_results:
             narrative = await self._crud.load_by_id(result.narrative_id)
             if narrative:
-                # Use narrative_info for candidate info (no episode_summaries after decoupling)
-                candidate_name = (
-                    narrative.narrative_info.name
-                    if narrative.narrative_info and narrative.narrative_info.name
-                    else (narrative.topic_hint[:50] if narrative.topic_hint else "Untitled")
-                )
-                candidate_desc = (
-                    narrative.narrative_info.current_summary[:300]
-                    if narrative.narrative_info and narrative.narrative_info.current_summary
-                    else (narrative.topic_hint[:100] if narrative.topic_hint else "")
-                )
+                candidate_name, candidate_desc = _candidate_labels(narrative)
 
+                # The BM25 evidence, carried through from rank_pool. Without it
+                # the judge sees only `Similarity score: 0.91` — a number that
+                # can be 100% request-frame characters, on the very turns the
+                # gate handed over BECAUSE the candidates were crowded.
+                #
+                # `raw_score` rides along un-rendered, as the marker for "this
+                # candidate came from BM25 and therefore OWES evidence": step
+                # 1.5 merges participant narratives into `search_results` at a
+                # synthetic 0.5 similarity, so this list is not purely
+                # BM25-sourced and the missing-evidence alarm downstream would
+                # otherwise cry wolf on every participant turn.
                 search_candidates.append({
                     "id": narrative.id,
                     "type": "search",
                     "name": candidate_name,
                     "description": candidate_desc,
                     "score": result.similarity_score,
+                    "raw_score": result.raw_score,
+                    "matched_terms": result.matched_terms,
+                    "matched_content": result.matched_snippet,
                 })
 
         logger.debug(f"[NarrativeSelect] Prepared {len(search_candidates)} search candidates for LLM judge")
@@ -578,11 +626,16 @@ class NarrativeRetrieval:
         participant_candidates = []
         if participant_narratives:
             for narrative in participant_narratives:
+                # Same labeller as the search branch above — no matched_terms /
+                # matched_content: these never went through BM25 (they enter at
+                # a synthetic neutral score), and inventing evidence for them
+                # would be worse than showing none.
+                candidate_name, candidate_desc = _candidate_labels(narrative)
                 participant_candidates.append({
                     "id": narrative.id,
                     "type": "participant",  # P0-4: Changed to "participant"
-                    "name": narrative.topic_hint[:50] if narrative.topic_hint else "Untitled",
-                    "description": narrative.topic_hint[:100] if narrative.topic_hint else "",
+                    "name": candidate_name,
+                    "description": candidate_desc,
                 })
             logger.info(f"P0-4: Added {len(participant_candidates)} PARTICIPANT candidates to LLM judgment")
 
@@ -685,26 +738,6 @@ class NarrativeRetrieval:
             scores=all_scores,
             retrieval_method=retrieval_method,
         )
-
-    async def _prepare_candidates(
-        self,
-        search_results: List[NarrativeSearchResult]
-    ) -> List[dict]:
-        """Prepare candidate list for LLM confirmation"""
-        candidates = []
-        for result in search_results:
-            narrative = await self._crud.load_by_id(result.narrative_id)
-            if narrative:
-                candidates.append({
-                    "id": narrative.id,
-                    "name": narrative.topic_hint[:30] if narrative.topic_hint else "Untitled",
-                    "query": narrative.topic_hint[:50] if narrative.topic_hint else "",
-                })
-        return candidates
-
-    async def _llm_confirm(self, query: str, candidates: List[dict]) -> dict:
-        """LLM match confirmation — delegates to _retrieval_llm module"""
-        return await llm_confirm(query, candidates)
 
     async def _llm_judge_unified(
         self,

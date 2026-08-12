@@ -82,17 +82,30 @@ def est_tokens(text: str) -> int:
 
 
 # ── BM25-lite ──────────────────────────────────────────────────────────────
-def bm25_rank(
+def _bm25_term_contributions(
     query: str,
     items: "Sequence[Tuple[str, str]]",
     *,
     k1: float = 1.5,
     b: float = 0.75,
-) -> Dict[str, float]:
-    """Generic Okapi BM25 over (id, text) pairs. IDF is computed on the
-    candidate set itself (no global index). Returns id → score; ids with no
-    query-term hit are omitted. Reused for both memory recall and narrative
-    routing (so both share one ranking implementation)."""
+) -> Dict[str, Dict[str, float]]:
+    """id → {query term: its addend in the BM25 sum}, in token order.
+
+    The ONE definition of the arithmetic. `bm25_rank` sums these and
+    `bm25_explain` sorts them, so a score and the evidence shown for that
+    score can never describe different computations. That is not a stylistic
+    preference: narrative routing already shipped a four-month-dead branch
+    (`matched_content`) because a read side and a write side for the same fact
+    lived in two files, and this module's own audit replay
+    (`tests/narrative/test_routing_audit.py`) asserts score reproduction
+    bit-for-bit — a second, "equivalent" copy of the formula is exactly how
+    that guarantee dies quietly.
+
+    Terms are omitted, not zero-filled: only query terms actually present in
+    the document appear. A document with no hit is absent from the result,
+    matching `bm25_rank`'s contract (every addend is strictly positive, so
+    "has terms" and "scores above zero" are the same condition).
+    """
     q_terms = set(tokenize(query))
     if not q_terms or not items:
         return {}
@@ -107,7 +120,7 @@ def bm25_rank(
             df[t] += 1
     idf = {t: math.log(1 + (n - df_t + 0.5) / (df_t + 0.5)) for t, df_t in df.items()}
 
-    scores: Dict[str, float] = {}
+    per_doc: Dict[str, Dict[str, float]] = {}
     for rid, toks in docs:
         if not toks:
             continue
@@ -116,10 +129,127 @@ def bm25_rank(
         for t in toks:
             if t in q_terms:
                 tf[t] = tf.get(t, 0) + 1
-        s = sum(idf[t] * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / avgdl)) for t, f in tf.items())
-        if s > 0:
-            scores[rid] = s
-    return scores
+        contributions = {
+            t: idf[t] * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / avgdl))
+            for t, f in tf.items()
+        }
+        if contributions:
+            per_doc[rid] = contributions
+    return per_doc
+
+
+def bm25_rank(
+    query: str,
+    items: "Sequence[Tuple[str, str]]",
+    *,
+    k1: float = 1.5,
+    b: float = 0.75,
+) -> Dict[str, float]:
+    """Generic Okapi BM25 over (id, text) pairs. IDF is computed on the
+    candidate set itself (no global index). Returns id → score; ids with no
+    query-term hit are omitted. Reused for both memory recall and narrative
+    routing (so both share one ranking implementation)."""
+    return {
+        rid: sum(contributions.values())
+        for rid, contributions in _bm25_term_contributions(
+            query, items, k1=k1, b=b
+        ).items()
+    }
+
+
+def bm25_explain(
+    query: str,
+    items: "Sequence[Tuple[str, str]]",
+    *,
+    k1: float = 1.5,
+    b: float = 0.75,
+) -> Dict[str, Tuple[float, List[Tuple[str, float]]]]:
+    """Same ranking, decomposed: id → (score, [(term, contribution)] descending).
+
+    A BM25 score is not self-describing. On real traffic a query like
+    「帮我查一下明天上海的天气怎么样」 scored 10.67 against an unrelated
+    meeting-notes narrative with 100% of the score coming from the
+    request-frame characters 查/天/下/一/帮, while every topic-bearing
+    character contributed zero — and the squashed form of that score reads as
+    `0.91`. Ordering by contribution makes the difference between "matched on
+    substance" and "matched on politeness" legible to whatever reads it next,
+    and it means a truncated top-N keeps the discriminative terms.
+
+    The score is returned alongside the terms, summed in the same order
+    `bm25_rank` sums it, so it is bit-identical rather than merely close — a
+    caller that wants both (narrative routing does: the gate reads the score,
+    the judge reads the terms) must not have to choose between a second pass
+    over the pool and a score that drifts in the last bits from the one the
+    audit replays.
+
+    Deliberately NOT folded into `bm25_rank`: memory recall calls that on
+    every kind of every request and only wants the number. Separate entry
+    point, shared arithmetic (`_bm25_term_contributions`).
+    """
+    return {
+        rid: (
+            sum(contributions.values()),
+            sorted(contributions.items(), key=lambda kv: kv[1], reverse=True),
+        )
+        for rid, contributions in _bm25_term_contributions(
+            query, items, k1=k1, b=b
+        ).items()
+    }
+
+
+def bm25_snippet(
+    text: str,
+    terms: "Sequence[str]",
+    *,
+    window: int = 60,
+    max_terms: int = 3,
+    max_chars: int = 200,
+) -> str:
+    """Context windows around where `terms` first occur in `text`.
+
+    Terms and score alone still leave the reader guessing WHERE a term landed
+    — 「部署」 inside a topic name and 「部署」 buried in a frozen channel-
+    wrapper prompt are very different evidence for the same term. Windows are
+    merged when they overlap, truncated windows get an ellipsis, and the
+    content budget is capped because this text is about to be spent as prompt
+    tokens on the crowded-candidate path.
+
+    Matching is case-insensitive (the tokenizer lowercases; the snippet quotes
+    the original text).
+    """
+    if not text or not terms:
+        return ""
+
+    lowered = text.lower()
+    spans: List[List[int]] = []
+    for term in list(terms)[:max_terms]:
+        pos = lowered.find(term.lower())
+        if pos < 0:
+            continue
+        spans.append([max(0, pos - window), min(len(text), pos + len(term) + window)])
+    if not spans:
+        return ""
+
+    spans.sort()
+    merged: List[List[int]] = [spans[0]]
+    for start, end in spans[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+
+    parts: List[str] = []
+    budget = max_chars
+    for start, end in merged:
+        if budget <= 0:
+            break
+        chunk = text[start:min(end, start + budget)]
+        budget -= len(chunk)
+        clipped_tail = (start + len(chunk)) < len(text)
+        parts.append(
+            ("…" if start > 0 else "") + chunk.strip() + ("…" if clipped_tail else "")
+        )
+    return " ".join(p for p in parts if p.strip("…"))
 
 
 def bm25_scores(

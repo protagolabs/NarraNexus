@@ -172,34 +172,3 @@ class PromptBuilder:
             current_summary=narrative.narrative_info.current_summary,
         )
 
-    @staticmethod
-    async def build_summary_prompt(narrative: Narrative) -> str:
-        """
-        Generate a Narrative summary Prompt
-
-        Args:
-            narrative: Narrative object
-
-        Returns:
-            Summary Prompt
-        """
-        summary_parts = []
-
-        # Basic information
-        summary_parts.append(f"Narrative: {narrative.narrative_info.name}")
-
-        # Topic hint
-        if narrative.topic_hint:
-            summary_parts.append(f"Topic: {narrative.topic_hint}")
-
-        # Keywords
-        if narrative.topic_keywords:
-            summary_parts.append(f"Keywords: {', '.join(narrative.topic_keywords)}")
-
-        # Dynamic summary (last 3 entries)
-        if narrative.dynamic_summary:
-            recent_summaries = narrative.dynamic_summary[-3:]
-            for entry in recent_summaries:
-                summary_parts.append(f"- {entry.summary[:100]}")
-
-        return "\n".join(summary_parts)

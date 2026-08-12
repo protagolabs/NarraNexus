@@ -166,7 +166,7 @@ class Narrative(BaseModel):
 
     Field categories:
     - Identity: id, type, agent_id
-    - Routing Index: topic_hint, topic_keywords (BM25)
+    - Routing Index: topic_keywords (BM25, via searchable_text())
     - Orchestration Config: active_instances, instance_history_ids
     - References Only: event_ids
     - Metadata: created_at, updated_at
@@ -199,7 +199,14 @@ class Narrative(BaseModel):
 
     # ===== Routing Index =====
     topic_keywords: List[str] = []  # Topic keywords
-    topic_hint: str = ""  # Topic hint/summary
+    # Written ONCE by `_create_narrative` (the truncated first query) and never
+    # updated since the 2026-06-09 unified-memory refactor removed its update
+    # machinery. It is therefore creation-time provenance, NOT current state:
+    # 84% empty on the local dev DB, and where non-empty it can be months stale
+    # or a `[:50]` cut through the middle of an open_id. Display it as "what
+    # started this thread" (backend/routes/me.py does) — never feed it to a
+    # routing decision or a prompt; use `narrative_info.current_summary`.
+    topic_hint: str = ""  # Creation-time first query, frozen
 
     # ===== Metadata =====
     created_at: datetime  # Narrative creation time
@@ -313,6 +320,18 @@ class NarrativeSearchResult(BaseModel):
     # the pool with a synthetic neutral similarity and never had a BM25 score,
     # keep 0.0 here so they cannot trip the gate.
     raw_score: float = 0.0
+    # WHY this candidate scored what it scored, carried forward to the LLM
+    # arbitration tier. A score alone is not just uninformative, it is
+    # misleading: request-frame characters (帮/查/一/下) accumulate real BM25
+    # weight under per-character CJK tokenization, so a semantically unrelated
+    # narrative can reach a squashed 0.91 with zero topic-bearing overlap. The
+    # judge runs exactly when the gate found candidates CROWDED, i.e. when
+    # distinguishing substance from politeness is the whole decision — see
+    # `_narrative_impl/retrieval.rank_pool`, which fills both from the same
+    # BM25 pass that produced `raw_score` (no extra IO, no extra DB read).
+    # Participant narratives never went through BM25 and stay empty.
+    matched_terms: List[str] = []  # Query terms by descending contribution
+    matched_snippet: str = ""  # Context windows where the top terms occur
 
 
 class RoutingCandidate(BaseModel):

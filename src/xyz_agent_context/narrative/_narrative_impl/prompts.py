@@ -144,31 +144,6 @@ Output format:
 """
 
 # ============================================================================
-# Single-Candidate Narrative Match - Single candidate matching prompt
-# Used in NarrativeRetrieval._llm_confirm()
-# ============================================================================
-NARRATIVE_SINGLE_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. Analyze whether the user's new query relates to the given topic.
-
-Requirements:
-- You should thinking carefully and provide a detailed explanation of your reasoning.
-- Try to use your logical reasoning ability to give the most reasonable judgment.
-
-Output format:
-class NarrativeMatchOutput(BaseModel):
-    reason: str
-    matched_index: int
-    relation_type: RelationType
-- reason: Detailed explanation of your reasoning
-- matched_index: Index of the matched topic
-- relation_type: Relation type: continuation, reference, other
-
-Determine the relation_type:
-- "continuation": The query directly continues, follows up, or deepens the existing topic
-- "reference": The query uses pronouns (it, this, that) or indirect references to the topic
-- "other": The query is unrelated to the topic. If none of the topics are related, return this.
-"""
-
-# ============================================================================
 # Unified Narrative Match - Unified matching prompt (with PARTICIPANT branch)
 # Used in NarrativeRetrieval._llm_judge_unified()
 #

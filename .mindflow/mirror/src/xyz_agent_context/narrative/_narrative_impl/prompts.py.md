@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-07-28
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — `NARRATIVE_SINGLE_MATCH_INSTRUCTIONS` 删除（消费者已死）
+
+它的唯一消费者是 `_retrieval_llm.llm_confirm`，而那条链路（`retrieval.
+_prepare_candidates` → `_llm_confirm` → `llm_confirm`）是一个零外部入口的闭环，
+随本次一并删除，理由见 [[_retrieval_llm.py]] 的 2026-08-12 条目。`prompts_index.py`
+的索引项同步删除 —— 索引项指向不存在的常量会直接 ImportError，所以这两处必须同
+commit。
+
+顺手校正一处**旧文档的不准确**：《四个待修缺陷》文档把本文件里的
+`class NarrativeMatchOutput(BaseModel):` 记成"prompts 文件里又定义了一遍"。实际它
+在那段 prompt **字符串内部**（给 LLM 描述输出格式的文本），不是第二个类定义。删掉
+整个常量后两者都没了，但结论不能照抄成"删掉了一个重复类"。
 
 ## 2026-07-28 — R4d：Created At 迁入 turn 版（created_at 有两个时钟源）
 
@@ -74,7 +87,7 @@ prompt 审计只看这里。
 
 **被谁用**：[[prompt_builder.py]]（type/actor 描述常量 + 三个 NARRATIVE_*_
 PROMPT_TEMPLATE）；`continuity.py`（CONTINUITY_DETECTION_INSTRUCTIONS）；
-`_retrieval_llm.py`（NARRATIVE_SINGLE_MATCH / UNIFIED_MATCH 两版）；
+`_retrieval_llm.py`（UNIFIED_MATCH 两版：带 / 不带 PARTICIPANT）；
 `updater.py`（NARRATIVE_UPDATE_INSTRUCTIONS）。
 
 **依赖谁**：无。零 import，纯常量文件。
