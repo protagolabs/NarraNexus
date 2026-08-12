@@ -46,6 +46,7 @@ def _prompt(agent_id: str = "agent_lead", *, team=None, **kw) -> str:
         trigger_messages=[msg],
         lead_agent_id="agent_lead",
         work_items=[],
+        bulletin=None,
         team=team,
         **kw,
     )

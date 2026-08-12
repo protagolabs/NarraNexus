@@ -38,6 +38,11 @@ from xyz_agent_context.agent_framework.llm.failure import (
     redact_secrets,
 )
 from xyz_agent_context.services.service_audit import ServiceAuditor
+from xyz_agent_context.message_bus._bus_activity import (
+    elapsed_seconds,
+    is_live,
+    is_stalled,
+)
 from xyz_agent_context.message_bus.local_bus import (
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
@@ -722,19 +727,20 @@ class MessageBusTrigger:
             return
         try:
             # "Did the window reach the bottom of what this agent still owes?"
-            # `get_unread` already measures against the cursor, so anything it
-            # returns below the window is by definition a message this turn did
-            # not render. One question, correct whether or not a cursor exists.
-            floor = canonical_ts(rendered_from)
-            behind = [
-                m for m in await self._bus.get_unread(agent_id)
-                if m.channel_id == channel_id and canonical_ts(m.created_at) < floor
-            ]
-            if behind:
+            # An existence question, asked as one: the unread predicate already
+            # measures against the cursor, so anything left below the window is
+            # by definition something this turn did not render. Correct whether
+            # or not a cursor exists — and it stays a `LIMIT 1`, rather than
+            # dragging the agent's whole cross-channel backlog over the wire to
+            # be filtered in Python, which is the shape this lane just spent a
+            # PR removing.
+            if await self._bus.has_unread_before(
+                agent_id, channel_id, rendered_from
+            ):
                 logger.info(
                     f"[bus] read cursor held for {agent_id} in {channel_id}: "
-                    f"{len(behind)} unread message(s) predate this turn's "
-                    f"scrollback and were never rendered"
+                    f"unread messages predate this turn's scrollback and were "
+                    f"never rendered"
                 )
                 return
             await self._bus.ack_read(
@@ -1631,18 +1637,15 @@ class MessageBusTrigger:
         like `tool:Read`; putting it in front of a model invites commentary on
         a teammate's tool use, and it churns every few seconds.
         """
-        from xyz_agent_context.message_bus import _bus_activity
-
         if not row:
             return ""
-        if _bus_activity.is_stalled(row):
+        if is_stalled(row):
             return "running but no signal"
-        if not _bus_activity.is_live(row):
+        if not is_live(row):
             return ""
-        started = _bus_activity._parse_ts(row.get("started_at"))
-        if started is None:
+        secs = elapsed_seconds(row)
+        if secs is None:
             return "running"
-        secs = int((utc_now() - started).total_seconds())
         if secs < 60:
             return f"running ({secs}s)"
         if secs < 3600:
@@ -1655,7 +1658,6 @@ class MessageBusTrigger:
         agent_id: str,
         roster: List[dict],
         lead_agent_id: str,
-        activity: Optional[Dict[str, dict]] = None,
     ) -> List[str]:
         """One line per member, in the same shape as the Known Agents list.
 
@@ -1677,7 +1679,11 @@ class MessageBusTrigger:
         from xyz_agent_context.schema.entity_schema import is_agent_description_unset
 
         if not roster:
-            return ["Channel members RIGHT NOW: just you."]
+            # NOT "just you": this agent is itself a member, so an empty roster
+            # means the read came back empty, not that the room is deserted.
+            # Same rule as the team card — say nothing rather than assert
+            # something the data does not support.
+            return []
         out = [f"Channel members RIGHT NOW (besides the user), {len(roster)}:"]
         for r in roster:
             rid = r.get("agent_id", "")
@@ -1688,14 +1694,19 @@ class MessageBusTrigger:
                 line += " · Leader"
             desc = r.get("description") or ""
             if not is_agent_description_unset(desc):
-                line += f": {desc[:120]}"
-            caps = [str(c) for c in (r.get("capabilities") or [])][:6]
+                # Marked when cut, same rule the team card follows for
+                # `intro_md`: two truncation standards in one prompt is how a
+                # reader learns to distrust both.
+                shown = desc[:120] + ("…" if len(desc) > 120 else "")
+                line += f": {shown}"
+            all_caps = [str(c) for c in (r.get("capabilities") or [])]
+            caps = all_caps[:6]
             if caps:
-                line += f" · can: {', '.join(caps)}"
+                more = f" +{len(all_caps) - len(caps)} more" if len(all_caps) > len(caps) else ""
+                line += f" · can: {', '.join(caps)}{more}"
             # Own status is not news to oneself.
             if rid != agent_id:
-                row = (activity or {}).get(rid) or r.get("activity")
-                status = cls._member_status(row)
+                status = cls._member_status(r.get("activity"))
                 if status:
                     line += f" · {status}"
             out.append(line)
@@ -1752,7 +1763,6 @@ class MessageBusTrigger:
         work_items: Optional[List[dict]] = None,
         patrol_stalled: Optional[List[dict]] = None,
         team: Optional[dict] = None,
-        activity: Optional[Dict[str, dict]] = None,
         *,
         bulletin: Optional[List[Any]],
     ) -> str:
@@ -1773,7 +1783,7 @@ class MessageBusTrigger:
             f'You are "{me}" in a team group chat with the user and your '
             f"teammates.",
         ]
-        lines += self._roster_lines(agent_id, roster, lead_agent_id, activity)
+        lines += self._roster_lines(agent_id, roster, lead_agent_id)
         lines += [
             "These are the ONLY participants who can see this chat. Someone "
             "named in the history but not in that list has LEFT or was never "
@@ -1961,14 +1971,16 @@ class MessageBusTrigger:
                 "If it refers to a file/image shown above, open the path with "
                 "the Read tool first, then reply."
             )
+            # The honesty check is per BATCH, not "is there exactly one". Two
+            # messages inside one poll window is ordinary, and if the user named
+            # nobody in either then BOTH carry a synthesised mention — announcing
+            # "2 messages @mentioned you" would be the same invented attention
+            # this branch exists to remove, one branch over.
+            routed = [m for m in trigger_messages if m.routed_by == "default_responder"]
+            all_routed = len(routed) == len(trigger_messages)
             if len(trigger_messages) == 1:
                 tm = trigger_messages[0]
-                if tm.routed_by == "default_responder":
-                    # Nobody named this agent; the room routed to it so the
-                    # message would not go unanswered. Saying "@mentioned"
-                    # here is the platform inventing attention the agent never
-                    # received — and an agent that believes a person singled it
-                    # out will commit harder than the situation warrants.
+                if all_routed:
                     lines += [
                         "",
                         f"{_who(tm)} posted this without @mentioning anyone. "
@@ -1987,13 +1999,30 @@ class MessageBusTrigger:
                 # earlier asks sitting in the scrollback looking like everyone
                 # else's traffic — asked, and silently dropped, which reads to
                 # the user as the agent ignoring them.
-                lines += [
-                    "",
-                    f"{len(trigger_messages)} messages @mentioned you since "
-                    f"your last turn. Address ALL of them — answering only the "
-                    f"latest leaves the others visibly ignored:",
-                ]
-                lines += [f"- {_who(tm)}: {tm.content}" for tm in trigger_messages]
+                if all_routed:
+                    head = (
+                        f"{len(trigger_messages)} messages arrived with no "
+                        f"@mention. You are this team's default responder, so "
+                        f"they came to you. Address ALL of them, or hand any of "
+                        f"them to a better owner on the roster:"
+                    )
+                else:
+                    head = (
+                        f"{len(trigger_messages)} messages @mentioned you since "
+                        f"your last turn. Address ALL of them — answering only "
+                        f"the latest leaves the others visibly ignored:"
+                    )
+                lines += ["", head]
+                for tm in trigger_messages:
+                    # In a mixed batch neither label is true of the whole, so
+                    # each line says which it is.
+                    mark = (
+                        "  [no @mention — routed to you]"
+                        if (routed and not all_routed
+                            and tm.routed_by == "default_responder")
+                        else ""
+                    )
+                    lines.append(f"- {_who(tm)}: {tm.content}{mark}")
                 lines.append(tail)
         lines += [
             "",

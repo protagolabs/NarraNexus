@@ -46,7 +46,7 @@ def _prompt(history, trigger_messages):
         "agent_me", history, ROSTER,
         owner_user_id="usr_u", team_id="t1",
         trigger_messages=trigger_messages,
-        lead_agent_id="agent_peer", work_items=[],
+        lead_agent_id="agent_peer", work_items=[], bulletin=None,
     )
 
 

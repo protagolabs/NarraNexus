@@ -352,7 +352,16 @@ class MessageBusModule(XYZBaseModule):
             total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
             parts.append("")
             parts.append(f"### Unread Messages: {total} (showing {shown})")
-            parts.append("> Remember: apply Reply Discipline. Ignored messages stay unread.")
+            # Same scoping as the static rule above, for the same reason —
+            # and it matters more here, because this header sits directly on a
+            # list that MIXES team-room messages in. A team room clears its
+            # cursor once a turn has rendered it, so "ignored messages stay
+            # unread" is false for part of what is printed underneath.
+            parts.append(
+                "> Remember: apply Reply Discipline. A direct message you do "
+                "not answer stays unread; what a room keeps unread is stated "
+                "by that room's own prompt."
+            )
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
                 from_agent = m.get("from_agent", "unknown")
                 channel = m.get("channel_id", "")

@@ -909,3 +909,25 @@ Agents 同一条 2026-08-04 的教训。
 **真假 @ 分支**:`routed_by == "default_responder"` 时不再说 "You were just
 @mentioned",改成「X 发言时没有 @ 任何人,你是这个团队的默认应答人,所以它落到了你
 这里;回答它,或按 roster 交给更合适的人」—— 顺带回答了"为什么是我"。
+
+## 2026-08-12 (review 后) — 三处自我纠正
+
+**① 缺口判定改用 `has_unread_before`。** 见 [[local_bus]] 同日条目:我用无 limit 的
+`get_unread` 回答一个布尔问题,把同一批改动刚消灭的形状请了回来。
+
+**② 真假 @ 的判据从「是不是只有一条」改成「整批是不是都被路由」。** 初版只在
+`len(trigger_messages) == 1` 时区分 `routed_by`,于是用户在一个 poll 窗口(3-12s)里
+连发两条都没 @ 人的消息时,复数分支照样打出「2 messages @mentioned you」——**要删掉的
+那句谎话换了个分支活着**。现在按批次分组:全部路由 → 复数版的默认应答人措辞;全是
+真 @ → 原措辞;混合 → 复数版并**逐条标注**哪条是路由补的(scrollback 的 `[→ …]`
+已经证明逐条标注读起来没问题)。
+
+**③ `activity` 覆盖参数删除。** 它在生产没有任何调用方,而 5 条状态测试全靠它驱动 ——
+也就是说 `_team_roster` → `roster[i]["activity"]` → `_member_status` 这条**真实链路
+一条测试都没走过**。参数删掉,测试改用真实形状,另补一条端到端用例:往
+`bus_agent_activity` 写一行 running、外加**同一个 agent 在另一个房间的 idle 行**,
+断言 prompt 里出现的是本房间的时长 —— 顺带把「必须按 channel 取」钉死。
+
+顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
+一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
+成员,读回空意味着读失败,不是房间空了。

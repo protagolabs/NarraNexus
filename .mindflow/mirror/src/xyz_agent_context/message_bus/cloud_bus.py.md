@@ -57,3 +57,7 @@ TypeError), defeating its placeholder purpose.
 ## 2026-08-12 — `send_message` 跟随协议加 `routed_by`
 
 仍是 NotImplementedError 占位。
+
+## 2026-08-12 — `has_unread_before` 占位
+
+随协议加入,仍是 NotImplementedError。

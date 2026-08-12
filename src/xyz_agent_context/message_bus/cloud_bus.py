@@ -109,6 +109,11 @@ class CloudMessageBus(MessageBusService):
     async def ack_processed(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
     async def count_unread(self, agent_id: str) -> int:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

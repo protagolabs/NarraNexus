@@ -132,6 +132,26 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        """
+        Whether this channel still holds unread messages older than a point.
+
+        An existence question, so implementations must answer it without
+        materialising the backlog.
+
+        Args:
+            agent_id: The agent whose unread set is being asked about.
+            channel_id: The channel to look in.
+            before: ISO 8601 timestamp; only strictly older messages count.
+
+        Returns:
+            True when at least one such message exists.
+        """
+        ...
+
+    @abstractmethod
     async def count_unread(self, agent_id: str) -> int:
         """
         How many unread messages exist, independent of any window.

@@ -85,3 +85,7 @@ raises NotImplementedError. Files are references, not bytes — see
 
 协议同步。`test_bus_service_protocol.py` 在实现漏跟时会红 —— 这轮它就抓到了
 `CloudMessageBus` 漏改。
+
+## 2026-08-12 — 协议新增 `has_unread_before`
+
+存在性判断,实现方不得为此把积压物化。语义见 [[local_bus]]。

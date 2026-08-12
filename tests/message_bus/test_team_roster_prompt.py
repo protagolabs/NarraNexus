@@ -54,6 +54,14 @@ def _roster(**overrides):
     return base
 
 
+def _with_activity(row: dict | None, agent_id: str = "agent_worker"):
+    """Roster carrying an activity row, the way `_team_roster` builds it."""
+    return [
+        {**r, "activity": row} if r["agent_id"] == agent_id else r
+        for r in _roster()
+    ]
+
+
 def _prompt(agent_id: str = "agent_lead", *, roster=None, **kw) -> str:
     trigger = MessageBusTrigger.__new__(MessageBusTrigger)
     msg = BusMessage(
@@ -68,6 +76,7 @@ def _prompt(agent_id: str = "agent_lead", *, roster=None, **kw) -> str:
         trigger_messages=[msg],
         lead_agent_id="agent_lead",
         work_items=[],
+        bulletin=None,
         **kw,
     )
 
@@ -115,13 +124,10 @@ def test_a_non_lead_can_see_who_the_lead_is():
 def test_a_busy_teammate_shows_how_long_it_has_been_busy():
     """"running" alone cannot separate "just started" from "stuck for an hour",
     and the second is the one worth reporting."""
-    activity = {
-        "agent_worker": {
-            "state": "running", "started_at": utc_now() - timedelta(minutes=3),
-            "updated_at": utc_now(), "phase": "tool:Read",
-        }
-    }
-    text = _prompt(activity=activity)
+    text = _prompt(roster=_with_activity({
+        "state": "running", "started_at": utc_now() - timedelta(minutes=3),
+        "updated_at": utc_now(), "phase": "tool:Read",
+    }))
 
     worker_line = next(ln for ln in text.splitlines() if "agent_worker" in ln)
     assert "running" in worker_line
@@ -132,27 +138,21 @@ def test_the_internal_phase_never_reaches_the_prompt():
     """`phase` is an implementation step name. Handing it to a model invites it
     to reason about a teammate's tool use, which is not its business and churns
     every few seconds."""
-    activity = {
-        "agent_worker": {
-            "state": "running", "started_at": utc_now(),
-            "updated_at": utc_now(), "phase": "tool:Read",
-        }
-    }
-    text = _prompt(activity=activity)
+    text = _prompt(roster=_with_activity({
+        "state": "running", "started_at": utc_now(),
+        "updated_at": utc_now(), "phase": "tool:Read",
+    }))
 
     assert "tool:Read" not in text
 
 
 def test_a_dead_heartbeat_reads_as_no_signal_not_as_running():
     """The distinction the Leader acts on."""
-    activity = {
-        "agent_worker": {
-            "state": "running",
-            "started_at": utc_now() - timedelta(hours=1),
-            "updated_at": utc_now() - timedelta(hours=1),
-        }
-    }
-    text = _prompt(activity=activity)
+    text = _prompt(roster=_with_activity({
+        "state": "running",
+        "started_at": utc_now() - timedelta(hours=1),
+        "updated_at": utc_now() - timedelta(hours=1),
+    }))
 
     worker_line = next(ln for ln in text.splitlines() if "agent_worker" in ln)
     assert "no signal" in worker_line
@@ -161,8 +161,7 @@ def test_a_dead_heartbeat_reads_as_no_signal_not_as_running():
 def test_an_idle_teammate_carries_no_status_at_all():
     """Idle is the resting state. Printing it next to every name is standing
     noise of exactly the kind this room keeps removing."""
-    activity = {"agent_worker": {"state": "idle", "updated_at": utc_now()}}
-    text = _prompt(activity=activity)
+    text = _prompt(roster=_with_activity({"state": "idle", "updated_at": utc_now()}))
 
     worker_line = next(ln for ln in text.splitlines() if "agent_worker" in ln)
     assert "idle" not in worker_line.lower()
@@ -224,3 +223,57 @@ async def test_the_roster_is_fetched_in_batches_not_per_member(db_client):
     # Not one per member. `get_by_ids` is the dialect-safe batch shape the
     # repositories already use.
     assert calls.count("agents") == 0
+
+
+@pytest.mark.asyncio
+async def test_a_real_activity_row_reaches_the_prompt(db_client):
+    """End to end, because the unit tests above hand-build the roster row.
+
+    Nothing covered `_team_roster` → `roster[i]["activity"]` → `_member_status`
+    as one chain, so a break anywhere along it — the wrong table, the wrong key,
+    a per-agent read picking another room — would have left every status test
+    green while no teammate status reached a real prompt.
+    """
+    from datetime import timedelta
+
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    await db_client.insert("bus_channels", {
+        "channel_id": "ch_1", "name": "room", "channel_type": "group",
+        "created_by": "team_t1",
+    })
+    for aid, name in (("agent_lead", "Ana"), ("agent_worker", "Bruno")):
+        await db_client.insert("bus_channel_members",
+                               {"channel_id": "ch_1", "agent_id": aid})
+        await db_client.insert("agents", {"agent_id": aid, "agent_name": name,
+                                          "created_by": "usr_1"})
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": "agent_worker", "channel_id": "ch_1", "state": "running",
+        "started_at": utc_now() - timedelta(minutes=4), "updated_at": utc_now(),
+    })
+    # A row for the SAME agent in another room, older-sorting channel id. If the
+    # lookup ever goes per-agent instead of per-channel this is what it finds.
+    await db_client.insert("bus_channels", {
+        "channel_id": "ch_0", "name": "other", "channel_type": "group",
+        "created_by": "team_t2",
+    })
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": "agent_worker", "channel_id": "ch_0", "state": "idle",
+        "updated_at": utc_now(),
+    })
+
+    trigger = MessageBusTrigger(bus=bus)
+    roster = await trigger._team_roster("ch_1")
+    text = trigger._build_team_prompt(
+        "agent_lead",
+        [BusMessage(message_id="m1", channel_id="ch_1", from_agent="usr_u",
+                    content="status?")],
+        roster,
+        owner_user_id="usr_1", team_id="t1", trigger_messages=[],
+        lead_agent_id="agent_lead", work_items=[], bulletin=None,
+    )
+
+    worker_line = next(ln for ln in text.splitlines() if "agent_worker" in ln)
+    assert "running (4m)" in worker_line

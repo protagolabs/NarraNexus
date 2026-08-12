@@ -86,3 +86,28 @@ def test_a_teammate_is_marked_as_one_in_the_known_agents_list():
     other_line = next(ln for ln in text.splitlines() if "agent_stranger" in ln)
     assert "teammate" in mate_line
     assert "teammate" not in other_line
+
+
+def test_the_unread_header_does_not_repeat_the_retracted_promise():
+    """The same sentence, a hundred lines down, sitting on the list it is
+    wrong about.
+
+    The static rules were scoped to DMs because a team room clears its cursor
+    once a turn has rendered it. The volatile block still printed the
+    unqualified version — directly above an unread list that MIXES team-room
+    messages in. Fixing one copy and leaving the other is how a contradiction
+    survives a PR that was written to remove it.
+    """
+    from xyz_agent_context.schema.context_schema import ContextData
+
+    module = MessageBusModule.__new__(MessageBusModule)
+    module.agent_id = "agent_me"
+    ctx = ContextData(agent_id="agent_me", user_id="usr_1", input_content="hi")
+    ctx.extra_data["bus_unread_messages"] = [
+        {"from_agent": "agent_peer", "channel_id": "ch_1", "content": "ping"}
+    ]
+
+    text = "\n".join(module._volatile_context_parts(ctx))
+
+    assert "Ignored messages stay unread" not in text
+    assert "Reply Discipline" in text

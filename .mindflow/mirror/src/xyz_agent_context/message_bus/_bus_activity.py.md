@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_activity.py
-last_verified: 2026-07-30
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -79,3 +79,11 @@ the reader-side guard: a `running` row whose `updated_at` heartbeat is older tha
 - `note_event_id` is write-once per `TurnActivity` instance (`self._event_id`
   guards it) — a second call with a different id is silently ignored, not
   overwritten. Only `start()` (a new turn) resets it.
+
+## 2026-08-12 — `elapsed_seconds`:调用方真正想问的那个问题
+
+roster 渲染此前跨模块拿 `_parse_ts` 这个私有名字用,而它真正要的是「这一轮跑了多久」。
+私有解析器外泄会让每个调用方各自推导一遍答案,所以改成导出语义本身。
+
+口径写死在这里:从 **`started_at`**(本轮开始)算,**不是 `updated_at`**(心跳,永远
+约等于现在)。

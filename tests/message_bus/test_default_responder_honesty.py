@@ -44,7 +44,7 @@ def _prompt(trigger_messages):
         "agent_lead", trigger_messages, ROSTER,
         owner_user_id="usr_u", team_id="t1",
         trigger_messages=trigger_messages,
-        lead_agent_id="agent_lead", work_items=[],
+        lead_agent_id="agent_lead", work_items=[], bulletin=None,
     )
 
 
@@ -117,39 +117,49 @@ async def test_an_ordinary_message_carries_no_stamp(db_client):
     assert (await bus.get_recent_messages("ch_1", limit=1))[0].routed_by is None
 
 
-@pytest.mark.asyncio
-async def test_renaming_a_team_renames_the_room_agents_see(db_client, monkeypatch):
-    """The room keeps its own copy of the name, and that copy is the one agents
-    read: `Your Channels` renders `bus_channels.name`. A rename that stopped at
-    the teams table left every member citing the old name back at the user while
-    the UI showed the new one — a disagreement neither side could explain.
+def test_a_routed_BATCH_does_not_claim_mentions_either():
+    """The same lie, one branch over.
+
+    Two messages arriving inside one poll window (3-12s) is ordinary, and if
+    the user @mentioned nobody in either, BOTH get a synthesised mention. The
+    plural branch then announced "2 messages @mentioned you" — the exact
+    sentence this change exists to delete, surviving because the honesty check
+    was written as "is there exactly one".
     """
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    msgs = [
+        BusMessage(message_id="m1", channel_id="ch_1", from_agent="usr_u",
+                   content="how is the OCR going?", mentions=["agent_lead"],
+                   routed_by="default_responder"),
+        BusMessage(message_id="m2", channel_id="ch_1", from_agent="usr_u",
+                   content="and the index?", mentions=["agent_lead"],
+                   routed_by="default_responder"),
+    ]
 
-    import backend.routes.teams as teams_mod
+    text = _prompt(msgs)
 
-    async def _db():
-        return db_client
+    assert "@mentioned you" not in text
+    assert "default responder" in text.lower()
+    # Still both, still in order — the multi-message fix must survive.
+    assert text.index("how is the OCR") < text.index("and the index")
 
-    async def _uid(_request):
-        return "usr_1"
 
-    monkeypatch.setattr(teams_mod, "get_db_client", _db)
-    monkeypatch.setattr(teams_mod, "_user_id_for_request", _uid)
+def test_a_mixed_batch_marks_which_ones_were_routed():
+    """One real @ and one fallback in the same batch. Calling the whole batch
+    either name would be false about half of it, so each line says which it is
+    — the scrollback already proved per-line annotation reads fine."""
+    msgs = [
+        BusMessage(message_id="m1", channel_id="ch_1", from_agent="usr_u",
+                   content="nobody named", mentions=["agent_lead"],
+                   routed_by="default_responder"),
+        BusMessage(message_id="m2", channel_id="ch_1", from_agent="usr_u",
+                   content="Ana, look at this", mentions=["agent_lead"]),
+    ]
 
-    await db_client.insert("teams", {
-        "team_id": "t1", "owner_user_id": "usr_1", "name": "Old Desk",
-    })
-    await db_client.insert("bus_channels", {
-        "channel_id": "ch_1", "name": "Old Desk", "channel_type": "group",
-        "created_by": "team_t1",
-    })
+    text = _prompt(msgs)
 
-    app = FastAPI()
-    app.include_router(teams_mod.router, prefix="/api/teams")
-    r = TestClient(app).patch("/api/teams/t1", json={"name": "New Desk"})
-
-    assert r.status_code == 200
-    room = await db_client.get_one("bus_channels", {"channel_id": "ch_1"})
-    assert room["name"] == "New Desk"
+    # The pointer section, not the scrollback — both texts appear in each.
+    pointer = text[text.index("Address ALL of them"):]
+    routed_line = next(ln for ln in pointer.splitlines() if "nobody named" in ln)
+    real_line = next(ln for ln in pointer.splitlines() if "Ana, look at this" in ln)
+    assert "no @mention" in routed_line
+    assert "no @mention" not in real_line

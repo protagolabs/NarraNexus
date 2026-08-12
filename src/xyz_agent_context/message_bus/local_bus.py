@@ -268,6 +268,32 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        """Is anything in this channel still unread and older than ``before``?
+
+        A boolean, answered by the database. The caller wants to know whether a
+        turn's rendered window reached the bottom of what the agent still owes,
+        and doing that by pulling every unread message across every channel and
+        filtering in Python is the exact shape this module's unread work just
+        removed: the whole backlog crossing the wire to be thrown away.
+
+        Comparing in SQL also keeps one ordering authority. The Python version
+        had to re-derive the cursor's lexicographic comparison by hand, which is
+        a second implementation of a rule that has already bitten this codebase
+        once.
+        """
+        if not agent_id or not channel_id or not before:
+            return False
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT 1 AS hit {self._unread_where(ph)} "
+            f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
+            (agent_id, agent_id, channel_id, canonical_ts(before)),
+        )
+        return bool(rows)
+
     async def count_unread(self, agent_id: str) -> int:
         """How many unread messages exist, independent of any window.
 
