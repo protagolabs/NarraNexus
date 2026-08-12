@@ -55,6 +55,16 @@ test('an upstream rejection shows a generic message, not the enumerating text', 
   );
 });
 
+test('an upstream 200 with no token is a protocol break → connectionFailed, not invalidCredentials', async () => {
+  // Must NOT tell the user their password is wrong (which would push them into
+  // the reset flow for a password that was never the problem).
+  netmindPost.mockResolvedValue({}); // success shape but no loginToken
+  const { result } = renderHook(() => useNetmindAuth({ onSuccess: vi.fn() }));
+  await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
+  expect(result.current.error).toMatch(/pages\.login\.connectionFailed|connection failed/i);
+  expect(result.current.error).not.toMatch(/pages\.login\.invalidCredentials|invalid email or password/i);
+});
+
 test('a transport failure shows connection-failed, not a bogus credential error', async () => {
   // A bare Error is what fetch/offline/JSON-parse throw — NOT a NetmindApiError.
   netmindPost.mockRejectedValue(new Error('Failed to fetch'));

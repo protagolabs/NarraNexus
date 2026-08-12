@@ -1195,6 +1195,9 @@
       "invalidCredentials": "E-mail ou senha inválidos",
       "enterUserId": "Informe seu ID de usuário",
       "resetCodeInvalid": "O código é inválido ou expirou. Solicite um novo.",
+      "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
+      "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
+      "useDifferentEmail": "Usar outro e-mail",
       "connectionFailed": "Falha na conexão. Tente novamente."
     },
     "modeSelect": {

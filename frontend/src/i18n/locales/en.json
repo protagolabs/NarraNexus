@@ -1511,6 +1511,9 @@
       "invalidCredentials": "Invalid email or password",
       "enterUserId": "Please enter your User ID",
       "resetCodeInvalid": "The code is invalid or has expired. Request a new one.",
+      "forgotResetIntro": "We'll email a verification code to your NetMind account.",
+      "forgotCodeSentHint": "If an account exists for that email, we've sent a verification code.",
+      "useDifferentEmail": "Use a different email",
       "connectionFailed": "Connection failed. Please try again."
     },
     "modeSelect": {

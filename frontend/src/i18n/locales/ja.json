@@ -1194,6 +1194,9 @@
       "invalidCredentials": "メールアドレスまたはパスワードが正しくありません",
       "enterUserId": "ユーザー ID を入力してください",
       "resetCodeInvalid": "コードが無効か期限切れです。新しいコードを取得してください。",
+      "forgotResetIntro": "NetMind アカウントのメールアドレスに確認コードを送信します。",
+      "forgotCodeSentHint": "そのメールのアカウントが存在する場合、確認コードを送信しました。",
+      "useDifferentEmail": "別のメールを使う",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
     },
     "modeSelect": {

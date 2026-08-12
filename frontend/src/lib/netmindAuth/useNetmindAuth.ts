@@ -85,9 +85,11 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           signStr,
           ckType: 2,
         });
-        // "success but no token" is an upstream contract break, not a transport
-        // failure — mark it so the catch doesn't misreport it as connectionFailed.
-        if (!data.loginToken) throw new NetmindApiError('Login failed');
+        // "success but no token" is a protocol break, not a credential
+        // rejection — a bare Error routes it to connectionFailed ("try again"),
+        // NOT invalidCredentials (which would send the user to change a password
+        // that was never wrong, straight into the reset dead-loop).
+        if (!data.loginToken) throw new Error('Login failed');
         loginToken = data.loginToken;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Login failed';
@@ -210,7 +212,9 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           params.verifyCode = extra.verifyCode;
         }
         const data = await netmindPost<NetmindLoginPayload>('/user/userCallBack', params);
-        if (!data.loginToken) throw new NetmindApiError('Bind failed');
+        // Protocol break, not an upstream rejection — bare Error → connectionFailed
+        // (never echoes the dev string 'Bind failed' to the user).
+        if (!data.loginToken) throw new Error('Bind failed');
         setBindInfo(null);
         await exchange(data.loginToken);
       } catch (e) {
@@ -267,12 +271,14 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         });
         return true;
       } catch (e) {
-        // Reached with an email + code. An upstream rejection here is either a
-        // wrong/expired code OR "email not registered" — echoing the latter
-        // verbatim re-opens the enumeration this flow just closed. Both map to
-        // the SAME actionable generic ("bad code, request a new one"), which
-        // stays useful without confirming the email exists. Transport →
-        // connectionFailed.
+        // Reached with an email + code + a CLIENT-VALIDATED password (the
+        // ForgotPasswordCard checklist gates weak passwords before this call),
+        // so an upstream rejection here is only a wrong/expired code OR
+        // "email not registered". Both map to the SAME actionable generic —
+        // echoing "email not registered" verbatim would re-open enumeration,
+        // and a bad code is fixed the same way ("request a new one"). Transport
+        // → connectionFailed. Real reason → funnel (this step's only trace).
+        const message = e instanceof Error ? e.message : 'Failed to reset password';
         setError(
           i18n.t(
             e instanceof NetmindApiError
@@ -280,6 +286,7 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
               : 'pages.login.connectionFailed',
           ),
         );
+        api.reportAuthFunnel('netmind_reset_password_failed', email, message);
         return false;
       } finally {
         setLoading(false);

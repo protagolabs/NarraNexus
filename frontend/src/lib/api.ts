@@ -152,6 +152,21 @@ export type OnboardProviderType =
   | 'yunwu'
   | 'openrouter';
 
+/**
+ * The auth-funnel stages the frontend may report. This union is a COMPILE-TIME
+ * mirror of the backend allowlist `_FUNNEL_STAGES` (backend/routes/auth.py):
+ * the endpoint 400s any stage not in that set and reportAuthFunnel swallows the
+ * 400, so an un-allowlisted stage reports into a black hole. Keeping this a
+ * closed union means adding a new report site fails `tsc` until the name is
+ * added HERE — forcing the author to the backend allowlist at the same time.
+ */
+export type AuthFunnelStage =
+  | 'netmind_email_login_failed'
+  | 'netmind_oauth_failed'
+  | 'signup_send_code_failed'
+  | 'netmind_reset_code_failed'
+  | 'netmind_reset_password_failed';
+
 class ApiClient {
   // Public so download helpers (lib/download.ts) can attach the same
   // identity headers to direct fetch / Tauri-proxy file requests that
@@ -614,7 +629,7 @@ class ApiClient {
    * that blind spot. Must never throw or surface: it is diagnostics riding
    * on top of a failure the user is already looking at.
    */
-  reportAuthFunnel(stage: string, email?: string, detail?: string): void {
+  reportAuthFunnel(stage: AuthFunnelStage, email?: string, detail?: string): void {
     void this.request('/api/auth/funnel-report', {
       method: 'POST',
       body: JSON.stringify({

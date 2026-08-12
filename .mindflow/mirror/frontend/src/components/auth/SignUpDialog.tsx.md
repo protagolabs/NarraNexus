@@ -11,6 +11,7 @@ stub: false
 - **sendCode 不回显上游文案 + 保留诊断（复审二轮 item 1）**：catch 用 `t('pages.signup.sendFailed')` 不透传 NetMind「该邮箱已注册」(防枚举),但**不再裸 `catch {}` 丢掉根因**——`api.reportAuthFunnel('signup_send_code_failed', email.trim().toLowerCase(), message)` 留痕(传输失败根本没到服务端,funnel 是唯一痕迹;只带 email+message,绝不带验证码——文件头铁律)。⚠仅遮 UI;**彻底关闭注册枚举需后端 `/register/sendCode` 返统一响应,记为 follow-up**。
 - **背景关闭改判在 `onMouseUp`（复审二轮 🟢）**:mousedown+mouseup **两端都必须落遮罩**才关,堵住「遮罩按下→卡片内松手」这个镜像手势(之前只堵了反向)。
 见 `SignUpDialog.test.tsx`（Esc/背景 press-release/拖拽不关/点内部不关/in-flight Esc 不关/改邮箱重置）。
+- **`PASSWORD_RULES` 抽到 [[passwordPolicy.ts]]（复审三轮）**：本地定义删除,改 import 共享副本——[[ForgotPasswordCard.tsx]] 现在也用同一份,消除「同一后端策略抄两处/另一处根本没有」。规则/文案/UI 不变。
 
 # SignUpDialog.tsx — 在我们自己的页面上注册
 

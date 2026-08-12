@@ -21,15 +21,8 @@ import { useTranslation } from 'react-i18next';
 import { Check, X } from 'lucide-react';
 import { Button, FormField, TextInput } from '@/components/nm';
 import { api } from '@/lib/api';
+import { PASSWORD_RULES } from '@/lib/netmindAuth/passwordPolicy';
 
-/** Matches backend `password_policy_error` — see netmind_register_client.py. */
-const PASSWORD_RULES: { id: string; test: (v: string) => boolean }[] = [
-  { id: 'length', test: (v) => v.length >= 8 && v.length <= 16 },
-  { id: 'upper', test: (v) => /[A-Z]/.test(v) },
-  { id: 'lower', test: (v) => /[a-z]/.test(v) },
-  { id: 'digit', test: (v) => /\d/.test(v) },
-  { id: 'special', test: (v) => /[^A-Za-z0-9]/.test(v) },
-];
 
 /** Spec: "建议页面发送验证码后增加 60 秒倒计时，避免重复发送." The backend
  *  rate-limits on the same beat, so a user who beats the timer gets a 429

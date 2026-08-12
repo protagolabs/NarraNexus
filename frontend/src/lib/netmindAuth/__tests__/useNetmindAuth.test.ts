@@ -135,6 +135,10 @@ describe('useNetmindAuth password reset', () => {
     });
     expect(result.current.error).not.toMatch(/not registered/i);
     expect(result.current.error).toMatch(/pages\.login\.resetCodeInvalid|invalid or has expired/i);
+    // The real reason is this step's only server-side trace.
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_reset_password_failed', 'a@b.com', 'email not registered',
+    );
   });
 
   test('resetPassword transport failure shows connectionFailed, not bare English', async () => {

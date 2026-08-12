@@ -1203,6 +1203,9 @@
       "invalidCredentials": "البريد الإلكتروني أو كلمة المرور غير صحيحة",
       "enterUserId": "يُرجى إدخال معرّف المستخدم",
       "resetCodeInvalid": "الرمز غير صالح أو منتهي الصلاحية. اطلب رمزًا جديدًا.",
+      "forgotResetIntro": "سنرسل رمز تحقق إلى بريد حساب NetMind الخاص بك.",
+      "forgotCodeSentHint": "إذا كان هناك حساب لهذا البريد، فقد أرسلنا رمز تحقق.",
+      "useDifferentEmail": "استخدام بريد آخر",
       "connectionFailed": "فشل الاتصال. يُرجى المحاولة مجددًا."
     },
     "modeSelect": {

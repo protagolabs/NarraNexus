@@ -1511,6 +1511,9 @@
       "invalidCredentials": "邮箱或密码错误",
       "enterUserId": "请输入你的用户 ID",
       "resetCodeInvalid": "验证码无效或已过期，请重新获取。",
+      "forgotResetIntro": "我们会向你的 NetMind 账号邮箱发送验证码。",
+      "forgotCodeSentHint": "如果该邮箱已注册，我们已发送验证码。",
+      "useDifferentEmail": "换个邮箱",
       "connectionFailed": "连接失败，请重试。"
     },
     "modeSelect": {
