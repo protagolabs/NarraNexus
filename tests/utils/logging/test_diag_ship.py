@@ -653,6 +653,69 @@ class TestDiscovery:
             > _ship._DISCOVERY_RETRY_S * 10
         )
 
+    def test_404_discovery_backs_off_a_full_ttl_not_60s(self, monkeypatch):
+        """A 404 (the collector has no DIAG_COLLECT_CONFIG_JSON) is a
+        DEFINITE "no discovery document here" — same class as the
+        not-a-document 200: back off a full TTL, not the 60s transient
+        cadence. This is exactly the hole staging->dev opened: redirect
+        to dev-agent, dev collector unconfigured -> 404 -> every python
+        process GETs it every 60s forever. 5xx / network stay short."""
+        def _not_found(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"detail": "no discovery config"})
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_not_found)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert (
+            sink._discovery_next - time.monotonic()
+            > _ship._DISCOVERY_RETRY_S * 10
+        )
+
+    def test_3xx_discovery_backs_off_a_full_ttl_not_60s(self, monkeypatch):
+        """A 3xx redirect we don't follow (our collectors serve the doc
+        directly at 200) is a definite non-transient "nothing usable
+        here" — grouped with 4xx into the TTL backoff, NOT the 60s
+        transient cadence."""
+        def _redirect(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"location": "https://x/y"})
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_redirect)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert (
+            sink._discovery_next - time.monotonic()
+            > _ship._DISCOVERY_RETRY_S * 10
+        )
+
+    def test_5xx_discovery_keeps_the_short_retry(self, monkeypatch):
+        """A 5xx is the collector transiently failing — NOT "no service
+        here". It must stay on the 60s retry so recovery is quick, the
+        same stance as a network error (test_unresolvable_...). Do not
+        let the 4xx TTL-backoff widen onto it."""
+        def _boom(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, text="upstream unavailable")
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_boom)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        # short retry: within ~60s, well under a TTL
+        assert (
+            sink._discovery_next - time.monotonic()
+            < _ship._DISCOVERY_TTL_S / 2
+        )
+
     def test_bad_shape_document_with_no_stale_drops_quietly(self, monkeypatch):
         def _garbage(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=["not", "a", "mapping"])
@@ -688,3 +751,55 @@ class TestDiscovery:
         assert not ok("http://agent.narra.nexus/x")  # https only
         assert not ok("https://narra.nexus.evil.com/x")  # suffix trick
         assert not ok("https://evil.com/narra.nexus")
+
+
+def test_run_sh_staging_sandbox_discovers_from_dev_collector():
+    """run.sh redirects STAGING sandboxes' telemetry discovery to the
+    DEV collector — the invariant that lets staging validation proceed
+    without the prod collector. It lives as one `if` in a 145-line
+    function with no other alarm surface in container mode; a later
+    edit that removes it or flips the case would keep CI green while
+    telemetry silently goes dark. Lives here (not the channel-guard
+    file) because it is a telemetry contract; reuses that file's
+    run.sh-text-assertion approach via a local REPO_ROOT read.
+
+    Asserts the redirect and its _is_manyfold_sandbox guard CO-OCCUR in
+    one if-condition — a whole-file substring check would pass even
+    after the guard line is deleted (the token appears elsewhere), the
+    exact false-assurance the reviewer flagged. Anchors from the export
+    line back to ITS governing `if ... then` (not a split of every
+    2-space if...fi block, which a future single-line `...; fi` earlier
+    in the file could merge), so it is immune to indentation and
+    line-continuation reformatting."""
+    run_sh = (Path(__file__).resolve().parents[3] / "run.sh").read_text(
+        encoding="utf-8"
+    )
+    export_line = (
+        'export NEXUS_DIAG_DISCOVERY_URL='
+        '"https://dev-agent.narra.nexus/telemetry/v1/config"'
+    )
+    idx = run_sh.find(export_line)
+    assert idx != -1, (
+        "run.sh no longer redirects a staging label to the dev collector"
+    )
+    # The redirect's governing condition = text from the nearest `if `
+    # up to the `then` that opens the block this export sits in.
+    then_idx = run_sh.rfind("then", 0, idx)
+    assert then_idx != -1, "redirect export is not inside an if...then block"
+    if_idx = run_sh.rfind("\n  if ", 0, then_idx)
+    assert if_idx != -1, "cannot locate the redirect's governing if"
+    condition = run_sh[if_idx:then_idx]
+    # The export must be the FIRST statement of that block — nothing
+    # between `then` and the export but whitespace.
+    assert run_sh[then_idx + len("then"):idx].strip() == "", (
+        "the dev-collector redirect is not the guarded block's first "
+        "statement — its governing condition may not apply to it"
+    )
+    assert '"staging"' in condition, (
+        "dev-collector redirect is no longer keyed on the staging label"
+    )
+    assert "_is_manyfold_sandbox" in condition, (
+        "dev-collector redirect lost its _is_manyfold_sandbox guard — a "
+        "hand-set NEXUS_DIAG_ENV=staging on a personal install would leak "
+        "logs to our dev collector (the whole point of last round's guard)"
+    )

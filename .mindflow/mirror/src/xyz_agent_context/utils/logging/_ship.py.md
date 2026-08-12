@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/_ship.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 ---
+
+## 2026-08-12(rc.2 / #292)— staging 从 dev collector 取发现文档 + 4xx 退避
+
+run.sh 让 **staging 沙盒的发现入口改指 dev-agent**(内置默认仍是
+prod)——发现契约从"三边"变**四边**:标签 → 白名单(存储分区)→
+map key(接收主机)→ **哪台 collector 伺服这份 map**。四处"只有
+prod 一处入口 / URL 轮换=prod 一处 env / 三边契约"的旧表述改口为
+四边,共六处:`_ship.py` 模块 docstring(发送端自己的规范性说明)、
+collector.py 两处 docstring、`.env.example` 两处、run.sh 一处;外加
+两份 mirror 的现状描述段。dev collector
+已配 `DIAG_COLLECT_CONFIG_JSON`(curl 实测 200,含 staging→dev-
+ingest,贴进 PR)。
+
+`_ingest_url` 加 **4xx→整 TTL 退避**:404(collector 无 CONFIG_JSON)
+是明确的"这里没有发现文档",与"200 但非文档形状"同类(3xx 我们
+不跟随、自家 collector 直接 200 伺服,故 3xx-4xx 同归 TTL 退避);
+**5xx/网络错误保持 60s 短重试**(瞬态,不可扩到它们上——test_5xx_keeps_short_
+retry / test_unresolvable_drops_quietly 建立在此);3xx/404/5xx 三条
+用例补在 html-backoff 测试旁。run.sh 重定向的可执行不变量测试落在
+**tests/utils/logging/test_diag_ship.py**(遥测契约测试聚拢处;复用
+run.sh 文本断言的做法,用本地 `parents[3]` 读取仓库根)——断言方式
+是**从重定向 export 行反向锚定它所在 if 的条件**,要求同一条件里
+重定向、`"staging"` 标签、`_is_manyfold_sandbox` 门控三者共现
+(整文件 `in text` 会因 token 在别处出现而虚假通过)。重定向门控加
+`_is_manyfold_sandbox`——个人装机手设 staging 标签不会把日志泄漏到
+dev。
 
 ## 2026-08-12(四审)— 同意标记的持久性是挂载属性
 
@@ -175,8 +201,9 @@ manyfold 的观测性依赖清零,且顺带覆盖本地 DMG 用户:
   见 tests/conftest.py)> `~/.narranexus/telemetry_optout` 标记文件
   (设置 UI 写)> 缺省开(首次告知在 UI;当时预期 full,同意 UI
   落地时定为 **meta**,理由见第十条);
-- **URL 发现**:代码只写死一个入口
-  `https://agent.narra.nexus/telemetry/v1/config`(prod collector 的
+- **URL 发现**(rc.2 起为多入口):代码写死内置默认入口
+  `https://agent.narra.nexus/telemetry/v1/config`(**staging 沙盒经
+  run.sh 改指 dev-agent**,故 dev collector 也须自带发现文档;prod collector 的
   `/v1/config` 伺服,env 可覆盖),响应是 env→ingest URL 的 map,
   发送端按自身标签选路(显式 `NEXUS_DIAG_ENV` > manyfold webhook
   含 api-staging 判 staging > NARRA_SURFACE)——staging 噪声进

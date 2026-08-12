@@ -504,12 +504,44 @@ run_container_mode() {
     # dev collector; everything else is "sprite" — its own storage
     # partition, so a full-level sandbox fleet rotates ITSELF under the
     # collector's size cap instead of crowding out prod's history.
-    # Three-sided contract: "sprite" is in the collector's default
-    # DIAG_COLLECT_KNOWN_ENVS and in the discovery-map examples.
+    # Label contract (four-sided): "sprite" is in the collector's
+    # default DIAG_COLLECT_KNOWN_ENVS and the discovery-map examples;
+    # its discovery endpoint is the built-in prod default (only
+    # "staging" is redirected to dev, in the block below).
     case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
       *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
       *)             export NEXUS_DIAG_ENV="sprite" ;;
     esac
+  fi
+  # Staging sandboxes discover their ingest URL from the DEV collector,
+  # not the built-in prod default: staging telemetry is fully self-
+  # contained on dev-agent (its /v1/config already serves a staging ->
+  # dev-ingest map), so staging validation never waits on the prod
+  # collector being deployed. Only staging is redirected; sprite (prod
+  # manyfold) keeps the built-in prod discovery so it routes to the
+  # prod collector. Explicit env still wins.
+  #
+  # KNOWN RESIDUAL (accepted 2026-08-12): the staging/sprite split is a
+  # substring sniff of the manyfold webhook host (api-staging). A prod
+  # sandbox whose host ever contained "api-staging" would mislabel and
+  # ship prod logs to the dev collector; conversely a staging host that
+  # dropped the substring would fall through to prod discovery and drop
+  # batches. Both collapse to a config fix once observed — staging
+  # validation only needs the common case, which this covers. Hardening
+  # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred. When it
+  # lands, the injector must set token + runtime_id too: the redirect
+  # below is gated on label AND manyfold identity, so an injected
+  # "staging" label with those vars absent gets the label but not the
+  # redirect, and its batches fall back to prod discovery silently.
+  # Gated on _is_manyfold_sandbox too: the "staging" label is only
+  # auto-derived for sandboxes, but a personal install that set
+  # NEXUS_DIAG_ENV=staging by hand must NOT get its logs redirected to
+  # our dev collector — the redirect is a managed-sandbox behavior, not
+  # a label anyone can opt into.
+  if [ -n "$_is_manyfold_sandbox" ] \
+     && [ "${NEXUS_DIAG_ENV:-}" = "staging" ] \
+     && [ -z "${NEXUS_DIAG_DISCOVERY_URL:-}" ]; then
+    export NEXUS_DIAG_DISCOVERY_URL="https://dev-agent.narra.nexus/telemetry/v1/config"
   fi
   # Managed sandboxes DEFAULT to full — via the consent chain's
   # managed-DEFAULT layer, not the env override: full logs are the

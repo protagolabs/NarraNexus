@@ -46,13 +46,19 @@ Env:
     DIAG_COLLECT_CONFIG_JSON      optional JSON served verbatim at
                                   GET /telemetry/v1/config — the
                                   discovery document senders resolve
-                                  ingest URLs from (set on the PROD
-                                  collector; carries the staging AND
-                                  dev ingest URLs — its keys are the
-                                  side of the label contract that
-                                  decides the RECEIVING HOST; a label
-                                  missing here silently routes to
-                                  "default" = prod)
+                                  ingest URLs from. Set it on EVERY
+                                  collector that senders discover
+                                  against: prod (agent.narra.nexus) is
+                                  the built-in default, and the DEV
+                                  collector (dev-agent) too, because
+                                  run.sh points STAGING sandboxes there
+                                  (they never read prod's document).
+                                  Its keys are the side of the label
+                                  contract that decides the RECEIVING
+                                  HOST; a label missing here silently
+                                  routes to "default". Absent entirely,
+                                  /v1/config returns 404 and senders
+                                  back off a full TTL.
     DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
                                   their own storage partition; default
                                   "staging,cloud,local,desktop,dev,
@@ -61,12 +67,16 @@ Env:
                                   manyfold sandboxes — their own
                                   partition, so a full-level sandbox
                                   fleet rotates itself under the size
-                                  cap instead of crowding prod). THREE-SIDED with
-                                  the senders' NEXUS_DIAG_ENV and the
-                                  discovery map above: this list only
-                                  decides the STORAGE PARTITION, the
-                                  map's keys decide the receiving
-                                  host — extend all three together.
+                                  cap instead of crowding prod). FOUR-SIDED with
+                                  the senders' NEXUS_DIAG_ENV, the
+                                  discovery map above, and WHICH
+                                  collector serves that map: this list
+                                  only decides the STORAGE PARTITION,
+                                  the map's keys decide the receiving
+                                  host, and run.sh decides which
+                                  collector a label discovers against
+                                  (staging -> dev) — extend all four
+                                  together.
                                   Anything else lands in unknown/
                                   with a warning
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
@@ -380,10 +390,11 @@ _UNKNOWN_ENV = "unknown"
 # and the dev stack sets NEXUS_DIAG_ENV=dev in its compose .env — one
 # line on one host — to get its own STORAGE partition. The allowlist
 # decides directories only; which HOST receives the logs is the
-# discovery map's key set (third side of the contract, see
-# .env.example): the prod collector's DIAG_COLLECT_CONFIG_JSON must
-# carry a "dev" ingest entry, or the label silently routes to the
-# "default" (prod) ingest — no warning fires on either side.
+# discovery map's key set (the receiving-host side of the four-sided
+# label contract, see .env.example): the prod collector's
+# DIAG_COLLECT_CONFIG_JSON must carry a "dev" ingest entry, or the
+# label silently routes to the "default" (prod) ingest — no warning
+# fires on either side.
 _DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev,sprite"
 
 # One warning per demoted label, not per record — silent collapse is how
@@ -589,8 +600,12 @@ async def healthz():
 async def discovery_config():
     """The discovery document senders resolve their ingest URL from
     (see _ship.py). Served verbatim from env so URL rotation is an env
-    change on ONE host — the prod collector — with zero client releases.
-    Public and unauthenticated on purpose: it contains only URLs."""
+    change on the collector, with zero client releases. Senders pick
+    WHICH collector to ask by their env label — prod is the built-in
+    default, staging sandboxes ask the dev collector (run.sh) — so
+    every collector a label routes to must serve this document, or
+    those senders 404 and back off. Public and unauthenticated on
+    purpose: it contains only URLs."""
     raw = os.environ.get("DIAG_COLLECT_CONFIG_JSON", "").strip()
     if not raw:
         raise HTTPException(status_code=404, detail="no discovery config set")
