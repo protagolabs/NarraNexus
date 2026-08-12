@@ -128,6 +128,15 @@ export function LoginPage() {
     if (e.key === 'Enter') void handleLocalLogin();
   };
 
+  // Enter submits the NetMind (Power) email/password form, matching the local
+  // form's handleLocalKeyDown — but only when both fields are filled, mirroring
+  // the Sign In button's own disabled condition.
+  const handleNetmindKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && email.trim() && password) {
+      void netmind.emailLogin(email, password);
+    }
+  };
+
   // Reusable "OR" separator, matching the original inline styling.
   const orDivider = (
     <div className="relative py-4">
@@ -269,37 +278,22 @@ export function LoginPage() {
   );
 
   // NetMind ("Power") account form: email/password + OAuth + sign-up.
-  // ``withNotice`` shows the account-migration banner (forced-cloud only — it's
-  // about migrating legacy cloud accounts, irrelevant to a local dual-mode user).
+  // ``withNotice`` = forced-cloud tab: it skips the Power value-prop blurb
+  // (forced-cloud already has its own heading) and autofocuses the email field.
   const netmindBlock = (withNotice: boolean) => (
     <div className="space-y-5 mt-6">
-      {/* Power value-prop — shown in the local dual-mode tab (forced-cloud
-          already has its own heading + migration notice). */}
+      {/* Power value-prop — shown only in the local dual-mode tab. The
+          account-migration banner that used to sit here was removed: the
+          migration is long done and it unconditionally told every user to reset
+          their password, which was never true (old passwords still work). */}
       {!withNotice && methodDesc(t('pages.login.powerDesc'))}
-      {withNotice && (
-        <div
-          className="rounded-xl p-3 text-xs leading-relaxed"
-          style={{
-            background: 'var(--nm-card)',
-            border: '1px solid var(--nm-hairline)',
-            color: 'var(--nm-ink70)',
-          }}
-          role="status"
-        >
-          <strong>{t('pages.login.migrationNoticeHeading')}</strong>{' '}
-          {t('pages.login.migrationNoticeBody')}{' '}
-          <a href="mailto:bin.liang@netmind.ai" className="underline">
-            bin.liang@netmind.ai
-          </a>
-          .
-        </div>
-      )}
 
       <FormField label={t('pages.login.emailLabel')}>
         <TextInput
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={handleNetmindKeyDown}
           placeholder="you@example.com"
           disabled={netmind.loading}
           error={!!(netmind.error || error)}
@@ -313,6 +307,7 @@ export function LoginPage() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={handleNetmindKeyDown}
           placeholder="••••••••"
           disabled={netmind.loading}
           error={!!(netmind.error || error)}

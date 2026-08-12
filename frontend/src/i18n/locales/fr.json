@@ -1178,8 +1178,6 @@
       "localAccess": "Local · Accès",
       "cloudMode": "Mode cloud",
       "signInWithNetmind": "Connectez-vous avec votre compte NetMind.AI",
-      "migrationNoticeHeading": "Nous avons réorganisé notre système de comptes.",
-      "migrationNoticeBody": "Vos données ont été migrées vers le compte associé à l'e-mail utilisé pour recevoir votre code d'invitation. Pour vous connecter, réinitialisez d'abord le mot de passe de cet e-mail (utilisez « Mot de passe oublié ? » ci-dessous). Pour toute autre question, contactez notre équipe à",
       "emailLabel": "E-mail",
       "passwordLabel": "Mot de passe",
       "forgotPassword": "Mot de passe oublié ?",
@@ -1194,6 +1192,7 @@
       "accessTerminal": "Accéder au terminal",
       "createNewUser": "Créer un utilisateur",
       "loginFailed": "Échec de la connexion",
+      "invalidCredentials": "E-mail ou mot de passe invalide",
       "enterUserId": "Veuillez saisir votre identifiant utilisateur",
       "connectionFailed": "Échec de la connexion. Veuillez réessayer."
     },

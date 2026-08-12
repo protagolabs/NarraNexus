@@ -66,6 +66,28 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
+  // Standard modal dismissal: Escape closes. Backdrop-click is handled on the
+  // overlay's onClick below. (Without either, the only way out was the X.)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // A code is sent to a specific address; if the user edits the email after
+  // requesting it, the sent code and its cooldown no longer apply — reset them
+  // so the UI can't imply a code is valid for the new address.
+  const onEmailChange = (value: string) => {
+    setEmail(value);
+    if (codeSent || cooldown > 0 || code) {
+      setCodeSent(false);
+      setCooldown(0);
+      setCode('');
+    }
+  };
+
   const failedRules = useMemo(
     () => PASSWORD_RULES.filter((r) => !r.test(password)),
     [password],
@@ -117,6 +139,11 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="signup-title"
+      // Click the backdrop (this element itself, not a bubbled child click) to
+      // dismiss — the standard modal affordance.
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-lg p-8 space-y-5"
@@ -156,7 +183,7 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
             type="email"
             autoComplete="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => onEmailChange(e.target.value)}
             placeholder="you@example.com"
           />
         </FormField>

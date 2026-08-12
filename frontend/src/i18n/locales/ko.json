@@ -1177,8 +1177,6 @@
       "localAccess": "로컬 · 접속",
       "cloudMode": "클라우드 모드",
       "signInWithNetmind": "NetMind.AI 계정으로 로그인",
-      "migrationNoticeHeading": "계정 시스템을 개편했습니다.",
-      "migrationNoticeBody": "초대 코드를 받은 이메일 계정으로 데이터가 이전되었습니다. 로그인하려면 먼저 해당 이메일의 비밀번호를 재설정하세요(아래 “비밀번호를 잊으셨나요?” 사용). 기타 문의는 다음으로 연락해 주세요",
       "emailLabel": "이메일",
       "passwordLabel": "비밀번호",
       "forgotPassword": "비밀번호를 잊으셨나요?",
@@ -1193,6 +1191,7 @@
       "accessTerminal": "터미널 접속",
       "createNewUser": "새 사용자 만들기",
       "loginFailed": "로그인 실패",
+      "invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다",
       "enterUserId": "사용자 ID를 입력하세요",
       "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요."
     },

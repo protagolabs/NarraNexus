@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
+
+路由用 `React.lazy` 切 chunk；发版后老 tab 加载旧 hash chunk→404→未捕获异常→整树卸载成白屏。用 [[ChunkErrorBoundary.tsx]] 包住 `<Suspense><Routes>`：任何到达 render 的崩溃（含 chunk 失败）显示「有新版本，刷新」而非白屏。配套的 `vite:preloadError` 一次性自动刷新在 [[main.tsx]]（[[chunkReload.ts]]），本 boundary 是兜底。
 
 ## 2026-08-10 — workspace-ready after session validation
 

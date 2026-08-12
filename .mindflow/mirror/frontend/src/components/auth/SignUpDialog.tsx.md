@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/auth/SignUpDialog.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — Mark 前端批：弹窗 Esc/背景关闭 + 改邮箱重置验证码
+
+- **Esc/背景关闭（item 3）**：此前只有右上角 X 能关。加 `document` keydown 监听（Escape→onClose，effect 清理），并给外层遮罩 `onClick`（仅 `e.target === e.currentTarget` 即点到遮罩本身时关，点卡片内部不关）。
+- **改邮箱重置验证码状态（item 7）**：email 的 onChange 改走 `onEmailChange`——一旦已发过码（`codeSent || cooldown>0 || code`）就清 `codeSent/cooldown/code`，避免 UI 暗示旧邮箱的验证码对新邮箱有效。
+见 `SignUpDialog.test.tsx` 新增三条（Esc/背景/点内部不关）+ 改邮箱重置。
 
 # SignUpDialog.tsx — 在我们自己的页面上注册
 

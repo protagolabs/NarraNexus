@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 登录失败模糊文案（防账户枚举，Mark item 2）
+
+`emailLogin` 的第一段（浏览器直连 NetMind `/user/emailLogin`）catch 里，`setError` 不再回显 NetMind 原文——它对「user not found」vs「wrong password」给不同文案，可被用来枚举已注册邮箱。改为统一 `i18n.t('pages.login.invalidCredentials')`（新 i18n 键，10 locale 全加）。**真实上游 message 仍照旧进 `api.reportAuthFunnel`**，内部漏斗诊断不受影响。⚠ 真正的修复面在 NetMind 侧（文案是它给的）；这里只是客户端遮蔽。MS OAuth 过多 scope（item 4）同理属 NetMind auth.html 构造，本仓改不了，未动。`useNetmindAuth.test` 里断言回显原文那条改为断言「不含原文 + 漏斗仍拿到原文」；另加 `useNetmindAuth.emailLogin.test.ts`。
 
 ## 2026-07-13 — desktop OAuth path (Tauri bridge + poll)
 

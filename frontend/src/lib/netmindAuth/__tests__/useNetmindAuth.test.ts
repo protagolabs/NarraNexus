@@ -33,11 +33,14 @@ describe('useNetmindAuth.emailLogin', () => {
     expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ success: true }), 'nm-tok');
   });
 
-  test('surfaces emailLogin failure as error state', async () => {
+  test('surfaces emailLogin failure as a generic (non-enumerating) error state', async () => {
     netmindPost.mockRejectedValue(new Error('Invalid password'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.emailLogin('a@b.com', 'bad'); });
-    expect(result.current.error).toBe('Invalid password');
+    // The upstream message is MASKED to prevent account enumeration
+    // (see useNetmindAuth.emailLogin.test.ts); some error is still shown.
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.error).not.toMatch(/invalid password/i);
     expect(netmindLogin).not.toHaveBeenCalled();
     // The browser->NetMind failure must be reported server-side — this call
     // is the only trace the funnel gets (Base recvre9LlfwXAP).

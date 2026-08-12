@@ -8,8 +8,8 @@
  * or pasted was silently deleted and the form could never be completed. These
  * tests pin the input rules that guess broke.
  */
-import { describe, expect, test, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { expect, test, vi, beforeEach } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -102,4 +102,42 @@ test('mismatched passwords block submission', () => {
   });
   fireEvent.change(codeField(), { target: { value: 'A1B2C3' } });
   expect(screen.getByRole('button', { name: /pages.signup.submit/i })).toBeDisabled();
+});
+
+const emailField = () => screen.getByLabelText(/pages.signup.email/i);
+
+test('pressing Escape closes the dialog', () => {
+  const onClose = vi.fn();
+  render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test('clicking the backdrop closes the dialog', () => {
+  const onClose = vi.fn();
+  render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  // The overlay carries role="dialog"; clicking it directly (not its children)
+  // is the "click outside to dismiss" affordance.
+  fireEvent.click(screen.getByRole('dialog'));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test('clicking inside the dialog does NOT close it', () => {
+  const onClose = vi.fn();
+  render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  fireEvent.click(screen.getByText('pages.signup.title'));
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+test('changing the email after a code was sent resets the code-sent state', async () => {
+  renderDialog();
+  fireEvent.change(emailField(), { target: { value: 'a@b.com' } });
+  fireEvent.click(screen.getByRole('button', { name: /pages.signup.sendCode/i }));
+  // After a successful send the button flips to the resend cooldown.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /pages.signup.resendIn/i })).toBeTruthy(),
+  );
+  // Editing the email must invalidate the code that was sent to the old address.
+  fireEvent.change(emailField(), { target: { value: 'c@d.com' } });
+  expect(screen.getByRole('button', { name: /pages.signup.sendCode/i })).toBeTruthy();
 });

@@ -8,6 +8,7 @@
  * Phase 2/3). reCAPTCHA is intentionally absent: ckType=2 skips it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import i18n from '@/i18n';
 import { api } from '@/lib/api';
 import type { NetmindLoginResponse } from '@/types/api';
 import { netmindPost } from './request';
@@ -88,7 +89,11 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         loginToken = data.loginToken;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Login failed';
-        setError(message);
+        // Show ONE generic message regardless of the upstream reason. NetMind
+        // returns distinct "user not found" vs "wrong password" text, which
+        // lets an attacker enumerate which emails are registered. The real
+        // message still goes to the funnel below for internal diagnosis.
+        setError(i18n.t('pages.login.invalidCredentials'));
         api.reportAuthFunnel('netmind_email_login_failed', email, message);
         setLoading(false);
         return;

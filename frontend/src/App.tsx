@@ -25,6 +25,7 @@ import { captureProductEvent } from '@/lib/productAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
+import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -512,6 +513,7 @@ function App() {
           use your own API key. (click to dismiss)
         </div>
       )}
+      <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route
@@ -567,6 +569,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </ChunkErrorBoundary>
     </>
   );
 }

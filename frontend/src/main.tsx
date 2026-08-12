@@ -12,6 +12,7 @@ import {
 } from './lib/manyfoldFragmentAuth'
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
 import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
+import { installChunkReload } from './lib/chunkReload'
 
 // Run BEFORE the first render so the App tree never observes a
 // "logged-out" state when the user was sent here via Manyfold's
@@ -30,6 +31,11 @@ captureInboundEntry()
 // In a regular browser this returns a no-op uninstaller so nothing changes.
 // See lib/externalLinkInterceptor.ts for the rationale.
 installExternalLinkInterceptor()
+
+// Recover from stale lazy-chunk 404s after a deploy: a `vite:preloadError`
+// triggers a single reload to fetch the new manifest instead of white-screening.
+// See lib/chunkReload.ts and the ChunkErrorBoundary backstop in App.tsx.
+installChunkReload()
 
 const queryClient = new QueryClient({
   defaultOptions: {

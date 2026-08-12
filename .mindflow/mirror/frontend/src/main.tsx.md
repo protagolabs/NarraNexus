@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-06-16
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — installChunkReload（部署期 chunk 404 自愈，Mark item 10）
+
+启动时调 `installChunkReload()`（[[chunkReload.ts]]）：监听 `vite:preloadError`，`preventDefault` 后一次性 `window.location.reload()` 拉新 manifest。会话级 guard 防坏构建反复刷。[[App.tsx]] 的 [[ChunkErrorBoundary.tsx]] 是到达 render 的兜底。
 
 ## 2026-06-16 — inbound entry capture moved pre-render
 
