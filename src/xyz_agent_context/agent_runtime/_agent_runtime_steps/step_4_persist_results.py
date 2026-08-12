@@ -364,9 +364,19 @@ async def step_4_persist_results(
         module_instances=ctx.module_instances,
     )
 
-    # [IMPORTANT] Sync final_output to the in-memory Event object
-    # so that subsequent memory writes can access the agent's response
+    # [IMPORTANT] Sync BOTH mutated fields back to the in-memory Event object.
+    # Everything downstream of here (4.4 narrative update, step 5 hooks) reads
+    # ctx.event, and it was created with `event_log=[]` — so until this sync it
+    # told every consumer the turn ran no steps at all.
+    #
+    # Syncing only final_output has already cost us once: the 0802 "对话时序错乱"
+    # report was phantom rows copied from this object carrying `event_log='[]'`
+    # (see the 4.4 comment block below). It bites a second time at defect A1 —
+    # the narrative updater reads event.event_log to get this turn's tool
+    # actions into the retrieval surface, and a stale [] makes that extraction
+    # a silent no-op in production while unit tests stay green.
     ctx.event.final_output = execution_result.final_output
+    ctx.event.event_log = event_log_entries
 
     # Index this interaction (user input + agent reply) into the unified search
     # layer (memory_event) with a source_ref pointer back to the event — the
