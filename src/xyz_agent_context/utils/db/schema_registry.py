@@ -755,6 +755,13 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # Why this message's `mentions` are what they are. NULL = the sender
+            # typed them. "default_responder" = a team room had none and the
+            # route picked the fallback agent so the room would not go silent.
+            # Recorded at the point of the decision because nothing downstream
+            # can reconstruct it: "one mention, and it is the lead" is exactly
+            # what a user deliberately naming the lead looks like.
+            Column("routed_by", "TEXT", "VARCHAR(32)", nullable=True),
             # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
             # size_bytes/category/rel_path). rel_path is base_working_path-relative
             # and points into the per-user shared area; markers are built from it
@@ -1712,6 +1719,50 @@ _register(
             Index("idx_team_members_team_agent", ["team_id", "agent_id"], unique=True),
             Index("idx_team_members_agent_id", ["agent_id"]),
             Index("idx_team_members_team_id", ["team_id"]),
+        ],
+    )
+)
+
+# The team bulletin: the standing rules every member loads on every team turn.
+#
+# `source` and `author_id` are separate columns because they answer different
+# questions. `source` decides the RULES — who may delete the row, whether it
+# spends the shared entry budget, how it renders. `author_id` decides the
+# DISPLAY ("by Ana"). Folding them into one column would make a permission
+# check parse a string prefix.
+#
+# `source='auto_summary'` is a SLOT, not a kind: at most one row per team,
+# overwritten in place, `author_id` NULL. It is in every turn's prompt, so an
+# accumulating summary would reproduce the very problem the bulletin exists to
+# fix, and a poor summary would compound rather than be replaced.
+_register(
+    TableDef(
+        name="team_bulletin_entries",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("entry_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("content", "TEXT", "TEXT", nullable=False),
+            # 'user' | 'agent' | 'auto_summary'
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False, default="'user'"),
+            # user_id or agent_id; NULL for auto_summary (nobody wrote it).
+            Column("author_id", "TEXT", "VARCHAR(64)"),
+            # 'long_term' | 'current_task' — the second is cleared per task.
+            Column("tier", "TEXT", "VARCHAR(16)", nullable=False, default="'long_term'"),
+            # Only ever set on the auto_summary row: the ``created_at`` of the
+            # newest message that summary covers, so the worker can ask "how
+            # much has happened since" without a counter to keep in sync.
+            # A dedicated nullable column rather than reusing author_id — that
+            # column already means "who wrote this", and a second meaning
+            # depending on `source` is what makes a schema unreadable later.
+            Column("watermark_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bulletin_entry_id", ["entry_id"], unique=True),
+            Index("idx_bulletin_team", ["team_id"]),
+            Index("idx_bulletin_team_source", ["team_id", "source"]),
         ],
     )
 )

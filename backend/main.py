@@ -23,7 +23,7 @@ from loguru import logger
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
-from backend.auth import _is_cloud_mode
+from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 
 
 def _detect_bind_host() -> str:
@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
 
     # Dashboard v2 TDR-12: fail-fast if local mode is not bound to loopback
     _assert_local_bind_is_loopback(is_cloud_mode=_is_cloud_mode())
+    # Fail-fast in cloud mode if JWT_SECRET is unset / left at the public default
+    # (a known signing secret = anyone can forge any user's token).
+    assert_jwt_secret_safe()
     _warn_if_multi_worker()
 
     # Initialize database connection pool
@@ -238,6 +241,18 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Team bulletin — keep each team's progress summary fresh so a member
+    # joining a long task does not have to reconstruct it from scrollback.
+    # Same opportunistic contract as the memory worker: per-team isolation, a
+    # failure keeps the previous summary, and nothing ever waits on it
+    # (iron rule #14).
+    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+
+    team_summary_worker = TeamSummaryWorker(db)
+    await team_summary_worker.start()
+    app.state.team_summary_worker = team_summary_worker
+    logger.info("Team summary worker started")
+
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
@@ -350,6 +365,12 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()
+    # Stopped BEFORE the db client closes: its poll loop holds that client, and
+    # a pass landing mid-teardown would log a confusing connection error on
+    # every clean shutdown.
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        await summary_worker.stop()
     await close_db_client()
     logger.info("Database connections closed")
 
@@ -360,11 +381,20 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
+# In cloud mode, don't expose the interactive API docs / schema — Swagger UI,
+# ReDoc and openapi.json hand an attacker the full endpoint surface. Developers
+# still get them in local/dev mode.
+_docs_kwargs = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if _is_cloud_mode()
+    else {}
+)
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",
     version="1.0.0",
     lifespan=lifespan,
+    **_docs_kwargs,
 )
 
 # Middleware order is LIFO: the LAST registration is the OUTERMOST layer
@@ -518,11 +548,28 @@ app.include_router(
 
 @app.get("/health")
 async def health():
-    """Detailed health check"""
-    return {
+    """Detailed health check.
+
+    Carries the team-summary worker's last pass so its liveness is observable
+    from outside the process. Recording the counters and never exposing them
+    would leave the same blind spot they were added for: "every room is quiet"
+    and "every room is failing" both look like a worker that is simply up.
+
+    Reported, never judged — a non-zero ``failed`` is not an unhealthy service
+    (a single team with a bad provider key must not fail the container's probe),
+    so ``status`` does not depend on it.
+    """
+    body = {
         "status": "healthy",
         "database": "connected",
     }
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        body["team_summary"] = {
+            "running": summary_worker.running,
+            **summary_worker.last_pass,
+        }
+    return body
 
 
 @app.get("/healthz")

@@ -1178,8 +1178,6 @@
       "localAccess": "Lokal · Zugang",
       "cloudMode": "Cloud-Modus",
       "signInWithNetmind": "Mit deinem NetMind.AI-Konto anmelden",
-      "migrationNoticeHeading": "Wir haben unser Kontosystem neu organisiert.",
-      "migrationNoticeBody": "Deine Daten wurden in das Konto unter der E-Mail-Adresse migriert, mit der du deinen Einladungscode erhalten hast. Setze zum Anmelden zunächst dein Passwort für diese E-Mail-Adresse zurück (verwende „Passwort vergessen?“ unten). Bei weiteren Fragen wende dich an unser Team unter",
       "emailLabel": "E-Mail",
       "passwordLabel": "Passwort",
       "forgotPassword": "Passwort vergessen?",
@@ -1194,7 +1192,12 @@
       "accessTerminal": "Terminal öffnen",
       "createNewUser": "Neuen Benutzer erstellen",
       "loginFailed": "Anmeldung fehlgeschlagen",
+      "invalidCredentials": "Ungültige E-Mail-Adresse oder Passwort",
       "enterUserId": "Bitte gib deine Benutzer-ID ein",
+      "resetCodeInvalid": "Der Code ist ungültig oder abgelaufen. Fordern Sie einen neuen an.",
+      "forgotResetIntro": "Wir senden einen Bestätigungscode an die E-Mail Ihres NetMind-Kontos.",
+      "forgotCodeSentHint": "Falls ein Konto für diese E-Mail existiert, haben wir einen Bestätigungscode gesendet.",
+      "useDifferentEmail": "Andere E-Mail verwenden",
       "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut."
     },
     "modeSelect": {
@@ -1236,6 +1239,9 @@
     "settings": {
       "title": "Einstellungen",
       "headerSections": "Anbieter · Bundle · Artefakte · Agenten",
+      "nav": {
+        "privacy": "Datenschutz"
+      },
       "providers": {
         "label": "LLM-Anbieter"
       },
@@ -1275,6 +1281,19 @@
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
+      },
+      "privacy": {
+        "label": "Datenschutz",
+        "hint": "Was dieses Gerät verlässt – und die Schalter dafür.",
+        "analyticsTitle": "Produkt-Analyse",
+        "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. Sie werden nie an einen Analysedienst eines Drittanbieters gesendet. Gesprächsinhalte werden niemals erfasst.",
+        "telemetryTitle": "Diagnose-Telemetrie",
+        "telemetryDesc": "Sende die Service-Logs dieser Installation an den eigenen Collector von NarraNexus, damit Abstürze und Ausfälle untersucht werden können. Auf der Standardstufe heißt das: strukturierte Events, Warnungen und Fehler — keine Nachrichteninhalte. Deployments mit der Stufe \"full\" (verwaltete Sandboxes, Debug-Umgebungen) senden ganze Logzeilen, die von den Diensten protokollierte Nachrichteninhalte enthalten können. An Dritte wird nichts gesendet.",
+        "telemetryTiming": "Das Ausschalten wirkt innerhalb von Sekunden. War die Telemetrie beim Start der App bereits aus, gilt das Einschalten ab dem nächsten Start.",
+        "telemetryManaged": "Wird von deinem Deployment verwaltet (Umgebungseinstellung) – der Schalter ist hier nicht verfügbar.",
+        "telemetryManagedCloud": "Dein Administrator steuert die Diagnose-Telemetrie dieser Installation.",
+        "telemetryUnavailable": "Der Telemetrie-Status konnte nicht geladen werden – der Schalter wird ausgeblendet statt geraten. Lade neu, um es erneut zu versuchen.",
+        "telemetryError": "Die Änderung konnte nicht gespeichert werden. Der Schalter zeigt den tatsächlichen aktuellen Zustand."
       }
     },
     "system": {
@@ -2067,5 +2086,11 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus sendet jetzt diagnostische Service-Logs dieser Installation an seinen eigenen Collector, um Abstürze und Integrationsfehler zu debuggen. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",
+    "settings": "Einstellungen öffnen",
+    "dismiss": "Verstanden",
+    "bodyManaged": "Diese Installation sendet diagnostische Service-Logs (Fehler und Diagnoseereignisse) an den eigenen Collector von NarraNexus, wie von deinem Administrator konfiguriert. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten."
   }
 }

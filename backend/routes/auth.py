@@ -23,6 +23,10 @@ from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.logging import (
+    set_telemetry_optout,
+    telemetry_consent,
+)
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
@@ -310,6 +314,14 @@ _funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
+    # Registration + forgot-password failures (browser->NetMind direct, so the
+    # funnel is the only server-side trace). Frontend callers:
+    # SignUpDialog.sendCode / useNetmindAuth.sendResetCode|resetPassword. Kept in
+    # lockstep with the frontend `AuthFunnelStage` union (frontend/src/lib/api.ts).
+    # This allowlist is a caller-controlled-input gate — never free text.
+    "signup_send_code_failed",
+    "netmind_reset_code_failed",
+    "netmind_reset_password_failed",
 })
 
 
@@ -1755,6 +1767,78 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     return {"success": True, "opted_out": request.opted_out}
 
 
+# =============================================================================
+# Telemetry (diagnostic log shipping) consent
+# =============================================================================
+#
+# Unlike analytics (a per-USER row in user_settings), telemetry consent
+# is a marker file (~/.narranexus/telemetry_optout — per USER ACCOUNT
+# on this host, shared by all sidecars on a desktop install) read by
+# utils/logging at every send — logging starts before the DB does, so
+# the DB cannot hold this state. Host-level scope has two consequences
+# the endpoints must enforce:
+#   - multi-tenant cloud: one user must not silence (or re-enable)
+#     telemetry for everyone → PUT is 403, GET says controllable=false
+#     (that surface is governed by the deployment env instead);
+#   - an explicit NEXUS_DIAG_SHIP env override is the deployment's
+#     decision: a marker write would be silently ineffective, so PUT is
+#     409 and GET reports source=env / controllable=false.
+
+
+class SetTelemetryOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+def _telemetry_state() -> dict:
+    consent = telemetry_consent()
+    # managed_by tells the UI WHO owns a non-controllable state — "your
+    # deployment set an env var" and "this is a multi-tenant install"
+    # are different facts, and showing the env wording on a cloud
+    # install whose telemetry comes from the built-in default would
+    # attribute a decision nobody made.
+    managed_by = None
+    if consent["source"] == "env":
+        managed_by = "env"
+    elif _is_cloud_mode():
+        managed_by = "cloud"
+    return {
+        "mode": consent["mode"],
+        "source": consent["source"],
+        "opted_out": consent["source"] == "optout",
+        "controllable": managed_by is None,
+        "managed_by": managed_by,
+    }
+
+
+@router.get("/settings/telemetry")
+async def get_telemetry_consent_state(http_request: Request):
+    """Current telemetry consent state + whether the toggle applies."""
+    _require_request_user(http_request)
+    return _telemetry_state()
+
+
+@router.put("/settings/telemetry")
+async def set_telemetry_consent_state(request: SetTelemetryOptOutRequest,
+                                      http_request: Request):
+    """Flip the per-machine telemetry opt-out marker."""
+    uid = _require_request_user(http_request)
+    if _is_cloud_mode():
+        raise HTTPException(
+            status_code=403,
+            detail="telemetry consent is per-machine; on a multi-tenant "
+                   "install it is governed by the deployment, not a user",
+        )
+    if telemetry_consent()["source"] == "env":
+        raise HTTPException(
+            status_code=409,
+            detail="NEXUS_DIAG_SHIP is set: the deployment overrides "
+                   "telemetry mode and a marker write would be ineffective",
+        )
+    set_telemetry_optout(request.opted_out)
+    logger.info(
+        f"Telemetry opt-out set to {request.opted_out} by {uid}"
+    )
+    return {"success": True, "opted_out": request.opted_out}
 @router.get("/settings/reply-language")
 async def get_reply_language(http_request: Request):
     """The user's reply-language preference; null = never set (model free)."""

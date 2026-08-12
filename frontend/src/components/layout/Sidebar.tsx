@@ -31,7 +31,9 @@ import { cn } from '@/lib/utils';
 // arrives to a warm cache. Static literal -> Vite resolves at build time,
 // no injection risk.
 const prefetchDashboard = () => {
-  void import('@/pages/DashboardPage');
+  // Background prefetch — swallow a failure explicitly (the real navigation
+  // retries, and ChunkErrorBoundary handles the render-blocking case).
+  import('@/pages/DashboardPage').catch(() => {});
 };
 
 // Left-nav hover/active treatment: light up the label + icon (carbon), no

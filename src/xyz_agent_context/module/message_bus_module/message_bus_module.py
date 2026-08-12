@@ -245,8 +245,27 @@ class MessageBusModule(XYZBaseModule):
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
             "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",
-            "- **Ignored messages resurface** — messages you choose not to reply to stay unread and will appear again next turn. This is intentional: you can defer without forgetting.",
-            "- In group channels, you only see messages that @mention you — reply to those with intent (or decline via silence if a reply would just be filler).",
+            # Scoped to direct messages on purpose. In a DM the unread list IS
+            # the queue, so declining to answer really does defer the item. A
+            # team room delivers by rendering its scrollback into the turn, so
+            # once a turn has run there the messages are read whether or not
+            # the agent spoke — promising otherwise would be a rule the
+            # platform stops keeping the moment the agent joins a team.
+            "- **Ignored direct messages resurface** — a DM you choose not to "
+            "reply to stays unread and appears again next turn. This is "
+            "intentional: you can defer without forgetting.",
+            # Says only what holds in EVERY room this block reaches. The old
+            # wording ("in group channels you only see messages that @mention
+            # you") is true of an ordinary bus group and false of a team room,
+            # whose turn prompt carries the room's whole recent scrollback and
+            # says so — two contradictory claims about the same room, in the
+            # same context window. Visibility is a property of the room, so the
+            # room's own prompt states it; this block may only speak to
+            # activation, which is uniform.
+            "- **An @mention decides who WAKES UP, not who can see.** What you "
+            "can read in a given room is stated by that room's own prompt. "
+            "Reply to what is addressed to you with intent (or decline via "
+            "silence if a reply would just be filler).",
             "",
             "### When your owner asks about your inbox",
             "If the owner asks 'what messages do you have' or 'check your inbox', **report the contents directly**. Do not use this as an excuse to reply to peer agents — the owner is asking for a status report, not delegating.",
@@ -304,6 +323,12 @@ class MessageBusModule(XYZBaseModule):
                 # read as "none of these agents are usable" (P1 section 02).
                 if not is_agent_description_unset(desc):
                     line += f": {desc[:80]}"
+                # `via_team` was computed for every peer and read by nobody.
+                # This list mixes teammates with every other agent the owner
+                # has, so an agent reaching for help could not tell "already in
+                # a room with me" from "a stranger I would have to DM cold".
+                if a.get("via_team"):
+                    line += " (teammate)"
                 parts.append(line)
 
         # Channels (capped)
@@ -327,7 +352,16 @@ class MessageBusModule(XYZBaseModule):
             total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
             parts.append("")
             parts.append(f"### Unread Messages: {total} (showing {shown})")
-            parts.append("> Remember: apply Reply Discipline. Ignored messages stay unread.")
+            # Same scoping as the static rule above, for the same reason —
+            # and it matters more here, because this header sits directly on a
+            # list that MIXES team-room messages in. A team room clears its
+            # cursor once a turn has rendered it, so "ignored messages stay
+            # unread" is false for part of what is printed underneath.
+            parts.append(
+                "> Remember: apply Reply Discipline. A direct message you do "
+                "not answer stays unread; what a room keeps unread is stated "
+                "by that room's own prompt."
+            )
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
                 from_agent = m.get("from_agent", "unknown")
                 channel = m.get("channel_id", "")
@@ -453,8 +487,8 @@ class MessageBusModule(XYZBaseModule):
                             "agent_description": a.get("agent_description", ""),
                             "is_public": a.get("is_public", 0),
                             "created_by": a.get("created_by", ""),
-                            # Tag whether this agent shares a team with us.
-                            # Useful for prompt rendering / debugging.
+                            # Whether this agent shares a team with us —
+                            # rendered as "(teammate)" in the list below.
                             "via_team": aid in teammate_ids,
                         })
                         if len(known_agents) >= MAX_KNOWN_AGENTS_IN_CONTEXT:

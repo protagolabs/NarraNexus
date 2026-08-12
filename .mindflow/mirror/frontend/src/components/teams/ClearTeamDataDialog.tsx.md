@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/teams/ClearTeamDataDialog.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -35,3 +35,11 @@ was removed once and the copy updated to match, then re-introduced without the
 copy being restored, leaving the dialog promising artifacts would be kept while
 the server deleted them.
 - i18n under `teams.clearData.*` (en+zh).
+
+## 2026-08-11 — 第三个 scope：公告栏
+
+新增一个**独立**勾选项，默认关。绝不并入 chat：公告栏之所以存在恰恰因为它不是聊天，
+清 transcript 顺手删掉全部规则，会把用户送回复读循环。
+
+文案明说「之后这些事需要重新告诉团队一次」。这一屏是用户按下不可撤销按钮前
+唯一被告知的地方——上一轮的教训是文案与行为不一致，且那是自己的回归。

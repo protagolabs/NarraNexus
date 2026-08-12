@@ -295,7 +295,7 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 ## Gotcha / 边界情况
 
-- **JWT_SECRET 的默认值**：默认值是 `"dev-secret-do-not-use-in-production"`。云部署时如果忘记设置 `JWT_SECRET` 环境变量，应用正常启动并签发 token，但任何知道这个默认值的人都可以伪造合法 token。没有启动时的校验或警告。
+- **JWT_SECRET 的默认值 + 启动校验**（2026-08-11 加固）：默认值 `"dev-secret-do-not-use-in-production"` 供 local 模式用。**cloud 模式启动时 `assert_jwt_secret_safe()` 会拒绝默认值/空值**——`main.py` lifespan 在建库前调用它，`JWT_SECRET` 未设或等于默认值即 `raise RuntimeError` 拒绝启动（与 `routes/artifacts/_token.py` 的 secret 同一 fail-fast 姿态）。所以云上"忘设 JWT_SECRET 用已知默认值签发可伪造 token"这条已堵：宁可不启动也不用已知密钥签名。local 模式仍用默认值（单可信用户、无需 JWT）。
 - **token 有效期 7 天**：`JWT_EXPIRY_DAYS = 7`，没有 refresh token 机制。7 天后用户必须重新登录，前端会看到 401 并需要处理重定向到登录页。
 - **`CurrentUser` 依赖在 local 模式下返回 None**：`get_current_user` 在 local 模式下返回 `None`，如果有路由用了 `Depends(get_current_user)` 并假设返回值非 None，local 模式下会 `AttributeError`。目前鉴权主要走中间件，这个函数几乎没被路由使用。
 

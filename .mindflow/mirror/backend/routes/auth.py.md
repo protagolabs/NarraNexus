@@ -1,12 +1,31 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 
-## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+## 2026-08-12 — reply_language 路由
 
-新增 GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由前端 LanguageToggle 每次切换写透,读方是 [[context_runtime.py]] 的 system prompt 注入。
+GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由 i18n languageChanged 写透 + boot 回填,读方是 [[context_runtime.py]] system prompt 注入。
+
+## 2026-08-12 — funnel 白名单加两个 send-code stage（配前端 #289）
+
+`/api/auth/funnel-report` 的 `_FUNNEL_STAGES` 是**枚举白名单**（caller-controlled 输入的第二道闸，不是自由 tag：未知 stage 直接 400，且 400 在写 `[login-funnel]` 日志之前 return，所以不落痕）。前端 #289 新增三条上报路径（`SignUpDialog.sendCode` / `useNetmindAuth.sendResetCode` / `resetPassword`），对应加入 `signup_send_code_failed` / `netmind_reset_code_failed` / `netmind_reset_password_failed`——**必须与前端同 PR 合**，否则前端上报被 400 静默吞掉（`api.reportAuthFunnel` fire-and-forget），诊断空转。前端 `api.ts` 的 `AuthFunnelStage` 联合类型把这条跨端契约提前到 `tsc`（前端加白名单外的 stage 就编译不过）；`test_auth_funnel_observability.py` 的 `test_all_known_funnel_stages_are_accepted` 兜反向（后端误删/改名已用 stage）——两个守卫互补。
+
+## 2026-08-11 — telemetry consent 端点(与 analytics 并排但语义相反的持久化)
+
+`GET/PUT /api/auth/settings/telemetry`。与 analytics(per-USER,
+user_settings 行)刻意不同:遥测同意是 **per-MACHINE 标记文件**
+(`~/.narranexus/telemetry_optout`,utils/logging 每次外发都读)——
+logging 先于 DB 启动,DB 装不下这个状态。per-machine 带来两条端点
+必须执行的边界:多租户云一个用户不得静音整机 → PUT 403、GET
+`controllable=false`(那个面由部署 env 治理);`NEXUS_DIAG_SHIP`
+显式覆盖时标记写入静默无效 → PUT 409、GET `source=env`。GET 另带
+`managed_by: env|cloud|null`——不可控状态要说清**是谁在管**:自托管
+多租户装机(source=default 但 cloud mode)若复用 env 措辞,等于把
+内置默认归因给一个没人设过的环境变量(预审抓的"归因谎言")。身份
+仍走 `_require_request_user`(与邻居 analytics 一致)。
+Tests: `tests/backend/test_telemetry_consent_routes.py`。
 
 ## 2026-08-10 — cloud signup capture repaired
 

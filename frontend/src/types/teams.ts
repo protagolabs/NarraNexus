@@ -291,3 +291,25 @@ export interface SkillArchiveRecord {
   sha256: string;
   created_at?: string | null;
 }
+
+/** One line on a team's bulletin — the standing rules every member loads on
+ *  every team turn. `source` drives permissions and rendering; `author_id`
+ *  only drives the "added by" label and is null for the auto-summary. */
+export interface BulletinEntry {
+  entry_id: string;
+  team_id: string;
+  content: string;
+  source: 'user' | 'agent' | 'auto_summary';
+  author_id?: string | null;
+  tier: 'long_term' | 'current_task';
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** The bulletin plus the numbers the panel needs to disable "add" BEFORE the
+ *  user types, rather than rejecting what they wrote. */
+export interface TeamBulletin {
+  entries: BulletinEntry[];
+  usage: { entry_count: number; total_chars: number };
+  limits: { max_entries: number; max_entry_chars: number; max_total_chars: number };
+}

@@ -4,6 +4,10 @@ last_verified: 2026-08-12
 stub: false
 ---
 
+## 2026-08-12 (r2 修正) — analytics setter 补齐 upsert
+
+round-1 mirror 声称「两个 setter 收敛」但代码只改了 reply_language(文档>代码,已纠正):现在两个 setter 均为 db.upsert 原子写,get_one 仅存于读侧。
+
 ## 2026-08-12 — PR #284 review 轮
 
 两个 setter 收敛为 `db.upsert`(review #4:手写 read-then-write 并发 PUT 撞唯一键 500,且被前端 fire-and-forget 吞掉)。

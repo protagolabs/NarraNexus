@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -29,12 +29,13 @@ import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
+import { TeamBulletinPanel } from './TeamBulletinPanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
-import type { TeamChatMessage, TeamMemberActivity } from '@/types/teams';
+import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
 
 interface TeamChatPanelProps {
@@ -132,6 +133,13 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsSelected, setWsSelected] = useState<string | null>(null);
   const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
+  // The bulletin lives here, like the workspace: a change posts a system line
+  // into the transcript, so the transcript and the panel must agree on when
+  // something changed, and one component has to own that.
+  const [bulletin, setBulletin] = useState<TeamBulletin | null>(null);
+  const [bulletinLoading, setBulletinLoading] = useState(false);
+  const [bulletinError, setBulletinError] = useState<string | null>(null);
+  const [bulletinOpen, setBulletinOpen] = useState(false);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
@@ -378,6 +386,25 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     }
   };
 
+  const reloadBulletin = useCallback(async () => {
+    setBulletinLoading(true);
+    try {
+      const b = await api.getTeamBulletin(teamId);
+      setBulletin(b);
+      setBulletinError(null);
+    } catch (e) {
+      setBulletinError(e instanceof Error ? e.message : 'Failed to load bulletin');
+    } finally {
+      setBulletinLoading(false);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    void reloadBulletin();
+    // Also on the workspace tick: clearing team data can take the bulletin with
+    // it, and a panel still listing deleted rules is worse than an empty one.
+  }, [reloadBulletin, workspaceRefreshTick]);
+
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -408,6 +435,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     // team's files, which empties this panel while leaving the transcript
     // exactly as it was — so the store's explicit tick covers it.
   }, [teamId, messages.length, workspaceRefreshTick]);
+
+  /** Returns the server's error text, or null on success. */
+  const bulletinAction = async (
+    call: () => Promise<{ success: boolean; error?: string }>,
+  ): Promise<string | null> => {
+    try {
+      const res = await call();
+      if (!res.success) return res.error || 'Failed';
+      await reloadBulletin();
+      // The change posts a system line into the room; pull it in now rather
+      // than waiting up to a poll interval for the transcript to catch up.
+      await refresh();
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Failed';
+    }
+  };
 
   if (!team) {
     return (
@@ -521,6 +565,29 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         >
           <Settings2 className="w-3.5 h-3.5" />
         </button>
+        {/* Top-level chrome, not inside settings: the bulletin is the answer to
+            "what does this team already know", which is asked while reading the
+            room. The count makes an existing bulletin advertise itself instead
+            of waiting to be discovered. */}
+        <button
+          type="button"
+          onClick={() => setBulletinOpen((v) => !v)}
+          aria-pressed={bulletinOpen}
+          data-testid="bulletin-toggle"
+          title={t('chat.team.bulletin.title')}
+          aria-label={t('chat.team.bulletin.title')}
+          className={cn(
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            bulletinOpen && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
+        >
+          <ClipboardList className="w-3.5 h-3.5" />
+          {(bulletin?.usage.entry_count ?? 0) > 0 && (
+            <span className="text-[10px] font-mono" data-testid="bulletin-count">
+              {bulletin?.usage.entry_count}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Two panes: the conversation on the left, the standing roster on the
@@ -548,6 +615,29 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   // that ran in public should visibly stop in public, but
                   // dressing it as the agent's own reply would read as the agent
                   // announcing its own death.
+                  // A bulletin change is the room speaking, exactly like a stop
+                  // notice: dressing it as a member's message would attribute a
+                  // platform event to whoever happened to trigger it.
+                  if (m.msg_type === 'system_bulletin') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`bulletin-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <span
+                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+                          style={{ color: 'var(--nm-ink50)' }}
+                        >
+                          {t(
+                            m.content?.includes('cleared')
+                              ? 'chat.team.bulletin.clearedNotice'
+                              : 'chat.team.bulletin.updatedNotice',
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
                   if (m.msg_type === 'system_stop') {
                     return (
                       <div
@@ -996,6 +1086,41 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           route, because "what did we make" is a question asked WHILE reading
           the conversation. Keyed off message count so a turn that registers an
           artifact surfaces it without the user reloading. */}
+      {bulletinOpen && (
+        <div className="w-72 shrink-0 border-l border-[var(--border-subtle)] flex flex-col">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
+            <h3 className="text-xs font-medium text-[var(--text-primary)]">
+              {t('chat.team.bulletin.title')}
+            </h3>
+            <button
+              type="button"
+              aria-label={t('common.close')}
+              onClick={() => setBulletinOpen(false)}
+              className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <TeamBulletinPanel
+            bulletin={bulletin}
+            loading={bulletinLoading}
+            error={bulletinError}
+            memberNames={Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id]))}
+            onAdd={(content, tier) =>
+              bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
+            }
+            onEdit={(entryId, content) =>
+              bulletinAction(() => api.updateTeamBulletinEntry(teamId, entryId, content))
+            }
+            onDelete={(entryId) =>
+              bulletinAction(() => api.deleteTeamBulletinEntry(teamId, entryId))
+            }
+            onClearTier={(tier) =>
+              bulletinAction(() => api.clearTeamBulletinTier(teamId, tier))
+            }
+          />
+        </div>
+      )}
       <TeamWorkspacePanel
         artifacts={wsArtifacts}
         files={wsFiles}

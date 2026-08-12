@@ -168,7 +168,10 @@ def test_mark_room_read_db_error_returns_failure_not_500():
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is False
-    assert "conn reset" in body["error"]
+    # The raw exception text must NOT leak to the client (desensitized);
+    # the detail lives in the server log instead.
+    assert "conn reset" not in body["error"]
+    assert body["error"] == "Failed to mark room read."
 
 
 # ── Server-time format ─────────────────────────────────────────────────

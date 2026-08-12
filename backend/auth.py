@@ -37,9 +37,48 @@ from backend.auth_errors import (
 # Configuration
 # =============================================================================
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-do-not-use-in-production")
+_DEFAULT_JWT_SECRET = "dev-secret-do-not-use-in-production"
+# Known placeholders shipped in the deploy templates (stacks/.../.env.example,
+# .env.cloud.example). A cloud .env copied from the template but never edited
+# carries one of these, and they're public in git — the real failure mode is
+# "copied the template, forgot to change it", not "forgot the line". Treat them
+# exactly like the default.
+_PLACEHOLDER_JWT_SECRETS = frozenset(
+    {
+        _DEFAULT_JWT_SECRET,
+        "CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING",
+    }
+)
+_MIN_CLOUD_JWT_SECRET_LEN = 32
+JWT_SECRET = os.environ.get("JWT_SECRET", _DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
+
+
+def assert_jwt_secret_safe() -> None:
+    """Fail-fast in cloud mode when JWT_SECRET is unset, a known template
+    placeholder, or too short to be a real secret. A guessable signing secret
+    lets anyone forge any user's JWT, so we refuse to boot rather than sign
+    with it — the same cloud-mode posture the artifact-token secret takes
+    (routes/artifacts/_token.py). Local mode keeps the default: single trusted
+    user, no JWT required.
+
+    Reads the effective module constant `JWT_SECRET` (resolved from the env at
+    import, i.e. at startup) as the single source of truth.
+    """
+    if not _is_cloud_mode():
+        return
+    secret = (JWT_SECRET or "").strip()
+    if (
+        not secret
+        or secret in _PLACEHOLDER_JWT_SECRETS
+        or len(secret) < _MIN_CLOUD_JWT_SECRET_LEN
+    ):
+        raise RuntimeError(
+            "JWT_SECRET is required in cloud mode but is unset, a known "
+            "placeholder, or shorter than 32 chars. Set a strong, unique "
+            "JWT_SECRET; we refuse to sign tokens with a guessable secret."
+        )
 
 
 # =============================================================================

@@ -105,6 +105,7 @@ class LocalMessageBus(MessageBusService):
             attachments=attachments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
+            routed_by=row.get("routed_by"),
             root_run_id=row.get("root_run_id"),
             created_at=row.get("created_at"),
         )
@@ -122,6 +123,7 @@ class LocalMessageBus(MessageBusService):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -131,6 +133,12 @@ class LocalMessageBus(MessageBusService):
         answering a peer, so this is a reply). MessageBusTrigger reads it to
         decide whether the recipient should answer the peer or relay to its
         owner — see the column comment in schema_registry.
+
+        ``routed_by`` records WHY ``mentions`` holds what it does: ``None`` when
+        the sender wrote them, ``"default_responder"`` when a team room had none
+        and the route picked the fallback agent. Downstream cannot reconstruct
+        this — a single mention naming the lead is exactly what a user
+        deliberately naming the lead looks like.
 
         ``root_run_id`` records WHICH TRIGGER TREE the sending run belonged to,
         so the run this message wakes up inherits it. Without it the lineage
@@ -153,6 +161,7 @@ class LocalMessageBus(MessageBusService):
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
+            "routed_by": routed_by,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -258,6 +267,32 @@ class LocalMessageBus(MessageBusService):
             (agent_id, agent_id),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
+
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        """Is anything in this channel still unread and older than ``before``?
+
+        A boolean, answered by the database. The caller wants to know whether a
+        turn's rendered window reached the bottom of what the agent still owes,
+        and doing that by pulling every unread message across every channel and
+        filtering in Python is the exact shape this module's unread work just
+        removed: the whole backlog crossing the wire to be thrown away.
+
+        Comparing in SQL also keeps one ordering authority. The Python version
+        had to re-derive the cursor's lexicographic comparison by hand, which is
+        a second implementation of a rule that has already bitten this codebase
+        once.
+        """
+        if not agent_id or not channel_id or not before:
+            return False
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT 1 AS hit {self._unread_where(ph)} "
+            f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
+            (agent_id, agent_id, channel_id, canonical_ts(before)),
+        )
+        return bool(rows)
 
     async def count_unread(self, agent_id: str) -> int:
         """How many unread messages exist, independent of any window.

@@ -32,10 +32,11 @@ Refactoring notes (2026-08-10):
 """
 
 import json
+import re
 from typing import Optional, Any, List
 from uuid import uuid4
 from pydantic import BaseModel
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
@@ -126,9 +127,13 @@ class JobComplexJobRequest(BaseModel):
 
 
 class CreateJobComplexRequest(BaseModel):
-    """Request to create a Job Complex"""
+    """Request to create a Job Complex.
+
+    No user_id field: identity comes from the authenticated request, never the
+    body — trusting a body-supplied user_id was exactly the create_job_complex
+    IDOR. Pydantic ignores an extra user_id an old client might still send.
+    """
     agent_id: str
-    user_id: str
     group_id: Optional[str] = None  # Optional group ID
     jobs: List[JobComplexJobRequest]
 
@@ -155,6 +160,36 @@ def _parse_json(value: Any, default: Any) -> Any:
         except json.JSONDecodeError:
             return default
     return value
+
+
+# Executor hostnames (nx-exec-<user_id>-<hash>) surface inside `last_error`
+# when a run fails to reach its container. That string is internal
+# infrastructure detail, not something an API response should carry, so it is
+# scrubbed on the way out (SEC-02, second half of Mark's report).
+_EXECUTOR_HOST_RE = re.compile(r"nx-exec-[A-Za-z0-9_-]+")
+
+
+def _scrub_internal(text: Optional[str]) -> Optional[str]:
+    """Redact internal executor hostnames from a user-facing error string."""
+    if not text:
+        return text
+    return _EXECUTOR_HOST_RE.sub("nx-exec-<redacted>", text)
+
+
+async def _assert_job_owner(request: Request, db_client, job_id: str) -> Optional[dict]:
+    """Enforce agent-ownership for a job-id-addressed route.
+
+    Job access is scoped to whoever owns the job's agent (``agents.created_by``,
+    via the canonical helper), mirroring every other agent-scoped route. Returns
+    the job row when the caller is allowed, or ``None`` when the job does not
+    exist. Raises 403/404/503 from ``assert_owned`` when the caller is not the
+    owner / the owning agent is unknown / the ownership lookup fails.
+    """
+    row = await db_client.get_one("instance_jobs", filters={"job_id": job_id})
+    if not row:
+        return None
+    await assert_owned(request, row.get("agent_id"))
+    return row
 
 
 def job_row_to_response(row: dict, depends_on: List[str] = None) -> JobResponse:
@@ -204,7 +239,7 @@ def job_row_to_response(row: dict, depends_on: List[str] = None) -> JobResponse:
         next_run_timezone=row.get("next_run_tz"),
         last_run_at=row.get("last_run_at_local"),
         last_run_timezone=row.get("last_run_tz"),
-        last_error=row.get("last_error"),
+        last_error=_scrub_internal(row.get("last_error")),
         notification_method=row.get("notification_method"),
         created_at=format_for_api(row.get("created_at")),
         updated_at=format_for_api(row.get("updated_at")),
@@ -305,27 +340,26 @@ async def list_jobs(
         logger.exception(f"Error listing jobs: {e}")
         return JobListResponse(
             success=False,
-            error=str(e)
+            error="Failed to list jobs."
         )
 
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
-async def get_job_details(job_id: str):
+async def get_job_details(job_id: str, request: Request):
     """
     Get job details by ID
 
-    Retrieves data from instance_jobs table
+    Owner-only: access is scoped to whoever owns the job's agent. Retrieves
+    data from instance_jobs table.
     """
     logger.info(f"Getting job details: {job_id}")
 
     try:
         db_client = await get_db_client()
 
-        # Get data from instance_jobs table
-        job_data = await db_client.get_one(
-            "instance_jobs",
-            filters={"job_id": job_id}
-        )
+        # Owner gate — resolves the job's agent and denies non-owners before
+        # any of its content (title/payload/last_error) is returned.
+        job_data = await _assert_job_owner(request, db_client, job_id)
 
         if job_data:
             return JobDetailResponse(
@@ -338,20 +372,26 @@ async def get_job_details(job_id: str):
                 error=f"Job not found: {job_id}"
             )
 
+    except HTTPException:
+        # Ownership denials (403/404/503) must reach the client, not be
+        # flattened into a 200 "failed" payload by the catch-all below.
+        raise
     except Exception as e:
         logger.exception(f"Error getting job details: {e}")
         return JobDetailResponse(
             success=False,
-            error=str(e)
+            error="Failed to get job details."
         )
 
 
 @router.put("/{job_id}/cancel", response_model=CancelJobResponse)
-async def cancel_job(job_id: str):
+async def cancel_job(job_id: str, request: Request):
     """
     Cancel a Job
 
-    Sets the Job status to cancelled so it will no longer be polled for execution by JobTrigger.
+    Owner-only: only the owner of the job's agent may cancel it. Sets the Job
+    status to cancelled so it will no longer be polled for execution by
+    JobTrigger.
     Only Jobs in pending or active status can be cancelled.
     Jobs in running status cannot be interrupted, but will be marked as cancelled and will not be re-executed.
     """
@@ -359,6 +399,14 @@ async def cancel_job(job_id: str):
 
     try:
         db_client = await get_db_client()
+
+        # Owner gate — deny non-owners before mutating anyone's job.
+        if await _assert_job_owner(request, db_client, job_id) is None:
+            return CancelJobResponse(
+                success=False,
+                error=f"Job not found: {job_id}"
+            )
+
         job_repo = JobRepository(db_client)
 
         # Get current Job status
@@ -391,18 +439,25 @@ async def cancel_job(job_id: str):
             previous_status=previous_status,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error cancelling job: {e}")
         return CancelJobResponse(
             success=False,
-            error=str(e)
+            error="Failed to cancel job."
         )
 
 
 @router.post("/complex", response_model=CreateJobComplexResponse)
-async def create_job_complex(request: CreateJobComplexRequest):
+async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     """
     Batch create a group of Jobs with dependency relationships (Job Complex)
+
+    Owner-only: the target agent must be owned by the caller, and every job is
+    created under the caller's authenticated identity — never the client-supplied
+    user_id (which the old signature trusted, an IDOR: any caller could create
+    and run jobs under another user's agent).
 
     Workflow:
     1. Validate dependencies (ensure all task_keys referenced in depends_on exist)
@@ -412,12 +467,17 @@ async def create_job_complex(request: CreateJobComplexRequest):
 
     Dependency relationships are stored in the depends_on field within payload
     """
-    logger.info(f"Creating Job Complex: {len(request.jobs)} jobs")
+    logger.info(f"Creating Job Complex: {len(body.jobs)} jobs")
+
+    await assert_owned(request, body.agent_id)
+    # Identity is the authenticated caller, not the request body — the agent is
+    # already proven to be theirs by assert_owned above.
+    user_id = await resolve_current_user_id(request)
 
     try:
         # 1. Validate dependencies
-        task_keys = {job.task_key for job in request.jobs}
-        for job in request.jobs:
+        task_keys = {job.task_key for job in body.jobs}
+        for job in body.jobs:
             for dep in job.depends_on:
                 if dep not in task_keys:
                     return CreateJobComplexResponse(
@@ -426,7 +486,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
                     )
 
         # 2. Generate group_id
-        group_id = request.group_id or f"group_{uuid4().hex[:8]}"
+        group_id = body.group_id or f"group_{uuid4().hex[:8]}"
 
         # 3. Create Jobs via JobInstanceService (creates ModuleInstance + Job records)
         db_client = await get_db_client()
@@ -436,7 +496,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
         job_ids = []
         task_key_to_job_id = {}  # task_key -> job_id mapping
 
-        for job in request.jobs:
+        for job in body.jobs:
             # Convert task_key dependencies to job_id dependencies
             depends_on_job_ids = [task_key_to_job_id[dep] for dep in job.depends_on]
 
@@ -449,8 +509,8 @@ async def create_job_complex(request: CreateJobComplexRequest):
             })
 
             result = await job_service.create_job_with_instance(
-                agent_id=request.agent_id,
-                user_id=request.user_id,
+                agent_id=body.agent_id,
+                user_id=user_id,
                 title=job.title,
                 description=job.description or "",
                 job_type="one_off",
@@ -489,7 +549,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
         logger.exception(f"Error creating Job Complex: {e}")
         return CreateJobComplexResponse(
             success=False,
-            error=str(e)
+            error="Failed to create job."
         )
 
 
@@ -562,7 +622,7 @@ async def pause_job(job_id: str, request: Request, body: JobPauseBody):
 
     except Exception as e:
         logger.exception(f"Error pausing job {job_id}: {e}")
-        return JobPauseResponse(success=False, job_id=job_id, message=str(e))
+        return JobPauseResponse(success=False, job_id=job_id, message="Failed to pause job.")
 
 
 @router.get("/search/semantic", response_model=JobSemanticSearchResponse)
@@ -597,7 +657,7 @@ async def search_jobs_semantic(
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in semantic job search: {e}")
-        return JobSemanticSearchResponse(success=False, error=str(e))
+        return JobSemanticSearchResponse(success=False, error="Failed to search jobs.")
     result = await _shared_search_semantic(db_client, agent_id, query, user_id, status, limit)
     return JobSemanticSearchResponse(**result)
 
@@ -625,6 +685,6 @@ async def search_jobs_by_keywords(
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises
         logger.exception(f"Error in keyword job search: {e}")
-        return JobKeywordSearchResponse(success=False, error=str(e))
+        return JobKeywordSearchResponse(success=False, error="Failed to search jobs.")
     result = await _shared_search_keywords(db_client, agent_id, keywords, user_id, status, limit)
     return JobKeywordSearchResponse(**result)

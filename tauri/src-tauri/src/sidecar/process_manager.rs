@@ -137,12 +137,15 @@ impl ProcessManager {
             .env("PATH", &child_path)
             .env("DATABASE_URL", &db_url)
             .env("SQLITE_PROXY_URL", &proxy_url)
-            .env("SQLITE_PROXY_PORT", &proxy_port);
+            .env("SQLITE_PROXY_PORT", &proxy_port)
+            // Surface label for analytics (resolve_surface) AND the
+            // telemetry env label (_env_label): EVERY sidecar serves
+            // the "desktop" surface, not just backend — mcp/workers
+            // would otherwise fall back to the deployment-mode label
+            // ("local") in their telemetry envelopes.
+            .env("NARRA_SURFACE", "desktop");
         if def.id == "backend" {
             cmd.env("DASHBOARD_BIND_HOST", "127.0.0.1");
-            // Analytics surface label: the desktop sidecar serves the
-            // "desktop" surface. resolve_surface() reads NARRA_SURFACE.
-            cmd.env("NARRA_SURFACE", "desktop");
             // NetMind ("Power") account login (local dual-mode). A Finder-
             // launched .app inherits no shell env, so — exactly like
             // other release configuration — these are baked at COMPILE time: a

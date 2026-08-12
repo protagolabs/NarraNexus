@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/agents/social_network.py
-last_verified: 2026-08-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 三个 GET 读端点补 owner-only（安全审计 IDOR/P0-1）
+
+写端点（POST）在 2026-08-10 PR-2 已加 `assert_owned`，但三个 GET 读端点
+（`/search`、`/{user_id}`、根 `/social-network`）当时**漏了**——任何登录用户凭
+`agent_id` 就能读任意 agent 的社交网络。现在三者都先 `await assert_owned(request, agent_id)`
+（放在 try 之前，403/404 才不会被 except 吞成 200）。cloud 强制 owner、local no-op。
+顺带把这三个 GET 及三个 POST 的 catch-all `error=str(e)` 收敛为通用文案（内部错脱敏）。
 
 ## 2026-08-10 (PR-6) — create-agent 路由接受调用方铸造的 new_agent_id
 

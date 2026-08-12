@@ -468,7 +468,7 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
-  const doClearTeamData = async (scopes: { chat: boolean; files: boolean }) => {
+  const doClearTeamData = async (scopes: { chat: boolean; files: boolean; bulletin: boolean }) => {
     if (!clearTeamTarget) return;
     setClearTeamBusy(true);
     try {
@@ -477,8 +477,10 @@ export function AgentList({ collapsed }: AgentListProps) {
         if (scopes.chat) requestHistoryRefresh();
         // The files scope also takes the team's artifacts with it (they live
         // in that folder), and an open workspace panel would otherwise keep
-        // listing both until the next message arrives.
-        if (scopes.files) requestWorkspaceRefresh();
+        // listing both until the next message arrives. The bulletin panel
+        // reloads off the same tick, so a cleared bulletin does not sit on
+        // screen listing rules the server has already deleted.
+        if (scopes.files || scopes.bulletin) requestWorkspaceRefresh();
       } else {
         await alert({
           title: t('layout.agentList.deleteFailedTitle'),

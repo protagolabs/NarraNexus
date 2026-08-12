@@ -1,7 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-07-22
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — NARRA_SURFACE injected into every sidecar
+
+`NARRA_SURFACE=desktop` moved out of the backend-only block: it now
+rides the common env set for ALL sidecars (sqlite_proxy/mcp/workers
+included). Reason: the telemetry env label (`_ship._env_label`) reads
+it too, and the non-backend sidecars would otherwise fall back to the
+deployment-mode label ("local") in their telemetry envelopes —
+mislabeled surface, wrong storage partition on the collector. Analytics
+(`resolve_surface`) only ever ran in backend, so this widens nothing
+there.
 
 ## 2026-07-22 — required-service list follows the worker consolidation
 

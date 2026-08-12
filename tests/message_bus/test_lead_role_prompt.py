@@ -24,7 +24,12 @@ from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
 from xyz_agent_context.message_bus.schemas import BusMessage
 
 
-MEMBERS = {"agent_lead": "Ana", "agent_worker": "Bruno"}
+# The builder takes a roster now — the same members, with the fields the
+# team card renders. Assertions below are unchanged.
+MEMBERS = [
+    {"agent_id": "agent_lead", "name": "Ana"},
+    {"agent_id": "agent_worker", "name": "Bruno"},
+]
 
 
 def _prompt(agent_id: str, *, lead_agent_id: str = "agent_lead", board=None) -> str:
@@ -41,6 +46,7 @@ def _prompt(agent_id: str, *, lead_agent_id: str = "agent_lead", board=None) -> 
         trigger_messages=[msg],
         lead_agent_id=lead_agent_id,
         work_items=board or [],
+        bulletin=None,
     )
 
 

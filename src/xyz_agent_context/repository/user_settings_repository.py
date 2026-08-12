@@ -49,21 +49,7 @@ class UserSettingsRepository:
         )
 
     async def set_analytics_opt_out(self, user_id: str, opted_out: bool) -> None:
-        existing = await self.db.get_one(self.table_name, {"user_id": user_id})
         value = 1 if opted_out else 0
-        if existing:
-            # updated_at is intentionally omitted from the update dict because
-            # db.update() uses parameterized placeholders — passing the SQL
-            # expression "(datetime('now'))" would store the literal text, not
-            # evaluate it. The column retains its create-time value on updates;
-            # a future migration can add a trigger if live update tracking is needed.
-            await self.db.update(
-                self.table_name,
-                {"user_id": user_id},
-                {"analytics_opt_out": value},
-            )
-        else:
-            await self.db.insert(
-                self.table_name,
-                {"user_id": user_id, "analytics_opt_out": value},
-            )
+        await self.db.upsert(
+            self.table_name, {"user_id": user_id, "analytics_opt_out": value}, "user_id"
+        )

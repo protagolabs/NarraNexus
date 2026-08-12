@@ -4,14 +4,20 @@ last_verified: 2026-08-12
 stub: false
 ---
 
-## 2026-08-12 — PR #284 review 轮
+## 2026-08-12 — reply_language
 
-新增 `getReplyLanguage()`(回填对账的读半边)。
+新增 `getReplyLanguage`/`setReplyLanguage`(GET/PUT settings/reply-language;'' 清除)。读半边供 [[replyLanguageSync.ts]] boot 对账回填。
 
-## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+## 2026-08-12 — `AuthFunnelStage` 编译期契约（复审三轮 Important）
 
-新增 `setReplyLanguage(language)`(PUT reply-language;'' 清除)。
+`reportAuthFunnel(stage: AuthFunnelStage, …)` 的 stage 从自由 `string` 收成**闭合联合类型**,镜像后端 `_FUNNEL_STAGES`([[auth]])白名单。端点对白名单外 stage 返 400、而 `reportAuthFunnel` fire-and-forget `.catch` 吞掉——自由字符串等于「加了上报点但报进黑洞」。联合类型让加新 stage 不先改这里就 `tsc` 不过,逼作者同时去后端白名单。与后端硬编码列表测试互补(前端加/后端删各兜一头)。
 
+## 2026-08-11 — telemetry consent 客户端方法
+
+`getTelemetryConsent` / `setTelemetryOptOut`(+ 导出
+`TelemetryConsentState` 类型)。与 analytics 对相邻;极性约定沿用:
+线上契约说 `opted_out`(否定),UI 持 `enabled`(肯定),翻转发生在
+组件边界。
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
@@ -374,3 +380,8 @@ Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].
 void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正看着的真实
 错误。detail 客户端先截 300（服务端同样有硬上限）。调用方：useNetmindAuth
 的 emailLogin / handleAuthCallback 失败分支。
+
+## 2026-08-11 — 公告栏 5 个方法 + `clearTeamData` 增加 bulletin scope
+
+`getTeamBulletin` 返回 entries **加** usage/limits：面板要在用户打字**之前**就能禁用
+「添加」，而不是写完才被拒。

@@ -71,6 +71,8 @@ import type {
   TeamOperationResponse,
   TeamChatHistoryResponse,
   TeamChatSendResponse,
+  TeamBulletin,
+  BulletinEntry,
   TeamWorkBoardResponse,
   BundleExportRequest,
   BundlePreflightResponse,
@@ -132,6 +134,16 @@ export class ApiError extends Error {
   }
 }
 
+export interface TelemetryConsentState {
+  mode: 'off' | 'meta' | 'full';
+  source: 'env' | 'optout' | 'default';
+  opted_out: boolean;
+  controllable: boolean;
+  /** Who owns a non-controllable state: deployment env var vs
+   *  multi-tenant cloud install. null when the user holds the switch. */
+  managed_by: 'env' | 'cloud' | null;
+}
+
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
   | 'anthropic'
@@ -139,6 +151,21 @@ export type OnboardProviderType =
   | 'netmind'
   | 'yunwu'
   | 'openrouter';
+
+/**
+ * The auth-funnel stages the frontend may report. This union is a COMPILE-TIME
+ * mirror of the backend allowlist `_FUNNEL_STAGES` (backend/routes/auth.py):
+ * the endpoint 400s any stage not in that set and reportAuthFunnel swallows the
+ * 400, so an un-allowlisted stage reports into a black hole. Keeping this a
+ * closed union means adding a new report site fails `tsc` until the name is
+ * added HERE — forcing the author to the backend allowlist at the same time.
+ */
+export type AuthFunnelStage =
+  | 'netmind_email_login_failed'
+  | 'netmind_oauth_failed'
+  | 'signup_send_code_failed'
+  | 'netmind_reset_code_failed'
+  | 'netmind_reset_password_failed';
 
 class ApiClient {
   // Public so download helpers (lib/download.ts) can attach the same
@@ -602,7 +629,7 @@ class ApiClient {
    * that blind spot. Must never throw or surface: it is diagnostics riding
    * on top of a failure the user is already looking at.
    */
-  reportAuthFunnel(stage: string, email?: string, detail?: string): void {
+  reportAuthFunnel(stage: AuthFunnelStage, email?: string, detail?: string): void {
     void this.request('/api/auth/funnel-report', {
       method: 'POST',
       body: JSON.stringify({
@@ -673,9 +700,7 @@ class ApiClient {
     );
   }
 
-  /** Persist the reply-language preference (i18n code; '' clears). The
-   *  backend injects it into the agent's system prompt — without this
-   *  write the language choice never reaches the model. */
+  /** The user's persisted reply-language preference; null = never set. */
   async getReplyLanguage(): Promise<string | null> {
     const r = await this.request<{ language: string | null }>(
       '/api/auth/settings/reply-language',
@@ -683,12 +708,38 @@ class ApiClient {
     return r.language ?? null;
   }
 
+  /** Persist the reply-language preference (i18n code; '' clears). The
+   *  backend injects it into the agent's system prompt — without this
+   *  write the language choice never reaches the model. */
   async setReplyLanguage(language: string): Promise<void> {
     await this.request<{ success: boolean; language: string | null }>(
       '/api/auth/settings/reply-language',
       {
         method: 'PUT',
         body: JSON.stringify({ language }),
+      },
+    );
+  }
+
+  /** Telemetry (diagnostic log shipping) consent state. Unlike
+   *  analytics (per-user, DB row) this is a per-MACHINE marker file:
+   *  `controllable` is false when a deployment env override or a
+   *  multi-tenant cloud install owns the decision — render the toggle
+   *  read-only then. */
+  async getTelemetryConsent(): Promise<TelemetryConsentState> {
+    return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
+  }
+
+  /** Flip the telemetry opt-out marker (per user account on the
+   *  host). Opting out takes effect within one flush interval;
+   *  re-enabling needs a restart only when telemetry was already off
+   *  at process start. */
+  async setTelemetryOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/telemetry',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
       },
     );
   }
@@ -1833,6 +1884,61 @@ class ApiClient {
     );
   }
 
+  /**
+   * A team's bulletin plus its budget usage.
+   *
+   * Usage rides along with the list so the panel can grey out "add" before the
+   * user types a rule instead of rejecting it afterwards.
+   */
+  async getTeamBulletin(teamId: string): Promise<TeamBulletin> {
+    return this.request<TeamBulletin>(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin`,
+    );
+  }
+
+  async createTeamBulletinEntry(
+    teamId: string,
+    payload: { content: string; tier?: 'long_term' | 'current_task' },
+  ): Promise<{ success: boolean; entry?: BulletinEntry; error?: string }> {
+    return this.request(`/api/teams/${encodeURIComponent(teamId)}/bulletin`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify({ content }) },
+    );
+  }
+
+  async deleteTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Clear one tier in a single action — the "this task is done" button. */
+  async clearTeamBulletinTier(
+    teamId: string,
+    tier: 'long_term' | 'current_task',
+  ): Promise<{ success: boolean; removed?: number; error?: string }> {
+    const params = new URLSearchParams({ tier });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>('/api/teams', {
       method: 'POST',
@@ -1871,9 +1977,19 @@ class ApiClient {
    *  its members and the bus channel. Team counterpart to clearHistory. */
   async clearTeamData(
     teamId: string,
-    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
-  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
-    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    opts: { chat: boolean; files: boolean; bulletin?: boolean } = { chat: true, files: true },
+  ): Promise<{
+    success: boolean;
+    chat_messages?: number;
+    files_removed?: boolean;
+    bulletin_entries?: number;
+    error?: string;
+  }> {
+    const params = new URLSearchParams({
+      chat: String(opts.chat),
+      files: String(opts.files),
+      bulletin: String(opts.bulletin ?? false),
+    });
     return this.request(
       `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
       { method: 'DELETE' },

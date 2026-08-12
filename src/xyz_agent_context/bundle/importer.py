@@ -27,12 +27,19 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
+from xyz_agent_context.bundle.team_bulletin_transfer import (
+    write_imported_bulletin,
+)
+
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
@@ -145,6 +152,12 @@ async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]
             await _del(t, "agent_id", aid)
     for tid in new_team_ids:
         await _del("team_work_items", "team_id", tid)
+        # The bulletin too. The agent_tables sweep above only covers tables with
+        # an agent_id column, and team_bulletin_entries has team_id/author_id —
+        # so rows written by write_imported_bulletin survived a rollback keyed on
+        # a team_id deleted on the next line: unreachable by every query path,
+        # which is exactly the orphan `_wipe_team_data` argues against.
+        await _del("team_bulletin_entries", "team_id", tid)
         await _del("team_members", "team_id", tid)
         await _del("teams", "team_id", tid)
     for cid in new_channel_ids:
@@ -690,6 +703,11 @@ async def _confirm_inner(
             "source": "bundle",
             "intro_md": intro,
         })
+        # The rules land under the NEW team id, with the ceilings re-applied:
+        # a bundle is untrusted input and may have been hand-edited.
+        written_summary["bulletin_entries"] = await write_imported_bulletin(
+            db, new_tid, team.get("bulletin") or []
+        )
         # The board comes back with the team. Ids are remapped here rather than
         # in the bundle: `assignee_id` is a SOURCE agent id, and one that fell
         # outside the export closure has no counterpart here — it becomes
@@ -1535,6 +1553,26 @@ async def _confirm_inner(
             if not new_row.get("agent_id"):
                 logger.warning(
                     f"bundle_import.mcp.skip reason=agent_id_missing mcp_id={new_row.get('mcp_id')}"
+                )
+                continue
+            # SSRF: a bundle is attacker-supplied and this write bypasses the
+            # create/update route's screen. Don't let it plant an internal MCP
+            # URL that the agent would later fetch (cloud only — the same
+            # DNS-free screen the route applies; local/desktop keeps localhost).
+            # `is_obviously_non_public_url` is parse-safe: a malformed/garbage
+            # URL is screened out, NOT thrown — a raw urlparse here would raise
+            # (bad IPv6 / non-string) and roll the whole import back.
+            if is_cloud_mode() and is_obviously_non_public_url(new_row.get("url")):
+                try:
+                    _host = urlparse(new_row.get("url") or "").hostname or "(none)"
+                except Exception:  # noqa: BLE001
+                    _host = "(unparseable)"
+                logger.warning(
+                    f"bundle_import.mcp.skip reason=non_public_url mcp_id={new_row.get('mcp_id')}"
+                )
+                written_summary["warnings"].append(
+                    f"MCP {new_row.get('name') or new_row.get('mcp_id')}: "
+                    f"host {_host!r} is not a public endpoint — skipped"
                 )
                 continue
             try:

@@ -472,12 +472,55 @@ run_container_mode() {
   # image is built. The Dockerfile may pre-set these; respect overrides.
   export BASE_WORKING_PATH="${BASE_WORKING_PATH:-/data/workspaces}"
   export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
+  # The telemetry consent marker must live on the PERSISTED surface:
+  # HOME (/home/app) is container writable layer — a rebuild/upgrade
+  # wipes it, silently reverting a full-level sandbox from "user opted
+  # out" back to shipping. /data is the volume every container-mode
+  # deployment mounts (workspaces/logs/db already live there), so the
+  # user's opt-out survives exactly as long as their data does.
+  export NEXUS_DIAG_OPTOUT_FILE="${NEXUS_DIAG_OPTOUT_FILE:-/data/telemetry_optout}"
   export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
   export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
   # This container launcher serves the hosted/server form factor. The cloud
   # stack may start uvicorn directly, where deployment-mode inference supplies
   # the same label; an explicit override still wins here.
   export NARRA_SURFACE="${NARRA_SURFACE:-cloud}"
+  # Telemetry env label (routing + envelope). Deployment-layer detection
+  # lives HERE on purpose: the logging utility (_ship.py) must not sniff
+  # another integration's env vars. Staging manyfold sandboxes identify
+  # themselves by the webhook host they were provisioned with.
+  # Manyfold-managed sandbox detection mirrors the canonical identity
+  # resolver (integrations/manyfold_outbound.manyfold_runtime_env):
+  # token + runtime_id, BOTH required — the webhook URL is explicitly
+  # allowed to be absent (channel-send escape hatch), so gating on it
+  # would silently skip real sandboxes AND fire on self-hosts that
+  # merely set the URL.
+  _is_manyfold_sandbox=""
+  if [ -n "${MANYFOLD_SYNC_WEBHOOK_TOKEN:-}" ] && [ -n "${MANYFOLD_RUNTIME_ID:-}" ]; then
+    _is_manyfold_sandbox="1"
+  fi
+  if [ -z "${NEXUS_DIAG_ENV:-}" ] && [ -n "$_is_manyfold_sandbox" ]; then
+    # Every managed sandbox gets its own label: "staging" routes to the
+    # dev collector; everything else is "sprite" — its own storage
+    # partition, so a full-level sandbox fleet rotates ITSELF under the
+    # collector's size cap instead of crowding out prod's history.
+    # Three-sided contract: "sprite" is in the collector's default
+    # DIAG_COLLECT_KNOWN_ENVS and in the discovery-map examples.
+    case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
+      *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
+      *)             export NEXUS_DIAG_ENV="sprite" ;;
+    esac
+  fi
+  # Managed sandboxes DEFAULT to full — via the consent chain's
+  # managed-DEFAULT layer, not the env override: full logs are the
+  # point of sandbox telemetry (joint support debugging), but the
+  # user's opt-out marker still wins and the settings toggle stays
+  # live. An NEXUS_DIAG_SHIP override here would grey the toggle and
+  # 409 the PUT — confiscating the switch on exactly the single-tenant
+  # user runtime the consent design was built for.
+  if [ -n "$_is_manyfold_sandbox" ] && [ -z "${NEXUS_DIAG_DEFAULT_SHIP:-}" ]; then
+    export NEXUS_DIAG_DEFAULT_SHIP="full"
+  fi
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true

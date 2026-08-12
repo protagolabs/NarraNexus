@@ -48,6 +48,7 @@ from .home_assistant_repository import HomeAssistantBindingRepository, HABinding
 
 # Subproject 1: Team Membership
 from .team_repository import TeamRepository, TeamMemberRepository
+from .team_bulletin_repository import TeamBulletinRepository
 
 # Subproject 2: Skill Archive
 from .skill_archive_repository import SkillArchiveRepository
@@ -105,6 +106,7 @@ __all__ = [
         # Team
     "TeamRepository",
     "TeamMemberRepository",
+    "TeamBulletinRepository",
     # Skill Archive
     "SkillArchiveRepository",
     # CLI Session

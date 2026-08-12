@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
@@ -197,3 +197,21 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 "delegated" 给了 `ack_processed` —— 注释和代码不一致,偏偏这是个踩过的坑
 (`'T'(0x54) > ' '(0x20)`,空格格式的游标沉到所有 `created_at` 之下,消息永远显示
 未处理)。抽成模块级 `canonical_ts`,两个 ack 和 trigger 的缺口判定共用一份。
+
+## 2026-08-12 — `send_message` 接受 `routed_by`
+
+纯透传到新列并在 `_row_to_message` 里读回。语义见 [[schemas]]。
+
+## 2026-08-12 — `has_unread_before`:存在性问题用存在性查询回答
+
+`_ack_room_seen` 要判断的是「本轮渲染窗口有没有够到这个 agent 还欠着的底」——
+一个布尔。初版做法是无 limit 的 `get_unread` 拉该 agent **所有频道**的全部未读、
+为每一行构造 `BusMessage`(含 attachments 的 JSON 解析),再在 Python 里筛。
+
+那正是同一批改动刚从 `get_unread` 里移除的形状(整个积压过一趟网络再被切掉),
+而且它在成功路径和被取消路径上各调一次;同一轮里 `hook_after_event_execution` 还会
+再全量捞一次。
+
+现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到
+SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于把一条已经咬过人的规则实现
+两遍。
