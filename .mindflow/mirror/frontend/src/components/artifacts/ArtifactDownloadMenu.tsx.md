@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactDownloadMenu.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 注册表数组化后取「最后挂载」的实例
+
+`chartInstances` 由单槽 `Record<id, T|null>` 改为数组 `Record<id, T[]>`
+(权威定义见 [[artifactStore]]),导出取 `chartInstances[id]?.at(-1)`。
+**为什么是 `.at(-1)` 不是 `[0]`**:列 pane 与 zoom modal 可同时挂同一
+artifact,modal 后挂载即屏幕上那个;取 `[0]` 会在 modal 打开时导出背后
+列里那个实例。**为什么不能判 `if (!instance)` 后直接用**:数组语义下空
+数组也为真——判空要判 `.at(-1)` 的结果(undefined),不是判数组本身。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 
@@ -30,9 +39,9 @@ message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名�
 
 The small download/export affordance in the artifact column header (and in
 `[[ArtifactZoomModal]]`). For chart artifacts it offers PNG/JPEG export (via the
-live ECharts instance registered in `artifactStore.chartInstances`) plus the
-raw JSON; for everything else, just "Download original" against the
-token-protected raw URL minted by `useArtifactRawUrl`.
+last live ECharts instance in `[[artifactStore]].chartInstances`, a per-id
+list) plus the raw JSON; for everything else, just "Download original" against
+the token-protected raw URL minted by `useArtifactRawUrl`.
 
 ## 上下游关系
 - **被谁用**: `[[ArtifactColumn]]` (header toolbar), `[[ArtifactZoomModal]]` (header).
@@ -73,9 +82,11 @@ and does not suffer from cross-origin or mixed-content issues.
 
 ## Gotcha / 边界情况
 
-- Chart export reads `chartInstances[artifact_id]` lazily via
-  `useArtifactStore.getState()` at click time; if the chart hasn't mounted yet
-  it alerts "still loading" rather than failing silently.
+- Chart export reads `chartInstances[artifact_id]?.at(-1)` lazily via
+  `useArtifactStore.getState()` at click time; if no instance is mounted yet
+  (`.at(-1)` is undefined) it notifies "still loading" rather than failing
+  silently. The value is a LIST — never truthiness-test the array itself
+  (an empty array is truthy); test the `.at(-1)` result.
 - `right` is computed as `window.innerWidth - rect.right`; if the trigger ever
   sits near the right viewport edge with a >200px menu, the menu stays pinned to
   the trigger's right edge (acceptable — the menu has room to the left).

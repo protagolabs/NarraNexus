@@ -74,22 +74,39 @@ export default function ChartRenderer({ artifact }: Props) {
         const node = ref.current;
         const init = () => {
           if (disposed || chart) return;
+          type EChart = ChartInstanceLike & {
+            dispose: () => void;
+            resize: () => void;
+            setOption: (o: unknown) => void;
+          };
+          let created: EChart | null = null;
           try {
             // Pick the NM theme that matches the current dark/light state
             // (registered at app boot via main.tsx side effect).
-            const c = echarts.init(node, pickNMTheme());
+            const c = echarts.init(node, pickNMTheme()) as unknown as EChart;
+            created = c;
             c.setOption(option);
-            chart = c as unknown as ChartInstanceLike & {
-              dispose: () => void;
-              resize: () => void;
-            };
-            registerChartInstance(artifact.artifact_id, chart);
+            chart = c;
+            registerChartInstance(artifact.artifact_id, c);
           } catch (e) {
             // init runs from the ResizeObserver callback (a separate call
             // stack), so a throw here would NOT reach the outer catch — the
             // deferred-init path (0802 ①) would leave a permanently blank
             // pane with no error banner. Surface it and stop re-throwing on
             // every subsequent resize tick.
+            // If echarts.init succeeded but setOption threw (a malformed
+            // option is this component's documented, expected failure), the
+            // canvas exists but `chart` is still null, so cleanup's
+            // chart?.dispose() would leak it — dispose it here. Only when
+            // chart is still null (a throw after registration means the
+            // instance is owned; cleanup disposes it, no double-dispose).
+            if (chart === null) {
+              try {
+                created?.dispose();
+              } catch {
+                /* a half-initialised instance may resist dispose; ignore */
+              }
+            }
             if (disposed) return;
             setError(String(e));
             observer?.disconnect();

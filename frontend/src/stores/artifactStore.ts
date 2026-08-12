@@ -373,8 +373,10 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
 
   restoreTab(artifactId) {
     const next = new Set(get().minimizedTabIds);
-    next.delete(artifactId);
-    persistMinimizedTabIds(next);
+    // The inline badge / preview card / omnibox route a plain "open this
+    // artifact" click here, so guard the localStorage write on an actual
+    // change — most clicks don't touch the minimized set.
+    if (next.delete(artifactId)) persistMinimizedTabIds(next);
     set((state) => ({
       minimizedTabIds: next,
       activeArtifactId: artifactId,

@@ -13,18 +13,26 @@
  *   - unmount unregisters by identity (the same instance it registered).
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 
 let boxWidth = 0;
 let boxHeight = 0;
 let roCallback: (() => void) | null = null;
+let roDisconnected = false;
 
 class ResizeObserverStub {
+  // Model real RO: once disconnect() runs, the callback stops firing — so
+  // the "disconnect stops re-throwing" assertion is meaningful when the
+  // test drives the callback by hand.
   constructor(cb: () => void) {
-    roCallback = cb;
+    roCallback = () => {
+      if (!roDisconnected) cb();
+    };
   }
   observe() {}
-  disconnect() {}
+  disconnect() {
+    roDisconnected = true;
+  }
 }
 
 const chartInstance = {
@@ -77,6 +85,9 @@ beforeEach(() => {
   boxWidth = 0;
   boxHeight = 0;
   roCallback = null;
+  roDisconnected = false;
+  chartInstance.setOption.mockReset();
+  chartInstance.dispose.mockClear();
   initMock.mockClear();
   registerMock.mockClear();
   unregisterMock.mockClear();
@@ -118,5 +129,29 @@ describe('ChartRenderer deferred-init lifecycle', () => {
     // Unmount unregisters by identity (the very instance it registered).
     unmount();
     expect(unregisterMock).toHaveBeenCalledWith('c1', chartInstance);
+  });
+
+  test('a setOption throw surfaces an error banner, disposes the leaked instance, does not register, and stops re-throwing', async () => {
+    // echarts.init succeeds, setOption throws — a malformed option is this
+    // component's documented, expected failure. The instance exists but was
+    // never handed to `chart`, so cleanup's dispose can't reach it.
+    chartInstance.setOption.mockImplementationOnce(() => {
+      throw new Error('bad option');
+    });
+    render(<ChartRenderer artifact={artifact} />);
+    await waitFor(() => expect(roCallback).not.toBeNull());
+
+    boxWidth = 640;
+    boxHeight = 480;
+    roCallback!();
+
+    await waitFor(() => expect(screen.getByText(/Chart failed: Error: bad option/)).toBeTruthy());
+    expect(chartInstance.dispose).toHaveBeenCalledTimes(1); // leaked instance released
+    expect(registerMock).not.toHaveBeenCalled(); // never took ownership
+
+    // observer.disconnect() ran, so a later resize does NOT re-init/re-throw.
+    boxWidth = 800;
+    roCallback!();
+    expect(initMock).toHaveBeenCalledTimes(1);
   });
 });

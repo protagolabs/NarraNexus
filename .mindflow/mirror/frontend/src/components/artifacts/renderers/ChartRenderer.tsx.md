@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
 
-延迟 init 的 `init()` 函数体包 try/catch:它从 ResizeObserver 回调(另一调用栈)触发,抛错逃逸外层 catch → 延迟 init 路径失败会永久空白无红字(review ②);失败 setError + observer.disconnect 止重抛。register 改数组语义(见 [[artifactStore.ts]])。
+延迟 init 的 `init()` 函数体包 try/catch:它从 ResizeObserver 回调(另一调用栈)触发,抛错逃逸外层 catch → 延迟 init 路径失败会永久空白无红字(review ②);失败 setError + observer.disconnect 止重抛。**setOption 抛错**(畸形 option 是本组件文档化的预期失败)时 echarts 实例已建但未接管(chart 仍 null,cleanup 的 chart?.dispose 兜不到),catch 里在 chart===null 时 dispose 该泄漏实例(dispose 自身包 try,防二次抛绕过 setError)——长会话不再累积 detached canvas。register 改数组语义(见 [[artifactStore.ts]])。
 
 ## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
 

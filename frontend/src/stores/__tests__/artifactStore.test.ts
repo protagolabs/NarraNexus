@@ -268,10 +268,9 @@ describe('loaders (stale-while-revalidate)', () => {
 });
 
 describe('0802 regression pack — active/minimize/registry invariants', () => {
-  const CHART = CHART_KIND;
 
   test('remove of the active tab never lands active on a minimized tab, and prunes state', () => {
-    const a = makeArtifact('a', { kind: CHART });
+    const a = makeArtifact('a', { kind: CHART_KIND });
     const b = makeArtifact('b');
     const c = makeArtifact('c');
     useArtifactStore.setState({
@@ -288,7 +287,7 @@ describe('0802 regression pack — active/minimize/registry invariants', () => {
   });
 
   test('restoreTab promotes a chart into the LRU so an instance can mount', () => {
-    const a = makeArtifact('a', { kind: CHART });
+    const a = makeArtifact('a', { kind: CHART_KIND });
     useArtifactStore.setState({ artifacts: [a], minimizedTabIds: new Set(['a']), chartLruOrder: [] });
     useArtifactStore.getState().restoreTab('a');
     expect(useArtifactStore.getState().activeArtifactId).toBe('a');
@@ -296,8 +295,8 @@ describe('0802 regression pack — active/minimize/registry invariants', () => {
   });
 
   test('minimizeTab of the active chart promotes the new active chart', () => {
-    const a = makeArtifact('a', { kind: CHART });
-    const b = makeArtifact('b', { kind: CHART });
+    const a = makeArtifact('a', { kind: CHART_KIND });
+    const b = makeArtifact('b', { kind: CHART_KIND });
     useArtifactStore.setState({ artifacts: [a, b], activeArtifactId: 'a', chartLruOrder: ['a'] });
     useArtifactStore.getState().minimizeTab('a');
     expect(useArtifactStore.getState().activeArtifactId).toBe('b');
@@ -305,8 +304,8 @@ describe('0802 regression pack — active/minimize/registry invariants', () => {
   });
 
   test('loadPinned skips a minimized pinned[0] and promotes the first visible chart (the refresh-blank path)', async () => {
-    const c1 = makeArtifact('c1', { kind: CHART });
-    const c2 = makeArtifact('c2', { kind: CHART });
+    const c1 = makeArtifact('c1', { kind: CHART_KIND });
+    const c2 = makeArtifact('c2', { kind: CHART_KIND });
     listPinnedMock.mockResolvedValue([c1, c2]);
     // c1 is pinned[0] but minimized (persisted across refresh in real usage).
     useArtifactStore.setState({
