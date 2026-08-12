@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — inbox 路由补 ownership（SEC-03 读 + SEC-05 标已读，Mark IDOR 批）
+
+`GET ""`（get_agent_inbox）、`PUT /{message_id}/read`、`POST /rooms/{room_id}/read` 原来直接吃 query 的 `agent_id`、无身份校验——任何登录用户可读他人 agent 整个收件箱、或篡改其已读游标（`mark_room_read` 原只验频道成员≠owner）。修复：三个 handler 加 `request` 参数，在 `try` 之前调 `assert_owned(request, agent_id)`（放 try 外，让 403/404/503 直接透出，不被 `except` 压成 dict）。
 
 ## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
 
