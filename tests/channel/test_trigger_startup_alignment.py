@@ -152,4 +152,3 @@ def test_run_sh_kills_supervisor_on_stop():
     assert re.search(r'pkill -f "?run_worker_supervisor"?', text), (
         "run.sh stop path missing pkill for run_worker_supervisor"
     )
-

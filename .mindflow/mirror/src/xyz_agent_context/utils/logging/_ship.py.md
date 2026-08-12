@@ -9,8 +9,10 @@ last_verified: 2026-08-12
 run.sh 让 **staging 沙盒的发现入口改指 dev-agent**(内置默认仍是
 prod)——发现契约从"三边"变**四边**:标签 → 白名单(存储分区)→
 map key(接收主机)→ **哪台 collector 伺服这份 map**。四处"只有
-prod 一处入口 / URL 轮换=prod 一处 env"的旧表述改口为四边(.env.
-example、collector.py 两处 docstring、两份 mirror)。dev collector
+prod 一处入口 / URL 轮换=prod 一处 env / 三边契约"的旧表述改口为
+四边,共六处:`_ship.py` 模块 docstring(发送端自己的规范性说明)、
+collector.py 两处 docstring、`.env.example` 两处、run.sh 一处;外加
+两份 mirror 的现状描述段。dev collector
 已配 `DIAG_COLLECT_CONFIG_JSON`(curl 实测 200,含 staging→dev-
 ingest,贴进 PR)。
 
@@ -18,9 +20,13 @@ ingest,贴进 PR)。
 是明确的"这里没有发现文档",与"200 但非文档形状"同类(3xx 我们
 不跟随、自家 collector 直接 200 伺服,故 3xx-4xx 同归 TTL 退避);
 **5xx/网络错误保持 60s 短重试**(瞬态,不可扩到它们上——test_5xx_keeps_short_
-retry / test_unresolvable_drops_quietly 建立在此)。run.sh 重定向加
-可执行不变量测试(test_trigger_startup_alignment,沿用既有 run.sh
-断言先例);404/5xx 用例补在 html-backoff 测试旁。重定向门控加
+retry / test_unresolvable_drops_quietly 建立在此);3xx/404/5xx 三条
+用例补在 html-backoff 测试旁。run.sh 重定向的可执行不变量测试落在
+**tests/utils/logging/test_diag_ship.py**(遥测契约测试聚拢处;复用
+run.sh 文本断言的做法,用本地 `parents[3]` 读取仓库根)——断言方式
+是**从重定向 export 行反向锚定它所在 if 的条件**,要求同一条件里
+重定向、`"staging"` 标签、`_is_manyfold_sandbox` 门控三者共现
+(整文件 `in text` 会因 token 在别处出现而虚假通过)。重定向门控加
 `_is_manyfold_sandbox`——个人装机手设 staging 标签不会把日志泄漏到
 dev。
 

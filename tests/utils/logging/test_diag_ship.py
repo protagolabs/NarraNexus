@@ -763,32 +763,43 @@ def test_run_sh_staging_sandbox_discovers_from_dev_collector():
     file) because it is a telemetry contract; reuses that file's
     run.sh-text-assertion approach via a local REPO_ROOT read.
 
-    Asserts the redirect and its _is_manyfold_sandbox guard CO-OCCUR
-    inside one block — a whole-file substring check would pass even
+    Asserts the redirect and its _is_manyfold_sandbox guard CO-OCCUR in
+    one if-condition — a whole-file substring check would pass even
     after the guard line is deleted (the token appears elsewhere), the
-    exact false-assurance the reviewer flagged. Block-slice-then-search
-    is immune to line-continuation reformatting."""
+    exact false-assurance the reviewer flagged. Anchors from the export
+    line back to ITS governing `if ... then` (not a split of every
+    2-space if...fi block, which a future single-line `...; fi` earlier
+    in the file could merge), so it is immune to indentation and
+    line-continuation reformatting."""
     run_sh = (Path(__file__).resolve().parents[3] / "run.sh").read_text(
         encoding="utf-8"
     )
-    # Block-slice-then-search (immune to line-continuation reformatting):
-    # find each `if ... then` block that redirects to the dev collector,
-    # and require the SAME block also gates on _is_manyfold_sandbox.
-    blocks = re.findall(r"\n  if [\s\S]*?\n  fi\n", run_sh)
-    redirect_blocks = [
-        b for b in blocks
-        if "dev-agent.narra.nexus/telemetry/v1/config" in b
-        and "NEXUS_DIAG_DISCOVERY_URL" in b
-    ]
-    assert redirect_blocks, (
+    export_line = (
+        'export NEXUS_DIAG_DISCOVERY_URL='
+        '"https://dev-agent.narra.nexus/telemetry/v1/config"'
+    )
+    idx = run_sh.find(export_line)
+    assert idx != -1, (
         "run.sh no longer redirects a staging label to the dev collector"
     )
-    for b in redirect_blocks:
-        assert '"staging"' in b, (
-            "dev-collector redirect is no longer keyed on the staging label"
-        )
-        assert "_is_manyfold_sandbox" in b, (
-            "dev-collector redirect lost its _is_manyfold_sandbox guard — a "
-            "hand-set NEXUS_DIAG_ENV=staging on a personal install would leak "
-            "logs to our dev collector (the whole point of last round's guard)"
-        )
+    # The redirect's governing condition = text from the nearest `if `
+    # up to the `then` that opens the block this export sits in.
+    then_idx = run_sh.rfind("then", 0, idx)
+    assert then_idx != -1, "redirect export is not inside an if...then block"
+    if_idx = run_sh.rfind("\n  if ", 0, then_idx)
+    assert if_idx != -1, "cannot locate the redirect's governing if"
+    condition = run_sh[if_idx:then_idx]
+    # The export must be the FIRST statement of that block — nothing
+    # between `then` and the export but whitespace.
+    assert run_sh[then_idx + len("then"):idx].strip() == "", (
+        "the dev-collector redirect is not the guarded block's first "
+        "statement — its governing condition may not apply to it"
+    )
+    assert '"staging"' in condition, (
+        "dev-collector redirect is no longer keyed on the staging label"
+    )
+    assert "_is_manyfold_sandbox" in condition, (
+        "dev-collector redirect lost its _is_manyfold_sandbox guard — a "
+        "hand-set NEXUS_DIAG_ENV=staging on a personal install would leak "
+        "logs to our dev collector (the whole point of last round's guard)"
+    )
