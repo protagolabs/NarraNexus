@@ -39,6 +39,16 @@ dependencies = [
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
     "numpy>=1.26.0",
+    # libmagic content-based MIME sniffing for uploaded/ingested bytes
+    # (utils/mime_sniff.py tier 1). Without it the sniffer falls back to the
+    # spoofable file extension / client Content-Type — a WAV renamed .png
+    # classified as an image. This wheel is pure-Python; it needs the native
+    # system libmagic1 at runtime, which must be installed in EVERY image that
+    # serves uploads: docker/Dockerfile.manyfold here AND the deploy repo's
+    # docker/Dockerfile.python (the dev/prod backend/mcp/workers image). Until
+    # that companion deploy change ships, cloud sniffing degrades to the
+    # extension (and logs a one-time warning — see mime_sniff._warn_libmagic_missing_once).
+    "python-magic>=0.4.27",
     "httpx[socks]",
     "bcrypt>=5.0.0",
     # Fernet encryption for skill env_config secrets (skill marketplace).

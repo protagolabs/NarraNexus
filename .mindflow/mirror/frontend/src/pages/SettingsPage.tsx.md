@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
+
+新增 `privacy` nav 项 + `PrivacySettings` 面板。后端的 analytics
+opt-out 自 06-08 就存在,但唯一 UI 活在**从未挂载**的 SettingsModal
+里——本条目让它(以及新的遥测同意开关)第一次对用户可达。
+`?tab=privacy` 深链是 TelemetryNotice 首次告知横幅的跳转目标,nav
+测试守住这条(横幅承诺"可去设置关闭",深链失效即承诺失效)。
 
 ## 2026-07-30 — `?tab=<nav id>` 深链（付款回跳的落点）
 

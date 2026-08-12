@@ -134,6 +134,16 @@ export class ApiError extends Error {
   }
 }
 
+export interface TelemetryConsentState {
+  mode: 'off' | 'meta' | 'full';
+  source: 'env' | 'optout' | 'default';
+  opted_out: boolean;
+  controllable: boolean;
+  /** Who owns a non-controllable state: deployment env var vs
+   *  multi-tenant cloud install. null when the user holds the switch. */
+  managed_by: 'env' | 'cloud' | null;
+}
+
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
   | 'anthropic'
@@ -668,6 +678,29 @@ class ApiClient {
   async setAnalyticsOptOut(optedOut: boolean): Promise<void> {
     await this.request<{ success: boolean; opted_out: boolean }>(
       '/api/auth/settings/analytics',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
+  }
+
+  /** Telemetry (diagnostic log shipping) consent state. Unlike
+   *  analytics (per-user, DB row) this is a per-MACHINE marker file:
+   *  `controllable` is false when a deployment env override or a
+   *  multi-tenant cloud install owns the decision — render the toggle
+   *  read-only then. */
+  async getTelemetryConsent(): Promise<TelemetryConsentState> {
+    return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
+  }
+
+  /** Flip the telemetry opt-out marker (per user account on the
+   *  host). Opting out takes effect within one flush interval;
+   *  re-enabling needs a restart only when telemetry was already off
+   *  at process start. */
+  async setTelemetryOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/telemetry',
       {
         method: 'PUT',
         body: JSON.stringify({ opted_out: optedOut }),

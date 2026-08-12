@@ -1236,6 +1236,9 @@
     "settings": {
       "title": "Configurações",
       "headerSections": "Provedores · Pacote · Artefatos · Agentes",
+      "nav": {
+        "privacy": "Privacidade"
+      },
       "providers": {
         "label": "Provedores de LLM"
       },
@@ -1275,6 +1278,19 @@
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
+      },
+      "privacy": {
+        "label": "Privacidade",
+        "hint": "O que sai deste dispositivo e os interruptores para o controlar.",
+        "analyticsTitle": "Análise de produto",
+        "analyticsDesc": "Permitir que o NarraNexus guarde metadados de utilização para análise. No modo cloud, são armazenados numa base de dados gerida pelo NarraNexus; no modo local ou de ambiente de trabalho, ficam neste dispositivo. Nunca são enviados para um serviço de análise de terceiros. O conteúdo das conversas nunca é recolhido.",
+        "telemetryTitle": "Telemetria de diagnóstico",
+        "telemetryDesc": "Enviar os registos de serviço desta instalação para o coletor do próprio NarraNexus, para permitir depurar falhas e avarias. No nível predefinido, isto significa eventos estruturados, avisos e erros — sem conteúdo de mensagens. As implementações que executam o nível \"full\" (sandboxes geridas, ambientes de depuração) enviam linhas de registo completas, que podem incluir conteúdo de mensagens registado pelos serviços. Nada é enviado a terceiros.",
+        "telemetryTiming": "Ao desativar, produz efeito em poucos segundos. Se a telemetria já estava desativada quando a aplicação arrancou, ativá-la produz efeito no próximo arranque.",
+        "telemetryManaged": "Gerido pela sua implantação (definição de ambiente) — o interruptor não está disponível aqui.",
+        "telemetryManagedCloud": "O seu administrador controla a telemetria de diagnóstico desta instalação.",
+        "telemetryUnavailable": "Não foi possível carregar o estado da telemetria — o interruptor é ocultado em vez de adivinhado. Recarregue para tentar novamente.",
+        "telemetryError": "Não foi possível guardar a alteração. O interruptor mostra o estado atual real."
       }
     },
     "system": {
@@ -2067,5 +2083,11 @@
     "savedTo": "Guardado em {{path}}",
     "downloadFailed": "Falha no download: {{error}}",
     "doneTitle": "Concluído"
+  },
+  "telemetryNotice": {
+    "body": "O NarraNexus envia agora os registos de serviço de diagnóstico desta instalação para o seu próprio coletor, para ajudar a depurar falhas e problemas de integração. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens. Pode desativar isto a qualquer momento em Configurações → Privacidade.",
+    "settings": "Abrir configurações",
+    "dismiss": "Entendido",
+    "bodyManaged": "Esta instalação envia registos de serviço de diagnóstico (erros e eventos de diagnóstico) para o coletor do próprio NarraNexus, conforme configurado pelo seu administrador. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens."
   }
 }

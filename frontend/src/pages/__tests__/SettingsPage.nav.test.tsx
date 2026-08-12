@@ -25,6 +25,9 @@ vi.mock('@/components/settings/ProviderSettings', () => ({
   ProviderSettings: () => <div data-testid="providers-pane" />,
 }));
 vi.mock('@/components/settings/ModelDefaultsSettings', () => ({ ModelDefaultsSettings: () => <div /> }));
+vi.mock('@/components/settings/PrivacySettings', () => ({
+  PrivacySettings: () => <div data-testid="privacy-pane" />,
+}));
 vi.mock('@/components/settings/NetmindAccountPanel', () => ({
   NetmindAccountPanel: () => <div data-testid="account-pane" />,
 }));
@@ -88,6 +91,16 @@ describe('SettingsPage ?tab= deep link', () => {
     render(<SettingsPage />);
     expect(screen.queryByTestId('account-pane')).toBeNull();
     expect(screen.getByTestId('providers-pane')).toBeTruthy();
+  });
+
+  test('tab=privacy opens the privacy pane — the telemetry notice deep-links here', () => {
+    // TelemetryNotice navigates to /app/settings?tab=privacy; if this
+    // ever falls back to the first pane, "turn it off in settings"
+    // becomes a dead promise.
+    mockNetmindToken = '';
+    mockSearch = 'tab=privacy';
+    render(<SettingsPage />);
+    expect(screen.getByTestId('privacy-pane')).toBeTruthy();
   });
 
   test('the URL seeds the pane but does not lock it — nav clicks still work', () => {
