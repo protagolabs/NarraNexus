@@ -67,12 +67,16 @@ Env:
                                   manyfold sandboxes — their own
                                   partition, so a full-level sandbox
                                   fleet rotates itself under the size
-                                  cap instead of crowding prod). THREE-SIDED with
-                                  the senders' NEXUS_DIAG_ENV and the
-                                  discovery map above: this list only
-                                  decides the STORAGE PARTITION, the
-                                  map's keys decide the receiving
-                                  host — extend all three together.
+                                  cap instead of crowding prod). FOUR-SIDED with
+                                  the senders' NEXUS_DIAG_ENV, the
+                                  discovery map above, and WHICH
+                                  collector serves that map: this list
+                                  only decides the STORAGE PARTITION,
+                                  the map's keys decide the receiving
+                                  host, and run.sh decides which
+                                  collector a label discovers against
+                                  (staging -> dev) — extend all four
+                                  together.
                                   Anything else lands in unknown/
                                   with a warning
     DIAG_COLLECT_DATA_DIR         default ~/diag-collect
@@ -386,10 +390,11 @@ _UNKNOWN_ENV = "unknown"
 # and the dev stack sets NEXUS_DIAG_ENV=dev in its compose .env — one
 # line on one host — to get its own STORAGE partition. The allowlist
 # decides directories only; which HOST receives the logs is the
-# discovery map's key set (third side of the contract, see
-# .env.example): the prod collector's DIAG_COLLECT_CONFIG_JSON must
-# carry a "dev" ingest entry, or the label silently routes to the
-# "default" (prod) ingest — no warning fires on either side.
+# discovery map's key set (the receiving-host side of the four-sided
+# label contract, see .env.example): the prod collector's
+# DIAG_COLLECT_CONFIG_JSON must carry a "dev" ingest entry, or the
+# label silently routes to the "default" (prod) ingest — no warning
+# fires on either side.
 _DEFAULT_KNOWN_ENVS = "staging,cloud,local,desktop,dev,sprite"
 
 # One warning per demoted label, not per record — silent collapse is how

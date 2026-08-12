@@ -69,16 +69,20 @@ Ingest URL resolution (first match wins):
      "default" entry. Deployment-specific label derivation (e.g.
      manyfold staging detection) lives in run.sh container mode, which
      injects ``NEXUS_DIAG_ENV`` — this utility reads no other
-     integration's env vars. THREE-SIDED CONTRACT — a label lives in
-     three places and introducing one means updating all three:
+     integration's env vars. FOUR-SIDED CONTRACT — a label lives in
+     four places and introducing one means updating all four:
      (1) the sender's env label (here); (2) the collector's
      ``DIAG_COLLECT_KNOWN_ENVS``, which decides the STORAGE PARTITION
      (a label missing there is demoted into unknown/, the partition
      its size cap drains first); (3) the discovery document's ingest
      map, which decides the RECEIVING HOST — ``mapping.get(label)``
      falls back to "default", so a label missing from the map silently
-     ships to the default (prod) collector with no warning on either
-     side.
+     ships to the default collector with no warning on either side;
+     (4) WHICH collector serves that discovery document to this label:
+     prod (agent.narra.nexus) is the built-in default, but run.sh
+     points ``staging`` sandboxes at the dev collector — so a redirected
+     label's collector must serve DIAG_COLLECT_CONFIG_JSON too, or the
+     sender 404s and backs off a full TTL.
 
      The document is fetched LAZILY on the worker thread with a TTL
      cache — never at setup, so process start and test runs touch no
@@ -487,12 +491,14 @@ class ShipSink:
         )
         try:
             resp = self._client.get(discovery)
-            if 400 <= resp.status_code < 500:
-                # A 4xx is a DEFINITE "no discovery document here"
-                # answer (404 = the collector has no DIAG_COLLECT_CONFIG
-                # _JSON, 401/403 = not for us) — same class as the
-                # not-a-document 200 below: the endpoint is reachable
-                # and telling us there is nothing, so back off a full
+            if 300 <= resp.status_code < 500:
+                # A 3xx or 4xx is a DEFINITE "no usable discovery
+                # document here" answer (404 = collector has no
+                # DIAG_COLLECT_CONFIG_JSON, 401/403 = not for us, 3xx =
+                # a redirect we do not follow — our collectors serve the
+                # doc directly at 200) — same class as the not-a-
+                # document 200 below: the endpoint is reachable and
+                # telling us there is nothing usable, so back off a full
                 # TTL, not the 60s transient cadence. 5xx and network
                 # errors stay on the short retry (they ARE transient) —
                 # do not widen this to them.

@@ -504,8 +504,10 @@ run_container_mode() {
     # dev collector; everything else is "sprite" — its own storage
     # partition, so a full-level sandbox fleet rotates ITSELF under the
     # collector's size cap instead of crowding out prod's history.
-    # Three-sided contract: "sprite" is in the collector's default
-    # DIAG_COLLECT_KNOWN_ENVS and in the discovery-map examples.
+    # Label contract (four-sided): "sprite" is in the collector's
+    # default DIAG_COLLECT_KNOWN_ENVS and the discovery-map examples;
+    # its discovery endpoint is the built-in prod default (only
+    # "staging" is redirected to dev, in the block below).
     case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
       *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
       *)             export NEXUS_DIAG_ENV="sprite" ;;
@@ -526,7 +528,11 @@ run_container_mode() {
   # dropped the substring would fall through to prod discovery and drop
   # batches. Both collapse to a config fix once observed — staging
   # validation only needs the common case, which this covers. Hardening
-  # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred.
+  # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred. When it
+  # lands, the injector must set token + runtime_id too: the redirect
+  # below is gated on label AND manyfold identity, so an injected
+  # "staging" label with those vars absent gets the label but not the
+  # redirect, and its batches fall back to prod discovery silently.
   # Gated on _is_manyfold_sandbox too: the "staging" label is only
   # auto-derived for sandboxes, but a personal install that set
   # NEXUS_DIAG_ENV=staging by hand must NOT get its logs redirected to

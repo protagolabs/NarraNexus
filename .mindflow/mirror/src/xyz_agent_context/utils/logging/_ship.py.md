@@ -9,14 +9,15 @@ last_verified: 2026-08-12
 run.sh 让 **staging 沙盒的发现入口改指 dev-agent**(内置默认仍是
 prod)——发现契约从"三边"变**四边**:标签 → 白名单(存储分区)→
 map key(接收主机)→ **哪台 collector 伺服这份 map**。四处"只有
-prod 一处入口 / URL 轮换=prod 一处 env"的旧表述已全部改口(.env.
+prod 一处入口 / URL 轮换=prod 一处 env"的旧表述改口为四边(.env.
 example、collector.py 两处 docstring、两份 mirror)。dev collector
 已配 `DIAG_COLLECT_CONFIG_JSON`(curl 实测 200,含 staging→dev-
 ingest,贴进 PR)。
 
 `_ingest_url` 加 **4xx→整 TTL 退避**:404(collector 无 CONFIG_JSON)
-是明确的"这里没有发现文档",与"200 但非文档形状"同类;**5xx/网络
-错误保持 60s 短重试**(瞬态,不可扩到它们上——test_5xx_keeps_short_
+是明确的"这里没有发现文档",与"200 但非文档形状"同类(3xx 我们
+不跟随、自家 collector 直接 200 伺服,故 3xx-4xx 同归 TTL 退避);
+**5xx/网络错误保持 60s 短重试**(瞬态,不可扩到它们上——test_5xx_keeps_short_
 retry / test_unresolvable_drops_quietly 建立在此)。run.sh 重定向加
 可执行不变量测试(test_trigger_startup_alignment,沿用既有 run.sh
 断言先例);404/5xx 用例补在 html-backoff 测试旁。重定向门控加

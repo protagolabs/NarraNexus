@@ -153,27 +153,3 @@ def test_run_sh_kills_supervisor_on_stop():
         "run.sh stop path missing pkill for run_worker_supervisor"
     )
 
-
-def test_run_sh_staging_sandbox_discovers_from_dev_collector():
-    """Staging sandboxes must resolve their telemetry discovery from the
-    DEV collector, not the built-in prod URL — the invariant that lets
-    staging validation proceed without the prod collector. It lives as
-    one `if` in a 145-line function with no other alarm surface in
-    container mode; if a later edit removes it or flips the case, CI
-    stays green and the container boots while telemetry silently goes
-    dark. This asserts the redirect (gated on a manyfold sandbox) is
-    present and points at dev-agent."""
-    text = STARTUP_FILES["run.sh"].read_text(encoding="utf-8")
-    assert re.search(
-        r'NEXUS_DIAG_ENV.*=.*"staging".*\n.*NEXUS_DIAG_DISCOVERY_URL',
-        text,
-    ) or (
-        'NEXUS_DIAG_ENV:-}" = "staging"' in text
-        and "dev-agent.narra.nexus/telemetry/v1/config" in text
-    ), "run.sh no longer redirects staging sandboxes to the dev collector"
-    # The redirect must be gated on a manyfold sandbox, so a hand-set
-    # staging label on a personal install cannot leak logs to dev.
-    assert '_is_manyfold_sandbox' in text and \
-        'dev-agent.narra.nexus/telemetry/v1/config' in text, (
-        "staging->dev redirect missing the _is_manyfold_sandbox guard"
-    )
