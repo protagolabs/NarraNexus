@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import re
 import time
 from collections import defaultdict
@@ -37,6 +38,11 @@ from xyz_agent_context.agent_framework.llm.failure import (
     redact_secrets,
 )
 from xyz_agent_context.services.service_audit import ServiceAuditor
+from xyz_agent_context.message_bus._bus_activity import (
+    elapsed_seconds,
+    is_live,
+    is_stalled,
+)
 from xyz_agent_context.message_bus.local_bus import (
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
@@ -55,6 +61,7 @@ from xyz_agent_context.message_bus.system_messages import (
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
+from xyz_agent_context.utils.timezone import utc_now
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
@@ -85,6 +92,14 @@ MAX_TEAM_AGENT_HOPS = 4
 # someone else — so it can Read and discuss it without a manual relay. Capped to
 # bound the per-turn token cost.
 TEAM_HISTORY_LIMIT = 20
+
+# How much of a team's `intro_md` rides the prompt. The column is MEDIUMTEXT and
+# the field is a free-text box in the management UI, so an owner can paste a
+# manual into it — unbounded here would crowd out the scrollback and the roster,
+# which are the parts that decide what the agent does THIS turn. Truncation is
+# always announced; silently cutting an owner's house rules would be worse than
+# not carrying them.
+TEAM_INTRO_MAX_CHARS = 1200
 
 # Owned by local_bus (whose `get_pending_messages` enforces the filter) and
 # imported here so the two can't drift. Once a message's failure_count reaches
@@ -712,19 +727,20 @@ class MessageBusTrigger:
             return
         try:
             # "Did the window reach the bottom of what this agent still owes?"
-            # `get_unread` already measures against the cursor, so anything it
-            # returns below the window is by definition a message this turn did
-            # not render. One question, correct whether or not a cursor exists.
-            floor = canonical_ts(rendered_from)
-            behind = [
-                m for m in await self._bus.get_unread(agent_id)
-                if m.channel_id == channel_id and canonical_ts(m.created_at) < floor
-            ]
-            if behind:
+            # An existence question, asked as one: the unread predicate already
+            # measures against the cursor, so anything left below the window is
+            # by definition something this turn did not render. Correct whether
+            # or not a cursor exists — and it stays a `LIMIT 1`, rather than
+            # dragging the agent's whole cross-channel backlog over the wire to
+            # be filtered in Python, which is the shape this lane just spent a
+            # PR removing.
+            if await self._bus.has_unread_before(
+                agent_id, channel_id, rendered_from
+            ):
                 logger.info(
                     f"[bus] read cursor held for {agent_id} in {channel_id}: "
-                    f"{len(behind)} unread message(s) predate this turn's "
-                    f"scrollback and were never rendered"
+                    f"unread messages predate this turn's scrollback and were "
+                    f"never rendered"
                 )
                 return
             await self._bus.ack_read(
@@ -809,7 +825,11 @@ class MessageBusTrigger:
         _hop_done = False
         try:
             if is_team:
-                member_map = await self._team_member_names(channel_id)
+                roster = await self._team_roster(channel_id)
+                # Still needed downstream: @mention parsing works on names.
+                member_map = {
+                    r["agent_id"]: r.get("name") or r["agent_id"] for r in roster
+                }
                 team_owner = await self._get_agent_owner(agent_id)
                 team_id = channel_owner[len(TEAM_ROOM_OWNER_PREFIX):]
                 # Feed the recent room scrollback (not just the @mention batch)
@@ -819,14 +839,15 @@ class MessageBusTrigger:
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
                 bulletin = await self._load_bulletin(team_id)
                 rendered_from = history[0].created_at if history else None
-                lead_agent_id, work_items = await self._team_board(team_id)
+                lead_agent_id, work_items, team_row = await self._team_board(team_id)
                 prompt = self._build_team_prompt(
-                    agent_id, history, member_map,
+                    agent_id, history, roster,
                     owner_user_id=team_owner, team_id=team_id,
                     trigger_messages=messages,
                     bulletin=bulletin,
                     lead_agent_id=lead_agent_id,
                     work_items=work_items,
+                    team=team_row,
                 )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
@@ -1199,13 +1220,64 @@ class MessageBusTrigger:
                 f"{notify_err}"
             )
 
-    async def _team_member_names(self, channel_id: str) -> Dict[str, str]:
-        """Map each channel member's agent_id → display name (agent_name)."""
-        out: Dict[str, str] = {}
-        for m in await self._bus.get_channel_members(channel_id):
-            row = await self._bus._db.get_one("agents", {"agent_id": m.agent_id})
-            if row:
-                out[m.agent_id] = row.get("agent_name") or m.agent_id
+    async def _team_roster(self, channel_id: str) -> List[dict]:
+        """Who is in this room, and everything the prompt needs to say about it.
+
+        Replaces a loop that fetched each member's whole `agents` row and kept
+        only `agent_name`. The description was already in hand and thrown away,
+        while "who should I hand this to" — the question the prompt tells the
+        agent to answer by @mentioning someone — had nothing to stand on.
+
+        Three batched reads, not a join. `LocalMessageBus._db` is the RAW
+        backend, so a hand-written multi-table join here would be the most
+        dialect-fragile statement in the package for no gain: a team is a few
+        dozen agents at most, and `get_by_ids` is the repository's existing
+        dialect-safe shape.
+
+        Activity comes from `get_channel_activity`, which keys on the channel.
+        That matters: `bus_agent_activity` is keyed `(agent_id, channel_id)`,
+        so fetching per-agent alone returns whichever room sorts first — a bug
+        this codebase has already shipped once, in the stall detector.
+        """
+        members = await self._bus.get_channel_members(channel_id)
+        ids = [m.agent_id for m in members]
+        if not ids:
+            return []
+        db = self._bus._db
+        agents = {
+            r["agent_id"]: r
+            for r in (await db.get_by_ids("agents", "agent_id", ids) or [])
+            if r
+        }
+        registry = {
+            r["agent_id"]: r
+            for r in (
+                await db.get_by_ids("bus_agent_registry", "agent_id", ids) or []
+            )
+            if r
+        }
+        from xyz_agent_context.message_bus import _bus_activity
+
+        activity = {
+            r["agent_id"]: r
+            for r in (await _bus_activity.get_channel_activity(db, channel_id) or [])
+            if r
+        }
+        out: List[dict] = []
+        for agent_id in ids:
+            row = agents.get(agent_id) or {}
+            caps_raw = (registry.get(agent_id) or {}).get("capabilities")
+            try:
+                caps = json.loads(caps_raw) if isinstance(caps_raw, str) else (caps_raw or [])
+            except (ValueError, TypeError):
+                caps = []
+            out.append({
+                "agent_id": agent_id,
+                "name": row.get("agent_name") or agent_id,
+                "description": row.get("agent_description") or "",
+                "capabilities": caps if isinstance(caps, list) else [],
+                "activity": activity.get(agent_id),
+            })
         return out
 
     async def _load_bulletin(self, team_id: str) -> List[Any]:
@@ -1389,12 +1461,13 @@ class MessageBusTrigger:
             )
             return
 
-        member_map = await self._team_member_names(channel_id)
+        roster = await self._team_roster(channel_id)
+        member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
         team_owner = await self._get_agent_owner(lead_agent_id)
         history = await self._bus.get_recent_messages(
             channel_id, limit=TEAM_HISTORY_LIMIT
         )
-        lead, work_items = await self._team_board(team_id)
+        lead, work_items, team_row = await self._team_board(team_id)
         # The patrol sweep is a real turn whose reply lands in the room with
         # @mentions, so it is bound by the team's rules exactly as an @mentioned
         # member is. Omitting this made the Leader the one member the bulletin
@@ -1402,12 +1475,13 @@ class MessageBusTrigger:
         # loads every turn.
         bulletin = await self._load_bulletin(team_id)
         prompt = self._build_team_prompt(
-            lead_agent_id, history, member_map,
+            lead_agent_id, history, roster,
             owner_user_id=team_owner, team_id=team_id,
             trigger_messages=[],
             bulletin=bulletin,
             lead_agent_id=lead or lead_agent_id,
             work_items=work_items,
+            team=team_row,
             patrol_stalled=[
                 {
                     "title": i.title,
@@ -1502,8 +1576,14 @@ class MessageBusTrigger:
         )
         await note_patrol_spoke(db, team_id)
 
-    async def _team_board(self, team_id: str) -> tuple[str, List[dict]]:
-        """``(lead_agent_id, unfinished work items)`` for a team room's prompt.
+    async def _team_board(
+        self, team_id: str
+    ) -> tuple[str, List[dict], Optional[dict]]:
+        """``(lead_agent_id, unfinished work items, team row)`` for the prompt.
+
+        The team row comes back whole because this method already fetched it to
+        read `lead_agent_id`; the name/description/intro that the prompt's team
+        card needs were being discarded one line after being loaded.
 
         Best-effort: a board that cannot be read degrades to "no items" rather
         than failing the turn. The room conversation is the primary surface —
@@ -1511,7 +1591,7 @@ class MessageBusTrigger:
         costs the user their answer.
         """
         if not team_id:
-            return ("", [])
+            return ("", [], None)
         try:
             from xyz_agent_context.repository.team_work_repository import (
                 TeamWorkItemRepository,
@@ -1533,22 +1613,156 @@ class MessageBusTrigger:
                     }
                     for i in items
                 ],
+                team,
             )
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[work-board] could not load board for {team_id}: {e}")
-            return ("", [])
+            return ("", [], None)
+
+    @staticmethod
+    def _member_status(row: Optional[dict]) -> str:
+        """How a teammate's activity reads in the roster, or "" for silence.
+
+        Only two states are worth a word. `running` with a fresh heartbeat says
+        "busy, do not pile on"; `running` with a dead one says "this one needs
+        looking at" — the single most useful thing a Leader can be told. `idle`
+        is the resting state, and hanging it off every name is exactly the
+        standing noise this room keeps stripping out.
+
+        Duration comes from `started_at` (when this turn began), never
+        `updated_at` (the heartbeat, which is always ~now). Integers only: the
+        heartbeat ticks every 30s, so a decimal would be invented precision.
+
+        `phase` is deliberately absent. It carries implementation step names
+        like `tool:Read`; putting it in front of a model invites commentary on
+        a teammate's tool use, and it churns every few seconds.
+        """
+        if not row:
+            return ""
+        if is_stalled(row):
+            return "running but no signal"
+        if not is_live(row):
+            return ""
+        secs = elapsed_seconds(row)
+        if secs is None:
+            return "running"
+        if secs < 60:
+            return f"running ({secs}s)"
+        if secs < 3600:
+            return f"running ({secs // 60}m)"
+        return f"running ({secs // 3600}h{(secs % 3600) // 60}m)"
+
+    @classmethod
+    def _roster_lines(
+        cls,
+        agent_id: str,
+        roster: List[dict],
+        lead_agent_id: str,
+    ) -> List[str]:
+        """One line per member, in the same shape as the Known Agents list.
+
+        The shape is not cosmetic. That list renders ``\`id\` — name: desc`` and
+        it is where an agent learns the identifiers `bus_send_to_agent` expects.
+        A roster that gave display names only forced the model to guess a
+        mapping between two surfaces, so the two now read alike.
+
+        The agent's OWN row is included and marked. Leaving yourself off the
+        list of who is present is the confusion this card exists to end, not a
+        tidy-up — and the lead marker is on every row, so a non-lead can finally
+        see who is supposed to be driving.
+
+        An unset description prints NOTHING rather than its placeholder: the
+        Known Agents list learned in 2026-08-04 that repeating "a new agent
+        ready for configuration" beside every peer reads as "none of these are
+        usable".
+        """
+        from xyz_agent_context.schema.entity_schema import is_agent_description_unset
+
+        if not roster:
+            # NOT "just you": this agent is itself a member, so an empty roster
+            # means the read came back empty, not that the room is deserted.
+            # Same rule as the team card — say nothing rather than assert
+            # something the data does not support.
+            return []
+        out = [f"Channel members RIGHT NOW (besides the user), {len(roster)}:"]
+        for r in roster:
+            rid = r.get("agent_id", "")
+            line = f"- `{rid}` — {r.get('name') or rid}"
+            if rid == agent_id:
+                line += " (you)"
+            if rid and rid == lead_agent_id:
+                line += " · Leader"
+            desc = r.get("description") or ""
+            if not is_agent_description_unset(desc):
+                # Marked when cut, same rule the team card follows for
+                # `intro_md`: two truncation standards in one prompt is how a
+                # reader learns to distrust both.
+                shown = desc[:120] + ("…" if len(desc) > 120 else "")
+                line += f": {shown}"
+            all_caps = [str(c) for c in (r.get("capabilities") or [])]
+            caps = all_caps[:6]
+            if caps:
+                more = f" +{len(all_caps) - len(caps)} more" if len(all_caps) > len(caps) else ""
+                line += f" · can: {', '.join(caps)}{more}"
+            # Own status is not news to oneself.
+            if rid != agent_id:
+                status = cls._member_status(r.get("activity"))
+                if status:
+                    line += f" · {status}"
+            out.append(line)
+        return out
+
+    @staticmethod
+    def _team_card_lines(team: Optional[dict]) -> List[str]:
+        """The team's identity block: name, purpose, house rules.
+
+        Every field is optional and an absent one renders as NOTHING — never as
+        an empty heading. A blank "Why this team exists:" reads as "this team
+        has no purpose", which is worse than not raising the question.
+
+        `intro_md` is capped at ``TEAM_INTRO_MAX_CHARS`` and the cut is always
+        announced. The column is MEDIUMTEXT behind a free-text box, so it can be
+        arbitrarily long, and an unbounded field in a per-turn prompt crowds out
+        the scrollback and roster — the parts that decide what happens THIS
+        turn. The cut lands on a line boundary where one is near, so a markdown
+        table or fence is not sliced through the middle.
+        """
+        if not team:
+            return []
+        lines: List[str] = []
+        name = str(team.get("name") or "").strip()
+        if name:
+            lines += ["", f"[Team] {name}"]
+        description = str(team.get("description") or "").strip()
+        if description:
+            lines.append(f"Why this team exists: {description}")
+        intro = str(team.get("intro_md") or "").strip()
+        if intro:
+            if len(intro) > TEAM_INTRO_MAX_CHARS:
+                cut = intro[:TEAM_INTRO_MAX_CHARS]
+                nl = cut.rfind("\n")
+                if nl > TEAM_INTRO_MAX_CHARS // 2:
+                    cut = cut[:nl]
+                intro = (
+                    f"{cut.rstrip()}\n…(intro truncated at "
+                    f"{TEAM_INTRO_MAX_CHARS} chars — the full version lives in "
+                    f"the team settings)"
+                )
+            lines += ["How this team works:", intro]
+        return lines
 
     def _build_team_prompt(
         self,
         agent_id: str,
         history: List[BusMessage],
-        member_map: Dict[str, str],
+        roster: List[dict],
         owner_user_id: Optional[str] = "",
         team_id: str = "",
         trigger_messages: Optional[List[BusMessage]] = None,
         lead_agent_id: str = "",
         work_items: Optional[List[dict]] = None,
         patrol_stalled: Optional[List[dict]] = None,
+        team: Optional[dict] = None,
         *,
         bulletin: Optional[List[Any]],
     ) -> str:
@@ -1562,14 +1776,15 @@ class MessageBusTrigger:
         should respond to."""
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
 
+        member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
         me = member_map.get(agent_id, agent_id)
-        teammates = [n for a, n in member_map.items() if a != agent_id]
-        roster = ", ".join(teammates) if teammates else "(no other agents yet)"
         lines = [
             "[Team Group Chat]",
             f'You are "{me}" in a team group chat with the user and your '
             f"teammates.",
-            f"Channel members RIGHT NOW (besides the user): {roster}.",
+        ]
+        lines += self._roster_lines(agent_id, roster, lead_agent_id)
+        lines += [
             "These are the ONLY participants who can see this chat. Someone "
             "named in the history but not in that list has LEFT or was never "
             "here — they are not present.",
@@ -1580,6 +1795,16 @@ class MessageBusTrigger:
             "'send' a file that's already here, and never claim you did — to "
             "bring a teammate in, just @mention them and they'll see it too.",
         ]
+        # --- The team card ---------------------------------------------
+        #
+        # Ahead of the working instructions on purpose: "where am I, with whom,
+        # and why" is the frame everything below is read through. The owner
+        # writes `description` / `intro_md` in the management UI believing they
+        # set the team's terms; until this section existed neither field had a
+        # single consumer on the agent side, so the answer to "why are we all
+        # here" was never in the room and the owner had no way to find that out.
+        lines += self._team_card_lines(team)
+
         if owner_user_id and team_id:
             from xyz_agent_context.utils.workspace_paths import team_shared_dir
             shared = team_shared_dir(owner_user_id, team_id)
@@ -1712,7 +1937,20 @@ class MessageBusTrigger:
                 lines.append(f"[system] {msg.content}")
                 continue
             sender = _sender(msg)
-            lines.append(f"{sender}: {msg.content}")
+            # Who the line was AIMED at. `mentions` has always been on the
+            # message and this prompt never read it, so a room coordinating
+            # three people arrived as undifferentiated chatter and the agent had
+            # to infer which lines concerned it. Knowing a request already has
+            # an owner is also what stops two agents doing the same job.
+            addressed = ""
+            targets = [m for m in (msg.mentions or []) if m]
+            if targets:
+                named = [
+                    "you" if m == agent_id else member_map.get(m, m)
+                    for m in targets
+                ]
+                addressed = f"  [→ {', '.join(named)}]"
+            lines.append(f"{sender}: {msg.content}{addressed}")
             marker = build_bus_markers(msg.attachments, from_agent=sender)
             if marker:
                 lines.append(marker)
@@ -1720,21 +1958,72 @@ class MessageBusTrigger:
         # Point the agent at what it must answer — the latest message that
         # @mentioned it (it's already in the history above, shown in order).
         if trigger_messages:
-            tm = trigger_messages[-1]
             # A patrol chase reaches here as a real trigger, and its sender is
             # the synthetic `team_<id>` marker, which member_map cannot resolve.
             # Naming it verbatim invents a teammate the agent may then try to
             # @mention back.
-            if (tm.msg_type or "") in PLATFORM_MSG_TYPES:
-                who = _platform_trigger_label(tm.msg_type or "")
+            def _who(m: BusMessage) -> str:
+                if (m.msg_type or "") in PLATFORM_MSG_TYPES:
+                    return _platform_trigger_label(m.msg_type or "")
+                return _sender(m)
+
+            tail = (
+                "If it refers to a file/image shown above, open the path with "
+                "the Read tool first, then reply."
+            )
+            # The honesty check is per BATCH, not "is there exactly one". Two
+            # messages inside one poll window is ordinary, and if the user named
+            # nobody in either then BOTH carry a synthesised mention — announcing
+            # "2 messages @mentioned you" would be the same invented attention
+            # this branch exists to remove, one branch over.
+            routed = [m for m in trigger_messages if m.routed_by == "default_responder"]
+            all_routed = len(routed) == len(trigger_messages)
+            if len(trigger_messages) == 1:
+                tm = trigger_messages[0]
+                if all_routed:
+                    lines += [
+                        "",
+                        f"{_who(tm)} posted this without @mentioning anyone. "
+                        f"You are this team's default responder, so it came to "
+                        f"you. Answer it, or hand it to whoever on the roster "
+                        f"is the better owner by @mentioning them. {tail}",
+                    ]
+                else:
+                    lines += [
+                        "",
+                        f"You were just @mentioned by {_who(tm)}. Respond to "
+                        f"that message. {tail}",
+                    ]
             else:
-                who = _sender(tm)
-            lines += [
-                "",
-                f"You were just @mentioned by {who}. Respond to that "
-                f"message. If it refers to a file/image shown above, open the "
-                f"path with the Read tool first, then reply.",
-            ]
+                # ALL of them, not just the last. Naming only `[-1]` left the
+                # earlier asks sitting in the scrollback looking like everyone
+                # else's traffic — asked, and silently dropped, which reads to
+                # the user as the agent ignoring them.
+                if all_routed:
+                    head = (
+                        f"{len(trigger_messages)} messages arrived with no "
+                        f"@mention. You are this team's default responder, so "
+                        f"they came to you. Address ALL of them, or hand any of "
+                        f"them to a better owner on the roster:"
+                    )
+                else:
+                    head = (
+                        f"{len(trigger_messages)} messages @mentioned you since "
+                        f"your last turn. Address ALL of them — answering only "
+                        f"the latest leaves the others visibly ignored:"
+                    )
+                lines += ["", head]
+                for tm in trigger_messages:
+                    # In a mixed batch neither label is true of the whole, so
+                    # each line says which it is.
+                    mark = (
+                        "  [no @mention — routed to you]"
+                        if (routed and not all_routed
+                            and tm.routed_by == "default_responder")
+                        else ""
+                    )
+                    lines.append(f"- {_who(tm)}: {tm.content}{mark}")
+                lines.append(tail)
         lines += [
             "",
             "Write your chat reply now. Rules:",

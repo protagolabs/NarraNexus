@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — Clear team data 增加 board 作用域
@@ -345,3 +345,14 @@ reason to reach into.
 `_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
 import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
 测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。
+
+## 2026-08-12 — 合成的 mention 记上来历;改名回写房间
+
+**不取消合成。** team 房间靠合成 owner marker 关掉了"owner 全激活",没有 mention 就
+没人被激活 —— 取消它房间就不应答了。所以路由行为一行未动,只是把「这个 mention 是
+路由补的」写进 `routed_by`,让 trigger 能说真话。
+
+**改名回写 `bus_channels.name`。** 房间自己存了一份名字,而**那一份才是 agent 看到
+的**(`Your Channels` 渲染的是它)。此前改名只落 teams 表,于是每个成员继续把旧名字
+念给用户听,而 UI 显示新名 —— 两边对不上,谁也解释不了。best-effort:改名本身已经
+成功,回写失败只记警告。

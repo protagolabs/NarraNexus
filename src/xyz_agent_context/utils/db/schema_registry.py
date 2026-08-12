@@ -755,6 +755,13 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # Why this message's `mentions` are what they are. NULL = the sender
+            # typed them. "default_responder" = a team room had none and the
+            # route picked the fallback agent so the room would not go silent.
+            # Recorded at the point of the decision because nothing downstream
+            # can reconstruct it: "one mention, and it is the lead" is exactly
+            # what a user deliberately naming the lead looks like.
+            Column("routed_by", "TEXT", "VARCHAR(32)", nullable=True),
             # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
             # size_bytes/category/rel_path). rel_path is base_working_path-relative
             # and points into the per-user shared area; markers are built from it

@@ -1,6 +1,8 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
 last_verified: 2026-08-11
+
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-11 — channel_narramessenger_credentials gains idx_nm_cred_profile
@@ -666,3 +668,12 @@ Important #1).
   `"system"` 哨兵，然后每个「谁写的」路径都要用字符串比较把它排除掉。
 - **`watermark_at` 是专用列**，只在总结行有值。第一版把它塞进 `author_id`——
   那正是上面那条自己批评的一列两义，提交前改掉。
+
+## 2026-08-12 — `bus_messages.routed_by`(可空,additive)
+
+记录一条消息的 `mentions` 是谁写的。语义见 [[schemas]]。
+
+**为什么不复用 `msg_type`**:`send_message` 会把带附件的消息自动改写成
+`"multimodal"`,而"无人被 @"是**正交**的另一个事实,两者塞进同一列会互相覆盖。
+`multimodal` 目前没有消费方,但重载一个字段表达两件事迟早出事。加一个可空列是本项目
+的常规机制,`auto_migrate` 幂等处理,不触发铁律 #6(它禁的是收窄类型和破坏性迁移)。

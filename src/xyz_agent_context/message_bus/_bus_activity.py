@@ -93,6 +93,22 @@ def is_stalled(row: Any) -> bool:
     return bool(row) and row.get("state") == "running" and not is_live(row)
 
 
+def elapsed_seconds(row: Any) -> Optional[int]:
+    """How long the turn in this row has been going, or None if unknowable.
+
+    Measured from ``started_at`` — the turn's beginning — and NOT from
+    ``updated_at``, which is the heartbeat and therefore always ~now.
+
+    Exists so readers stop reaching for `_parse_ts`: the question callers
+    actually have is "how long", and a private parser leaking across modules
+    invites each of them to re-derive the answer slightly differently.
+    """
+    started = _parse_ts((row or {}).get("started_at"))
+    if started is None:
+        return None
+    return int((datetime.now(timezone.utc) - started).total_seconds())
+
+
 def parse_steps(row: Any) -> Dict[str, Any]:
     """Normalise the stored ``steps`` blob into ``{items, dropped}``.
 

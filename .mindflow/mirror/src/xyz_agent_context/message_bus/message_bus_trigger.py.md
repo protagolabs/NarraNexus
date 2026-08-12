@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
@@ -864,3 +864,70 @@ where it stands」），所以它会成为被点名成员这一轮的**触发消
 
 现在平台行渲染为 `[system] <content>`，前提成立。这也是"标注而不是丢弃"的第二个理由，
 当时没人提出过。
+
+## 2026-08-12 — team prompt 从「一串名字」变成一张卡
+
+此前一个成员醒来时知道的全部是:自己的名字、"你在一个团队群聊里"、队友的**逗号分隔
+名字串**、最近 20 条消息、共享目录路径。团队叫什么、为什么存在、队友是干什么的、
+谁在忙 —— 一个都没有。
+
+**团队卡**(`_team_card_lines`):名称 + `description` 全文 + `intro_md`(截到
+`TEAM_INTRO_MAX_CHARS=1200`,在行边界回退以免切断 markdown 表格/代码块;截了就标注,
+没截绝不标注 —— 对完整文本打截断标记是会连累其它标记可信度的小谎)。字段缺失渲染成
+**什么都没有**而不是空标题。位置在房间头之后、共享目录之前:"我在哪、和谁、为什么"
+是读下面一切的框,不能垫在机制说明底下。数据来自 `_team_board` 本来就查了的 `teams`
+整行(它读完 `lead_agent_id` 就把其余丢了),**零新增查询**。
+
+**roster**(`_team_roster` + `_roster_lines`):一行一个成员,格式对齐
+`message_bus_module` 的 Known Agents(`` `id` — name: desc ``)。这不是审美 —— 那份
+列表正是 agent 学到 `bus_send_to_agent` 要什么标识符的地方,两个面用两套标识符等于
+逼模型去猜映射。**自己也在名单里并标 `(you)`**;lead 标记挂在**每一行**,于是非 lead
+成员终于知道谁在负责(此前只有 lead 自己被告知)。描述未设置时整段不渲染,和 Known
+Agents 同一条 2026-08-04 的教训。
+
+数据层从「每个成员一次 `get_one` 只取名字」改成**三次批量读**。不做 JOIN:
+`LocalMessageBus._db` 是 RAW backend,四表 LEFT JOIN 会是本包方言最脆的一句 SQL,而
+一个 team 最多几十人,收益为零。有一条看门狗测试钉住"不许退回逐个查"。
+
+**队友状态**(`_member_status`):只讲两件事 —— `running (3m)` 和
+`running but no signal`。**idle 什么都不渲染**(常态挂在每个名字后面就是背景噪音,
+和巡查"不要每几分钟报平安"同一条产品原则);**`phase` 不注入**(内部步骤名,给模型只
+会诱导它评论队友的工具使用,而且每几秒抖一次)。时长取 `started_at` 而非 `updated_at`
+(后者是心跳,永远约等于现在),整数,不给假精度。
+
+活动行取自 `get_channel_activity`(**按 channel**)。这一点必须守住:
+`bus_agent_activity` 主键是 `(agent_id, channel_id)`,只按 agent 取会拿到字典序靠前的
+**别的房间**的行 —— 这个洞本仓库已经出过一次(巡查的 stalled 判定),别再来第二次。
+
+**scrollback 的 @ 标注**:`BusMessage.mentions` 一直存在,这个 prompt 从没读过它。
+现在逐行标 `[→ 谁]`(是自己就写 `you`)。知道一个请求已经有主,正是避免两个 agent
+做同一件事的依据。
+
+**多条 @ 逐条列**:此前只指 `trigger_messages[-1]`,更早那几条混在 scrollback 里像
+别人的流量 —— 问了却被无声丢掉,在用户看来就是 agent 无视了它们。
+
+**真假 @ 分支**:`routed_by == "default_responder"` 时不再说 "You were just
+@mentioned",改成「X 发言时没有 @ 任何人,你是这个团队的默认应答人,所以它落到了你
+这里;回答它,或按 roster 交给更合适的人」—— 顺带回答了"为什么是我"。
+
+## 2026-08-12 (review 后) — 三处自我纠正
+
+**① 缺口判定改用 `has_unread_before`。** 见 [[local_bus]] 同日条目:我用无 limit 的
+`get_unread` 回答一个布尔问题,把同一批改动刚消灭的形状请了回来。
+
+**② 真假 @ 的判据从「是不是只有一条」改成「整批是不是都被路由」。** 初版只在
+`len(trigger_messages) == 1` 时区分 `routed_by`,于是用户在一个 poll 窗口(3-12s)里
+连发两条都没 @ 人的消息时,复数分支照样打出「2 messages @mentioned you」——**要删掉的
+那句谎话换了个分支活着**。现在按批次分组:全部路由 → 复数版的默认应答人措辞;全是
+真 @ → 原措辞;混合 → 复数版并**逐条标注**哪条是路由补的(scrollback 的 `[→ …]`
+已经证明逐条标注读起来没问题)。
+
+**③ `activity` 覆盖参数删除。** 它在生产没有任何调用方,而 5 条状态测试全靠它驱动 ——
+也就是说 `_team_roster` → `roster[i]["activity"]` → `_member_status` 这条**真实链路
+一条测试都没走过**。参数删掉,测试改用真实形状,另补一条端到端用例:往
+`bus_agent_activity` 写一行 running、外加**同一个 agent 在另一个房间的 idle 行**,
+断言 prompt 里出现的是本房间的时长 —— 顺带把「必须按 channel 取」钉死。
+
+顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
+一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
+成员,读回空意味着读失败,不是房间空了。
