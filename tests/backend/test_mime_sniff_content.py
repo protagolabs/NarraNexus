@@ -16,7 +16,15 @@ from __future__ import annotations
 
 import struct
 
-from xyz_agent_context.utils.mime_sniff import sniff_mime_type
+import pytest
+
+# This test asserts real content-based sniffing, which needs the native
+# libmagic. python-magic raises ImportError at import when the native lib is
+# absent (macOS desktop, the cloud python:3.13-slim image before its companion
+# deploy change) — skip there rather than fail on a host-library gap.
+pytest.importorskip("magic", reason="requires system libmagic")
+
+from xyz_agent_context.utils.mime_sniff import sniff_mime_type  # noqa: E402
 
 
 def _wav_bytes() -> bytes:

@@ -134,19 +134,47 @@ def _entity_key(etype: str, attrs: Dict[str, Any]) -> str:
     ident = (attrs.get("entity_name") or attrs.get("entity_id") or "").strip().lower()
     contact = attrs.get("contact_info")
     contact = contact if isinstance(contact, dict) else {}
-    # attrs is LLM-authored JSON: email/phone may arrive as an int, a list, or
-    # null, not just a string — coerce so a bad value can never raise (this
-    # route has no try/except around the merge loop, so one bad row would 500
-    # the whole graph).
-    raw = contact.get("email") or contact.get("phone") or ""
-    disambig = (raw if isinstance(raw, str) else str(raw)).strip().lower()
+    disambig = _contact_disambiguator(contact)
     # Trade-off: when two agents record the same person but populate DIFFERENT
-    # contact fields (one email, one phone, one nothing), their keys differ and
+    # contact fields (one email, one slack, one nothing), their keys differ and
     # the person shows as two nodes instead of one — a visible duplicate. That
     # is the accepted cost of never silently overwriting two DIFFERENT people
     # who share a name (the reported data-loss bug). Proper cross-field identity
     # resolution is out of scope for this fix.
     return f"{etype}:{ident}:{disambig}"
+
+
+def _contact_scalar(value: Any) -> str:
+    """Coerce an LLM-authored contact value to a stable string, or "" if it
+    carries no usable identity. Never raises: contact_info values arrive as
+    strings, ints, lists, nulls — anything the model emitted."""
+    if value is None or isinstance(value, bool):
+        return ""  # a boolean contact flag is not an identity
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(v) for v in value)
+    return ""  # dict / other — not a stable single identity
+
+
+def _contact_disambiguator(contact: Dict[str, Any]) -> str:
+    """A stable identity signal from contact_info to separate same-named people.
+
+    Prefers the meaningful stable identifiers (email, then phone); failing those
+    — a contact known only by slack/wechat/telegram/etc. — falls back to the
+    first non-empty scalar value BY SORTED KEY. Sorting is load-bearing: dict
+    insertion order differs between agents, and an order-dependent key would
+    split one person into N nodes instead of merging them.
+    """
+    for preferred in ("email", "phone"):
+        scalar = _contact_scalar(contact.get(preferred)).strip()
+        if scalar:
+            return scalar.lower()
+    for key in sorted(contact):
+        scalar = _contact_scalar(contact.get(key)).strip()
+        if scalar:
+            return scalar.lower()
+    return ""
 
 
 @router.get("/network")

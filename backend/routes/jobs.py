@@ -127,9 +127,13 @@ class JobComplexJobRequest(BaseModel):
 
 
 class CreateJobComplexRequest(BaseModel):
-    """Request to create a Job Complex"""
+    """Request to create a Job Complex.
+
+    No user_id field: identity comes from the authenticated request, never the
+    body — trusting a body-supplied user_id was exactly the create_job_complex
+    IDOR. Pydantic ignores an extra user_id an old client might still send.
+    """
     agent_id: str
-    user_id: str
     group_id: Optional[str] = None  # Optional group ID
     jobs: List[JobComplexJobRequest]
 

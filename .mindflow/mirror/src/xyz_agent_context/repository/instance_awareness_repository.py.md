@@ -8,7 +8,7 @@ stub: false
 
 ## 2026-08-12 — upsert/update 补 updated_at（Mark item 12）
 
-`upsert` 的 update 分支与 `update_awareness` 原来只写 `{"awareness": ...}`，`updated_at` 停在创建时间——UI「更新于」与按 update_time 排序全错。`instance_awareness` 表 `updated_at` 仅有 INSERT 默认、无 DB 层 ON UPDATE，故在应用层显式带 `updated_at=_utc_now_iso()`（ISO，DATETIME(6) 兼容 sqlite/MySQL）。
+`upsert` 的 update 分支与 `update_awareness` 原来只写 `{"awareness": ...}`，`updated_at` 停在创建时间——UI「更新于」与按 update_time 排序全错。`instance_awareness` 表 `updated_at` 仅有 INSERT 默认、无 DB 层 ON UPDATE，故在应用层显式带 `updated_at=utc_now()`（canonical `utils/timezone.utc_now`，返回带时区 datetime 对象；db backend 的 `_serialize_value` 对 datetime 做 sqlite/MySQL 归一化，与 `job_repository` 同法）。`upsert` 的 update 分支与 `update_awareness` 两处都补。
 
 ## Why it exists
 

@@ -84,6 +84,43 @@ def test_cancel_job_denies_non_owner(client):
     assert r.status_code == 403
 
 
+def test_get_job_details_allows_owner(client):
+    # The gate's failure mode is over-strictness (403 everyone), not just
+    # under-strictness — pin that the real owner still gets through.
+    r = client.get("/api/jobs/job_abcd1234", headers={"x-test-user": "u2"})
+    assert r.status_code == 200
+    assert r.json()["success"] is True
+
+
+def test_create_job_complex_uses_authenticated_identity_not_body(client, monkeypatch):
+    captured = {}
+
+    class _FakeJobService:
+        def __init__(self, _db):
+            pass
+
+        async def create_job_with_instance(self, **kwargs):
+            captured["user_id"] = kwargs.get("user_id")
+            return {"success": True, "job_id": "job_new"}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.job_module.job_service.JobInstanceService",
+        _FakeJobService,
+    )
+    r = client.post(
+        "/api/jobs/complex",
+        headers={"x-test-user": "u2"},  # the real owner of agent_theirs
+        json={
+            "agent_id": "agent_theirs",
+            "user_id": "u_evil",  # extra field — must be ignored, not trusted
+            "jobs": [{"task_key": "t1", "title": "ok"}],
+        },
+    )
+    assert r.status_code == 200
+    # The job is created under the authenticated caller, never body.user_id.
+    assert captured["user_id"] == "u2"
+
+
 def test_create_job_complex_denies_non_owner(client):
     # POST /complex used to trust the body's agent_id/user_id with no ownership
     # check — a write+execute IDOR strictly worse than reading/cancelling.

@@ -36,3 +36,13 @@ async def test_upsert_update_stamps_updated_at():
     assert ok is True
     assert db.update_calls, "expected an UPDATE on an existing row"
     assert "updated_at" in db.update_calls[-1]
+
+
+async def test_update_awareness_stamps_updated_at():
+    # update_awareness is a second write path changed in the same commit; pin it
+    # too so a future edit can't drop the timestamp from just one of them.
+    db = _FakeDB()
+    repo = InstanceAwarenessRepository(db)
+    await repo.update_awareness("inst_1", "new awareness")
+    assert db.update_calls, "expected an UPDATE"
+    assert "updated_at" in db.update_calls[-1]

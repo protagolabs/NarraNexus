@@ -51,6 +51,33 @@ _MAGIC_NO_INFO = {
     "inode/x-empty",
 }
 
+_libmagic_missing_warned = False
+
+
+def _warn_libmagic_missing_once() -> None:
+    """Surface a missing native libmagic exactly once, and only where it matters.
+
+    "Installed the python-magic wheel but not the system libmagic1" degrades
+    tier 1 silently — the failure mode this whole change exists to end. Local /
+    desktop hosts legitimately lack libmagic and must degrade quietly, so warn
+    only in cloud mode, where content sniffing is a real requirement.
+    """
+    global _libmagic_missing_warned
+    if _libmagic_missing_warned:
+        return
+    _libmagic_missing_warned = True
+    try:
+        from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+        if is_cloud_mode():
+            logger.warning(
+                "libmagic unavailable — MIME sniffing degraded to the "
+                "spoofable file extension. Install system libmagic1 in the "
+                "image so content sniffing (mime_sniff tier 1) runs."
+            )
+    except Exception:  # noqa: BLE001 — a diagnostic must never break an upload
+        pass
+
 
 def _audio_video_container_override(sniffed: str, client_type: Optional[str]) -> str:
     """Disambiguate audio-only files in containers that also hold video."""
@@ -90,8 +117,10 @@ def sniff_mime_type(
         if sniffed and sniffed not in _MAGIC_NO_INFO:
             return _audio_video_container_override(sniffed, client_type)
     except ImportError:
-        # python-magic not installed; fall through to the extension guess.
-        pass
+        # python-magic (or the native libmagic it binds) not available; fall
+        # through to the extension guess, but make the gap visible in cloud mode
+        # instead of degrading in total silence.
+        _warn_libmagic_missing_once()
     except Exception as e:  # noqa: BLE001 — sniffing must never break an upload
         logger.debug(f"libmagic sniff failed: {e}; falling back to extension")
 

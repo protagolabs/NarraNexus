@@ -57,3 +57,18 @@ def test_create_mcp_denies_non_owner(client):
         json={"name": "evil", "url": "https://evil.example.com/sse"},
     )
     assert r.status_code == 403
+
+
+def test_create_mcp_allows_owner(client, monkeypatch):
+    # Owner u1 on their own agent must pass the gate. Stub the db out so the
+    # assertion is purely "the gate let the owner through", not the persistence.
+    async def _no_db():
+        raise RuntimeError("db intentionally unavailable for this assertion")
+
+    monkeypatch.setattr(mcps_mod, "get_db_client", _no_db)
+    r = client.post(
+        "/api/agents/agent_mine/mcps",
+        headers={"x-test-user": "u1"},
+        json={"name": "ok", "url": "https://example.com/sse"},
+    )
+    assert r.status_code != 403

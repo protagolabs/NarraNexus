@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
+import backend.routes.inbox as inbox_mod
 from backend.routes.inbox import router as inbox_router
 
 
@@ -65,3 +66,23 @@ def test_mark_room_read_denies_non_owner(client):
         headers={"x-test-user": "u1"},
     )
     assert r.status_code == 403
+
+
+def test_get_inbox_allows_owner(client, monkeypatch):
+    # Guard against an over-strict gate that 403s the owner too: agent_mine is
+    # owned by u1, so u1 must get through. Stub the db so the route returns its
+    # empty-inbox 200 rather than touching a real database.
+    class _DB:
+        async def get(self, _table, _filters=None, **_kw):
+            return []
+
+    async def _db():
+        return _DB()
+
+    monkeypatch.setattr(inbox_mod, "_get_db", _db)
+    r = client.get(
+        "/api/agent-inbox",
+        params={"agent_id": "agent_mine"},
+        headers={"x-test-user": "u1"},
+    )
+    assert r.status_code == 200
