@@ -511,6 +511,25 @@ run_container_mode() {
       *)             export NEXUS_DIAG_ENV="sprite" ;;
     esac
   fi
+  # Staging sandboxes discover their ingest URL from the DEV collector,
+  # not the built-in prod default: staging telemetry is fully self-
+  # contained on dev-agent (its /v1/config already serves a staging ->
+  # dev-ingest map), so staging validation never waits on the prod
+  # collector being deployed. Only staging is redirected; sprite (prod
+  # manyfold) keeps the built-in prod discovery so it routes to the
+  # prod collector. Explicit env still wins.
+  #
+  # KNOWN RESIDUAL (accepted 2026-08-12): the staging/sprite split is a
+  # substring sniff of the manyfold webhook host (api-staging). A prod
+  # sandbox whose host ever contained "api-staging" would mislabel and
+  # ship prod logs to the dev collector; conversely a staging host that
+  # dropped the substring would fall through to prod discovery and drop
+  # batches. Both collapse to a config fix once observed — staging
+  # validation only needs the common case, which this covers. Hardening
+  # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred.
+  if [ "${NEXUS_DIAG_ENV:-}" = "staging" ] && [ -z "${NEXUS_DIAG_DISCOVERY_URL:-}" ]; then
+    export NEXUS_DIAG_DISCOVERY_URL="https://dev-agent.narra.nexus/telemetry/v1/config"
+  fi
   # Managed sandboxes DEFAULT to full — via the consent chain's
   # managed-DEFAULT layer, not the env override: full logs are the
   # point of sandbox telemetry (joint support debugging), but the
