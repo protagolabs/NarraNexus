@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+`remove()` 新 active 过滤 minimizedTabIds(此前 list[0] 可指最小化 tab→整列空白),并顺带清 minimizedTabIds/chartInstances 该 id;新增 `unregisterChartInstance(id, instance)` 身份校验(只有当前 owner 能清槽);`minimizeTab`/`restoreTab` 补 `_promoteChartLru`(此前是唯二跳过 LRU 的路径,恢复到不在池里的 chart=无挂载空白)。
 
 ## 2026-07-23 — upsert focus option
 

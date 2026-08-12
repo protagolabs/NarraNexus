@@ -80,6 +80,8 @@ interface ArtifactState {
   remove: (artifactId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
+  /** Identity-checked clear: only the mount that registered may remove. */
+  unregisterChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   minimizeTab: (artifactId: string) => void;
   restoreTab: (artifactId: string) => void;
 
@@ -261,12 +263,25 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     for (const aid of Object.keys(cache)) {
       cache[aid] = cache[aid].filter((a) => a.artifact_id !== artifactId);
     }
+    // Next active must be a VISIBLE tab — list[0] could be minimized, and
+    // an active pointer on a hidden tab blanks the whole column (0802 ⑤).
+    const minimized = new Set(get().minimizedTabIds);
+    minimized.delete(artifactId);
+    persistMinimizedTabIds(minimized);
+    const visible = list.filter((a) => !minimized.has(a.artifact_id));
     const newActiveId =
-      get().activeArtifactId === artifactId ? list[0]?.artifact_id ?? null : get().activeArtifactId;
-    set((state) => ({
+      get().activeArtifactId === artifactId
+        ? visible[0]?.artifact_id ?? null
+        : get().activeArtifactId;
+    set((state) => {
+      const instances = { ...state.chartInstances };
+      delete instances[artifactId];
+      return {
       artifacts: list,
       artifactsByAgent: cache,
       activeArtifactId: newActiveId,
+      minimizedTabIds: minimized,
+      chartInstances: instances,
       // Drop the removed id from the LRU and re-promote the new active so a
       // dispose-on-delete unmounts the canvas immediately.
       chartLruOrder: _promoteChartLru(
@@ -274,7 +289,8 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
         newActiveId,
         list,
       ),
-    }));
+      };
+    });
   },
 
   setCollapsed(collapsed) {
@@ -292,6 +308,18 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     }));
   },
 
+  unregisterChartInstance(artifactId, instance) {
+    // Identity-checked: with modal + column double-mounting one artifact,
+    // an unconditional null-write let the dying mount erase the live one's
+    // registration (0802 ②). Only the current owner may clear its slot.
+    set((state) => {
+      if (state.chartInstances[artifactId] !== instance) return state;
+      const next = { ...state.chartInstances };
+      delete next[artifactId];
+      return { chartInstances: next };
+    });
+  },
+
   minimizeTab(artifactId) {
     const next = new Set(get().minimizedTabIds);
     next.add(artifactId);
@@ -299,18 +327,26 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     // If this was the active tab, switch active to the first non-minimized one.
     const visible = get().artifacts.filter((a) => !next.has(a.artifact_id));
     const currentActive = get().activeArtifactId;
-    set({
+    const newActive =
+      currentActive === artifactId ? visible[0]?.artifact_id ?? null : currentActive;
+    set((state) => ({
       minimizedTabIds: next,
-      activeArtifactId:
-        currentActive === artifactId ? visible[0]?.artifact_id ?? null : currentActive,
-    });
+      activeArtifactId: newActive,
+      // Promote so a chart landing active actually has a mounted instance
+      // (0802 ①: minimize/restore were the only paths skipping the LRU).
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, newActive, get().artifacts),
+    }));
   },
 
   restoreTab(artifactId) {
     const next = new Set(get().minimizedTabIds);
     next.delete(artifactId);
     persistMinimizedTabIds(next);
-    set({ minimizedTabIds: next, activeArtifactId: artifactId });
+    set((state) => ({
+      minimizedTabIds: next,
+      activeArtifactId: artifactId,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, artifactId, get().artifacts),
+    }));
   },
 
   async pin(agentId, artifactId, pinned) {

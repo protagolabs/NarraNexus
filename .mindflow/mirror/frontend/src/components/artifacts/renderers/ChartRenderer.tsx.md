@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ChartRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+单个 ResizeObserver 驱动两件事:**可见才 init**(LRU 池 display:none 下 echarts.init 得 0×0 永久空白)+ 每次容器变化 `chart.resize()`(列拖拽/窗口/全屏/折叠此前全无重排)。卸载改**身份校验 unregister**(modal+列双挂载同 id,旧的裸 null-write 会抹掉活实例注册)。
 
 ## 2026-05-27 — break the Dismiss-modal loop (P0 fix)
 

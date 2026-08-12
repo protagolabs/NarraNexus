@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+LRU 池可见性判定 raw `activeId` → `effectiveActiveId`:raw 指向隐藏行时 modal/active 回落到可见 chart,而池仍比 raw id → 全 pane display:none = 整列空白(bug ①)。
 
 ## 2026-07-30 (2) — the freeze is a floor, not a fixed width
 

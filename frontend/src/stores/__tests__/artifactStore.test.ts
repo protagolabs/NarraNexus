@@ -266,3 +266,102 @@ describe('loaders (stale-while-revalidate)', () => {
     expect(useArtifactStore.getState().artifacts).toEqual([]);
   });
 });
+
+describe('0802 regression pack — active/minimize/registry invariants', () => {
+  const CHART = 'application/vnd.echarts+json';
+
+  test('remove skips minimized tabs when picking the next active and prunes state', () => {
+    const s = useArtifactStore.getState();
+    s.upsert(makeArtifact('a1'), { focus: true });
+    s.upsert(makeArtifact('a2'), { focus: true });
+    s.upsert(makeArtifact('a3'), { focus: true }); // list order: a3, a2, a1
+    s.minimizeTab('a2');
+    useArtifactStore.getState().setActive('a3');
+    useArtifactStore.getState().registerChartInstance('a3', { getDataURL: () => '' });
+    useArtifactStore.getState().remove('a3');
+    const st = useArtifactStore.getState();
+    // list[0] is the minimized a2 — active must land on visible a1 instead.
+    expect(st.activeArtifactId).toBe('a1');
+    expect(st.chartInstances['a3']).toBeUndefined();
+    expect(st.minimizedTabIds.has('a3')).toBe(false);
+  });
+
+  test('restoreTab promotes a chart into the LRU so an instance can mount', () => {
+    const s = useArtifactStore.getState();
+    s.upsert(makeArtifact('c1', { kind: CHART }), { focus: true });
+    s.minimizeTab('c1');
+    useArtifactStore.setState({ chartLruOrder: [] }); // simulate eviction
+    useArtifactStore.getState().restoreTab('c1');
+    expect(useArtifactStore.getState().chartLruOrder).toContain('c1');
+  });
+});
+
+describe('minimize / restore + active invariants (0802 ①⑤)', () => {
+  test('remove of active never lands active on a minimized tab', () => {
+    const a = makeArtifact('a', { kind: CHART_KIND });
+    const b = makeArtifact('b');
+    const c = makeArtifact('c');
+    useArtifactStore.setState({
+      artifacts: [a, b, c],
+      activeArtifactId: 'a',
+      minimizedTabIds: new Set(['b']), // b hidden — must be skipped as fallback
+    });
+    useArtifactStore.getState().remove('a');
+    // b is minimized, so the next visible tab is c, not list[0] === b.
+    expect(useArtifactStore.getState().activeArtifactId).toBe('c');
+  });
+
+  test('remove prunes the deleted id from minimized set and chart registry', () => {
+    const a = makeArtifact('a', { kind: CHART_KIND });
+    useArtifactStore.setState({
+      artifacts: [a, makeArtifact('b')],
+      activeArtifactId: 'b',
+      minimizedTabIds: new Set(['a']),
+      chartInstances: { a: { getDataURL: () => '' } },
+    });
+    useArtifactStore.getState().remove('a');
+    expect(useArtifactStore.getState().minimizedTabIds.has('a')).toBe(false);
+    expect(useArtifactStore.getState().chartInstances.a).toBeUndefined();
+  });
+
+  test('restoreTab promotes a chart into the LRU so it has a mount', () => {
+    const a = makeArtifact('a', { kind: CHART_KIND });
+    useArtifactStore.setState({
+      artifacts: [a],
+      minimizedTabIds: new Set(['a']),
+      chartLruOrder: [],
+    });
+    useArtifactStore.getState().restoreTab('a');
+    expect(useArtifactStore.getState().activeArtifactId).toBe('a');
+    expect(useArtifactStore.getState().chartLruOrder).toContain('a');
+  });
+
+  test('minimizeTab of the active chart promotes the new active chart', () => {
+    const a = makeArtifact('a', { kind: CHART_KIND });
+    const b = makeArtifact('b', { kind: CHART_KIND });
+    useArtifactStore.setState({
+      artifacts: [a, b],
+      activeArtifactId: 'a',
+      chartLruOrder: ['a'],
+    });
+    useArtifactStore.getState().minimizeTab('a');
+    expect(useArtifactStore.getState().activeArtifactId).toBe('b');
+    expect(useArtifactStore.getState().chartLruOrder).toContain('b');
+  });
+});
+
+describe('unregisterChartInstance identity (0802 ②)', () => {
+  test('only the current owner may clear its slot', () => {
+    const first = { getDataURL: () => 'first' };
+    const second = { getDataURL: () => 'second' };
+    useArtifactStore.getState().registerChartInstance('a', first);
+    // A second mount (zoom modal) takes over the slot.
+    useArtifactStore.getState().registerChartInstance('a', second);
+    // The first mount unmounting must NOT erase the second's registration.
+    useArtifactStore.getState().unregisterChartInstance('a', first);
+    expect(useArtifactStore.getState().chartInstances.a).toBe(second);
+    // The real owner clears it.
+    useArtifactStore.getState().unregisterChartInstance('a', second);
+    expect(useArtifactStore.getState().chartInstances.a).toBeUndefined();
+  });
+});

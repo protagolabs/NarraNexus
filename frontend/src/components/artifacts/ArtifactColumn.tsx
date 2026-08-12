@@ -312,7 +312,13 @@ export default function ArtifactColumn({
             <div
               key={a.artifact_id}
               className="absolute inset-0"
-              style={{ display: a.artifact_id === activeId ? 'block' : 'none' }}
+              style={{
+                // effectiveActiveId, NOT raw activeId: when the raw pointer
+                // names a hidden/minimized row the modal and `active` fall
+                // back to a visible chart while this pool kept comparing the
+                // raw id — every pane display:none = blank column (0802 ①).
+                display: a.artifact_id === effectiveActiveId ? 'block' : 'none',
+              }}
             >
               <ArtifactRenderer artifact={a} />
             </div>
