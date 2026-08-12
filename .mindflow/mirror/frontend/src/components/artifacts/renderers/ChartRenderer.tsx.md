@@ -4,6 +4,10 @@ last_verified: 2026-08-12
 stub: false
 ---
 
+## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
+
+延迟 init 的 `init()` 函数体包 try/catch:它从 ResizeObserver 回调(另一调用栈)触发,抛错逃逸外层 catch → 延迟 init 路径失败会永久空白无红字(review ②);失败 setError + observer.disconnect 止重抛。register 改数组语义(见 [[artifactStore.ts]])。
+
 ## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
 
 单个 ResizeObserver 驱动两件事:**可见才 init**(LRU 池 display:none 下 echarts.init 得 0×0 永久空白)+ 每次容器变化 `chart.resize()`(列拖拽/窗口/全屏/折叠此前全无重排)。卸载改**身份校验 unregister**(modal+列双挂载同 id,旧的裸 null-write 会抹掉活实例注册)。

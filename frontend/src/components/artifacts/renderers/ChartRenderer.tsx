@@ -74,15 +74,26 @@ export default function ChartRenderer({ artifact }: Props) {
         const node = ref.current;
         const init = () => {
           if (disposed || chart) return;
-          // Pick the NM theme that matches the current dark/light state
-          // (registered at app boot via main.tsx side effect).
-          const c = echarts.init(node, pickNMTheme());
-          c.setOption(option);
-          chart = c as unknown as ChartInstanceLike & {
-            dispose: () => void;
-            resize: () => void;
-          };
-          registerChartInstance(artifact.artifact_id, chart);
+          try {
+            // Pick the NM theme that matches the current dark/light state
+            // (registered at app boot via main.tsx side effect).
+            const c = echarts.init(node, pickNMTheme());
+            c.setOption(option);
+            chart = c as unknown as ChartInstanceLike & {
+              dispose: () => void;
+              resize: () => void;
+            };
+            registerChartInstance(artifact.artifact_id, chart);
+          } catch (e) {
+            // init runs from the ResizeObserver callback (a separate call
+            // stack), so a throw here would NOT reach the outer catch — the
+            // deferred-init path (0802 ①) would leave a permanently blank
+            // pane with no error banner. Surface it and stop re-throwing on
+            // every subsequent resize tick.
+            if (disposed) return;
+            setError(String(e));
+            observer?.disconnect();
+          }
         };
 
         // One observer drives BOTH lifecycles (0802 bugs ①②): init is

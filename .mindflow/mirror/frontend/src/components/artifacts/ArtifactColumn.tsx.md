@@ -4,6 +4,10 @@ last_verified: 2026-08-12
 stub: false
 ---
 
+## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
+
+effectiveActiveId 退化为纯展示层镜像:loader 已保证 store.activeArtifactId 恒可见且 promote 进 LRU,故 effectiveActiveId===activeId∈chartLruOrder,不再是第二真相源。
+
 ## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
 
 LRU 池可见性判定 raw `activeId` → `effectiveActiveId`:raw 指向隐藏行时 modal/active 回落到可见 chart,而池仍比 raw id → 全 pane display:none = 整列空白(bug ①)。

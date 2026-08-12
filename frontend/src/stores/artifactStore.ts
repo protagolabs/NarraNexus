@@ -41,11 +41,15 @@ interface ArtifactState {
   collapsed: boolean;
 
   /**
-   * Live registry of mounted chart renderers, keyed by artifact_id.
-   * Used by ArtifactDownloadMenu to call getDataURL() for PNG/JPEG export.
-   * ChartRenderer registers on mount, unregisters on unmount.
+   * Live registry of mounted chart renderers, keyed by artifact_id. The
+   * value is a LIST because one artifact can be mounted more than once at
+   * a time (the column pane and the zoom modal both mount it); a single
+   * slot let the modal's unmount clear the column's still-live instance,
+   * so downloads reported "not ready". Consumers use the last mounted
+   * instance. ChartRenderer appends on mount, removes by identity on
+   * unmount; the key is dropped when the list empties.
    */
-  chartInstances: Record<string, ChartInstanceLike | null>;
+  chartInstances: Record<string, ChartInstanceLike[]>;
 
   /**
    * Tab IDs the user has clicked "minimize" on. The artifact stays in `artifacts`
@@ -79,7 +83,7 @@ interface ArtifactState {
   upsert: (artifact: Artifact, opts?: { focus?: boolean }) => void;
   remove: (artifactId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
-  registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
+  registerChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   /** Identity-checked clear: only the mount that registered may remove. */
   unregisterChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   minimizeTab: (artifactId: string) => void;
@@ -123,6 +127,26 @@ const CHART_LRU_LIMIT = 5;
 const ECHARTS_KIND = 'application/vnd.echarts+json';
 
 /**
+ * The single source of truth for "which tab is active" whenever the list or
+ * the minimized set changes: keep `preferred` only if it is present AND
+ * visible, else the first visible tab, else null. Every active-id write
+ * point funnels through here so `activeArtifactId` can never name a hidden
+ * tab — a hidden active pointer blanks the whole column (0802 ①⑤), and it
+ * used to reappear via each loader/remove path independently. NOT used by
+ * upsert's focus branch, which deliberately un-minimizes then focuses.
+ */
+function _pickVisibleActive(
+  list: Artifact[],
+  minimized: Set<string>,
+  preferred: string | null,
+): string | null {
+  if (preferred && !minimized.has(preferred) && list.some((a) => a.artifact_id === preferred)) {
+    return preferred;
+  }
+  return list.find((a) => !minimized.has(a.artifact_id))?.artifact_id ?? null;
+}
+
+/**
  * Move `artifactId` to the head of the chart LRU if (and only if) it points at
  * an echarts artifact in `artifacts`. Returns the input list unchanged for
  * non-chart kinds and missing rows, so the caller can pipe every active-id
@@ -155,10 +179,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     // artifacts immediately, then fetch in the background. Avoids a blank
     // panel on every agent switch.
     const cached = get().artifactsByAgent[agentId] ?? [];
-    const nextActiveCached =
-      cached.find((a) => a.artifact_id === get().activeArtifactId)
-        ? get().activeArtifactId
-        : cached[0]?.artifact_id ?? null;
+    const nextActiveCached = _pickVisibleActive(
+      cached,
+      get().minimizedTabIds,
+      get().activeArtifactId,
+    );
     set((state) => ({
       activeAgentId: agentId,
       artifacts: cached,
@@ -176,10 +201,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     ];
     // Only commit if the user is still on this agent.
     if (get().activeAgentId !== agentId) return;
-    const nextActiveMerged =
-      merged.find((a) => a.artifact_id === get().activeArtifactId)
-        ? get().activeArtifactId
-        : merged[0]?.artifact_id ?? null;
+    const nextActiveMerged = _pickVisibleActive(
+      merged,
+      get().minimizedTabIds,
+      get().activeArtifactId,
+    );
     set((state) => ({
       artifactsByAgent: { ...get().artifactsByAgent, [agentId]: merged },
       artifacts: merged,
@@ -191,10 +217,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   async loadPinned(agentId) {
     // Stale-while-revalidate: switch + show cached immediately, then refresh.
     const cached = get().artifactsByAgent[agentId] ?? [];
-    const nextActiveCached =
-      cached.find((a) => a.artifact_id === get().activeArtifactId)
-        ? get().activeArtifactId
-        : cached[0]?.artifact_id ?? null;
+    const nextActiveCached = _pickVisibleActive(
+      cached,
+      get().minimizedTabIds,
+      get().activeArtifactId,
+    );
     set((state) => ({
       activeAgentId: agentId,
       artifacts: cached,
@@ -204,10 +231,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
 
     const pinned = await artifactsApi.listPinned(agentId);
     if (get().activeAgentId !== agentId) return;
-    const nextActivePinned =
-      pinned.find((a) => a.artifact_id === get().activeArtifactId)
-        ? get().activeArtifactId
-        : pinned[0]?.artifact_id ?? null;
+    const nextActivePinned = _pickVisibleActive(
+      pinned,
+      get().minimizedTabIds,
+      get().activeArtifactId,
+    );
     set((state) => ({
       artifactsByAgent: { ...get().artifactsByAgent, [agentId]: pinned },
       artifacts: pinned,
@@ -263,32 +291,31 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     for (const aid of Object.keys(cache)) {
       cache[aid] = cache[aid].filter((a) => a.artifact_id !== artifactId);
     }
-    // Next active must be a VISIBLE tab — list[0] could be minimized, and
-    // an active pointer on a hidden tab blanks the whole column (0802 ⑤).
+    // Next active must be a VISIBLE tab (0802 ⑤): every write point funnels
+    // through _pickVisibleActive so a hidden tab can never become active.
     const minimized = new Set(get().minimizedTabIds);
-    minimized.delete(artifactId);
-    persistMinimizedTabIds(minimized);
-    const visible = list.filter((a) => !minimized.has(a.artifact_id));
+    const wasMinimized = minimized.delete(artifactId);
+    if (wasMinimized) persistMinimizedTabIds(minimized);
     const newActiveId =
       get().activeArtifactId === artifactId
-        ? visible[0]?.artifact_id ?? null
+        ? _pickVisibleActive(list, minimized, null)
         : get().activeArtifactId;
     set((state) => {
       const instances = { ...state.chartInstances };
       delete instances[artifactId];
       return {
-      artifacts: list,
-      artifactsByAgent: cache,
-      activeArtifactId: newActiveId,
-      minimizedTabIds: minimized,
-      chartInstances: instances,
-      // Drop the removed id from the LRU and re-promote the new active so a
-      // dispose-on-delete unmounts the canvas immediately.
-      chartLruOrder: _promoteChartLru(
-        state.chartLruOrder.filter((id) => id !== artifactId),
-        newActiveId,
-        list,
-      ),
+        artifacts: list,
+        artifactsByAgent: cache,
+        activeArtifactId: newActiveId,
+        minimizedTabIds: minimized,
+        chartInstances: instances,
+        // Drop the removed id from the LRU and re-promote the new active so a
+        // dispose-on-delete unmounts the canvas immediately.
+        chartLruOrder: _promoteChartLru(
+          state.chartLruOrder.filter((id) => id !== artifactId),
+          newActiveId,
+          list,
+        ),
       };
     });
   },
@@ -303,19 +330,25 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   },
 
   registerChartInstance(artifactId, instance) {
+    // Append: one artifact can be mounted twice (column pane + zoom modal).
     set((state) => ({
-      chartInstances: { ...state.chartInstances, [artifactId]: instance },
+      chartInstances: {
+        ...state.chartInstances,
+        [artifactId]: [...(state.chartInstances[artifactId] ?? []), instance],
+      },
     }));
   },
 
   unregisterChartInstance(artifactId, instance) {
-    // Identity-checked: with modal + column double-mounting one artifact,
-    // an unconditional null-write let the dying mount erase the live one's
-    // registration (0802 ②). Only the current owner may clear its slot.
+    // Remove BY IDENTITY only (0802 ②): the dying mount drops its own entry
+    // and leaves any co-mounted instance registered, so a zoom-modal close
+    // no longer strands the column's still-live chart with an empty slot
+    // (which made downloads report "not ready"). Drop the key when empty.
     set((state) => {
-      if (state.chartInstances[artifactId] !== instance) return state;
+      const rest = (state.chartInstances[artifactId] ?? []).filter((c) => c !== instance);
       const next = { ...state.chartInstances };
-      delete next[artifactId];
+      if (rest.length) next[artifactId] = rest;
+      else delete next[artifactId];
       return { chartInstances: next };
     });
   },
@@ -324,17 +357,17 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     const next = new Set(get().minimizedTabIds);
     next.add(artifactId);
     persistMinimizedTabIds(next);
-    // If this was the active tab, switch active to the first non-minimized one.
-    const visible = get().artifacts.filter((a) => !next.has(a.artifact_id));
     const currentActive = get().activeArtifactId;
     const newActive =
-      currentActive === artifactId ? visible[0]?.artifact_id ?? null : currentActive;
+      currentActive === artifactId
+        ? _pickVisibleActive(get().artifacts, next, null)
+        : currentActive;
     set((state) => ({
       minimizedTabIds: next,
       activeArtifactId: newActive,
       // Promote so a chart landing active actually has a mounted instance
       // (0802 ①: minimize/restore were the only paths skipping the LRU).
-      chartLruOrder: _promoteChartLru(state.chartLruOrder, newActive, get().artifacts),
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, newActive, state.artifacts),
     }));
   },
 
@@ -345,7 +378,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     set((state) => ({
       minimizedTabIds: next,
       activeArtifactId: artifactId,
-      chartLruOrder: _promoteChartLru(state.chartLruOrder, artifactId, get().artifacts),
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, artifactId, state.artifacts),
     }));
   },
 
