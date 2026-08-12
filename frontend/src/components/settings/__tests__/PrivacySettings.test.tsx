@@ -5,17 +5,34 @@
  * reads as "there is no telemetry", which would be false).
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { mockApi } = vi.hoisted(() => ({
+const { mockApi, mockWebAnalytics } = vi.hoisted(() => ({
   mockApi: {
     getAnalyticsOptOut: vi.fn(),
     setAnalyticsOptOut: vi.fn(),
     getTelemetryConsent: vi.fn(),
     setTelemetryOptOut: vi.fn(),
   },
+  mockWebAnalytics: {
+    isWebAnalyticsLoaded: vi.fn(() => false),
+    markWebAnalyticsConsentRevoked: vi.fn(),
+  },
 }));
 vi.mock('@/lib/api', () => ({ api: mockApi }));
+vi.mock('@/lib/analytics/webAnalytics', () => mockWebAnalytics);
+
+// Restore the real jsdom Location after any test that swaps in a { reload } stub.
+let realLocation: PropertyDescriptor | undefined;
+beforeAll(() => {
+  realLocation = Object.getOwnPropertyDescriptor(window, 'location');
+});
+afterAll(() => {
+  if (realLocation) Object.defineProperty(window, 'location', realLocation);
+});
+afterEach(() => {
+  if (realLocation) Object.defineProperty(window, 'location', realLocation);
+});
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -28,6 +45,7 @@ describe('PrivacySettings', () => {
     mockApi.getAnalyticsOptOut.mockResolvedValue(false);
     mockApi.setAnalyticsOptOut.mockResolvedValue(undefined);
     mockApi.setTelemetryOptOut.mockResolvedValue(undefined);
+    mockWebAnalytics.isWebAnalyticsLoaded.mockReturnValue(false);
   });
 
   test('telemetry on + controllable: toggle writes, then RECONCILES from the server', async () => {
@@ -136,5 +154,61 @@ describe('PrivacySettings', () => {
     await waitFor(() =>
       expect(mockApi.setAnalyticsOptOut).toHaveBeenCalledWith(false),
     );
+  });
+
+  const TELEMETRY_META = {
+    mode: 'meta', source: 'default', opted_out: false, controllable: true, managed_by: null,
+  } as const;
+
+  async function turnAnalyticsOff() {
+    render(<PrivacySettings />);
+    const toggle = await screen.findByRole('switch', {
+      name: 'pages.settings.privacy.analyticsTitle',
+    });
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(mockApi.setAnalyticsOptOut).toHaveBeenCalledWith(true),
+    );
+  }
+
+  test('turning analytics OFF reloads to shed GTM when it actually loaded', async () => {
+    mockApi.getTelemetryConsent.mockResolvedValue(TELEMETRY_META);
+    mockApi.getAnalyticsOptOut.mockResolvedValue(false); // opted in → toggle ON
+    mockWebAnalytics.isWebAnalyticsLoaded.mockReturnValue(true);
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { reload } });
+    await turnAnalyticsOff();
+    expect(mockWebAnalytics.markWebAnalyticsConsentRevoked).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  test('turning analytics OFF does NOT reload when GTM never loaded', async () => {
+    mockApi.getTelemetryConsent.mockResolvedValue(TELEMETRY_META);
+    mockApi.getAnalyticsOptOut.mockResolvedValue(false);
+    mockWebAnalytics.isWebAnalyticsLoaded.mockReturnValue(false);
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { reload } });
+    await turnAnalyticsOff();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  test('a failed opt-out does NOT reload (revert path)', async () => {
+    mockApi.getTelemetryConsent.mockResolvedValue(TELEMETRY_META);
+    mockApi.getAnalyticsOptOut.mockResolvedValue(false);
+    mockApi.setAnalyticsOptOut.mockRejectedValue(new Error('nope'));
+    mockWebAnalytics.isWebAnalyticsLoaded.mockReturnValue(true);
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { reload } });
+    render(<PrivacySettings />);
+    const toggle = await screen.findByRole('switch', {
+      name: 'pages.settings.privacy.analyticsTitle',
+    });
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(mockApi.setAnalyticsOptOut).toHaveBeenCalledWith(true),
+    );
+    expect(reload).not.toHaveBeenCalled();
   });
 });

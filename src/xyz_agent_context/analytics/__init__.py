@@ -7,7 +7,13 @@ track() is the only entry point capture sites use. It is async because the
 opt-out lookup and event insert hit the database. Events never leave the
 NarraNexus database for the current surface: cloud writes RDS; local and
 desktop write their local SQLite database. There is deliberately no vendor
-telemetry sink.
+telemetry sink here.
+
+Note: third-party WEB analytics on the cloud site is a SEPARATE, client-side
+system loaded by frontend/src/lib/analytics/webAnalytics.ts (Google Tag Manager
+only, event-only, gated on the same per-user opt-out this module reads). The
+two are intentionally distinct — this backend sink never sends to a vendor;
+do not "enable a cloud vendor sink" here on the assumption that cloud has none.
 """
 from __future__ import annotations
 

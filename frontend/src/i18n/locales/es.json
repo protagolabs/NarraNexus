@@ -803,7 +803,7 @@
       "privacyHeading": "Privacidad",
       "privacyIntro": "Controla qué datos recopila NarraNexus para mejorar el producto.",
       "analyticsTitle": "Analítica del producto",
-      "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
+      "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. En la versión web en la nube, también se envían datos anónimos de interacción con la página a Google Tag Manager, un servicio de análisis de terceros; desactivar esta opción lo detiene. Nunca se recopila el contenido de las conversaciones.",
       "desktopHeading": "Escritorio",
       "desktopIntro": "Ajustes que controlan cómo NarraNexus interactúa con este equipo. Solo disponible en la aplicación de escritorio.",
       "lockedUseTitle": "Locked Use — mantener el equipo despierto",
@@ -1286,7 +1286,7 @@
         "label": "Privacidad",
         "hint": "Qué sale de este equipo y los interruptores para controlarlo.",
         "analyticsTitle": "Analítica del producto",
-        "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
+        "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. En la versión web en la nube, también se envían datos anónimos de interacción con la página a Google Tag Manager, un servicio de análisis de terceros; desactivar esta opción lo detiene. Nunca se recopila el contenido de las conversaciones.",
         "telemetryTitle": "Telemetría de diagnóstico",
         "telemetryDesc": "Enviar los registros de servicio de esta instalación al colector propio de NarraNexus para poder depurar fallos y errores. En el nivel predeterminado esto significa eventos estructurados, advertencias y errores, sin contenido de mensajes. Las implementaciones que ejecutan el nivel \"full\" (sandboxes gestionados, entornos de depuración) envían las líneas de registro completas, que pueden incluir contenido de mensajes que los servicios registren. No se envía nada a terceros.",
         "telemetryTiming": "Al desactivarla, surte efecto en cuestión de segundos. Si la telemetría ya estaba desactivada al iniciar la aplicación, activarla surte efecto en el siguiente inicio.",
@@ -2086,6 +2086,11 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "webAnalyticsNotice": {
+    "body": "Esta es la versión web en la nube de NarraNexus. Utiliza Google Tag Manager, un servicio de análisis de terceros, para recopilar datos anónimos de interacción con la página (vistas, clics, referente). No se recopila ningún contenido de las conversaciones. Puedes desactivarlo en cualquier momento en Configuración → Privacidad.",
+    "settings": "Abrir configuración",
+    "dismiss": "Entendido"
   },
   "telemetryNotice": {
     "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",

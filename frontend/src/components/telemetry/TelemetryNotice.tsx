@@ -68,7 +68,7 @@ export function TelemetryNotice() {
   return (
     <div
       role="status"
-      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] rounded-xl border shadow-lg p-4"
+      className="w-full rounded-xl border shadow-lg p-4 pointer-events-auto"
       style={{
         background: 'var(--nm-paper)',
         borderColor: 'var(--nm-line)',

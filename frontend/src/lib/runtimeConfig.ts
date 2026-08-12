@@ -148,3 +148,60 @@ export function isPowerLoginAvailable(): boolean {
   if (_TRUTHY.has(flag)) return true;
   return !!_injectedNetmind().authApi;
 }
+
+// Hosts on which the compiled-in analytics id is allowed to load. Gated on the
+// real hostname, NOT isForcedCloud() — the deploy stack defaults
+// NARRANEXUS_FORCE_MODE=cloud, so mode-based gating would be true for every
+// self-host and leak their users' data into our container.
+const _OFFICIAL_ANALYTICS_HOSTS = new Set(['agent.narra.nexus']);
+// Public client-side GTM container id (it ships in the served HTML on the cloud
+// site), not a secret. See getWebAnalyticsConfig for when it is used.
+const _CLOUD_GTM_ID = 'GTM-W8VXKW7L';
+
+function _isOfficialAnalyticsHost(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    _OFFICIAL_ANALYTICS_HOSTS.has(window.location.hostname)
+  );
+}
+
+export interface WebAnalyticsConfig {
+  /** Google Tag Manager container id. "" disables GTM. */
+  gtmId: string;
+}
+
+/**
+ * Google Tag Manager container id. Precedence:
+ *   1. injected /config.js `gtmId` key present (even "" = explicit kill-switch)
+ *   2. VITE_GTM_ID build env (non-empty)
+ *   3. compiled-in default, but ONLY on an official production host
+ *      (agent.narra.nexus)
+ *   4. "" (disabled) — dev, CI, desktop, and every self-hosted deployment
+ *
+ * Steps 1-2 are latent capabilities: NO deploy injects `gtmId` and no build
+ * sets VITE_GTM_ID today, so production's only live source is step 3 (host +
+ * this constant). The immediate off-switch is the GTM console, not a redeploy.
+ *
+ * NOTE — empty-string semantics differ from getNetmindConfig()/_str, where ""
+ * means "unset, fall through to default". Here an explicitly injected "" MUST
+ * mean "force off" (a deploy kill-switch), so we branch on `key in injected`,
+ * not on truthiness. Do not unify the two parsers without preserving this.
+ *
+ * Consumed only by lib/analytics/webAnalytics.ts, which additionally gates on
+ * isTauri() and the user's product-analytics opt-out.
+ */
+export function getWebAnalyticsConfig(): WebAnalyticsConfig {
+  const injected =
+    typeof window !== 'undefined'
+      ? (window as unknown as { __NARRANEXUS_CONFIG__?: { gtmId?: unknown } })
+          .__NARRANEXUS_CONFIG__
+      : undefined;
+  if (injected && 'gtmId' in injected) {
+    const v = injected.gtmId;
+    return { gtmId: typeof v === 'string' ? v.trim() : '' };
+  }
+  const envVal = (import.meta.env as Record<string, string | undefined>).VITE_GTM_ID;
+  if (typeof envVal === 'string' && envVal.trim()) return { gtmId: envVal.trim() };
+  if (_isOfficialAnalyticsHost()) return { gtmId: _CLOUD_GTM_ID };
+  return { gtmId: '' };
+}

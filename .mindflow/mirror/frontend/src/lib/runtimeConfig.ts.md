@@ -1,10 +1,30 @@
 ---
 code_file: frontend/src/lib/runtimeConfig.ts
-last_verified: 2026-07-13
+last_verified: 2026-08-12
 stub: false
 ---
 
 # runtimeConfig.ts — runtime deploy-time config, injected via /config.js
+
+## 2026-08-12 — Web-analytics id (GTM), host-gated
+
+Added `WebAnalyticsConfig` + `getWebAnalyticsConfig()` (`gtmId` only). Precedence:
+injected `/config.js` `gtmId` key present (even `""` = kill-switch) → `VITE_GTM_ID`
+→ compiled-in default **only on an official production host**
+(`_OFFICIAL_ANALYTICS_HOSTS` = `agent.narra.nexus`) → `""`.
+
+**The gate is the real hostname, NOT `isForcedCloud()`** — this is the crux. The
+deploy stack defaults `NARRANEXUS_FORCE_MODE=cloud`, so mode-based gating would
+be true for every self-host and would leak their users' data into our container.
+Two intentionally-diverging empty-string semantics live in this file now: `pick`
+for analytics treats an injected `""` as "force off" (branches on `key in
+injected`), whereas `_str`/netmind treats `""` as "unset, fall through" — the
+docstring calls this out so a future field-adder doesn't copy the wrong half.
+Sole consumer is `lib/analytics/webAnalytics.ts` (adds `isTauri()` + opt-out
+gates). Clarity is deliberately not wired (session replay would capture chat).
+The injected-key / VITE steps are **latent** — no deploy injects `gtmId` and no
+build sets `VITE_GTM_ID` today, so production's only live source is the host +
+constant; the immediate off-switch is the GTM console, not a redeploy.
 
 ## 2026-07-13 — Power-login availability + compiled-in dev NetMind defaults
 

@@ -24,6 +24,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, type TelemetryConsentState } from '@/lib/api';
+import {
+  isWebAnalyticsLoaded,
+  markWebAnalyticsConsentRevoked,
+} from '@/lib/analytics/webAnalytics';
 import { Toggle } from '@/components/nm/form';
 
 function ConsentRow({
@@ -101,8 +105,16 @@ export function PrivacySettings() {
       setAnalyticsBusy(true);
       try {
         await api.setAnalyticsOptOut(!next);
+        if (!next) {
+          // Turning it OFF must take effect now. Close the in-flight
+          // initWebAnalytics() window (it may be mid-await), then — only if GTM
+          // actually loaded this page (desktop / local / dev / self-host never
+          // do) — reload to shed it, since a script tag can't be un-loaded.
+          markWebAnalyticsConsentRevoked();
+          if (isWebAnalyticsLoaded()) window.location.reload();
+        }
       } catch {
-        setAnalyticsEnabled(!next); // revert on failure
+        setAnalyticsEnabled(!next); // revert on failure — do NOT reload
       } finally {
         setAnalyticsBusy(false);
       }

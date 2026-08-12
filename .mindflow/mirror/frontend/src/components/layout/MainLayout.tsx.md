@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — shared stacking slot for the two privacy disclosures
+
+[[WebAnalyticsNotice.tsx]] (one-time third-party GTM disclosure) and
+[[TelemetryNotice.tsx]] now share ONE bottom-anchored `flex-col gap-3` slot
+here, instead of each `fixed`-positioning itself. The slot is
+`pointer-events-none` (cards are `pointer-events-auto`) so it never blocks the
+composer when both are hidden; the components render plain `w-full` cards. This
+replaced a hardcoded `bottom-28` offset on WebAnalyticsNotice that overlapped
+telemetry's banner once its body wrapped. WebAnalyticsNotice is listed first =
+renders on top. Both self-gate, so mounting is unconditional.
 
 ## 2026-08-12 — initReplyLanguageSync 挂 MainLayout(r2 修正)
 
