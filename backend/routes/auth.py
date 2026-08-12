@@ -310,6 +310,12 @@ _funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
+    # Registration + forgot-password send-code failures (browser->NetMind direct,
+    # so the funnel is the only server-side trace). Frontend callers:
+    # SignUpDialog.sendCode / useNetmindAuth.sendResetCode. This allowlist is a
+    # caller-controlled-input gate — keep it an explicit set, never free text.
+    "signup_send_code_failed",
+    "netmind_reset_code_failed",
 })
 
 

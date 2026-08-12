@@ -1510,6 +1510,7 @@
       "loginFailed": "登录失败",
       "invalidCredentials": "邮箱或密码错误",
       "enterUserId": "请输入你的用户 ID",
+      "resetCodeInvalid": "验证码无效或已过期，请重新获取。",
       "connectionFailed": "连接失败，请重试。"
     },
     "modeSelect": {

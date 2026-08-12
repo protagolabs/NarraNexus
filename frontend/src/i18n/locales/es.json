@@ -1194,6 +1194,7 @@
       "loginFailed": "Error al iniciar sesión",
       "invalidCredentials": "Correo electrónico o contraseña no válidos",
       "enterUserId": "Introduce tu ID de usuario",
+      "resetCodeInvalid": "El código no es válido o ha caducado. Solicita uno nuevo.",
       "connectionFailed": "Error de conexión. Inténtalo de nuevo."
     },
     "modeSelect": {

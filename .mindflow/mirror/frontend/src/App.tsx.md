@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
 
-路由用 `React.lazy` 切 chunk；发版后老 tab 加载旧 hash chunk→404→未捕获异常→整树卸载成白屏。用 [[ChunkErrorBoundary.tsx]] 包住 `<Suspense><Routes>`：任何到达 render 的崩溃（含 chunk 失败）显示「有新版本，刷新」而非白屏。配套的 `vite:preloadError` 一次性自动刷新在 [[main.tsx]]（[[chunkReload.ts]]），本 boundary 是兜底。
+路由用 `React.lazy` 切 chunk；发版后老 tab 加载旧 hash chunk→404→未捕获异常→整树卸载成白屏。用 [[ChunkErrorBoundary.tsx]] 包住 `<Suspense><Routes>`。**boundary 是唯一的恢复驱动**（复审后重构：刻意不挂 `vite:preloadError` 全局监听，原因见 [[chunkReload.ts]]）：到达 render 的崩溃**分两类**——stale-chunk 失败 → 一次自愈 + 显示「有新版本，刷新」；真 render bug → 不自愈 + 显示「出错了，刷新重试」（不再把真 bug 伪装成新版本）。另本轮给 `isLoggedIn` 后台预取 `import('@/components/layout/MainLayout')` 补 `.catch(() => {})`（同 [[Sidebar.tsx]] 悬停预取，删监听后预取失败应静默）。
 
 ## 2026-08-10 — workspace-ready after session validation
 

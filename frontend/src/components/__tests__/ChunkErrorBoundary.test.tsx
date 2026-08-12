@@ -21,6 +21,9 @@ function RealBug(): never {
 
 beforeEach(() => {
   // Clear the once-per-session guard so a chunk crash CAN trigger recovery.
+  // IMPORTANT: every chunk-crash test below MUST pass a `recover` spy — with
+  // the guard cleared, an un-injected chunk test would hit the real
+  // window.location.reload() (jsdom "Not implemented: navigation").
   window.sessionStorage.removeItem(RELOAD_GUARD_KEY);
 });
 

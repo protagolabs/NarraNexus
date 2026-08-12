@@ -1194,6 +1194,7 @@
       "loginFailed": "Anmeldung fehlgeschlagen",
       "invalidCredentials": "Ungültige E-Mail-Adresse oder Passwort",
       "enterUserId": "Bitte gib deine Benutzer-ID ein",
+      "resetCodeInvalid": "Der Code ist ungültig oder abgelaufen. Fordern Sie einen neuen an.",
       "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut."
     },
     "modeSelect": {

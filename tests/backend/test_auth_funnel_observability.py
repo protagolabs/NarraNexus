@@ -171,6 +171,21 @@ def test_funnel_report_rejects_unknown_stages(client):
     assert r.status_code == 400
 
 
+def test_all_known_funnel_stages_are_accepted(client):
+    """Pin the allowlist as a contract: every stage the frontend emits must be
+    accepted (200), or the "keep the diagnosis" reports silently 400 in prod.
+    A new frontend caller with an un-allowlisted stage fails HERE, not silently."""
+    for stage in (
+        "netmind_email_login_failed",
+        "netmind_oauth_failed",
+        "signup_send_code_failed",
+        "netmind_reset_code_failed",
+    ):
+        r = client.post("/api/auth/funnel-report",
+                        json={"stage": stage, "email": "a@b.com", "detail": "x"})
+        assert r.status_code == 200, f"stage {stage} was rejected"
+
+
 def test_funnel_report_is_404_in_local_mode(client, monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: False)
     r = client.post("/api/auth/funnel-report",

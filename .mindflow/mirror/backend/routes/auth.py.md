@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-10
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — funnel 白名单加两个 send-code stage（配前端 #289）
+
+`/api/auth/funnel-report` 的 `_FUNNEL_STAGES` 是**枚举白名单**（caller-controlled 输入的第二道闸，不是自由 tag：未知 stage 直接 400，且 400 在写 `[login-funnel]` 日志之前 return，所以不落痕）。前端 #289 新增两条上报路径（`SignUpDialog.sendCode` / `useNetmindAuth.sendResetCode`），对应加入 `signup_send_code_failed` / `netmind_reset_code_failed`——**必须与前端同 PR 合**，否则前端上报被 400 静默吞掉（`api.reportAuthFunnel` fire-and-forget），诊断空转。`test_auth_funnel_observability.py` 新增 `test_all_known_funnel_stages_are_accepted` 把这四个 stage 钉成契约（之前只测了未知 stage→400，正向没测）。
 
 ## 2026-08-10 — cloud signup capture repaired
 

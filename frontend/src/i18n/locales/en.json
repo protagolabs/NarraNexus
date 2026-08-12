@@ -1510,6 +1510,7 @@
       "loginFailed": "Login failed",
       "invalidCredentials": "Invalid email or password",
       "enterUserId": "Please enter your User ID",
+      "resetCodeInvalid": "The code is invalid or has expired. Request a new one.",
       "connectionFailed": "Connection failed. Please try again."
     },
     "modeSelect": {

@@ -1193,6 +1193,7 @@
       "loginFailed": "로그인 실패",
       "invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다",
       "enterUserId": "사용자 ID를 입력하세요",
+      "resetCodeInvalid": "코드가 유효하지 않거나 만료되었습니다. 새 코드를 요청하세요.",
       "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요."
     },
     "modeSelect": {

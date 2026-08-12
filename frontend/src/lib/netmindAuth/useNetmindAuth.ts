@@ -85,7 +85,9 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           signStr,
           ckType: 2,
         });
-        if (!data.loginToken) throw new Error('Login failed');
+        // "success but no token" is an upstream contract break, not a transport
+        // failure — mark it so the catch doesn't misreport it as connectionFailed.
+        if (!data.loginToken) throw new NetmindApiError('Login failed');
         loginToken = data.loginToken;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Login failed';
@@ -208,7 +210,7 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           params.verifyCode = extra.verifyCode;
         }
         const data = await netmindPost<NetmindLoginPayload>('/user/userCallBack', params);
-        if (!data.loginToken) throw new Error('Bind failed');
+        if (!data.loginToken) throw new NetmindApiError('Bind failed');
         setBindInfo(null);
         await exchange(data.loginToken);
       } catch (e) {
@@ -235,15 +237,20 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
       await netmindPost('/register/sendCode', { ...baseRequestParams(), email, type: 2 });
       return true;
     } catch (e) {
-      // Same anti-enumeration masking as emailLogin: an upstream rejection
-      // (e.g. "email not registered") must NOT be shown verbatim — this is the
-      // same login-page enumeration surface, one button over. Transport
-      // failures show connectionFailed, not bare English. Real message → funnel.
       const message = e instanceof Error ? e.message : 'Failed to send code';
-      setError(
-        i18n.t(e instanceof NetmindApiError ? 'pages.signup.sendFailed' : 'pages.login.connectionFailed'),
-      );
       api.reportAuthFunnel('netmind_reset_code_failed', email, message);
+      // Anti-enumeration: masking the TEXT isn't enough — whether the UI
+      // advances to the code-entry step is itself a clean registered/not signal.
+      // So on an upstream REJECTION (e.g. "email not registered") advance anyway
+      // (return true) with no error, exactly as if a code were sent. Only a real
+      // TRANSPORT failure stops the flow. (An attacker hitting NetMind's endpoint
+      // directly still enumerates — that residual is NetMind/backend's uniform-
+      // response job, tracked with the send-code follow-up.)
+      if (e instanceof NetmindApiError) {
+        setError('');
+        return true;
+      }
+      setError(i18n.t('pages.login.connectionFailed'));
       return false;
     } finally {
       setLoading(false);
@@ -260,12 +267,18 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         });
         return true;
       } catch (e) {
-        // Upstream rejections here are user-ACTIONABLE (wrong code, weak
-        // password) — keep them. Only transport failures get connectionFailed.
+        // Reached with an email + code. An upstream rejection here is either a
+        // wrong/expired code OR "email not registered" — echoing the latter
+        // verbatim re-opens the enumeration this flow just closed. Both map to
+        // the SAME actionable generic ("bad code, request a new one"), which
+        // stays useful without confirming the email exists. Transport →
+        // connectionFailed.
         setError(
-          e instanceof NetmindApiError
-            ? e.message
-            : i18n.t('pages.login.connectionFailed'),
+          i18n.t(
+            e instanceof NetmindApiError
+              ? 'pages.login.resetCodeInvalid'
+              : 'pages.login.connectionFailed',
+          ),
         );
         return false;
       } finally {

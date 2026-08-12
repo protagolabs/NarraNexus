@@ -1193,6 +1193,7 @@
       "loginFailed": "ログインに失敗しました",
       "invalidCredentials": "メールアドレスまたはパスワードが正しくありません",
       "enterUserId": "ユーザー ID を入力してください",
+      "resetCodeInvalid": "コードが無効か期限切れです。新しいコードを取得してください。",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
     },
     "modeSelect": {

@@ -1194,6 +1194,7 @@
       "loginFailed": "Falha no login",
       "invalidCredentials": "E-mail ou senha inválidos",
       "enterUserId": "Informe seu ID de usuário",
+      "resetCodeInvalid": "O código é inválido ou expirou. Solicite um novo.",
       "connectionFailed": "Falha na conexão. Tente novamente."
     },
     "modeSelect": {
