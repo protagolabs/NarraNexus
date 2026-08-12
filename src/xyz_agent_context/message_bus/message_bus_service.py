@@ -40,6 +40,7 @@ class MessageBusService(ABC):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
     ) -> str:
         """
         Send a message to a channel.

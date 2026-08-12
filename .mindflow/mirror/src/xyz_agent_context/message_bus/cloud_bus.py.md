@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-07 — 签名跟随抽象契约增加 root_run_id
@@ -53,3 +53,7 @@ TypeError), defeating its placeholder purpose.
 ## 2026-08-11 — 两个新方法的 NotImplementedError 占位
 
 `ack_read` / `count_unread` 随协议加入。云实现整体仍未落地,占位与同文件其余方法一致。
+
+## 2026-08-12 — `send_message` 跟随协议加 `routed_by`
+
+仍是 NotImplementedError 占位。

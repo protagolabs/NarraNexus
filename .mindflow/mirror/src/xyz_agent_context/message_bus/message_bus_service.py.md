@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-07 — send_message / send_to_agent 增加 root_run_id
@@ -80,3 +80,8 @@ raises NotImplementedError. Files are references, not bytes — see
 与 `local_bus` 的三个新契约对齐。协议里写清了 `limit=None` 不是"默认值"而是**一种
 必要模式**:决定"这一轮回复覆盖了哪些消息"的调用方必须拿到全量,给窗口会让更老的
 已回复消息永远留在未读里。
+
+## 2026-08-12 — `send_message` 增加 `routed_by`
+
+协议同步。`test_bus_service_protocol.py` 在实现漏跟时会红 —— 这轮它就抓到了
+`CloudMessageBus` 漏改。

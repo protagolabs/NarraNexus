@@ -105,6 +105,7 @@ class LocalMessageBus(MessageBusService):
             attachments=attachments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
+            routed_by=row.get("routed_by"),
             root_run_id=row.get("root_run_id"),
             created_at=row.get("created_at"),
         )
@@ -122,6 +123,7 @@ class LocalMessageBus(MessageBusService):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -131,6 +133,12 @@ class LocalMessageBus(MessageBusService):
         answering a peer, so this is a reply). MessageBusTrigger reads it to
         decide whether the recipient should answer the peer or relay to its
         owner — see the column comment in schema_registry.
+
+        ``routed_by`` records WHY ``mentions`` holds what it does: ``None`` when
+        the sender wrote them, ``"default_responder"`` when a team room had none
+        and the route picked the fallback agent. Downstream cannot reconstruct
+        this — a single mention naming the lead is exactly what a user
+        deliberately naming the lead looks like.
 
         ``root_run_id`` records WHICH TRIGGER TREE the sending run belonged to,
         so the run this message wakes up inherits it. Without it the lineage
@@ -153,6 +161,7 @@ class LocalMessageBus(MessageBusService):
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
+            "routed_by": routed_by,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
