@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — initReplyLanguageSync 挂 MainLayout(r2 修正)
+
+round-1 误挂 ChatView(team-first / settings 深链用户永远不 mount)。现挂 MainLayout 本体,与 TelemetryNotice/FeedbackButton 同层同理由。
 
 ## 2026-08-11 — 挂载 TelemetryNotice(一次性遥测告知)
 

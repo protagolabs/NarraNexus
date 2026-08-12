@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-07
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+文案改用 prompts.REPLY_LANGUAGE_SECTION;新段登记进 part_sizes["reply_language"](review #7)。
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+模块级 `build_reply_language_section(lang)`(纯函数,unset=空串)+ build_input_for_framework 里按 self.user_id 查 UserSettingsRepository 注入「Reply language」段(fail-open)。**字节稳定性**:段内容仅随用户切换语言变化,R4 纪律满足,不打穿缓存前缀;措辞保留 per-message 显式覆盖。
+
 ## 2026-08-07 — MCP 身份注入带上 root_run_id
 
 `turn_extra["root_run_id"]` → `agent_id_headers(root_run_id=…)`。与

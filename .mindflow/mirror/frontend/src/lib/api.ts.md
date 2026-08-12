@@ -4,6 +4,10 @@ last_verified: 2026-08-12
 stub: false
 ---
 
+## 2026-08-12 — reply_language
+
+新增 `getReplyLanguage`/`setReplyLanguage`(GET/PUT settings/reply-language;'' 清除)。读半边供 [[replyLanguageSync.ts]] boot 对账回填。
+
 ## 2026-08-12 — `AuthFunnelStage` 编译期契约（复审三轮 Important）
 
 `reportAuthFunnel(stage: AuthFunnelStage, …)` 的 stage 从自由 `string` 收成**闭合联合类型**,镜像后端 `_FUNNEL_STAGES`([[auth]])白名单。端点对白名单外 stage 返 400、而 `reportAuthFunnel` fire-and-forget `.catch` 吞掉——自由字符串等于「加了上报点但报进黑洞」。联合类型让加新 stage 不先改这里就 `tsc` 不过,逼作者同时去后端白名单。与后端硬编码列表测试互补(前端加/后端删各兜一头)。

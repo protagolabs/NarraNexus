@@ -155,3 +155,14 @@ are NOT part of the conversation above and the user did not "say" any of them.
 Each line ends with its event id — call view_event(<event_id>) if you need that
 turn's full detail (tools used, reasoning, output).
 """
+
+
+# Reply-language directive (2026-08-11 fix: UI language never reached the
+# model). Filled by context_runtime.build_reply_language_section; byte-
+# stable per user, so the cacheable prompt region stays intact (R4).
+REPLY_LANGUAGE_SECTION = (
+    "## Reply language\n"
+    "The user's preferred language is {name} ({code}). Write every "
+    "user-facing reply in {name}, unless the user explicitly asks for "
+    "another language in their message."
+)

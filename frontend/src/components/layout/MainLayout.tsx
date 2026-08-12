@@ -35,6 +35,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
@@ -487,6 +488,14 @@ export function MainLayout() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, userId]);
+
+  // Reply-language sync: languageChanged subscription + one-time backfill.
+  // Mounted HERE (MainLayout, like TelemetryNotice/FeedbackButton), NOT in
+  // ChatView: a team-first user or a settings deep-link never renders
+  // ChatView, and a sync only chat users get is not a sync (PR #284 r2).
+  useEffect(() => {
+    initReplyLanguageSync(userId);
+  }, [userId]);
 
   return (
     // h-dvh-safe (not h-screen): 100vh on mobile includes the space behind

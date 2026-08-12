@@ -700,6 +700,27 @@ class ApiClient {
     );
   }
 
+  /** The user's persisted reply-language preference; null = never set. */
+  async getReplyLanguage(): Promise<string | null> {
+    const r = await this.request<{ language: string | null }>(
+      '/api/auth/settings/reply-language',
+    );
+    return r.language ?? null;
+  }
+
+  /** Persist the reply-language preference (i18n code; '' clears). The
+   *  backend injects it into the agent's system prompt — without this
+   *  write the language choice never reaches the model. */
+  async setReplyLanguage(language: string): Promise<void> {
+    await this.request<{ success: boolean; language: string | null }>(
+      '/api/auth/settings/reply-language',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ language }),
+      },
+    );
+  }
+
   /** Telemetry (diagnostic log shipping) consent state. Unlike
    *  analytics (per-user, DB row) this is a per-MACHINE marker file:
    *  `controllable` is false when a deployment env override or a
