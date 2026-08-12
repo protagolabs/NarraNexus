@@ -494,8 +494,8 @@ export function MainLayout() {
   // ChatView: a team-first user or a settings deep-link never renders
   // ChatView, and a sync only chat users get is not a sync (PR #284 r2).
   useEffect(() => {
-    initReplyLanguageSync();
-  }, []);
+    initReplyLanguageSync(userId);
+  }, [userId]);
 
   return (
     // h-dvh-safe (not h-screen): 100vh on mobile includes the space behind

@@ -1852,7 +1852,8 @@ async def set_reply_language(request: SetReplyLanguageRequest,
                              http_request: Request):
     """Persist the reply-language preference (empty clears it).
 
-    Written by the frontend LanguageToggle on every switch, read by
+    Written by the frontend replyLanguageSync (i18n languageChanged +
+    one-time backfill), read by
     ContextRuntime into the system prompt — the fix for "UI set to
     Chinese but replies stay English": the preference used to live only
     in frontend i18n and never reached the model."""
