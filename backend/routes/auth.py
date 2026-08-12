@@ -314,6 +314,14 @@ _funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
+    # Registration + forgot-password failures (browser->NetMind direct, so the
+    # funnel is the only server-side trace). Frontend callers:
+    # SignUpDialog.sendCode / useNetmindAuth.sendResetCode|resetPassword. Kept in
+    # lockstep with the frontend `AuthFunnelStage` union (frontend/src/lib/api.ts).
+    # This allowlist is a caller-controlled-input gate — never free text.
+    "signup_send_code_failed",
+    "netmind_reset_code_failed",
+    "netmind_reset_password_failed",
 })
 
 

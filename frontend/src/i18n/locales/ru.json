@@ -1182,8 +1182,6 @@
       "localAccess": "Локально · Вход",
       "cloudMode": "Облачный режим",
       "signInWithNetmind": "Войдите через аккаунт NetMind.AI",
-      "migrationNoticeHeading": "Мы реорганизовали систему аккаунтов.",
-      "migrationNoticeBody": "Ваши данные перенесены в аккаунт с тем email, на который вы получили код приглашения. Чтобы войти, сначала сбросьте пароль для этого email (используйте «Забыли пароль?» ниже). По другим вопросам пишите нашей команде на",
       "emailLabel": "Email",
       "passwordLabel": "Пароль",
       "forgotPassword": "Забыли пароль?",
@@ -1198,7 +1196,12 @@
       "accessTerminal": "Войти в терминал",
       "createNewUser": "Создать пользователя",
       "loginFailed": "Не удалось войти",
+      "invalidCredentials": "Неверный адрес электронной почты или пароль",
       "enterUserId": "Введите ID пользователя",
+      "resetCodeInvalid": "Код недействителен или истёк. Запросите новый.",
+      "forgotResetIntro": "Мы отправим код подтверждения на e-mail вашей учётной записи NetMind.",
+      "forgotCodeSentHint": "Если для этого адреса есть учётная запись, мы отправили код подтверждения.",
+      "useDifferentEmail": "Использовать другой e-mail",
       "connectionFailed": "Сбой подключения. Попробуйте снова."
     },
     "modeSelect": {

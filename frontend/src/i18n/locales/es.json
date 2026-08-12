@@ -1178,8 +1178,6 @@
       "localAccess": "Local · Acceso",
       "cloudMode": "Modo nube",
       "signInWithNetmind": "Inicia sesión con tu cuenta de NetMind.AI",
-      "migrationNoticeHeading": "Hemos reorganizado nuestro sistema de cuentas.",
-      "migrationNoticeBody": "Tus datos se han migrado a la cuenta con el correo que usaste para recibir tu código de invitación. Para iniciar sesión, primero restablece la contraseña de ese correo (usa “¿Olvidaste tu contraseña?” abajo). Para cualquier otra duda, contacta a nuestro equipo en",
       "emailLabel": "Correo",
       "passwordLabel": "Contraseña",
       "forgotPassword": "¿Olvidaste tu contraseña?",
@@ -1194,7 +1192,12 @@
       "accessTerminal": "Acceder a la terminal",
       "createNewUser": "Crear nuevo usuario",
       "loginFailed": "Error al iniciar sesión",
+      "invalidCredentials": "Correo electrónico o contraseña no válidos",
       "enterUserId": "Introduce tu ID de usuario",
+      "resetCodeInvalid": "El código no es válido o ha caducado. Solicita uno nuevo.",
+      "forgotResetIntro": "Enviaremos un código de verificación al correo de tu cuenta NetMind.",
+      "forgotCodeSentHint": "Si existe una cuenta con ese correo, hemos enviado un código de verificación.",
+      "useDifferentEmail": "Usar otro correo",
       "connectionFailed": "Error de conexión. Inténtalo de nuevo."
     },
     "modeSelect": {

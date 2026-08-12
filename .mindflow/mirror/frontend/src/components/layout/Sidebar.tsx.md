@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 悬停预取 DashboardPage 补 `.catch`（复审二轮 🟢）
+
+`prefetchDashboard` 的 `import('@/pages/DashboardPage')` 加 `.catch(() => {})`——删掉全局 `vite:preloadError` 监听后没人 `preventDefault`,后台预取失败本应静默(真导航会重试、[[ChunkErrorBoundary.tsx]] 兜到达 render 的),把「故意忽略」写进代码而非留成 unhandled rejection。纯加固,无行为变化。
 
 ## 2026-07-28 — Beta 徽章挂到 logo 旁
 

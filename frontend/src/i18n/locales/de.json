@@ -1178,8 +1178,6 @@
       "localAccess": "Lokal · Zugang",
       "cloudMode": "Cloud-Modus",
       "signInWithNetmind": "Mit deinem NetMind.AI-Konto anmelden",
-      "migrationNoticeHeading": "Wir haben unser Kontosystem neu organisiert.",
-      "migrationNoticeBody": "Deine Daten wurden in das Konto unter der E-Mail-Adresse migriert, mit der du deinen Einladungscode erhalten hast. Setze zum Anmelden zunächst dein Passwort für diese E-Mail-Adresse zurück (verwende „Passwort vergessen?“ unten). Bei weiteren Fragen wende dich an unser Team unter",
       "emailLabel": "E-Mail",
       "passwordLabel": "Passwort",
       "forgotPassword": "Passwort vergessen?",
@@ -1194,7 +1192,12 @@
       "accessTerminal": "Terminal öffnen",
       "createNewUser": "Neuen Benutzer erstellen",
       "loginFailed": "Anmeldung fehlgeschlagen",
+      "invalidCredentials": "Ungültige E-Mail-Adresse oder Passwort",
       "enterUserId": "Bitte gib deine Benutzer-ID ein",
+      "resetCodeInvalid": "Der Code ist ungültig oder abgelaufen. Fordern Sie einen neuen an.",
+      "forgotResetIntro": "Wir senden einen Bestätigungscode an die E-Mail Ihres NetMind-Kontos.",
+      "forgotCodeSentHint": "Falls ein Konto für diese E-Mail existiert, haben wir einen Bestätigungscode gesendet.",
+      "useDifferentEmail": "Andere E-Mail verwenden",
       "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut."
     },
     "modeSelect": {

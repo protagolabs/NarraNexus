@@ -1177,8 +1177,6 @@
       "localAccess": "ローカル · アクセス",
       "cloudMode": "クラウドモード",
       "signInWithNetmind": "NetMind.AI アカウントでサインイン",
-      "migrationNoticeHeading": "アカウントシステムを再編成しました。",
-      "migrationNoticeBody": "データは、招待コードの受け取りに使用したメールアドレスのアカウントに移行されました。サインインするには、まずそのメールアドレスのパスワードをリセットしてください（下の「パスワードをお忘れですか？」をご利用ください）。その他のご質問は、こちらのチームまでご連絡ください",
       "emailLabel": "メールアドレス",
       "passwordLabel": "パスワード",
       "forgotPassword": "パスワードをお忘れですか？",
@@ -1193,7 +1191,12 @@
       "accessTerminal": "ターミナルにアクセス",
       "createNewUser": "新規ユーザーを作成",
       "loginFailed": "ログインに失敗しました",
+      "invalidCredentials": "メールアドレスまたはパスワードが正しくありません",
       "enterUserId": "ユーザー ID を入力してください",
+      "resetCodeInvalid": "コードが無効か期限切れです。新しいコードを取得してください。",
+      "forgotResetIntro": "NetMind アカウントのメールアドレスに確認コードを送信します。",
+      "forgotCodeSentHint": "そのメールのアカウントが存在する場合、確認コードを送信しました。",
+      "useDifferentEmail": "別のメールを使う",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
     },
     "modeSelect": {

@@ -1178,8 +1178,6 @@
       "localAccess": "Local · Acesso",
       "cloudMode": "Modo nuvem",
       "signInWithNetmind": "Entre com sua conta NetMind.AI",
-      "migrationNoticeHeading": "Reorganizamos nosso sistema de contas.",
-      "migrationNoticeBody": "Seus dados foram migrados para a conta vinculada ao e-mail que você usou para receber seu código de convite. Para entrar, redefina primeiro a senha desse e-mail (use “Esqueceu a senha?” abaixo). Para outras dúvidas, contate nossa equipe em",
       "emailLabel": "E-mail",
       "passwordLabel": "Senha",
       "forgotPassword": "Esqueceu a senha?",
@@ -1194,7 +1192,12 @@
       "accessTerminal": "Acessar terminal",
       "createNewUser": "Criar novo usuário",
       "loginFailed": "Falha no login",
+      "invalidCredentials": "E-mail ou senha inválidos",
       "enterUserId": "Informe seu ID de usuário",
+      "resetCodeInvalid": "O código é inválido ou expirou. Solicite um novo.",
+      "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
+      "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
+      "useDifferentEmail": "Usar outro e-mail",
       "connectionFailed": "Falha na conexão. Tente novamente."
     },
     "modeSelect": {
