@@ -39,6 +39,12 @@ dependencies = [
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
     "numpy>=1.26.0",
+    # libmagic content-based MIME sniffing for uploaded/ingested bytes
+    # (utils/mime_sniff.py tier 1). Without it the sniffer silently fell back
+    # to the spoofable file extension / client Content-Type — a WAV renamed
+    # .png classified as an image. Needs the system libmagic1 (installed in
+    # docker/Dockerfile.manyfold).
+    "python-magic>=0.4.27",
     "httpx[socks]",
     "bcrypt>=5.0.0",
     # Fernet encryption for skill env_config secrets (skill marketplace).

@@ -121,11 +121,32 @@ async def get_my_narratives(
 def _entity_key(etype: str, attrs: Dict[str, Any]) -> str:
     """Merge key for the SAME real-world entity seen by several agents.
 
-    Keyed on entity_type + a normalised identity (entity_name, else entity_id),
-    so e.g. the user "kz" known by three agents collapses to one node.
+    Keyed on entity_type + a normalised identity (entity_name, else entity_id)
+    plus a cross-agent identity signal (email, else phone) from contact_info.
+    The name alone collided distinct people who share a common name (two
+    "王小明" — an engineer and a chef — merged, and the later silently
+    overwrote the earlier). email/phone are stable across the agents that know
+    the same person, so they separate distinct identities while still merging
+    one person seen by many agents. When no contact signal exists the key
+    degrades to name-only — the original "kz known by three agents collapses
+    to one node" behaviour.
     """
     ident = (attrs.get("entity_name") or attrs.get("entity_id") or "").strip().lower()
-    return f"{etype}:{ident}"
+    contact = attrs.get("contact_info")
+    contact = contact if isinstance(contact, dict) else {}
+    # attrs is LLM-authored JSON: email/phone may arrive as an int, a list, or
+    # null, not just a string — coerce so a bad value can never raise (this
+    # route has no try/except around the merge loop, so one bad row would 500
+    # the whole graph).
+    raw = contact.get("email") or contact.get("phone") or ""
+    disambig = (raw if isinstance(raw, str) else str(raw)).strip().lower()
+    # Trade-off: when two agents record the same person but populate DIFFERENT
+    # contact fields (one email, one phone, one nothing), their keys differ and
+    # the person shows as two nodes instead of one — a visible duplicate. That
+    # is the accepted cost of never silently overwriting two DIFFERENT people
+    # who share a name (the reported data-loss bug). Proper cross-field identity
+    # resolution is out of scope for this fix.
+    return f"{etype}:{ident}:{disambig}"
 
 
 @router.get("/network")

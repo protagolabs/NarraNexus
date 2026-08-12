@@ -1,10 +1,14 @@
 ---
 code_file: backend/routes/agents/mcps.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 
 # agents/mcps.py — MCP URL 管理与连接验证路由
+
+## 2026-08-12 — create_mcp 补 ownership（SEC-06，Mark IDOR 批）
+
+`create_mcp` 是本文件里唯一信任 URL 上 `agent_id`、不校验归属的路由——任何登录用户可给他人 agent 写一条 MCP 配置（任意 URL），受害者看不到也删不掉。update/delete/validate 早有 owner 校验，本次给 create 在 `try` 之前补 `assert_owned(request, agent_id)`（放 try 外让 HTTPException 透出、不被 `except` 压成 MCPResponse）。SSRF 存前屏蔽（下条）是另一半防护，二者正交。
 
 ## 2026-08-11 — 存前 SSRF 屏蔽 + 内部错脱敏（安全审计 P0-3/P2-2）
 

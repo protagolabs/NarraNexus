@@ -1,10 +1,14 @@
 ---
 code_file: src/xyz_agent_context/repository/instance_awareness_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-08-12
 stub: false
 ---
 
 # instance_awareness_repository.py
+
+## 2026-08-12 — upsert/update 补 updated_at（Mark item 12）
+
+`upsert` 的 update 分支与 `update_awareness` 原来只写 `{"awareness": ...}`，`updated_at` 停在创建时间——UI「更新于」与按 update_time 排序全错。`instance_awareness` 表 `updated_at` 仅有 INSERT 默认、无 DB 层 ON UPDATE，故在应用层显式带 `updated_at=_utc_now_iso()`（ISO，DATETIME(6) 兼容 sqlite/MySQL）。
 
 ## Why it exists
 
