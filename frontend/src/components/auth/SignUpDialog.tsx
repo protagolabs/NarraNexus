@@ -73,7 +73,7 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
   const busy = sending || submitting;
 
   // Standard modal dismissal: Escape closes; backdrop-click is handled on the
-  // overlay's mousedown+click below. (Without either, the only way out was X.)
+  // overlay's mousedown+mouseup below. (Without either, the only way out was X.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !busy) onClose();
@@ -82,7 +82,7 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, busy]);
 
-  // Backdrop dismissal fires only when BOTH the mousedown and the click landed
+  // Backdrop dismissal fires only when BOTH the mousedown and the mouseup landed
   // on the overlay itself — so selecting text inside an input and releasing
   // outside the card (a drag) does not count as a backdrop click and close it.
   const downOnBackdrop = useRef(false);
@@ -120,16 +120,19 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       if (res?.success === false) throw new Error(res.error || '');
       setCodeSent(true);
       setCooldown(RESEND_COOLDOWN_S);
-    } catch {
-      // Do NOT echo the upstream message: NetMind's "this email is already
-      // registered" would let the send-code form enumerate accounts (it is
-      // rate-limited per-email, so probing DIFFERENT emails is unthrottled).
-      // Show one generic message; the real reason is server-side only.
-      // NOTE: this only masks the UI — a determined attacker reads the raw
-      // response in the network tab. Fully closing registration enumeration
-      // needs the backend /register/sendCode to return a uniform response;
-      // that is tracked separately (out of Mark's login-scoped item [2]).
+    } catch (e) {
+      // Do NOT echo the upstream message to the USER: NetMind's "this email is
+      // already registered" would let the send-code form enumerate accounts.
+      // But DON'T discard the reason — a transport failure never even reaches
+      // the server, so the funnel is the only trace it gets (mirrors
+      // useNetmindAuth's reportAuthFunnel). Only email + message go to
+      // analytics — never the code (see this file's header).
+      const message = e instanceof Error ? e.message : 'send code failed';
       setError(t('pages.signup.sendFailed'));
+      api.reportAuthFunnel('signup_send_code_failed', email.trim().toLowerCase(), message);
+      // NOTE: this masks the UI only. Fully closing registration enumeration
+      // needs the backend /register/sendCode to return a uniform response —
+      // tracked separately (out of Mark's login-scoped item [2]).
     } finally {
       setSending(false);
     }
@@ -158,13 +161,13 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="signup-title"
-      // Backdrop dismissal: require the mousedown AND the click to both land on
-      // the overlay itself (not a text-selection drag that ends outside the
-      // card), and never while a request is in flight.
+      // Backdrop dismissal: require BOTH the mousedown and the mouseup to land
+      // on the overlay itself, so a text-selection drag that crosses the card
+      // edge in EITHER direction is not a backdrop click. Never while busy.
       onMouseDown={(e) => {
         downOnBackdrop.current = e.target === e.currentTarget;
       }}
-      onClick={(e) => {
+      onMouseUp={(e) => {
         if (!busy && downOnBackdrop.current && e.target === e.currentTarget) onClose();
       }}
     >

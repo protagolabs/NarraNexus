@@ -186,7 +186,10 @@ function RootRedirect() {
   // deduped, so this just kicks off the transform/download early.
   useEffect(() => {
     if (isLoggedIn) {
-      void import('@/components/layout/MainLayout');
+      // Background prefetch: a failure here is not user-facing (the real
+      // navigation retries + ChunkErrorBoundary covers that path), so swallow
+      // the rejection explicitly rather than leaving an unhandled one.
+      import('@/components/layout/MainLayout').catch(() => {});
     }
   }, [isLoggedIn]);
 

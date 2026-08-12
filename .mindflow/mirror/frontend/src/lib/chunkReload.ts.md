@@ -16,6 +16,6 @@ Mark item 10。路由用 `React.lazy` 切 chunk（[[App.tsx]]）。发版后老 
 
 导出两个纯函数供 boundary 用:
 - `reloadOncePerSession(reload, storage)`:**会话级 guard**(`nx-chunk-reloaded`),坏构建不会无限刷;`storage` 拿不到(隐私模式)时返回 false 不刷;`reload`/`storage` 注入以便测试。
-- `isChunkLoadError(error)`:按 message 正则判 chunk/dynamic-import 失败,区分「发版артефакт」与「真 bug」。
+- `isChunkLoadError(error)`:按 message 正则判 chunk/dynamic-import 失败,区分「发版产物」与「真 bug」。
 
 见 `lib/__tests__/chunkReload.test.ts`。

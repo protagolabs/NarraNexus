@@ -78,8 +78,10 @@ describe('useNetmindAuth.emailLogin', () => {
 });
 
 describe('useNetmindAuth.handleAuthCallback reporting split', () => {
-  test('a NetMind-direct callback failure reports netmind_oauth_failed', async () => {
-    netmindPost.mockRejectedValue(new Error('oauth upstream down'));
+  test('a NetMind-direct callback rejection reports netmind_oauth_failed', async () => {
+    // An upstream rejection (NetmindApiError) keeps its message; a transport
+    // failure would show connectionFailed. Both still report to the funnel.
+    netmindPost.mockRejectedValue(new NetmindApiError('oauth upstream down'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
     expect(result.current.error).toBe('oauth upstream down');
@@ -123,13 +125,36 @@ describe('useNetmindAuth password reset', () => {
     }));
   });
 
-  test('surfaces resetPassword failure as error state', async () => {
-    netmindPost.mockRejectedValue(new Error('Invalid code'));
+  test('surfaces an actionable resetPassword rejection verbatim (wrong code)', async () => {
+    // Upstream rejection is user-actionable — keep its message (NetmindApiError).
+    netmindPost.mockRejectedValue(new NetmindApiError('Invalid code'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => {
       await result.current.resetPassword('a@b.com', 'bad', 'NewPw1234');
     });
     expect(result.current.error).toBe('Invalid code');
+  });
+
+  test('resetPassword transport failure shows connectionFailed, not bare English', async () => {
+    netmindPost.mockRejectedValue(new Error('Failed to fetch'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => {
+      await result.current.resetPassword('a@b.com', '123456', 'NewPw1234');
+    });
+    expect(result.current.error).toMatch(/pages\.login\.connectionFailed|connection failed/i);
+    expect(result.current.error).not.toMatch(/failed to fetch/i);
+  });
+
+  test('sendResetCode masks an upstream rejection (no forgot-password enumeration)', async () => {
+    netmindPost.mockRejectedValue(new NetmindApiError('email not registered'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.sendResetCode('probe@x.com'); });
+    // Must NOT reveal whether the email exists.
+    expect(result.current.error).not.toMatch(/not registered/i);
+    // Real reason still reaches the funnel.
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_reset_code_failed', 'probe@x.com', 'email not registered',
+    );
   });
 });
 

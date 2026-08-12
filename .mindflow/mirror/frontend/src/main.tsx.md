@@ -1,12 +1,8 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-08-12
+last_verified: 2026-06-16
 stub: false
 ---
-
-## 2026-08-12 — （复审后回退）不再 installChunkReload
-
-初版在此挂 `vite:preloadError` 监听做自愈,复审发现它会吞掉全站 dynamic import 成 `undefined` 且对后台预取失败也整页 reload（丢草稿）。已移除该 wiring——stale-chunk 恢复改由 [[App.tsx]] 的 [[ChunkErrorBoundary.tsx]] 驱动(只在崩溃真到达 render 时)。详见 [[chunkReload.ts]]。
 
 ## 2026-06-16 — inbound entry capture moved pre-render
 

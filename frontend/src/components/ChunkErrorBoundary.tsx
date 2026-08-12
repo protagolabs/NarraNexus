@@ -28,6 +28,9 @@ import { isChunkLoadError, reloadOncePerSession } from '@/lib/chunkReload';
 
 interface Props {
   children: ReactNode;
+  /** Recovery action for a stale-chunk crash. Injectable for tests; production
+   *  mounts leave it unset so it defaults to a real page reload. */
+  recover?: () => void;
 }
 
 interface State {
@@ -55,7 +58,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     // A stale-chunk crash after a deploy self-heals with one reload; a genuine
     // bug does not (chunk === false) and is left for the user to see.
     if (chunk) {
-      reloadOncePerSession(() => window.location.reload());
+      reloadOncePerSession(this.props.recover ?? (() => window.location.reload()));
     }
   }
 

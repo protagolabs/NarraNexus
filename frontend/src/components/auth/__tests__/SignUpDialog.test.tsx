@@ -17,10 +17,12 @@ vi.mock('react-i18next', () => ({
 
 const mockSendCode = vi.fn();
 const mockSignup = vi.fn();
+const mockReportFunnel = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     sendSignupCode: (...a: unknown[]) => mockSendCode(...a),
     signup: (...a: unknown[]) => mockSignup(...a),
+    reportAuthFunnel: (...a: unknown[]) => mockReportFunnel(...a),
   },
 }));
 
@@ -32,6 +34,7 @@ const codeField = () =>
 beforeEach(() => {
   mockSendCode.mockReset().mockResolvedValue({ success: true });
   mockSignup.mockReset().mockResolvedValue({ success: true });
+  mockReportFunnel.mockReset();
 });
 
 function renderDialog(onRegistered = vi.fn()) {
@@ -116,28 +119,26 @@ test('pressing Escape closes the dialog', () => {
 test('a backdrop press-and-release closes the dialog', () => {
   const onClose = vi.fn();
   render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
-  // Requires BOTH mousedown and click on the overlay (guards against a drag
-  // that starts inside an input and ends on the backdrop).
+  // Requires BOTH mousedown and mouseup on the overlay itself.
   const overlay = screen.getByRole('dialog');
   fireEvent.mouseDown(overlay);
-  fireEvent.click(overlay);
+  fireEvent.mouseUp(overlay);
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-test('a text-selection drag ending on the backdrop does NOT close', () => {
+test('a drag from inside the card ending on the backdrop does NOT close', () => {
   const onClose = vi.fn();
   render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
-  // mousedown starts inside the dialog (on its title), release on the overlay.
-  fireEvent.mouseDown(screen.getByText('pages.signup.title'));
-  fireEvent.click(screen.getByRole('dialog'));
+  fireEvent.mouseDown(screen.getByText('pages.signup.title')); // down inside
+  fireEvent.mouseUp(screen.getByRole('dialog')); // up on backdrop
   expect(onClose).not.toHaveBeenCalled();
 });
 
-test('clicking inside the dialog does NOT close it', () => {
+test('a drag from the backdrop ending inside the card does NOT close', () => {
   const onClose = vi.fn();
   render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
-  fireEvent.mouseDown(screen.getByText('pages.signup.title'));
-  fireEvent.click(screen.getByText('pages.signup.title'));
+  fireEvent.mouseDown(screen.getByRole('dialog')); // down on backdrop
+  fireEvent.mouseUp(screen.getByText('pages.signup.title')); // up inside
   expect(onClose).not.toHaveBeenCalled();
 });
 
@@ -153,6 +154,20 @@ test('Escape does NOT close while a request is in flight', async () => {
   );
   fireEvent.keyDown(document, { key: 'Escape' });
   expect(onClose).not.toHaveBeenCalled();
+});
+
+test('a send-code failure shows a generic message but reports the real reason', async () => {
+  mockSendCode.mockReset().mockRejectedValue(new Error('email already registered'));
+  renderDialog();
+  fireEvent.change(emailField(), { target: { value: 'Probe@X.com' } });
+  fireEvent.click(screen.getByRole('button', { name: /pages.signup.sendCode/i }));
+  // UI must not echo the enumerating upstream message.
+  await waitFor(() => expect(screen.getByText('pages.signup.sendFailed')).toBeTruthy());
+  expect(screen.queryByText(/already registered/i)).toBeNull();
+  // But the real reason (with a normalised email) reaches the funnel.
+  expect(mockReportFunnel).toHaveBeenCalledWith(
+    'signup_send_code_failed', 'probe@x.com', 'email already registered',
+  );
 });
 
 test('changing the email after a code was sent resets the code-sent state', async () => {

@@ -17,7 +17,9 @@
  * actually reached render, i.e. the user is already blocked.
  */
 
-const RELOAD_GUARD_KEY = 'nx-chunk-reloaded';
+/** sessionStorage key for the one-reload-per-session guard (exported so tests
+ *  reference the constant instead of duplicating the literal). */
+export const RELOAD_GUARD_KEY = 'nx-chunk-reloaded';
 
 /** sessionStorage, or null when the browser blocks it (privacy mode). */
 function safeSessionStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {

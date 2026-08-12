@@ -177,7 +177,9 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         }
       } catch (e) {
         const message = e instanceof Error ? e.message : 'OAuth failed';
-        setError(message);
+        // Transport failure → connectionFailed (not bare "Failed to fetch");
+        // an upstream OAuth rejection keeps its message. Report either way.
+        setError(e instanceof NetmindApiError ? message : i18n.t('pages.login.connectionFailed'));
         // Direct browser->NetMind call — report or the server never sees it.
         api.reportAuthFunnel('netmind_oauth_failed', undefined, message);
       } finally {
@@ -210,7 +212,9 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         setBindInfo(null);
         await exchange(data.loginToken);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Bind failed');
+        // Upstream rejection (wrong verify code) is actionable — keep it;
+        // transport failure → connectionFailed.
+        setError(e instanceof NetmindApiError ? e.message : i18n.t('pages.login.connectionFailed'));
       } finally {
         setLoading(false);
       }
@@ -231,7 +235,15 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
       await netmindPost('/register/sendCode', { ...baseRequestParams(), email, type: 2 });
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to send code');
+      // Same anti-enumeration masking as emailLogin: an upstream rejection
+      // (e.g. "email not registered") must NOT be shown verbatim — this is the
+      // same login-page enumeration surface, one button over. Transport
+      // failures show connectionFailed, not bare English. Real message → funnel.
+      const message = e instanceof Error ? e.message : 'Failed to send code';
+      setError(
+        i18n.t(e instanceof NetmindApiError ? 'pages.signup.sendFailed' : 'pages.login.connectionFailed'),
+      );
+      api.reportAuthFunnel('netmind_reset_code_failed', email, message);
       return false;
     } finally {
       setLoading(false);
@@ -248,7 +260,13 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         });
         return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to reset password');
+        // Upstream rejections here are user-ACTIONABLE (wrong code, weak
+        // password) — keep them. Only transport failures get connectionFailed.
+        setError(
+          e instanceof NetmindApiError
+            ? e.message
+            : i18n.t('pages.login.connectionFailed'),
+        );
         return false;
       } finally {
         setLoading(false);
