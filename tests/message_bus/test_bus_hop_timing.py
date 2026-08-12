@@ -75,7 +75,7 @@ async def _trigger_with_fake_runtime(db_client, monkeypatch, *, fail=False):
             raise RuntimeError("turn blew up")
     else:
         async def _fake_invoke(*_a, **_k):
-            return "the reply", "evt_t1"
+            return "the reply", "evt_t1", []
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
     return trigger

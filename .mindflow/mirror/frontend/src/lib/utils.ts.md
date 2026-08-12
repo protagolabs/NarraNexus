@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/utils.ts
-last_verified: 2026-05-27
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -48,3 +48,14 @@ Used broadly: `cn` is imported by nearly every styled component. `generateId` is
 **`formatTime` uses `zh-CN` locale.** The `toLocaleTimeString('zh-CN', ...)` call will format as `HH:MM:SS` in 24-hour format, which is the intended design. Users in locales that default to 12-hour format still see 24-hour times. If the UX needs locale-aware formatting, this would need a change.
 
 **`formatRelativeTime` for very old dates falls back to `formatDate`.** Anything older than 7 days shows the full date string. The threshold is hardcoded — there is no configuration option.
+
+## 2026-08-12 — 时间戳跟随用户选择的语言
+
+`formatTime` / `formatDate` 此前硬编码 `zh-CN`，而**五个组件在用它们**：把界面设成英文、法文、
+日文的用户，看到的仍是中文格式的日期——整个应用都被翻译了，唯独这一处从不经过翻译文件。
+
+语言**每次调用都重新读**，不在模块常量里捕获：语言切换器是运行时改的，
+捕获值会让所有时间戳停留在上一种语言直到刷新。
+
+非法或空的语言标记回落到浏览器本地设置而不是抛异常——`Intl` 会拒绝坏标记，
+而一个陈旧的偏好设置不该让产品里每个时间戳变空白。

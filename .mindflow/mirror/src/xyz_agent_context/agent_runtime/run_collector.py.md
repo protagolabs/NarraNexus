@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-07-30
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -133,3 +133,21 @@ trigger 可以忽略。
 message (kind ∈ thinking|tool|response|error). Opt-in (default None → zero overhead for every
 existing trigger); the team bus path uses it to mirror a live activity status
 ([[_bus_activity]]). Never raises — exceptions are swallowed so status can't break the run.
+
+## 2026-08-12 — `segments`：保住独白与回复的边界
+
+team turn 开着 `include_monologue`，于是 agent 自己的思考（`AGENT_THINKING.monologue`）和
+它的回答（`AGENT_RESPONSE.delta`）**按到达顺序 append 进同一个列表再 join**——落到墙上的是
+一团 markdown，边界没了。
+
+**这就是「复用私聊的 segmentTurn」走不通的原因**：`segmentTurn` 是从**事件流**切的，
+而房间消息存在时事件流已经被拍平。前端无法还原，只能猜，而猜错就是把深思渲染成结论。
+
+所以边界在**唯一还持有它的地方**被保存下来。
+
+- `output_text` **一字未改**——它是纯文本消费者（记忆索引、其他 agent 的 scrollback）读的东西，
+  一个渲染问题不该改写它。`"".join(s["text"] for s in segments) == output_text` 恒成立。
+- 连续同类片段合并：delta 是碎片到达的，不合并的话一个想法会渲染成六个气泡。
+- 整轮空白 → 空列表，与上游 `if response_text:` 的丢弃一致，不会复活出一个空气泡。
+- **最重要的一条测试是「非 team 逐字节无影响」**：产品里每一个 turn 都走这个函数。
+  这条做过变异验证。

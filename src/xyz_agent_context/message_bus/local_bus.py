@@ -20,6 +20,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from loguru import logger
+
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
 from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
@@ -95,6 +97,19 @@ class LocalMessageBus(MessageBusService):
         mentions = json.loads(mentions_raw) if mentions_raw else None
         attachments_raw = row.get("attachments")
         attachments = json.loads(attachments_raw) if attachments_raw else None
+        # A half-written or hand-edited row must not take the whole transcript
+        # down: losing one message's layout is a degradation, losing the room
+        # is an outage.
+        segments = None
+        segments_raw = row.get("segments")
+        if segments_raw:
+            try:
+                segments = json.loads(segments_raw)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"[bus] message {row.get('message_id')} has unreadable "
+                    f"segments; rendering as one block"
+                )
         return BusMessage(
             message_id=row["message_id"],
             channel_id=row["channel_id"],
@@ -103,6 +118,7 @@ class LocalMessageBus(MessageBusService):
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
             attachments=attachments,
+            segments=segments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
             root_run_id=row.get("root_run_id"),
@@ -122,6 +138,7 @@ class LocalMessageBus(MessageBusService):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        segments: Optional[List[dict]] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -150,6 +167,10 @@ class LocalMessageBus(MessageBusService):
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
+            # Empty list stores as NULL: it carries nothing a reader could act
+            # on, and a value that looks like data invites the reader to trust
+            # it as "this turn genuinely had no segments".
+            "segments": json.dumps(segments) if segments else None,
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,

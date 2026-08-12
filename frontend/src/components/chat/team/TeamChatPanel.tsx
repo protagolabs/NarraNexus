@@ -20,20 +20,21 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
-import { Button, Textarea, Markdown } from '@/components/ui';
+import { Button, Textarea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
-import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
+import { TeamTranscript } from './TeamTranscript';
+import { TeamSystemLine } from './TeamSystemLine';
+import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
-import { cn, formatTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
@@ -607,188 +608,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               />
             ) : (
               <div className="space-y-5">
-                {messages.map((m) => {
-                  const mine = m.is_user;
-                  const avatarLabel = (mine ? userLabel : m.author_name) || '?';
-                  const ts = Date.parse(m.created_at);
-                  // A stop notice is the ROOM speaking, not the agent: a task
-                  // that ran in public should visibly stop in public, but
-                  // dressing it as the agent's own reply would read as the agent
-                  // announcing its own death.
-                  // A bulletin change is the room speaking, exactly like a stop
-                  // notice: dressing it as a member's message would attribute a
-                  // platform event to whoever happened to trigger it.
-                  if (m.msg_type === 'system_bulletin') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`bulletin-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <span
-                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
-                          style={{ color: 'var(--nm-ink50)' }}
-                        >
-                          {t(
-                            m.content?.includes('cleared')
-                              ? 'chat.team.bulletin.clearedNotice'
-                              : 'chat.team.bulletin.updatedNotice',
-                          )}
-                        </span>
-                      </div>
-                    );
-                  }
-                  if (m.msg_type === 'system_stop') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`stop-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <span
-                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
-                          style={{ color: 'var(--nm-ink50)' }}
-                        >
-                          {t('chat.team.stoppedNotice', { name: m.author_name })}
-                        </span>
-                      </div>
-                    );
-                  }
-                  // A patrol line is the platform taking stock, not a member
-                  // talking. It is posted under the room's own marker, so
-                  // `author_name` would resolve to a raw `team_<id>` — and more
-                  // importantly, rendering it as a bubble would make the Leader
-                  // look like it keeps interrupting the room on its own.
-                  if (m.msg_type === 'patrol') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`patrol-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <div
-                          className="max-w-[85%] rounded-lg border border-dashed border-[var(--border-subtle)] px-3 py-1.5"
-                          style={{ background: 'var(--nm-paper-warm)' }}
-                        >
-                          <div
-                            className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.18em]"
-                            style={{ color: 'var(--nm-ink50)' }}
-                          >
-                            {t('chat.team.patrolNotice')}
-                          </div>
-                          <div className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-                            <Markdown content={m.content.trim()} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
-                      {/* Carbon ring for the human, silicon for an agent — matching
-                          the single-agent MessageBubble. Hidden on mobile. */}
-                      <RingAvatar
-                        species={mine ? 'carbon' : 'silicon'}
-                        label={avatarLabel.slice(0, 2)}
-                        size="sm"
-                        className="shrink-0 hidden md:inline-flex"
-                      />
-                      <div className={cn('flex-1 min-w-0', mine && 'text-right')}>
-                        {/* Author name above an agent bubble — a group chat has
-                            multiple speakers, so name them (single-agent doesn't). */}
-                        {!mine && (
-                          <div className="mb-0.5 px-0.5 text-[10px] font-mono text-[var(--text-tertiary)]">
-                            {m.author_name}
-                          </div>
-                        )}
-                        <div
-                          className={cn(
-                            'relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] transition-colors duration-150',
-                            !mine && 'nm-bubble-ai',
-                          )}
-                          style={
-                            mine
-                              ? {
-                                  background: 'var(--color-carbon-soft)',
-                                  color: 'var(--nm-ink)',
-                                  border: '1px solid var(--color-carbon-hair)',
-                                  borderRight: '3px solid var(--color-carbon)',
-                                }
-                              : {
-                                  background: 'var(--color-silicon-soft)',
-                                  color: 'var(--nm-ink)',
-                                  border: '1px solid var(--color-silicon-hair)',
-                                  borderLeft: '3px solid var(--color-silicon)',
-                                }
-                          }
-                        >
-                          <div className="text-sm break-words leading-relaxed">
-                            {mine ? (
-                              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">
-                                {m.content}
-                              </span>
-                            ) : (
-                              // Agent replies are markdown (bold, lists, code) —
-                              // render them like the single-agent bubble; this also
-                              // collapses the stray leading whitespace agents emit.
-                              <Markdown content={m.content.trim()} />
-                            )}
-                          </div>
-                          <BusAttachmentList attachments={m.attachments} />
-                          {/* This turn's full process — single-chat parity.
-                              Only agent replies whose turn was recorded carry
-                              an event_id (legacy rows degrade to no button). */}
-                          {!mine && m.event_id && (
-                            <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
-                          )}
-                          {/* What THIS turn produced. Joined on event_id, which
-                              both the transcript and the artifact history
-                              carry — not on timestamps, which would mis-attribute
-                              the ordinary cases (two artifacts in one turn, two
-                              agents replying at once). */}
-                          {m.event_id && (wsTurns[m.event_id] ?? []).length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {(wsTurns[m.event_id] ?? []).map((aid) => {
-                                const art = wsArtifacts.find((x) => x.artifact_id === aid);
-                                return (
-                                  <button
-                                    key={aid}
-                                    type="button"
-                                    onClick={() => setWsSelected(aid)}
-                                    title="Open in the team workspace"
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono border border-[var(--nm-hairline)] text-[var(--text-tertiary)] hover:text-[var(--nm-ink)] max-w-full"
-                                  >
-                                    <span className="truncate">{art?.title ?? aid}</span>
-                                    <span className="opacity-50">↗</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        {/* Meta row outside the bubble, aligned to its side. */}
-                        <div
-                          className={cn(
-                            'mt-1 flex items-center gap-1.5 px-0.5',
-                            mine ? 'justify-end' : 'justify-start',
-                          )}
-                        >
-                          <span
-                            className="font-mono tracking-wide"
-                            style={{
-                              color: 'var(--nm-subtle)',
-                              fontSize: '9.5px',
-                              letterSpacing: '0.05em',
-                              fontVariantNumeric: 'tabular-nums',
-                            }}
-                          >
-                            {Number.isFinite(ts) ? formatTime(ts) : ''}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                <TeamTranscript
+                  messages={messages}
+                  userLabel={userLabel}
+                  leadAgentId={leadAgentId ?? ''}
+                  memberNames={Object.fromEntries(
+                    members.map((mm) => [mm.agent_id, mm.name || mm.agent_id]),
+                  )}
+                  renderSystem={(m) => <TeamSystemLine key={m.message_id} message={m} />}
+                  renderFooter={(m) => (
+                    <TeamMessageFooter
+                      message={m}
+                      turnArtifacts={m.event_id ? (wsTurns[m.event_id] ?? []) : []}
+                      artifacts={wsArtifacts}
+                      onOpenArtifact={setWsSelected}
+                    />
+                  )}
+                />
 
                 {/* Someone is working right now — the transcript says only that,
                     and only while it is true. Everything measurable about the run

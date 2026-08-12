@@ -41,6 +41,11 @@ export interface TeamChatMessage {
    *  owner-stopped notice and 'patrol' is the Leader's sweep — both render as
    *  room-level lines rather than as a member speaking. */
   msg_type?: string | null;
+  /** Monologue/reply boundary, when the producing run recorded one. Absent for
+   *  every message written before it existed and for any path without a
+   *  monologue — the bubble renders those as one block, which is what it did
+   *  before. There is no backfill and no guessing (iron rule #2). */
+  segments?: Array<{ kind: string; text: string }> | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */
   event_id?: string | null;

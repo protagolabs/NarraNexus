@@ -53,7 +53,7 @@ def _trigger(db, reply: str):
 
     async def _invoke(**kwargs):
         seen.update(kwargs)
-        return (reply, "evt_patrol")
+        return (reply, "evt_patrol", [])
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t, seen
@@ -257,7 +257,7 @@ async def test_a_capped_patrol_does_not_run_the_turn_at_all(db_client):
 
     async def _invoke(**kwargs):
         ran["count"] += 1
-        return ("@Bruno 还在吗?", "evt_x")
+        return ("@Bruno 还在吗?", "evt_x", [])
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
@@ -310,7 +310,7 @@ async def test_the_patrol_turn_mirrors_itself_into_bus_activity(db_client):
             "bus_agent_activity", {"agent_id": "agent_lead"}
         )
         during.update(row or {})
-        return ("", "evt_patrol")
+        return ("", "evt_patrol", [])
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
@@ -358,7 +358,7 @@ async def test_a_capped_patrol_still_updates_the_board(db_client):
     async def _invoke(**kwargs):
         nonlocal called
         called = True
-        return ("something", "evt_patrol")
+        return ("something", "evt_patrol", [])
 
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
@@ -387,7 +387,7 @@ async def test_the_sweep_writes_its_run_id_back_into_the_activity_row(db_client)
 
     async def _invoke(**kwargs):
         await kwargs["on_event_id"]("evt_sweep")
-        return ("", "evt_sweep")
+        return ("", "evt_sweep", [])
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
@@ -414,7 +414,7 @@ async def test_the_sweep_can_be_stopped(db_client):
         await kwargs["on_event_id"]("evt_sweep")
         seen["watching"] = "evt_sweep" in watcher._tokens
         seen["token"] = kwargs.get("cancellation")
-        return ("", "evt_sweep")
+        return ("", "evt_sweep", [])
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 

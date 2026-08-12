@@ -73,7 +73,7 @@ async def test_team_reply_is_stamped_with_the_turn_event_id(db_client, monkeypat
     trigger = MessageBusTrigger(bus=bus)
 
     async def _fake_invoke(*_a, **_k):
-        return "the reply", "evt_from_turn"
+        return "the reply", "evt_from_turn", []
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
 

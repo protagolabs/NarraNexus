@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
@@ -88,3 +88,8 @@ TeamManagementModal picker → `updateTeam`. See backend [[teams]].
 
 `source` 驱动权限与渲染，`author_id` 只驱动「由谁添加」标签、自动总结为 null。
 `TeamBulletin` 把 usage/limits 一起带上，见 [[api]]。
+
+## 2026-08-12 — `TeamChatMessage.segments`
+
+可选。缺失表示「没有记录边界」——本改动之前写入的每一条消息、以及任何没有独白的路径。
+气泡把这类消息按整块渲染，也就是它此前的样子。**不回填、不猜**（铁律 #2）。

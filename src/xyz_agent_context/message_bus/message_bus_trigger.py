@@ -906,7 +906,7 @@ class MessageBusTrigger:
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
                 # execution `prompt` is far noisier. See 2026-06-01 design.
-                response_text, turn_event_id = await self._invoke_runtime(
+                response_text, turn_event_id, reply_segments = await self._invoke_runtime(
                     agent_id=agent_id,
                     sender_agent_id=trigger_message.from_agent,
                     prompt=prompt,
@@ -981,6 +981,10 @@ class MessageBusTrigger:
                         # Stamp the reply with the turn that produced it, so
                         # the transcript can open this turn's full event_log.
                         event_id=turn_event_id,
+                        # The monologue/reply boundary, which `content` loses by
+                        # concatenation and nothing downstream can recover. Only
+                        # a team turn has one (`include_monologue=is_team`).
+                        segments=reply_segments or None,
                     )
                 else:
                     # Write response to inbox
@@ -1465,7 +1469,7 @@ class MessageBusTrigger:
             watcher.register(run_id, cancellation)
             await act.note_event_id(run_id)
 
-        response_text, _ = await self._invoke_runtime(
+        response_text, _, _ = await self._invoke_runtime(
             agent_id=lead_agent_id,
             sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             prompt=prompt,
@@ -2161,9 +2165,14 @@ class MessageBusTrigger:
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, Optional[str], list[dict]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
+
+        Returns ``(text, event_id, segments)``. The third element is the
+        monologue/reply boundary the collector preserved — APPENDED, never
+        inserted, because positional callers exist and a parameter added in the
+        middle rebinds them silently.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE
@@ -2271,7 +2280,7 @@ class MessageBusTrigger:
                 collection.event_id,
             )
 
-        return collection.output_text, collection.event_id
+        return collection.output_text, collection.event_id, collection.segments
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

@@ -222,7 +222,11 @@
         "usage": "{{entries}}/{{maxEntries}} rules · {{chars}}/{{maxChars}} chars",
         "updatedNotice": "Bulletin updated",
         "clearedNotice": "Bulletin cleared"
-      }
+      },
+      "leadBadge": "lead",
+      "expand": "Show more",
+      "collapse": "Show less",
+      "today": "Today"
     },
     "execution": {
       "showSteps": "Show execution steps",

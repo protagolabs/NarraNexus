@@ -79,7 +79,7 @@ async def test_a_live_token_reaches_the_runtime(db_client, monkeypatch):
 
     async def _record(*args, **kwargs):
         seen.update(kwargs)
-        return "", None
+        return "", None, []
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -105,7 +105,7 @@ async def test_token_is_registered_under_the_run_id_then_released(db_client, mon
 
         watcher = get_cancel_watcher(db_client)
         watched_during_run["ids"] = list(watcher._tokens.keys())
-        return "", "evt_run_1"
+        return "", "evt_run_1", []
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -194,7 +194,9 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(is_error=False, output_text="ok", event_id="evt_1", error=None)
+        return SimpleNamespace(
+            is_error=False, output_text="ok", event_id="evt_1", error=None, segments=[]
+        )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(

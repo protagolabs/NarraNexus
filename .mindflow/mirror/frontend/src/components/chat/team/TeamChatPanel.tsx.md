@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — 巡查行渲染
@@ -180,3 +180,10 @@ listing rows the server had deleted and every one of them 410'd on click.
 
 面板加载 effect 也挂在 `workspaceRefreshTick` 上：清团队数据可能带走公告栏，
 面板留在屏上列已删掉的规则比空着更糟。
+
+## 2026-08-12 — 消息渲染抽件（1134 → 970 行）
+
+抽出 [[TeamMessageBubble]] / [[TeamTranscript]] / [[TeamSystemLine]] / [[TeamMessageFooter]]。
+**只抽本批要动的**——整体重排作为独立 PR 更好 review，混进行为改动里更难。
+
+被抽走的三块（系统行、footer、时间戳）markup 与理由**原样搬运**，本批不改它们的行为。

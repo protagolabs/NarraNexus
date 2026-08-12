@@ -2,6 +2,7 @@
  * Utility functions
  */
 
+import i18n from '@/i18n';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -41,11 +42,35 @@ function parseUTCTimestamp(timestamp: number | string): Date {
 }
 
 /**
- * Format timestamp to readable string
+ * The locale to format dates and times in: whatever language the user is
+ * actually running.
+ *
+ * Read on EVERY call, never captured in a module constant — the language
+ * switcher changes it at runtime, and a captured value would leave every
+ * timestamp in the previous language until a reload.
+ *
+ * A malformed or empty tag falls back to the browser's own locale rather than
+ * throwing: Intl rejects bad tags, and one stale preference in storage should
+ * not blank every timestamp in the product.
+ */
+function activeLocale(): string | undefined {
+  try {
+    const tag = i18n.resolvedLanguage || i18n.language || '';
+    if (!tag) return undefined;
+    // Throws on a malformed tag; `undefined` then means "browser default".
+    new Intl.DateTimeFormat(tag);
+    return tag;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Format timestamp to readable string, in the user's language.
  */
 export function formatTime(timestamp: number | string): string {
   const date = parseUTCTimestamp(timestamp);
-  return date.toLocaleTimeString('zh-CN', {
+  return date.toLocaleTimeString(activeLocale(), {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -53,11 +78,11 @@ export function formatTime(timestamp: number | string): string {
 }
 
 /**
- * Format date to readable string
+ * Format date to readable string, in the user's language.
  */
 export function formatDate(timestamp: number | string): string {
   const date = parseUTCTimestamp(timestamp);
-  return date.toLocaleDateString('zh-CN', {
+  return date.toLocaleDateString(activeLocale(), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

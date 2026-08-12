@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
@@ -864,3 +864,11 @@ where it stands」），所以它会成为被点名成员这一轮的**触发消
 
 现在平台行渲染为 `[system] <content>`，前提成立。这也是"标注而不是丢弃"的第二个理由，
 当时没人提出过。
+
+## 2026-08-12 — 把 segments 交给 bus
+
+`_invoke_runtime` 返回值追加第三个元素 `segments`。
+
+**第一版我写的是 `getattr(collection, "segments", None)`——而那个作用域里根本没有 `collection`。**
+`getattr` 的默认值会把这个错误吞成一个永久的 `None`：功能死掉、不报错、不记日志、测试全绿。
+改成真正的返回值后，契约变化立刻炸出 11 个既有测试——那才是它该有的响亮失败。

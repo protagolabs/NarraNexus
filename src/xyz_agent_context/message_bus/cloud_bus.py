@@ -43,6 +43,7 @@ class CloudMessageBus(MessageBusService):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        segments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

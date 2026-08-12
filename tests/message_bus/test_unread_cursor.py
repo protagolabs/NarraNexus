@@ -83,7 +83,7 @@ def _trigger(db, reply: str = "on it"):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        return (reply, "evt_turn")
+        return (reply, "evt_turn", [])
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t

@@ -59,6 +59,18 @@ class RunError:
     error_message: str
 
 
+def _add_segment(segments: list[dict], kind: str, text: str) -> None:
+    """Append text, merging into the previous segment when the kind matches.
+
+    Deltas arrive in fragments, so without merging one thought would render as
+    six bubbles — the rhythm this exists to show would be noise instead.
+    """
+    if segments and segments[-1]["kind"] == kind:
+        segments[-1]["text"] += text
+    else:
+        segments.append({"kind": kind, "text": text})
+
+
 @dataclass
 class RunCollection:
     """Result of consuming one ``AgentRuntime.run()`` invocation."""
@@ -68,6 +80,22 @@ class RunCollection:
     plus — only when the caller opted in via ``include_monologue`` — every
     ``AGENT_THINKING.monologue`` segment (NexusPower's assistant plain text,
     which streams as thinking under the monologue contract)."""
+
+    segments: list[dict] = field(default_factory=list)
+    """``output_text`` with the monologue/reply boundary still intact:
+    ``[{"kind": "monologue"|"reply", "text": str}]`` in arrival order,
+    consecutive pieces of one kind merged.
+
+    Exists because that boundary is destroyed by the join above and cannot be
+    recovered downstream. A team room wants to lay deliberation out differently
+    from an answer, and the private chat's `segmentTurn` cannot help: it cuts a
+    turn from the EVENT STREAM, which no longer exists by the time a room
+    message does. A frontend heuristic could only guess, and guessing wrong
+    renders thinking as conclusion or the reverse.
+
+    Empty unless ``include_monologue`` — and empty for a silent or
+    whitespace-only turn, so a caller cannot render a blank bubble from it.
+    ``"".join(s["text"] for s in segments) == output_text`` always holds."""
 
     tool_calls: list[str] = field(default_factory=list)
     """Names of tools invoked by the agent, in arrival order."""
@@ -134,6 +162,7 @@ async def collect_run(
     deliberation the agent never addressed to anyone.
     """
     text_parts: list[str] = []
+    segments: list[dict] = []
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
@@ -168,9 +197,11 @@ async def collect_run(
             delta = getattr(msg, "delta", None)
             if delta:
                 text_parts.append(delta)
+                _add_segment(segments, "reply", delta)
         elif mt == MessageType.AGENT_THINKING:
             if monologue:
                 text_parts.append(monologue)
+                _add_segment(segments, "monologue", monologue)
         elif mt == MessageType.TOOL_CALL:
             name = getattr(msg, "tool_name", None)
             if name:
@@ -258,8 +289,14 @@ async def collect_run(
                     except Exception:  # noqa: BLE001 — status must never break the run
                         logger.opt(exception=True).warning("on_event_id callback failed")
 
+    # A turn whose whole output is blank is dropped upstream (`if response_text`);
+    # the segments must agree rather than resurrect an empty bubble.
+    if not "".join(text_parts).strip():
+        segments = []
+
     return RunCollection(
         output_text="".join(text_parts),
+        segments=segments,
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,

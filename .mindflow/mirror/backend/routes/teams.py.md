@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-10 — Clear team data 增加 board 作用域
@@ -345,3 +345,7 @@ reason to reach into.
 `_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
 import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
 测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。
+
+## 2026-08-12 — `get_team_chat` 透传 `segments`
+
+API 不返回的列，UI 就渲染不了。

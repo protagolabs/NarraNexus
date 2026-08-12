@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
@@ -197,3 +197,12 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 "delegated" 给了 `ack_processed` —— 注释和代码不一致,偏偏这是个踩过的坑
 (`'T'(0x54) > ' '(0x20)`,空格格式的游标沉到所有 `created_at` 之下,消息永远显示
 未处理)。抽成模块级 `canonical_ts`,两个 ack 和 trigger 的缺口判定共用一份。
+
+## 2026-08-12 — `segments` 落库与读回
+
+`send_message` 追加 `segments`（**追加，不插入**——存在位置参数调用方，中间插一个会静默重绑，
+本仓库在 `ContextRuntime` 上已经付过这笔学费；有测试钉住它在参数表末位）。
+
+- 空列表存 NULL：它看起来像数据，会诱使读者相信「这轮确实没有分段」；NULL 明确表示「没有记录边界」。
+- **坏 JSON 不炸整个房间**：一行手改坏了只丢那条消息的排版（降级），
+  而不是让整个 transcript 打不开（故障）。会记 warning，否则就是静默降级。

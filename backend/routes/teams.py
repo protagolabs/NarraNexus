@@ -463,6 +463,9 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
                 # stop notice, which the frontend renders as a system line (from an
                 # i18n key) rather than as this agent speaking.
                 "msg_type": m.msg_type,
+                # Null for legacy messages and for any path without a monologue;
+                # the panel renders those as one block.
+                "segments": m.segments,
                 # Turn that produced this reply (None for user messages / legacy
                 # rows) — powers the per-message reasoning disclosure.
                 "event_id": m.event_id,
