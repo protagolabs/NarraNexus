@@ -7,7 +7,7 @@ stub: false
 ## 2026-08-12 — Mark 前端批：删迁移 banner + Power 表单 Enter 提交
 
 - **删迁移 banner（item 1）**：`netmindBlock` 里 `withNotice &&` 的账号迁移提示整段删除——迁移早已完成，且它对 cloud 模式**所有人无条件**显示、让人以为必须重置密码（实则旧密码仍可登）。`withNotice` 参数保留（仍控 methodDesc 显隐 + email autoFocus）。i18n `migrationNoticeHeading/Body` 两键从 10 个 locale 全删。`LoginPage.netmind.test` 那条断言「显示 banner」的用例反转为断言不显示。
-- **Power 表单 Enter 提交（item 6）**：新增 `handleNetmindKeyDown`，绑到 email/password 两个 TextInput 的 `onKeyDown`——Enter 且两字段非空时触发 `netmind.emailLogin`（对齐本地表单的 handleLocalKeyDown 与 Sign In 按钮的 disabled 条件）。见 `LoginPage.enter.test.tsx`。
+- **Power 表单 Enter 提交（item 6）**：`handleNetmindKeyDown` 绑 email/password 的 `onKeyDown`。**能否提交抽成单一 `canSubmitNetmind = !netmind.loading && !!email.trim() && !!password`**（复审 item 6）——按钮 `disabled={!canSubmitNetmind}` 与 Enter 共用一处,防两处漂移(将来给按钮加条件时 Enter 不会绕过);且含 `loading` 防重复提交。见 `LoginPage.enter.test.tsx`（提交/空/loading 中不提交）。
 
 ## 2026-07-28 — Beta badge in the brand header
 

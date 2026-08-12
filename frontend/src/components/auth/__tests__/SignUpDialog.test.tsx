@@ -113,19 +113,45 @@ test('pressing Escape closes the dialog', () => {
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-test('clicking the backdrop closes the dialog', () => {
+test('a backdrop press-and-release closes the dialog', () => {
   const onClose = vi.fn();
   render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
-  // The overlay carries role="dialog"; clicking it directly (not its children)
-  // is the "click outside to dismiss" affordance.
-  fireEvent.click(screen.getByRole('dialog'));
+  // Requires BOTH mousedown and click on the overlay (guards against a drag
+  // that starts inside an input and ends on the backdrop).
+  const overlay = screen.getByRole('dialog');
+  fireEvent.mouseDown(overlay);
+  fireEvent.click(overlay);
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test('a text-selection drag ending on the backdrop does NOT close', () => {
+  const onClose = vi.fn();
+  render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  // mousedown starts inside the dialog (on its title), release on the overlay.
+  fireEvent.mouseDown(screen.getByText('pages.signup.title'));
+  fireEvent.click(screen.getByRole('dialog'));
+  expect(onClose).not.toHaveBeenCalled();
 });
 
 test('clicking inside the dialog does NOT close it', () => {
   const onClose = vi.fn();
   render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  fireEvent.mouseDown(screen.getByText('pages.signup.title'));
   fireEvent.click(screen.getByText('pages.signup.title'));
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+test('Escape does NOT close while a request is in flight', async () => {
+  const onClose = vi.fn();
+  // A send-code that never resolves keeps `sending` true (busy).
+  mockSendCode.mockReset().mockReturnValue(new Promise(() => {}));
+  render(<SignUpDialog onClose={onClose} onRegistered={vi.fn()} />);
+  fireEvent.change(emailField(), { target: { value: 'a@b.com' } });
+  fireEvent.click(screen.getByRole('button', { name: /pages.signup.sendCode/i }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /pages.signup.sending/i })).toBeTruthy(),
+  );
+  fireEvent.keyDown(document, { key: 'Escape' });
   expect(onClose).not.toHaveBeenCalled();
 });
 

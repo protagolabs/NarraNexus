@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import i18n from '@/i18n';
 import { api } from '@/lib/api';
 import type { NetmindLoginResponse } from '@/types/api';
-import { netmindPost } from './request';
+import { NetmindApiError, netmindPost } from './request';
 import { baseRequestParams } from './constants';
 import { getNetmindConfig } from '@/lib/runtimeConfig';
 import { isTauri, openNetmindOAuth, takeNetmindOAuthResult } from '@/lib/tauri';
@@ -89,11 +89,17 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         loginToken = data.loginToken;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Login failed';
-        // Show ONE generic message regardless of the upstream reason. NetMind
-        // returns distinct "user not found" vs "wrong password" text, which
-        // lets an attacker enumerate which emails are registered. The real
-        // message still goes to the funnel below for internal diagnosis.
-        setError(i18n.t('pages.login.invalidCredentials'));
+        // A real upstream rejection (NetmindApiError) → one generic credential
+        // message, so NetMind's distinct "user not found" vs "wrong password"
+        // text can't enumerate registered emails. A transport failure (offline
+        // / DNS / a 502 gateway page) is NOT the user's password being wrong —
+        // show connectionFailed so an outage doesn't read as "you typed it
+        // wrong". The real message always goes to the funnel for diagnosis.
+        setError(
+          e instanceof NetmindApiError
+            ? i18n.t('pages.login.invalidCredentials')
+            : i18n.t('pages.login.connectionFailed'),
+        );
         api.reportAuthFunnel('netmind_email_login_failed', email, message);
         setLoading(false);
         return;

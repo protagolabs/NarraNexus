@@ -16,7 +16,7 @@
  * analytics — the spec calls this out explicitly and it is easy to violate by
  * adding a well-meaning debug line.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, X } from 'lucide-react';
 import { Button, FormField, TextInput } from '@/components/nm';
@@ -66,15 +66,26 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  // Standard modal dismissal: Escape closes. Backdrop-click is handled on the
-  // overlay's onClick below. (Without either, the only way out was the X.)
+  // A request in flight (sending a code / submitting) must not be dismissed out
+  // from under itself: closing mid-submit unmounts the component, so a later
+  // setError lands on nothing — the dialog vanishes with no error and no
+  // account, having burned the emailed code. All dismissal paths check this.
+  const busy = sending || submitting;
+
+  // Standard modal dismissal: Escape closes; backdrop-click is handled on the
+  // overlay's mousedown+click below. (Without either, the only way out was X.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !busy) onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, busy]);
+
+  // Backdrop dismissal fires only when BOTH the mousedown and the click landed
+  // on the overlay itself — so selecting text inside an input and releasing
+  // outside the card (a drag) does not count as a backdrop click and close it.
+  const downOnBackdrop = useRef(false);
 
   // A code is sent to a specific address; if the user edits the email after
   // requesting it, the sent code and its cooldown no longer apply — reset them
@@ -109,8 +120,16 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       if (res?.success === false) throw new Error(res.error || '');
       setCodeSent(true);
       setCooldown(RESEND_COOLDOWN_S);
-    } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : t('pages.signup.sendFailed'));
+    } catch {
+      // Do NOT echo the upstream message: NetMind's "this email is already
+      // registered" would let the send-code form enumerate accounts (it is
+      // rate-limited per-email, so probing DIFFERENT emails is unthrottled).
+      // Show one generic message; the real reason is server-side only.
+      // NOTE: this only masks the UI — a determined attacker reads the raw
+      // response in the network tab. Fully closing registration enumeration
+      // needs the backend /register/sendCode to return a uniform response;
+      // that is tracked separately (out of Mark's login-scoped item [2]).
+      setError(t('pages.signup.sendFailed'));
     } finally {
       setSending(false);
     }
@@ -139,10 +158,14 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="signup-title"
-      // Click the backdrop (this element itself, not a bubbled child click) to
-      // dismiss — the standard modal affordance.
+      // Backdrop dismissal: require the mousedown AND the click to both land on
+      // the overlay itself (not a text-selection drag that ends outside the
+      // card), and never while a request is in flight.
+      onMouseDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (!busy && downOnBackdrop.current && e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -169,9 +192,10 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => { if (!busy) onClose(); }}
+            disabled={busy}
             aria-label={t('common.close')}
-            className="p-1 rounded hover:opacity-70"
+            className="p-1 rounded hover:opacity-70 disabled:opacity-40"
             style={{ color: 'var(--nm-ink50)' }}
           >
             <X className="w-4 h-4" />
@@ -289,8 +313,9 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
         <p className="text-center text-xs" style={{ color: 'var(--nm-ink50)' }}>
           <button
             type="button"
-            onClick={onClose}
-            className="underline hover:opacity-70"
+            onClick={() => { if (!busy) onClose(); }}
+            disabled={busy}
+            className="underline hover:opacity-70 disabled:opacity-40"
           >
             {t('pages.signup.haveAccount')}
           </button>

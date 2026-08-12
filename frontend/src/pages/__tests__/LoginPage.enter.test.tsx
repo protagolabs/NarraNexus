@@ -11,12 +11,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { emailLogin } = vi.hoisted(() => ({ emailLogin: vi.fn() }));
+const { emailLogin, netmindState } = vi.hoisted(() => ({
+  emailLogin: vi.fn(),
+  netmindState: { loading: false },
+}));
 
 vi.mock('@/lib/netmindAuth/useNetmindAuth', () => ({
   useNetmindAuth: () => ({
     emailLogin,
-    loading: false,
+    loading: netmindState.loading,
     error: '',
     startOAuth: vi.fn(),
     bindInfo: null,
@@ -40,7 +43,10 @@ vi.mock('@/lib/runtimeConfig', () => ({
 
 import { LoginPage } from '../LoginPage';
 
-beforeEach(() => emailLogin.mockClear());
+beforeEach(() => {
+  emailLogin.mockClear();
+  netmindState.loading = false;
+});
 
 test('pressing Enter in the Power form submits when email + password are present', () => {
   render(<MemoryRouter><LoginPage /></MemoryRouter>);
@@ -54,5 +60,12 @@ test('Enter does nothing while the password is empty', () => {
   render(<MemoryRouter><LoginPage /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'a@b.com' } });
   fireEvent.keyDown(screen.getByLabelText(/email/i), { key: 'Enter' });
+  expect(emailLogin).not.toHaveBeenCalled();
+});
+
+test('Enter does not submit a second time while a login is already in flight', () => {
+  netmindState.loading = true; // canSubmitNetmind must be false regardless of fields
+  render(<MemoryRouter><LoginPage /></MemoryRouter>);
+  fireEvent.keyDown(screen.getByLabelText(/password/i), { key: 'Enter' });
   expect(emailLogin).not.toHaveBeenCalled();
 });

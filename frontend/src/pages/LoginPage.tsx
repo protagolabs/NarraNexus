@@ -128,11 +128,13 @@ export function LoginPage() {
     if (e.key === 'Enter') void handleLocalLogin();
   };
 
-  // Enter submits the NetMind (Power) email/password form, matching the local
-  // form's handleLocalKeyDown — but only when both fields are filled, mirroring
-  // the Sign In button's own disabled condition.
+  // One source of truth for "can the NetMind form submit" — used by BOTH the
+  // Sign In button and the Enter key, so the two can't drift (a new condition
+  // added to only one would let Enter bypass it).
+  const canSubmitNetmind = !netmind.loading && !!email.trim() && !!password;
+
   const handleNetmindKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && email.trim() && password) {
+    if (e.key === 'Enter' && canSubmitNetmind) {
       void netmind.emailLogin(email, password);
     }
   };
@@ -343,7 +345,7 @@ export function LoginPage() {
         variant="primary"
         size="lg"
         onClick={() => void netmind.emailLogin(email, password)}
-        disabled={netmind.loading || !email.trim() || !password}
+        disabled={!canSubmitNetmind}
         loading={netmind.loading}
         className="w-full"
         trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}

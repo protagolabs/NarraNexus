@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-12 — 登录失败模糊文案（防账户枚举，Mark item 2）
 
-`emailLogin` 的第一段（浏览器直连 NetMind `/user/emailLogin`）catch 里，`setError` 不再回显 NetMind 原文——它对「user not found」vs「wrong password」给不同文案，可被用来枚举已注册邮箱。改为统一 `i18n.t('pages.login.invalidCredentials')`（新 i18n 键，10 locale 全加）。**真实上游 message 仍照旧进 `api.reportAuthFunnel`**，内部漏斗诊断不受影响。⚠ 真正的修复面在 NetMind 侧（文案是它给的）；这里只是客户端遮蔽。MS OAuth 过多 scope（item 4）同理属 NetMind auth.html 构造，本仓改不了，未动。`useNetmindAuth.test` 里断言回显原文那条改为断言「不含原文 + 漏斗仍拿到原文」；另加 `useNetmindAuth.emailLogin.test.ts`。
+`emailLogin` 的第一段（浏览器直连 NetMind `/user/emailLogin`）catch 里,**区分两类失败**（复审 item 1）:只有**上游明确拒绝**（`e instanceof NetmindApiError`,即信封 `success:false`,见 [[request.ts]]）才遮成 `i18n.t('pages.login.invalidCredentials')`——它对「user not found」vs「wrong password」给不同文案可枚举邮箱;而**传输失败**（断网/DNS/502 网关页,裸 `TypeError`/`SyntaxError`）走 `connectionFailed`,不能把「服务挂了」误报成「你密码错了」。**真实上游 message 两类都照旧进 `api.reportAuthFunnel`**。⚠ 根因在 NetMind 侧（文案是它给的）;这里是客户端遮蔽。MS OAuth 过多 scope（item 4）属 NetMind auth.html 构造,本仓改不了,未动。`useNetmindAuth.test`/`useNetmindAuth.emailLogin.test.ts` 覆盖两分支（credential 遮蔽 + transport 显 connectionFailed + 漏斗拿到原文）。
 
 ## 2026-07-13 — desktop OAuth path (Tauri bridge + poll)
 

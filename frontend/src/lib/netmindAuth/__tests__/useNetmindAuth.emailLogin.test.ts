@@ -1,17 +1,22 @@
 /**
  * @file_name: useNetmindAuth.emailLogin.test.ts
- * @description: Login failures must show a generic, non-enumerating message.
+ * @description: Login failures show the RIGHT generic message.
  *
- * NetMind's /user/emailLogin returns DIFFERENT messages for "user not found"
- * vs "wrong password", which lets an attacker probe which emails are
- * registered. The user-facing error is masked to one generic message; the real
- * upstream message still reaches the auth funnel for internal diagnosis.
+ * An upstream credential rejection (NetmindApiError) is masked to one generic
+ * "invalid email or password" so NetMind's distinct "user not found" vs "wrong
+ * password" text can't enumerate registered emails. A TRANSPORT failure
+ * (offline / 502) must instead show "connection failed" — not falsely tell the
+ * user their password is wrong. Either way the real message reaches the funnel.
  */
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const netmindPost = vi.fn();
-vi.mock('../request', () => ({ netmindPost: (...a: unknown[]) => netmindPost(...a) }));
+// Preserve the real NetmindApiError (the hook does `instanceof`); override only the call.
+vi.mock('../request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../request')>()),
+  netmindPost: (...a: unknown[]) => netmindPost(...a),
+}));
 
 const reportAuthFunnel = vi.fn();
 vi.mock('@/lib/api', () => ({
@@ -23,6 +28,7 @@ vi.mock('../crypto', () => ({
   generateRandomString: () => 'rand',
 }));
 
+import { NetmindApiError } from '../request';
 import { useNetmindAuth } from '../useNetmindAuth';
 
 beforeEach(() => {
@@ -30,8 +36,8 @@ beforeEach(() => {
   reportAuthFunnel.mockReset();
 });
 
-test('a rejected login shows a generic message, not the enumerating upstream text', async () => {
-  netmindPost.mockRejectedValue(new Error('User not found'));
+test('an upstream rejection shows a generic message, not the enumerating text', async () => {
+  netmindPost.mockRejectedValue(new NetmindApiError('User not found'));
   const { result } = renderHook(() => useNetmindAuth({ onSuccess: vi.fn() }));
 
   await act(async () => {
@@ -47,4 +53,18 @@ test('a rejected login shows a generic message, not the enumerating upstream tex
     'probe@example.com',
     'User not found',
   );
+});
+
+test('a transport failure shows connection-failed, not a bogus credential error', async () => {
+  // A bare Error is what fetch/offline/JSON-parse throw — NOT a NetmindApiError.
+  netmindPost.mockRejectedValue(new Error('Failed to fetch'));
+  const { result } = renderHook(() => useNetmindAuth({ onSuccess: vi.fn() }));
+
+  await act(async () => {
+    await result.current.emailLogin('probe@example.com', 'whatever');
+  });
+
+  // Must NOT read as a credential error; the connectionFailed key is shown.
+  expect(result.current.error).toMatch(/pages\.login\.connectionFailed|connection failed/i);
+  expect(result.current.error).not.toMatch(/pages\.login\.invalidCredentials|invalid email or password/i);
 });

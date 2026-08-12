@@ -6,9 +6,10 @@ stub: false
 
 ## 2026-08-12 — Mark 前端批：弹窗 Esc/背景关闭 + 改邮箱重置验证码
 
-- **Esc/背景关闭（item 3）**：此前只有右上角 X 能关。加 `document` keydown 监听（Escape→onClose，effect 清理），并给外层遮罩 `onClick`（仅 `e.target === e.currentTarget` 即点到遮罩本身时关，点卡片内部不关）。
-- **改邮箱重置验证码状态（item 7）**：email 的 onChange 改走 `onEmailChange`——一旦已发过码（`codeSent || cooldown>0 || code`）就清 `codeSent/cooldown/code`，避免 UI 暗示旧邮箱的验证码对新邮箱有效。
-见 `SignUpDialog.test.tsx` 新增三条（Esc/背景/点内部不关）+ 改邮箱重置。
+- **Esc/背景关闭（item 3）+ in-flight/拖拽保护（复审 item 4）**：此前只有 X。加 `document` keydown（Escape→onClose）。背景关闭改用 **`onMouseDown` 记起点 + `onClick`**——两者都必须落在遮罩本身(`e.target===e.currentTarget`)才关,否则「在输入框按下选文字→拖到卡片外松开」会被误判成背景点击而关窗。**所有关闭路径(Esc/背景/X)都加 `busy = sending||submitting` 守卫**:请求在飞时不关(否则组件卸载→后续 setError 落空→弹窗凭空消失、验证码白烧)。`busy` 进 Escape effect 依赖。
+- **改邮箱重置验证码状态（item 7）**：email 的 onChange 走 `onEmailChange`——已发过码（`codeSent||cooldown>0||code`）就清 `codeSent/cooldown/code`。
+- **sendCode 不回显上游文案（复审 item 7）**：catch 一律 `t('pages.signup.sendFailed')`,不透传 NetMind「该邮箱已注册」(否则发码表单可枚举账号)。⚠仅遮 UI,网络 tab 仍见原文;**彻底关闭注册枚举需后端 `/register/sendCode` 返统一响应,记为 follow-up**(超出 Mark 登录范围的 item 2)。
+见 `SignUpDialog.test.tsx`（Esc/背景 press-release/拖拽不关/点内部不关/in-flight Esc 不关/改邮箱重置）。
 
 # SignUpDialog.tsx — 在我们自己的页面上注册
 

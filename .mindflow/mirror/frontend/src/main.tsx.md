@@ -4,9 +4,9 @@ last_verified: 2026-08-12
 stub: false
 ---
 
-## 2026-08-12 — installChunkReload（部署期 chunk 404 自愈，Mark item 10）
+## 2026-08-12 — （复审后回退）不再 installChunkReload
 
-启动时调 `installChunkReload()`（[[chunkReload.ts]]）：监听 `vite:preloadError`，`preventDefault` 后一次性 `window.location.reload()` 拉新 manifest。会话级 guard 防坏构建反复刷。[[App.tsx]] 的 [[ChunkErrorBoundary.tsx]] 是到达 render 的兜底。
+初版在此挂 `vite:preloadError` 监听做自愈,复审发现它会吞掉全站 dynamic import 成 `undefined` 且对后台预取失败也整页 reload（丢草稿）。已移除该 wiring——stale-chunk 恢复改由 [[App.tsx]] 的 [[ChunkErrorBoundary.tsx]] 驱动(只在崩溃真到达 render 时)。详见 [[chunkReload.ts]]。
 
 ## 2026-06-16 — inbound entry capture moved pre-render
 

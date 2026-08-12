@@ -1,9 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { useNetmindAuth } from '../useNetmindAuth';
+import { NetmindApiError } from '../request';
 
 const netmindPost = vi.fn();
-vi.mock('../request', () => ({ netmindPost: (...a: unknown[]) => netmindPost(...a) }));
+// Keep the real NetmindApiError (the hook does `instanceof`); override the call.
+vi.mock('../request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../request')>()),
+  netmindPost: (...a: unknown[]) => netmindPost(...a),
+}));
 const netmindLogin = vi.fn();
 const reportAuthFunnel = vi.fn();
 vi.mock('@/lib/api', () => ({ api: {
@@ -34,7 +39,8 @@ describe('useNetmindAuth.emailLogin', () => {
   });
 
   test('surfaces emailLogin failure as a generic (non-enumerating) error state', async () => {
-    netmindPost.mockRejectedValue(new Error('Invalid password'));
+    // A real upstream rejection (NetmindApiError) is what gets masked.
+    netmindPost.mockRejectedValue(new NetmindApiError('Invalid password'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.emailLogin('a@b.com', 'bad'); });
     // The upstream message is MASKED to prevent account enumeration
