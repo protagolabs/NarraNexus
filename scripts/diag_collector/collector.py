@@ -46,13 +46,19 @@ Env:
     DIAG_COLLECT_CONFIG_JSON      optional JSON served verbatim at
                                   GET /telemetry/v1/config — the
                                   discovery document senders resolve
-                                  ingest URLs from (set on the PROD
-                                  collector; carries the staging AND
-                                  dev ingest URLs — its keys are the
-                                  side of the label contract that
-                                  decides the RECEIVING HOST; a label
-                                  missing here silently routes to
-                                  "default" = prod)
+                                  ingest URLs from. Set it on EVERY
+                                  collector that senders discover
+                                  against: prod (agent.narra.nexus) is
+                                  the built-in default, and the DEV
+                                  collector (dev-agent) too, because
+                                  run.sh points STAGING sandboxes there
+                                  (they never read prod's document).
+                                  Its keys are the side of the label
+                                  contract that decides the RECEIVING
+                                  HOST; a label missing here silently
+                                  routes to "default". Absent entirely,
+                                  /v1/config returns 404 and senders
+                                  back off a full TTL.
     DIAG_COLLECT_KNOWN_ENVS       comma-separated env labels that get
                                   their own storage partition; default
                                   "staging,cloud,local,desktop,dev,
@@ -589,8 +595,12 @@ async def healthz():
 async def discovery_config():
     """The discovery document senders resolve their ingest URL from
     (see _ship.py). Served verbatim from env so URL rotation is an env
-    change on ONE host — the prod collector — with zero client releases.
-    Public and unauthenticated on purpose: it contains only URLs."""
+    change on the collector, with zero client releases. Senders pick
+    WHICH collector to ask by their env label — prod is the built-in
+    default, staging sandboxes ask the dev collector (run.sh) — so
+    every collector a label routes to must serve this document, or
+    those senders 404 and back off. Public and unauthenticated on
+    purpose: it contains only URLs."""
     raw = os.environ.get("DIAG_COLLECT_CONFIG_JSON", "").strip()
     if not raw:
         raise HTTPException(status_code=404, detail="no discovery config set")

@@ -487,6 +487,17 @@ class ShipSink:
         )
         try:
             resp = self._client.get(discovery)
+            if 400 <= resp.status_code < 500:
+                # A 4xx is a DEFINITE "no discovery document here"
+                # answer (404 = the collector has no DIAG_COLLECT_CONFIG
+                # _JSON, 401/403 = not for us) — same class as the
+                # not-a-document 200 below: the endpoint is reachable
+                # and telling us there is nothing, so back off a full
+                # TTL, not the 60s transient cadence. 5xx and network
+                # errors stay on the short retry (they ARE transient) —
+                # do not widen this to them.
+                self._discovery_next = now + _DISCOVERY_TTL_S
+                raise ValueError(f"discovery answered {resp.status_code}")
             if 200 <= resp.status_code < 300:
                 try:
                     document = resp.json()

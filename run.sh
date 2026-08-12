@@ -527,7 +527,14 @@ run_container_mode() {
   # batches. Both collapse to a config fix once observed — staging
   # validation only needs the common case, which this covers. Hardening
   # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred.
-  if [ "${NEXUS_DIAG_ENV:-}" = "staging" ] && [ -z "${NEXUS_DIAG_DISCOVERY_URL:-}" ]; then
+  # Gated on _is_manyfold_sandbox too: the "staging" label is only
+  # auto-derived for sandboxes, but a personal install that set
+  # NEXUS_DIAG_ENV=staging by hand must NOT get its logs redirected to
+  # our dev collector — the redirect is a managed-sandbox behavior, not
+  # a label anyone can opt into.
+  if [ -n "$_is_manyfold_sandbox" ] \
+     && [ "${NEXUS_DIAG_ENV:-}" = "staging" ] \
+     && [ -z "${NEXUS_DIAG_DISCOVERY_URL:-}" ]; then
     export NEXUS_DIAG_DISCOVERY_URL="https://dev-agent.narra.nexus/telemetry/v1/config"
   fi
   # Managed sandboxes DEFAULT to full — via the consent chain's

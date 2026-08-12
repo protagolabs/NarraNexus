@@ -653,6 +653,49 @@ class TestDiscovery:
             > _ship._DISCOVERY_RETRY_S * 10
         )
 
+    def test_404_discovery_backs_off_a_full_ttl_not_60s(self, monkeypatch):
+        """A 404 (the collector has no DIAG_COLLECT_CONFIG_JSON) is a
+        DEFINITE "no discovery document here" — same class as the
+        not-a-document 200: back off a full TTL, not the 60s transient
+        cadence. This is exactly the hole staging->dev opened: redirect
+        to dev-agent, dev collector unconfigured -> 404 -> every python
+        process GETs it every 60s forever. 5xx / network stay short."""
+        def _not_found(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"detail": "no discovery config"})
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_not_found)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert (
+            sink._discovery_next - time.monotonic()
+            > _ship._DISCOVERY_RETRY_S * 10
+        )
+
+    def test_5xx_discovery_keeps_the_short_retry(self, monkeypatch):
+        """A 5xx is the collector transiently failing — NOT "no service
+        here". It must stay on the 60s retry so recovery is quick, the
+        same stance as a network error (test_unresolvable_...). Do not
+        let the 4xx TTL-backoff widen onto it."""
+        def _boom(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, text="upstream unavailable")
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_boom)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        # short retry: within ~60s, well under a TTL
+        assert (
+            sink._discovery_next - time.monotonic()
+            < _ship._DISCOVERY_TTL_S / 2
+        )
+
     def test_bad_shape_document_with_no_stale_drops_quietly(self, monkeypatch):
         def _garbage(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=["not", "a", "mapping"])
