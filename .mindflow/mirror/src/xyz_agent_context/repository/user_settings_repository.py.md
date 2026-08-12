@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/repository/user_settings_repository.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+两个 setter 收敛为 `db.upsert`(review #4:手写 read-then-write 并发 PUT 撞唯一键 500,且被前端 fire-and-forget 吞掉)。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 

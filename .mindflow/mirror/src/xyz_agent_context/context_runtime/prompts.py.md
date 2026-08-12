@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-07-29
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+新增 `REPLY_LANGUAGE_SECTION` 模板(review #3:prompt 文案归位本文件,不再内联在 context_runtime)。
 
 ## 2026-07-29 — `CHAT_HISTORY_TIMELINE_PREAMBLE` 移出本文件
 

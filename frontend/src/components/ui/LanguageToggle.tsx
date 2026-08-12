@@ -12,7 +12,6 @@ import { Button } from './Button';
 import { Popover, PopoverTrigger, PopoverContent } from './popover';
 import { cn } from '@/lib/utils';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
-import { api } from '@/lib/api';
 
 export function LanguageToggle() {
   const { i18n } = useTranslation();
@@ -24,11 +23,9 @@ export function LanguageToggle() {
     ) ?? SUPPORTED_LANGUAGES[0];
 
   const select = (code: string) => {
+    // Persistence rides i18n's languageChanged event (replyLanguageSync),
+    // so every language-change path writes through, not just this toggle.
     void i18n.changeLanguage(code);
-    // Write-through: persist as the reply-language preference so the
-    // agent actually answers in this language (fire-and-forget — UI
-    // language switching must never block on the network).
-    void api.setReplyLanguage(code).catch(() => undefined);
     setOpen(false);
   };
 

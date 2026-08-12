@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+新增 `getReplyLanguage()`(回填对账的读半边)。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 

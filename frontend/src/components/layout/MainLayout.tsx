@@ -35,6 +35,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
@@ -145,6 +146,12 @@ export function ChatView() {
 
   // A panel requested from the command palette (mobile entry point) — open its
   // drawer, then clear the request so it fires once.
+  // Reply-language sync: subscribe languageChanged + one-time backfill
+  // for users whose UI language was detected, never clicked (PR #284 rev).
+  useEffect(() => {
+    initReplyLanguageSync();
+  }, []);
+
   useEffect(() => {
     if (pendingPanel) {
       setDrawerTab(pendingPanel as AtomicTabId);

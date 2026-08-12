@@ -37,6 +37,7 @@ from xyz_agent_context.context_runtime.prompts import (
     AUXILIARY_NARRATIVES_HEADER,
     MODULE_INSTRUCTIONS_HEADER,
     RECENT_ACTIONS_HEADER,
+    REPLY_LANGUAGE_SECTION,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
     SECURITY_IRON_RULES,
@@ -67,12 +68,7 @@ def build_reply_language_section(language: str | None) -> str:
     if not code:
         return ""
     name = _REPLY_LANGUAGE_NAMES.get(code.lower().split("-")[0], code)
-    return (
-        f"## Reply language\n"
-        f"The user's preferred language is {name} ({code}). Write every "
-        f"user-facing reply in {name}, unless the user explicitly asks "
-        f"for another language in their message."
-    )
+    return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
 
 
 class ContextRuntime:
@@ -960,6 +956,7 @@ class ContextRuntime:
         # Chinese, replies stay English" bug). Byte-stable per user, so the
         # cacheable region is safe; fail-open — a settings read must never
         # break a turn.
+        reply_language_chars = 0
         if self.user_id:
             try:
                 from xyz_agent_context.repository.user_settings_repository import (
@@ -972,6 +969,7 @@ class ContextRuntime:
                 section = build_reply_language_section(reply_lang)
                 if section:
                     enhanced_system_prompt += "\n\n" + section
+                    reply_language_chars = len(section)
             except Exception as e:  # noqa: BLE001 — preference is enrichment
                 logger.warning(f"[ReplyLanguage] lookup failed, skipping: {e}")
 
@@ -1110,6 +1108,8 @@ class ContextRuntime:
             ctx_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
             part_sizes = dict(getattr(self, "_last_part_sizes", {}) or {})
             part_sizes["turn_context"] = turn_context_chars
+            if reply_language_chars:
+                part_sizes["reply_language"] = reply_language_chars
             self._log_system_prompt_breakdown(
                 self.agent_id,
                 len(enhanced_system_prompt),

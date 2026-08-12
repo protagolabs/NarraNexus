@@ -42,15 +42,11 @@ class UserSettingsRepository:
     async def set_reply_language(self, user_id: str, language: str | None) -> None:
         """Persist the reply-language preference (None/empty clears it)."""
         value = (language or "").strip()
-        existing = await self.db.get_one(self.table_name, {"user_id": user_id})
-        if existing:
-            await self.db.update(
-                self.table_name, {"user_id": user_id}, {"reply_language": value}
-            )
-        else:
-            await self.db.insert(
-                self.table_name, {"user_id": user_id, "reply_language": value}
-            )
+        # Atomic upsert (db-level); the manual read-then-write pair racing
+        # two concurrent PUTs on the UNIQUE user_id was review issue #4.
+        await self.db.upsert(
+            self.table_name, {"user_id": user_id, "reply_language": value}, "user_id"
+        )
 
     async def set_analytics_opt_out(self, user_id: str, opted_out: bool) -> None:
         existing = await self.db.get_one(self.table_name, {"user_id": user_id})

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+文案改用 prompts.REPLY_LANGUAGE_SECTION;新段登记进 part_sizes["reply_language"](review #7)。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 

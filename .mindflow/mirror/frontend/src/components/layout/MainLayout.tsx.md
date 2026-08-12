@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+mount 时 `initReplyLanguageSync()`(review #2:存量/检测型用户回填)。
 
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe（自带 vh 兜底）
 

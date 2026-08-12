@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/ui/LanguageToggle.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+直接写透移除——持久化改挂 i18n languageChanged 事件([[replyLanguageSync.ts]]),任何改语言路径都落库。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 
