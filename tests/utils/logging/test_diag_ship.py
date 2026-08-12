@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,6 +33,8 @@ def _clean_env(monkeypatch, tmp_path):
         "MANYFOLD_SYNC_WEBHOOK_URL",
         "NARRANEXUS_DEPLOYMENT_MODE",
         "DATABASE_URL",
+        "NEXUS_DIAG_DEFAULT_SHIP",
+        "NEXUS_DIAG_OPTOUT_FILE",
         "NARRA_SURFACE",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -86,27 +89,24 @@ def _config(**over):
 
 
 class TestConsentGating:
-    def test_default_is_off_until_consent_ui_ships(self):
-        """The default flips to full ONLY in the PR that ships the
-        first-run disclosure + settings toggle: a default and its
-        consent basis must land together, never apart."""
-        assert _ship.ship_config() is None
-
-    def test_future_default_full_resolves_lazily(self, monkeypatch):
-        # Exercise the post-UI default without shipping it.
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
+    def test_default_is_meta_now_that_consent_basis_ships(self):
+        """The default and its consent basis land TOGETHER: this PR
+        ships the first-run disclosure + settings toggle, and flips
+        the default from off in the same change. The level is META,
+        not full: full ships INFO bodies verbatim, and production INFO
+        includes entire user messages (agent_runtime logs
+        input_content) — content the disclosure copy does not cover.
+        full stays an explicit deployment knob."""
         config = _ship.ship_config()
         assert config is not None
-        assert config["mode"] == "full"
-        assert config["url"] is None
+        assert config["mode"] == "meta"
+        assert config["url"] is None  # discovery path, resolved lazily
 
     def test_env_off_silences(self, monkeypatch):
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "off")
         assert _ship.ship_config() is None
 
-    def test_optout_file_silences_future_default(self, monkeypatch):
-        monkeypatch.setattr(_ship, "_DEFAULT_MODE", "full")
+    def test_optout_file_silences_default(self):
         _ship._OPTOUT_FILE.write_text("")
         assert _ship.ship_config() is None
 
@@ -118,9 +118,96 @@ class TestConsentGating:
         config = _ship.ship_config()
         assert config is not None and config["mode"] == "meta"
 
+    def test_consent_accessor_reports_deciding_layer(self, monkeypatch):
+        """The settings UI needs to know WHICH layer decided the mode:
+        only "optout"/"default" are user-controllable — an env override
+        is the deployment's decision, not the user's."""
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
+        _ship._OPTOUT_FILE.write_text("")
+        assert _ship.telemetry_consent() == {"mode": "off", "source": "optout"}
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "env"}
+
+    def test_set_telemetry_optout_roundtrip(self):
+        _ship.set_telemetry_optout(True)
+        assert _ship._OPTOUT_FILE.exists()
+        assert _ship.ship_config() is None
+        _ship.set_telemetry_optout(False)
+        assert not _ship._OPTOUT_FILE.exists()
+        assert _ship.ship_config() is not None
+        _ship.set_telemetry_optout(False)  # idempotent on a missing file
+
+    def test_optout_path_env_override_resolves_per_call(self, monkeypatch, tmp_path):
+        """NEXUS_DIAG_OPTOUT_FILE points every service at one shared
+        mounted path — without it, a containerized self-host's opt-out
+        written by the backend container silences only itself and dies
+        on recreate. Resolution is per call, so no child interpreter is
+        needed and the _OPTOUT_FILE-repointing fixtures keep working."""
+        shared = tmp_path / "shared" / "optout"
+        monkeypatch.setenv("NEXUS_DIAG_OPTOUT_FILE", str(shared))
+        assert _ship._optout_file() == shared
+        _ship.set_telemetry_optout(True)
+        assert shared.exists()
+        assert _ship.telemetry_consent()["source"] == "optout"
+        monkeypatch.delenv("NEXUS_DIAG_OPTOUT_FILE")
+        assert _ship._optout_file() == _ship._OPTOUT_FILE  # fixture path
+
+    def test_managed_default_is_a_default_not_an_override(self, monkeypatch):
+        """NEXUS_DIAG_DEFAULT_SHIP changes what applies when the user
+        has expressed NOTHING — the opt-out marker still wins and the
+        source stays "default" (toggle live). This is the layer run.sh
+        uses for manyfold sandboxes: full by default, switch intact."""
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "full")
+        assert _ship.telemetry_consent() == {"mode": "full", "source": "default"}
+        _ship.set_telemetry_optout(True)
+        assert _ship.telemetry_consent() == {"mode": "off", "source": "optout"}
+        _ship.set_telemetry_optout(False)
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "env"}
+
+    def test_managed_default_rejects_off_and_garbage(self, monkeypatch):
+        # A deployment that wants silence sets the OVERRIDE
+        # (NEXUS_DIAG_SHIP=off); "default off" would render a toggle
+        # whose on-position is unreachable. Garbage falls through.
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "off")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "everything")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
+
+    def test_package_reexports_consent_api(self):
+        from xyz_agent_context.utils import logging as pkg
+
+        assert pkg.telemetry_consent() == {"mode": "meta", "source": "default"}
+        pkg.set_telemetry_optout(True)
+        assert _ship.telemetry_consent()["source"] == "optout"
+
+    def test_optout_takes_effect_at_next_flush_without_restart(self, monkeypatch):
+        """Consent withdrawal must not wait for a process restart: the
+        sink is registered at startup, but _send re-checks consent —
+        an opt-out written mid-run silences shipping within one flush
+        interval. Re-enabling still waits for the next start (the sink
+        was never registered), an asymmetry in privacy's favor."""
+        rec = _Recorder()
+        monkeypatch.setattr(_ship, "_transport_for_tests", rec.transport())
+        sink = _ship.ShipSink("backend", _config())
+        sink(_message("before optout"))
+        sink.flush()
+        assert len(rec.requests) == 1
+        _ship.set_telemetry_optout(True)
+        sink(_message("after optout"))
+        sink.flush()
+        assert len(rec.requests) == 1  # dropped at the door, not sent
+        _ship.set_telemetry_optout(False)
+        sink(_message("after optin"))
+        sink.flush()
+        assert len(rec.requests) == 2  # resumes without restart too
+
     def test_unknown_env_value_falls_to_default(self, monkeypatch):
+        # A typo'd override neither silences nor forces a level — it
+        # falls through the whole chain to the default (meta).
         monkeypatch.setenv("NEXUS_DIAG_SHIP", "everything")
-        assert _ship.ship_config() is None  # default is off today
+        config = _ship.ship_config()
+        assert config is not None and config["mode"] == "meta"
 
     def test_env_label_no_longer_sniffs_manyfold(self, monkeypatch):
         """Deployment detection moved to run.sh (which injects
@@ -488,7 +575,7 @@ class TestDiscovery:
         keys = set(
             re.findall(r'"(\w+)":"https://[^"]+/telemetry/v1/ingest"', text)
         )
-        assert {"default", "staging", "dev"} <= keys
+        assert {"default", "staging", "dev", "sprite"} <= keys
 
     def test_unresolvable_discovery_drops_quietly(self, monkeypatch):
         def _dead(request: httpx.Request) -> httpx.Response:
@@ -543,6 +630,28 @@ class TestDiscovery:
         sink.flush()
         assert sink._resolved_url == good["ingest"]["default"]
         assert len(posts) == 2
+
+    def test_html_answer_backs_off_a_full_ttl_not_60s(self, monkeypatch):
+        """A 200 whose body is not a discovery document (e.g. an SPA
+        serving index.html for every path) means "this deployment has
+        no telemetry service" — a fleet of idle installs must not
+        beacon the vendor every 60s for a service that is not there.
+        Next probe waits a full TTL; network errors keep the short
+        retry (a broken network is transient, a wrong endpoint isn't)."""
+        def _spa(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<!doctype html><html>app</html>")
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_spa)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        sink(_message("x"))
+        sink.flush()
+        assert sink._resolved_url is None
+        assert (
+            sink._discovery_next - time.monotonic()
+            > _ship._DISCOVERY_RETRY_S * 10
+        )
 
     def test_bad_shape_document_with_no_stale_drops_quietly(self, monkeypatch):
         def _garbage(request: httpx.Request) -> httpx.Response:

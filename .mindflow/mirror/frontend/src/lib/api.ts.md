@@ -3,6 +3,13 @@ code_file: frontend/src/lib/api.ts
 last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — telemetry consent 客户端方法
+
+`getTelemetryConsent` / `setTelemetryOptOut`(+ 导出
+`TelemetryConsentState` 类型)。与 analytics 对相邻;极性约定沿用:
+线上契约说 `opted_out`(否定),UI 持 `enabled`(肯定),翻转发生在
+组件边界。
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含

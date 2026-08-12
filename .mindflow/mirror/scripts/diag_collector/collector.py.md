@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-11(十)— 词汇表 +sprite(#286 三审)
+
+非 staging 的 manyfold 沙盒经 run.sh 自标 `sprite`,进默认
+KNOWN_ENVS 与 discovery 示例(三边同批)。动机:沙盒跑 full
+(量级比 meta 高 1-2 个数量级),若回落 "cloud" 与 prod 栈同分区,
+水位找平会按最旧优先冲掉 prod 自己的诊断历史——专属分区让沙盒
+群在 20GB 硬帽下轮转自己。
+
 ## 2026-08-11(九)— 第 10 轮:改口要扫到读者真正读的那份清单
 
 第 9 轮"全部改口"漏了本文件自己的 Tier-1 Env 清单——同一文件里

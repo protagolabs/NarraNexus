@@ -16,12 +16,43 @@ Consent resolution (first match wins):
   1. ``NEXUS_DIAG_SHIP`` env — explicit override: ``off`` silences,
      ``meta``/``full`` force a level (dev/self-host knob, and the test
      suite's kill switch).
-  2. Opt-out marker file ``~/.narranexus/telemetry_optout`` — written
-     by the settings UI when the user turns telemetry off.
-  3. Default: ``_DEFAULT_MODE`` — currently **off**. It flips to
-     ``full`` ONLY in the PR that ships the consent UI (first-run
-     disclosure + settings toggle): the default and its consent basis
-     must land in the same change, never apart.
+  2. Opt-out marker file ``~/.narranexus/telemetry_optout`` (path
+     overridable via ``NEXUS_DIAG_OPTOUT_FILE`` — containerized
+     self-hosts must point every service at ONE mounted path) — written
+     by the settings UI (``set_telemetry_optout``) when the user turns
+     telemetry off. DURABILITY IS A MOUNT PROPERTY: the marker survives
+     exactly as long as the filesystem under its path does. In a
+     container, HOME is writable layer — a rebuild would silently
+     revert an opted-out full-level sandbox to shipping — so run.sh
+     container mode points the marker at /data (the persisted volume).
+     Anyone touching the Dockerfile HOME/volume layout is touching
+     consent state. Withdrawal is honoured WITHOUT a restart: ``_send``
+     re-checks consent on every egress, so an opt-out written mid-run
+     silences shipping within one flush interval. Re-enabling needs a
+     restart ONLY when telemetry was already off at process start (no
+     sink was registered then); a mid-run off→on flip resumes at the
+     next flush through the same gate. The file is PER-MACHINE: callers on
+     multi-tenant surfaces must gate the write themselves (the backend
+     route refuses it in cloud mode).
+  3. Managed default: ``NEXUS_DIAG_DEFAULT_SHIP`` (``meta``/``full``)
+     — a DEFAULT-layer input, not an override: it changes what applies
+     when the user has expressed nothing, and the opt-out marker still
+     wins. This is how our run.sh container mode gives manyfold
+     sandboxes ``full`` (joint-support debugging is their telemetry's
+     purpose) WITHOUT confiscating the user's switch — an env override
+     here would grey the toggle and 409 the PUT, hollowing out the
+     consent design on exactly the single-tenant user runtime it was
+     built for. Invalid/absent values fall through; ``off`` is not
+     accepted (a deployment that wants silence sets NEXUS_DIAG_SHIP).
+  4. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
+     first-run disclosure + settings toggle) shipped in the same
+     change that flipped this from off, never apart. meta (no INFO
+     bodies) is the highest level the base disclosure copy honestly
+     describes; the copy names the full-level content for surfaces
+     that run full. Single-tenant surfaces (desktop, local, sprite
+     sandboxes) show the toggle — sandboxes run full via the managed
+     default and can still opt out; multi-tenant cloud is governed by
+     the deployment env instead.
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -132,9 +163,29 @@ _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
 _OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
-# Flips to "full" in the consent-UI PR — see the docstring's consent
-# section. Until the disclosure exists, nothing ships by default.
-_DEFAULT_MODE = "off"
+
+
+def _optout_file() -> Path:
+    """Marker path, resolved PER CALL. ``NEXUS_DIAG_OPTOUT_FILE``
+    overrides for containerized single-tenant self-hosts: with one
+    container per service and no shared HOME mount, a marker written
+    by the backend container is invisible to poller/mcp/workers (they
+    keep shipping while the UI reports "off") and dies with the
+    writable layer on recreate — point every service at ONE mounted
+    (absolute) path instead. Call-time resolution keeps the test
+    fixtures that repoint ``_OPTOUT_FILE`` working and needs no child
+    interpreter to test."""
+    override = os.environ.get("NEXUS_DIAG_OPTOUT_FILE", "").strip()
+    return Path(override) if override else _OPTOUT_FILE
+# Default LEVEL is "meta" (AUDIT+ structured events, warnings, errors
+# — no INFO bodies), because "full" ships INFO lines verbatim and
+# production INFO includes entire user messages (agent_runtime logs
+# input_content) — content the disclosure copy explicitly does not
+# cover. "full" stays an explicit deployment knob (env override);
+# raising the DEFAULT to full requires a ship-side redaction pass and
+# rewritten disclosure copy first. Flipped from "off" in the same
+# change that shipped the consent basis (disclosure + settings toggle).
+_DEFAULT_MODE = "meta"
 # Discovery may only point telemetry at hosts we control: the document
 # is served from a PUBLIC endpoint, and this string decides where user
 # logs go. https-only + domain allowlist; a hijacked/misconfigured
@@ -168,17 +219,43 @@ def _flush_all_at_exit() -> None:
 atexit.register(_flush_all_at_exit)
 
 
+def telemetry_consent() -> dict:
+    """Consent state plus WHICH layer of the precedence chain decided
+    it — the settings UI may only offer the toggle for "optout" and
+    "default" (an env override is the deployment's decision, not the
+    user's). Single source of the precedence rule; ship_mode() is a
+    view of it."""
+    raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
+    if raw in ("off", "meta", "full"):
+        return {"mode": raw, "source": "env"}
+    if _optout_file().exists():
+        return {"mode": "off", "source": "optout"}
+    managed = os.environ.get("NEXUS_DIAG_DEFAULT_SHIP", "").strip().lower()
+    if managed in ("meta", "full"):
+        return {"mode": managed, "source": "default"}
+    return {"mode": _DEFAULT_MODE, "source": "default"}
+
+
+def set_telemetry_optout(opted_out: bool) -> None:
+    """Create/remove the opt-out marker. Scope is per-USER-ACCOUNT on
+    this host (Path.home()), not strictly per-machine: a co-deployed
+    process under a different HOME keeps its own consent state — on a
+    desktop install all sidecars share HOME, so the distinction is
+    latent there (containerized self-hosts: see _optout_file).
+    Idempotent; resolution is per call — tests repoint ``_OPTOUT_FILE``
+    and the settings route must follow."""
+    marker = _optout_file()
+    if opted_out:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    else:
+        marker.unlink(missing_ok=True)
+
+
 def ship_mode() -> str:
     """Consent + level resolution. See the module docstring for the
     precedence; "off" means "do not register the sink at all"."""
-    raw = os.environ.get("NEXUS_DIAG_SHIP", "").strip().lower()
-    if raw == "off":
-        return "off"
-    if raw in ("meta", "full"):
-        return raw
-    if _OPTOUT_FILE.exists():
-        return "off"
-    return _DEFAULT_MODE
+    return telemetry_consent()["mode"]
 
 
 def _env_label() -> str:
@@ -411,11 +488,23 @@ class ShipSink:
         try:
             resp = self._client.get(discovery)
             if 200 <= resp.status_code < 300:
-                document = resp.json()
+                try:
+                    document = resp.json()
+                except ValueError:
+                    document = None
                 mapping = (
                     document.get("ingest") if isinstance(document, dict) else None
                 )
                 if not isinstance(mapping, dict):
+                    # The endpoint ANSWERED but is not a discovery
+                    # endpoint (e.g. an SPA fallback serving index.html
+                    # with a 200): this deployment has no telemetry
+                    # service right now. Back off a full TTL instead of
+                    # the 60s network-retry cadence — a fleet of idle
+                    # installs must not beacon the vendor every minute
+                    # for a service that isn't there. Recovery after
+                    # ops deploys the document is within one TTL.
+                    self._discovery_next = now + _DISCOVERY_TTL_S
                     raise ValueError("discovery document is not {'ingest': {...}}")
                 url = mapping.get(self._config["env"]) or mapping.get("default")
                 if url and _allowed_ingest_url(str(url)):
@@ -439,6 +528,12 @@ class ShipSink:
         return self._resolved_url
 
     def _send(self, lines: list[bytes]) -> None:
+        # Consent is re-checked at the door on EVERY egress (one stat):
+        # the sink registers at startup, but an opt-out written mid-run
+        # must silence shipping now, not at the next restart. The env
+        # override still wins in both directions via ship_mode().
+        if ship_mode() == "off":
+            return
         url = self._ingest_url()
         if not url:
             return  # noted once by _ingest_url; file log has everything

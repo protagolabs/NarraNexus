@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/__init__.py
-last_verified: 2026-04-28
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 公开面从四个名字变六个
+
+新增 `telemetry_consent` / `set_telemetry_optout`(同意 UI 的后端
+路由用)。二者是**惰性包装**而非顶层 re-export:实现在 _ship,而
+_ship 顶层 import httpx——"shipping is optional, logging is not"
+必须覆盖 import 期失败,logging 包自身的可导入性不能押在 httpx 上。
 
 # utils/logging — Unified logging infrastructure
 
