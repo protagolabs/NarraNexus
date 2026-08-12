@@ -20,7 +20,13 @@ Consent resolution (first match wins):
      overridable via ``NEXUS_DIAG_OPTOUT_FILE`` — containerized
      self-hosts must point every service at ONE mounted path) — written
      by the settings UI (``set_telemetry_optout``) when the user turns
-     telemetry off. Withdrawal is honoured WITHOUT a restart: ``_send``
+     telemetry off. DURABILITY IS A MOUNT PROPERTY: the marker survives
+     exactly as long as the filesystem under its path does. In a
+     container, HOME is writable layer — a rebuild would silently
+     revert an opted-out full-level sandbox to shipping — so run.sh
+     container mode points the marker at /data (the persisted volume).
+     Anyone touching the Dockerfile HOME/volume layout is touching
+     consent state. Withdrawal is honoured WITHOUT a restart: ``_send``
      re-checks consent on every egress, so an opt-out written mid-run
      silences shipping within one flush interval. Re-enabling needs a
      restart ONLY when telemetry was already off at process start (no

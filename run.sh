@@ -472,6 +472,13 @@ run_container_mode() {
   # image is built. The Dockerfile may pre-set these; respect overrides.
   export BASE_WORKING_PATH="${BASE_WORKING_PATH:-/data/workspaces}"
   export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
+  # The telemetry consent marker must live on the PERSISTED surface:
+  # HOME (/home/app) is container writable layer — a rebuild/upgrade
+  # wipes it, silently reverting a full-level sandbox from "user opted
+  # out" back to shipping. /data is the volume every container-mode
+  # deployment mounts (workspaces/logs/db already live there), so the
+  # user's opt-out survives exactly as long as their data does.
+  export NEXUS_DIAG_OPTOUT_FILE="${NEXUS_DIAG_OPTOUT_FILE:-/data/telemetry_optout}"
   export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
   export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
   # This container launcher serves the hosted/server form factor. The cloud

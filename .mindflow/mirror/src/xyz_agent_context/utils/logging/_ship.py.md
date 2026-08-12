@@ -4,6 +4,20 @@ stub: false
 last_verified: 2026-08-11
 ---
 
+## 2026-08-12(四审)— 同意标记的持久性是挂载属性
+
+四审抓住托管默认层正当性链条的最后一环:"opt-out 仍然赢"要求
+**标记活得过沙盒重建**,而默认落点 `$HOME/.narranexus/…` 在容器里
+是可写层(Dockerfile.manyfold 的持久面是 /data)——升级/重建即丢,
+full 档静默复发。修:run.sh 容器模式把
+`NEXUS_DIAG_OPTOUT_FILE` 默认指到 **/data/telemetry_optout**(与
+workspaces/logs/db 同一持久卷:用户的 opt-out 与其数据同寿)。
+docstring 第 2 层补"耐久性是挂载属性"——**改 Dockerfile 的
+HOME/卷布局就是在改同意状态**,该句是给下一个动镜像布局的人的。
+bodyManaged 文案同批补 full 档内容句(managed 变体恰恰多为 full
+部署)。ops 排序备忘:rc.2 沙盒铺开前,线上两台 collector 的
+KNOWN_ENVS/discovery 需先含 sprite(记 todo)。
+
 ## 2026-08-11(十一)— 三审 ⛔:沙盒 full 从"覆盖"降到"托管默认层"
 
 初版 run.sh 给沙盒 `export NEXUS_DIAG_SHIP=full`,占的是同意链第 1

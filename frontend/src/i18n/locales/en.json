@@ -2531,6 +2531,6 @@
     "body": "NarraNexus now sends diagnostic service logs from this install to its own collector, to help debug crashes and integration failures. On installs running the \"full\" level, log lines can include message content. You can turn this off anytime in Settings → Privacy.",
     "settings": "Open settings",
     "dismiss": "Got it",
-    "bodyManaged": "This install sends diagnostic service logs (errors and diagnostic events) to NarraNexus's own collector, as configured by your administrator."
+    "bodyManaged": "This install sends diagnostic service logs to NarraNexus's own collector, as configured by your administrator. On installs running the \"full\" level, log lines can include message content."
   }
 }

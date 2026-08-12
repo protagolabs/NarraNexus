@@ -2088,6 +2088,6 @@
     "body": "NarraNexus envoie désormais les journaux de service de diagnostic de cette installation à son propre collecteur, afin d'aider à déboguer les plantages et les pannes d'intégration. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages. Vous pouvez le désactiver à tout moment dans Paramètres → Confidentialité.",
     "settings": "Ouvrir les paramètres",
     "dismiss": "Compris",
-    "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur."
+    "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages."
   }
 }

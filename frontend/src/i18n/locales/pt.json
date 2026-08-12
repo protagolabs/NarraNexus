@@ -2088,6 +2088,6 @@
     "body": "O NarraNexus envia agora os registos de serviço de diagnóstico desta instalação para o seu próprio coletor, para ajudar a depurar falhas e problemas de integração. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens. Pode desativar isto a qualquer momento em Configurações → Privacidade.",
     "settings": "Abrir configurações",
     "dismiss": "Entendido",
-    "bodyManaged": "Esta instalação envia registos de serviço de diagnóstico (erros e eventos de diagnóstico) para o coletor do próprio NarraNexus, conforme configurado pelo seu administrador."
+    "bodyManaged": "Esta instalação envia registos de serviço de diagnóstico (erros e eventos de diagnóstico) para o coletor do próprio NarraNexus, conforme configurado pelo seu administrador. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens."
   }
 }

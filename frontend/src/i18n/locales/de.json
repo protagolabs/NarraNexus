@@ -2088,6 +2088,6 @@
     "body": "NarraNexus sendet jetzt diagnostische Service-Logs dieser Installation an seinen eigenen Collector, um Abstürze und Integrationsfehler zu debuggen. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",
     "settings": "Einstellungen öffnen",
     "dismiss": "Verstanden",
-    "bodyManaged": "Diese Installation sendet diagnostische Service-Logs (Fehler und Diagnoseereignisse) an den eigenen Collector von NarraNexus, wie von deinem Administrator konfiguriert."
+    "bodyManaged": "Diese Installation sendet diagnostische Service-Logs (Fehler und Diagnoseereignisse) an den eigenen Collector von NarraNexus, wie von deinem Administrator konfiguriert. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten."
   }
 }
