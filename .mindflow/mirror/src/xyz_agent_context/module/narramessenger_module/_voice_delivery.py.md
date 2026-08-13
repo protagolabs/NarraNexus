@@ -44,5 +44,7 @@ live 标记两处都在），final edit 两处去标记。Hybrid LiveKit worker 
 ## Downstream
 
 matrix_trigger：_StreamReplyState.voice_bridge 持有；_handle_stream_event
-只喂 speak 的 AGENT_REPLY_DELTA / PROGRESS；finalize 处 close + 兜底。
+喂**认领工具**（speak 或 narra_reply，2026-08-13 认领制）的
+AGENT_REPLY_DELTA / PROGRESS；finalize 处 close + 兜底。桥自身零改动——
+段语义/前缀判据对任何认领工具同样成立。
 测试 tests/narramessenger_module/test_voice_delivery_bridge.py + test_voice_stream_wiring.py。

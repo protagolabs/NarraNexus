@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — 语音流认领制：narra_reply 也可驱动 live 交付
+
+8/13 通话实锤：voice prompt 指令再硬（"ONLY way…speak"），模型仍 12/14 轮
+用 narra_reply 回复——首字被钉死在 finalize（25–90s），而裸上游首字仅 ~3s。
+Owner 约束：fast mode 是通用能力，不接受按 channel 遮蔽工具。修法改为
+**认领制**：首个 trigger 托管回复工具（`__speak` / `__narra_reply` 精确后缀，
+见 `_is_voice_reply_tool`）产出 delta 或完整文本即认领 bridge
+（`_StreamReplyState.voice_stream_tool`）；只有认领者喂
+delta / on_segment_text。narra_send 永不认领（自带 room_send，桥接=双投）。
+非认领方回复事件落 legacy capture（narra_reply_text），保住 finalize 既有
+优先链（spoken 赢；没 spoken 才 fresh-send）——双工具轮绝不开第二个
+bridge 段（8/7 重复播报形态）。NexusPower 侧零改动：expressive 面本就
+含 narra_reply，其 arg delta 一直在到达，此前只是被 `__speak` 后缀滤掉。
+测试：test_voice_stream_wiring（认领矩阵+真桥双场景）、
+test_l1_scenarios::test_s1b（全链路：RTC→voice_fast→narra_reply 流→live）。
 
 ## 2026-08-11 — 通话级串行 key 统一为 per-room（review Important #2）
 

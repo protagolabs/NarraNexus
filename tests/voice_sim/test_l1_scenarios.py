@@ -203,6 +203,53 @@ async def test_s1_single_voice_turn_full_lifecycle(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_s1b_narra_reply_voice_turn_rides_live_lifecycle(harness, monkeypatch):
+    """2026-08-13 call finding: models routinely answer voice turns via
+    narra_reply despite the spoken-register instructions (12/14 turns).
+    The reply tool the model picks must not decide whether the caller
+    hears the first word live — narra_reply deltas claim the bridge and
+    ride the same base-live -> final-edit lifecycle as speak."""
+    trigger, sent, plain = harness
+    runtime = ScriptedRuntime([
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta="Guangzhou is the hub ",
+        ),
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta="of South China.",
+        ),
+        # Real streams: PROGRESS carries an EMPTY call_id (run_collector
+        # does not propagate tool_call_id) — the raw-prefix judge keeps
+        # this the same segment, so nothing is spoken twice.
+        _progress(
+            "mcp__narramessenger_module__narra_reply",
+            "Guangzhou is the hub of South China.",
+            call_id="",
+        ),
+    ])
+    _install_runtime(monkeypatch, runtime)
+
+    out = await _ingest_and_run(
+        trigger, build_voice_content("Introduce Guangzhou briefly.")
+    )
+
+    assert runtime.calls[0]["turn_profile"].name == "voice_fast"
+    assert len(sent) >= 2
+    base, final = sent[0], sent[-1]
+    assert base[LIVE_KEY] == {} and "m.relates_to" not in base
+    assert final["m.relates_to"]["rel_type"] == "m.replace"
+    assert LIVE_KEY not in final and LIVE_KEY not in final["m.new_content"]
+    assert final["m.new_content"]["body"] == "Guangzhou is the hub of South China."
+    assert out == "Guangzhou is the hub of South China."
+    assert plain == []  # live path delivered once; no duplicate fallback
+
+
+@pytest.mark.asyncio
 async def test_s4_plain_turn_after_voice_keeps_legacy_path(harness, monkeypatch):
     trigger, sent, plain = harness
     runtime = ScriptedRuntime([

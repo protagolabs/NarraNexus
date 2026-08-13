@@ -4,10 +4,15 @@
 @description: _handle_stream_event — voice bridge wiring guards.
 
 Locks:
-- speak AGENT_REPLY_DELTA events feed the bridge; non-speak deltas do not.
-- A completed speak PROGRESS carries authoritative text to the bridge and
-  never lands in narra_reply_text.
-- narra_reply PROGRESS on a voice turn keeps its legacy capture.
+- The live voice stream is CLAIMED by the first trigger-owned reply tool
+  (speak or narra_reply) that produces a delta or a completed text; only
+  the claimant feeds the bridge.
+- Claimant deltas (AGENT_REPLY_DELTA) feed the bridge; deltas from
+  non-reply tools never do.
+- A completed claimant PROGRESS carries authoritative text to the bridge
+  and never lands in narra_reply_text.
+- Reply-tool events from a NON-claimant fall back to the legacy capture
+  (narra_reply_text) so finalize keeps its existing precedence chain.
 - With no bridge (text turn), delta events are ignored exactly as before.
 """
 from __future__ import annotations
@@ -84,7 +89,10 @@ async def test_speak_progress_is_authoritative_and_not_narra_reply():
 
 
 @pytest.mark.asyncio
-async def test_narra_reply_capture_survives_on_voice_turns():
+async def test_narra_reply_claims_bridge_when_unclaimed():
+    """A narra_reply on a voice turn with no prior speak activity claims
+    the live stream: its text goes to the bridge, NOT to the legacy
+    fresh-send capture (which would deliver a duplicate at finalize)."""
     state = _StreamReplyState()
     state.voice_bridge = MagicMock()
     trigger = MatrixTrigger()
@@ -94,7 +102,174 @@ async def test_narra_reply_capture_survives_on_voice_turns():
         _cred(),
         "!r",
     )
-    assert state.narra_reply_text == "text version"
+    state.voice_bridge.on_segment_text.assert_called_once_with(
+        call_id="c1", text="text version"
+    )
+    assert state.narra_reply_text == ""
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_delta_feeds_bridge():
+    """narra_reply arg deltas stream into the bridge exactly like speak
+    deltas — the model's reply-tool choice must not decide whether the
+    caller hears the first word live."""
+    state = _StreamReplyState()
+    state.voice_bridge = MagicMock()
+    state.voice_bridge.on_reply_delta = AsyncMock()
+    trigger = MatrixTrigger()
+
+    await trigger._handle_stream_event(
+        _delta(tool="mcp__narramessenger_module__narra_reply", text="Guang"),
+        state,
+        _cred(),
+        "!r",
+    )
+    state.voice_bridge.on_reply_delta.assert_awaited_once_with(
+        call_id="c1", delta="Guang"
+    )
+
+
+@pytest.mark.asyncio
+async def test_speak_claim_sends_later_narra_reply_to_legacy_capture():
+    """Once speak has claimed the stream, a trailing narra_reply keeps the
+    legacy capture so finalize's precedence (spoken wins; narra_reply is
+    the fallback when nothing was spoken) is unchanged."""
+    state = _StreamReplyState()
+    state.voice_bridge = MagicMock()
+    state.voice_bridge.on_reply_delta = AsyncMock()
+    trigger = MatrixTrigger()
+
+    await trigger._handle_stream_event(_delta(), state, _cred(), "!r")
+    await trigger._handle_stream_event(
+        _progress("mcp__narramessenger_module__narra_reply", "also noted"),
+        state,
+        _cred(),
+        "!r",
+    )
+    state.voice_bridge.on_segment_text.assert_not_called()
+    assert state.narra_reply_text == "also noted"
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_claim_sends_later_speak_to_legacy_capture():
+    """Symmetric guard: once narra_reply claimed the stream, a trailing
+    speak call must not open a second bridge segment (the 2026-08-07
+    duplicate-playback shape) — it falls back to the text-turn capture."""
+    state = _StreamReplyState()
+    state.voice_bridge = MagicMock()
+    state.voice_bridge.on_reply_delta = AsyncMock()
+    trigger = MatrixTrigger()
+
+    await trigger._handle_stream_event(
+        _delta(tool="mcp__narranexus_module__x", text="ignored"), state, _cred(), "!r"
+    )
+    await trigger._handle_stream_event(
+        _delta(tool="mcp__narramessenger_module__narra_reply", text="the answer"),
+        state,
+        _cred(),
+        "!r",
+    )
+    await trigger._handle_stream_event(
+        _progress("mcp__narramessenger_module__speak", "spoken tail"),
+        state,
+        _cred(),
+        "!r",
+    )
+    state.voice_bridge.on_segment_text.assert_not_called()
+    assert state.narra_reply_text == "spoken tail"
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_stream_end_to_end_no_duplicate_delivery():
+    """Real-bridge scenario: narra_reply deltas + authoritative completion
+    produce ONE live lifecycle (base + final edit) with the final text —
+    never a second plain send of the same content."""
+    from xyz_agent_context.module.narramessenger_module._voice_delivery import (
+        VoiceDeliveryBridge,
+    )
+
+    sent: list[dict] = []
+
+    async def _send(content: dict) -> str:
+        sent.append(content)
+        return f"$e{len(sent)}"
+
+    clock_now = [0.0]
+    bridge = VoiceDeliveryBridge(send=_send, clock=lambda: clock_now[0])
+    state = _StreamReplyState()
+    state.voice_bridge = bridge
+    trigger = MatrixTrigger()
+
+    for i, piece in enumerate(["广州是", "华南的中心城市。"]):
+        clock_now[0] += 1.0
+        await trigger._handle_stream_event(
+            SimpleNamespace(
+                message_type=MessageType.AGENT_REPLY_DELTA,
+                tool_name="mcp__narramessenger_module__narra_reply",
+                call_id="prov1",
+                delta=piece,
+            ),
+            state,
+            _cred(),
+            "!r",
+        )
+    # Real streams carry an EMPTY call_id on PROGRESS (run_collector does
+    # not propagate tool_call_id — dev probe 2026-08-07), so the bridge's
+    # raw-prefix judge is what keeps this the SAME segment.
+    await trigger._handle_stream_event(
+        SimpleNamespace(
+            message_type=MessageType.PROGRESS,
+            details={
+                "tool_name": "mcp__narramessenger_module__narra_reply",
+                "arguments": {"text": "广州是华南的中心城市。"},
+                "call_id": "",
+            },
+        ),
+        state,
+        _cred(),
+        "!r",
+    )
+    spoken, ok = await bridge.close()
+    assert ok is True
+    assert spoken == "广州是华南的中心城市。"
+    assert state.narra_reply_text == ""  # nothing left for a duplicate send
+    final = sent[-1]
+    final_body = (
+        final["m.new_content"]["body"] if "m.new_content" in final else final["body"]
+    )
+    assert final_body == "广州是华南的中心城市。"
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_progress_only_still_delivers_via_bridge():
+    """Provider without arg-delta streaming: the completed narra_reply
+    text alone must still ride the bridge (one final send), keeping the
+    no-delta path alive."""
+    from xyz_agent_context.module.narramessenger_module._voice_delivery import (
+        VoiceDeliveryBridge,
+    )
+
+    sent: list[dict] = []
+
+    async def _send(content: dict) -> str:
+        sent.append(content)
+        return f"$e{len(sent)}"
+
+    bridge = VoiceDeliveryBridge(send=_send)
+    state = _StreamReplyState()
+    state.voice_bridge = bridge
+    trigger = MatrixTrigger()
+
+    await trigger._handle_stream_event(
+        _progress("mcp__narramessenger_module__narra_reply", "只有整段文本。"),
+        state,
+        _cred(),
+        "!r",
+    )
+    spoken, ok = await bridge.close()
+    assert (spoken, ok) == ("只有整段文本。", True)
+    assert state.narra_reply_text == ""
+    assert len(sent) == 1 and sent[0]["body"] == "只有整段文本。"
 
 
 @pytest.mark.asyncio
