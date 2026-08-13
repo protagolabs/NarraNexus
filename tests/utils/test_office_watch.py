@@ -211,7 +211,7 @@ def test_reconcile_refuses_to_adopt_a_port_owned_by_another_file(tmp_path, monke
     assert ow._assignments["/ws/other.pptx"] == ow.WATCH_PORT_MIN  # untouched
 
 
-def test_reconcile_refuses_a_recycled_pid_with_mismatched_start_time(tmp_path, monkeypatch):
+def test_reconcile_refuses_a_recycled_pid_with_mismatched_cmdline(tmp_path, monkeypatch):
     """Identity guard: the sidecar's pid is alive but its start-time no longer
     matches (the pid number was recycled into a different process after a
     restart) — refuse to adopt even though pid+port look live."""
@@ -278,3 +278,37 @@ def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):
     assert killed["pid"] == 5555  # orphan reaped, not leaked
     # Its sidecar is removed too, so no stale meta survives the failed spawn.
     assert not list(ws.glob(".officecli_watch_*.meta"))
+
+
+def test_identity_recognizes_the_real_spawn_argv(tmp_path, monkeypatch):
+    """The adopt-time matcher and the spawn command line must agree — argv is
+    a single fact (`_watch_argv`), so a change to how a watch is launched can
+    never silently disable adopt (which would regress the restart double-spawn
+    bug while every reconcile test stayed green). Capture the ACTUAL argv passed
+    to Popen and assert the identity matcher accepts it."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    (ws / "deck.pptx").write_bytes(b"x")
+    captured: dict[str, list[str]] = {}
+
+    class _Proc:
+        pid = 7777
+
+    def _fake_popen(argv, *a, **k):
+        captured["argv"] = list(argv)
+        return _Proc()
+
+    monkeypatch.setattr(ow.subprocess, "Popen", _fake_popen)
+    # Free before spawn (so a port can be allocated), listening after (so the
+    # bind-wait returns the port).
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": "argv" in captured)
+    monkeypatch.setattr(ow, "_assignments", {})
+
+    port = ow.ensure_watch("a1", "u1", "deck.pptx")
+    assert port is not None
+    # The matcher recognizes the real spawn argv on its port, and rejects it on
+    # any other port — the two ends are bound through _watch_argv.
+    joined = " ".join(captured["argv"])
+    assert ow._cmdline_is_our_watch(joined, port)
+    assert not ow._cmdline_is_our_watch(joined, port + 1)

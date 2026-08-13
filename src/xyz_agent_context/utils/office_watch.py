@@ -174,28 +174,36 @@ def _watch_meta_path(workspace: Path, port: int) -> Path:
     return workspace / f".officecli_watch_{port}.meta"
 
 
-def _proc_start_time(pid: int) -> str | None:
-    """The kernel start-time of ``pid`` (Linux /proc/<pid>/stat field 22), or
-    None where unavailable (non-Linux, or the pid is gone). Pairs pid+start
-    into a stable IDENTITY: a recycled pid number gets a different start-time,
-    so a stale sidecar can't masquerade as a live watch after a restart."""
-    try:
-        with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
-            fields = f.read().rsplit(")", 1)[-1].split()
-        # After the "comm) " field, index 19 is starttime (field 22, 1-based).
-        return fields[19]
-    except (OSError, IndexError):
-        return None
+def _watch_argv(rel_file: str, port: int) -> list[str]:
+    """The single source of truth for how a watch is launched. Both the spawn
+    (``ensure_watch``) and the adopt-time identity check (``_cmdline_is_our_watch``)
+    derive from this, so a change to the command line can't silently break
+    adopt — a binding test spawns via this and matches against it."""
+    return [_officecli_bin(), "watch", rel_file, "--port", str(port)]
+
+
+def _cmdline_is_our_watch(cmd: str, port: int) -> bool:
+    """True if the argv string ``cmd`` is an officecli watch bound to ``port``.
+
+    Token-level, NOT full-argv equality: argv[0] varies (which/absolute/bare —
+    see ``_officecli_bin``) and rel_file's form depends on cwd, so we only
+    require the invariant shape from ``_watch_argv``: an ``officecli`` binary
+    plus adjacent ``--port <port>`` tokens."""
+    tokens = cmd.split()
+    if not any("officecli" in t for t in tokens):
+        return False
+    target = str(port)
+    return any(
+        tokens[i] == "--port" and tokens[i + 1] == target for i in range(len(tokens) - 1)
+    )
 
 
 def _write_watch_meta(workspace: Path, port: int, abs_file: str, pid: int) -> None:
-    """Record which file+pid(+start-time) owns a watch port (best-effort — a
-    missing sidecar only costs a reconcile miss, never correctness)."""
+    """Record which file+pid owns a watch port (best-effort — a missing sidecar
+    only costs a reconcile miss, never correctness)."""
     try:
         _watch_meta_path(workspace, port).write_text(
-            json.dumps(
-                {"file": abs_file, "pid": pid, "port": port, "start": _proc_start_time(pid)}
-            ),
+            json.dumps({"file": abs_file, "pid": pid, "port": port}),
             encoding="utf-8",
         )
     except OSError as e:
@@ -216,7 +224,9 @@ def _pid_alive(pid: int) -> bool:
 def _proc_cmdline(pid: int) -> str | None:
     """The argv of ``pid`` as a space-joined string, cross-platform, or None if
     unavailable. Linux reads /proc/<pid>/cmdline; elsewhere (macOS desktop)
-    falls back to ``ps`` with a tight timeout so it can't wedge the caller."""
+    falls back to ``ps`` with a tight timeout so it can't wedge the caller.
+    ``ps`` is resolved to an absolute path — this module exists because a
+    stripped subprocess PATH hides binaries (see ``_officecli_bin``)."""
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             raw = f.read()
@@ -224,9 +234,10 @@ def _proc_cmdline(pid: int) -> str | None:
             return raw.replace(b"\x00", b" ").decode("utf-8", "replace").strip()
     except OSError:
         pass
+    ps_bin = shutil.which("ps") or "/bin/ps"
     try:
-        out = subprocess.run(  # noqa: S603,S607 — fixed argv, pid is an int
-            ["ps", "-p", str(pid), "-o", "command="],
+        out = subprocess.run(  # noqa: S603 — absolute ps, pid is an int
+            [ps_bin, "-p", str(pid), "-o", "command="],
             capture_output=True,
             text=True,
             timeout=0.5,
@@ -237,24 +248,24 @@ def _proc_cmdline(pid: int) -> str | None:
     return line or None
 
 
-def _proc_identity_ok(pid: int, recorded_start: str | None, port: int) -> bool:
+def _proc_identity_ok(pid: int, port: int) -> bool:
     """True only when ``pid`` is provably OUR officecli watch for ``port``.
 
     Wrong-content is silent, so identity must hold on EVERY platform, not just
-    Linux. Primary evidence is the live process's command line — a recycled pid
-    almost never re-runs ``officecli … --port <port>`` — which works without
-    /proc. Start-time is a cheaper Linux-only cross-check. When NO evidence is
-    obtainable we REFUSE (return False): a loud double-spawn (the front-end
-    shows 'could not open' + Retry) is strictly better than adopting a port
-    that may serve another document."""
+    Linux. Evidence is the live process's command line (``_cmdline_is_our_watch``):
+    a recycled pid almost never re-runs ``officecli … --port <port>``. When the
+    command line is UNobtainable (no /proc, ps missing) we REFUSE (return
+    False): a loud double-spawn (the front-end shows 'could not open' + Retry)
+    is strictly better than adopting a port that may serve another document.
+
+    Residual assumption: this proves the pid IS such a watch, not that the pid
+    is what is currently listening on ``port`` — those are separate facts. The
+    injective map guard (a port already owned is never adopted) is what closes
+    that gap, so both must stay."""
     cmd = _proc_cmdline(pid)
-    if cmd is not None:
-        return "officecli" in cmd and str(port) in cmd.split()
-    if recorded_start is not None:
-        current = _proc_start_time(pid)
-        if current is not None:
-            return current == recorded_start
-    return False  # no identity evidence → do not adopt
+    if cmd is None:
+        return False  # no identity evidence → do not adopt
+    return _cmdline_is_our_watch(cmd, port)
 
 
 def _terminate_group(pid: int) -> None:
@@ -283,10 +294,10 @@ def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
       that slot is mid-spawn, not reconcile's business;
     - adopt only a port that is (a) free in our map — the INJECTIVE guard, so
       two files never map to one port — (b) serving our file per the sidecar,
-      and (c) provably the SAME officecli watch for this port (cmdline, with a
-      Linux start-time cross-check), so a recycled pid on a port another
-      agent's watch now serves can't be mistaken for ours. No evidence →
-      refuse. On any conflict, DON'T steal — fall through to normal allocation.
+      and (c) provably the SAME officecli watch for this port (its argv per
+      ``_proc_identity_ok``), so a recycled pid on a port another agent's watch
+      now serves can't be mistaken for ours. No evidence → refuse. On any
+      conflict, DON'T steal — fall through to normal allocation.
     """
     try:
         metas = list(workspace.glob(".officecli_watch_*.meta"))
@@ -300,7 +311,6 @@ def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
             port = int(data["port"])
             pid = int(data["pid"])
             owner = str(data["file"])
-            start = data.get("start")
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             continue
         if not _pid_alive(pid):
@@ -311,7 +321,7 @@ def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
             continue  # mid-spawn by this process — not ours to reconcile
         if not _port_listening(port):
             continue  # healthy start-up window (pid alive, not yet bound)
-        if owner != abs_file or not _proc_identity_ok(pid, start, port):
+        if owner != abs_file or not _proc_identity_ok(pid, port):
             continue  # another file, or a recycled pid — never adopt
         with _alloc_lock:
             if port in set(_assignments.values()):
@@ -365,7 +375,7 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     try:
         with open(log_path, "ab") as log:
             proc = subprocess.Popen(  # noqa: S603 — workspace-confined file + allowlisted port
-                [_officecli_bin(), "watch", rel_file, "--port", str(port)],
+                _watch_argv(rel_file, port),
                 cwd=str(workspace),
                 env=env,
                 stdout=log,
