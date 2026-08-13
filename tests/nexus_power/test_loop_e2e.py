@@ -229,6 +229,32 @@ async def test_expression_nudge_fires_at_most_once():
 
 
 @pytest.mark.asyncio
+async def test_expression_nudge_skips_turns_that_already_expressed():
+    """Mutation lock for the `_turn_expressed` guard (review 2026-08-13
+    Important #5): a turn whose EARLIER step already called the reply
+    tool closes silently on a later no-call step — nudging it would
+    claim \"you have not replied\" falsely and provoke a duplicated
+    spoken reply."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "the answer"}),
+         _done(stop="tool_use")],
+        [_text("wrap-up thoughts"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert len(model.requests) == 2  # no third, nudged step
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert not any(
+        "reply tool" in str(m.get("content", ""))
+        for m in model.requests[1].messages
+        if m.get("role") == "user"
+    )
+
+
+@pytest.mark.asyncio
 async def test_expression_nudge_defaults_off_and_respects_mute_state():
     # Off by default: silent turn closes immediately (group rooms / bus
     # turns keep their legal silence).

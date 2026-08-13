@@ -9,13 +9,15 @@ last_verified: 2026-08-13
 8/13 通话实锤：voice prompt 指令再硬（"ONLY way…speak"），模型仍 12/14 轮
 用 narra_reply 回复——首字被钉死在 finalize（25–90s），而裸上游首字仅 ~3s。
 Owner 约束：fast mode 是通用能力，不接受按 channel 遮蔽工具。修法改为
-**认领制**：首个 trigger 托管回复工具（`__speak` / `__narra_reply` 精确后缀，
-见 `_is_voice_reply_tool`）产出 delta 或完整文本即认领 bridge
-（`_StreamReplyState.voice_stream_tool`）；只有认领者喂
-delta / on_segment_text。narra_send 永不认领（自带 room_send，桥接=双投）。
-非认领方回复事件落 legacy capture（narra_reply_text），保住 finalize 既有
-优先链（spoken 赢；没 spoken 才 fresh-send）——双工具轮绝不开第二个
-bridge 段（8/7 重复播报形态）。NexusPower 侧零改动：expressive 面本就
+**认领制（8/13 Opus 预审后收窄为只管 delta）**：首个 trigger 托管回复工具
+（`speak`/`narra_reply`，精确裸名或 `__` 后缀，见 `_is_voice_reply_tool`）产出
+delta 即认领（`voice_stream_tool`），**只有认领者的 AGENT_REPLY_DELTA 喂桥**——
+防两工具 delta 交错。**完成文本（PROGRESS）则全部进桥**：VOICE prompt 教的
+预告→答案两连调可能跨工具，答案必须播出（review Important #3）；同文双调由桥的
+等值段去重消化。**legacy capture 同时全保留**（narra_reply_text）：finalize 在
+spoken 非空时提前返回不会双投，而净化后为空的回复（纯 emoji/纯 URL）只有这条
+平文兜底路（review Critical #2——认领版曾把它丢了）。narra_send 永不进桥（自带
+room_send，桥接=双投）。NexusPower 侧零改动：expressive 面本就
 含 narra_reply，其 arg delta 一直在到达，此前只是被 `__speak` 后缀滤掉。
 测试：test_voice_stream_wiring（认领矩阵+真桥双场景）、
 test_l1_scenarios::test_s1b（全链路：RTC→voice_fast→narra_reply 流→live）。

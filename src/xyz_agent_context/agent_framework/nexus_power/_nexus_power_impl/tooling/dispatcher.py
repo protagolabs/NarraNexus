@@ -35,6 +35,10 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
     PolicyEngine,
 )
 
+# Ceiling for the any-token fallback slice of ``search_lines`` — a loose
+# multi-word probe must never return the whole tool surface.
+_FALLBACK_MAX_HITS = 12
+
 
 def _missing_required(spec: ToolSpec, args: dict) -> list[str]:
     required = spec.input_schema.get("required") or ()
@@ -181,20 +185,34 @@ class ToolDispatcher:
             return lines
         tokens = [t for t in query.lower().split() if t]
 
-        def _hits(match) -> list[str]:
-            return [
-                f"- {s.name}: {s.description.splitlines()[0][:100]}"
-                for s in specs
-                if match(s.name.lower() + " " + s.description.lower())
-            ]
+        def _line(s) -> str:
+            return f"- {s.name}: {s.description.splitlines()[0][:100]}"
 
-        hits = _hits(lambda hay: all(t in hay for t in tokens))
+        def _hay(s) -> str:
+            return s.name.lower() + " " + s.description.lower()
+
+        hits = [_line(s) for s in specs if all(t in _hay(s) for t in tokens)]
+        all_matched = bool(hits)
         if not hits and len(tokens) > 1:
-            hits = _hits(lambda hay: any(t in hay for t in tokens))
-        if card_index:
-            hits += [
-                line
-                for line in card_index.splitlines()
-                if any(t in line.lower() for t in tokens)
+            # Any-token fallback, ranked by hit count and CAPPED: a
+            # natural-language probe whose tokens include glue words
+            # would otherwise return the entire tool surface into the
+            # turn (review 2026-08-13). Stable sort keeps scope order
+            # within equal scores.
+            scored = [
+                (sum(t in _hay(s) for t in tokens), s) for s in specs
             ]
+            ranked = sorted(
+                (p for p in scored if p[0] > 0), key=lambda p: -p[0]
+            )
+            hits = [_line(s) for _, s in ranked[:_FALLBACK_MAX_HITS]]
+        if card_index:
+            # Mirror the mode that produced the hits: a precise ALL-token
+            # query must not get loose any-token card noise appended.
+            match = (
+                (lambda line: all(t in line.lower() for t in tokens))
+                if all_matched
+                else (lambda line: any(t in line.lower() for t in tokens))
+            )
+            hits += [line for line in card_index.splitlines() if match(line)]
         return hits

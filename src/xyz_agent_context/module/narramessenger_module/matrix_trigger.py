@@ -167,11 +167,13 @@ def _is_voice_reply_tool(tool_name: str) -> bool:
     Only these may claim the voice bridge: their text never reaches the
     room unless the trigger sends it, so bridging is delivery — not a
     duplicate. ``narra_send`` is excluded on purpose (it performs its own
-    ``room_send``). Exact-suffix match, mirroring the managed-ingress
-    filter: a future ``narra_reply_*`` sibling is never collaterally
-    claimed.
+    ``room_send``). Exact bare-name or exact ``__``-suffix match,
+    mirroring the managed-ingress filter: a future ``narra_reply_*``
+    sibling is never collaterally claimed.
     """
-    return tool_name.endswith("__speak") or tool_name.endswith("__narra_reply")
+    return tool_name in ("speak", "narra_reply") or tool_name.endswith(
+        ("__speak", "__narra_reply")
+    )
 
 
 def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
@@ -1963,33 +1965,37 @@ class MatrixTrigger(ChannelTriggerBase):
         if not (isinstance(text, str) and text.strip()):
             return
 
-        is_speak = tool_name.endswith("__speak")
-        is_narra_reply = "narra_reply" in tool_name
+        is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+        is_narra_reply = (
+            tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+        )
 
         if state.voice_bridge is not None and _is_voice_reply_tool(tool_name):
-            if not state.voice_stream_tool or state.voice_stream_tool == tool_name:
-                # The claimant's completed call carries the authoritative
-                # full text — corrects the delta view (or substitutes when
-                # arg deltas were unavailable on this provider).
+            # Every completed reply text enters the bridge — the claim
+            # gates DELTA streams only. The VOICE prompt teaches a
+            # preannounce-then-answer two-call pattern; when the model
+            # splits it across tools the answer must be spoken, not
+            # dropped. The identical-text dual-call shape is neutralized
+            # by the bridge's exact-equality segment dedup, and same-call
+            # correction rides the raw-prefix judge as before.
+            if not state.voice_stream_tool:
                 state.voice_stream_tool = tool_name
-                state.voice_bridge.on_segment_text(
-                    call_id=str(details.get("call_id") or ""), text=text
-                )
-                return
-            # A reply tool that did NOT claim the stream: keep the legacy
-            # capture so finalize's precedence chain is unchanged (spoken
-            # wins; this text is the fallback when nothing was spoken).
-            # Feeding it to the bridge would open a disjoint segment — the
-            # 2026-08-07 duplicate-playback shape.
+            state.voice_bridge.on_segment_text(
+                call_id=str(details.get("call_id") or ""), text=text
+            )
+            # ALSO keep the legacy capture: finalize returns early on any
+            # non-empty spoken text, so this cannot double-deliver — but
+            # it is the only delivery path left when the spoken form
+            # sanitizes to nothing (emoji-only ack, URL-only reply).
             state.narra_reply_text = (
                 f"{state.narra_reply_text} {text}".strip()
                 if is_speak and state.narra_reply_text
                 else text
             )
             logger.info(
-                f"[matrix:{credential.agent_id}] non-claimant reply tool "
-                f"{tool_name.rsplit('__', 1)[-1]} captured for fallback "
-                f"delivery (room={room_id})"
+                f"[matrix:{credential.agent_id}] reply text via "
+                f"{tool_name.rsplit('__', 1)[-1]} bridged for voice "
+                f"(len={len(text)}, room={room_id})"
             )
             return
 

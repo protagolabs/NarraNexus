@@ -58,6 +58,9 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.ar
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     estimate_message_tokens,
 )
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
+    NexusPowerPrompts,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
@@ -251,14 +254,12 @@ class NexusPowerLoop:
                     # nudge closes normally (never a spin loop, and never
                     # a force-stop: this only ADDS a step).
                     if (
-                        getattr(a, "expression_nudge", False)
+                        a.expression_nudge
                         and not self._expression_nudged
                         and not self._turn_expressed
                         and a.expression.names()
                     ):
                         self._expression_nudged = True
-                        from .prompts.library import NexusPowerPrompts
-
                         ledger.record_steering([{
                             "role": "user",
                             "content": NexusPowerPrompts.expression_nudge(

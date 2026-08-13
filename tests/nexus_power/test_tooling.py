@@ -206,6 +206,34 @@ async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
 
 
 @pytest.mark.asyncio
+async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine):
+    """Review 2026-08-13 Important #4: a natural-language probe whose
+    tokens include glue words ("to"/"a"/"the") must not flood the
+    context with the whole tool surface — the fallback ranks by token
+    hit count and caps the slice."""
+    specs = [
+        ToolSpec(name=f"filler_tool_{i:02d}", description="operates on a thing",
+                 input_schema={"type": "object"})
+        for i in range(30)
+    ]
+    specs.append(ToolSpec(
+        name="mcp__chat__send_message_to_user_directly",
+        description="Reply to the user.", input_schema={"type": "object"},
+    ))
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
+
+    class _Chan(_StubChannel):
+        def list_tools(self):
+            return specs
+
+    dispatcher = ToolDispatcher((builtin, _Chan()), policy=engine, ctx=ctx)
+    lines = dispatcher.search_lines("how to send a message to the user")
+    assert len(lines) <= 12  # capped, not the whole surface
+    # The strongest multi-token match ranks into the slice.
+    assert any("send_message_to_user_directly" in line for line in lines)
+
+
+@pytest.mark.asyncio
 async def test_capability_expander_idempotent_and_seams():
     attached, env = [], {}
 

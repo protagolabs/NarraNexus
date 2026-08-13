@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — expression_nudge 接线
+
+LoopAssembly 新增 `expression_nudge: bool = False`；`run_turn_events` 把
+`opts.expression_nudge` 接进 assembly——这是 TurnOptions→loop 的唯一接线点
+（同 2026-08-07 确权链路教训：缺这一行前面三处都不生效）。机制见 loop.py.md 同日条目。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

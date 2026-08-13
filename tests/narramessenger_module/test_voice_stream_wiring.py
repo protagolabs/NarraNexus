@@ -71,7 +71,7 @@ async def test_speak_delta_feeds_bridge_and_nonspeak_does_not():
 
 
 @pytest.mark.asyncio
-async def test_speak_progress_is_authoritative_and_not_narra_reply():
+async def test_speak_progress_is_authoritative_and_keeps_plain_fallback():
     state = _StreamReplyState()
     state.voice_bridge = MagicMock()
     trigger = MatrixTrigger()
@@ -85,14 +85,19 @@ async def test_speak_progress_is_authoritative_and_not_narra_reply():
     state.voice_bridge.on_segment_text.assert_called_once_with(
         call_id="c1", text="Sunny today."
     )
-    assert state.narra_reply_text == ""
+    # Raw text survives in the legacy capture for the sanitize-empty
+    # case; finalize never reads it when the bridge delivered.
+    assert state.narra_reply_text == "Sunny today."
 
 
 @pytest.mark.asyncio
 async def test_narra_reply_claims_bridge_when_unclaimed():
     """A narra_reply on a voice turn with no prior speak activity claims
-    the live stream: its text goes to the bridge, NOT to the legacy
-    fresh-send capture (which would deliver a duplicate at finalize)."""
+    the live stream: its text goes to the bridge AND stays in the legacy
+    capture. The capture cannot double-deliver (finalize returns early on
+    any non-empty spoken text) but it is the only delivery path left when
+    the spoken form sanitizes to nothing (emoji-only ack, URL-only reply
+    — review 2026-08-13 Critical #2)."""
     state = _StreamReplyState()
     state.voice_bridge = MagicMock()
     trigger = MatrixTrigger()
@@ -105,7 +110,7 @@ async def test_narra_reply_claims_bridge_when_unclaimed():
     state.voice_bridge.on_segment_text.assert_called_once_with(
         call_id="c1", text="text version"
     )
-    assert state.narra_reply_text == ""
+    assert state.narra_reply_text == "text version"
 
 
 @pytest.mark.asyncio
@@ -130,10 +135,13 @@ async def test_narra_reply_delta_feeds_bridge():
 
 
 @pytest.mark.asyncio
-async def test_speak_claim_sends_later_narra_reply_to_legacy_capture():
-    """Once speak has claimed the stream, a trailing narra_reply keeps the
-    legacy capture so finalize's precedence (spoken wins; narra_reply is
-    the fallback when nothing was spoken) is unchanged."""
+async def test_nonclaimant_completed_text_still_reaches_the_bridge():
+    """The claim gates DELTA streams only. A completed reply text from
+    the OTHER reply tool still enters the bridge as a segment: the VOICE
+    prompt teaches a preannounce-then-answer two-call pattern, and when
+    the model splits it across tools the answer must be spoken, not
+    dropped (review 2026-08-13 Important #3). The exact-equality segment
+    dedup protects the identical-text dual-call shape."""
     state = _StreamReplyState()
     state.voice_bridge = MagicMock()
     state.voice_bridge.on_reply_delta = AsyncMock()
@@ -146,37 +154,48 @@ async def test_speak_claim_sends_later_narra_reply_to_legacy_capture():
         _cred(),
         "!r",
     )
-    state.voice_bridge.on_segment_text.assert_not_called()
-    assert state.narra_reply_text == "also noted"
+    state.voice_bridge.on_segment_text.assert_called_once_with(
+        call_id="c1", text="also noted"
+    )
+    assert state.narra_reply_text == "also noted"  # sanitize-empty fallback
+
+    # Delta claim still holds: the non-claimant's DELTAS stay out.
+    await trigger._handle_stream_event(
+        _delta(tool="mcp__narramessenger_module__narra_reply", text="x"),
+        state,
+        _cred(),
+        "!r",
+    )
+    state.voice_bridge.on_reply_delta.assert_awaited_once()  # speak's only
 
 
 @pytest.mark.asyncio
-async def test_narra_reply_claim_sends_later_speak_to_legacy_capture():
-    """Symmetric guard: once narra_reply claimed the stream, a trailing
-    speak call must not open a second bridge segment (the 2026-08-07
-    duplicate-playback shape) — it falls back to the text-turn capture."""
-    state = _StreamReplyState()
-    state.voice_bridge = MagicMock()
-    state.voice_bridge.on_reply_delta = AsyncMock()
-    trigger = MatrixTrigger()
+async def test_claimant_sanitize_empty_text_keeps_plain_fallback():
+    """Review 2026-08-13 Critical #2: an emoji-only reply sanitizes to ""
+    — the bridge delivers nothing, so the raw text must survive in the
+    legacy capture for finalize's plain fresh-send."""
+    from xyz_agent_context.module.narramessenger_module._voice_delivery import (
+        VoiceDeliveryBridge,
+    )
 
+    sent: list[dict] = []
+
+    async def _send(content: dict) -> str:
+        sent.append(content)
+        return "$e1"
+
+    state = _StreamReplyState()
+    state.voice_bridge = VoiceDeliveryBridge(send=_send)
+    trigger = MatrixTrigger()
     await trigger._handle_stream_event(
-        _delta(tool="mcp__narranexus_module__x", text="ignored"), state, _cred(), "!r"
-    )
-    await trigger._handle_stream_event(
-        _delta(tool="mcp__narramessenger_module__narra_reply", text="the answer"),
+        _progress("mcp__narramessenger_module__narra_reply", "👍"),
         state,
         _cred(),
         "!r",
     )
-    await trigger._handle_stream_event(
-        _progress("mcp__narramessenger_module__speak", "spoken tail"),
-        state,
-        _cred(),
-        "!r",
-    )
-    state.voice_bridge.on_segment_text.assert_not_called()
-    assert state.narra_reply_text == "spoken tail"
+    spoken, ok = await state.voice_bridge.close()
+    assert spoken is None and ok is True and sent == []
+    assert state.narra_reply_text == "👍"  # finalize fresh-sends this
 
 
 @pytest.mark.asyncio
@@ -232,7 +251,10 @@ async def test_narra_reply_stream_end_to_end_no_duplicate_delivery():
     spoken, ok = await bridge.close()
     assert ok is True
     assert spoken == "广州是华南的中心城市。"
-    assert state.narra_reply_text == ""  # nothing left for a duplicate send
+    # The legacy capture retains the raw text (sanitize-empty fallback);
+    # finalize never sends it when spoken is non-empty — the no-duplicate
+    # property is carried by the single live lifecycle below.
+    assert state.narra_reply_text == "广州是华南的中心城市。"
     final = sent[-1]
     final_body = (
         final["m.new_content"]["body"] if "m.new_content" in final else final["body"]
@@ -268,7 +290,7 @@ async def test_narra_reply_progress_only_still_delivers_via_bridge():
     )
     spoken, ok = await bridge.close()
     assert (spoken, ok) == ("只有整段文本。", True)
-    assert state.narra_reply_text == ""
+    assert state.narra_reply_text == "只有整段文本。"  # unread when spoken
     assert len(sent) == 1 and sent[0]["body"] == "只有整段文本。"
 
 
