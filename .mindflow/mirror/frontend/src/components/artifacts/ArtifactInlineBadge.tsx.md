@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactInlineBadge.tsx
-last_verified: 2026-05-15
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+点击激活由 `setActive` 改 `restoreTab`(目标可能最小化,active 指隐藏 tab 会白屏——与 NewTabOmnibox 对齐)。
 
 # ArtifactInlineBadge.tsx — minimal artifact pointer chip
 

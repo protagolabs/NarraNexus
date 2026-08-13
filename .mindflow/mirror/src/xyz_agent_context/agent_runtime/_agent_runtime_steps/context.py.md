@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-07-15
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+RunContext 新增 turn_profile 输入字段（None=普通路径）。
 
 > 2026-05-29：删除 `evermemos_task` 字段（EverMemOS 整体移除）。
 

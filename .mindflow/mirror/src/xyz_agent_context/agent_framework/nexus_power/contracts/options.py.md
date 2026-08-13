@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — TurnOptions.extra_readable_roots
+
+框架外部调用面新增：本回合额外可读的绝对根，由调用方（知道 user/team 的那一层）决定。
+保持框架通用性（铁律 #9）——这里不出现 team/user 概念，只有「这些根也允许」。
+缺省空 = 纯 workspace 收敛。
+
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+新增 `prompt_mode: Literal["full","minimal","none"]="full"`（字符串字面量，wire 层禁 import PromptMode 枚举；assembler 侧转换）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

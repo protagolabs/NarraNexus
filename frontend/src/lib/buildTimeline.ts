@@ -4,8 +4,13 @@
  *
  * The chat view merges two independently-produced sources into one
  * chronological list:
- *   - history  — rows persisted in `agent_messages`, fetched via
- *                getSimpleChatHistory
+ *   - history  — the chat transcript persisted in
+ *                `instance_json_format_memory_chat` (ChatModule's per-instance
+ *                JSON memory), fetched via getSimpleChatHistory. NOT the
+ *                `events` table, and NOT `agent_messages` (a tombstone table
+ *                with no writer — reading "0 rows" there and concluding the
+ *                panel replays `events` is how the 0802 ordering report got
+ *                misdiagnosed).
  *   - session  — messages held live in chatStore (the user prompt added
  *                on send, the assistant reply assembled at stopStreaming)
  *

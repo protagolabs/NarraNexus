@@ -28,22 +28,28 @@ class UserSettingsRepository:
             return False
         return bool(row.get("analytics_opt_out"))
 
+    async def get_reply_language(self, user_id: str) -> str | None:
+        """The user's preferred reply language (i18n code) or None when
+        never set — None means the model keeps its historical freedom."""
+        row: dict[str, Any] | None = await self.db.get_one(
+            self.table_name, {"user_id": user_id}
+        )
+        if not row:
+            return None
+        value = (row.get("reply_language") or "").strip()
+        return value or None
+
+    async def set_reply_language(self, user_id: str, language: str | None) -> None:
+        """Persist the reply-language preference (None/empty clears it)."""
+        value = (language or "").strip()
+        # Atomic upsert (db-level); the manual read-then-write pair racing
+        # two concurrent PUTs on the UNIQUE user_id was review issue #4.
+        await self.db.upsert(
+            self.table_name, {"user_id": user_id, "reply_language": value}, "user_id"
+        )
+
     async def set_analytics_opt_out(self, user_id: str, opted_out: bool) -> None:
-        existing = await self.db.get_one(self.table_name, {"user_id": user_id})
         value = 1 if opted_out else 0
-        if existing:
-            # updated_at is intentionally omitted from the update dict because
-            # db.update() uses parameterized placeholders — passing the SQL
-            # expression "(datetime('now'))" would store the literal text, not
-            # evaluate it. The column retains its create-time value on updates;
-            # a future migration can add a trigger if live update tracking is needed.
-            await self.db.update(
-                self.table_name,
-                {"user_id": user_id},
-                {"analytics_opt_out": value},
-            )
-        else:
-            await self.db.insert(
-                self.table_name,
-                {"user_id": user_id, "analytics_opt_out": value},
-            )
+        await self.db.upsert(
+            self.table_name, {"user_id": user_id, "analytics_opt_out": value}, "user_id"
+        )

@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-07-13
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 500 路径错误文案脱敏（安全审计 P2-2）
+
+500 分支 `detail=str(e)` 收敛为固定文案；400/`ValueError`（scheme/allowlist/sha256 等用户可操作校验）保留清晰文案。
 
 ## 2026-07-13 — include_skill_secrets passthrough
 

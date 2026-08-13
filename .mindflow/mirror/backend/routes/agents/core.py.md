@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/agents/core.py
-last_verified: 2026-07-13
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 (PR-A) — 挂载 channel_credentials_router
+
+新增 [[channel_credentials]] 路由（`GET /{agent_id}/channels/{channel}/credential` + `/channels/name`）到 /api/agents，
+是 [[channel_store]] HttpStore 的后端孪生（返回原始 channel 密钥，service+owner 双门）。
+
+## 2026-08-10 (PR-9) — 挂载 profile_router
+
+新增 [[profile]] seam 孪生路由（`POST /{agent_id}/profile/update`）到 /api/agents 前缀下，与其它 seam 路由并列。
+
+## 2026-08-10 (PR-8) — 挂载 jobs_router（job 读 seam 孪生，agent-scoped）
+
+新增 [[jobs]] 路由聚合到 `/api/agents`，与 narrative/general_memory 等 seam 路由并列。
+
+
+## 2026-08-10 — 挂载 general_memory / narrative 子路由（MCP seam PR-2）
+
+`include_router(general_memory_router)` + `include_router(narrative_router)`,
+把 [[general_memory]] 与 [[narrative]] 的端点挂进 `/api/agents`——MCP 数据访问
+seam 的 backend 半边(remember/grep/retain 与 view/switch/create)。纯聚合注册,
+逻辑在各子路由文件。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

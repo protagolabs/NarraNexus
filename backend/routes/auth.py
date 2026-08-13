@@ -15,6 +15,7 @@ Provides endpoints for:
 
 import os
 import json
+import jwt
 from time import monotonic
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
@@ -22,20 +23,15 @@ from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track, identify_user
-from xyz_agent_context.analytics.events import (
-    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
-    EVENT_SETUP_COMPLETED, PROP_METHOD,
+from xyz_agent_context.utils.logging import (
+    set_telemetry_optout,
+    telemetry_consent,
 )
-
-# Whitelist of frontend-reportable funnel events. The setup_* events are pure
-# UI actions (page view, skip/done clicks) that have no backend signal, so the
-# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
-# endpoint from being a generic event firehose.
-_ALLOWED_FUNNEL_EVENTS = frozenset({
-    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
-})
+from xyz_agent_context.utils import format_for_api
+from xyz_agent_context.analytics import track
+from xyz_agent_context.analytics.events import (
+    EVENT_SIGNED_UP, PROP_METHOD,
+)
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
@@ -63,8 +59,14 @@ from xyz_agent_context.schema import (
 )
 from backend.auth import (
     create_token,
+    decode_token,
     _is_cloud_mode,
     resolve_current_user_id,
+)
+from backend.auth_errors import (
+    IDENTITY_UNRESOLVED,
+    NETMIND_TOKEN_INVALID,
+    AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
@@ -312,6 +314,14 @@ _funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
+    # Registration + forgot-password failures (browser->NetMind direct, so the
+    # funnel is the only server-side trace). Frontend callers:
+    # SignUpDialog.sendCode / useNetmindAuth.sendResetCode|resetPassword. Kept in
+    # lockstep with the frontend `AuthFunnelStage` union (frontend/src/lib/api.ts).
+    # This allowlist is a caller-controlled-input gate — never free text.
+    "signup_send_code_failed",
+    "netmind_reset_code_failed",
+    "netmind_reset_password_failed",
 })
 
 
@@ -493,7 +503,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         logger.warning(
             f"[login-funnel] netmind-login rejected source={request.source or '-'}: {e}"
         )
-        raise HTTPException(status_code=401, detail="Invalid NetMind token")
+        raise AuthError(NETMIND_TOKEN_INVALID, "Invalid NetMind token")
     except NetmindUpstreamError as exc:
         logger.error(f"netmind-login: upstream failure: {exc}")
         raise HTTPException(
@@ -510,8 +520,12 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if is_new:
         try:
-            identify_user(user.user_id, {"signup_method": "netmind"})
-            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+            await track(
+                user_id=user.user_id,
+                event=EVENT_SIGNED_UP,
+                properties={PROP_METHOD: "netmind"},
+                event_id=f"signed_up:{user.user_id}",
+            )
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
@@ -816,67 +830,24 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # the agent records a real description during bootstrap.
         agent_description = request.agent_description or ""
 
-        # Add agent to database
-        repo = AgentRepository(db_client)
-        record_id = await repo.add_agent(
+        # Provisioning (agent row + default instances + peer-discovery
+        # registration + bootstrap profile + default skills) is the
+        # canonical sequence in `provision_new_agent` — this route is its
+        # semantic source. `bootstrap` in the request
+        # picks a profile; unknown/None falls back to "default" inside
+        # `get_profile`. This route stays the SEMANTIC SOURCE the seam mirrors;
+        # everything below that ISN'T the shared sequence (team assignment #43,
+        # response shape) stays here.
+        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        provision_result = await provision_new_agent(
+            db_client,
             agent_id=agent_id,
+            user_id=created_by,
             agent_name=agent_name,
-            created_by=created_by,
             agent_description=agent_description,
-            agent_type="chat"
+            bootstrap_profile=getattr(request, "bootstrap", None) or "default",
         )
-
-        logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
-
-        # Create the default agent-level instances (Awareness, SocialNetwork,
-        # BasicInfo, MessageBus, Lark). Without this the HTTP-created agent has
-        # no AwarenessModule instance and downstream provisioning / awareness
-        # writes have nothing to attach to. Idempotent (factory checks first);
-        # best-effort so a transient failure never blocks agent creation.
-        try:
-            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
-            await InstanceFactory(db_client).create_agent_level_instances(agent_id)
-        except Exception as inst_err:
-            logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
-
-        # Enter the peer-discovery directory NOW. Registration used to be a
-        # side effect of taking a turn (MessageBusModule's data-gathering
-        # hook), so a freshly created agent was invisible to its owner's other
-        # agents until it happened to run — one half of why "ask agent X" came
-        # back empty (P1 section 02, target 2). Runs after the instances exist so the
-        # capability snapshot is not empty. Best-effort: the agent is created
-        # either way, and the per-turn hook re-syncs.
-        await sync_agent_discovery(db_client, agent_id)
-
-        # First-run flow via a bootstrap PROFILE (default = today's behavior).
-        # The profile renders Bootstrap.md + the greeting + the deletion rule and
-        # apply_bootstrap stores them (workspace + agent_metadata). Pass
-        # `bootstrap` in the request to pick a profile; unknown/None → "default".
-        from xyz_agent_context.settings import settings
-        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-        workspace_path = str(
-            agent_workspace_path(agent_id, created_by, base=settings.base_working_path)
-        )
-        bootstrap_active = False
-        try:
-            from xyz_agent_context.bootstrap.profiles import (
-                apply_bootstrap, get_profile, BootstrapContext,
-            )
-            profile = get_profile(getattr(request, "bootstrap", None) or "default")
-            await apply_bootstrap(
-                db_client,
-                agent_id=agent_id,
-                user_id=created_by,
-                profile=profile,
-                ctx=BootstrapContext(
-                    agent_id=agent_id, user_id=created_by, agent_name=agent_name,
-                ),
-            )
-            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
-            logger.info(f"Bootstrap profile '{profile.name}' applied to {agent_id}")
-        except Exception as bootstrap_err:
-            # Non-fatal: agent is already created, bootstrap is best-effort
-            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
+        logger.info(f"Agent created: {agent_id}")
 
         # Team assignment (#43): when the sidebar "Add agent" was clicked under
         # a specific team, attach the new agent to that team so it lands in the
@@ -903,38 +874,8 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             except Exception as team_err:
                 logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
 
-        # Default skills — fire-and-forget install of every marketplace skill
-        # flagged is_default into the new agent's workspace. Never blocks or
-        # fails creation: an unreachable registry (desktop offline, cloud
-        # marketplace not yet live) degrades to a no-op inside the service.
-        try:
-            import asyncio as _asyncio
-
-            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
-
-            async def _install_default_skills(aid: str, uid: str) -> None:
-                try:
-                    summary = await SkillMarketplaceService().install_defaults(aid, uid)
-                    if summary.get("failed"):
-                        logger.warning(
-                            f"Default skills for {aid}: failed={summary['failed']}"
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Default skills install for {aid} skipped: {exc}")
-
-            _task = _asyncio.create_task(_install_default_skills(agent_id, created_by))
-            # Fire-and-forget needs a done callback (incident lesson #2);
-            # the inner try/except already swallows, this catches cancellation-
-            # adjacent surprises.
-            _task.add_done_callback(
-                lambda t: (
-                    logger.warning(f"default-skills task died: {t.exception()}")
-                    if not t.cancelled() and t.exception() is not None
-                    else None
-                )
-            )
-        except Exception as defaults_err:  # noqa: BLE001
-            logger.warning(f"Failed to schedule default skills: {defaults_err}")
+        # Default skills install is scheduled inside `provision_new_agent`
+        # (fire-and-forget, same shape as before this extraction).
 
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
@@ -946,7 +887,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
             created_by=created_by,
-            bootstrap_active=bootstrap_active,
+            bootstrap_active=provision_result.bootstrap_active,
         )
 
         return CreateAgentResponse(
@@ -1568,13 +1509,6 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
-        # Only non-identifying traits — the distinct_id is hashed and we
-        # deliberately do NOT ship display_name, so no real names reach
-        # PostHog.
-        await identify_user(
-            user_id=request.user_id,
-            traits={"role": "individual"},
-        )
         await track(
             user_id=request.user_id,
             event=EVENT_SIGNED_UP,
@@ -1668,6 +1602,62 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
     )
 
 
+class SessionResponse(BaseModel):
+    """Liveness of the caller's own session."""
+
+    user_id: str
+    # Epoch seconds. None in local mode, where identity is the X-User-Id
+    # header and there is nothing to expire.
+    expires_at: Optional[int] = None
+    issued_at: Optional[int] = None
+
+
+@router.get("/session", response_model=SessionResponse)
+async def get_session(http_request: Request):
+    """Confirm the caller's session is still alive, and say when it dies.
+
+    Two consumers, both in the frontend:
+
+    1. **Second opinion before a forced logout.** A single 401 on some
+       unrelated endpoint is not proof the session is dead — it may be a
+       transient failure or a bug in that one route. The frontend probes
+       here first and only destroys the session if the probe agrees.
+       (Before this existed, one stray 401 tore down the whole SPA — the
+       2026-08-02 demo incident.)
+    2. **Pre-expiry warning.** `expires_at` lets the UI warn the user
+       *before* the JWT dies, instead of teleporting them to /login
+       mid-sentence. There is no refresh flow, so an unannounced expiry
+       is a hard stop.
+
+    Deliberately does NO database work: it runs on every suspected-dead
+    session, and a burst of 401s must not become a burst of queries. The
+    JWT check already happened in auth_middleware — reaching this handler
+    at all *is* the answer.
+    """
+    user_id = await resolve_current_user_id(http_request)
+    expires_at: Optional[int] = None
+    issued_at: Optional[int] = None
+
+    auth_header = http_request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        # Verified again rather than read raw: cheap (HMAC over a short
+        # string) and keeps this handler from ever reporting claims the
+        # middleware would have rejected.
+        try:
+            claims = decode_token(auth_header[7:])
+            expires_at = claims.get("exp")
+            issued_at = claims.get("iat")
+        except jwt.InvalidTokenError:
+            # Unreachable in practice — the middleware verified the same
+            # token moments ago. Degrade to "alive, expiry unknown"
+            # rather than 500 on a race with a key rotation.
+            logger.warning("[session-probe] token verified by middleware but not here")
+
+    return SessionResponse(
+        user_id=user_id, expires_at=expires_at, issued_at=issued_at
+    )
+
+
 @router.get("/onboarding", response_model=OnboardingResponse)
 async def get_onboarding(http_request: Request):
     """Return the authenticated user's onboarding checklist state.
@@ -1743,12 +1733,17 @@ def _require_request_user(http_request: Request) -> str:
     user can't read or flip another user's privacy preference."""
     uid = getattr(http_request.state, "user_id", None)
     if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     return uid
 
 
 class SetAnalyticsOptOutRequest(BaseModel):
     opted_out: bool
+
+
+class SetReplyLanguageRequest(BaseModel):
+    # i18n code ("zh", "en", ...); empty string clears the preference.
+    language: str = Field(default="", max_length=16, pattern=r"^[a-zA-Z-]*$")
 
 
 @router.get("/settings/analytics")
@@ -1772,26 +1767,97 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     return {"success": True, "opted_out": request.opted_out}
 
 
-class FunnelEventRequest(BaseModel):
-    event: str
+# =============================================================================
+# Telemetry (diagnostic log shipping) consent
+# =============================================================================
+#
+# Unlike analytics (a per-USER row in user_settings), telemetry consent
+# is a marker file (~/.narranexus/telemetry_optout — per USER ACCOUNT
+# on this host, shared by all sidecars on a desktop install) read by
+# utils/logging at every send — logging starts before the DB does, so
+# the DB cannot hold this state. Host-level scope has two consequences
+# the endpoints must enforce:
+#   - multi-tenant cloud: one user must not silence (or re-enable)
+#     telemetry for everyone → PUT is 403, GET says controllable=false
+#     (that surface is governed by the deployment env instead);
+#   - an explicit NEXUS_DIAG_SHIP env override is the deployment's
+#     decision: a marker write would be silently ineffective, so PUT is
+#     409 and GET reports source=env / controllable=false.
 
 
-@router.post("/funnel")
-async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
-    """Report a frontend-originated funnel event (setup page UI actions).
+class SetTelemetryOptOutRequest(BaseModel):
+    opted_out: bool
 
-    Identity comes from auth_middleware (request.state.user_id) — never the
-    body — so events can't be spoofed onto another user. Only whitelisted
-    setup_* events are accepted, and no client-supplied properties are
-    forwarded: the setup_* events carry no payload by design, so accepting a
-    properties dict would only let a client inject arbitrary data (or
-    override the server-derived `surface`) into PostHog. track() applies
-    opt-out, distinct_id hashing, and the surface label, and never raises.
-    """
+
+def _telemetry_state() -> dict:
+    consent = telemetry_consent()
+    # managed_by tells the UI WHO owns a non-controllable state — "your
+    # deployment set an env var" and "this is a multi-tenant install"
+    # are different facts, and showing the env wording on a cloud
+    # install whose telemetry comes from the built-in default would
+    # attribute a decision nobody made.
+    managed_by = None
+    if consent["source"] == "env":
+        managed_by = "env"
+    elif _is_cloud_mode():
+        managed_by = "cloud"
+    return {
+        "mode": consent["mode"],
+        "source": consent["source"],
+        "opted_out": consent["source"] == "optout",
+        "controllable": managed_by is None,
+        "managed_by": managed_by,
+    }
+
+
+@router.get("/settings/telemetry")
+async def get_telemetry_consent_state(http_request: Request):
+    """Current telemetry consent state + whether the toggle applies."""
+    _require_request_user(http_request)
+    return _telemetry_state()
+
+
+@router.put("/settings/telemetry")
+async def set_telemetry_consent_state(request: SetTelemetryOptOutRequest,
+                                      http_request: Request):
+    """Flip the per-machine telemetry opt-out marker."""
     uid = _require_request_user(http_request)
-    if request.event not in _ALLOWED_FUNNEL_EVENTS:
+    if _is_cloud_mode():
         raise HTTPException(
-            status_code=400, detail=f"Unknown funnel event: {request.event}"
+            status_code=403,
+            detail="telemetry consent is per-machine; on a multi-tenant "
+                   "install it is governed by the deployment, not a user",
         )
-    await track(user_id=uid, event=request.event)
-    return {"success": True}
+    if telemetry_consent()["source"] == "env":
+        raise HTTPException(
+            status_code=409,
+            detail="NEXUS_DIAG_SHIP is set: the deployment overrides "
+                   "telemetry mode and a marker write would be ineffective",
+        )
+    set_telemetry_optout(request.opted_out)
+    logger.info(
+        f"Telemetry opt-out set to {request.opted_out} by {uid}"
+    )
+    return {"success": True, "opted_out": request.opted_out}
+@router.get("/settings/reply-language")
+async def get_reply_language(http_request: Request):
+    """The user's reply-language preference; null = never set (model free)."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"language": await repo.get_reply_language(uid)}
+
+
+@router.put("/settings/reply-language")
+async def set_reply_language(request: SetReplyLanguageRequest,
+                             http_request: Request):
+    """Persist the reply-language preference (empty clears it).
+
+    Written by the frontend replyLanguageSync (i18n languageChanged +
+    one-time backfill), read by
+    ContextRuntime into the system prompt — the fix for "UI set to
+    Chinese but replies stay English": the preference used to live only
+    in frontend i18n and never reached the model."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_reply_language(uid, request.language)
+    return {"success": True, "language": request.language or None}

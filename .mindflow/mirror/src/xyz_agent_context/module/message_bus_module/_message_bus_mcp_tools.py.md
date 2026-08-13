@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-05
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-07 — 两个发送工具盖上 root_run_id
+
+`bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
+`bus_messages.root_run_id`。这是血缘链**唯一的断点**:工具跑在共享的 MCP
+进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
+run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
+
+## 2026-08-07 — 新增 bus_list_team_files
+
+共享目录终于可被枚举。工具本身是薄封装，规则在 [[team_files.py]]：授权按 **成员关系**
+而非 owner（一个 user 多个 team，按 owner 判会让该 owner 的任意 agent 读到全部 team）。
+
+配套：team prompt（[[message_bus_trigger.py]]）从「用 Read 打开这个目录」改为**明确指向本工具**
+——此前 agent 只能猜路径或让别人复述，发现文件靠模型之间的社交协议。
 
 ## 2026-08-05 — 删掉 `bus_register_agent`：名录不能有第二个写入者
 
@@ -85,3 +99,10 @@ from the LLM.
 ## 新人易踩的坑
 
 工具函数名（如 `"send_message"`）就是 LLM 调用时使用的工具名，必须和 MCP 服务器注册时的名称一致。如果修改函数名，需要同时更新 `MessageBusModule.get_mcp_config()` 里注册工具时使用的名称字符串，否则 LLM 调用会报"工具不存在"。
+
+## 2026-08-11 — `bus_pin_team_rule` / `bus_unpin_team_rule`
+
+薄包装，规则在 [[team_bulletin]]。**没有 `team_id` 参数**：来自
+`caller_team_id_from_request()` 的服务端身份头。这比隔壁 `bus_share_to_team`
+（模型传 team_id + 三段校验）更强——agent 无法指认自己当前不在的团队，
+于是跨团队写入不是要防的攻击，而是**不可表达的状态**。有测试断言签名里没有 `team_id`。

@@ -1,5 +1,6 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
+<<<<<<< HEAD
 last_verified: 2026-08-06
 stub: false
 ---
@@ -41,6 +42,23 @@ TopBar 仅 < md 渲染(自带 md:hidden);桌面端侧栏占满全高。CommandPa
 一个实例。新增:sidebarCollapsed(uiStore)时,子页面/团队聊天渲染左上角
 浮动展开 chip(聊天视图的展开按钮在 ChatPanel 头部内联,不在这里)。
 BookmarkDrawer 单实例约束、resize 两段拖拽、RAIL_GUTTER_PX 同步规则不变。
+=======
+last_verified: 2026-08-12
+stub: false
+---
+
+## 2026-08-12 — initReplyLanguageSync 挂 MainLayout(r2 修正)
+
+round-1 误挂 ChatView(team-first / settings 深链用户永远不 mount)。现挂 MainLayout 本体,与 TelemetryNotice/FeedbackButton 同层同理由。
+
+## 2026-08-11 — 挂载 TelemetryNotice(一次性遥测告知)
+
+挂在 **MainLayout 层、FeedbackButton 旁**(预审修正:初版挂进了
+ChatView——团队页用户和 settings 深链用户永远不渲染 ChatView,
+"只有聊天用户收到的告知"不是告知;FeedbackButton 当年被提升到
+MainLayout 就是同一个原因,注释里写着)。自门控(看过 / 遥测未
+激活时渲染 null),不分移动端(告知义务不按屏宽豁免)。
+>>>>>>> origin/dev
 
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe（自带 vh 兜底）
 

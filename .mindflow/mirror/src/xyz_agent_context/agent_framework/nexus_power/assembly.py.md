@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — `extra_readable_roots` 接到 ToolContext 上
+
+`TurnOptions.extra_readable_roots` → `ToolContext`，供两个 confinement layer 消费
+（见 [[policy.py]]）。**这里是整条确权放开链路的唯一接线点**：契约在
+[[options.py]] / [[tooling.py]]，判定在 [[policy.py]]，而把值真正交到 ToolContext 手上的
+是本文件。改动只有一行，但缺了它前面三处都不生效。
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+PromptAssembler 的模式来源从硬编码 PromptMode.FULL 改为 PromptMode(opts.prompt_mode)——默认值不变，快速模式可按 turn 降面。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

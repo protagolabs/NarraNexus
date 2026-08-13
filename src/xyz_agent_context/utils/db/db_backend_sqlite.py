@@ -335,8 +335,15 @@ class SQLiteBackend(DatabaseBackend):
         table: str,
         id_field: str,
         ids: List[str],
+        fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
-        """Batch-fetch rows by IDs, preserving input order."""
+        """Batch-fetch rows by IDs, preserving input order.
+
+        ``fields`` narrows the projection, same contract as ``get``. Use it for
+        existence checks on tables with fat columns — `SELECT *` there drags the
+        payload across the wire only to discard it. It must include ``id_field``
+        or the order-preserving map below cannot be built.
+        """
         if not ids:
             return []
 
@@ -344,8 +351,14 @@ class SQLiteBackend(DatabaseBackend):
         safe_table = _validate_identifier(table)
         safe_id_field = _validate_identifier(id_field)
 
+        if fields:
+            safe_fields = [_validate_identifier(f) for f in dict.fromkeys([*fields, id_field])]
+            columns = ", ".join(f'"{f}"' for f in safe_fields)
+        else:
+            columns = "*"
+
         placeholders = ",".join(["?"] * len(unique_ids))
-        query = f'SELECT * FROM "{safe_table}" WHERE "{safe_id_field}" IN ({placeholders})'
+        query = f'SELECT {columns} FROM "{safe_table}" WHERE "{safe_id_field}" IN ({placeholders})'
 
         results = await self.execute(query, tuple(unique_ids))
 

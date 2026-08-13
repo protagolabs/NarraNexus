@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_repository.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — resolve_owner 区分 ""(不存在) 与 None(查询失败)
+
+PR #258 review #4:这个值现在支撑 7 个 route 家族的授权判定,「agent 不存在」
+和「数据库抖了」不能塌缩成同一个答案——否则一次 DB 故障表现为一批用户的
+agent 集体"消失",且没有任何 5xx 指标可告警。except 路径改返 None;只按
+truthiness 用的调用方(circuit_breaker/local_bus/managed_ingress/mcp_auth
+的正例缓存等)不受影响(两者皆 falsy),授权调用方(backend/routes/
+_ownership.py)把 None 映射为 503。`last_verified` 同步。
+
 
 ## 2026-07-31 — resolve_owner：agent 属主语义的唯一出口
 

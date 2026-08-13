@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
+
+`create_mcp_server` 除 `_message_bus_mcp_tools` 外,还注册
+[[_work_board_mcp_tools]](5 个工具:add / list / claim / complete /
+update_status)。
+
+**挂同一台 server**:工作项的作用域是 team **房间**,而房间就是一个 bus
+channel —— 能在房间里说话的 agent,恰好就是该维护这块板子的 agent。独立 Module
+要新端口、新 instance 生命周期,还得反过来查 bus 的表(铁律 #3)。
+
+但它有**自己的状态机和自己的写入边界**(`stalled`/`paused`/`cancelled` 模型不
+可写),所以分文件。只读本文件会以为这台 server 上只有消息工具。
 
 ## 2026-08-05 — 指令不再把模型送去调一个会破坏名录的工具（review）
 
@@ -126,7 +138,16 @@ Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有�
 
 `hook_data_gathering()` 中注入的消息格式以 `[MessageBus · {from_agent}]` 开头（类似 Matrix 的 `[Matrix · ...]` 前缀），让 continuity.py 的 `_extract_core_content()` 能识别并提取核心内容。如果这个前缀格式改变，需要同步更新 `continuity.py` 的处理逻辑。
 
-在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简（可能不注入 "已知 Agent" 等非关键列表），以减少 token 消耗——因为此时 LLM 的主要任务是回复特定消息，不需要完整的 bus 状态概览。
+~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简。~~
+**2026-08-11 更正:这句是反的,而且从来没实现过。** `hook_data_gathering` 里没有任何
+`working_source` 分支 —— Known Agents / Your Channels / Unread Messages 三份列表对
+**每一个**场景一视同仁地注入,包括 owner 私聊、job、以及各 IM 渠道的轮次。本文件里
+唯一读 `working_source` 的地方只用来给 input 加 `[MessageBus · …]` 源标签。
+
+这句反话的代价是它掩盖了真实形状:团队房间的未读因为读游标死锁而无限堆积,再被原样
+灌进该 agent 所有场景的上下文。游标已在 2026-08-11 修复(见 `local_bus` 与
+`message_bus_trigger` 的同日条目),注入范围本身保持不变 —— 那是「顺带瞥一眼群里
+动静」的能力所在,污染是死锁的症状,不是注入设计的错。
 
 ## Gotcha / 边界情况
 
@@ -137,3 +158,45 @@ Module 实例是 Agent-level 的，但 `hook_data_gathering()` 运行时的 `age
 ## 新人易踩的坑
 
 `MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.hook_data_gathering()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
+
+## 2026-08-11 — 未读注入:窗口取最新、总数单独查、源标签取对头
+
+抓取改为把上限**下推进查询**并取**最新** N 条。此前是拿全量再 Python 切片,切的是
+oldest-first 列表的头部 —— 拿到的是积压里最古老的那些;再叠加 team 房间读游标永不
+推进,这个窗口是**冻结**的:同样 20 行,一轮又一轮,以"房间当前状态"的名义呈现。
+
+`bus_unread_total` 是新的 extra_data 键:查询加了 LIMIT 之后,`N unread (showing M)`
+里的 N 不能再是结果的 `len()`,否则 N 恒等于 M。
+
+`unread_models[0]` → `[-1]`:那行注释写着 "most recent trigger",而列表是 oldest-first,
+`[0]` 是积压里**最旧**的一条。注释和代码指着相反的两端。
+
+## 2026-08-12 — 两句站不住的规则,和一个终于有人读的字段
+
+**「群聊里你只看得到 @ 你的消息」被改写。** 这句在 `_static_instruction_parts` 里,
+对自建 bus 群是**对的**,对 team 房间是**错的** —— 后者的 turn prompt 带着整段房间
+scrollback,还在十行后明说"每个成员都看得到本房间每条消息"。同一个上下文窗口里两句
+互相矛盾的话。
+
+不能加房间类型分支:这一段需要跨轮字节稳定(R4 缓存),分叉就毁掉它存在的理由。所以
+改成**在所有房间都成立**的说法:「@mention 决定谁**被唤醒**,不决定谁**看得见**;
+你在某个房间能读到什么,由那个房间自己的 prompt 说明」。房间的事实交给唯一知道答案
+的地方。
+
+**「未回复的消息会重新出现」收窄到私聊。** 在 DM 里未读列表就是队列,不回确实等于
+延后。而 team 房间靠渲染投递,一轮跑完就算已读(2026-08-11 的游标修复),不收窄就是
+一条平台在 agent 加入团队那一刻起就不再遵守的承诺。
+
+**`via_team` 终于有消费者。** 它被算出来后全仓无人读。Known Agents 这份列表把队友和
+owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"已经和我在一个房间里"
+和"素不相识、要冷启一条 DM"。现在渲染成 `(teammate)`。
+
+## 2026-08-12 (review 后) — 被推翻的那句话在同一个文件里还有第二份
+
+静态段那句已经收窄成「**未回复的私聊**会重新出现」,但一百行之后的 volatile 块仍然
+无条件输出「Ignored messages stay unread」—— 而它就贴在 `### Unread Messages` 的表头
+下,那个列表里**混着 team 房间的未读**。对 team 房间它现在是假的(跑完一轮就推进
+`last_read_at`,回不回复都一样)。
+
+修一份留一份,正是这次改动开篇要消灭的「同一个上下文窗口里两句矛盾的话」,只是位置
+挪了一百行。铁律 #8 说的"加功能时顺手扫一遍相邻代码",这次没扫到。

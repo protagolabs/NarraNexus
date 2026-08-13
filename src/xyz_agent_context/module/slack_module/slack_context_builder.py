@@ -14,6 +14,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+    ROOM_TYPE_GROUP,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -21,6 +25,30 @@ from xyz_agent_context.schema.parsed_message import ParsedMessage
 
 from ._slack_credential_manager import SlackCredential
 from .slack_sdk_client import SlackSDKClient
+
+
+# Slack conversation-id prefixes. The id space is the only signal available
+# here without an extra `conversations.info` round trip:
+#   C… public channel      G… private channel AND multi-person DM
+#   D… 1:1 DM              (anything else: treated as a group room)
+# Only `D…` is a two-person conversation, so `G…` multi-person DMs
+# deliberately get the GROUP protocol — several people in a room is exactly
+# the situation the group discipline was tuned for, whatever Slack calls it.
+_SLACK_DM_ID_PREFIX = "D"
+
+
+def _is_slack_dm(chat_id: str) -> bool:
+    """True for a 1:1 Slack DM.
+
+    `room_type` used to be hard-coded to Group Room here, justified as "the
+    API surface is identical either way and room_type is only a prompt
+    label". It now SELECTS the Communication Protocol, so mislabelling a DM
+    tells the agent it may stay silent on a 1:1 message — the 0802 WeChat
+    failure, latent on Slack. Named helper + constant for the same reason
+    the room types themselves became constants: this is a behavioural
+    contract now, not a display string.
+    """
+    return (chat_id or "").startswith(_SLACK_DM_ID_PREFIX)
 
 
 class SlackContextBuilder(ChannelContextBuilderBase):
@@ -46,7 +74,9 @@ class SlackContextBuilder(ChannelContextBuilderBase):
             "channel_key": "slack",
             "room_name": "",  # could resolve via conversations.info — Phase 3 leaves blank
             "room_id": chat_id,
-            "room_type": "Group Room",  # Slack channels behave as group conversations
+            "room_type": (
+                ROOM_TYPE_DIRECT if _is_slack_dm(chat_id) else ROOM_TYPE_GROUP
+            ),
             "sender_display_name": self._message.sender_name or self._message.sender_id,
             "sender_id": self._message.sender_id,
             "timestamp": str(self._message.timestamp_ms),

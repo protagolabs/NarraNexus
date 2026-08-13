@@ -1,5 +1,6 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
+<<<<<<< HEAD
 last_verified: 2026-08-06
 stub: false
 ---
@@ -33,6 +34,15 @@ window.location.href;SHOW_MODE_SWITCHER 逻辑保留在弹层里未删。
 TeamManagementModal / ImportAgentModal 的挂载点从 AgentList 移到这里。
 宽度 288→272px。ThemeToggle / LanguageToggle 组件不再被本文件引用
 (账户弹层内联实现),组件本身保留给其他调用方。
+=======
+last_verified: 2026-08-12
+stub: false
+---
+
+## 2026-08-12 — 悬停预取 DashboardPage 补 `.catch`（复审二轮 🟢）
+
+`prefetchDashboard` 的 `import('@/pages/DashboardPage')` 加 `.catch(() => {})`——删掉全局 `vite:preloadError` 监听后没人 `preventDefault`,后台预取失败本应静默(真导航会重试、[[ChunkErrorBoundary.tsx]] 兜到达 render 的),把「故意忽略」写进代码而非留成 unhandled rejection。纯加固,无行为变化。
+>>>>>>> origin/dev
 
 ## 2026-07-28 — Beta 徽章挂到 logo 旁
 

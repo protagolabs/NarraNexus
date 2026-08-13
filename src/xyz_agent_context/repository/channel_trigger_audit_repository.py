@@ -32,6 +32,7 @@ from typing import Any, Optional
 from loguru import logger
 
 # Re-export the canonical constants so callers don't need a second import.
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,
@@ -52,16 +53,6 @@ from xyz_agent_context.channel.channel_audit_events import (
 )
 
 
-def _event_time_str(value: Any) -> str:
-    """
-    Normalise an event_time cell to a sortable ISO string.
-
-    sqlite returns ``datetime`` objects; mysql returns strings.
-    Comparisons must be type-uniform.
-    """
-    if isinstance(value, datetime):
-        return value.isoformat(sep=" ")
-    return str(value or "")
 
 
 class ChannelTriggerAuditRepository:
@@ -116,6 +107,22 @@ class ChannelTriggerAuditRepository:
                 f"ChannelTriggerAuditRepository.append({self._channel}, {event_type}): "
                 f"{type(e).__name__}: {e} (row dropped; audit is advisory only)"
             )
+        # Mirror every audit row as one AUDIT-level log line so lifecycle
+        # events ride the observability push sink (the sink ships log
+        # records, not DB rows — without the mirror, denied/silent/
+        # attachments/processed would only be visible via pull). The
+        # custom AUDIT level exists only after setup_logging ran; bare
+        # library use (tests, scripts) falls back to INFO rather than
+        # losing the line.
+        line = (
+            f"[audit] channel={self._channel} event={event_type} "
+            f"agent={agent_id or ''} message={message_id or ''} "
+            f"details={row['details']}"
+        )
+        try:
+            logger.log("AUDIT", line)
+        except ValueError:
+            logger.info(line)
 
     async def recent(
         self,
@@ -124,15 +131,42 @@ class ChannelTriggerAuditRepository:
         event_type: Optional[str] = None,
         agent_id: Optional[str] = None,
     ) -> list[dict]:
-        """Newest-first slice of THIS channel's log, optionally filtered."""
+        """Newest-first slice of THIS channel's log, optionally filtered.
+
+        Order + limit ride SQL — the previous full-pull-then-sort
+        materialized the channel's whole retention window per call."""
         filters: dict[str, Any] = {"channel": self._channel}
         if event_type:
             filters["event_type"] = event_type
         if agent_id:
             filters["agent_id"] = agent_id
-        rows = await self._db.get(self.TABLE, filters)
-        rows.sort(key=lambda r: _event_time_str(r.get("event_time")), reverse=True)
-        return rows[:limit]
+        return await self._db.get(
+            self.TABLE, filters, limit=limit, order_by="event_time DESC"
+        )
+
+    @staticmethod
+    async def recent_for_agent(
+        db,
+        agent_id: str,
+        *,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Newest-first slice for one agent ACROSS channels.
+
+        Static because instances are channel-scoped by construction and
+        this query deliberately is not (an agent's trail spans its IM
+        channel rows plus the "manyfold" files-write rows). Serves the
+        diagnostics pull endpoint."""
+        filters: dict[str, Any] = {"agent_id": agent_id}
+        if event_type:
+            filters["event_type"] = event_type
+        return await db.get(
+            ChannelTriggerAuditRepository.TABLE,
+            filters,
+            limit=limit,
+            order_by="event_time DESC",
+        )
 
     async def count_by_type(self, since_hours: int = 1) -> dict[str, int]:
         """
@@ -145,10 +179,17 @@ class ChannelTriggerAuditRepository:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(hours=since_hours)
         ).isoformat(sep=" ")
-        rows = await self._db.get(self.TABLE, {"channel": self._channel})
+        # Projection keeps this a cheap scan: unprojected it dragged the
+        # channel's whole retention window INCLUDING the MEDIUMTEXT
+        # details column, just to count.
+        rows = await self._db.get(
+            self.TABLE,
+            {"channel": self._channel},
+            fields=["event_type", "event_time"],
+        )
         counts: dict[str, int] = {}
         for r in rows:
-            if _event_time_str(r.get("event_time")) < cutoff:
+            if event_time_str(r.get("event_time")) < cutoff:
                 continue
             et = r.get("event_type", "")
             counts[et] = counts.get(et, 0) + 1
@@ -168,7 +209,7 @@ class ChannelTriggerAuditRepository:
             rows = await self._db.get(self.TABLE, {"channel": self._channel})
             to_delete = [
                 r["id"] for r in rows
-                if _event_time_str(r.get("event_time")) < cutoff
+                if event_time_str(r.get("event_time")) < cutoff
             ]
             for row_id in to_delete:
                 await self._db.delete(self.TABLE, {"id": row_id})

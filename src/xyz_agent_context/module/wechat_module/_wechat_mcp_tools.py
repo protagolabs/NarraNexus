@@ -22,15 +22,18 @@ from typing import Any
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.data_access import get_channel_credential_store
 
-from ._wechat_credential_manager import WeChatCredentialManager
-from .wechat_sdk_client import send_text_once
+from ._wechat_credential_manager import _cred_from_raw
+from .wechat_outbound import send_wechat_text
 
 
-async def _get_manager() -> WeChatCredentialManager:
-    db = await XYZBaseModule.get_mcp_db_client()
-    return WeChatCredentialManager(db)
+async def _get_credential(agent_id: str):
+    # Read path via the ChannelCredentialStore seam (blueprint P2): DirectStore
+    # locally, HttpStore -> owner-gated backend endpoint in cloud. Rebuild the
+    # dataclass so send/status keep using cred.bot_token / cred.to_public_dict().
+    raw = await get_channel_credential_store().get_credential("wechat", agent_id)
+    return _cred_from_raw(raw) if raw is not None else None
 
 
 def register_wechat_mcp_tools(mcp: Any) -> None:
@@ -53,14 +56,17 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
         if not to_user_id:
             return {"ok": False, "error": "missing_to_user_id"}
 
-        mgr = await _get_manager()
-        cred = await mgr.get(agent_id)
+        cred = await _get_credential(agent_id)
         if not cred:
             return {"ok": False, "error": "no_credential",
                     "hint": "no WeChat account bound; bind one from the Channels panel"}
 
-        ok = await send_text_once(
-            cred.bot_token, cred.base_url, to_user_id, context_token, text
+        ok = await send_wechat_text(
+            agent_id=agent_id,
+            credential=cred,
+            to_user_id=to_user_id,
+            context_token=context_token,
+            text=text,
         )
         return {"ok": ok} if ok else {"ok": False, "error": "send_failed"}
 
@@ -83,8 +89,7 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def wechat_status(agent_id: str) -> dict:
         """Return the agent's WeChat binding status (NO raw token)."""
-        mgr = await _get_manager()
-        cred = await mgr.get(agent_id)
+        cred = await _get_credential(agent_id)
         if not cred:
             return {"success": True, "data": None, "bound": False}
         public = cred.to_public_dict()
@@ -94,10 +99,6 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def wechat_unbind(agent_id: str) -> dict:
         """Remove this agent's WeChat binding."""
-        mgr = await _get_manager()
-        removed = await mgr.unbind(agent_id)
-        if not removed:
-            return {"success": False, "error": "no WeChat credential bound"}
-        return {"success": True, "data": {"unbound": True}}
+        return await get_channel_credential_store().unbind("wechat", agent_id)
 
     logger.info("WeChat MCP tools registered: wechat_send, wechat_status, wechat_unbind")

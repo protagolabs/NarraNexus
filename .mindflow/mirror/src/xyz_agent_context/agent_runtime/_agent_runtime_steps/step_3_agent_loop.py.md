@@ -1,8 +1,165 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — dispatch 时 stamp MCP 身份 token（蓝图 P1）
+
+`_dispatch_identity_token(ensured, user_id)`:云取 ensure() 返回的 broker 签名
+token(每 run 新鲜);本地在 `NX_MCP_AUTH_MODE != off` 时才让进程自签
+([[identity/tokens]] LocalEphemeralIssuer)——默认 off 时零 keygen 零文件写,
+铁律 #7。**云端绝不自签**(review #1):`ensured is not None or is_cloud_mode()`
+时无 broker token 就返回 None——进程内临时签名对不上 mcp 挂载的部署公钥,
+audit 期会把「谁还没 token」的核心测量污染成 invalid 噪音,enforce 期则全站
+401;测试钉住 audit 模式下旧 broker/云无 broker 两种形态都不 stamp。选中的
+token 经 `stamp_identity_token` 原地写进 `ctx.mcp_servers` 的 headers
+(bearer 第 **9** 位——与 #255 的 team_id/event_id 撞位后按「先到 dev 者得位」
+让位,stamp 重建时透传全部既有字段,漏一个=codex 通道静默丢该事实):放在
+TurnInput 之后是**故意的**——turn_input.py 文档明言 mcp_servers 按引用传递、
+"step_3 merges into mcp_servers before the call",本处沿用同一契约。云 token
+只在 ensure 后存在,所以 stamp 不能提前到 context_runtime 盖章处。测试:
+`test_step3_identity_stamp.py`。
+
+## 2026-08-10 (review 修正) — 授予收窄到本回合 team
+
+改用 [[workspace_paths.py]] 的 `turn_accessible_roots`，team 取自
+`trigger_extra_data["bus_team_id"]`（与 MCP 身份 header 同源）。此前授予的是整棵
+`_shared`——该 owner 名下**每一个** team 的目录，且**每个回合**都授予。
+
+字段随之改名 `extra_readable_roots` → `extra_accessible_roots`：它不是只读的。
+
+## 2026-08-07 — 授予 per-user `_shared` 为额外可读根
+
+组 TurnInput 时把 `{base}/{user_id}/_shared` 作为 `extra_readable_roots` 传下去，让
+NexusPower 的 confinement 放行团队共享目录与 bus 附件（此前 prompt 让读、框架层拒绝，
+且与 claude/codex 行为不一致——见 [[policy.py]]）。
+
+范围性质：`_shared` 在**本 user 根之下**，而 message bus 禁止跨 user，故这不授予任何
+跨 user 访问——正是 per-user Executor 已经挂载的同一棵子树。
+
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：framework_override 过 _framework_override_viable 守卫——与 nexus adapter 的 _resolve_provider **结构同构**——不止抄两个硬失败条件（OAuth 凭据 / 双槽均无模型），还抄 claude-first 短路优先级：claude.model 非空时 codex 永不被咨询，oauth claude + 有模型的 codex 也判不可行（第三轮 review #15 修正），不可行时保留 slot 解析并告警，语音轮经 legacy finalize 链自然降级；覆盖必要性（AGENT_REPLY_DELTA 表达流仅 nexus_power 有）与不可用时的降级路径以此为准。
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+framework 解析后允许 profile.framework_override 钉框架（voice 需要 NexusPower 的流式/expressive 接缝）；TurnInput 携带 turn_profile。
+
+## 2026-08-07 (三次) — 哨兵改成「剔除后判空」，不再靠等值
+
+上一条引入的 `NO_REPLY_NEEDED_SENTINEL` 用的是**精确等值**比较。指令写的是「只输出
+这串、别的都不要」，但 helper 跑在**用户自己配的 provider** 上（铁律 #15：平台不管
+用户选什么模型），所以给哨兵加引号、加句号、前面垫一句解释都在合法范围内——等值一落空，
+`text` 非空，`<<<NO_REPLY_NEEDED>>>` 这串**内部标记就被原样投递进用户的 IM 私聊**。
+这类失败的输出用户直接看得见，比「多回一句话」更丢人，而健壮性必须在我们这侧。
+
+改为 `in` 判定 + 无条件剔除：命中就把哨兵删掉，残余非空则投递残余（哨兵永不可能到达
+对端），残余为空则复用既有静默出口。
+
+**比 review 建议的一行多一道**：剔除后剩下的可能只是模型给哨兵套的标点（`"…"`、
+末尾 `。`），非空但不是回复，投递它只比投递哨兵好一点。所以再判一次
+`re.search(r"\w", text)`——`\w` 把 CJK 也算实义字符，问的是「这里还有没有内容」，
+而不是去枚举各种引号和标点形态。测试里那两个变体（`"哨兵"`、`哨兵。`）就是这么发现的。
+
+## 2026-08-07 (二次) — review 收口：沉默豁免可达、severity 不再漂移、import 上提
+
+三处，都来自 PR review：
+
+1. **`NO_REPLY_NEEDED_SENTINEL` + `_FALLBACK_IM_DM_EXTRA`**：私聊协议承诺了一个窄
+   豁免（对方那条是纯确认且无新内容可加则不回），但兜底的判据只有「有没有调表达
+   工具」——模型**正确地**对「谢谢」保持沉默恰好就是没有工具调用，于是兜底照样写一条
+   发出去，**该豁免在生产上永远不生效**。现在 `no_reply_im_dm` 模式的指令多一段：
+   命中纯确认就只输出哨兵串，`_stream_fallback_recovery` 见到它把 text 归零，复用
+   既有的静默出口（不投递、不写 synthetic 帧）。prompt 说的和平台做的从此一致。
+2. **`_has_organic_reply` 的 `working_source` 去掉默认值**（铁律 #2）。默认 `"chat"`
+   让 severity 那个姊妹调用点悄悄保留了本函数存在就是为了消除的漂移：一轮 IM 对话
+   已经通过 `wechat_send` / `lark_cli` 回复过、随后撞上 executor-infra 失败 →
+   被判「从未说话」→ `severity="fatal"` → `had_fatal_error=True`，**一轮实际已交付的
+   对话记成失败轮次**，用户前端拿到硬「retry」而不是 warning 徽章。两个调用点现在
+   都显式传值。
+3. **六处函数内延迟 import 提到模块顶层**。核查过无循环依赖：
+   `channel.message_source_handler` / `channel_sender_registry` / `channel_prompts`
+   只依赖 stdlib + loguru，都不 import `agent_runtime`（反向依赖由
+   `channel_trigger_base` 自己的延迟 import 解决）。其中一处在生成器体内，**每轮
+   执行一次**。
+4. 顺带：`_FALLBACK_NO_REPLY_INSTRUCTIONS` 正文里的
+   `didn't call send_message_to_user_directly` 改成中性的「never called its reply
+   tool」——IM 轮次里那个工具本就不是表达工具，给模型的事实前提是错的。
+
+## 2026-08-07 — 真机测试揪出的两处收口（信封接线 + 决策可观测性）
+
+同日 IM 私聊兜底（下一条）上线后用真 Telegram 私聊验，两个问题：
+
+1. **信封接线错了，整个兜底是死代码。** `_channel_turn_envelope(ctx)` 里
+   `getattr(ctx, "ctx_data")` 恒为 `None`——ContextData 是本步**新建**的、挂在
+   ContextRuntime **输出**上（`context.ctx_data`），`ctx` 没这个属性。于是信封恒空、
+   `is_direct_message` 恒 False，`no_reply_im_dm` 一次都不会触发。改为传 `context`。
+
+   **函数级单测抓不到它**：函数本身是对的，错在调用点传了哪个对象。所以补的不是
+   更多单测，而是下面的可观测性 + 一个跨层集成测试。发现方式是对读数据库：
+   同一轮的 prompt 里写着 `Direct Message`，日志里却是
+   `skip_reason='group_room_may_stay_silent'`。
+
+2. **矛盾之前不可见。** 已回复的分支**不打日志**（原有行为），走错的分支看起来又像
+   一次合法跳过。现在每轮无条件打一行
+   `[FALLBACK] decision: mode=… skip_reason=… working_source=… room_type=…
+   has_reply_kwargs=…`。prompt 与这个决策**读的是同一个 room_type**，所以
+   「prompt 说私聊、决策说群聊」是信封坏掉的确切特征，一眼可见。这正是
+   CLAUDE.md 事故教训 #4 要的 L2 级观测（不是「进程活着」，而是「它在做该做的事」）。
+
+真机结论：第一层（协议分叉）三轮验证通过——prompt 逐字确认注入私聊协议、无群聊纪律，
+模型对一句问候正常作答（旧协议下沉默才是「正解」）。修好后拿到正面证据：
+`room_type='Direct Message' skip_reason='already_replied_via_tool'` ——
+信封到位，且防重复发送那道闸在工作（模型自己回了，平台没有多发一条）。
+
+**第二层的投递路径真机没触发过**：第一层修好后模型一直正常回复，这正是想要的结果，
+但也意味着手动测试撞不到兜底。故补
+`tests/agent_runtime/test_im_dm_fallback_delivery_e2e.py`——它第一次运行就抓到了
+第三个 bug（见 `message_source_handler.py.md` 2026-08-07 条目：合成帧被渠道抽取器
+误读成占位符 / 沉默）。
+
+## 2026-08-06 — 兜底扩到 1:1 IM 私聊（推翻 2026-05-12 的门禁前提）
+
+原门禁是 `working_source != "chat" → non_chat_trigger`，理由（2026-05-12 条目里
+写着）「job/lark 有自己的回复通道」。**这个前提把「有回复工具」和「回复发生了」
+混为一谈**：模型输出明文却没调渠道发送工具时，文本被丢弃、这轮记成 activity 行、
+对端一个字也收不到。0802 微信工单就是这条。`message_bus` 仍排除——那半个理由
+（不许回复同伴 agent，防 agent 间循环）今天依然成立。
+
+- `_has_organic_reply(agent_loop_response, working_source="chat")` **改走
+  `MessageSourceRegistry`**，不再硬编码 `send_message_to_user_directly`。
+  **这是防重复发送的那道闸**：不改的话，一个正确调用了 `wechat_send` 的轮次会被
+  判成「没回复」，兜底就会在**每一次成功对话**后再发一条 helper 写的消息。默认参数
+  保持 chat 语义，既有调用点行为不变。权威与 `chat_module._delivered_to_origin`
+  同源，两层不可能再漂移。
+- `_should_run_helper_llm_fallback(..., is_direct_message=False)` 新增
+  `"no_reply_im_dm"` 模式；跳过理由细分：`group_room_may_stay_silent`（IM 群聊——
+  那里沉默是设计行为）、`fatal_no_invented_reply`（私聊轮次中途 fatal：chat 敢做
+  `after_error` 是因为前端还会并排显示错误徽章，IM 对端**没有任何错误面**，
+  给他一条自信满满、由半个念头合成的回复更糟）、原有 `non_chat_trigger`。
+  「是不是真渠道」用 handler 的 `dedicated_trigger` 判定——把 lark/wechat/telegram
+  与 `callback`/`a2a` 区分开，后者没有房间，报「群聊」是胡说。
+- `_deliver_im_fallback_reply()` 经 `ChannelSenderRegistry` 真投递（chat 不需要
+  对应物：那边把 delta 流给前端**就是**投递；IM 对端没有这个流，没人调渠道 API 的话
+  回复只存在于我们数据库里，正是 0802 的形态）。**只有渠道确认成功才 yield
+  synthetic 帧**——把「没发出去」记成「已回复」和我们正在修的丢弃明文属同一类谎报。
+  永不抛异常。
+- IM 分支刻意**不 yield `AgentTextDelta`**、synthetic 帧刻意**不标
+  `send_message_to_user_directly`**（改标渠道自己的发送工具，见
+  `_im_reply_tool_name`）。两者都会让这条回复出现在**主人**的聊天面板里，像是 agent
+  对主人说了话；`chat_module._split_user_visible_response` 正是按这个工具名分流的。
+- 文案复用 `_FALLBACK_NO_REPLY_INSTRUCTIONS`（`_fallback_instructions_for_mode`
+  对非 `after_error` 一律返回它），因此 2026-07-30 那两条诚实性规则自动继承。
+- 渠道事实经 `_channel_turn_envelope(ctx)` 从 `ctx_data.extra_data` 读通用键
+  （`channel_room_type` / `channel_reply_kwargs` / `channel_tag`，由
+  `ChannelTriggerBase` 放入）。**没信封 = 不是 IM 轮次 = 不兜底**，这是 chat/job/bus
+  的安全默认。
+
+测试：`tests/agent_runtime/test_im_dm_no_reply_fallback.py`（防重复发送、决策六
+分支、投递五种失败形态）；`test_helper_llm_fallback_decision.py` 补 IM 群聊用例，
+并把 `lark` 从 `non_chat_trigger` 参数化里移出（它是渠道，理由现在取决于房间类型）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

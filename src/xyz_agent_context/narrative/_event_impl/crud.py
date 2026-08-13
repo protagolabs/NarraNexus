@@ -242,38 +242,12 @@ class EventCRUD:
         """Update the narrative_id of an Event"""
         return await self.update(event_id, {"narrative_id": narrative_id})
 
-    async def duplicate(self, original_event: Event, narrative_id: str) -> Event:
-        """
-        Duplicate an Event (for associating with a different Narrative)
-
-        Args:
-            original_event: Original Event
-            narrative_id: New Narrative ID
-
-        Returns:
-            Newly created Event
-        """
-        new_event_id = f"evt_{uuid4().hex[:16]}"
-        now = datetime.now(timezone.utc)
-
-        new_event = Event(
-            id=new_event_id,
-            trigger=original_event.trigger,
-            trigger_source=original_event.trigger_source,
-            env_context=original_event.env_context.copy(),
-            module_instances=original_event.module_instances.copy(),
-            event_log=original_event.event_log.copy(),
-            final_output=original_event.final_output,
-            narrative_id=narrative_id,
-            agent_id=original_event.agent_id,
-            user_id=original_event.user_id,
-            created_at=now,
-            updated_at=now,
-        )
-
-        await self.save(new_event)
-        logger.debug(f"Duplicated Event: {new_event_id}")
-        return new_event
+    # NOTE (2026-08-05): there is deliberately no `duplicate()` here. One turn
+    # is one row. A turn that touches several Narratives is associated by
+    # appending the same event id to each `narratives.event_ids`; copying the
+    # row is what produced the phantom "completed, started_at NULL, 0 tool
+    # calls, empty event_log" twins behind the 0802 ordering report. See
+    # step_4_persist_results §4.4.
 
     def _parse_event_data(self, event_data: Dict[str, Any]) -> Event:
         """Parse a database row into an Event object"""

@@ -31,7 +31,15 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_MANAGED_ATTACHMENTS,
+    EVENT_MANAGED_INGRESS_DENIED,
+    EVENT_MANAGED_INGRESS_SILENT,
+)
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.repository.channel_trigger_audit_repository import (
+    ChannelTriggerAuditRepository,
+)
 from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -39,6 +47,16 @@ from xyz_agent_context.schema.parsed_message import (
     MessageContentType,
     ParsedMessage,
 )
+
+
+def _wire_message_id(trigger_extra_data: dict) -> str:
+    """The message identity every managed artifact shares — ParsedMessage
+    and audit rows derive through here so the two can never drift."""
+    return str(
+        trigger_extra_data.get("source_message_id", "")
+        or trigger_extra_data.get("trigger_id", "")
+        or ""
+    )
 
 
 def synthesize_managed_message(
@@ -60,10 +78,7 @@ def synthesize_managed_message(
         else ChatType.PRIVATE
     )
     return ParsedMessage(
-        message_id=str(
-            trigger_extra_data.get("source_message_id", "")
-            or trigger_extra_data.get("trigger_id", "")
-        ),
+        message_id=_wire_message_id(trigger_extra_data),
         chat_id=room_id,
         sender_id=sender_id,
         sender_name=str(tag.get("sender_name", "") or sender_id or "user"),
@@ -122,22 +137,48 @@ class ManagedChannelIngress:
         trigger_extra_data: dict,
         db: Any,
     ) -> tuple[bool, str]:
-        """Run the channel's pre-run business gate. Returns (allow, receipt)."""
+        """Run the channel's pre-run business gate. Returns (allow, receipt).
+
+        Also stamps the #254 turn envelope (``channel_room_type`` +
+        ``channel_reply_kwargs``) onto ``trigger_extra_data``: native turns
+        get it from the context builder inside
+        ``ChannelTriggerBase.build_trigger_extra_data``, but managed turns
+        never run a context builder — without the stamp, step_3 reads every
+        managed 1:1 DM as a group room and the no-reply fallback is dead
+        code on the whole managed surface.
+        """
         channel = working_source.value
         trigger = self._trigger(channel)
+        self._stamp_turn_envelope(trigger, trigger_extra_data)
+        # A denied inbound produces NO run and NO processed row — without
+        # its own event, "the bot ignored me" on a managed channel is
+        # unanswerable from the DB (lesson #5). EVERY deny path below
+        # audits, including the two infrastructure ones (trigger not
+        # loadable, gate crashed): those fail whole channels at once and
+        # would otherwise read as "the platform never called us" —
+        # bisection pointed exactly backwards.
         if trigger is None:
             if working_source is WorkingSource.NARRAMESSENGER:
-                return False, (
+                receipt = (
                     "narramessenger authorization unavailable "
                     "(trigger not loadable)"
                 )
+                await self._audit_deny(
+                    db, channel, agent_id, trigger_extra_data, receipt
+                )
+                return False, receipt
             return True, ""
         message = synthesize_managed_message(trigger_extra_data, user_input)
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:
-            return await trigger.managed_before_run(
+            allow, receipt = await trigger.managed_before_run(
                 agent_id=agent_id, message=message, db=db, is_mention=is_mention
             )
+            if not allow:
+                await self._audit_deny(
+                    db, channel, agent_id, trigger_extra_data, receipt
+                )
+            return allow, receipt
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"managed ingress before_run failed for {channel} "
@@ -145,8 +186,90 @@ class ManagedChannelIngress:
             )
             if working_source is WorkingSource.NARRAMESSENGER:
                 # The hook that failed IS the authorization gate: fail-closed.
-                return False, "narramessenger authorization failed"
+                receipt = "narramessenger authorization failed"
+                await self._audit_deny(
+                    db,
+                    channel,
+                    agent_id,
+                    trigger_extra_data,
+                    f"{receipt} ({type(e).__name__}: {e})",
+                )
+                return False, receipt
             return True, ""
+
+    @staticmethod
+    async def _audit(
+        db: Any, channel: str, event_type: str, **kwargs: Any
+    ) -> None:
+        """Direct audit write, no trigger required. Never raises.
+
+        The coordinator writes through the repository itself rather than
+        a trigger seam: two of the deny paths fire precisely BECAUSE the
+        trigger is unavailable, and an audit mechanism that needs the
+        broken component can't record the breakage.
+        """
+        try:
+            await ChannelTriggerAuditRepository(channel, db).append(
+                event_type, **kwargs
+            )
+        except Exception as e:  # noqa: BLE001 — audit is a side-channel
+            logger.warning(
+                f"managed ingress: audit write failed for {channel} "
+                f"({type(e).__name__}: {e})"
+            )
+
+    @classmethod
+    async def _audit_deny(
+        cls,
+        db: Any,
+        channel: str,
+        agent_id: str,
+        trigger_extra_data: dict,
+        reason: str,
+    ) -> None:
+        tag = trigger_extra_data.get("channel_tag") or {}
+        await cls._audit(
+            db,
+            channel,
+            EVENT_MANAGED_INGRESS_DENIED,
+            agent_id=agent_id,
+            message_id=_wire_message_id(trigger_extra_data),
+            chat_id=str(tag.get("room_id", "") or ""),
+            sender_id=str(tag.get("sender_id", "") or ""),
+            details={"reason": (reason or "")[:200]},
+        )
+
+    @staticmethod
+    def _stamp_turn_envelope(
+        trigger: Optional[ChannelTriggerBase], trigger_extra_data: dict
+    ) -> None:
+        """Synthesize the turn envelope for a managed turn. Never raises.
+
+        Room type comes from the wire ``chat_type`` (only ``"group"`` reads
+        as a group room — DMs arrive as ``"private"`` or with the field
+        absent). Reply kwargs are channel-specific and come from the
+        trigger's ``managed_reply_kwargs`` seam; no trigger → no kwargs,
+        which step_3 treats as "deliver with target_id only".
+        """
+        from xyz_agent_context.channel.channel_prompts import (
+            ROOM_TYPE_DIRECT,
+            ROOM_TYPE_GROUP,
+        )
+
+        is_group = trigger_extra_data.get("chat_type") == "group"
+        trigger_extra_data["channel_room_type"] = (
+            ROOM_TYPE_GROUP if is_group else ROOM_TYPE_DIRECT
+        )
+        if trigger is not None:
+            try:
+                trigger_extra_data["channel_reply_kwargs"] = (
+                    trigger.managed_reply_kwargs(trigger_extra_data)
+                )
+            except Exception as e:  # noqa: BLE001 — envelope is best-effort
+                logger.warning(
+                    f"managed ingress: managed_reply_kwargs failed "
+                    f"({type(e).__name__}: {e}); turn degrades to no-fallback"
+                )
 
     async def convert_attachments(
         self,
@@ -194,6 +317,18 @@ class ManagedChannelIngress:
                 f"managed ingress: attachment workspace resolution failed for "
                 f"{agent_id} ({type(e).__name__}: {e}); continuing text-only"
             )
+            # This is the "ALL declared attachments lost" case — the one
+            # the declared-vs-converted row most needs to cover (process
+            # logs rotate; the DB row doesn't).
+            await self._audit_attachments(
+                db,
+                working_source.value,
+                agent_id,
+                trigger_extra_data,
+                declared=len(refs),
+                converted=0,
+                error=f"workspace_resolution: {type(e).__name__}",
+            )
             return
 
         converted: list[dict] = []
@@ -232,6 +367,45 @@ class ManagedChannelIngress:
                 )
         if converted:
             trigger_extra_data["attachments"] = converted
+        # One row per attachment-bearing inbound, whatever the outcome:
+        # declared vs converted is the whole diagnosis for "the agent
+        # never saw my file" (the converter itself never raises, so a
+        # silent shortfall is otherwise invisible outside process logs).
+        await self._audit_attachments(
+            db,
+            working_source.value,
+            agent_id,
+            trigger_extra_data,
+            declared=len(refs),
+            converted=len(converted),
+        )
+
+    @classmethod
+    async def _audit_attachments(
+        cls,
+        db: Any,
+        channel: str,
+        agent_id: str,
+        trigger_extra_data: dict,
+        *,
+        declared: int,
+        converted: int,
+        error: str = "",
+    ) -> None:
+        tag = trigger_extra_data.get("channel_tag") or {}
+        details: dict[str, Any] = {"declared": declared, "converted": converted}
+        if error:
+            details["error"] = error[:200]
+        await cls._audit(
+            db,
+            channel,
+            EVENT_MANAGED_ATTACHMENTS,
+            agent_id=agent_id,
+            message_id=_wire_message_id(trigger_extra_data),
+            chat_id=str(tag.get("room_id", "") or ""),
+            sender_id=str(tag.get("sender_id", "") or ""),
+            details=details,
+        )
 
     async def silent_ingest(
         self,
@@ -268,12 +442,28 @@ class ManagedChannelIngress:
                 attachments = [
                     Attachment(**d) for d in converted if isinstance(d, dict)
                 ]
-            return await trigger.managed_silent_ingest(
+            receipt = await trigger.managed_silent_ingest(
                 agent_id=agent_id,
                 message=message,
                 db=db,
                 attachments=attachments,
             )
+            # _audit never raises, so a failed write cannot convert a
+            # successful ingest into a "dropped" receipt.
+            await self._audit(
+                db,
+                channel,
+                EVENT_MANAGED_INGRESS_SILENT,
+                agent_id=agent_id,
+                message_id=message.message_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={
+                    "attachments": len(attachments) if attachments else 0,
+                    "receipt": (receipt or "")[:120],
+                },
+            )
+            return receipt
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"managed ingress silent_ingest failed for {channel} "
@@ -291,9 +481,12 @@ class ManagedChannelIngress:
         db: Any,
         reply_text: str,
         error_text: str = "",
+        audit_details: Optional[dict] = None,
     ) -> None:
         """Run the channel's post-run bookkeeping (inbox / audit / error
-        fallback). Best-effort; never raises."""
+        fallback). Best-effort; never raises. ``audit_details`` is the
+        completions endpoint's turn facts (route / duration) for the
+        ``managed_ingress_processed`` row."""
         trigger = self._trigger(working_source.value)
         if trigger is None:
             return
@@ -305,6 +498,7 @@ class ManagedChannelIngress:
                 db=db,
                 reply_text=reply_text,
                 error_text=error_text,
+                audit_details=audit_details,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

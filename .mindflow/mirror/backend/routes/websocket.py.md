@@ -1,8 +1,37 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-31
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — cloud 错误脱敏 + MCP egress SSRF 过滤（安全审计 P1-1/P0-3）
+
+构造 `mcp_servers` 后调 `backend.routes._mcp_egress.filter_public_mcp_servers`（cloud only）丢弃解析到内网的 MCP，防运行时把内网响应带进模型上下文（复用文件头已导入的 `_is_cloud_mode`，不再另 import）。
+
+顶层 `except` 原本把完整 `traceback.format_exc()` + `str(e)` 通过 `send_json` 发给前端，
+泄露服务器路径、依赖版本、内部变量。现在按 `is_cloud_mode()` 分流：cloud 只发通用
+`{"error_message": "Internal server error.", "error_type": "InternalError"}`（详情只进
+服务端日志）；local/dev 仍发完整 traceback 便于调试。
+
+## 2026-08-10 — accepted and started message stages
+
+After validation a fresh turn records `message_accepted`; after Step 0 assigns
+the durable run ID it records idempotent `run_started`. Their gap isolates
+runtime-start failures from browser submission failures. The accepted fact is
+keyed by the already-created WebSocket session ID and includes that ID as a
+dimension, so reconnect/retry paths cannot inflate the stage count. Small
+module-level helpers make both capture contracts directly testable.
+
+## 2026-08-06 — AuthError 帧带 `error_code`
+
+七个 AuthError 帧各自加一个 `error_code`（token_expired / token_invalid /
+token_missing / identity_missing / identity_unresolved，取值见
+[[auth_errors]]）。动机：这些帧原本只有 `error_type: 'AuthError'`，前端
+[[wsAuthError.ts]] 无法区分"JWT 真的死了"和"local 模式 URL 的 x_user_id 跟
+payload 对不上"（后者是前端状态 bug），一律当成会话死亡直接登出。
+
+前端侧现在不管哪种帧都先走 [[sessionGuard.ts]] 探针确认，所以即使分类错了，
+代价也从"整个会话"降到"这一次运行失败"。
 
 ## 2026-07-31 (三次) — 可见性判定改「agent 属主」（review R2 Critical #1）
 
@@ -89,14 +118,20 @@ instrumentation — the nearest surviving funnel event is
   `_format_dt`）。
 
 **为什么是 `created_at` 而不是 `started_at`**：
-`ChatModule.hook_after_event_execution` 把 user 这条持久化进
-`agent_messages` 时用的 `user_ts = params.event.created_at.isoformat()`
-（chat_module.py:786）。前端 ChatPanel 的 dedup 走 `role:content`
+`ChatModule.hook_persist_turn` 把 user 这条写进
+`instance_json_format_memory_chat` 时，`meta_data.timestamp` 取的就是
+`params.event.created_at.isoformat()`（assistant 那条才用 `utc_now()`，
+即 run 结束时刻——两者刻意不同）。前端 ChatPanel 的 dedup 走 `role:content`
 + ±300_000ms 窗口（SAME_MESSAGE_WINDOW_MS），如果时间戳基准不一致，
 即便差几秒也只是窗口在兜底——但用同一个字段作基准让"reconnect 注入
-的 user bubble"和"run 结束后从 agent_messages 拉回来的 user 行"
+的 user bubble"和"run 结束后从 `/simple-chat-history` 拉回来的 user 行"
 匹配精度最高（只差 DB INSERT 时 SQL `datetime('now')` 与 Python
 `utc_now()` 之间的几个毫秒），不会出现双重 user 气泡。
+
+> 2026-08-05 更正：这段原来写的是"持久化进 `agent_messages`"并钉了
+> `chat_module.py:786`。`agent_messages` **没有写入者、0 行**，是墓碑表
+> （见 [[agent_message_repository]] 2026-08-05）；聊天正文一直在
+> `instance_json_format_memory_chat`。行号也已失效，故不再钉行号。
 
 env_context 解析失败（JSON 损坏、列空）走 `suppress + warn-log`：
 reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气泡

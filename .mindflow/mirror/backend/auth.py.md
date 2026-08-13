@@ -1,8 +1,59 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-05
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — AUTH_EXEMPT_PATHS 新增 NarraMessenger prewarm 双端点
+
+`/api/narramessenger/prewarm` + `/api/narramessenger/prewarm/status`(F28 语音
+快答):caller 是 NarraMessenger 后端(机器对机器,没有用户 JWT),handler 内
+用 per-agent `bearer_token` 自凭证(`hmac.compare_digest` 常量时间比较)——与
+`/api/admin/runtime/status` 同模式。豁免同时跳过 quota resolver,正确:预热
+是纯基础设施操作,不花 LLM 额度。
+
+## 2026-08-10 — product analytics bypasses the quota resolver
+
+`/api/analytics` still requires normal user authentication but skips provider
+resolution: event ingestion is metadata-only and spends no LLM quota. This is
+essential at the paywall, where exhausted users must still be able to record
+subscribe and checkout actions instead of receiving a resolver 402 first.
+
+## 2026-08-10 — nx-agent 服务身份旁路（蓝图 Q6，MCP caller auth）
+
+云 JWT 段在 `decode_token` 之前多一条判定:bearer 是 `nx-agent:` 位置记录
+(mcp 容器 HttpStore 原样转发的 executor→mcp 身份通道)→ 验证算法走共享的
+[[identity/verify]](本文件只保留降级策略与日志;bearer 解析走 module 公开面
+`parse_bearer_identity`/`BEARER_AGENT_PREFIX`,不伸私有名)→ 公钥
+(`NX_IDENTITY_PUBLIC_KEY_FILE`,[[identity/tokens]])验 bearer 的 identity_token
+段(BEARER_FIELDS 末位)Ed25519 token,
+sub 即生效 user(`request.state.nx_service_authed=True`),路由侧照旧对目标
+agent_id 做 owner 校验。与 manyfold gateway-token 平级的服务信任先例,但有
+两点刻意不同:
+1. **绝不 fail-open**——nx-agent bearer 打到 backend 只可能是服务调用,无 token
+   /无公钥/验签失败/bearer 声明的 user 与 sub 不符,一律 401(每种 reason 单独
+   落 WARNING,0806 的可诊断纪律);mcp 侧中间件 fail-open 是因为它是数据面,
+   这里不是。
+2. **早退跳过 provider/quota resolver**——数据面服务调用是 repository 操作不是
+   LLM 花销,欠费用户的 awareness 更新不该被 402(与 SAFE_HTTP_METHODS 同理)。
+测试:`test_auth_nx_service_bearer.py`。
+
+## 2026-08-06 — 每个 401 带上 `code` + 一行 `[auth-reject]` 日志
+
+middleware 的三个 401 出口（无 Bearer / 过期 / 非法）和 local 模式缺
+`X-User-Id` 的那个出口，改用 [[auth_errors]] 的 `auth_error_response()`：
+响应体从 `{"detail": ...}` 变成 `{"detail": ..., "code": ...}`，并且**每次
+拒绝都写一行 WARNING**（token 类还带这枚 token 自己的 iat/exp）。
+
+为什么非改不可：这几处原本是裸 `_json_response`，**一行日志都没有**。
+2026-08-02 线下活动那小时的 10 个带 token 401，事后只能看到路径和状态码，
+"到底是自然过期还是签名密钥换了"至今无解——而这两者在日志里的区别就是
+`exp` 是否还在未来。`_json_response` 现在只剩 402 配额那一处在用。
+
+`resolve_current_user_id`（86 处路由调用的共享身份出口）改抛
+`AuthError(IDENTITY_UNRESOLVED)`：middleware 已经放行、处理器却拿不到身份，
+那是我们自己的接线 bug，**不是**会话死亡，不该把用户踢下线。分类表见
+[[auth_errors]]。
 
 ## 2026-07-22 — 共享 CSRF 守卫 `reject_cross_origin`
 
@@ -244,7 +295,7 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 ## Gotcha / 边界情况
 
-- **JWT_SECRET 的默认值**：默认值是 `"dev-secret-do-not-use-in-production"`。云部署时如果忘记设置 `JWT_SECRET` 环境变量，应用正常启动并签发 token，但任何知道这个默认值的人都可以伪造合法 token。没有启动时的校验或警告。
+- **JWT_SECRET 的默认值 + 启动校验**（2026-08-11 加固）：默认值 `"dev-secret-do-not-use-in-production"` 供 local 模式用。**cloud 模式启动时 `assert_jwt_secret_safe()` 会拒绝默认值/空值**——`main.py` lifespan 在建库前调用它，`JWT_SECRET` 未设或等于默认值即 `raise RuntimeError` 拒绝启动（与 `routes/artifacts/_token.py` 的 secret 同一 fail-fast 姿态）。所以云上"忘设 JWT_SECRET 用已知默认值签发可伪造 token"这条已堵：宁可不启动也不用已知密钥签名。local 模式仍用默认值（单可信用户、无需 JWT）。
 - **token 有效期 7 天**：`JWT_EXPIRY_DAYS = 7`，没有 refresh token 机制。7 天后用户必须重新登录，前端会看到 401 并需要处理重定向到登录页。
 - **`CurrentUser` 依赖在 local 模式下返回 None**：`get_current_user` 在 local 模式下返回 `None`，如果有路由用了 `Depends(get_current_user)` 并假设返回值非 None，local 模式下会 `AttributeError`。目前鉴权主要走中间件，这个函数几乎没被路由使用。
 

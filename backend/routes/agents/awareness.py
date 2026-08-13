@@ -11,9 +11,10 @@ Provides endpoints for:
 
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from loguru import logger
 
+from backend.routes._ownership import assert_owned
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository
@@ -25,6 +26,17 @@ from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, Insta
 router = APIRouter()
 
 
+async def _find_awareness_instance(agent_id: str) -> str | None:
+    """The agent's AwarenessModule instance_id, or None when it has none."""
+    db_client = await get_db_client()
+    instance_repo = InstanceRepository(db_client)
+    instances = await instance_repo.get_by_agent(
+        agent_id=agent_id,
+        module_class="AwarenessModule"
+    )
+    return instances[0].instance_id if instances else None
+
+
 async def _ensure_awareness_instance(agent_id: str) -> str:
     """
     Ensure an AwarenessModule instance exists for the Agent, create one if not
@@ -32,15 +44,11 @@ async def _ensure_awareness_instance(agent_id: str) -> str:
     Returns:
         instance_id
     """
+    existing = await _find_awareness_instance(agent_id)
+    if existing:
+        return existing
     db_client = await get_db_client()
     instance_repo = InstanceRepository(db_client)
-    instances = await instance_repo.get_by_agent(
-        agent_id=agent_id,
-        module_class="AwarenessModule"
-    )
-
-    if instances:
-        return instances[0].instance_id
 
     logger.info(f"No AwarenessModule instance found, creating one for agent: {agent_id}")
     instance_id = f"aware_{uuid.uuid4().hex[:8]}"
@@ -58,18 +66,26 @@ async def _ensure_awareness_instance(agent_id: str) -> str:
 
 
 @router.get("/{agent_id}/awareness", response_model=AwarenessResponse)
-async def get_agent_awareness(agent_id: str):
+async def get_agent_awareness(agent_id: str, request: Request):
     """
     Get Agent self-awareness information
 
     Queries data from instance_awareness table (via AwarenessModule's instance_id).
-    Creates an AwarenessModule instance automatically if none exists.
+    Owner-only (cloud mode). A read never creates an instance for the agent:
+    an agent with no AwarenessModule instance yet returns not-found, not an
+    auto-minted empty one (side-effect-free GET + no instance-spray on lookups).
     """
     logger.debug(f"Getting awareness for agent: {agent_id}")
+    await assert_owned(request, agent_id)
 
     try:
         db_client = await get_db_client()
-        instance_id = await _ensure_awareness_instance(agent_id)
+        instance_id = await _find_awareness_instance(agent_id)
+        if not instance_id:
+            return AwarenessResponse(
+                success=False,
+                error=f"Awareness data not found for agent: {agent_id}",
+            )
 
         awareness_data = await db_client.get_one(
             "instance_awareness",
@@ -91,23 +107,41 @@ async def get_agent_awareness(agent_id: str):
 
     except Exception as e:
         logger.exception(f"Error getting awareness: {e}")
-        return AwarenessResponse(success=False, error=str(e))
+        return AwarenessResponse(success=False, error="Failed to get awareness.")
 
 
 @router.put("/{agent_id}/awareness", response_model=AwarenessResponse)
-async def update_agent_awareness(agent_id: str, request: AwarenessUpdateRequest):
+async def update_agent_awareness(
+    agent_id: str,
+    request: AwarenessUpdateRequest,
+    http_request: Request,
+    create_missing: bool = True,
+):
     """
     Update Agent self-awareness information
 
-    Updates data in instance_awareness table (via AwarenessModule's instance_id).
-    Creates an AwarenessModule instance automatically if none exists.
+    Owner-only (cloud mode). Updates data in instance_awareness table (via
+    AwarenessModule's instance_id). Creates an AwarenessModule instance
+    automatically if none exists — unless ``create_missing=false``: the MCP
+    data-access seam (HttpStore) uses that to keep parity with the direct
+    path, where an unknown agent_id is an ERROR, not a licence to mint an
+    instance for it (the frontend keeps the auto-create default).
     """
+    await assert_owned(http_request, agent_id)
     logger.info(f"Updating awareness for agent: {agent_id}")
     logger.info(f"  → Request awareness content (first 100 chars): {request.awareness[:100] if request.awareness else 'None'}...")
 
     try:
         db_client = await get_db_client()
-        instance_id = await _ensure_awareness_instance(agent_id)
+        if create_missing:
+            instance_id = await _ensure_awareness_instance(agent_id)
+        else:
+            instance_id = await _find_awareness_instance(agent_id)
+            if not instance_id:
+                return AwarenessResponse(
+                    success=False,
+                    error=f"No AwarenessModule instance found for agent_id={agent_id}",
+                )
         logger.info(f"  → Using instance_id: {instance_id}")
 
         # Update instance_awareness table
@@ -136,6 +170,4 @@ async def update_agent_awareness(agent_id: str, request: AwarenessUpdateRequest)
 
     except Exception as e:
         logger.exception(f"Error updating awareness: {e}")
-        import traceback
-        logger.exception(traceback.format_exc())
-        return AwarenessResponse(success=False, error=str(e))
+        return AwarenessResponse(success=False, error="Failed to update awareness.")

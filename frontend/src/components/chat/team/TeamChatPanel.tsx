@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -28,11 +28,14 @@ import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { useTeamsStore, useConfigStore } from '@/stores';
+import { TeamWorkspacePanel } from './TeamWorkspacePanel';
+import { TeamBulletinPanel } from './TeamBulletinPanel';
+import type { Artifact, TeamFile } from '@/types/artifact';
+import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
-import type { TeamChatMessage, TeamMemberActivity } from '@/types/teams';
+import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
 
 interface TeamChatPanelProps {
@@ -119,6 +122,24 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
+
+  // Workspace data lives HERE, not in the panel: a chip under a message and
+  // the panel's own list must agree on what is open, so one component owns the
+  // state — and it has to be the one both of them are inside.
+  const [wsArtifacts, setWsArtifacts] = useState<Artifact[]>([]);
+  const [wsFiles, setWsFiles] = useState<TeamFile[]>([]);
+  const [wsTurns, setWsTurns] = useState<Record<string, string[]>>({});
+  const [wsLoading, setWsLoading] = useState(false);
+  const [wsError, setWsError] = useState<string | null>(null);
+  const [wsSelected, setWsSelected] = useState<string | null>(null);
+  const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
+  // The bulletin lives here, like the workspace: a change posts a system line
+  // into the transcript, so the transcript and the panel must agree on when
+  // something changed, and one component has to own that.
+  const [bulletin, setBulletin] = useState<TeamBulletin | null>(null);
+  const [bulletinLoading, setBulletinLoading] = useState(false);
+  const [bulletinError, setBulletinError] = useState<string | null>(null);
+  const [bulletinOpen, setBulletinOpen] = useState(false);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
@@ -365,6 +386,73 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     }
   };
 
+  const reloadBulletin = useCallback(async () => {
+    setBulletinLoading(true);
+    try {
+      const b = await api.getTeamBulletin(teamId);
+      setBulletin(b);
+      setBulletinError(null);
+    } catch (e) {
+      setBulletinError(e instanceof Error ? e.message : 'Failed to load bulletin');
+    } finally {
+      setBulletinLoading(false);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    void reloadBulletin();
+    // Also on the workspace tick: clearing team data can take the bulletin with
+    // it, and a panel still listing deleted rules is worse than an empty one.
+  }, [reloadBulletin, workspaceRefreshTick]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      setWsLoading(true);
+      try {
+        const [a, f, turns] = await Promise.all([
+          api.listTeamArtifacts(teamId),
+          api.listTeamFiles(teamId),
+          api.listTeamArtifactTurns(teamId),
+        ]);
+        if (!alive) return;
+        setWsArtifacts(a);
+        setWsFiles(f);
+        setWsTurns(turns);
+        setWsError(null);
+      } catch (e) {
+        if (alive) setWsError(e instanceof Error ? e.message : 'Failed to load workspace');
+      } finally {
+        if (alive) setWsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // Keyed on message count: a turn that registered something has just landed
+    // in the transcript, so this is the cheapest honest signal that the
+    // workspace may have changed. That signal misses one case — a wipe of the
+    // team's files, which empties this panel while leaving the transcript
+    // exactly as it was — so the store's explicit tick covers it.
+  }, [teamId, messages.length, workspaceRefreshTick]);
+
+  /** Returns the server's error text, or null on success. */
+  const bulletinAction = async (
+    call: () => Promise<{ success: boolean; error?: string }>,
+  ): Promise<string | null> => {
+    try {
+      const res = await call();
+      if (!res.success) return res.error || 'Failed';
+      await reloadBulletin();
+      // The change posts a system line into the room; pull it in now rather
+      // than waiting up to a poll interval for the transcript to catch up.
+      await refresh();
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Failed';
+    }
+  };
+
   if (!team) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-tertiary)]">
@@ -376,7 +464,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const accent = team.team.color || 'var(--color-silicon)';
 
   return (
-    <div className="flex h-full flex-col min-h-0">
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full flex-1 flex-col min-h-0">
       {/* Member bar — team identity + the roster of agents in this room. */}
       <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
@@ -476,6 +565,29 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         >
           <Settings2 className="w-3.5 h-3.5" />
         </button>
+        {/* Top-level chrome, not inside settings: the bulletin is the answer to
+            "what does this team already know", which is asked while reading the
+            room. The count makes an existing bulletin advertise itself instead
+            of waiting to be discovered. */}
+        <button
+          type="button"
+          onClick={() => setBulletinOpen((v) => !v)}
+          aria-pressed={bulletinOpen}
+          data-testid="bulletin-toggle"
+          title={t('chat.team.bulletin.title')}
+          aria-label={t('chat.team.bulletin.title')}
+          className={cn(
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            bulletinOpen && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
+        >
+          <ClipboardList className="w-3.5 h-3.5" />
+          {(bulletin?.usage.entry_count ?? 0) > 0 && (
+            <span className="text-[10px] font-mono" data-testid="bulletin-count">
+              {bulletin?.usage.entry_count}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Two panes: the conversation on the left, the standing roster on the
@@ -499,6 +611,78 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   const mine = m.is_user;
                   const avatarLabel = (mine ? userLabel : m.author_name) || '?';
                   const ts = Date.parse(m.created_at);
+                  // A stop notice is the ROOM speaking, not the agent: a task
+                  // that ran in public should visibly stop in public, but
+                  // dressing it as the agent's own reply would read as the agent
+                  // announcing its own death.
+                  // A bulletin change is the room speaking, exactly like a stop
+                  // notice: dressing it as a member's message would attribute a
+                  // platform event to whoever happened to trigger it.
+                  if (m.msg_type === 'system_bulletin') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`bulletin-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <span
+                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+                          style={{ color: 'var(--nm-ink50)' }}
+                        >
+                          {t(
+                            m.content?.includes('cleared')
+                              ? 'chat.team.bulletin.clearedNotice'
+                              : 'chat.team.bulletin.updatedNotice',
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
+                  if (m.msg_type === 'system_stop') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`stop-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <span
+                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+                          style={{ color: 'var(--nm-ink50)' }}
+                        >
+                          {t('chat.team.stoppedNotice', { name: m.author_name })}
+                        </span>
+                      </div>
+                    );
+                  }
+                  // A patrol line is the platform taking stock, not a member
+                  // talking. It is posted under the room's own marker, so
+                  // `author_name` would resolve to a raw `team_<id>` — and more
+                  // importantly, rendering it as a bubble would make the Leader
+                  // look like it keeps interrupting the room on its own.
+                  if (m.msg_type === 'patrol') {
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`patrol-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <div
+                          className="max-w-[85%] rounded-lg border border-dashed border-[var(--border-subtle)] px-3 py-1.5"
+                          style={{ background: 'var(--nm-paper-warm)' }}
+                        >
+                          <div
+                            className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.18em]"
+                            style={{ color: 'var(--nm-ink50)' }}
+                          >
+                            {t('chat.team.patrolNotice')}
+                          </div>
+                          <div className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+                            <Markdown content={m.content.trim()} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
                       {/* Carbon ring for the human, silicon for an agent — matching
@@ -556,6 +740,30 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                               an event_id (legacy rows degrade to no button). */}
                           {!mine && m.event_id && (
                             <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                          )}
+                          {/* What THIS turn produced. Joined on event_id, which
+                              both the transcript and the artifact history
+                              carry — not on timestamps, which would mis-attribute
+                              the ordinary cases (two artifacts in one turn, two
+                              agents replying at once). */}
+                          {m.event_id && (wsTurns[m.event_id] ?? []).length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {(wsTurns[m.event_id] ?? []).map((aid) => {
+                                const art = wsArtifacts.find((x) => x.artifact_id === aid);
+                                return (
+                                  <button
+                                    key={aid}
+                                    type="button"
+                                    onClick={() => setWsSelected(aid)}
+                                    title="Open in the team workspace"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono border border-[var(--nm-hairline)] text-[var(--text-tertiary)] hover:text-[var(--nm-ink)] max-w-full"
+                                  >
+                                    <span className="truncate">{art?.title ?? aid}</span>
+                                    <span className="opacity-50">↗</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                         {/* Meta row outside the bubble, aligned to its side. */}
@@ -805,6 +1013,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         </div>
 
         <TeamRosterPanel
+          teamId={teamId}
           members={members}
           activity={activity}
           leadAgentId={leadAgentId}
@@ -821,6 +1030,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             at 92vw) — a fixed width here would undo the expansion. */}
         {mobileRosterOpen && (
           <TeamRosterPanel
+            teamId={teamId}
             members={members}
             activity={activity}
             leadAgentId={leadAgentId}
@@ -871,6 +1081,54 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           </Button>
         </DialogFooter>
       </Dialog>
+      </div>
+      {/* The team's output. Sits beside the transcript rather than behind a
+          route, because "what did we make" is a question asked WHILE reading
+          the conversation. Keyed off message count so a turn that registers an
+          artifact surfaces it without the user reloading. */}
+      {bulletinOpen && (
+        <div className="w-72 shrink-0 border-l border-[var(--border-subtle)] flex flex-col">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
+            <h3 className="text-xs font-medium text-[var(--text-primary)]">
+              {t('chat.team.bulletin.title')}
+            </h3>
+            <button
+              type="button"
+              aria-label={t('common.close')}
+              onClick={() => setBulletinOpen(false)}
+              className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <TeamBulletinPanel
+            bulletin={bulletin}
+            loading={bulletinLoading}
+            error={bulletinError}
+            memberNames={Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id]))}
+            onAdd={(content, tier) =>
+              bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
+            }
+            onEdit={(entryId, content) =>
+              bulletinAction(() => api.updateTeamBulletinEntry(teamId, entryId, content))
+            }
+            onDelete={(entryId) =>
+              bulletinAction(() => api.deleteTeamBulletinEntry(teamId, entryId))
+            }
+            onClearTier={(tier) =>
+              bulletinAction(() => api.clearTeamBulletinTier(teamId, tier))
+            }
+          />
+        </div>
+      )}
+      <TeamWorkspacePanel
+        artifacts={wsArtifacts}
+        files={wsFiles}
+        loading={wsLoading}
+        error={wsError}
+        selectedId={wsSelected}
+        onSelect={setWsSelected}
+      />
     </div>
   );
 }

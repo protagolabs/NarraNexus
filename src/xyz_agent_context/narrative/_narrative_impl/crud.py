@@ -127,18 +127,13 @@ class NarrativeCRUD:
         must never break narrative persistence."""
         try:
             from xyz_agent_context.memory import MemoryEngine
-            info = narrative.narrative_info
             kws = list(narrative.topic_keywords or [])
-            # Same searchable surface as narrative ROUTING (retrieval.py): name +
-            # current_summary + description + topic_keywords — so `remember` and
-            # the turn-routing BM25 search the exact same fields (both use the
-            # shared bm25_rank), staying perfectly aligned.
-            text = "\n".join(p for p in [
-                getattr(info, "name", "") or "",
-                getattr(info, "current_summary", "") or "",
-                getattr(info, "description", "") or "",
-                " ".join(kws),
-            ] if p)
+            # Same searchable surface as narrative ROUTING — literally the same
+            # function now (`Narrative.searchable_text`), not a second copy that
+            # happens to list the same fields. It WAS a second copy, joining with
+            # "\n" where routing joined with " "; equivalent only because the
+            # tokenizer splits on whitespace.
+            text = narrative.searchable_text()
             db = await self._get_db_client()
             await MemoryEngine(db, narrative.agent_id).index(
                 "narrative", narrative.id, text, scope_type="agent", tags=kws,

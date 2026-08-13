@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/routing_gate.py
-last_verified: 2026-07-29
+last_verified: 2026-08-06
 stub: false
 ---
 # routing_gate.py — 「BM25 够不够格自己拍板」的判据
@@ -13,7 +13,7 @@ stub: false
 
 ## 旧判据为什么是坏的（prod 2026-07-29，agent_dd505db5ff12）
 
-`_keyword_search` 把 BM25 原始分挤成 `s/(s+1)`，判据拿它跟 0.70 比 —— 代数上
+`keyword_search` 把 BM25 原始分挤成 `s/(s+1)`，判据拿它跟 0.70 比 —— 代数上
 等价于 **原始分 ≥ 2.33**。中文没空格，`tokenize` 只能出单字 unigram，于是
 `工业` 和 `武道具` 共享 `业`、`高铁新城` 和 `高井武道具` 共享 `高`，几个偶然
 碰撞就够越线。**273 条真实 prod 轮次实测：旧判据短路 87.5%**，LLM 仲裁层等于

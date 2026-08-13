@@ -112,6 +112,57 @@ class NarramessengerCredential:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    def to_raw_dict(self) -> dict[str, Any]:
+        """RAW view INCLUDING both decoded secrets (bearer_token control-plane +
+        matrix_access_token message-plane) AND the full matrix_since_token —
+        distinct from to_public_dict, which drops the secrets and reduces the
+        since-token to a bool. Explicit field list (NOT {**to_public_dict()})
+        because the sanitised view is lossy. Only handed to the seam's
+        owner-gated endpoint + the send/CLI tools; never logged."""
+        return {
+            "agent_id": self.agent_id,
+            "bearer_token": self.bearer_token,
+            "backend_base_url": self.backend_base_url,
+            "matrix_homeserver_url": self.matrix_homeserver_url,
+            "matrix_user_id": self.matrix_user_id,
+            "nexus_principal_id": self.nexus_principal_id,
+            "nexus_profile_id": self.nexus_profile_id,
+            "bind_room_id": self.bind_room_id,
+            "owner_matrix_user_id": self.owner_matrix_user_id,
+            "owner_name": self.owner_name,
+            "connection_mode": self.connection_mode,
+            "enabled": self.enabled,
+            "matrix_access_token": self.matrix_access_token,
+            "matrix_device_id": self.matrix_device_id,
+            "matrix_since_token": self.matrix_since_token,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> "NarramessengerCredential":
+    """Inverse of to_raw_dict — rebuild the dataclass from the seam's raw dict so
+    an HttpStore-backed lookup reconstructs the SAME object DirectStore does."""
+    return NarramessengerCredential(
+        agent_id=raw.get("agent_id", "") or "",
+        bearer_token=raw.get("bearer_token", "") or "",
+        backend_base_url=raw.get("backend_base_url", "") or "",
+        matrix_homeserver_url=raw.get("matrix_homeserver_url", "") or "",
+        matrix_user_id=raw.get("matrix_user_id", "") or "",
+        nexus_principal_id=raw.get("nexus_principal_id", "") or "",
+        nexus_profile_id=raw.get("nexus_profile_id", "") or "",
+        bind_room_id=raw.get("bind_room_id", "") or "",
+        owner_matrix_user_id=raw.get("owner_matrix_user_id", "") or "",
+        owner_name=raw.get("owner_name", "") or "",
+        connection_mode=raw.get("connection_mode", "gateway") or "gateway",
+        enabled=bool(raw.get("enabled", True)),
+        matrix_access_token=raw.get("matrix_access_token", "") or "",
+        matrix_device_id=raw.get("matrix_device_id", "") or "",
+        matrix_since_token=raw.get("matrix_since_token", "") or "",
+        created_at=NarramessengerCredentialManager._parse_dt(raw.get("created_at")),
+        updated_at=NarramessengerCredentialManager._parse_dt(raw.get("updated_at")),
+    )
+
 
 class NarramessengerCredentialManager:
     """Manages per-agent credentials in ``channel_narramessenger_credentials``."""
@@ -177,6 +228,27 @@ class NarramessengerCredentialManager:
     async def get_public(self, agent_id: str) -> Optional[dict[str, Any]]:
         cred = await self.get(agent_id)
         return cred.to_public_dict() if cred else None
+
+    async def get_by_matrix_user_id(
+        self, matrix_user_id: str
+    ) -> Optional[NarramessengerCredential]:
+        """Reverse lookup for callers that hold the agent's Matrix identity
+        (the prewarm endpoint). UNIQUE index on the column guarantees <=1 row."""
+        if not matrix_user_id:
+            return None
+        row = await self._db.get_one(self.TABLE, {"matrix_user_id": matrix_user_id})
+        return self._row_to_cred(row) if row else None
+
+    async def get_by_profile_id(
+        self, nexus_profile_id: str
+    ) -> Optional[NarramessengerCredential]:
+        """Reverse lookup by the NarraMessenger profile id. Only rows bound
+        after 2026-08-11 carry it (do_bind started persisting profileId);
+        older rows need a rebind before this resolves."""
+        if not nexus_profile_id:
+            return None
+        row = await self._db.get_one(self.TABLE, {"nexus_profile_id": nexus_profile_id})
+        return self._row_to_cred(row) if row else None
 
     async def list_active(self) -> list[NarramessengerCredential]:
         """All enabled rows — consumed by :class:`MatrixTrigger`'s

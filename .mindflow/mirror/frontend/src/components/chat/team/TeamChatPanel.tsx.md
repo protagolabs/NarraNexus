@@ -3,6 +3,27 @@ code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
 last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-10 — 巡查行渲染
+
+`msg_type === 'patrol'` 走独立分支:虚线框 + 「Leader 巡查」小标 + Markdown 正文。
+
+**不能当普通气泡渲染**,两个原因:巡查是以房间自己的标记(`team_<id>`)落墙的,
+`author_name` 会解析成裸 id;而且画成气泡会让 Leader 看起来在不停打断房间,
+而它其实是平台在盘点。
+
+## 2026-08-07 — 停止留痕渲染成系统行
+
+`msg_type === 'system_stop'` 的消息走独立分支:居中的小胶囊,文案
+`chat.team.stoppedNotice`(带 agent 名)。**不复用气泡**——把它画成 agent
+自己的回复,读起来就像 agent 在宣告自己的死亡;这条消息是房间在说话。
+
+团队任务是当众跑的,所以也应当众停止:没有留痕,其他成员只看到一个凭空
+消失的任务,只能猜是跑完了、崩了、还是还在跑。
+
+## 2026-08-07 — 右侧挂上团队工作台
+
+根布局从纵向 flex 改为「横向 flex：transcript 列 + [[TeamWorkspacePanel.tsx]]」。此前该组件
+注释里的「artifacts 暂不提供」不再成立。
 
 ## 2026-08-11 — composer 底色对齐单聊(card 白 + hairline)
 
@@ -143,3 +164,28 @@ timeline, an **activity bubble** per active member — running shows a spinner +
 (思考中 / 调用 <tool> / 回复中) + elapsed; queued shows the "…" dots. A 1s ticker advances
 elapsed between the 3s polls. Replaces the old dumb `thinking` "…" bubbles. i18n
 `chat.team.activity.*`.
+
+## 2026-08-10 — the workspace loader has a second trigger
+
+It keys on `messages.length`, on the reasoning that a turn which registered
+something has just landed in the transcript — cheap and honest for the case it
+was written for. It misses exactly one: a wipe of the team's FILES, which
+empties the panel while leaving the transcript unchanged, so the panel went on
+listing rows the server had deleted and every one of them 410'd on click.
+`workspaceRefreshTick` from [[chatStore.ts]] covers it.
+
+## 2026-08-11 — 公告栏：状态、入口、系统消息
+
+公告栏的数据和重载持有在这里（和工作台同一个理由：变更会在 transcript 里落系统行，
+两个面必须对「什么时候变了」有共识）。每次写入后**同时**重载公告栏和 transcript，
+而不是等下一个轮询周期才让 transcript 追上。
+
+入口放在房间标题栏，是**常驻 chrome，不藏在设置里**——公告栏回答的是
+「这个团队已经知道什么」，那是边读房间边问的问题。按钮带条目数，
+让已存在的公告栏**自己宣告存在**，而不是等着被发现。
+
+`system_bulletin` 照 `system_stop` 的先例渲染成居中灰行：公告栏变更是**房间在说话**，
+不是某个成员在说话；套成成员消息就把平台事件归给了恰好触发它的那个人。
+
+面板加载 effect 也挂在 `workspaceRefreshTick` 上：清团队数据可能带走公告栏，
+面板留在屏上列已删掉的规则比空着更糟。

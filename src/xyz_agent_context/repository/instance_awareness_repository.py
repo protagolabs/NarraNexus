@@ -14,6 +14,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from loguru import logger
 
+from xyz_agent_context.utils.timezone import utc_now
+
 from .base import BaseRepository
 
 
@@ -89,7 +91,9 @@ class InstanceAwarenessRepository(BaseRepository[InstanceAwareness]):
             if existing:
                 # Update
                 logger.info(f"      → existing awareness (first 100): {existing.awareness[:100] if existing.awareness else 'None'}...")
-                rows_affected = await self.update(instance_id, {"awareness": awareness})
+                rows_affected = await self.update(
+                    instance_id, {"awareness": awareness, "updated_at": utc_now()}
+                )
                 logger.info(f"      → update rows_affected: {rows_affected}")
             else:
                 # Insert
@@ -116,7 +120,9 @@ class InstanceAwarenessRepository(BaseRepository[InstanceAwareness]):
             Number of affected rows
         """
         logger.debug(f"    → InstanceAwarenessRepository.update_awareness({instance_id})")
-        return await self.update(instance_id, {"awareness": awareness})
+        return await self.update(
+            instance_id, {"awareness": awareness, "updated_at": utc_now()}
+        )
 
     def _row_to_entity(self, row: Dict[str, Any]) -> InstanceAwareness:
         """Convert a database row to an InstanceAwareness object"""

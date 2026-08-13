@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — retain normalized action reason
+
+Fatal capture retains `action_reason` beside error type/message so analytics
+can classify quota/configuration/infrastructure/runtime without parsing copy.
+
+## 2026-08-07 — root_run_id 的铸造:根 run 给自己盖章
+
+`RunRecorder` 增加 `inherited_root_run_id`,在 `_bind_run_id` 里与 running
+翻转**同一条 UPDATE** 写入 `root_run_id = inherited or run_id`。
+
+- **放在 recorder 而不是 Event/create_event**:这是 run 控制事实(和 state /
+  心跳 / cancel_requested_at 同族),不是叙事事实;而且 recorder 本来就在
+  late-bind 时写这一行,零额外写。
+- **与 running 翻转同一条 UPDATE**:任何 run 一旦可见,它所属的树就是完整
+  的。分两次写会留下一个窗口,期间级联查询选不到这一行——停止静默漏掉一条
+  分支,而且没有任何报错。
+- 观察者纪律不变:写自己的记录字段与"绝不影响被观察的 run"不冲突(取消的
+  执行者是独立的 [[cancel_watcher]],不在 recorder 里)。
+
+## 2026-08-07 — sweep 尊重取消旗标:停止中的 run 落 cancelled 不落 failed
+
+`sweep_stale_runs` 原来无条件把心跳停跳的 running 行翻 `failed`。加入
+[[cancel_watcher]] 后这是个**间歇性错误终态**:用户点了停止,run 在优雅
+退出前心跳恰好断了(或 watcher 所在进程被掐),这一行就被记成"故障"。
+
+需求验收明写「停止不被记为失败、不触发失败重试与失败告警」,而原来的
+行为让这条验收取决于一场竞速 —— run 自己的 finalize 有没有赶在心跳变
+stale 之前。竞速导致的绿是最坏的绿:**重跑一次就过了**。
+
+现在按 `cancel_requested_at` 分流:非空 → `cancelled` 且**不写
+error_message**(cancelled 行上盖错误会让下游告警把用户的主动动作当成
+事故);其余照旧 `failed` + "run lost"。
+
+判活逻辑(`run_is_live`)一个字没动 —— 变的只是"死了之后记成什么"。
 
 # run_recorder.py — run 可观察性的持久化半身（唯一事实源）
 

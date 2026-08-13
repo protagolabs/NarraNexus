@@ -42,7 +42,11 @@ live in MessageBubble) silently stopped firing. This re-connects the data.
 The chat view shows one chronological conversation, but the data comes
 from two independently-produced sources:
 
-- **history** — `agent_messages` rows from `getSimpleChatHistory`
+- **history** — the transcript in `instance_json_format_memory_chat`
+  (ChatModule's per-instance JSON memory), via `getSimpleChatHistory`. **Not**
+  the `events` table, and **not** `agent_messages` — that one is a tombstone
+  with no writer, and mistaking it for the source is how the 0802 ordering
+  report got misdiagnosed (see [[agent_message_repository]] 2026-08-05).
 - **session** — live messages in `[[chatStore.ts]]` (the user prompt added
   on send; the assistant reply assembled at `stopStreaming` from the
   `send_message_to_user_directly` tool args)

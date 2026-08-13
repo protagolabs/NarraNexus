@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-07-22
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — `Artifact.team_id` + 新增导出 `TeamFile`
+
+`team_id: string | null` 镜像后端新增列（见 [[artifact_schema.py]]）。**null 就是私有**，
+也涵盖所有存量数据——前端不需要「未设置」的第三态判断。
+
+新增 `TeamFile`：团队共享目录的一行（`GET /api/teams/{id}/files`）。它**不是** artifact——
+磁盘名是 `file_id`，`original_name` 是唯一保留人类可读名字的地方，`shared_by_agent_id` 用于
+面板归因。消费者见 [[TeamWorkspacePanel.tsx]]。
 
 ## 2026-07-22 — URL-tab types
 

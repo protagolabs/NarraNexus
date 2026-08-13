@@ -3,6 +3,7 @@
  * Uses relative paths in dev (Vite proxy) and configurable base URL in production
  */
 
+import type { Artifact, TeamFile } from '@/types/artifact';
 import type {
   MigrationFramework,
   MigrationDetectResponse,
@@ -18,6 +19,7 @@ import type {
   MarkReadResponse,
   NoticesResponse,
   AwarenessResponse,
+  CancelRunResponse,
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
@@ -46,6 +48,7 @@ import type {
   NetmindLoginResponse,
   QuotaMeResponse,
   AgentListResponse,
+  SessionResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
   OnboardingResponse,
@@ -68,6 +71,9 @@ import type {
   TeamOperationResponse,
   TeamChatHistoryResponse,
   TeamChatSendResponse,
+  TeamBulletin,
+  BulletinEntry,
+  TeamWorkBoardResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   TeamTemplate,
@@ -109,6 +115,9 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import { isSessionDeadFailure, readAuthCode } from './authFailure';
+import { confirmSessionDeath } from './sessionGuard';
 
 /**
  * Error thrown for non-2xx API responses. Carries the HTTP status so
@@ -125,6 +134,16 @@ export class ApiError extends Error {
   }
 }
 
+export interface TelemetryConsentState {
+  mode: 'off' | 'meta' | 'full';
+  source: 'env' | 'optout' | 'default';
+  opted_out: boolean;
+  controllable: boolean;
+  /** Who owns a non-controllable state: deployment env var vs
+   *  multi-tenant cloud install. null when the user holds the switch. */
+  managed_by: 'env' | 'cloud' | null;
+}
+
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
   | 'anthropic'
@@ -133,42 +152,31 @@ export type OnboardProviderType =
   | 'yunwu'
   | 'openrouter';
 
+/**
+ * The auth-funnel stages the frontend may report. This union is a COMPILE-TIME
+ * mirror of the backend allowlist `_FUNNEL_STAGES` (backend/routes/auth.py):
+ * the endpoint 400s any stage not in that set and reportAuthFunnel swallows the
+ * 400, so an un-allowlisted stage reports into a black hole. Keeping this a
+ * closed union means adding a new report site fails `tsc` until the name is
+ * added HERE — forcing the author to the backend allowlist at the same time.
+ */
+export type AuthFunnelStage =
+  | 'netmind_email_login_failed'
+  | 'netmind_oauth_failed'
+  | 'signup_send_code_failed'
+  | 'netmind_reset_code_failed'
+  | 'netmind_reset_password_failed';
+
 class ApiClient {
   // Public so download helpers (lib/download.ts) can attach the same
   // identity headers to direct fetch / Tauri-proxy file requests that
   // <a download> elements cannot carry.
   getAuthHeaders(): Record<string, string> {
-    // Read identity from configStore (localStorage).
-    //
-    // Two headers, mutually compatible:
-    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
-    //   - X-User-Id: <user_id>         — local mode, unsigned identity
-    //
-    // We send both whenever they're available; backend auth_middleware
-    // decides which one to trust:
-    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
-    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
-    //
-    // The single ApiClient is mode-agnostic for the same reason — the
-    // mode switch happens server-side in auth_middleware, not here.
-    const headers: Record<string, string> = {};
-    try {
-      const raw = localStorage.getItem('narra-nexus-config');
-      if (raw) {
-        const config = JSON.parse(raw);
-        const token = config?.state?.token;
-        const userId = config?.state?.userId;
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        if (userId) {
-          headers['X-User-Id'] = userId;
-        }
-      }
-    } catch {
-      /* localStorage may be unavailable / disabled — fall through */
-    }
-    return headers;
+    // Implementation lives in lib/authHeaders so the session guard can
+    // build the same headers without importing this module (cycle).
+    // The single ApiClient stays mode-agnostic: the cloud/local decision
+    // happens server-side in auth_middleware, not here.
+    return readAuthHeaders();
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -187,39 +195,40 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      // Stale/expired JWT: backend says 401 even though we attached a token.
-      // Tell the app to clear auth state and bounce to /login. We skip when
-      // no token was attached (anonymous probe) and on auth endpoints
-      // themselves (wrong-credentials login should surface in the form, not
-      // log the user out of a session they never had). Decoupled via event
-      // to avoid a circular import with @/stores/configStore.
-      if (response.status === 401 && authHeaders.Authorization) {
-        const isAuthEndpoint =
-          endpoint.startsWith('/api/auth/login') ||
-          endpoint.startsWith('/api/auth/register');
-        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
-        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
-        // missing/expired — it must NOT log the user out of their valid
-        // NarraNexus session. The panel handles this failure locally.
-        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
-        if (!isAuthEndpoint && !isBillingEndpoint) {
-          window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
-        }
+      // Parse the error body once: it feeds both the thrown message and
+      // (on 401) the session-death decision below.
+      let body: unknown = null;
+      try {
+        body = await response.json();
+      } catch {
+        /* not JSON — fall through to status line */
       }
+
+      // A 401 does NOT mean "your session is dead". It can equally mean a
+      // second credential failed (NetMind login token, gateway token) or
+      // that a handler failed to resolve an identity the middleware had
+      // already verified. Only the backend's `code` can tell those apart,
+      // and even then we confirm against GET /api/auth/session before
+      // tearing anything down — see lib/sessionGuard.
+      //
+      // This replaced a denylist ("log out on any 401 except /api/auth/*
+      // and /api/billing/*") whose every missing entry was a live grenade:
+      // /api/providers' NetMind 401 was one, and it bounced demo users to
+      // /login on 2026-08-02 while their sessions were perfectly valid.
+      if (response.status === 401 && isSessionDeadFailure(body)) {
+        void confirmSessionDeath({ endpoint, code: readAuthCode(body) });
+      }
+
       // Extract the FastAPI HTTPException `detail` field so callers get
       // an actionable message ("Cannot add another user's agent") instead
       // of just "API error: 403 Forbidden". Falls back to the status
       // line if the body is missing / not JSON / has no `detail`.
       let detail = '';
-      try {
-        const body = await response.clone().json();
-        if (typeof body?.detail === 'string') {
-          detail = body.detail;
-        } else if (body?.detail) {
-          detail = JSON.stringify(body.detail);
-        }
-      } catch {
-        /* not JSON — fall through to status line */
+      const rawDetail = (body as { detail?: unknown } | null)?.detail;
+      if (typeof rawDetail === 'string') {
+        detail = rawDetail;
+      } else if (rawDetail) {
+        detail = JSON.stringify(rawDetail);
       }
       const label = detail
         ? `API error ${response.status}: ${detail}`
@@ -514,6 +523,47 @@ class ApiClient {
     );
   }
 
+  /**
+   * Ask a run to stop. Owner only — the server rejects anyone else with 403
+   * regardless of whether the caller rendered a button.
+   *
+   * Resolves as soon as the request is recorded, NOT when the run has
+   * stopped: the run lives in another process and is interrupted there. The
+   * caller should render "stopping" off this resolution and watch the run's
+   * observation stream for the terminal state.
+   */
+  async cancelRun(runId: string): Promise<CancelRunResponse> {
+    return this.request<CancelRunResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/cancel`,
+      { method: 'POST' },
+    );
+  }
+
+  /** The team's work board, INCLUDING parked items — a stopped task must not
+   *  look deleted, and un-parking it is the user's call. */
+  async getTeamWorkBoard(teamId: string): Promise<TeamWorkBoardResponse> {
+    return this.request<TeamWorkBoardResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items`
+    );
+  }
+
+  /** Un-park an item a stop parked. */
+  async resumeTeamWorkItem(teamId: string, itemId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items/${encodeURIComponent(itemId)}/resume`,
+      { method: 'POST' },
+    );
+  }
+
+  /** Turn the Leader's periodic sweep on or off. The board stays usable either
+   *  way — this only stops the chasing. */
+  async setTeamPatrol(teamId: string, enabled: boolean): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/patrol`,
+      { method: 'PUT', body: JSON.stringify({ enabled }) },
+    );
+  }
+
   async clearHistory(
     agentId: string,
     opts: { conversations: boolean; memory: boolean } = { conversations: true, memory: true },
@@ -579,7 +629,7 @@ class ApiClient {
    * that blind spot. Must never throw or surface: it is diagnostics riding
    * on top of a failure the user is already looking at.
    */
-  reportAuthFunnel(stage: string, email?: string, detail?: string): void {
+  reportAuthFunnel(stage: AuthFunnelStage, email?: string, detail?: string): void {
     void this.request('/api/auth/funnel-report', {
       method: 'POST',
       body: JSON.stringify({
@@ -650,19 +700,61 @@ class ApiClient {
     );
   }
 
-  /** Report a frontend funnel event (setup page UI actions). Identity comes
-   *  from the auth header server-side; no client properties are accepted
-   *  (the server stamps surface etc. itself). Best-effort: callers should
-   *  not block on it (fire-and-forget with a .catch). */
-  async trackFunnelEvent(event: string): Promise<void> {
-    await this.request<{ success: boolean }>('/api/auth/funnel', {
-      method: 'POST',
-      body: JSON.stringify({ event }),
-    });
+  /** The user's persisted reply-language preference; null = never set. */
+  async getReplyLanguage(): Promise<string | null> {
+    const r = await this.request<{ language: string | null }>(
+      '/api/auth/settings/reply-language',
+    );
+    return r.language ?? null;
+  }
+
+  /** Persist the reply-language preference (i18n code; '' clears). The
+   *  backend injects it into the agent's system prompt — without this
+   *  write the language choice never reaches the model. */
+  async setReplyLanguage(language: string): Promise<void> {
+    await this.request<{ success: boolean; language: string | null }>(
+      '/api/auth/settings/reply-language',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ language }),
+      },
+    );
+  }
+
+  /** Telemetry (diagnostic log shipping) consent state. Unlike
+   *  analytics (per-user, DB row) this is a per-MACHINE marker file:
+   *  `controllable` is false when a deployment env override or a
+   *  multi-tenant cloud install owns the decision — render the toggle
+   *  read-only then. */
+  async getTelemetryConsent(): Promise<TelemetryConsentState> {
+    return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
+  }
+
+  /** Flip the telemetry opt-out marker (per user account on the
+   *  host). Opting out takes effect within one flush interval;
+   *  re-enabling needs a restart only when telemetry was already off
+   *  at process start. */
+  async setTelemetryOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/telemetry',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
   }
 
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
+  }
+
+  /** Liveness of the caller's own session. Does no database work server-side,
+   *  so it is the cheap way to ask "is my JWT still accepted?" — used by
+   *  ProtectedRoute on mount. (lib/sessionGuard probes the same endpoint with
+   *  a raw fetch, deliberately bypassing `request<T>` to avoid recursing into
+   *  the very 401 handler it serves.) */
+  async getSession(): Promise<SessionResponse> {
+    return this.request<SessionResponse>('/api/auth/session');
   }
 
   // Arena onboarding: ensure the authenticated user has a provisioned Arena
@@ -1759,6 +1851,94 @@ class ApiClient {
     return this.request<TeamListResponse>('/api/teams');
   }
 
+  /**
+   * A team's artifacts, newest first — the workspace panel's Artifacts tab.
+   *
+   * Not scoped to one agent: the panel shows the TEAM's output whoever made
+   * it, and each row carries agent_id so the UI can attribute it.
+   */
+  async listTeamArtifacts(teamId: string): Promise<Artifact[]> {
+    return this.request<Artifact[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifacts`,
+    );
+  }
+
+  /**
+   * Which artifacts each turn in this room produced (event_id → artifact ids).
+   *
+   * The transcript already carries each reply's event_id, so this is a real
+   * join key. Matching by timestamp was never viable: one turn can register
+   * two artifacts and two agents can answer at once, so proximity would pin
+   * the wrong work to the wrong message.
+   */
+  async listTeamArtifactTurns(teamId: string): Promise<Record<string, string[]>> {
+    return this.request<Record<string, string[]>>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifact-turns`,
+    );
+  }
+
+  /** Files shared into the team folder, newest first — the Files tab. */
+  async listTeamFiles(teamId: string): Promise<TeamFile[]> {
+    return this.request<TeamFile[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/files`,
+    );
+  }
+
+  /**
+   * A team's bulletin plus its budget usage.
+   *
+   * Usage rides along with the list so the panel can grey out "add" before the
+   * user types a rule instead of rejecting it afterwards.
+   */
+  async getTeamBulletin(teamId: string): Promise<TeamBulletin> {
+    return this.request<TeamBulletin>(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin`,
+    );
+  }
+
+  async createTeamBulletinEntry(
+    teamId: string,
+    payload: { content: string; tier?: 'long_term' | 'current_task' },
+  ): Promise<{ success: boolean; entry?: BulletinEntry; error?: string }> {
+    return this.request(`/api/teams/${encodeURIComponent(teamId)}/bulletin`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify({ content }) },
+    );
+  }
+
+  async deleteTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Clear one tier in a single action — the "this task is done" button. */
+  async clearTeamBulletinTier(
+    teamId: string,
+    tier: 'long_term' | 'current_task',
+  ): Promise<{ success: boolean; removed?: number; error?: string }> {
+    const params = new URLSearchParams({ tier });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>('/api/teams', {
       method: 'POST',
@@ -1797,9 +1977,19 @@ class ApiClient {
    *  its members and the bus channel. Team counterpart to clearHistory. */
   async clearTeamData(
     teamId: string,
-    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
-  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
-    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    opts: { chat: boolean; files: boolean; bulletin?: boolean } = { chat: true, files: true },
+  ): Promise<{
+    success: boolean;
+    chat_messages?: number;
+    files_removed?: boolean;
+    bulletin_entries?: number;
+    error?: string;
+  }> {
+    const params = new URLSearchParams({
+      chat: String(opts.chat),
+      files: String(opts.files),
+      bulletin: String(opts.bulletin ?? false),
+    });
     return this.request(
       `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
       { method: 'DELETE' },

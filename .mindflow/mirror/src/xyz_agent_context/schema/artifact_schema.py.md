@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-07-22
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — Artifact 增加第三个归属维度 `team_id`
+
+在此之前 artifact 的归属模型只有两维（`agent_id` 拥有者 + `session_id` 决定 session/pinned
+作用域）。现在有第三维：`team_id`。
+
+**`None` 就是「私有」**，且涵盖所有存量行——不需要迁移标记，也没有「未设置」这个第三态。
+这正是私聊语义按构造不变的原因（读侧见 [[artifact_repository.py]] 的三界面分治）。
+
+`agent_id` **不因归属迁移而改变**：它记录的是「谁产出的」，团队面板要靠它归因。也就是说
+`agent_id` 从「拥有者」降级为「产出者」，两者在私有 artifact 上恰好重合，在团队 artifact 上
+不再重合——读这份 schema 时要注意这个语义变化。
 
 ## 2026-07-22 — URL_TAB_CONTENT_FILENAME added
 

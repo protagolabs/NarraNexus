@@ -19,6 +19,8 @@ from ..models import (
     NarrativeSearchResult,
     NarrativeSelectionResult,
     NarrativeType,
+    RoutingAudit,
+    RoutingCandidate,
 )
 from .crud import NarrativeCRUD
 from .routing_gate import evaluate_gate
@@ -81,6 +83,43 @@ class NarrativeRetrieval:
         top_k: int,
         narrative_type: NarrativeType = NarrativeType.CHAT
     ) -> NarrativeSelectionResult:
+        """Retrieve Top-K Narratives, and record the evidence behind the choice.
+
+        Thin wrapper over ``_retrieve_top_k``: it owns the RoutingAudit so the
+        outcome is stamped in ONE place. The inner method has seven return
+        points across itself and ``_llm_unified_match``; filling the audit at
+        each of them is exactly the kind of bookkeeping that rots — one new
+        branch later and that path silently stops being observable, which is
+        the failure mode this whole table exists to end.
+
+        The audit rides on the returned NarrativeSelectionResult;
+        ``NarrativeService.select`` adds the continuity half and writes it.
+        """
+        audit = RoutingAudit(
+            agent_id=agent_id, user_id=user_id, query_text=query,
+        )
+        snapshots: dict = {}
+        result = await self._retrieve_top_k(
+            query, user_id, agent_id, top_k, narrative_type, audit, snapshots
+        )
+        audit.selection_method = result.selection_method
+        audit.retrieval_method = result.retrieval_method
+        audit.chosen_narrative_id = result.narratives[0].id if result.narratives else None
+        audit.is_new = result.is_new
+        result.audit = audit
+        result.audit_snapshots = snapshots
+        return result
+
+    async def _retrieve_top_k(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        top_k: int,
+        narrative_type: NarrativeType,
+        audit: "RoutingAudit",
+        snapshots: dict,
+    ) -> NarrativeSelectionResult:
         """
         Retrieve Top-K Narratives (two-tier threshold + LLM unified judgment)
 
@@ -129,11 +168,13 @@ class NarrativeRetrieval:
         # MemoryEngine uses, so narrative routing and memory recall share one
         # ranking implementation. Zero vectors.
         with timed("narrative.retrieve.keyword_search"):
-            search_results = await self._keyword_search(
-                query=query,
-                user_id=user_id,
-                agent_id=agent_id,
-                top_k=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
+            # load_pool + rank_pool rather than keyword_search: the audit needs
+            # the WHOLE pool with the exact text that was scored, and BM25's
+            # IDF/avgdl are computed over that set, so a top-K slice cannot be
+            # replayed. keyword_search stays the public seam for select_fast.
+            pool = await self.load_pool(agent_id, user_id)
+            search_results = self.rank_pool(
+                query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
             )
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
@@ -158,6 +199,13 @@ class NarrativeRetrieval:
         for i, result in enumerate(search_results):
             result.rank = i + 1
 
+        # Freeze the candidate set AFTER the participant merge, not before:
+        # participant narratives are appended post-ranking with a synthetic
+        # neutral score, so recording earlier would drop them entirely and
+        # leave `is_participant` permanently false — losing exactly the
+        # candidates the P0-4 priority rule is about.
+        self._record_pool(audit, snapshots, pool, search_results, participant_narratives)
+
         # Step 2: Two-tier threshold judgment
         best_score = search_results[0].similarity_score if search_results else None
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
@@ -173,6 +221,12 @@ class NarrativeRetrieval:
             raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
             margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
         )
+        audit.gate_short_circuit = gate.short_circuit and not has_participant_narratives
+        audit.gate_reason = gate.reason
+        audit.gate_top1_raw = gate.top1_raw
+        audit.gate_top2_raw = gate.top2_raw
+        # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
+        audit.gate_margin = gate.margin if gate.margin != float("inf") else None
         if gate.short_circuit and not has_participant_narratives:
             logger.info(f"[NarrativeSelect] high confidence — {gate.reason}")
             narratives = []
@@ -217,7 +271,8 @@ class NarrativeRetrieval:
                     narrative_type=narrative_type,
                     best_score=best_score,
                     participant_narratives=participant_narratives,  # P0-4: Pass PARTICIPANT Narratives
-                    retrieval_method=retrieval_method  # Pass retrieval method
+                    retrieval_method=retrieval_method,  # Pass retrieval method
+                    audit=audit,
                 )
                 # Tag with the model + structured-output mode the SDK
                 # ended up using inside _llm_unified_match → llm_judge_unified
@@ -304,7 +359,107 @@ class NarrativeRetrieval:
             )
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
 
-    async def _keyword_search(
+    @classmethod
+    def _record_pool(
+        cls,
+        audit: "RoutingAudit",
+        snapshots: dict,
+        pool: List[Tuple[str, str, bool]],
+        search_results: List[NarrativeSearchResult],
+        participant_narratives: Optional[List[Narrative]] = None,
+    ) -> None:
+        """Freeze the candidate set into the audit, with the text that was scored.
+
+        Every BM25 pool member is recorded, including the ones that scored
+        zero — they still shaped the ranking through IDF and avgdl, so a
+        replay that omits them reproduces different numbers.
+
+        Participant narratives are recorded too but are NOT part of the BM25
+        pool: they are appended after ranking with a synthetic neutral score
+        and never went through bm25_rank. `raw_score` stays 0.0 for them,
+        matching what the gate sees (NarrativeSearchResult.raw_score default),
+        so a replay does not mistake them for keyword hits.
+        """
+        from xyz_agent_context.repository.narrative_routing_audit_repository import (
+            text_hash,
+        )
+
+        scored = {r.narrative_id: r.raw_score for r in search_results}
+        participants = {n.id: n for n in (participant_narratives or [])}
+        seen: set = set()
+
+        for nid, text, is_default in pool:
+            h = text_hash(text)
+            snapshots[h] = text
+            seen.add(nid)
+            audit.candidates.append(RoutingCandidate(
+                narrative_id=nid,
+                text_hash=h,
+                raw_score=scored.get(nid, 0.0),
+                is_default=is_default,
+                is_participant=nid in participants,
+            ))
+
+        for nid, narrative in participants.items():
+            if nid in seen:
+                continue
+            text = narrative.searchable_text()
+            h = text_hash(text)
+            snapshots[h] = text
+            audit.candidates.append(RoutingCandidate(
+                narrative_id=nid,
+                text_hash=h,
+                raw_score=0.0,
+                is_default=narrative.is_special == "default",
+                is_participant=True,
+            ))
+
+    async def load_pool(
+        self,
+        agent_id: str,
+        user_id: str,
+    ) -> List[Tuple[str, str, bool]]:
+        """The BM25 candidate pool: (narrative_id, scored_text, is_default).
+
+        Split out of ``keyword_search`` so the routing audit can persist the
+        WHOLE pool with the exact text that was scored. That completeness is
+        load-bearing, not defensive: ``bm25_rank`` computes IDF and avgdl over
+        the set it is handed, so a candidate's score depends on every other
+        document present — including the eight default narratives, which are
+        semantically irrelevant yet moved top-1 on 9.7% of 452 replayed local
+        queries (2026-08-07). Re-deriving the pool later cannot work either:
+        the scored text is rewritten wholesale by the async LLM updater with
+        no history kept.
+        """
+        narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        return [
+            (n.id, n.searchable_text(), n.is_special == "default")
+            for n in narratives
+        ]
+
+    @staticmethod
+    def rank_pool(
+        query: str,
+        pool: List[Tuple[str, str, bool]],
+        top_k: int,
+    ) -> List[NarrativeSearchResult]:
+        """Rank an already-loaded pool. Pure — no DB, so the audit replay and
+        the live decision run byte-identical code."""
+        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+
+        scores = bm25_rank(query, [(nid, text) for nid, text, _ in pool])
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+        return [
+            NarrativeSearchResult(
+                narrative_id=nid,
+                similarity_score=s / (s + 1.0),
+                rank=i + 1,
+                raw_score=s,
+            )
+            for i, (nid, s) in enumerate(ranked)
+        ]
+
+    async def keyword_search(
         self,
         query: str,
         user_id: str,
@@ -319,34 +474,12 @@ class NarrativeRetrieval:
         Scores are normalized monotonically into (0,1) so the existing two-tier
         threshold still applies: weak matches fall through to the LLM tier;
         strong keyword matches may direct-return.
+
+        Public seam: ``NarrativeService.select_fast`` (F28) depends on this
+        signature. ``retrieve_top_k`` uses ``load_pool`` + ``rank_pool``
+        directly so it can keep the pool for the audit.
         """
-        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
-
-        narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
-        items: List[tuple] = []
-        for n in narratives:
-            info = n.narrative_info
-            text = " ".join(
-                p for p in (
-                    getattr(info, "name", ""),
-                    getattr(info, "current_summary", ""),
-                    getattr(info, "description", ""),
-                    " ".join(n.topic_keywords or []),
-                ) if p
-            )
-            items.append((n.id, text))
-
-        scores = bm25_rank(query, items)
-        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-        return [
-            NarrativeSearchResult(
-                narrative_id=nid,
-                similarity_score=s / (s + 1.0),
-                rank=i + 1,
-                raw_score=s,
-            )
-            for i, (nid, s) in enumerate(ranked)
-        ]
+        return self.rank_pool(query, await self.load_pool(agent_id, user_id), top_k)
 
     async def _llm_unified_match(
         self,
@@ -358,7 +491,8 @@ class NarrativeRetrieval:
         narrative_type: NarrativeType,
         best_score: Optional[float],
         participant_narratives: Optional[List[Narrative]] = None,  # P0-4: PARTICIPANT Narratives
-        retrieval_method: str = ""  # Retrieval method identifier
+        retrieval_method: str = "",  # Retrieval method identifier
+        audit: Optional["RoutingAudit"] = None,  # E1: filled in place with the judge verdict
     ) -> NarrativeSelectionResult:
         """
         LLM unified judgment: Considers search results, default Narratives, and PARTICIPANT Narratives
@@ -459,6 +593,15 @@ class NarrativeRetrieval:
             default_candidates=default_candidates,
             participant_candidates=participant_candidates  # P0-4: Pass PARTICIPANT candidates
         )
+
+        # E1: the judge's verdict AND its reasoning. This is the only semantic
+        # check in the pipeline, and its reasoning previously survived only
+        # inside an f-string that went to loguru.
+        if audit is not None:
+            audit.judge_ran = True
+            audit.judge_category = llm_result.get("matched_type") or "none"
+            audit.judge_matched_id = llm_result.get("matched_id")
+            audit.judge_reason = llm_result.get("reason") or ""
 
         # 4. Return based on LLM judgment result
         if llm_result["matched_id"]:

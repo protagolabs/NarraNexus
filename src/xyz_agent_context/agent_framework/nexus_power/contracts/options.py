@@ -85,6 +85,14 @@ class TurnOptions(BaseModel):
     cwd: str
     agent_id: str = "agent"
     env: dict[str, str] = Field(default_factory=dict)
+    # Absolute roots this turn may ACCESS in addition to cwd — read, write
+    # and shell alike, since the confinement layers cover all three. The
+    # framework never interprets them; the caller (which knows the user/team)
+    # decides, and is expected to grant the narrowest set that works.
+    # Exists because collaborative areas live OUTSIDE any single agent's
+    # workspace by design — see ToolContext.extra_accessible_roots. Empty means
+    # pure workspace confinement, so nothing widens unless asked.
+    extra_accessible_roots: tuple[str, ...] = ()
 
     # --- model ---
     model: str
@@ -113,6 +121,10 @@ class TurnOptions(BaseModel):
     # --- output control ---
     output_mode: Literal["legacy_dict", "loop_events"] = "legacy_dict"
     include_arg_deltas: bool = True
+    # System-prompt surface. String literal on purpose: contracts is the
+    # wire layer and never imports the PromptMode enum from impl; the
+    # assembler converts. "full" = the previously hardwired default.
+    prompt_mode: Literal["full", "minimal", "none"] = "full"
     output_schema: dict[str, Any] | None = None
 
     # --- subagents (P4 execution; declared surface is v1) ---

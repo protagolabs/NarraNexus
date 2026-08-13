@@ -95,3 +95,17 @@ def test_driver_kwargs_excludes_cancellation_and_streaming():
     kwargs = _mk().driver_kwargs()
     assert "cancellation" not in kwargs
     assert "streaming" not in kwargs
+
+
+def test_turn_profile_omitted_when_none():
+    """Legacy shape: absent profile emits NO key — drivers that never
+    heard of TurnProfile see the exact historical kwargs."""
+    assert "turn_profile" not in _mk().driver_kwargs()
+
+
+def test_turn_profile_rides_kwargs_when_set():
+    from xyz_agent_context.schema.turn_profile import TurnProfile
+
+    profile = TurnProfile.voice_fast()
+    kwargs = _mk(turn_profile=profile).driver_kwargs()
+    assert kwargs["turn_profile"] is profile

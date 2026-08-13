@@ -1,8 +1,76 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — reply_language 路由
+
+GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由 i18n languageChanged 写透 + boot 回填,读方是 [[context_runtime.py]] system prompt 注入。
+
+## 2026-08-12 — funnel 白名单加两个 send-code stage（配前端 #289）
+
+`/api/auth/funnel-report` 的 `_FUNNEL_STAGES` 是**枚举白名单**（caller-controlled 输入的第二道闸，不是自由 tag：未知 stage 直接 400，且 400 在写 `[login-funnel]` 日志之前 return，所以不落痕）。前端 #289 新增三条上报路径（`SignUpDialog.sendCode` / `useNetmindAuth.sendResetCode` / `resetPassword`），对应加入 `signup_send_code_failed` / `netmind_reset_code_failed` / `netmind_reset_password_failed`——**必须与前端同 PR 合**，否则前端上报被 400 静默吞掉（`api.reportAuthFunnel` fire-and-forget），诊断空转。前端 `api.ts` 的 `AuthFunnelStage` 联合类型把这条跨端契约提前到 `tsc`（前端加白名单外的 stage 就编译不过）；`test_auth_funnel_observability.py` 的 `test_all_known_funnel_stages_are_accepted` 兜反向（后端误删/改名已用 stage）——两个守卫互补。
+
+## 2026-08-11 — telemetry consent 端点(与 analytics 并排但语义相反的持久化)
+
+`GET/PUT /api/auth/settings/telemetry`。与 analytics(per-USER,
+user_settings 行)刻意不同:遥测同意是 **per-MACHINE 标记文件**
+(`~/.narranexus/telemetry_optout`,utils/logging 每次外发都读)——
+logging 先于 DB 启动,DB 装不下这个状态。per-machine 带来两条端点
+必须执行的边界:多租户云一个用户不得静音整机 → PUT 403、GET
+`controllable=false`(那个面由部署 env 治理);`NEXUS_DIAG_SHIP`
+显式覆盖时标记写入静默无效 → PUT 409、GET `source=env`。GET 另带
+`managed_by: env|cloud|null`——不可控状态要说清**是谁在管**:自托管
+多租户装机(source=default 但 cloud mode)若复用 env 措辞,等于把
+内置默认归因给一个没人设过的环境变量(预审抓的"归因谎言")。身份
+仍走 `_require_request_user`(与邻居 analytics 一致)。
+Tests: `tests/backend/test_telemetry_consent_routes.py`。
+
+## 2026-08-10 — cloud signup capture repaired
+
+The new-NetMind-user branch now awaits and keyword-calls analytics. Positional
+calls to keyword-only async functions previously raised and were swallowed, so
+cloud signup facts never existed. Setup actions are tagged frontend-originated.
+
+## 2026-08-10 — identity telemetry removed
+
+Signup paths persist only the `signed_up` first-party fact. The former
+`identify_user` calls and vendor-oriented privacy comments are gone; no user
+identity or trait leaves the configured NarraNexus database.
+
+## 2026-08-10 — setup events use the unified analytics route
+
+The legacy `POST /api/auth/funnel` endpoint and its duplicate allowlist were
+removed. Setup browser facts now use `POST /api/analytics/events`, gaining the
+same session ID, idempotency namespace, rate limit, and payload contract as all
+other frontend product events. Auth routes retain only the privacy setting and
+backend-owned signup fact.
+
+## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
+
+原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +
+默认技能安装」序列,提炼进 [[provision]] `provision_new_agent`,本路由改为调它。
+本路由仍是该序列的**语义来源**,只把非共享部分留在外面:user-existence 校验、
+team assignment(#43)、CreateAgentResponse shape。同一 seam 被 MCP 工具与
+social-network 路由共用,消除三份漂移复制(PR-2 pre-open review #3)。
+
+## 2026-08-06 — 新增 `GET /api/auth/session`（会话探针）
+
+两个消费方，都在前端：
+1. **强制登出前的第二意见**——单个 401 不构成"会话已死"的证据，
+   [[sessionGuard.ts]] 先探这里，探针也说死了才拆会话（2026-08-02 线下
+   活动上，一个 401 就拆了整个 SPA）。
+2. **到期预警**——返回 `expires_at`，让 UI 在 JWT 死之前就能提示
+   （[[tokenExpiry.ts]]）。
+
+刻意**不查库**：它跑在每一次可疑 401 上，一批 401 不能变成一批查询。
+能走到这个 handler 本身就是答案（JWT 校验发生在 middleware）。
+**不进** `AUTH_EXEMPT_PATHS`——豁免了就回答不了它存在的那个问题。
+
+同时把本文件两处 `HTTPException(401)` 换成 `AuthError`：netmind-login 的
+"Invalid NetMind token" → `netmind_token_invalid`（登录失败，本来就还没有
+会话可言），analytics 的 `_require_request_user` → `identity_unresolved`。
 
 ## 2026-08-04 — 创建不再写占位符描述；创建/更新即时进同伴名录
 
@@ -204,48 +272,6 @@ active_run filter is unchanged.
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
-## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
-
-PR #24 review hardening. All three analytics endpoints (`GET/PUT
-/settings/analytics`, `POST /funnel`) now derive the user exclusively from
-`request.state.user_id` via the shared `_require_request_user()` helper
-(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
-`FunnelEventRequest` lost `properties`:
-
-- Opt-out previously trusted a client-supplied `user_id` (query/body), so
-  any authenticated user could read or flip another user's privacy
-  preference. Now impossible by shape — the request can't name a target.
-- The funnel endpoint previously forwarded an arbitrary client `properties`
-  dict to PostHog, letting a client override the server-derived `surface`
-  (dict.setdefault doesn't protect present keys) or inject junk. The
-  setup_* events carry no payload by design, so client properties are no
-  longer accepted at all.
-
-Frontend `api.ts` methods changed in the same commit (no user_id param, no
-properties param). Tests: `test_user_settings_routes.py` (per-user
-isolation + 401), `test_funnel_capture.py` (client properties ignored).
-
-## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
-
-Added `POST /api/auth/funnel` for the three pure-UI setup events
-(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
-backend signal, so the frontend reports them through this endpoint.
-
-Key design decisions:
-- **Identity from middleware only** (`request.state.user_id`, set by
-  `auth_middleware`). The body never carries identity — prevents a user from
-  spoofing events onto another user's funnel.
-- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
-  the three `setup_*` constants. Any other event name returns 400. This
-  prevents the endpoint from becoming a generic event firehose.
-- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
-  surface label exactly like every other funnel event. Never raises.
-- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
-  `properties: dict | None`.
-
-`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
-removed). The funnel no longer tracks agent creation.
-
 ## 2026-06-08 — analytics opt-out endpoints
 
 Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
@@ -263,13 +289,9 @@ Tests: `tests/backend/test_user_settings_routes.py`.
 
 ## 2026-06-08 — funnel: signed_up event
 
-`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
-success path. Additive instrumentation — best-effort, never raises.
-
-The `identify_user` traits deliberately carry only `role` — NOT
-`display_name`. The analytics layer hashes the distinct_id, so shipping the
-raw display name as a person trait would re-leak exactly the identity the
-hash is meant to hide. Keep identity-bearing fields out of traits.
+`create_user` records `track(EVENT_SIGNED_UP)` on the success path. The fact is
+best-effort, stays in the configured NarraNexus database, and never interrupts
+account creation.
 
 `create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
 was removed in the 2026-06-09 funnel redesign; create_agent is not a

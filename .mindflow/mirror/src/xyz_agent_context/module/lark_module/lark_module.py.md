@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (lark 零凭据收尾)
+
+`send_to_agent`(ChannelSenderRegistry 跨模块投递)的凭据存在性检查改走 seam `get_credential("lark")`；删死 import XYZBaseModule。line 568 的 `LarkCredentialManager(self.db)` 是 trigger/workers 路径(self.db，mcp 里为 None 不可达)，非 strip 阻塞。
+
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

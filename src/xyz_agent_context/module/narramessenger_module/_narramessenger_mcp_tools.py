@@ -39,28 +39,28 @@ from typing import Any
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.data_access import get_channel_credential_store
 
 from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
 from ._narra_command_security import sanitize_command
 from ._narra_guide import get_guide
-from ._narramessenger_credential_manager import NarramessengerCredentialManager
-from ._narramessenger_service import do_bind
+from ._narramessenger_credential_manager import _cred_from_raw
 from .narra_cli_client import run_narra_cli
 
 
 async def _get_credential(agent_id: str):
-    db = await XYZBaseModule.get_mcp_db_client()
-    mgr = NarramessengerCredentialManager(db)
-    return await mgr.get(agent_id)
+    # Read path via the ChannelCredentialStore seam (blueprint P2): DirectStore
+    # locally, HttpStore -> owner-gated backend endpoint in cloud. Rebuild the
+    # dataclass so send tools keep using cred.matrix_access_token / bearer_token.
+    raw = await get_channel_credential_store().get_credential("narramessenger", agent_id)
+    return _cred_from_raw(raw) if raw is not None else None
 
 
 async def _get_owner(agent_id: str) -> str:
     """Resolve the agent's OWNER user_id (``agents.created_by``) — the
-    workspace root that ``narra_send_media`` reads files from."""
-    db = await XYZBaseModule.get_mcp_db_client()
-    row = await db.get_one("agents", {"agent_id": agent_id})
-    return (row or {}).get("created_by", "") or ""
+    workspace root that ``narra_send_media`` reads files from. Via the seam
+    (get_agent_owner) so this file never touches the db directly."""
+    return await get_channel_credential_store().get_agent_owner(agent_id)
 
 
 def register_narramessenger_mcp_tools(mcp: Any) -> None:
@@ -88,6 +88,29 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         # tool call's arguments, which the runtime records for the trigger
         # to read. Owning delivery in the trigger is what makes future
         # progressive m.replace streaming possible.
+        return {"ok": True}
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def speak(agent_id: str, text: str) -> dict:
+        """Speak to the user on the current REAL-TIME VOICE CALL.
+
+        ``text`` is read aloud by TTS — spoken register only: short plain
+        sentences, no markdown/emoji/code, never read URLs or internal IDs.
+        You may call this MULTIPLE times in one turn (progress line before
+        a tool, then the answer). Streaming delivery happens as you
+        generate; this tool is the declaration of what you said.
+
+        Only meaningful while you are on a voice call (your instructions
+        say so). On a normal text turn use ``narra_reply`` instead.
+
+        Returns ``{"ok": true}``, else ``{"ok": false, "error": ...}``.
+        """
+        if not text or not text.strip():
+            return {"ok": False, "error": "non-empty text is required"}
+        # Marker only — same pattern as narra_reply: the voice delivery
+        # bridge in the trigger consumes the streamed arguments and owns
+        # the Matrix live m.text / m.replace lifecycle.
         return {"ok": True}
 
     # ──────────────────────────────────────────────────────────────────
@@ -190,8 +213,9 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
                 _SETUP_INSTRUCTION,
             )
             return {"success": True, "setup_guide": _SETUP_INSTRUCTION}
-        db = await XYZBaseModule.get_mcp_db_client()
-        return await do_bind(db, agent_id, bind_command)
+        return await get_channel_credential_store().bind(
+            "narramessenger", agent_id, {"bind_command": bind_command}
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
@@ -239,8 +263,7 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
             args = sanitize_command(command)
         except ValueError as e:
             return {"success": False, "error": "invalid_command", "message": str(e)}
-        db = await XYZBaseModule.get_mcp_db_client()
-        return await run_narra_cli(agent_id, args, db=db)
+        return await run_narra_cli(agent_id, args)
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

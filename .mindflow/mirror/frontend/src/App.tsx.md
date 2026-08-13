@@ -1,5 +1,6 @@
 ---
 code_file: frontend/src/App.tsx
+<<<<<<< HEAD
 last_verified: 2026-08-06
 stub: false
 ---
@@ -19,6 +20,56 @@ stub: false
 Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与
 路由删除。其余路由结构(element={null} 的 chat/team-chat 技巧、懒加载、
 ProtectedRoute)不变。
+=======
+last_verified: 2026-08-12
+stub: false
+---
+
+## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
+
+路由用 `React.lazy` 切 chunk；发版后老 tab 加载旧 hash chunk→404→未捕获异常→整树卸载成白屏。用 [[ChunkErrorBoundary.tsx]] 包住 `<Suspense><Routes>`。**boundary 是唯一的恢复驱动**（复审后重构：刻意不挂 `vite:preloadError` 全局监听，原因见 [[chunkReload.ts]]）：到达 render 的崩溃**分两类**——stale-chunk 失败 → 一次自愈 + 显示「有新版本，刷新」；真 render bug → 不自愈 + 显示「出错了，刷新重试」（不再把真 bug 伪装成新版本）。另本轮给 `isLoggedIn` 后台预取 `import('@/components/layout/MainLayout')` 补 `.catch(() => {})`（同 [[Sidebar.tsx]] 悬停预取，删监听后预取失败应静默）。
+
+## 2026-08-10 — workspace-ready after session validation
+
+ProtectedRoute records `workspace_ready` only after the session probe succeeds.
+Failed or unreachable sessions do not count as product entry.
+
+## 2026-08-06 (自审补) — ProtectedRoute 不再因 `success:false` 登出
+
+`ProtectedRoute` 的会话校验原本是
+`api.getAgents().then(res => { if (!res.success) logout() })`。问题:
+`GET /api/auth/agents` 对**处理器里任何未捕获异常**都回 200 +
+`{success:false, error}`(见路由末尾的兜底 except)——比如 app 挂载时数据库
+抖一下。那不是认证失败,却会销毁整个会话:这正是 401 那条路刚刚被治好的
+同一种核弹反射,只是换了触发源,而且**绕过 [[sessionGuard.ts]]**(全程没有
+401)。
+
+现在只保留"摸一次后端"的预热语义,判决权在 401 那条路(经 [[api.ts]] 交给
+[[sessionGuard.ts]] 确认)。列表拉失败的代价应该是侧栏空着,仅此而已。
+
+**review R2 追加**:调用也从 `getAgents()` 换成新的 `api.getSession()`。前者
+为了一个"后端还认我吗"的信号,把用户的全量 agent 列表(外加 active-run 与
+预览 enrichment)从数据库里拉一遍再整个丢掉;`/api/auth/session` 不查库,
+同样的信号、没有那份开销。
+
+同时把到期横幅的 `isLoggedIn` 从 `getState()` 改成订阅:否则手动登出后,
+"Your session expires in 5 hours" 会继续挂在 /login 顶上,直到下一个
+10 分钟 tick 才消失。
+
+## 2026-08-06 — auth-expired 记录触发源 + 新增到期预警横幅
+
+**1. 记录触发源。** `narranexus:auth-expired` 的 handler 现在读事件的
+`detail: {endpoint, code}`（由 [[sessionGuard.ts]] 附带），登出前打一条
+console.warn。2026-08-02 事故复盘时，客户端侧对"是哪个请求把我踢下线的"
+一无所知。
+
+**2. 到期预警横幅（琥珀色，可点击忽略）。** JWT 7 天有效且**无续期端点**，
+到期前毫无提示，用户是在下一次点击时被当场击毙的。新增一个每 10 分钟 +
+`focus` 时检查的 effect：剩余时间进入 `EXPIRY_WARNING_WINDOW_MS`（24h）就
+提示，local 模式（无 JWT）恒不显示。解析逻辑在 [[tokenExpiry.ts]]。
+
+横幅与既有 `sessionExpired`（已过期）横幅互斥——已经死了就不必再预告。
+>>>>>>> origin/dev
 
 ## 2026-08-04 — PageFallback 根 h-screen → h-dvh-safe
 
@@ -171,7 +222,7 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 
 **Session validation in `ProtectedRoute` is soft.** If `api.getAgents()` throws (backend unreachable), the user is NOT logged out — they stay in the app. Only a `!res.success` response from a reachable backend triggers logout. This prevents local-mode users from being logged out during a backend restart.
 
-**Hard logout on 401 via `narranexus:auth-expired` event.** The `App` component registers a global listener for `narranexus:auth-expired` and calls `configStore.logout()` on receipt. `api.ts` dispatches this event whenever an authenticated request comes back 401 from a non-auth endpoint (see `request<T>` in `lib/api.ts`). This complements `ProtectedRoute`'s one-shot session check: a JWT that expires mid-session — or is invalidated by a backend restart that recycled session state — gets caught by the next API call instead of leaving the UI to spam silent 401s.
+**Hard logout on confirmed session death via `narranexus:auth-expired`.** The `App` component registers a global listener for `narranexus:auth-expired` and calls `configStore.logout()` on receipt. Since 2026-08-06 the event fires only after [[sessionGuard.ts]] has confirmed the session is really dead — not on every 401 (see `request<T>` in `lib/api.ts`). This complements `ProtectedRoute`'s one-shot session check: a JWT that expires mid-session — or is invalidated by a backend restart that recycled session state — gets caught by the next API call instead of leaving the UI to spam silent 401s.
 
 **`RootRedirect` reads `VITE_FORCE_CLOUD`.** Cloud-web deployments set this env var to skip `ModeSelectPage` entirely. On first render with `mode=null` and `VITE_FORCE_CLOUD=true`, `setMode('cloud-web')` is called inline (not in a `useEffect`), which is a Zustand write during render. This is technically unsafe in React strict mode but is a one-time initialization that only fires when `mode` is null.
 

@@ -28,6 +28,7 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
+from backend.routes._mcp_egress import filter_public_mcp_servers
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
@@ -237,6 +238,8 @@ async def _run_skill_study(
                 if mcp.headers:
                     spec["headers"] = mcp.headers
                 mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only) — see backend/routes/_mcp_egress.py.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
         except Exception as e:
             logger.warning(f"Failed to load MCP servers for skill study: {e}")
 

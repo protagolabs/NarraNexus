@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — managed turn 的 route/duration 进审计(batch-2 §B)
+
+`managed_t0 = time.monotonic()` 锚在 before_run 门前后;两个
+`_schedule_managed_after_run` 位点(stream/nonstream finally)都带
+`audit_details={"route": "normal", "duration_ms": ...}` →
+`managed_ingress_processed` 行。deny/silent 两条路各有专属事件
+(coordinator 写),这里只覆盖真正起 run 的路。
 
 ## 2026-08-04 — _classify_event：剥空的回复工具事件整条丢弃
 

@@ -1,8 +1,128 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
+
+`_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。
+判定逻辑全在 [[patrol]],这里只负责调度与发言。
+
+- **与消息派发同一道闸**:同一个 per-agent 锁 + 同一个 semaphore,并登记
+  `_in_flight` —— 正在回话的 lead 不会被再叫醒来巡查,巡查也逃不出 worker 上限,
+  卡住的巡查还能像普通轮次一样在心跳里被看见。
+- **静默是常态**:模型没话说就什么都不发。每十分钟播报一次「一切正常」正是这个
+  房间一路在删的常驻噪音(折叠 console、赖着不走的活动气泡)。
+- **游标在 finally 里推**:崩掉的巡查也占用了它那一格,立刻重试会把一个坏掉的
+  team 变成热循环。
+- **以房间身份落墙**(`team_<id>` + `msg_type=patrol`),不是以 lead 的身份:
+  这既是它能被 `_team_cascade_depth` 跳过的原因,读起来也诚实 —— 这是平台在
+  盘点,不是 lead 在聊天。
+
+## 2026-08-10 — `_team_cascade_depth` 跳过巡查行
+
+拍板口径 (a)。不跳过的话豁免会自我拆台:巡查开口的那个房间**正因为流程断了**
+才处在深度上限上,它自己那一行会把后续所有催办 @ 顶出可用区间。
+
+用户消息仍然清零(计数器原本的用途没变)。
+
+**过滤下推到 SQL,不在 Python 里跳过**:`AND (msg_type IS NULL OR msg_type != ?)`。
+这不是写法偏好 —— 深度窗口是固定 `LIMIT MAX_TEAM_AGENT_HOPS + 2` 的定长窗口,
+在 Python 里跳过的巡查行**仍然占着窗口的格子**。一个流程断掉的房间恰恰是巡查
+最常光顾的地方,几条巡查行就能把窗口填满,`depth` 从此永远够不到
+`MAX_TEAM_AGENT_HOPS` —— 防 @ 风暴的上限在最需要它的房间里静默失效。`IS NULL`
+那一半是必须的:老消息没有 `msg_type`,漏掉它等于把历史全部排除在计数外。
+
+## 2026-08-07 (三次) — lead 知道自己是 lead;工作板随 prompt 注入
+
+`_build_team_prompt` 增加 `lead_agent_id` / `work_items`,`_team_board()` 负责
+取数(best-effort:板子读不到就退化成「没有条目」,房间对话才是主表面 —— 丢一
+段板子只是少点上下文,丢一轮是用户拿不到答复)。
+
+**在此之前 `lead_agent_id` 在 agent 侧零语义**:全部消费者只有「无 @ 时的兜底
+路由」和前端徽章。lead 不知道自己是 lead,所以「Leader 应该盯进度」根本无处
+挂载。现在 lead 会拿到职责段:派活必须落 `work_add_item`,收到交付要
+`work_complete_item`。
+
+**板子是注入的,不是让它自己去查**:如果看自己的板子还得先调工具,「我派出去
+什么」就取决于模型愿不愿意去看 —— 铁律 #15 要避开的正是这类依赖。普通成员也
+看得到板子(它得知道自己认领了什么),只是不给驱动流程的职责。
+
+## 2026-08-10 — owner 转发 wrapper 注解放宽为 Optional[str]
+
+`resolve_owner` 拆分 ""(不存在)/None(查询失败)后(PR #258),本文件的转发
+wrapper 如实透传 None;全部消费方按 truthiness/`or agent_id` 兜底,行为不变,
+只是签名与 docstring 不再谎称"永远返回 str"。
+
+## 2026-08-10 (方案 B) — team prompt 说明产出写哪里
+
+共享目录那句补上：**要给团队看的东西也写这里**（报告、页面、准备注册成 artifact 的数据文件）。
+自己 workspace 是私有的，留在那儿的工作队友打不开也接不下去。
+
+## 2026-08-07 (二次) — 取消分支不设 `_hop_done`
+
+rebase 时与 dev 的 `[bus-timing]` 埋点相遇。`_hop_done` 只在完整跑完一跳时
+置 True,被取消的轮次刻意保持 False —— 让它进时延序列会把「投递要多久」
+和「owner 什么时候按的停止」混成一个指标。
+
+## 2026-08-07 — 总线驱动的 run 终于可以被停止
+
+在此之前 `_invoke_runtime` 调 `run_and_collect` **不传 cancellation**,
+runtime 于是自己造一个外界无法触发的 no-op token —— 这就是 2026-07-23
+事故的机制底座:群聊里喊停,8 分钟内什么都不会发生,因为**从任何地方都
+停不掉一个总线驱动的 run**。
+
+三处改动:
+
+- `_handle_channel_batch` 造 token,经 `on_event_id` 回调注册进
+  [[cancel_watcher]](Step 0 铸出 event_id 的那一刻是最早能键的时机),
+  用 `stack.callback` 保证无论怎么退出都 unregister。**所有** bus run 都
+  注册,不只 team —— 端点是 run-scoped 的,未来 dashboard 也该能停一次
+  peer-DM 轮。
+- token 经 `cancellation=` 走 extra_kwargs 缝一路到 `AgentRuntime.run`
+  (`collect_run` 的 docstring 早就把 `cancellation` 列为可透传参数),
+  中间**没有任何签名需要改**。通道一直是通的,只是没人往里传。
+- 新增 `except CancelledByUser` 分支,必须在通用 `except Exception` 之前。
+
+## 2026-08-07 — 取消分支为什么必须自己 ack 游标
+
+成功路径的 `ack_processed` 在 try 块**末尾**,异常会跳过它。所以取消若不
+自己 ack,那条消息仍然 pending,下一轮轮询会把用户刚刚停掉的那个 run
+**重新拉起来** —— 停止会表现为"它自己重启了"。这是取消分支里唯一"必须
+发生且无处可依"的动作。
+
+同时三件事**不能**发生(通用分支会全做):
+
+1. `record_failure` —— 攒够 3 次进 poison,`get_pending_messages` 从此
+   **永久**过滤掉这条消息。停三次就把一条消息弄成不可投递。
+2. owner 面的永久失败通知 —— 用户自己按的停止,却收到"你的 agent 坏了"。
+3. 下游失败告警 / 重试记账。
+
+`import` 位置:`cancel_watcher` / `cancellation` 在 `_handle_channel_batch`
+**方法体内** import,不在模块顶层 —— `agent_runtime` 会拉进 `module`,后者
+又 import 回本包,顶层 import 直接循环(`get_agent_runtime_client` 一直
+留在 `_invoke_runtime` 里就是同一个原因)。
+
+## 2026-08-07 (二次) — team_id 经显式参数下传，不靠闭包
+
+初版把 `"bus_team_id": team_id if is_team else ""` 直接写进 `_invoke_runtime` 的
+`trigger_extra_data`，但那两个名字属于**调用方** `_handle_channel_batch` 的作用域 →
+`NameError`，且 `_invoke_runtime` 是每个 bus turn 必经路径（等于团队回合全崩）。
+
+现改为 `_invoke_runtime(..., team_id: str = "")` 显式参数，由调用方传
+`team_id if is_team else ""`。
+
+**该错误当时没被发现的原因值得记**：改了 `message_bus_trigger.py` 却只跑了
+`tests/module/` 和 `tests/context_runtime/`。**改了哪个模块就跑哪个模块的测试**，
+不能只跑「感觉相关」的那几个。
+
+## 2026-08-07 — trigger_extra_data 新增 bus_team_id
+
+team turn 的 `team_id` 本来就在 `is_team` 分支里算好了（用于 team prompt），只是没往下游
+传。现在发布到 `trigger_extra_data`，供 [[context_runtime.py]] 注入 MCP 身份 header，让工具
+从**服务端**而非模型参数得知本回合属于哪个 team。非 team 回合为 `""`。
+
+不折叠进 `bus_errand_channel`：后者只在 errand continuation 时 stamp，多数 team turn 为空。
 
 ## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
 
@@ -122,7 +242,7 @@ agent 两条互相矛盾的指令里的哪一条,漏传不该静默继承 Owner 
 
 ## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
 
-行为不变（异常仍回 '' + warn），实现收敛到 repository seam。
+实现收敛到 repository seam。2026-08-10 起契约随 resolve_owner 拆分:DB 异常在 repository 层就转成 None,外层 except→'' 那条路基本不再触发——别按「异常回 ''」推理(见顶部条目)。
 
 ## 2026-07-31 — team reply rows are stamped with their turn's event_id
 
@@ -525,3 +645,289 @@ turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime
 hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
 inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
 已回写进代码注释）。
+
+## 2026-08-11 — 公告栏注入 `_build_team_prompt`
+
+补上 PRD 说的那个空位：team 级别「持久 × 共享 × 每轮必然载入」的状态。这里是唯一注入点，
+`:640` 是每个 team turn 的必经之路。
+
+**位置是有承载的**：公告栏排在 roster / 共享文件夹之后、scrollback **之前**。
+它是这些消息被阅读时所处的约束框架；追加在二十行聊天之后，它读起来会变成聊天的脚注。
+
+**空公告栏一个字符都不加**（连标题都不加）。有测试断言 prompt 与加功能前**逐字节相同**，
+所以从不使用这个功能的团队分文不付。
+
+**读取失败降级，不拖垮 turn**：丢掉常驻规则是降级，丢掉回复是故障。抽成 `_load_bulletin`
+是为了让这个降级**可测**，而不是埋在 dispatch 路径里；两条分支都有测试，
+并且经变异验证——摘掉 guard 会立刻变红。返回 `[]` 但**必须记 warning**：
+静默会把「数据库连不上」呈现成「这个团队没有规则」。
+
+同时在 prompt 里点名 `bus_pin_team_rule`（没人告知的工具就是没人用的工具），
+并在同一句里劝阻把公告栏当记事本——预算很小且与用户的规则共享，
+一个往里钉「发现」的 agent 会挤掉它本该遵守的规则。
+## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
+
+**巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
+「少个 UI 指示」而是这条主线上工作板工具全废:`_work_board_mcp_tools` 当时只从
+`bus_agent_activity` 认房间,巡查不写这张表,于是 5 个工具在**平台自己叫 lead
+调 `work_complete_item` 的那一轮**统一返回 no room / not found。连带两处:
+roster 整个 sweep 期间显示 lead 空闲。
+
+**开这行**不能**顺带解决自我 stall**——这点最初写错了,更正在此:活动行是
+per-agent 单行,描述的是**当前这一轮**,而巡查者当前这一轮就是巡查本身。检测在
+开行之前读到 idle(于是 lead 每轮把自己的条目标 stalled,永不恢复,prompt 还会
+让 lead 去催自己),开行之后读到 running(于是 lead 的条目永远不会 stalled)。
+两个读数都不携带「这个条目有没有在推进」的信息。所以真正的修法是
+`detect_stalled_items(executor_agent_id=...)` **把巡查者自己的条目跳过** ——
+代价是「lead 卡在自己条目上时,**没有任何人**会发现」—— 巡查每个 team 只有一
+条、由该 team 的 lead 跑,不存在第二个 sweep 兜底(详见 [[patrol]] 的更正)。
+明写接受,因为另一个选项是完全没有恢复路径的永久自我催办。
+
+**同时给 `_invoke_runtime` 传 `team_id=`**,MCP 身份头才有 team 可注入。这与上一
+条是同一个洞的两头:工具必须从服务端知道自己在哪个 team,不能从模型参数知道。
+resolver 那侧也改成**优先读注入身份**、activity 行退化为兜底 —— 见
+`_work_board_mcp_tools.py.md`,那份文档原本就写下了「依赖 activity 写入时机」
+这个风险预判,巡查 lane 正是把它兑现的那个分支。
+
+**熔断门**:`_dispatch_patrols` 在唤醒 lead 前过 `should_skip`,和消息派发同一道
+闸。没有它,一个 key 失效或额度耗尽的 lead 会被每 180–600s 唤醒一次去跑一轮
+注定失败的 turn —— 正是熔断器要掐断的循环,只是从一条没问过它的 lane 进来。
+外层不包 try/except:`should_skip` 自己 fail-open,包了就是个永远跑不到的
+handler,而死 handler 会让读者以为它会抛。
+
+**`flight.running` 置位**:`liveness_snapshot` 的饥饿检查和 `longest_running_agent`
+都只数 `running`,不置位的巡查会占着 worker 槽却在心跳里显示为「仅在等待」——
+2026-07-27 那种「33 小时什么都没发生,liveness 全绿」的形状。
+
+**事实采集先于说话权**:`detect_stalled_items` 挪到频控门之前。检测不是「说话」
+的一部分 —— 它把 `stalled` 写进板子,那是用户面板渲染的东西,也是下一次 sweep
+定速的依据。频控一并挡住它时,被 cap 的团队整个窗口都不刷新板子:窗口内变哑的
+条目事后仍显示 `in_progress`,UI 少报,自适应间隔还停在慢档 —— 恰恰在出问题的
+时候。一次读加一次状态写,和频控真正要省的那轮 LLM 不在一个量级。
+
+## 2026-08-11 — sweep 是一次完整的 run,不是「顺带开一行」
+
+上一轮只把活动行开在 `_invoke_runtime` 外面,开了行却不填它。三个后果,严重度
+递减:
+
+**(1) 用户可见回退,而且是本 PR 自己造的。** `bus_agent_activity` 是
+per (agent, channel) 单行,`start()` 往 `event_id` 写 NULL。一次 sweep 之后 lead
+那行的 `event_id` 被清空、再没写回,而 `_member_activity` 的 idle 分支正是把这
+一列交给前端当**事件日志入口**。为了 roster 去开这行,结果把 roster 要的那个
+链接弄丢了。
+
+**(2) 巡查 run 停不掉。** 消息 lane 建 `CancellationToken` + `watcher.register`,
+巡查没有,于是 owner 的停止对巡查 run 不生效,`_leave_room_trace` 按
+`bus_agent_activity.event_id` 反查房间也落不到。
+
+**(3) 巡查自己不可观测**:sweep 期间 roster 显示 running,点进去没有 event_log。
+
+现在照消息 lane 的完整形状补齐:`on_event_id` 里同时 `watcher.register` 和
+`act.note_event_id`,`stack.callback` 反注册。活动行也从「只包 LLM 调用」改成
+**包住整个 sweep**——检测开始那一刻 lead 就被占用了,roster 该如实说这段时间。
+
+顺带把 sweep 主体拆成 `_patrol_body`:`_run_patrol` 现在只负责 activity/取消的
+作用域 + 「无论如何都推进游标」这条不变量,主体在里面平铺,不用为了一个
+`async with` 再缩进一层。
+
+## 2026-08-11 — 活动行推迟到「真要跑 turn」才开
+
+上一条把活动行提到 sweep 开头,理由是「检测开始那一刻 lead 就被占用了」。这个
+理由**在同一次改动之后就不成立了**:正因为 `detect_stalled_items` 现在显式跳过
+巡查者,检测阶段这行是开是关对判定毫无影响;工作板工具的兜底解析也只在
+`_invoke_runtime` 期间才有人读。
+
+而代价是实的:`start()` 写 `event_id: None` 并重置 `steps` / `started_at`,写回
+要等 `on_event_id`。开得早,则**任何在跑 turn 之前返回的 sweep**(频控门命中,
+或组装 prompt 时抛异常)都会顺路把 lead 上一次真实回复的事件日志入口抹掉 ——
+正是本 lane 已经修过一次的那条用户可见回退,从另一扇门进来。而且不是边角:
+板上有 stalled 时节奏 180s、30 分钟窗口约 10 次 sweep,而 `PATROL_SPEECH_MAX`
+是 6,窗口尾部那几次全走这条空跑路径。
+
+所以现在开在 `_invoke_runtime` 之前一行。roster 少显示前两次 DB 读那一瞬的
+running,换回一个不会被抹掉的链接。
+
+## 2026-08-11 — team 房间「跑过一轮 = 已读」
+
+`last_read_at` 在 team 房间**从来没有推进过**。它唯一的写入方以「trace 里出现 bus
+投递工具帧」为条件,而 team 回复是本 trigger 服务端代发的 —— 没有工具调用。于是游标
+停在 `joined_at`,该 agent 有生之年每一条团队消息都算未读;而未读又以每轮 20 条的
+上限注入它**所有场景**的上下文,owner 私聊也不例外。
+
+新增 `_ack_room_seen`,挂在 `_handle_channel_batch` 的成功与被取消两条路径上。
+
+**判据是"有没有跑 turn",不是"有没有回复"。** team 房间靠**渲染**投递:
+`_build_team_prompt` 把房间 scrollback 写进 turn 的 user message,所以已经呈现给
+模型的**就是那个窗口**。回不回复是 Reply Discipline 的决定,不是"我没看"。被取消
+同理 —— prompt 早就构建完了,停止不能把已经展示过的东西变回没展示。
+
+**但游标不能跑过窗口。** 初版把游标一路推到触发消息,等于宣告"该房间里 ≤ 触发消息
+的一切都已展示";而 prompt 只渲染 `TEAM_HISTORY_LIMIT` 条。一个长期没被 @ 的成员
+积压 60 条,某轮终于被 @ 时只看到 20 条,剩下 40 条**从未展示却被一起标成已读** ——
+正是本方法在另外两个 ack 点明确拒绝造成的那种静默丢失,换到了会跑 turn 的这条路径上。
+
+单根高水位游标表达不了「读了窗口但没读窗口下面那段」,所以判定是:
+**未读集里只要还有东西早于本轮渲染的最老一条,游标就原地不动。**`get_unread` 本身
+已经按游标过滤过,所以"它返回的、且早于窗口的"按定义就是本轮没渲染的 —— 一个问题,
+有没有游标都成立。积压装得下窗口的房间(常态)仍然一轮收敛;装不下的那种,正是
+"没被 @ 的成员靠未读瞥一眼"该继续生效的场景,而用户现在也有了可达的手动复位。
+
+**刻意不挂在 `_process_agent` 的另外两个 ack 点上**(未被 @、被限流)。那两处推进
+`last_processed_at` 但**没有跑 turn**,什么都没渲染、什么都没被看见。把它们标成已读
+等于让消息未读先亡 —— 而且会一并砍掉「没被 @ 的成员靠未读列表瞥一眼房间动静」这个
+能力,那是能力,不是疏漏。
+
+**仅限 team 房间。** 在 DM 里未读列表**就是**队列:「我等下处理」依赖消息重新浮现,
+所以只有真的回复才清账,那条路走模块钩子。
+
+## 2026-08-11 — 与工作板并存：两块常驻内容的顺序
+
+#259（Leader 巡查 + 工作板）先合入 dev，所以这次由公告栏来解这个我提前标出的语义重叠。
+
+`_build_team_prompt` 现在有**两块**常驻内容，都排在 scrollback 之前，顺序是：
+
+1. **公告栏** —— 规则，管「怎么答」；
+2. **工作板 + Leader 职责** —— 状态，管「有什么没做完」。
+
+规则在前，因为它是后面一切（包括工作板）被阅读时所处的框架。dev 那一块**一字未改**：
+它刚合入，在一次 merge 里改写别人已发布的设计不合适。
+
+**合并后的总量问题，以及它的处置。** 公告栏有硬顶（条目 2000 字 + 总结 800 字）且空态零字符；
+工作板在渲染处没有上限，空态仍输出一行。两块相加没有总预算，而 20 条 scrollback 还要挤在同一个
+prompt 里；一个积压 80 条的团队，每个成员每一轮都要付 80 行。
+
+**结论：不给工作板加渲染上限。** 截断会把唯一能触发清理的信号藏起来——积压 80 条不是渲染问题，
+是这个团队真的欠着 80 件事（铁律 #5）。而清理的机制 #259 已经建好了：`done` 由 agent 自己写，
+`cancelled` **明确保留给用户**（`work_update_status` 的报错原文：「'cancelled' is the user's
+decision」）。所以「agent 自行清理」与「请示 owner 清理」本来就是两条被区分开的路径。
+
+真正缺的只是**没有任何东西会说「这块板子太大了」**——巡查只讲停滞条目，不讲尺寸。补这个信号是
+[[patrol]] 的后续，单独 PR，阈值定在 30 条未完成（20 条 scrollback 是对话基线，常驻板子超过它
+就说明积压压过了对话本身）。
+
+**那个后续的措辞有一处必须小心**：提示只能是「盘点并向 owner 汇报」，不能是「把板子清短」。
+`done` 是 agent 唯一能写的状态，一旦让它以尺寸为优化目标，它会把没交付的标成已交付——
+板子变成谎报，而且看起来很像成功。#259 锁住 `cancelled` 挡住了一半，另一半正好敞在压力会落下的地方。
+
+## 2026-08-11 (review 收口) — scrollback 与 cascade 都改用共享过滤
+
+**scrollback 不再渲染平台自述行。** 此前它们会被写成 `"{sender}: {content}"`，读起来就是
+「Alice: Team bulletin updated.」——因为通知的 sender 是触发它的人，而巡查的 `team_<id>` 标记
+根本不过 `member_map`。agent 于是在回答**没有人说过的话**。
+
+**`_team_cascade_depth` 补齐另外两种类型。** 它原来的注释把理由写得很清楚（平台在盘点、不是
+agent 在发言；而且固定 LIMIT 窗口里被跳过的行仍占一个槽），那段话对停止通知和公告栏通知
+**逐字成立**——只是写它的时候只有 patrol 存在。现在三种都走 [[system_messages]] 的同一个元组。
+
+`TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 的定义移到 [[team_schema]]（四个模块在构造或
+匹配它们），本文件改为 re-export，既有 importer 不受影响。
+
+## 2026-08-11 (review 收口 2) — 平台行**标注**，而不是丢弃
+
+上一轮我把 `msg_type in PLATFORM_MSG_TYPES` 的行整条从 scrollback 里删掉——**这打断了
+#259 的巡查追问链路**，而且断在最讽刺的地方：
+
+巡查的回复是**带 @mention 发出去的**（prompt 明确要求 Leader「@mention the owner and ask
+where it stands」），所以它会成为被点名成员这一轮的**触发消息**。而 prompt 里那句指认
+（「You were just @mentioned by X. Respond to that message.」）**只印发送者、不印正文**——
+依据正是它自己那句注释「it's already in the history above」。history 一旦跳过它，
+这句指令就指向了 prompt 里不存在的东西：**被追问的 agent 对着空气回答，或者自己编一个问题。**
+
+停止通知和公告栏通知都是 `mentions=None`，永远不会成为触发消息。所以**这条过滤唯一真正
+想挡的那个 sender，正是它唯一弄坏的那个**。
+
+现在渲染成 `[system] <content>`：内容留下，身份不冒充。指认行对平台 sender 也不再打印
+`team_<id>` 这个合成标记（否则等于凭空发明一个队友，agent 还可能回 @ 它）。
+
+**上一轮那条测试断言的是「内容不出现」——它把错误行为钉住了。** 现在断言的是真正要的性质：
+内容在、但不被渲染成某个成员在说话。
+
+## 2026-08-11 (review 收口 3) — 指认行的标签改为按类型分派，并补上断言
+
+上一轮我给指认行加的「不冒充队友」分支**一条断言都没有**：把整段删掉回到
+`who = _sender(tm)`，314 条测试照样全绿。同一段代码两轮内第二次在测试面上敞着——
+上一轮是走 `trigger_messages` 的路径没人测，这一轮是走了却只断言了「内容回来了」。
+
+现在断言分支两侧：`team_<id>` 不出现、且标签出现。标签本身改为 [[system_messages]] 的
+`trigger_label` 按类型分派。
+
+## 2026-08-11 — 与 #283 的已读游标并存
+
+`rendered_from = history[0].created_at` 与公告栏加载并列，纯新增。
+
+**但两者之间有一处语义耦合，值得写下来**：#283 的契约是「read = prompt 真的渲染过它」，
+`rendered_from` 取的是「prompt 实际携带的最老一条」。这条前提**依赖平台行被渲染**。
+
+上一轮我一度把平台行整条从 scrollback 里丢弃（后来因为打断巡查追问链路改回带标签渲染）。
+**如果那个版本活到今天，这里就是一处真语义冲突**：被丢掉的行会随游标推进被标成已读，
+而它们从未展示给任何人——正是 #283 那段 docstring 明确拒绝造成的静默丢失。
+
+现在平台行渲染为 `[system] <content>`，前提成立。这也是"标注而不是丢弃"的第二个理由，
+当时没人提出过。
+
+## 2026-08-12 — team prompt 从「一串名字」变成一张卡
+
+此前一个成员醒来时知道的全部是:自己的名字、"你在一个团队群聊里"、队友的**逗号分隔
+名字串**、最近 20 条消息、共享目录路径。团队叫什么、为什么存在、队友是干什么的、
+谁在忙 —— 一个都没有。
+
+**团队卡**(`_team_card_lines`):名称 + `description` 全文 + `intro_md`(截到
+`TEAM_INTRO_MAX_CHARS=1200`,在行边界回退以免切断 markdown 表格/代码块;截了就标注,
+没截绝不标注 —— 对完整文本打截断标记是会连累其它标记可信度的小谎)。字段缺失渲染成
+**什么都没有**而不是空标题。位置在房间头之后、共享目录之前:"我在哪、和谁、为什么"
+是读下面一切的框,不能垫在机制说明底下。数据来自 `_team_board` 本来就查了的 `teams`
+整行(它读完 `lead_agent_id` 就把其余丢了),**零新增查询**。
+
+**roster**(`_team_roster` + `_roster_lines`):一行一个成员,格式对齐
+`message_bus_module` 的 Known Agents(`` `id` — name: desc ``)。这不是审美 —— 那份
+列表正是 agent 学到 `bus_send_to_agent` 要什么标识符的地方,两个面用两套标识符等于
+逼模型去猜映射。**自己也在名单里并标 `(you)`**;lead 标记挂在**每一行**,于是非 lead
+成员终于知道谁在负责(此前只有 lead 自己被告知)。描述未设置时整段不渲染,和 Known
+Agents 同一条 2026-08-04 的教训。
+
+数据层从「每个成员一次 `get_one` 只取名字」改成**三次批量读**。不做 JOIN:
+`LocalMessageBus._db` 是 RAW backend,四表 LEFT JOIN 会是本包方言最脆的一句 SQL,而
+一个 team 最多几十人,收益为零。有一条看门狗测试钉住"不许退回逐个查"。
+
+**队友状态**(`_member_status`):只讲两件事 —— `running (3m)` 和
+`running but no signal`。**idle 什么都不渲染**(常态挂在每个名字后面就是背景噪音,
+和巡查"不要每几分钟报平安"同一条产品原则);**`phase` 不注入**(内部步骤名,给模型只
+会诱导它评论队友的工具使用,而且每几秒抖一次)。时长取 `started_at` 而非 `updated_at`
+(后者是心跳,永远约等于现在),整数,不给假精度。
+
+活动行取自 `get_channel_activity`(**按 channel**)。这一点必须守住:
+`bus_agent_activity` 主键是 `(agent_id, channel_id)`,只按 agent 取会拿到字典序靠前的
+**别的房间**的行 —— 这个洞本仓库已经出过一次(巡查的 stalled 判定),别再来第二次。
+
+**scrollback 的 @ 标注**:`BusMessage.mentions` 一直存在,这个 prompt 从没读过它。
+现在逐行标 `[→ 谁]`(是自己就写 `you`)。知道一个请求已经有主,正是避免两个 agent
+做同一件事的依据。
+
+**多条 @ 逐条列**:此前只指 `trigger_messages[-1]`,更早那几条混在 scrollback 里像
+别人的流量 —— 问了却被无声丢掉,在用户看来就是 agent 无视了它们。
+
+**真假 @ 分支**:`routed_by == "default_responder"` 时不再说 "You were just
+@mentioned",改成「X 发言时没有 @ 任何人,你是这个团队的默认应答人,所以它落到了你
+这里;回答它,或按 roster 交给更合适的人」—— 顺带回答了"为什么是我"。
+
+## 2026-08-12 (review 后) — 三处自我纠正
+
+**① 缺口判定改用 `has_unread_before`。** 见 [[local_bus]] 同日条目:我用无 limit 的
+`get_unread` 回答一个布尔问题,把同一批改动刚消灭的形状请了回来。
+
+**② 真假 @ 的判据从「是不是只有一条」改成「整批是不是都被路由」。** 初版只在
+`len(trigger_messages) == 1` 时区分 `routed_by`,于是用户在一个 poll 窗口(3-12s)里
+连发两条都没 @ 人的消息时,复数分支照样打出「2 messages @mentioned you」——**要删掉的
+那句谎话换了个分支活着**。现在按批次分组:全部路由 → 复数版的默认应答人措辞;全是
+真 @ → 原措辞;混合 → 复数版并**逐条标注**哪条是路由补的(scrollback 的 `[→ …]`
+已经证明逐条标注读起来没问题)。
+
+**③ `activity` 覆盖参数删除。** 它在生产没有任何调用方,而 5 条状态测试全靠它驱动 ——
+也就是说 `_team_roster` → `roster[i]["activity"]` → `_member_status` 这条**真实链路
+一条测试都没走过**。参数删掉,测试改用真实形状,另补一条端到端用例:往
+`bus_agent_activity` 写一行 running、外加**同一个 agent 在另一个房间的 idle 行**,
+断言 prompt 里出现的是本房间的时长 —— 顺带把「必须按 channel 取」钉死。
+
+顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
+一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
+成员,读回空意味着读失败,不是房间空了。

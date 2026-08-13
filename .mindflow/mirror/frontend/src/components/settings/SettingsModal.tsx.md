@@ -11,6 +11,13 @@ same row/switch treatment as the Privacy analytics toggle. i18n keys
 `settings.modal.navDesktop / desktopHeading / desktopIntro /
 lockedUseTitle / lockedUseDesc` in all 10 locales.
 
+## 2026-08-10 — analytics privacy copy matches database-only collection
+
+The privacy description no longer calls the facts anonymous. It now states
+that local/desktop product metadata remains on-device, no external analytics
+service receives it, and conversation content is never collected. All ten
+locales carry the same privacy boundary.
+
 ## 2026-06-10 — review fix: English-only label, identity via auth header
 
 The toggle row title was "产品遥测 / Product analytics" — binding rule #1

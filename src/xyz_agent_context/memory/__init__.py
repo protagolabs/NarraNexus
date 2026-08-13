@@ -23,7 +23,11 @@ from xyz_agent_context.memory.spec import (
     passive_kinds,
 )
 from xyz_agent_context.memory.engine import MemoryEngine
-from xyz_agent_context.memory.coordinator import MemoryCoordinator, MemoryHit
+from xyz_agent_context.memory.coordinator import (
+    MemoryCoordinator,
+    MemoryHit,
+    format_memory_hits,
+)
 
 # Import for side effect: registering all kind specs. Importing the memory
 # package (directly or via any submodule) therefore guarantees every kind's
@@ -47,4 +51,5 @@ __all__ = [
     "MemoryEngine",
     "MemoryCoordinator",
     "MemoryHit",
+    "format_memory_hits",
 ]

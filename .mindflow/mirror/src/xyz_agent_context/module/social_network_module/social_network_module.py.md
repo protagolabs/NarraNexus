@@ -1,7 +1,37 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (PR-6) — 新增 `format_create_agent_success` + `CREATE_AGENT_NO_OWNER_MSG`
+
+create_agent 的成功 dict（含 warnings 上浮）与无 owner 文案的唯一来源，seam 的
+DirectStore 与 create-agent 路由都 import 用——给定同 (agent_name, new_agent_id)
+两侧输出逐字相同（new_agent_id 是工具铸造后传入的入参，非各自随机生成）。经包
+`__init__` re-export。
+
+## 2026-08-10 (PR-5) — 新增共享结果整形器 `format_contact_result` / `format_stats_result`
+
+两个纯函数把 `recall_entity_info` / `get_agent_stats` 的原始结果整形成
+get_contact_info / get_agent_social_stats 工具的返回 dict。seam 的 DirectStore
+与 backend `/social-network/{contact,stats}` 路由都 import 用，工具的表现逻辑
+只此一份、不再被抄进路由（与 [[store]] 的 parity 目标一致）。经包 `__init__` re-export。
+
+## 2026-08-10 (PR-4) — 新增共享 `social_instance_not_found_msg`
+
+模块级纯函数，"agent 无 SocialNetworkModule 实例"的**唯一**文案源。[[store]] 的
+DirectStore 与 backend [[social_network]] 写路由（HttpStore 路径）都 import 它，
+保证 seam 两侧这条边界返回逐字相同（否则迁移的写工具在实例缺失时分叉）。措辞沿用
+本文件姊妹 GET 路由的 "... for agent: X"。经包 `__init__` re-export。
+
+## 2026-08-10 — 新增 merge_entities / delete_entity 方法(供 MCP+路由共用)
+
+把原本散在 `_social_mcp_tools.py` 闭包与 backend 路由里的 merge/delete 业务
+逻辑(tags 并集去重、identity/contact 深合、related_job 并集、描述追加、
+交互计数求和、保留最新交互时间)提炼为本类的真方法,与既有
+`extract_and_update_entity_info` 同层。MCP 闭包与 `backend/routes/agents/
+social_network.py` 路由都改调这两个方法,消除两份复制、堵住 drift(PR-2
+pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 2026-07-28 — R4b：实体卡（§5）搬进 get_turn_context
 
@@ -78,5 +108,5 @@ last_verified: 2026-07-28
 
 ## 新人易踩的坑
 
-- MCP Server 的 `create_social_network_mcp_server(port, get_mcp_db_client, SocialNetworkModule)` 传入了整个 `SocialNetworkModule` 类引用——这是为了让 MCP 工具在 MCP 进程里能实例化临时的 Module 对象查数据库，而不是持有共享实例。
-- `extract_and_update_entity_info()` 是 Module 的 public API，被 `_social_mcp_tools.py` 里的 `extract_entity_info` 工具调用。两者不直接等价——MCP 工具层会先验证和格式化入参，再调用这个方法。
+- MCP Server 由 `create_social_network_mcp_server(port)` 构造（单参）。数据操作工具通过 [[data_access/store]] 的 seam 解析实例并临时构造 Module（本地 DirectStore / 云端 backend 路由），工具层不再接收 `SocialNetworkModule` 类引用或 db 客户端注入（旧 `module_class` PR-5 删、`get_db_client_fn` PR-6 删）。
+- `extract_and_update_entity_info()` / `merge_entities()` / `delete_entity()` / `search_network()` / `recall_entity_info()` / `get_agent_stats()` 是 Module 的 public API，被 seam（DirectStore + backend 社交路由）调用。`get_agent_stats` 曾是私有 `_get_agent_stats`，PR-5 因成为跨包（backend 路由）契约而提升为公开命名。

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-04
+last_verified: 2026-08-12
 stub: false
 ---
+## 2026-08-07 — BusMessage.root_run_id
+
+发送方那一轮所属的触发树。被唤起的 run 从这里继承,级联停止才能越过
+agent→agent 的一跳。用户消息与老行为 None。
 
 ## 2026-08-04 — BusMessage 增加 sender_turn_source
 
@@ -49,3 +53,12 @@ Files travel by reference; see [[_bus_attachment_impl]] for the dict contract.
 ## 新人易踩的坑
 
 时间戳比较时不要直接 `msg.created_at > cursor`——在 SQLite 模式下两者都是字符串，字符串比较在 ISO 8601 格式下通常正确，但如果格式不完全一致（有无时区后缀、精度不同）会出现奇怪的排序结果。`LocalMessageBus` 里用的是 `str(latest.created_at)` 保证一致性。
+
+## 2026-08-12 — `BusMessage.routed_by`:`mentions` 的来历
+
+`None` = 发送者自己写的;`"default_responder"` = team 房间没人被 @,路由补了一个,
+免得房间没人应答。
+
+为什么必须在**产生这个决定的地方**记下来:下游无法反推。「只有一个 mention,而且
+正好是 lead」和「用户就是故意 @ 了 lead」在数据上完全一致,而后者是最常见的用法之一。
+靠猜做判定正是铁律 #15 反对的形状。

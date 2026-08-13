@@ -42,10 +42,16 @@ class ExecutorEnsureResult:
     ``cold_started`` is True when the broker had to spawn a new container
     (vs reuse a warm one) — the signal the run-start flow uses to surface
     the "waking up" UX to the user.
+
+    ``identity_token`` is the broker-signed Ed25519 identity token for this
+    user (blueprint P1) — fresh per ensure(), so warm reuse still gets a
+    fresh one. None when the broker predates the field or has no signing key
+    configured; the dispatch path then simply does not stamp.
     """
 
     url: str
     cold_started: bool
+    identity_token: Optional[str] = None
 
 
 def broker_url() -> Optional[str]:
@@ -102,14 +108,23 @@ async def ensure_executor(
     )
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
-    return ExecutorEnsureResult(url=executor_url, cold_started=(status == "started"))
+    return ExecutorEnsureResult(
+        url=executor_url,
+        cold_started=(status == "started"),
+        identity_token=data.get("identity_token") or None,
+    )
 
 
-async def _executor_healthy(health_url: str) -> bool:
-    """True iff the executor answers 200 on its /health. Never raises."""
+async def executor_healthy(executor_url: str, *, timeout: float = 5.0) -> bool:
+    """True iff the executor answers 200 on its /health. Never raises.
+
+    Public: the one health probe for executor containers — callers pass the
+    executor's base URL and this appends ``/health`` itself. Hot paths that
+    must not stall on a wedged container pass a shorter ``timeout``.
+    """
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(health_url)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{executor_url.rstrip('/')}/health")
             return resp.status_code == 200
     except Exception:  # noqa: BLE001 — still booting / not reachable yet
         return False
@@ -130,10 +145,9 @@ async def wait_until_ready(
     correct, and the typed exception lets step_3 surface an actionable
     ``infra_transient`` error rather than a bare RuntimeError).
     """
-    health = f"{executor_url.rstrip('/')}/health"
     deadline = time.monotonic() + timeout
     while True:
-        if await _executor_healthy(health):
+        if await executor_healthy(executor_url):
             return
         if time.monotonic() >= deadline:
             raise ExecutorUnreachableError(

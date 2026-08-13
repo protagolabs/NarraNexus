@@ -30,6 +30,7 @@ import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { chatDayInfo } from '@/lib/chatDays';
 import { getChatDraft } from '@/lib/chatDrafts';
+import { captureProductEvent } from '@/lib/productAnalytics';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
@@ -809,6 +810,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     addUserMessage(agentId, content, attachmentsToSend.length ? attachmentsToSend : undefined);
     startStreaming(agentId);
+    captureProductEvent('message_submitted', {
+      agent_id: agentId,
+      trigger_source: 'chat',
+    });
 
     try {
       const agentName = currentAgent?.name || agentId;

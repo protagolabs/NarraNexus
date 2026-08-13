@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-08-05
+last_verified: 2026-08-11
 stub: false
 ---
 ## 2026-08-05 — 导出 `AgentRegistryRepository`
@@ -38,3 +38,7 @@ Inbox / Agent / AgentMessage / MCP / User / Instance / Team / SkillArchive 等,�
 新增 re-export `AgentCircuitBreakerRepository`（实时层 Agent 熔断器状态的数据访问,表
 `instance_agent_circuit_breaker`）。纯导出改动,无行为变化。见
 [`agent_circuit_breaker_repository.py`](agent_circuit_breaker_repository.py.md)。
+
+## 2026-08-11 — 导出 `TeamBulletinRepository`
+
+见 [[team_bulletin_repository]]。

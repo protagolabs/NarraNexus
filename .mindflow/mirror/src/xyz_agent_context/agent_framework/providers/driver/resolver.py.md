@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/resolver.py
-last_verified: 2026-07-29
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — source captured at the credential decision point
+
+Resolution records each chosen `ProviderCard.source` into the task ContextVar.
+No later layer guesses free-tier use from URL, model, or legacy branch.
 
 ## 2026-07-29 — 协议无关框架:openai 卡也能进 agent 槽
 

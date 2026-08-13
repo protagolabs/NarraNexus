@@ -11,16 +11,37 @@
  */
 
 import { useState } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal } from 'lucide-react';
+import { Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
+import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
+
+/** dev's settings entry to agent management, retargeted: chat-ui-v4 absorbed
+ *  the former ManageAgentsPage into the Dashboard, so the button lands there
+ *  instead of the retired /app/manage-agents route. */
+function ManageAgentsContent() {
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  return (
+    <section>
+      <SectionHeader
+        label={t('pages.settings.manageAgents.label')}
+        hint={t('pages.settings.manageAgents.hint')}
+      />
+      <Button onClick={() => navigate('/app/dashboard')} variant="outline" className="gap-2">
+        <Users className="w-4 h-4" />
+        {t('pages.settings.manageAgents.openButton')}
+      </Button>
+    </section>
+  );
+}
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -230,6 +251,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
+  { id: 'agents', labelKey: 'pages.settings.nav.manageAgents', icon: Users },
+  { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
   { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
@@ -310,6 +333,16 @@ export default function SettingsPage() {
               </section>
             )}
             {active === 'artifacts' && <ArtifactsContent />}
+            {active === 'agents' && <ManageAgentsContent />}
+            {active === 'privacy' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.privacy.label')}
+                  hint={t('pages.settings.privacy.hint')}
+                />
+                <PrivacySettings />
+              </section>
+            )}
             {active === 'updates' && isTauri() && <UpdatesSection />}
           </div>
         </ScrollArea>

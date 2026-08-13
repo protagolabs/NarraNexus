@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — body 新增 extra_readable_roots（恒在场）
+
+白名单 body 新增 `extra_readable_roots`（恒在场，空则 `[]`）。**必须显式过边界**：该 body
+是白名单，漏键即云端静默丢失——本文件既有注释已就 turn_profile 记过这一条。缺了它会出现
+「本地能读团队共享目录、云端读不到」的两模式分裂（铁律 #7）。
+路径是编排侧绝对路径，安全性同 `working_path`：per-user Executor 挂载的正是该 user 子树，
+两侧命名一致。
+
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+build_agent_loop_request 白名单新增 turn_profile 键（恒在场，无 profile 时 None）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

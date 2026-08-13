@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-07-28
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — select() 现在落一行路由审计（E1）
+
+`select()` 的决策证据以前只进 `ProgressMessage` 和 loguru，数据库里一个字节都没有
+（事故教训 #5：日志会轮转、grep 只找得到你想到要搜的词）。于是「路由准确率提升了
+X%」没有分母。现在每次 `select()` 结束写一行 [[narrative_routing_audit_repository.py]]。
+
+两条分支都要写，这是重点：
+
+- **检索分支**：审计由 [[retrieval.py]] 的 `retrieve_top_k` 组装（池子 + 闸门 +
+  judge），挂在 `NarrativeSelectionResult.audit` 上带回来。
+- **连续性分支**：没有池子也没有闸门，但**恰恰最需要留痕**——一次误判的
+  `is_continuous` 会直接复用 `session.current_narrative_id` 且不做任何话题校验，
+  而每轮又把这个 id 原样写回，一次误判能锁住若干轮。以前完全无记录，所以真实
+  误判率至今未知。这里单独构造一个 RoutingAudit。
+
+顺带把两个一直被算出来又扔掉的量存下来：`ContinuityResult.confidence`（`select()`
+只取 `is_continuous`）和闸门的 `raw_score`（`NarrativeSelectionResult.scores` 只带
+squash 后的值）。
+
+新增 `trigger` 参数：dev 实测 chat 占 69%、message_bus 占 30%，而只有面向人的来源
+会移动 session 锚点（`_is_user_chat`）。不分开记，两种行为会被平均成一个无意义的比率。
+
+`_write_audit` **同步内联**执行，不是 `create_task`：两条小查询而已，而在这里
+fire-and-forget 正是让 narrative 摘要静默失败两周的那个坑的翻版（无人 await 的
+Task，异常只在 GC 时以 warning 出现——事故教训 #2）。若将来它出现在 step.1 的耗时
+里，做写入合并，**不要改成脱离任务**。
+
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：select_fast 改走公开 keyword_search（私有名转正，service 不再下探 impl 私有面）并加 NARRATIVE_MATCH_RAW_FLOOR 分数门槛——低于门槛按 miss 裸跑，一词偶合不再成为背景 narrative。
+
+## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
+
+新增 public `select_fast(agent_id, user_id, query)`：BM25 top-1 直取（retrieval 公开面 keyword_search top_k=1 + CRUD load），零 LLM / 零新建 / 零 session 写；fast 模式（F28）唯一入口，select() 仍是唯一可新建/走 LLM 层的路径。
 
 ## 2026-07-28 — R4a：prompt 生成面扩为稳定/易变两半
 

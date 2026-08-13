@@ -38,6 +38,7 @@ from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import claude_config, codex_config
 from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
+from xyz_agent_context.schema.turn_profile import TurnProfile
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     TYPE_RAW_RESPONSE_EVENT,
@@ -236,10 +237,28 @@ class NexusAgent:
             # Anthropic-protocol gateways expecting Authorization: Bearer
             # (litellm's anthropic route sends x-api-key; add the header).
             llm_extra["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
+        # Per-turn fast-mode profile. Arrives as the in-process model or as
+        # its model_dump() dict off the executor wire — normalize once here.
+        # Absent profile MUST leave the payload semantically identical to
+        # the pre-TurnProfile build (defaults below match the old hardwired
+        # values; see tests/agent_framework/test_nexus_turn_profile.py).
+        profile = kwargs.get("turn_profile")
+        if isinstance(profile, dict):
+            profile = TurnProfile(**profile)
+        prompt_mode = profile.prompt_mode if profile is not None else "full"
+        if profile is not None and profile.reasoning_effort:
+            # litellm passthrough: rides ModelParams.extra straight into
+            # acompletion kwargs — the gateway's reasoning knob.
+            llm_extra["reasoning_effort"] = profile.reasoning_effort
         options: dict[str, Any] = {
             "cwd": self.working_path,
             "agent_id": str(kwargs.get("agent_id") or "agent"),
             "env": dict(extra_env or {}),
+            # Collaborative areas (e.g. the team shared folder) sit outside
+            # this agent's workspace by design; the caller decides which
+            # roots this turn may additionally read. Absent → unchanged
+            # workspace-only confinement.
+            "extra_accessible_roots": tuple(kwargs.get("extra_accessible_roots") or ()),
             "model": model,
             "provider": protocol,
             "api_key": api_key,
@@ -253,7 +272,10 @@ class NexusAgent:
             "expandables": tuple(kwargs.get("expandables") or ()),
             "initial_expansions": sorted(kwargs.get("initial_expansions") or ()),
             "output_mode": "legacy_dict",
+            "prompt_mode": prompt_mode,
         }
+        if profile is not None and profile.include_arg_deltas is not None:
+            options["include_arg_deltas"] = profile.include_arg_deltas
         return {
             "thread_id": f"turn_{uuid.uuid4().hex[:12]}",
             "messages": messages,

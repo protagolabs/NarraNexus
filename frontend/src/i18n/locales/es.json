@@ -149,10 +149,34 @@
         "neverRan": "aún sin ejecuciones",
         "loading": "Cargando proceso…",
         "workingCount": "{{count}} trabajando",
-        "process": "proceso"
+        "process": "proceso",
+        "stop": "Detener",
+        "stopping": "Deteniendo…",
+        "stopped": "Detenido por el propietario",
+        "stopFailed": "No se pudo detener esta ejecución",
+        "stopHint": "Detener esta ejecución"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
-      "leadTitle": "{{name}} · responde cuando no se menciona a nadie"
+      "leadTitle": "{{name}} · responde cuando no se menciona a nadie",
+      "stoppedNotice": "La tarea de {{name}} fue detenida por el propietario",
+      "patrolNotice": "Revisión del líder",
+      "board": {
+        "title": "Tablero de trabajo",
+        "unclaimed": "sin asignar",
+        "resume": "Reanudar esta tarea",
+        "patrolOff": "Revisión desactivada",
+        "patrolPending": "Aún sin revisar",
+        "patrolledJustNow": "Revisado ahora mismo",
+        "patrolledAgo": "Revisado hace {{ago}}",
+        "status": {
+          "open": "abierto",
+          "in_progress": "en curso",
+          "stalled": "estancado",
+          "paused": "en pausa"
+        },
+        "turnOff": "Desactivar",
+        "turnOn": "Activar"
+      }
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -800,7 +824,7 @@
       "privacyHeading": "Privacidad",
       "privacyIntro": "Controla qué datos recopila NarraNexus para mejorar el producto.",
       "analyticsTitle": "Analítica del producto",
-      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones.",
+      "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
       "desktopHeading": "Escritorio",
       "desktopIntro": "Ajustes que controlan cómo NarraNexus interactúa con este equipo. Solo disponible en la aplicación de escritorio.",
       "lockedUseTitle": "Locked Use — mantener el equipo despierto",
@@ -1175,8 +1199,6 @@
       "localAccess": "Local · Acceso",
       "cloudMode": "Modo nube",
       "signInWithNetmind": "Inicia sesión con tu cuenta de NetMind.AI",
-      "migrationNoticeHeading": "Hemos reorganizado nuestro sistema de cuentas.",
-      "migrationNoticeBody": "Tus datos se han migrado a la cuenta con el correo que usaste para recibir tu código de invitación. Para iniciar sesión, primero restablece la contraseña de ese correo (usa “¿Olvidaste tu contraseña?” abajo). Para cualquier otra duda, contacta a nuestro equipo en",
       "emailLabel": "Correo",
       "passwordLabel": "Contraseña",
       "forgotPassword": "¿Olvidaste tu contraseña?",
@@ -1191,7 +1213,12 @@
       "accessTerminal": "Acceder a la terminal",
       "createNewUser": "Crear nuevo usuario",
       "loginFailed": "Error al iniciar sesión",
+      "invalidCredentials": "Correo electrónico o contraseña no válidos",
       "enterUserId": "Introduce tu ID de usuario",
+      "resetCodeInvalid": "El código no es válido o ha caducado. Solicita uno nuevo.",
+      "forgotResetIntro": "Enviaremos un código de verificación al correo de tu cuenta NetMind.",
+      "forgotCodeSentHint": "Si existe una cuenta con ese correo, hemos enviado un código de verificación.",
+      "useDifferentEmail": "Usar otro correo",
       "connectionFailed": "Error de conexión. Inténtalo de nuevo."
     },
     "modeSelect": {
@@ -1248,6 +1275,9 @@
     "settings": {
       "title": "Ajustes",
       "headerSections": "Proveedores · Paquete · Artefactos · Agentes",
+      "nav": {
+        "privacy": "Privacidad"
+      },
       "providers": {
         "label": "Proveedores de LLM"
       },
@@ -1276,6 +1306,24 @@
         "frameworkFilteredNote": "Solo se muestran los frameworks que tus proveedores conectados pueden ejecutar realmente.",
         "cloudFrameworkLockedTitle": "Solo para staff en la nube",
         "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local."
+      },
+      "manageAgents": {
+        "label": "Gestionar agentes · en bloque",
+        "hint": "Selecciona agentes en bloque para eliminarlos, o agrégalos/quítalos de equipos por lotes. Útil tras importar un paquete que no quieres conservar — filtra por 'De paquetes' para encontrarlos.",
+        "openButton": "Abrir gestor por lotes…"
+      },
+      "privacy": {
+        "label": "Privacidad",
+        "hint": "Qué sale de este equipo y los interruptores para controlarlo.",
+        "analyticsTitle": "Analítica del producto",
+        "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. Nunca se envían a un servicio de análisis de terceros. Nunca se recopila el contenido de las conversaciones.",
+        "telemetryTitle": "Telemetría de diagnóstico",
+        "telemetryDesc": "Enviar los registros de servicio de esta instalación al colector propio de NarraNexus para poder depurar fallos y errores. En el nivel predeterminado esto significa eventos estructurados, advertencias y errores, sin contenido de mensajes. Las implementaciones que ejecutan el nivel \"full\" (sandboxes gestionados, entornos de depuración) envían las líneas de registro completas, que pueden incluir contenido de mensajes que los servicios registren. No se envía nada a terceros.",
+        "telemetryTiming": "Al desactivarla, surte efecto en cuestión de segundos. Si la telemetría ya estaba desactivada al iniciar la aplicación, activarla surte efecto en el siguiente inicio.",
+        "telemetryManaged": "Gestionado por tu despliegue (configuración de entorno): el interruptor no está disponible aquí.",
+        "telemetryManagedCloud": "Tu administrador controla la telemetría de diagnóstico de esta instalación.",
+        "telemetryUnavailable": "No se pudo cargar el estado de la telemetría: el interruptor se oculta en lugar de adivinarlo. Recarga para reintentar.",
+        "telemetryError": "No se pudo guardar el cambio. El interruptor muestra el estado actual real."
       }
     },
     "system": {
@@ -2105,5 +2153,11 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",
+    "settings": "Abrir ajustes",
+    "dismiss": "Entendido",
+    "bodyManaged": "Esta instalación envía registros de servicio de diagnóstico (errores y eventos de diagnóstico) al colector propio de NarraNexus, según lo configurado por tu administrador. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes."
   }
 }

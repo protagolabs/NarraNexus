@@ -123,7 +123,11 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   }, [open, recompute]);
 
   const exportChartImage = (type: 'png' | 'jpeg') => {
-    const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
+    // Last mounted instance (the registry is a per-id list now — column +
+    // zoom modal can both be live; the latest is the one on screen).
+    const instance = useArtifactStore
+      .getState()
+      .chartInstances[artifact.artifact_id]?.at(-1);
     if (!instance) {
       void notifyPending(t('artifacts.download.chartLoading'));
       return;

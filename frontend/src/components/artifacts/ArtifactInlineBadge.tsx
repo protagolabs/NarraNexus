@@ -28,12 +28,14 @@ interface Props {
 
 function ArtifactInlineBadgeImpl({ artifact }: Props) {
   const { t } = useTranslation();
-  const setActive = useArtifactStore((s) => s.setActive);
+  // restoreTab, not setActive: the target may be minimized, and an active
+  // pointer on a hidden tab blanks the column (0802 ①⑤ family).
+  const restoreTab = useArtifactStore((s) => s.restoreTab);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
 
   const open = () => {
     setCollapsed(false);
-    setActive(artifact.artifact_id);
+    restoreTab(artifact.artifact_id);
   };
 
   return (

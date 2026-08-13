@@ -23,7 +23,7 @@ from loguru import logger
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
-from backend.auth import _is_cloud_mode
+from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 
 
 def _detect_bind_host() -> str:
@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
 
     # Dashboard v2 TDR-12: fail-fast if local mode is not bound to loopback
     _assert_local_bind_is_loopback(is_cloud_mode=_is_cloud_mode())
+    # Fail-fast in cloud mode if JWT_SECRET is unset / left at the public default
+    # (a known signing secret = anyone can forge any user's token).
+    assert_jwt_secret_safe()
     _warn_if_multi_worker()
 
     # Initialize database connection pool
@@ -238,6 +241,18 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Team bulletin — keep each team's progress summary fresh so a member
+    # joining a long task does not have to reconstruct it from scrollback.
+    # Same opportunistic contract as the memory worker: per-team isolation, a
+    # failure keeps the previous summary, and nothing ever waits on it
+    # (iron rule #14).
+    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+
+    team_summary_worker = TeamSummaryWorker(db)
+    await team_summary_worker.start()
+    app.state.team_summary_worker = team_summary_worker
+    logger.info("Team summary worker started")
+
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
@@ -350,16 +365,14 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()
+    # Stopped BEFORE the db client closes: its poll loop holds that client, and
+    # a pass landing mid-teardown would log a confusing connection error on
+    # every clean shutdown.
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        await summary_worker.stop()
     await close_db_client()
     logger.info("Database connections closed")
-
-    # Drain analytics queue so buffered funnel events are not lost on exit.
-    try:
-        from xyz_agent_context.analytics import shutdown_analytics
-
-        await shutdown_analytics()
-    except Exception:  # noqa: BLE001
-        pass
 
     # Flush any enqueue=True records still in the multiprocessing queue
     # before the interpreter exits — otherwise the last few lines (the
@@ -368,18 +381,49 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
-# Vendor analytics sink is platform code — install the seam before any
-# route can fire track() (kernel default is NullSink otherwise).
-from backend.analytics import register_posthog_sink  # noqa: E402
-
-register_posthog_sink()
-
+# In cloud mode, don't expose the interactive API docs / schema — Swagger UI,
+# ReDoc and openapi.json hand an attacker the full endpoint surface. Developers
+# still get them in local/dev mode.
+_docs_kwargs = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if _is_cloud_mode()
+    else {}
+)
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",
     version="1.0.0",
     lifespan=lifespan,
+    **_docs_kwargs,
 )
+
+# Middleware order is LIFO: the LAST registration is the OUTERMOST layer
+# and runs FIRST per request. Registration order below therefore yields
+#
+#     CORS  ->  access_log  ->  auth  ->  routes
+#
+# and every response, including ones short-circuited deep inside, unwinds
+# back out through all three.
+#
+# Two constraints are encoded here, both learned the hard way:
+#
+# 1. access_log must wrap auth, so a 401/402 that never reaches a route
+#    still produces an access line.
+# 2. CORS must wrap EVERYTHING. It used to be registered first, which made
+#    it the innermost layer — so when auth_middleware returned a 401
+#    directly, CORSMiddleware never ran and that response carried no
+#    Access-Control-Allow-Origin header. Cross-origin callers (any
+#    deployment where the SPA is not served from the API's own origin)
+#    then had the browser discard the response outright: `fetch` rejects
+#    with a TypeError and the client cannot see the status, let alone the
+#    body. Every 401-handling behaviour on the frontend — reading the
+#    `code` to decide whether the session is dead, and before that even
+#    noticing the 401 at all — was silently dead code there.
+from backend.auth import auth_middleware
+from backend.middleware.access_log import access_log_middleware
+
+app.middleware("http")(auth_middleware)
+app.middleware("http")(access_log_middleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -389,16 +433,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware order is LIFO when registered via decorator/explicit call:
-# the LAST registration runs FIRST per request. We want access_log to
-# wrap auth (so 401/402 responses still produce an access line) — so
-# auth is registered first, then access_log wraps it. (CORSMiddleware
-# was added via add_middleware above and runs at a different stage.)
-from backend.auth import auth_middleware
-from backend.middleware.access_log import access_log_middleware
+# Renders route-level AuthError as {detail, code} instead of FastAPI's
+# default {detail} — the `code` is what stops the frontend from treating
+# "your NetMind token is stale" as "your session is dead". See
+# backend/auth_errors.py.
+from backend.auth_errors import install_auth_error_handler
 
-app.middleware("http")(auth_middleware)
-app.middleware("http")(access_log_middleware)
+install_auth_error_handler(app)
 
 
 # Import and include routers
@@ -407,6 +448,7 @@ from backend.routes.agents.core import router as agents_router
 from backend.routes.agents.artifacts import router as agents_artifacts_router
 from backend.routes.artifacts.users import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
+from backend.routes.runs import router as runs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
@@ -442,6 +484,7 @@ from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
 from backend.routes.billing import router as billing_router
 from backend.routes.feedback import router as feedback_router
+from backend.routes.analytics import router as product_analytics_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -451,6 +494,7 @@ app.include_router(office_watch_router, prefix="/api", tags=["OfficeWatch"])
 app.include_router(office_watch_public_router, prefix="/api/public", tags=["OfficeWatch"])
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
+app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.
@@ -468,6 +512,7 @@ app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
 app.include_router(feedback_router, prefix="/api", tags=["Feedback"])
+app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
@@ -503,11 +548,28 @@ app.include_router(
 
 @app.get("/health")
 async def health():
-    """Detailed health check"""
-    return {
+    """Detailed health check.
+
+    Carries the team-summary worker's last pass so its liveness is observable
+    from outside the process. Recording the counters and never exposing them
+    would leave the same blind spot they were added for: "every room is quiet"
+    and "every room is failing" both look like a worker that is simply up.
+
+    Reported, never judged — a non-zero ``failed`` is not an unhealthy service
+    (a single team with a bad provider key must not fail the container's probe),
+    so ``status`` does not depend on it.
+    """
+    body = {
         "status": "healthy",
         "database": "connected",
     }
+    summary_worker = getattr(app.state, "team_summary_worker", None)
+    if summary_worker is not None:
+        body["team_summary"] = {
+            "running": summary_worker.running,
+            **summary_worker.last_pass,
+        }
+    return body
 
 
 @app.get("/healthz")

@@ -169,6 +169,29 @@ _register(
             Column("tool_call_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("current_stage", "TEXT", "VARCHAR(64)"),
             Column("error_message", "TEXT", "TEXT"),
+            # When the owner asked for this run to stop. NULL = no request.
+            #
+            # A TIMESTAMP rather than a boolean, because the flag has to answer
+            # three questions and only a timestamp answers all three: is a stop
+            # pending (non-NULL), is a repeated click a no-op (idempotent write),
+            # and does this request apply to THIS run (`started_at` earlier than
+            # the request — a later run must not inherit an older stop).
+            #
+            # Written by the cancel endpoint, read by CancelWatcher (which owns
+            # the token) and by `sweep_stale_runs` (a stop in flight settles as
+            # 'cancelled', never 'failed').
+            Column("cancel_requested_at", "TEXT", "DATETIME(6)"),
+            # The trigger TREE this run belongs to: a root run stores its own
+            # event_id, and every run it causes (directly or transitively)
+            # inherits the same value.
+            #
+            # A flat inherited LABEL, deliberately not a parent pointer. The
+            # only question asked of it is "which runs belong to the tree the
+            # owner is stopping", which a label answers in one indexed query;
+            # parent/child edges would additionally let you WALK the tree,
+            # which nothing here needs (a collaboration graph would — that is
+            # a different feature).
+            Column("root_run_id", "TEXT", "VARCHAR(128)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -183,6 +206,9 @@ _register(
             # Phase C: filter running rows for reconcile + active_run lookup
             Index("idx_events_state", ["state"]),
             Index("idx_events_agent_state", ["agent_id", "state"]),
+            # Cascade stop's only hot path: "every still-running run in this
+            # tree". Composite because the flag write always filters on both.
+            Index("idx_events_root_state", ["root_run_id", "state"]),
         ],
     )
 )
@@ -609,6 +635,10 @@ _register(
             # user's own key). Was only ever a ContextVar (api_config.py);
             # persisting it here makes billing auditable.
             Column("provider_source", "TEXT", "VARCHAR(32)"),
+            # Exact source of the provider card selected for this call
+            # (e.g. netmind_free vs netmind/byok). provider_source above is
+            # only the legacy resolver branch and is always "user" now.
+            Column("provider_card_source", "TEXT", "VARCHAR(64)"),
             # Prompt-cache telemetry (2026-07-23). input_tokens alone cannot
             # distinguish full-price tokens from cache writes (1.25x) and cache
             # reads (0.1x), so cache effectiveness was unmeasurable. Summed
@@ -628,6 +658,42 @@ _register(
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
             Index("idx_cost_records_user_id", ["user_id"]),
+        ],
+    )
+)
+
+# 16b. product_analytics_events
+# First-party product facts queried by narranexus-data. Local and desktop
+# surfaces keep the same facts in their local SQLite database; no external
+# telemetry sink receives them.
+_register(
+    TableDef(
+        name="product_analytics_events",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("analytics_event_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("event_name", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False, default="'backend'"),
+            Column("surface", "TEXT", "VARCHAR(32)"),
+            Column("session_id", "TEXT", "VARCHAR(128)"),
+            Column("run_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("trigger_source", "TEXT", "VARCHAR(64)"),
+            Column("provider_card_source", "TEXT", "VARCHAR(64)"),
+            Column("failure_category", "TEXT", "VARCHAR(32)"),
+            Column("failure_reason", "TEXT", "VARCHAR(64)"),
+            Column("latency_ms", "INTEGER", "BIGINT"),
+            Column("properties_json", "TEXT", "MEDIUMTEXT"),
+            Column("occurred_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_product_analytics_event_id", ["analytics_event_id"], unique=True),
+            Index("idx_product_analytics_event_time", ["event_name", "occurred_at"]),
+            Index("idx_product_analytics_user_time", ["user_id", "occurred_at"]),
+            Index("idx_product_analytics_run_event", ["run_id", "event_name"]),
+            Index("idx_product_analytics_failure_time", ["failure_category", "occurred_at"]),
         ],
     )
 )
@@ -689,6 +755,13 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # Why this message's `mentions` are what they are. NULL = the sender
+            # typed them. "default_responder" = a team room had none and the
+            # route picked the fallback agent so the room would not go silent.
+            # Recorded at the point of the decision because nothing downstream
+            # can reconstruct it: "one mention, and it is the lead" is exactly
+            # what a user deliberately naming the lead looks like.
+            Column("routed_by", "TEXT", "VARCHAR(32)", nullable=True),
             # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
             # size_bytes/category/rel_path). rel_path is base_working_path-relative
             # and points into the per-user shared area; markers are built from it
@@ -710,6 +783,13 @@ _register(
             # rows written before the column existed. Powers the per-message
             # "view reasoning & tools" disclosure in the team transcript.
             Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
+            # The trigger TREE the sending run belonged to (events.root_run_id).
+            # Carries the lineage across the one hop where it would otherwise
+            # be lost: an agent asking a peer writes a NEW message, and the run
+            # that message wakes up has no other way to know which tree it
+            # continues. NULL for user messages and pre-column rows — the
+            # cascade treats NULL as "not part of any tree being stopped".
+            Column("root_run_id", "TEXT", "VARCHAR(128)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -1142,6 +1222,11 @@ _register(
             # MatrixTrigger's credential watcher filters by connection_mode;
             # indexed so N > 1000 agents don't scan the whole table each tick.
             Index("idx_nm_cred_conn_mode_enabled", ["connection_mode", "enabled"]),
+            # Reverse lookup for the prewarm endpoint (NarraMessenger calls
+            # in with its own agent_profile_id). Non-unique: only rows bound
+            # after 2026-08-11 carry a profile id (do_bind started
+            # persisting it); older rows still have it empty.
+            Index("idx_nm_cred_profile", ["nexus_profile_id"]),
         ],
     )
 )
@@ -1501,12 +1586,93 @@ _register(
             # NULL = fall back to the earliest-joined member. auto_migrate adds
             # this to pre-existing tables. See backend/routes/teams.py.
             Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
+            # --- Leader patrol (2026-08-07) ---
+            #
+            # Whether the lead periodically checks the work board and chases
+            # stalled items. NULL is the un-decided default and reads as ON for
+            # a team that HAS a lead — setting a lead is the act of saying "this
+            # one is responsible", so patrol follows it rather than asking
+            # again. A team with no lead never patrols: the platform does not
+            # appoint someone in charge on the user's behalf.
+            Column("patrol_enabled", "INTEGER", "TINYINT(1)"),
+            Column("last_patrol_at", "TEXT", "DATETIME(6)"),
+            # Patrol's own rate limit, DELIBERATELY on disk.
+            #
+            # The bus already has a per (agent, channel) limiter, but it lives
+            # in `MessageBusTrigger._rate_counters` — an in-memory dict keyed on
+            # `time.monotonic()`, so a workers restart clears it. That is fine
+            # for its original job (dampening a chatty agent) and NOT fine here:
+            # patrol messages are exempted from the cascade-depth cap that stops
+            # runaway @-loops, so this counter is the only remaining backstop.
+            # A backstop that a restart erases is not a backstop.
+            Column("patrol_spoke_at", "TEXT", "DATETIME(6)"),
+            Column("patrol_spoke_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_teams_team_id", ["team_id"], unique=True),
             Index("idx_teams_owner_user_id", ["owner_user_id"]),
+        ],
+    )
+)
+
+# ---------------------------------------------------------------------------
+# Team work board — the first task-level object in the product.
+#
+# Everything before this recorded CONVERSATION (messages, runs, errands); a
+# task existed only inside the turn that happened to be discussing it, so a
+# Leader's assignment died with its own run. The board is what lets a task
+# outlive the run that created it — and therefore what lets anyone notice it
+# stalled.
+#
+# Layered with, not merged into, the errand object (owner decision 2026-08-07):
+# an errand is a MESSAGE-level fact recorded automatically (A @ B opens it, B's
+# reply closes it), a work item is a TASK-level object maintained explicitly by
+# tools. One work item routinely spans several errands.
+# ---------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_work_items",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("item_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # The room this item lives in. Denormalised from team_id on purpose:
+            # patrol wakes the lead INTO a channel, and resolving it per item
+            # would be one join per candidate on every poll cycle.
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("title", "TEXT", "TEXT", nullable=False),
+            # NULL = unclaimed. Patrol reads this to tell "nobody picked it up"
+            # from "somebody has it and went quiet" — two different prompts.
+            Column("assignee_id", "TEXT", "VARCHAR(64)"),
+            # open | in_progress | stalled | done | paused | cancelled
+            #
+            # `stalled` is written by the PLATFORM, never by a model: it is
+            # derived from bus_agent_activity + errand timeouts (iron rule #15 —
+            # a correctness-critical fact must not depend on model obedience).
+            # The lead's judgement applies to what to DO about it, not to
+            # whether it is true.
+            #
+            # `paused` is what a stop leaves behind. Stopping a run tree stops
+            # the RUNNING, not the task; without this state the item stays
+            # "open" and the next patrol dutifully revives exactly what the
+            # owner just stopped. Resuming is an explicit user action.
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False, default="'open'"),
+            Column("created_by", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            # The trigger tree that was running when this item was created, so a
+            # cascade stop can pause the items it silenced. Shipped by #252.
+            Column("root_run_id", "TEXT", "VARCHAR(128)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_work_items_item_id", ["item_id"], unique=True),
+            # Patrol's only hot path: "does this team have anything unfinished".
+            Index("idx_work_items_team_status", ["team_id", "status"]),
+            # Stop → pause, by tree.
+            Index("idx_work_items_root", ["root_run_id"]),
         ],
     )
 )
@@ -1553,6 +1719,50 @@ _register(
             Index("idx_team_members_team_agent", ["team_id", "agent_id"], unique=True),
             Index("idx_team_members_agent_id", ["agent_id"]),
             Index("idx_team_members_team_id", ["team_id"]),
+        ],
+    )
+)
+
+# The team bulletin: the standing rules every member loads on every team turn.
+#
+# `source` and `author_id` are separate columns because they answer different
+# questions. `source` decides the RULES — who may delete the row, whether it
+# spends the shared entry budget, how it renders. `author_id` decides the
+# DISPLAY ("by Ana"). Folding them into one column would make a permission
+# check parse a string prefix.
+#
+# `source='auto_summary'` is a SLOT, not a kind: at most one row per team,
+# overwritten in place, `author_id` NULL. It is in every turn's prompt, so an
+# accumulating summary would reproduce the very problem the bulletin exists to
+# fix, and a poor summary would compound rather than be replaced.
+_register(
+    TableDef(
+        name="team_bulletin_entries",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("entry_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("content", "TEXT", "TEXT", nullable=False),
+            # 'user' | 'agent' | 'auto_summary'
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False, default="'user'"),
+            # user_id or agent_id; NULL for auto_summary (nobody wrote it).
+            Column("author_id", "TEXT", "VARCHAR(64)"),
+            # 'long_term' | 'current_task' — the second is cleared per task.
+            Column("tier", "TEXT", "VARCHAR(16)", nullable=False, default="'long_term'"),
+            # Only ever set on the auto_summary row: the ``created_at`` of the
+            # newest message that summary covers, so the worker can ask "how
+            # much has happened since" without a counter to keep in sync.
+            # A dedicated nullable column rather than reusing author_id — that
+            # column already means "who wrote this", and a second meaning
+            # depending on `source` is what makes a schema unreadable later.
+            Column("watermark_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bulletin_entry_id", ["entry_id"], unique=True),
+            Index("idx_bulletin_team", ["team_id"]),
+            Index("idx_bulletin_team_source", ["team_id", "source"]),
         ],
     )
 )
@@ -1797,6 +2007,14 @@ _register(
             # and are hand-migrated per the cleanup TODO.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            # Team dimension. NULL = a private artifact, which is every row
+            # that existed before this column and everything registered
+            # outside a team turn — so the private semantics are unchanged by
+            # construction and no backfill is needed (iron rule #6: additive
+            # only). Set on artifacts produced in a team turn; the team room's
+            # panel lists by it, and the owning agent still shows in agent_id
+            # so "who produced this" survives the ownership move.
+            Column("team_id", "TEXT", "VARCHAR(64)"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept registered because dropping a column is a
             # destructive migration (铁律 #6) — removal is Owner-gated
@@ -1809,9 +2027,122 @@ _register(
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
             Index("idx_artifact_agent_pinned", ["agent_id", "pinned"]),
             Index("idx_artifact_agent_id", ["agent_id"]),  # agent-scoped scans
+            # Team-panel listing (and the agent prompt's team half, which
+            # unions private with every team the agent belongs to). Without
+            # it that query scans every artifact row in the database.
+            Index("idx_artifact_team_updated", ["team_id", "updated_at"]),
         ],
     )
 )
+
+# ----------------------------------------------------------------------------
+# instance_artifact_history — attribution log for artifact (re-)registrations.
+#
+# Artifacts are POINTERS and re-registering overwrites in place, so today
+# "who changed this and when" is unanswerable. That is tolerable for a single
+# agent in a private chat; in a team, where several agents hand the same
+# artifact back and forth, it is the difference between a shared document and
+# an anonymous one.
+#
+# This is deliberately NOT a revival of the retired `instance_artifact_versions`
+# (see the note below): it stores no CONTENT, only who/when/where-it-pointed.
+# One row is a few dozen bytes, so the log is always-on and needs no agent
+# cooperation — which is the point, because attribution has to be correct even
+# when the model does nothing to help. Rolling back to an old version remains
+# impossible by design; the agent-initiated backup capability covers that case
+# and pays storage only when someone asks for it.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_artifact_history",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
+            # The agent that performed THIS registration — not necessarily the
+            # artifact's original producer, which is exactly what makes the log
+            # worth keeping once teammates start updating each other's work.
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # This codebase's turn handle (same meaning as bus_messages.event_id),
+            # so a history entry can open the turn that produced it. Nullable:
+            # the MCP registration path has no event id in scope yet.
+            Column("event_id", "TEXT", "VARCHAR(64)"),
+            # Where the pointer aimed at the time, so the log stays readable
+            # after the artifact is later re-pointed somewhere else.
+            Column("file_path", "TEXT", "VARCHAR(512)"),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            # "created" | "updated" — lets a reader tell the first registration
+            # from the ones that overwrote it without diffing timestamps.
+            Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # The only read pattern: one artifact's history, newest first.
+            Index("idx_artifact_history_artifact", ["artifact_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# team_files — index for the team shared folder (`_shared/teams/{team_id}`).
+#
+# The folder itself has existed for a while, along with `bus_share_to_team` to
+# put files in it, and the team prompt advertises it. What it never had was a
+# row anywhere: files landed on disk under a generated file_id and nothing
+# could enumerate them, so "what is in our shared folder" was answerable only
+# by agents reciting paths at each other in chat.
+#
+# `content_hash` (sha256) is what makes de-duplication honest: sharing the same
+# NAME twice does not make it the same file. Identical name + identical hash is
+# a true re-share and reuses the existing row; identical name + different hash
+# is a different file and BOTH are kept, because silently overwriting one with
+# the other would be a destructive write (iron rule #6). sha256 rather than md5
+# because the eventual content-addressed store would reuse this same hash, and
+# it costs the same.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_files",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            # The generated id that is also the on-disk filename.
+            Column("file_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # Scoping + cleanup: the shared tree lives under the OWNER's root
+            # ({base}/{user_id}/_shared/teams/{team_id}), and team membership
+            # implies a single owner, so this is the tenant boundary.
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("shared_by_agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # Human-facing name; the disk name is file_id, so this is the only
+            # place the original is recorded.
+            Column("original_name", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("rel_path", "TEXT", "VARCHAR(1024)", nullable=False),
+            Column("mime_type", "TEXT", "VARCHAR(255)"),
+            Column("category", "TEXT", "VARCHAR(64)"),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("content_hash", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_files_file_id", ["file_id"], unique=True),
+            # Listing: a team's files, newest first.
+            Index("idx_team_files_team_created", ["team_id", "created_at"]),
+            # Dedup, race-safe at the database level. Keyed on the hash as well
+            # as the name so a same-name-different-content share is still
+            # insertable — collapsing those would lose data.
+            Index(
+                "idx_team_files_dedup",
+                ["team_id", "original_name", "content_hash"],
+                unique=True,
+            ),
+            # Cheap pre-filter for the write path: hashing costs a full read,
+            # so only hash when (team, name, size) already collides. Without
+            # this index that "cheap" check is itself a table scan.
+            Index("idx_team_files_prefilter", ["team_id", "original_name", "size_bytes"]),
+        ],
+    )
+)
+
 
 # RETIRED (2026-07-21): `instance_artifact_versions` is no longer registered.
 # The pointer model (2026-05-14) dropped per-version content rows; no code has
@@ -1866,6 +2197,9 @@ _register(
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
             Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
             Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # Reply language preference (i18n code, e.g. "zh"); NULL = never
+            # set — the model picks freely (historical behavior).
+            Column("reply_language", "TEXT", "VARCHAR(16)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -2090,6 +2424,86 @@ _register(
         indexes=[
             Index("idx_mps_source_model_proto", ["source", "model_id", "protocol"], unique=True),
         ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# Narrative routing audit (E1) — the decision trail for narrative selection.
+#
+# Until this table, `selection_method` / `retrieval_method` / `selection_reason`
+# / scores went only to a ProgressMessage and loguru. Docker logs rotate and a
+# grep only finds what you thought to search for (incident lesson #5), so there
+# was no denominator: "routing accuracy improved by X%" had nothing to measure
+# against, and the continuity tier — which can lock a thread for several turns
+# on one false positive — left no trace at all.
+#
+# `candidates_json` holds the WHOLE pool, not top-K, each entry pointing at a
+# content-addressed text snapshot. That is not belt-and-braces: `bm25_rank`
+# computes IDF and avgdl over the candidate set it is handed, so a partial
+# pool replays to different numbers — and the scored text itself (name /
+# current_summary / topic_keywords) is rewritten wholesale by the async LLM
+# updater on almost every turn with no history kept, so re-reading `narratives`
+# later reconstructs a pool that never existed.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="narrative_routing_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            Column("query_text", "TEXT", "MEDIUMTEXT"),
+            Column("trigger", "TEXT", "VARCHAR(64)"),
+            Column("is_user_chat", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # tier 1 — continuity
+            Column("continuity_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("continuity_is_continuous", "INTEGER", "TINYINT(1)"),
+            Column("continuity_confidence", "REAL", "DOUBLE"),
+            Column("continuity_reason", "TEXT", "TEXT"),
+            # tier 2 — BM25 pool + gate
+            Column("candidates_json", "TEXT", "MEDIUMTEXT"),
+            Column("gate_short_circuit", "INTEGER", "TINYINT(1)"),
+            Column("gate_reason", "TEXT", "TEXT"),
+            Column("gate_top1_raw", "REAL", "DOUBLE"),
+            Column("gate_top2_raw", "REAL", "DOUBLE"),
+            Column("gate_margin", "REAL", "DOUBLE"),
+            # tier 3 — LLM arbitration
+            Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("judge_category", "TEXT", "VARCHAR(32)"),
+            Column("judge_matched_id", "TEXT", "VARCHAR(128)"),
+            Column("judge_reason", "TEXT", "TEXT"),
+            # outcome
+            Column("selection_method", "TEXT", "VARCHAR(64)"),
+            Column("retrieval_method", "TEXT", "VARCHAR(32)"),
+            Column("chosen_narrative_id", "TEXT", "VARCHAR(128)"),
+            Column("is_new", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_nra_agent_time", ["agent_id", "created_at"]),
+            Index("idx_nra_selection_method", ["selection_method"]),
+            Index("idx_nra_chosen", ["chosen_narrative_id"]),
+        ],
+    )
+)
+
+
+# Content-addressed store for the searchable text each narrative carried at
+# decision time. Keyed by sha256 of the text, so a pool that did not change
+# between turns costs one row total, not one row per turn — the 100-candidate
+# pool of a busy agent adds ~1 new snapshot per turn (only the main narrative's
+# summary moves), with the audit row storing pointers.
+_register(
+    TableDef(
+        name="narrative_text_snapshots",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("text_hash", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("text", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_nts_hash", ["text_hash"], unique=True)],
     )
 )
 

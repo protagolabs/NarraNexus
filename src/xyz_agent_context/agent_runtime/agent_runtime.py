@@ -37,6 +37,7 @@ from xyz_agent_context.schema import (
     ProgressStatus,
     WorkingSource,
 )
+from xyz_agent_context.schema.turn_profile import TurnProfile
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, AsyncDatabaseClient
@@ -59,6 +60,7 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
     RunContext,
     step_0_initialize,
     step_1_select_narrative,
+    step_1_fast_select,
     step_1_5_init_markdown,
     step_2_load_modules,
     step_2_5_sync_instances,
@@ -86,6 +88,7 @@ def _turn_timing_line(
     persist_s: float,
     total_s: float,
     interrupted: bool,
+    profile: str = "",
 ) -> str:
     """The [turn-timing] log line — a grep-stable contract, so it lives in a
     pure function a test can pin (see test_turn_timing_line.py). Phases:
@@ -93,7 +96,7 @@ def _turn_timing_line(
     construction), setup (Steps 0-2.5), loop (Step 3), persist (Steps
     4+4.6). total covers run() entry to the sync tail's end; the
     backgrounded Steps 5-6 are never counted."""
-    return (
+    line = (
         "[turn-timing] agent={} event={} source={} "
         "pre_s={:.2f} setup_s={:.2f} loop_s={:.2f} persist_s={:.2f} "
         "total_s={:.2f} interrupted={}".format(
@@ -101,6 +104,11 @@ def _turn_timing_line(
             pre_s, setup_s, loop_s, persist_s, total_s, interrupted,
         )
     )
+    if profile:
+        # Fast-mode turns append a trailing marker; the base shape stays
+        # byte-identical so existing grep one-liners keep matching.
+        line += f" profile={profile}"
+    return line
 
 
 async def _stream_step3_with_interrupt_drain(
@@ -256,6 +264,7 @@ class AgentRuntime:
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
         silent: bool = False,
+        turn_profile: Optional["TurnProfile"] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -407,6 +416,7 @@ class AgentRuntime:
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
+                turn_profile=turn_profile,
             )
 
             # Second timing stamp: Steps 0-2.5 start here (see _t_run_start
@@ -553,10 +563,26 @@ class AgentRuntime:
             #   - ctx.narrative_list: List[Narrative] (may match multiple)
             #   - ctx.main_narrative: Narrative (the primary one)
             # =============================================================================
-            async for msg in step_1_select_narrative(
-                ctx, self.narrative_service, self.session_service
-            ):
-                yield msg
+            # Fast mode (F28): the profile may swap step_1 for the BM25
+            # top-1 direct pick — no continuity LLM, no creation, no
+            # session writes. Step 1.5 still runs but skips the history
+            # read (that output only feeds the instance-decision LLM,
+            # which settings.skip_module_decision_llm already bypasses);
+            # its other two outputs — the previous_instances trajectory
+            # snapshot and initialize_markdown — are load-bearing for
+            # step_4 records and narrative statistics, so they are kept.
+            use_fast_narrative = (
+                ctx.turn_profile is not None
+                and ctx.turn_profile.narrative_strategy == "bm25_top1"
+            )
+            if use_fast_narrative:
+                async for msg in step_1_fast_select(ctx, self.narrative_service):
+                    yield msg
+            else:
+                async for msg in step_1_select_narrative(
+                    ctx, self.narrative_service, self.session_service
+                ):
+                    yield msg
 
             # =============================================================================
             # Step 1.5: Initialize/Read Markdown History
@@ -574,7 +600,9 @@ class AgentRuntime:
             #   - Contains Instance state information
             #   - Will be used as part of the LLM context
             # =============================================================================
-            await step_1_5_init_markdown(ctx, self.markdown_manager)
+            await step_1_5_init_markdown(
+                ctx, self.markdown_manager, read_history=not use_fast_narrative
+            )
 
             # =============================================================================
             # Step 2: Load Modules and decide execution path -- Core Step
@@ -848,6 +876,7 @@ class AgentRuntime:
                 persist_s=_t_now - _t_loop_end,
                 total_s=_t_now - _t_run_start,
                 interrupted=interrupted,
+                profile=(ctx.turn_profile.name if ctx.turn_profile else ""),
             ))
 
             # ---- Cancellation checkpoint (after persistence) ----

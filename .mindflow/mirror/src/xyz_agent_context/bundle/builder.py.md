@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-07-15
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-10 — 工作板随 team 一起导出
+
+`_export_work_items`。板子**就是**这个团队欠着的东西,只还原房间不还原欠账,
+迁移过去的团队看起来就像已经全部做完了。
+
+只导未完成项:`done`/`cancelled` 属于历史(跟聊天记录一起走),而 **`paused`
+要导** —— 那是接收方继承的一个真实待决事项。
+
+**`root_run_id` 刻意不导出**:它指的是**源环境**里的一个 run。带过去会让目标
+环境的一次级联停止匹配到它从未产生的工作项 —— 一次悄悄 park 掉别人工作的停止。
+接收方的板子就以「无树关联」开始,这是诚实的状态。
+
+`assignee_id` 保留为源 id,由 importer 与其它 agent id 一起重映射。
 
 ## 2026-07-15 — mcp_hints 安全不变式：headers 绝不出境
 
@@ -201,3 +214,9 @@ mcp_hints.json                        ← 1.1+: opt-in by mcp_selection
 - 现在这条 loop 里 `zip` / `full_copy` 分支前先 `_find_skill_dir` 定位磁盘目录，`dir_is_builtin`（[[skill_secrets.py]] 单一真相源）命中即把 `method` 强制降级为 `builtin`（空载、无 `archive_ref`），并记一条 warning。至此「内置永不作为用户数据旅行」在**两条**导出路径都成立。
 - `_builtin_skill_relpaths` 也顺手改用 `dir_is_builtin`，不再自己读 `.skill_meta.json`，语义与其它三处一致。
 - 回归测试:`tests/bundle/test_skill_import.py::test_builtin_skill_forced_to_builtin_method_despite_full_copy_request`（客户端请求 full_copy 内置技能 → manifest 记 `builtin`、bundle 内无该技能归档）。
+
+## 2026-08-11 — manifest 携带团队公告栏
+
+`team_meta` 增加 `bulletin`。丢弃逻辑（不带自动总结、不带 author_id）在
+[[team_bulletin_transfer]]，与导入侧的「不可信」规则放在一起——出去时丢掉的，
+正是进来时不能信的。

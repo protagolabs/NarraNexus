@@ -1,10 +1,19 @@
 ---
 code_file: src/xyz_agent_context/repository/mcp_repository.py
-last_verified: 2026-07-16
+last_verified: 2026-08-11
 stub: false
 ---
 
 # mcp_repository.py
+
+## 2026-08-11 — `validate_mcp_sse_connection` 加 SSRF 门（安全审计 P0-3）
+
+该函数从**服务端**去连用户/agent 提交的 URL，是典型 SSRF 面（可被指向 EC2 元数据
+`169.254.169.254`、docker 网内 litellm/admin、环回）。现在**按 `enforce_public_url` 入参**（route 层按 `is_cloud_mode()` 决定，repository 不自己读部署模式）连接前先 `await assert_public_http_url(url, resolver=resolver)`（`utils/url_safety.py`）——
+解析主机、任一解析 IP 落私网/环回/link-local 即拒（**解析后**校验，**缩小但不封死** DNS-rebinding 窗口——httpx 连接时会重新解析，TTL=0 可 TOCTOU 翻转，彻底封死需连接 pinning，后续项）；httpx client 显式 `follow_redirects=False`（防重定向到内网绕过）。
+新增可注入 `resolver` 参数：仅测试用（注入公网 IP 免真 DNS）；两个生产调用点
+（mcps.py 的 validate / validate-all）都用默认真解析，无绕过。拒绝文案通用，不回显
+解析出的内网 IP。resolver 类型用 url_safety 导出的 `Resolver` 别名（`TYPE_CHECKING` 导入，自解释）。
 
 ## 2026-07-16 — update_mcp 拷贝入参;校验基线 Accept 后置(review #111 🟢×2)
 

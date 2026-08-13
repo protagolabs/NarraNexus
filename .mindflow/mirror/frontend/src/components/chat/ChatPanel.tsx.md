@@ -1,5 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
+<<<<<<< HEAD
 last_verified: 2026-08-06
 stub: false
 ---
@@ -25,6 +26,17 @@ isLatest(meta 行常显);bootstrap greeting 气泡固定 isLatest。
   单聊(团队聊天仍在用)。
 - sessionLabel:头部 mono 侧标 "会话 · <最近消息时间>"。
 - AgentLlmConfigPanel 的入口从头部 Sliders 图标移到 ⋯ 菜单底部。
+=======
+last_verified: 2026-08-10
+stub: false
+---
+
+## 2026-08-10 — message submitted at the action boundary
+
+After committing the local user bubble and immediately before opening the run,
+the composer records `message_submitted`. Message content and attachments are
+never included.
+>>>>>>> origin/dev
 
 ## 2026-07-30 (r2) — 直播回复套 silicon 气泡
 

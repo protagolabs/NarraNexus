@@ -1,8 +1,122 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-31
+last_verified: 2026-08-12
 stub: false
 ---
+## 2026-08-10 — Clear team data 增加 board 作用域
+
+`_wipe_team_data` 增加 `clear_board`,端点增加 `board` 查询参数。
+
+**独立作用域,不并进 `clear_chat`**:两者回答不同的问题 —— 聊天是「说过什么」,
+板子是「还欠什么」。清掉一段吵闹的对话记录的人,几乎不会同时是想「顺便忘掉我们
+说好要做的事」的人;反过来,放弃这批工作也不该要求先擦掉历史。
+
+`board` 默认 **False**:已有调用方请求清聊天时,并没有请求丢掉团队欠账 ——
+默认打开会悄悄扩大它们的爆炸半径。
+
+## 2026-08-10 — 工作板端点(只读 + 恢复)
+
+`GET /work-items`、`POST /work-items/{id}/resume`、`PUT /patrol`。
+
+**刻意没有创建/删除**:板子由 lead 通过 MCP 工具维护,一块用户还能手改的板子
+会和 lead 被问责的那块漂移。用户这一侧的动作只有两个:看,以及把停止 park 掉
+的项**恢复**。
+
+与 agent 侧列表的关键差别:**这里返回 `paused`**。那是停止留下的状态,而决定
+要不要恢复的是用户 —— 像 agent 侧那样隐藏它,会让被停的任务看起来像被删了。
+
+`Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
+`_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
+## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
+
+**同一条规则改了两次，第二次才是重点。**
+
+初版 `clear_files` 连 artifact 一起删，理由是「artifact 指向被删的树」——当时**不成立**（生产者
+workspace 是第一允许根，内容还在），所以我撤回了级联。
+
+方案 B 要求团队 artifact **必须**住在团队目录之后，那个理由**变成真的了**，级联也随之正确。
+变的是世界，不是推理：rmtree 现在会销毁每一个团队 artifact 的内容，留下行就等于面板列出内容已
+消失的 artifact，而 `heal` 也救不回来。
+
+> **2026-08-10 更正**：上面这条结论仍然成立，但当时给的理由错了。原文写的是「`heal` 从不传
+> `team_id`、短路只看 agent workspace」——那是 `heal` 当时**自身的 bug**，已在同轮修掉（见
+> [[heal.py]]）。真正的理由更简单：`heal` 只能把指针**重新接回仍然存在的文件**，而这里文件本身
+> 被删了。**拿一个 bug 当另一处设计的论据，bug 修掉那天论据就跟着塌了。**
+
+`clear_artifacts` 仍可单独使用（删 tab、留文件）。
+
+## 2026-08-10 (review 修正) — `_team_files` 钉死 wire shape + 时间戳带时区
+
+`SELECT *` 把 `id` / `owner_user_id` / `content_hash` 带进了 API 形状（owner-only，不构成泄露，
+但形状应当是**选定的**而非从表继承）。现在显式列字段。
+
+`created_at` 归一为 **offset-aware** ISO。原值是 UTC 但**无标记**（SQLite 的
+`datetime('now')` 给 `'2026-08-07 12:34:56'`，MySQL 给 naive datetime）——按 ES 规范，不带
+offset 的 date-time 被当作**本地时间**解析，于是 UTC+8 用户刚分享的文件显示成「8h ago」。
+artifacts 那半边没这个问题，因为它走 `Artifact` 模型、`parse_dt` 会补 UTC。
+
+## 2026-08-08 (review 修正) — 三个独立 scope，且 delete_team 带走工作台
+
+**撤回一处过度删除**：初版让 `clear_files` 连团队 artifact 一起删，理由写的是「团队 artifact
+指向的正是被删的那棵树」——**这在最常见情况下不成立**。`_resolve_entry` 把生产者自己的
+workspace 保留为**第一个**允许根，团队目录只是追加的第二个，所以按常规方式注册的团队 artifact
+指向的是生产者 workspace，内容根本没被删。删它们的行等于销毁指向仍存在文件的指针。
+
+现在 `clear_files` 只删共享目录 + `team_files` 索引。确实住在共享目录里的那些会变成**破损指针**
+——这是 [[artifact_service.py]] 的 `heal` 已能恢复的状态，远好过把本来没事的那些一起丢掉。
+
+**`delete_team` 现在先全清再删 team**。团队一旦消失，它的 artifact 对**所有查询路径都不可达**：
+私聊面用 `team_id IS NULL` 排除、`list_by_team` 需要已不存在的 team、并集查询 join 的
+`team_members` 下一行就被清空。**读不到的行才是验收 #7 说的孤儿**，不是「无害垃圾」。
+
+新增 `clear_artifacts` scope 承载这件事；两个既有开关语义不变，前端对话框无需改动。
+
+## 2026-08-07 — chat messages 透出 msg_type
+
+`"system_stop"` 标记 owner 停止留痕,前端据此渲染成系统行而不是"这个 agent
+在说话"(文案走 i18n,DB 不知道读者的语言;`content` 存英文兜底给 memory
+索引这类只读文本的消费者)。普通消息仍是 `text` / `multimodal`。
+
+## 2026-08-07 (三次) — `GET /{team_id}/artifact-turns`
+
+消息下方芯片的数据源：`event_id → [artifact_id]`。join 键是 events 行 id，transcript 和
+`instance_artifact_history` 两边都带它。
+
+**为什么不用时间戳近邻**：一轮可以注册两个 artifact，两个 agent 也可以在同一房间同时回复——
+按时间就近匹配会把产出挂到错误的消息上。
+
+**更新型 turn 也纳入**：重新注册正是队友接力的方式，那一轮恰恰最值得浮现。`event_id` 为 NULL
+的行（历史数据、或调用方无 event 在作用域）直接跳过，不归到占位分组里。
+
+## 2026-08-07 (二次) — 团队 artifact 的 view-token
+
+`POST /{team_id}/artifacts/{artifact_id}/view-token`。
+
+**token 载荷刻意不动**。既有设计里 token 就是「针对某一个 artifact 的 bearer 能力」，授权
+发生在 **mint 那一刻**——所以团队校验放在这条路由里，签发时仍用**产出者**的 agent_id，
+而那正是 raw serving（[[raw_access.py]]）解析所依据的字段。下游一行都不用知道 team 的存在。
+
+为什么必须换一套校验：agent 侧的 `_get_owned_artifact` 要求调用方 agent **就是** artifact 的
+agent——这在团队里恰好是反的，面板本来就展示多个成员的产出，队友打开同事的 artifact 是常态
+而非攻击。`_authorize_team_artifact` 改判 **artifact 属于这个 team**。
+
+拒绝一律 404（与 agent 路由一致）：换成 403 会让探测者据此枚举出哪些 artifact_id 存在。
+`team_id IS NULL` 的私有 artifact 同样通不过这条比较——**拥有一个 team 不是通往该 owner
+私有产出的入口**。
+
+可行的前提（已核）：`resolve_raw_file` 的路径约束是 `base_working_path` 而非 agent workspace
+（`raw_access.py:97`），所以落在团队共享目录里的 artifact 本来就能正常提供。
+
+## 2026-08-07 — 工作台读取路由 + 清理链路跟上新表
+
+新增 `GET /{team_id}/artifacts`（团队面板，**不按 agent 过滤**——面板是团队的，谁产出的都算，
+`agent_id` 留在行上供 UI 归因）与 `GET /{team_id}/files`（共享目录的**用户入口**，此前不存在：
+`_shared/` 是 agent workspace 的 sibling，workspace 浏览器看不见它）。两者复用既有 owner 校验。
+
+**`_wipe_team_data` 必须同步删索引**：清理会 rmtree 掉共享目录，行若留下，面板照样列出这些
+文件，用户要等到下载失败才发现——**留下孤儿行比不显示更糟**。团队 artifact 指向的正是被删掉
+的那棵树，所以一并删除，连同它们的归因行（否则 history 表堆积永远无人读取的孤儿）。
+过滤条件是**这个 team**，不是这个 owner：私有 artifact 与其他 team 不受影响。
 
 ## 2026-07-31 — idle carries started_at; messages carry event_id
 
@@ -179,3 +293,66 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 alongside `thinking` (kept for back-compat). status = running (from [[_bus_activity]]
 `is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
 Drives the team status strip + activity bubbles.
+
+## 2026-08-11 — 公告栏子资源 + `clear_bulletin` scope
+
+新增 5 个端点（list / create / patch / delete / 按 tier 清空）。预算规则**不在这里**，
+在核心包 [[team_bulletin]]：MCP 工具要强制同一套上限，而核心包反向 import 一个 FastAPI
+路由会把分层倒过来。第一版就是那么写的，提交前修正。
+
+`clear_bulletin` 是**独立 scope，绝不并入 `clear_chat`**。公告栏之所以存在恰恰因为它不是聊天；
+并进去就意味着「清掉一段吵闹的 transcript」会静默销毁团队被交代过的每一条规则——
+把用户直接送回公告栏本来要终结的那个复读循环。默认关。
+
+`delete_team` **会**带走它，理由与工作台相同：team 行一没，公告栏唯一的读者
+（这个团队的 prompt 构造器）也随之消失，剩下的是任何查询路径都读不到的孤儿行。
+
+条目查找按 **(team_id, entry_id)** 而非仅 id：同一 owner 另一个团队的 entry_id
+不该能从这个团队的路径上打开。
+
+## 2026-08-11 (review) — 通知助手移出，两个未用 import 清掉
+
+`_post_bulletin_notice` 移到核心包 [[team_bulletin]]（agent 写入也需要它，而核心包不能反向
+import 路由），这里改为 import。`Optional` / `BulletinUsage` 在预算函数搬走后成了未用 import，
+已删。
+## 2026-08-10 — the work-board endpoint stopped writing its own SQL
+
+`GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
+show `paused` items alongside active ones. It now calls
+`TeamWorkItemRepository.list_visible`.
+
+The filtering itself was never the question — it has to happen in SQL, since the
+panel polls this endpoint every 5s and a long-lived team's `done`/`cancelled`
+history only grows, so reading it all to discard most of it scales with the
+team's age. What moved is WHERE the statement lives: keeping it in the
+repository leaves the feature with a single dialect surface to test, instead of
+a second raw statement in the route that the MySQL suite would have to grow a
+reason to reach into.
+
+## 2026-08-10 — 工作板端点直接用实体
+
+`list_visible` 返回的是 `List[WorkItem]`,端点原先又 `model_dump()` 拍回 dict
+再按字符串 key 取回来,把上一轮改动刚拿到的类型直接扔掉:`r["item_id"]` 拼错要
+到请求时才炸,`i.item_id` 在 pyright 就拦得住。
+
+## 2026-08-11 (review 收口) — 默认应答者规则与房间前缀改为 import
+
+`_resolve_default_responder` 变成一层薄委托，实现移入 [[team_schema]]，好让总结 worker
+用同一条规则而不是自己再写一份。两个房间前缀同样改为 import。
+
+## 2026-08-11 (review 收口 2) — 删掉转发壳
+
+`_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
+import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
+测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。
+
+## 2026-08-12 — 合成的 mention 记上来历;改名回写房间
+
+**不取消合成。** team 房间靠合成 owner marker 关掉了"owner 全激活",没有 mention 就
+没人被激活 —— 取消它房间就不应答了。所以路由行为一行未动,只是把「这个 mention 是
+路由补的」写进 `routed_by`,让 trigger 能说真话。
+
+**改名回写 `bus_channels.name`。** 房间自己存了一份名字,而**那一份才是 agent 看到
+的**(`Your Channels` 渲染的是它)。此前改名只落 teams 表,于是每个成员继续把旧名字
+念给用户听,而 UI 显示新名 —— 两边对不上,谁也解释不了。best-effort:改名本身已经
+成功,回写失败只记警告。

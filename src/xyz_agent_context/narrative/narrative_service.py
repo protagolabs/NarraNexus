@@ -27,6 +27,7 @@ from .models import (
     NarrativeActor,
     NarrativeSelectionResult,
     NarrativeType,
+    RoutingAudit,
 )
 from ._narrative_impl import (
     NarrativeCRUD,
@@ -120,6 +121,29 @@ class NarrativeService:
     # Main Feature: select()
     # =========================================================================
 
+    async def select_fast(
+        self, agent_id: str, user_id: str, query: str
+    ) -> Optional[Narrative]:
+        """BM25 top-1 direct pick — the fast-mode (F28) narrative path.
+
+        Zero LLM, zero creation, zero session writes: one keyword search
+        (top_k=1) plus a CRUD load. None when nothing scores or the row
+        vanished between search and load; the caller runs the turn bare.
+        The full select() below stays the only path that may create
+        narratives or consult the continuity/LLM tiers.
+        """
+        from .config import config
+
+        results = await self._retrieval.keyword_search(
+            query=query, user_id=user_id, agent_id=agent_id, top_k=1
+        )
+        # Same raw-score floor the full path uses before direct-return: the
+        # fast path has no LLM arbitration tier, so a sub-floor top-1 (a
+        # one-word accidental overlap) is a miss, not a background pick.
+        if not results or results[0].raw_score < config.NARRATIVE_MATCH_RAW_FLOOR:
+            return None
+        return await self._crud.load_by_id(results[0].narrative_id)
+
     async def select(
         self,
         agent_id: str,
@@ -130,6 +154,7 @@ class NarrativeService:
         awareness: Optional[str] = None,
         is_user_chat: bool = True,
         retrieval_anchor: Optional[str] = None,
+        trigger: str = "",
     ) -> NarrativeSelectionResult:
         """
         Select the appropriate Narratives
@@ -172,6 +197,8 @@ class NarrativeService:
         # the "everything else" bucket.
         is_continuous = False
         continuity_reason = ""
+        continuity_ran = False
+        continuity_confidence: Optional[float] = None
         # Run continuity against the last *user-visible* exchange — that is
         # either the user's previous query OR the agent's last reply the user
         # is now responding to (a proactive job/heartbeat message anchors only
@@ -206,6 +233,8 @@ class NarrativeService:
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
                     continuity_reason = result.reason
+                    continuity_ran = True
+                    continuity_confidence = result.confidence
             except Exception as e:
                 logger.warning(f"Continuity detection failed: {e}")
 
@@ -231,6 +260,9 @@ class NarrativeService:
 
                 logger.info(f"Continuity detection: returning main Narrative {main_narrative.id}")
 
+        audit: Optional[RoutingAudit] = None
+        audit_snapshots: dict = {}
+
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
             with timed("narrative.retrieve_top_k"):
@@ -244,6 +276,21 @@ class NarrativeService:
             selection_reason = retrieval_result.selection_reason
             selection_method = retrieval_result.selection_method
             retrieval_method = retrieval_result.retrieval_method
+            audit = retrieval_result.audit
+            audit_snapshots = retrieval_result.audit_snapshots
+        else:
+            # Continuity short-circuited the retrieval tier, so there is no
+            # pool and no gate — but this is the path that most needs a trail:
+            # a false "continuous" re-uses session.current_narrative_id with no
+            # topic check, and since each turn writes that id straight back,
+            # one bad verdict can hold the thread for several turns. Nothing
+            # recorded it before, which is why its real rate is unknown.
+            audit = RoutingAudit(
+                agent_id=agent_id, user_id=user_id, query_text=query_text,
+                selection_method=selection_method,
+                retrieval_method=retrieval_method,
+                chosen_narrative_id=narratives[0].id if narratives else None,
+            )
 
         # Update Session (using main Narrative).
         # Only user-initiated runs (chat) write to last_query / last_response /
@@ -259,6 +306,15 @@ class NarrativeService:
             session.last_query_time = datetime.now(timezone.utc)
 
         logger.info(f"[NarrativeSelect] completed: {len(narratives)} Narratives, method={selection_method}")
+
+        if audit is not None:
+            audit.trigger = trigger
+            audit.is_user_chat = is_user_chat
+            audit.continuity_ran = continuity_ran
+            audit.continuity_is_continuous = is_continuous if continuity_ran else None
+            audit.continuity_confidence = continuity_confidence
+            audit.continuity_reason = continuity_reason
+            await self._write_audit(audit, audit_snapshots)
 
         return NarrativeSelectionResult(
             narratives=narratives,
@@ -387,6 +443,28 @@ class NarrativeService:
     # =========================================================================
     # Internal Methods
     # =========================================================================
+
+    async def _write_audit(self, audit: RoutingAudit, snapshots: dict) -> None:
+        """Persist one routing decision (E1). Best-effort — never breaks a turn.
+
+        Written inline rather than in a detached task: it is two small queries
+        against a connection this turn already holds, and a fire-and-forget
+        `create_task` here would be a fresh instance of the very hazard that
+        made narrative summaries fail silently for two weeks (an unawaited
+        Task whose exception surfaces only as a GC warning — incident lesson
+        #2). If this ever shows up in step.1 timings, coalesce the writes;
+        do not detach them.
+        """
+        try:
+            from xyz_agent_context.repository.narrative_routing_audit_repository import (
+                NarrativeRoutingAuditRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            db = self._database_client or await get_db_client()
+            await NarrativeRoutingAuditRepository(db).record(audit, snapshots)
+        except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+            logger.warning(f"[narrative.audit] not recorded: {type(e).__name__}: {e}")
 
     def _get_continuity_detector(self) -> Optional[ContinuityDetector]:
         """Get the continuity detector (lazy loaded)"""

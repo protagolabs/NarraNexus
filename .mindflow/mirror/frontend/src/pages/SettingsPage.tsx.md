@@ -1,5 +1,6 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
+<<<<<<< HEAD
 last_verified: 2026-08-06
 stub: false
 ---
@@ -20,6 +21,19 @@ SettingsPage.nav.test.tsx 已按新行为重写(重定向断言取代 powerOnly 
 Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
 `agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
 desktopOnly/powerOnly 过滤规则不变。
+=======
+last_verified: 2026-08-11
+stub: false
+---
+
+## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
+
+新增 `privacy` nav 项 + `PrivacySettings` 面板。后端的 analytics
+opt-out 自 06-08 就存在,但唯一 UI 活在**从未挂载**的 SettingsModal
+里——本条目让它(以及新的遥测同意开关)第一次对用户可达。
+`?tab=privacy` 深链是 TelemetryNotice 首次告知横幅的跳转目标,nav
+测试守住这条(横幅承诺"可去设置关闭",深链失效即承诺失效)。
+>>>>>>> origin/dev
 
 ## 2026-07-30 — `?tab=<nav id>` 深链（付款回跳的落点）
 

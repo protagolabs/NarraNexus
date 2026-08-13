@@ -1,7 +1,40 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-04
+last_verified: 2026-08-11
 ---
+## 2026-08-11 — create/pause/cancel 迁走 seam，工具彻底弃 db 凭据
+
+job_create/pause/cancel 改为 `get_agent_data_store().job_create|job_pause|job_cancel(...)`，
+实现下沉到 [[_job_writes]] 三个 `*_from_args`（DirectStore 本地 / HttpStore 调 [[jobs]]
+孪生路由）。**`create_job_mcp_server(port)` 去掉 `get_db_client_fn` 参数**（读工具早已走 seam，
+写工具迁完后它彻底无用），[[job_module]] 的 `create_mcp_server` 同步改。`setup_mcp_llm_context`/
+`LLMConfigNotConfigured`/`JobRepository`/`loguru.logger` import 随之全删（W1 结构化错误兜底搬进
+`create_job_from_args`）。至此 **job 模块 mcp 可达代码 `get_mcp_db_client()` 残留 = 0**，
+配合 lark/narra 零凭据，mcp 容器可 strip `DB_PASSWORD`。cross-agent 现读作 not found。
+
+## 2026-08-10 (PR-8b) — job_update 迁走 seam
+
+job_update 改为 `get_agent_data_store().job_update(agent_id, job_id, fields)`，~90 行
+build-updates 逻辑下沉到 [[_job_writes]]（DirectStore/agent 路由/前端 jobs 路由同源）。
+cross-agent 现读作 not found。job_create/pause/cancel 本 PR 不迁（create 用 LLM）。
+
+## 2026-08-10 (PR-8) — 三个读工具迁 AgentDataStore seam
+
+job_retrieval_by_id/_semantic/_by_keywords 改为 `get_agent_data_store().job_retrieval_*`，
+数据访问下沉到 [[_job_reads]]（DirectStore 本地 / HttpStore 调 [[jobs]] 孪生路由）。semantic
+里的 `setup_mcp_llm_context` 删除（search_keyword 是 BM25 不用 LLM）；import 仍被写工具
+（create/update/pause/cancel）使用。写工具本 PR 不迁（PR-8b）。
+
+
+## 2026-08-10 — job_update: effective_type 提前解析(修 type-switch 僵尸 job)
+
+`job_update` 里 `effective_type` 原在 trigger_config 分支中 `updates.get(
+"job_type", job.job_type)` 读——但 job_type 分支跑在其**后**,永远拿旧类型。
+one_off→scheduled + 新 cron 同时提交时 compute_next_run 用旧类型算出 None,
+next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。改为进 updates
+前先解析 effective_type;backend `/api/jobs/{id}` 路由同处 lockstep 一起改
+(两边对称同一 bug)。纯实现重排,工具对 LLM 的 schema/语义不变。
+
 
 ## 2026-08-04 — job_create 补齐兄弟工具的边界纪律（W1）
 
@@ -39,8 +72,8 @@ last_verified: 2026-08-04
 
 ## 上下游关系
 
-- **被谁用**：`JobModule.create_mcp_server()` 调用 `create_job_mcp_server(port, JobModule.get_mcp_db_client)`；`ModuleRunner` 部署返回的 FastMCP 实例；`JobModule.get_instance_object_candidates()` 通过 `fastmcp.Client` 内存调用 `job_retrieval_semantic`
-- **依赖谁**：`JobRepository`（DB 操作）；`get_embedding()`（`job_create` 时生成语义向量）；`job_service.JobInstanceService`（创建 ModuleInstance + Job 的统一服务）
+- **被谁用**：`JobModule.create_mcp_server()` 调用 `create_job_mcp_server(port)`（无 db 工厂——每个工具经 seam 取数据）；`ModuleRunner` 部署返回的 FastMCP 实例；`JobModule.get_instance_object_candidates()` 通过 `fastmcp.Client` 内存调用 `job_retrieval_semantic`
+- **依赖谁**：[[store]] 的 `get_agent_data_store()`（唯一数据入口，DirectStore 本地 / HttpStore 云端）。DB 操作（JobRepository/JobInstanceService）、embedding、setup_mcp_llm_context 全下沉到 [[_job_reads]]/[[_job_writes]] 的共享 helper——本文件不再直接 import 任何 repo/service。
 
 ## `agent_id` 如何传入
 

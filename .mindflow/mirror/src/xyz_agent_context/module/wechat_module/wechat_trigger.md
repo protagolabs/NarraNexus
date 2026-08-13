@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_trigger.py
 stub: false
-last_verified: 2026-08-03
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — send_channel_reply 走出站路由;managed_reply_kwargs 覆写
+
+错误兜底发送改调 [[wechat_outbound.py]] 的 `send_wechat_text`
+(agent_id 取自 credential 行),与 MCP 工具/registry sender 同一
+路由决策。新增 `managed_reply_kwargs` 覆写:managed turn 的 #254
+信封需要 iLink 的 per-inbound token,wire 字段是 `reply_token`;
+空值原样透传——managed 路由(channel-send)不需要它,direct 路由
+空 token 在 iLink 侧失败,与原生空 token 退化一致。
 
 ## 2026-08-03 — 首聊认主抽成 `claim_owner_if_unclaimed`,接 managed 缝
 

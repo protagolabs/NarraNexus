@@ -12,27 +12,28 @@ Tools:
 - get_chat_history: Get chat history for a Chat Instance
 """
 
-import json
-
-from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
+def create_chat_mcp_server(port: int) -> FastMCP:
     """
     Create a ChatModule MCP Server instance
 
     Args:
         port: MCP Server port
-        get_db_client_fn: Async function to get database connection (ChatModule.get_mcp_db_client)
 
     Returns:
         FastMCP instance with all tools configured
+
+    (No db-client function is needed anymore: get_chat_history routes through the
+    AgentDataStore seam, which resolves its own db, and send_message_to_user_directly
+    never touches the db.)
     """
     mcp = FastMCP("chat_module")
     mcp.settings.port = port
 
     @mcp.tool()
     async def get_chat_history(
+        agent_id: str,
         instance_id: str,
         limit: int = 20
     ) -> dict:
@@ -44,6 +45,8 @@ def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         Returned messages are sorted chronologically and contain both user and Agent conversation content.
 
         Args:
+            agent_id: Your agent ID (the owner of the Chat Instance). The instance
+                must belong to you — another agent's instance returns empty history.
             instance_id: Chat Instance ID (format: chat_xxxxxxxx), used to locate a specific user's conversation
             limit: Maximum number of messages to return, default 20. Set to -1 to return all
 
@@ -64,99 +67,18 @@ def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             # Get conversation history with customer Alice
             # Assuming Alice's Chat Instance ID is "chat_abc12345"
             get_chat_history(
+                agent_id="agent_123",
                 instance_id="chat_abc12345",
                 limit=10
             )
         """
-        db = await get_db_client_fn()
-
-        table_name = "instance_json_format_memory_chat"
-
-        # Check if table exists
-        check_query = """
-            SELECT COUNT(*) as cnt
-            FROM information_schema.tables
-            WHERE table_schema = DATABASE()
-            AND table_name = %s
-        """
-        result = await db.execute(check_query, params=(table_name,), fetch=True)
-        table_exists = result and len(result) > 0 and result[0].get("cnt", 0) > 0
-
-        if not table_exists:
-            return {
-                "success": False,
-                "instance_id": instance_id,
-                "error": f"Chat history table {table_name} does not exist",
-                "total_messages": 0,
-                "messages": []
-            }
-
-        query = f"""
-            SELECT `memory` FROM `{table_name}`
-            WHERE `instance_id` = %s
-        """
-
-        try:
-            result = await db.execute(query, params=(instance_id,), fetch=True)
-
-            if not result or len(result) == 0 or not result[0].get("memory"):
-                return {
-                    "success": True,
-                    "instance_id": instance_id,
-                    "total_messages": 0,
-                    "messages": [],
-                    "note": "This Chat Instance has no chat history yet"
-                }
-
-            memory_str = result[0]["memory"]
-            memory_data = json.loads(memory_str)
-            messages = memory_data.get("messages", [])
-
-            total_messages = len(messages)
-            if limit > 0 and total_messages > limit:
-                messages = messages[-limit:]
-
-            formatted_messages = []
-            for msg in messages:
-                formatted_msg = {
-                    "role": msg.get("role", "unknown"),
-                    "content": msg.get("content", ""),
-                }
-                if "meta_data" in msg:
-                    meta = msg["meta_data"]
-                    if "timestamp" in meta:
-                        formatted_msg["timestamp"] = meta["timestamp"]
-                    if "event_id" in meta:
-                        formatted_msg["event_id"] = meta["event_id"]
-
-                formatted_messages.append(formatted_msg)
-
-            return {
-                "success": True,
-                "instance_id": instance_id,
-                "total_messages": total_messages,
-                "returned_messages": len(formatted_messages),
-                "messages": formatted_messages
-            }
-
-        except json.JSONDecodeError as e:
-            logger.exception(f"ChatModule.get_chat_history: JSON parsing failed - {e}")
-            return {
-                "success": False,
-                "instance_id": instance_id,
-                "error": f"Chat history data format error: {str(e)}",
-                "total_messages": 0,
-                "messages": []
-            }
-        except Exception as e:
-            logger.exception(f"ChatModule.get_chat_history: Query failed - {e}")
-            return {
-                "success": False,
-                "instance_id": instance_id,
-                "error": f"Query failed: {str(e)}",
-                "total_messages": 0,
-                "messages": []
-            }
+        # Route through the AgentDataStore seam: DirectStore (local, unchanged
+        # DB access) or HttpStore (cloud, backend API — no db creds in mcp),
+        # chosen by NARRANEXUS_BACKEND_URL. The de-rawed, instance-scoped body
+        # is the shared fetch_chat_history (_chat_reads), so this path and the
+        # backend twin route stay byte-identical.
+        from xyz_agent_context.module.data_access import get_agent_data_store
+        return await get_agent_data_store().get_chat_history(agent_id, instance_id, limit)
 
     @mcp.tool()
     async def send_message_to_user_directly(agent_id: str, user_id: str, content: str) -> dict:
