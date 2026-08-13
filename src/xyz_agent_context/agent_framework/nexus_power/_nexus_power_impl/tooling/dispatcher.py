@@ -43,6 +43,20 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
 # routes to the grouped overview: that IS the full-list request.
 _SEARCH_MAX_HITS = 12
 _SEARCH_MAX_CARD_HITS = 4
+# Reserved seats inside the tool slice for expressive (reply) tools that
+# pass the query filter: the turn's reply surface must never be crowded
+# out of a relevant probe's results by sheer filler volume — that is the
+# "my reply tools don't exist" silence spiral in ranking form.
+_SEARCH_MAX_EXPRESSIVE_HITS = 3
+# Tokens that substring-match arbitrary names (`i` hits bind/cli/write,
+# `to` hits tool_search) — they stay in FILTER semantics but never score:
+# a top key decided by noise breaks the cap's "always drops the weakest"
+# promise. Membership test: short English glue; 1-2 char tokens are
+# dropped by the length gate regardless.
+_GLUE_TOKENS = frozenset({
+    "a", "an", "the", "to", "do", "how", "i", "is", "it", "of", "my",
+    "me", "for", "and", "or", "in", "on", "with", "what", "can", "use",
+})
 
 
 def _missing_required(spec: ToolSpec, args: dict) -> list[str]:
@@ -201,31 +215,38 @@ class ToolDispatcher:
             return f"- {s.name}: {s.description.splitlines()[0][:100]}"
 
         hays = {s.name: s.name.lower() + " " + s.description.lower() for s in specs}
+        # SCORING tokens are content words only (round-4 review: glue and
+        # single-letter tokens substring-match arbitrary names, so the
+        # top key would be decided by noise). FILTER semantics — the ALL
+        # pool and all_matched — keep the full token list. A pure-glue
+        # query falls back to scoring on everything it has.
+        scoring = [
+            t for t in tokens if len(t) > 2 and t not in _GLUE_TOKENS
+        ] or tokens
 
         def _score(s) -> tuple[int, int, int]:
-            # Tuple score, most-significant first (round-3 review: raw
-            # occurrence counts let a verbose description outrank the
-            # real match on glue tokens alone):
-            #   1. name hit — a token in the tool NAME is the strongest
-            #      signal; an exact-name probe always enters the slice;
-            #   2. coverage — how many distinct tokens matched (bounded
-            #      by len(tokens), so long prose cannot inflate it);
+            # Tuple score, most-significant first:
+            #   1. LEAF-name hit — a content token in the tool's leaf
+            #      name (the `mcp__<server>__` prefix would hand one
+            #      shared token to a whole module's tools);
+            #   2. coverage — distinct content tokens matched (bounded
+            #      by the token count, so prose length cannot inflate it);
             #   3. occurrences — tiebreak only; on the ALL path coverage
             #      ties by construction and this provides the ordering.
             hay = hays[s.name]
-            name = s.name.lower()
+            leaf = s.name.rsplit("__", 1)[-1].lower()
             return (
-                sum(t in name for t in tokens),
-                sum(t in hay for t in tokens),
-                sum(hay.count(t) for t in tokens),
+                sum(t in leaf for t in scoring),
+                sum(t in hay for t in scoring),
+                sum(hay.count(t) for t in scoring),
             )
 
-        def _ranked(pool) -> list[str]:
+        def _ranked(pool) -> list:
             # Truncation must always drop the weakest matches; stable
             # sort keeps scope order within equal scores.
             scored = [(_score(s), s) for s in pool]
             return [
-                _line(s)
+                s
                 for _, s in sorted(
                     (p for p in scored if p[0][1] > 0),
                     key=lambda p: (-p[0][0], -p[0][1], -p[0][2]),
@@ -234,12 +255,22 @@ class ToolDispatcher:
 
         all_pool = [s for s in specs if all(t in hays[s.name] for t in tokens)]
         all_matched = bool(all_pool)
-        tool_hits = _ranked(all_pool)
-        if not tool_hits and len(tokens) > 1:
+        ranked = _ranked(all_pool)
+        if not ranked and len(tokens) > 1:
             # Any-token fallback: a natural-language probe whose tokens
             # include glue words must surface the strongest matches, not
             # the whole surface.
-            tool_hits = _ranked(specs)
+            ranked = _ranked(specs)
+        # Reserved seats for expressive tools that passed the filter:
+        # word-form mismatch (a "reply" probe cannot score `speak`) must
+        # not hide the turn's reply surface behind filler volume. No
+        # filter hit -> no free ride.
+        expressive = [
+            s for s in ranked
+            if getattr(s.annotations, "expressive", False)
+        ][:_SEARCH_MAX_EXPRESSIVE_HITS]
+        rest = [s for s in ranked if s not in expressive]
+        tool_hits = [_line(s) for s in (expressive + rest)[:_SEARCH_MAX_HITS]]
         card_hits: list[str] = []
         if card_index:
             # Mirror the mode that produced the hits: a precise ALL-token

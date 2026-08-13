@@ -207,12 +207,14 @@ async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
 
 @pytest.mark.asyncio
 async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine):
-    """Review 2026-08-13 Important #4 + round 3 Important #1: a
-    natural-language probe whose tokens include glue words must not
-    flood the context NOR let long-winded descriptions outrank the real
-    match. Coverage ranks first (occurrence counts are only a
-    tiebreak), and a name hit outranks description-only hits — so the
-    reply tool enters the slice even against 30 verbose fillers."""
+    """Review 2026-08-13 rounds 2-4: a natural-language probe whose
+    tokens include glue words must not flood the context, must not let
+    long-winded descriptions outrank the real match, and must not let
+    single-letter tokens decide the top key. Scoring uses CONTENT words
+    only (leaf-name hit first, then coverage, then occurrences as the
+    tiebreak); filter semantics keep the full token list. Expressive
+    (reply) tools that pass the filter hold reserved seats, so the
+    turn's reply surface can never be crowded out by fillers."""
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
         dispatcher as dispatcher_mod,
     )
@@ -231,8 +233,18 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
         for i in range(30)
     ]
     specs.append(ToolSpec(
-        name="mcp__chat__reply_to_user",
+        name="mcp__chat__send_message_to_user_directly",
         description="Reply to the user.", input_schema={"type": "object"},
+        annotations=ToolAnnotations(expressive=True),
+    ))
+    # The hostile shape (round 4): a reply tool whose NAME shares zero
+    # tokens with the probe — `speak` has no `i`, no `reply` — and whose
+    # short description ties with the fillers on coverage.
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__speak",
+        description="Speak to the user on the current real-time voice call.",
+        input_schema={"type": "object"},
+        annotations=ToolAnnotations(expressive=True),
     ))
     builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
 
@@ -244,9 +256,15 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     cap = dispatcher_mod._SEARCH_MAX_HITS
     lines = dispatcher.search_lines("how do i reply to the user")
     assert len(lines) <= cap  # capped, not the whole surface
-    # Coverage + name-hit priority: the real reply tool must survive 30
-    # verbose fillers whose glue-token OCCURRENCE counts are enormous.
-    assert any("reply_to_user" in line for line in lines)
+    # Both REAL reply tools survive 30 verbose fillers: the friendly
+    # name shape by content-word scoring, the hostile `speak` shape by
+    # its reserved expressive seat.
+    assert any("send_message_to_user_directly" in line for line in lines)
+    assert any("__speak" in line for line in lines)
+    # Reserved seats require a filter hit: an expressive tool unrelated
+    # to the probe gets no free ride.
+    unrelated = dispatcher.search_lines("compile the kernel sources")
+    assert not any("__speak" in line for line in unrelated)
 
     # Pipeline review Important #3 — the cap must not be bypassable:
     # whitespace-only query routes to the grouped overview (not a
