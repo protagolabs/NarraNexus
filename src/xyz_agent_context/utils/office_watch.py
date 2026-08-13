@@ -174,12 +174,29 @@ def _watch_meta_path(workspace: Path, port: int) -> Path:
     return workspace / f".officecli_watch_{port}.meta"
 
 
+def _proc_start_time(pid: int) -> str | None:
+    """The kernel start-time of ``pid`` (Linux /proc/<pid>/stat field 22), or
+    None where unavailable (non-Linux, or the pid is gone). Pairs pid+start
+    into a stable IDENTITY: a recycled pid number gets a different start-time,
+    so a stale sidecar can't masquerade as a live watch after a restart."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
+            fields = f.read().rsplit(")", 1)[-1].split()
+        # After the "comm) " field, index 19 is starttime (field 22, 1-based).
+        return fields[19]
+    except (OSError, IndexError):
+        return None
+
+
 def _write_watch_meta(workspace: Path, port: int, abs_file: str, pid: int) -> None:
-    """Record which file+pid owns a watch port (best-effort — a missing sidecar
-    only costs a reconcile miss, never correctness)."""
+    """Record which file+pid(+start-time) owns a watch port (best-effort — a
+    missing sidecar only costs a reconcile miss, never correctness)."""
     try:
         _watch_meta_path(workspace, port).write_text(
-            json.dumps({"file": abs_file, "pid": pid, "port": port}), encoding="utf-8"
+            json.dumps(
+                {"file": abs_file, "pid": pid, "port": port, "start": _proc_start_time(pid)}
+            ),
+            encoding="utf-8",
         )
     except OSError as e:  # noqa: BLE001
         logger.warning(f"officecli watch: could not write sidecar for :{port}: {e}")
@@ -196,6 +213,19 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _proc_identity_ok(pid: int, recorded_start: str | None) -> bool:
+    """True if ``pid`` is the SAME process the sidecar recorded — its start-time
+    still matches. Best-effort: when either side is unknown (non-Linux, race),
+    fall back to trusting pid liveness, since the injective port guard is the
+    hard backstop against wrong-content either way."""
+    if recorded_start is None:
+        return True
+    current = _proc_start_time(pid)
+    if current is None:
+        return True
+    return current == recorded_start
+
+
 def _terminate_group(pid: int) -> None:
     """Kill the detached watch's process GROUP (spawned with start_new_session,
     so the child leads its own group). Best-effort."""
@@ -207,27 +237,53 @@ def _terminate_group(pid: int) -> None:
 
 def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
     """Repopulate `_assignments[abs_file]` from a live sidecar if one exists,
-    and reap dead sidecars along the way. Called before allocation so a restart
-    reuses an orphan watch instead of double-spawning it."""
+    and reap DEAD sidecars along the way. Called before allocation so a restart
+    reuses an orphan watch instead of double-spawning it.
+
+    Safety (all three matter — a wrong adopt renders another file's document
+    silently, the module's classic wrong-content class):
+    - reap ONLY when the pid is gone; a "pid alive + port not yet listening"
+      sidecar is a watch still inside its start-up window (meta is written
+      before the ~6s bind wait) — leaving it is correct, deleting it strands a
+      healthy watch's record;
+    - never touch a port THIS process already owns (`_assignments.values()`):
+      that slot is mid-spawn, not reconcile's business;
+    - adopt only a port that is (a) free in our map — the INJECTIVE guard, so
+      two files never map to one port — (b) serving our file per the sidecar,
+      and (c) still the SAME process (pid+start-time), so a recycled pid on a
+      port another agent's watch now serves can't be mistaken for ours.
+      On any conflict, DON'T steal — fall through to normal allocation.
+    """
     try:
         metas = list(workspace.glob(".officecli_watch_*.meta"))
     except OSError:
         return
+    with _alloc_lock:
+        owned_ports = set(_assignments.values())
     for meta_path in metas:
         try:
             data = json.loads(meta_path.read_text(encoding="utf-8"))
             port = int(data["port"])
             pid = int(data["pid"])
             owner = str(data["file"])
+            start = data.get("start")
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             continue
-        if _pid_alive(pid) and _port_listening(port):
-            if owner == abs_file:
-                with _alloc_lock:
-                    _assignments[abs_file] = port
-        else:
+        if not _pid_alive(pid):
             # Dead watch → drop the sidecar so its port frees up for reuse.
             meta_path.unlink(missing_ok=True)
+            continue
+        if port in owned_ports:
+            continue  # mid-spawn by this process — not ours to reconcile
+        if not _port_listening(port):
+            continue  # healthy start-up window (pid alive, not yet bound)
+        if owner != abs_file or not _proc_identity_ok(pid, start):
+            continue  # another file, or a recycled pid — never adopt
+        with _alloc_lock:
+            if port in set(_assignments.values()):
+                continue  # lost a race for this port — don't double-map
+            _assignments[abs_file] = port
+        return
 
 
 def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0) -> int | None:

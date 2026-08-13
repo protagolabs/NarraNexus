@@ -153,19 +153,78 @@ def test_reconcile_adopts_live_orphan_instead_of_double_spawning(tmp_path, monke
 
 def test_reconcile_cleans_a_dead_watchs_meta(tmp_path, monkeypatch):
     """A sidecar whose watch died (pid gone) is removed, not adopted — so the
-    port frees up for a fresh allocation."""
+    port frees up for a fresh allocation. Reap is driven ONLY by pid death now
+    (port-listening=True here proves that is not what triggers the reap)."""
     import xyz_agent_context.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
     ow._write_watch_meta(ws, 26320, abs_file, 9999)
     monkeypatch.setattr(ow, "_pid_alive", lambda pid: False)
-    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": False)
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": True)
 
     monkeypatch.setattr(ow, "_assignments", {})
     ow._reconcile_from_disk(ws, abs_file)
     assert not (ws / ".officecli_watch_26320.meta").exists()
     assert abs_file not in ow._assignments
+
+
+def test_reconcile_leaves_a_starting_watchs_meta_alone(tmp_path, monkeypatch):
+    """A watch inside its start-up window (pid alive, port not yet listening —
+    the meta is written before the bind wait) must NOT be reaped: deleting it
+    would strand a healthy watch's record for the next restart."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    abs_file = str((ws / "deck.pptx").resolve())
+    ow._write_watch_meta(ws, 26321, abs_file, 4242)
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": False)
+
+    monkeypatch.setattr(ow, "_assignments", {})
+    ow._reconcile_from_disk(ws, abs_file)
+    assert (ws / ".officecli_watch_26321.meta").exists()  # left alone
+    assert abs_file not in ow._assignments  # not adopted (not listening yet)
+
+
+def test_reconcile_refuses_to_adopt_a_port_owned_by_another_file(tmp_path, monkeypatch):
+    """Injective guard: a live sidecar naming our file on a port ANOTHER file
+    already holds in the map must NOT be adopted (that would render the other
+    file's document in our tab — the classic wrong-content bug). Fall through
+    to normal allocation instead."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    abs_file = str((ws / "deck.pptx").resolve())
+    ow._write_watch_meta(ws, ow.WATCH_PORT_MIN, abs_file, 4242)
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": True)
+    # Another file already owns WATCH_PORT_MIN in the live map.
+    monkeypatch.setattr(ow, "_assignments", {"/ws/other.pptx": ow.WATCH_PORT_MIN})
+
+    ow._reconcile_from_disk(ws, abs_file)
+    assert abs_file not in ow._assignments  # refused — no double-map
+    assert ow._assignments["/ws/other.pptx"] == ow.WATCH_PORT_MIN  # untouched
+
+
+def test_reconcile_refuses_a_recycled_pid_with_mismatched_start_time(tmp_path, monkeypatch):
+    """Identity guard: the sidecar's pid is alive but its start-time no longer
+    matches (the pid number was recycled into a different process after a
+    restart) — refuse to adopt even though pid+port look live."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    abs_file = str((ws / "deck.pptx").resolve())
+    (ws / ".officecli_watch_26322.meta").write_text(
+        '{"file": "%s", "pid": 4242, "port": 26322, "start": "111"}' % abs_file
+    )
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": True)
+    monkeypatch.setattr(ow, "_proc_start_time", lambda pid: "999")  # recycled → different
+    monkeypatch.setattr(ow, "_assignments", {})
+
+    ow._reconcile_from_disk(ws, abs_file)
+    assert abs_file not in ow._assignments  # identity mismatch → not adopted
 
 
 def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):

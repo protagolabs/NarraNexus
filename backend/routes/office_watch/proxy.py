@@ -143,15 +143,16 @@ _COPY_RESPONSE_HEADERS = ("content-type", "cache-control")
 # Cap concurrent live-preview SSE streams PER USER on this shared backend. Each
 # open preview tab holds one long-lived `/events` stream; without a cap a user
 # (or a leaked token) could pile up streams and exhaust backend connections/fds.
-# When a user's (N+1)th stream opens we evict their OLDEST — close its upstream
-# session, which ends that stream's body generator and drops the connection (the
-# browser's EventSource sees the close). Per-user so one user can never evict
-# another's stream. Short-lived asset requests aren't event-streams, so they
-# don't count. Set generously so normal use (a few open previews) never evicts.
+# When a user's (N+1)th stream opens we evict their LEAST-RECENTLY-ACTIVE —
+# close its upstream session, which ends that stream's body generator and drops
+# the connection (the browser's EventSource sees the close). Per-user so one
+# user can never evict another's stream. Short-lived asset requests aren't
+# event-streams, so they don't count. Set generously so normal use (a few open
+# previews) never evicts.
 MAX_SSE_STREAMS_PER_USER = 8
 _stream_lock = asyncio.Lock()
-_stream_seq = itertools.count()
-_active_streams: dict[int, dict] = {}  # seq (monotonic, = age order) -> {user_id, session}
+_stream_seq = itertools.count()  # ids only; NOT the eviction order (that is last_active)
+_active_streams: dict[int, dict] = {}  # id -> {user_id, session, last_active}
 
 
 async def _register_sse_stream(user_id: str, session: aiohttp.ClientSession) -> int:
