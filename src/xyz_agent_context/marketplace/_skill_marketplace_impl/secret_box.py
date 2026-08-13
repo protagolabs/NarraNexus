@@ -32,6 +32,17 @@ _ENV_KEY_NAME = "SKILL_SECRETS_KEY"
 _KEY_FILENAME = "skill_secrets.key"
 
 
+class SecretDecryptError(Exception):
+    """A stored secret looks like a Fernet token but this key cannot open it.
+
+    Raised (not swallowed) so callers FAIL CLOSED: the value is ciphertext
+    encrypted under a key that rotated or was lost, and returning it would let
+    a skill run with ciphertext as its credential and fail opaquely downstream
+    (the 2026-08-01 incident). Callers skip the affected var and surface a
+    re-enter-credential prompt instead.
+    """
+
+
 def _default_key_dir() -> Path:
     # Keep the key file UNDER base_working_path (the mounted volume in cloud
     # compose — /opt/narranexus/workspaces), not beside it (/opt/narranexus,
@@ -89,35 +100,52 @@ class SecretBox:
             return base64.b64decode(value, validate=True).decode("utf-8")
         except (binascii.Error, ValueError, UnicodeDecodeError):
             pass
-        # Neither a Fernet token this key can open NOR legacy base64. Most
-        # likely the key was rotated/lost (e.g. container rebuilt without
-        # SKILL_SECRETS_KEY and the file key gone). Returning the raw value
-        # would let a skill run with ciphertext as its "credential" and fail
-        # opaquely downstream — LOUDLY log so it's diagnosable, not silent.
+        # Neither a Fernet token this key can open NOR legacy base64. A value
+        # SHAPED like a Fernet token (gAAAA…) that we can't open means the key
+        # was rotated/lost (container rebuilt without SKILL_SECRETS_KEY and the
+        # file key gone). FAIL CLOSED — raising (instead of returning the raw
+        # ciphertext) stops a skill from running with ciphertext as its
+        # "credential" and failing opaquely downstream (2026-08-01 incident).
         if value.startswith(self.TOKEN_PREFIX):
             logger.error(
                 "SecretBox: cannot decrypt a stored secret — the encryption "
                 "key appears to have changed or been lost. Re-enter the "
                 "affected skill credential (or set a stable SKILL_SECRETS_KEY)."
             )
+            raise SecretDecryptError(
+                "stored secret is a Fernet token this key cannot decrypt"
+            )
+        # A genuinely plain, non-token value (e.g. someone stored plaintext) —
+        # pass it through unchanged rather than destroying a value we can read.
         return value
 
     def encrypt_env_config(self, env: Dict[str, str]) -> Dict[str, str]:
         return {k: self.encrypt(v) for k, v in env.items()}
 
-    def decrypt_env_config(self, env: Dict[str, str]) -> Tuple[Dict[str, str], bool]:
-        """Return (plaintext dict, needs_rewrite).
+    def decrypt_env_config(
+        self, env: Dict[str, str]
+    ) -> Tuple[Dict[str, str], bool, list]:
+        """Return (plaintext dict, needs_rewrite, failed_keys).
 
-        needs_rewrite is True when any value was stored in a pre-Fernet
-        format — the caller should re-persist the encrypted form.
+        - plaintext dict: only the values that DECRYPTED — an undecryptable
+          value is never placed here (no ciphertext leaks to the caller).
+        - needs_rewrite: True when any value was stored in a pre-Fernet format
+          — the caller should re-persist the encrypted form.
+        - failed_keys: var names whose ciphertext this key cannot open (the
+          credential must be re-entered); the caller skips them.
         """
         plain: Dict[str, str] = {}
         needs_rewrite = False
+        failed: list = []
         for key, value in env.items():
-            plain[key] = self.decrypt(value)
+            try:
+                plain[key] = self.decrypt(value)
+            except SecretDecryptError:
+                failed.append(key)
+                continue
             if not value.startswith(self.TOKEN_PREFIX):
                 needs_rewrite = True
-        return plain, needs_rewrite
+        return plain, needs_rewrite, failed
 
 
 _default_box: Optional[SecretBox] = None

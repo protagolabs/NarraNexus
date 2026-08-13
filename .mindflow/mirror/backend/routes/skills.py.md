@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
+
+新增 enrich pass `_downgrade_undecryptable_env_status`(list 端点,继 `_enrich_platform_env_status` 之后):`_parse_skill_md` 纯文件系统、把任何非空存值当「已配置」,导致坏凭据的 skill UI 显绿而运行时失败;此 pass 用 [[skill_module]].get_configured_env_var_names 把「必填 var 存值但解不开」的 skill env_configured 降为 False → UI 提示重录。fail-open,enrich 出错不 500 列表。
 
 ## 2026-08-11 — MCP egress SSRF 过滤（安全审计 P0-3）
 

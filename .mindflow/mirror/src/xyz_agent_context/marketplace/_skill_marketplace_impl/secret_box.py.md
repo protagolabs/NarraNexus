@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/marketplace/_skill_marketplace_impl/secret_box.py
-last_verified: 2026-07-22
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
+
+新增 `SecretDecryptError`;`decrypt` 对「像 Fernet token(gAAAA)但本 key 解不开」的值从**返回密文改为抛异常**——旧行为让调用方拿密文当凭据跑、下游 opaque 失败(8/1 那 2 个用户)。genuinely-plain 的非 token 值仍原样返回(不误伤)。`decrypt_env_config` 返回值 2→3 元组:`(plain, needs_rewrite, failed_keys)`,解不开的 key **排除出 plain**(密文永不泄给调用方)、列进 failed。key 丢失/轮换的根因是历史(key 曾放未挂载路径),已修;本改动只解决「解不开时的行为」。
 
 ## 2026-07-22 — review 修复:key 落挂载卷 + 解密失败告警
 

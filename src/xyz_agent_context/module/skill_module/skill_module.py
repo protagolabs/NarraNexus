@@ -953,16 +953,58 @@ class SkillModule(XYZBaseModule):
             env_config = meta_data.get("env_config", {})
             if not env_config:
                 continue
-            plain, needs_rewrite = box.decrypt_env_config(env_config)
+            plain, needs_rewrite, failed = box.decrypt_env_config(env_config)
+            if failed:
+                # Undecryptable creds (key rotated/lost) are SKIPPED, never
+                # injected as ciphertext — the skill fails cleanly for a
+                # missing var instead of running with garbage (2026-08-01).
+                # env_configured turns False for these (see backend/routes/
+                # skills.py) so the UI prompts the user to re-enter them.
+                logger.error(
+                    f"Skill '{skill.name}': {len(failed)} credential(s) cannot "
+                    f"be decrypted and were skipped — re-enter {failed}"
+                )
             if needs_rewrite:
-                meta_data["env_config"] = box.encrypt_env_config(plain)
-                self._write_skill_meta(skill.name, meta_data)
-                logger.info(f"Migrated legacy env config to encrypted form for skill '{skill.name}'")
+                # Re-persist ONLY the decryptable values (legacy-migration);
+                # never overwrite the meta while some values failed to decrypt,
+                # or we'd destroy the still-encrypted (recoverable-with-the-old-
+                # key) ciphertext of the failed ones.
+                if not failed:
+                    meta_data["env_config"] = box.encrypt_env_config(plain)
+                    self._write_skill_meta(skill.name, meta_data)
+                    logger.info(f"Migrated legacy env config to encrypted form for skill '{skill.name}'")
             for key, value in plain.items():
                 if key in all_env and all_env[key] != value:
                     logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")
                 all_env[key] = value
         return all_env
+
+    def get_configured_env_var_names(self, skill_name: str) -> set:
+        """Var names whose stored credential is present AND decryptable.
+
+        Drives ``env_configured`` (backend/routes/skills.py): a var whose
+        ciphertext this key can no longer open does NOT count as configured,
+        so the UI stops showing the skill as green and prompts a re-enter —
+        instead of the old check that treated any non-empty (even ciphertext)
+        value as configured.
+        """
+        from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
+            SecretDecryptError,
+            get_secret_box,
+        )
+
+        box = get_secret_box()
+        env_config = self._read_skill_meta(skill_name).get("env_config", {})
+        present = set()
+        for name, value in env_config.items():
+            if not value:
+                continue
+            try:
+                if box.decrypt(value):
+                    present.add(name)
+            except SecretDecryptError:
+                pass  # undecryptable → not configured → prompts re-entry
+        return present
 
     # =========================================================================
     # Skill Management Methods (called by API layer)
