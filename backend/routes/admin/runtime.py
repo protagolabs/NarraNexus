@@ -22,9 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException
-
-from xyz_agent_context.settings import settings
+from fastapi import APIRouter, Header
 
 from xyz_agent_context.agent_framework.loop.broker_client import broker_url
 from xyz_agent_context.agent_runtime.admission import get_admission_controller
@@ -36,6 +34,11 @@ from xyz_agent_context.repository.service_audit_repository import (
     ServiceAuditRepository,
 )
 from xyz_agent_context.utils.db.db_factory import get_db_client
+# Re-exported so tests can override the admin secret via ``mod.settings``; the
+# shared ``require_admin_secret`` helper reads the same ``settings`` singleton.
+from xyz_agent_context.settings import settings  # noqa: F401
+
+from ._admin_secret import require_admin_secret
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +74,10 @@ async def _get_audit_counts() -> dict:
     return await ExecutorAuditRepository(db).counts_since(since)
 
 
-def _require_admin_secret(provided: str) -> None:
-    """Self-credentialed machine access (same pattern as migrate-identity):
-    the deploy-side alert watcher polls this without a user JWT. No configured
-    secret is a misconfiguration, not an open door — refuse rather than allow."""
-    expected = (settings.admin_secret_key or "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="admin secret not configured")
-    if not provided or provided.strip() != expected:
-        raise HTTPException(status_code=403, detail="invalid admin secret")
-
-
 @router.get("/status")
 async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
     """Live scheduling/resource state. Read-only; never 500s on a sub-section."""
-    _require_admin_secret(x_admin_secret)
+    require_admin_secret(x_admin_secret)
     try:
         executors = await _get_executor_list()
     except Exception as e:  # noqa: BLE001

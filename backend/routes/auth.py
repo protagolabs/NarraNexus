@@ -37,6 +37,7 @@ from xyz_agent_context.repository import (
     UserRepository,
 )
 from xyz_agent_context.schema import (
+    NON_TRANSACTING_USER_STATUSES,
     LoginRequest,
     LoginResponse,
     NetmindLoginRequest,
@@ -530,17 +531,41 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
-    user_row = await db_client.get_one("users", {"user_id": user.user_id})
-    role = (user_row.get("role") if user_row else None) or "user"
+    # Account-state gate + role, read CASE-SENSITIVELY.
+    #
+    # `user` (returned by upsert_netmind_user) is already the row fetched via
+    # UserRepository.get_user — a `WHERE BINARY user_id` lookup — so
+    # `user.status` is the case-sensitive account state, matching the collation
+    # the suspension WRITE uses. A plain get_one here would use MySQL's default
+    # case-INSENSITIVE collation and could let a look-alike user_id dodge the
+    # gate. `role` is not carried on the User entity, so it is read separately
+    # with the same `WHERE BINARY` collation.
+    #
+    # Fail-OPEN to "active" / "user" on any read hiccup (including a stored
+    # status value the strong entity cast cannot coerce): a login must never
+    # break because the state read stumbled. The gate exists to stop a specific
+    # suspended account, not to become a login availability dependency.
+    try:
+        account_status = user.status.value
+    except Exception:  # noqa: BLE001 — availability over strictness
+        account_status = "active"
+    try:
+        role_rows = await db_client.execute(
+            "SELECT role FROM users WHERE BINARY user_id = %s LIMIT 1",
+            params=(user.user_id,),
+            fetch=True,
+        )
+        role = (role_rows[0].get("role") if role_rows else None) or "user"
+    except Exception:  # noqa: BLE001 — role read must never break login
+        role = "user"
 
-    # Account-state gate. A suspended account must not be issued a token, and —
-    # just as important — must not kick off the fire-and-forget login work
-    # below (session re-arm, provider/quota provisioning): those are exactly
-    # the background side effects a suspended account should stop consuming.
-    # Returning here short-circuits every one of them. The state values are an
-    # opaque set; this route holds no policy about how an account reaches one.
-    account_status = (user_row.get("status") if user_row else None) or "active"
-    if account_status in {"banned", "blocked", "deleted"}:
+    # A suspended account must not be issued a token, and — just as important —
+    # must not kick off the fire-and-forget login work below (session re-arm,
+    # provider/quota provisioning): those are exactly the background side
+    # effects a suspended account should stop consuming. Returning here
+    # short-circuits every one of them. The state values are the shared opaque
+    # set; this route holds no policy about how an account reaches one.
+    if account_status in NON_TRANSACTING_USER_STATUSES:
         logger.warning(
             f"[login] refused suspended account user={user.user_id} "
             f"status={account_status} source={request.source or '-'}"

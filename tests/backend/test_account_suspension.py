@@ -35,6 +35,60 @@ def test_userstatus_has_banned():
     assert UserStatus("banned") is UserStatus.BANNED
 
 
+def test_all_surfaces_share_the_non_transacting_set():
+    """The auth middleware, the admin suspend route, and the login route must
+    gate on the SAME shared frozenset so they can never drift apart."""
+    from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
+    import backend.auth as auth_module
+    import backend.routes.admin.suspend as suspend_module
+
+    assert NON_TRANSACTING_USER_STATUSES == frozenset(
+        {"banned", "blocked", "deleted"}
+    )
+    # INACTIVE is deliberately NOT a suspension state.
+    assert UserStatus.INACTIVE.value not in NON_TRANSACTING_USER_STATUSES
+    # Every surface references the one constant.
+    assert auth_module.NON_TRANSACTING_USER_STATUSES is NON_TRANSACTING_USER_STATUSES
+    assert suspend_module._SUSPENDED_STATES is NON_TRANSACTING_USER_STATUSES
+
+
+@pytest.mark.asyncio
+async def test_admin_secret_helper_status_codes(db_client, monkeypatch):
+    """The shared admin-secret gate: 503 unconfigured, 403 wrong/missing, and a
+    PASS on the correct secret (reaches the handler, which 404s the unknown
+    user — proving the gate let it through). Exercised through one admin route
+    (account-state read), which imports the shared _admin_secret helper."""
+    import httpx
+    from httpx import ASGITransport
+    from fastapi import FastAPI
+    import backend.routes.admin.suspend as mod
+
+    async def _ret(v):
+        return v
+
+    monkeypatch.setattr(mod, "get_db_client", lambda: _ret(db_client))
+
+    async def _run(secret, header):
+        monkeypatch.setattr(mod.settings, "admin_secret_key", secret)
+        app = FastAPI()
+        app.include_router(mod.router)
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            return await ac.get(
+                "/api/admin/account-state/whoever",
+                headers={"X-Admin-Secret": header} if header is not None else {},
+            )
+
+    # 503: no secret configured.
+    assert (await _run("", "anything")).status_code == 503
+    # 403: wrong secret.
+    assert (await _run("right", "wrong")).status_code == 403
+    # 403: missing header.
+    assert (await _run("right", None)).status_code == 403
+    # Correct secret passes the gate -> handler runs -> unknown user -> 404.
+    assert (await _run("right", "right")).status_code == 404
+
+
 def test_account_suspended_is_not_a_session_death_code():
     # A suspended account holds a valid JWT; the frontend must NOT log it out
     # (which would loop on the same token). So the code stays out of the

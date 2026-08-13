@@ -177,7 +177,58 @@ async def test_reinstate_restores_active_and_audits(db_client, monkeypatch):
     assert row["status"] == "active"
 
     audit = await db_client.get("ban_audit", {"user_id": UID})
-    assert any(a["action"] == "reinstate" for a in audit)
+    reinstate_rows = [a for a in audit if a["action"] == "reinstate"]
+    assert reinstate_rows
+    # prev_status records what the reinstate reverted from.
+    assert reinstate_rows[0]["prev_status"] == "banned"
+
+
+@pytest.mark.asyncio
+async def test_suspend_records_prev_status(db_client, monkeypatch):
+    await _seed_user(db_client)  # active
+    app = _make_app(db_client, monkeypatch)
+
+    await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    audit = await db_client.get("ban_audit", {"user_id": UID})
+    suspend_rows = [a for a in audit if a["action"] == "suspend"]
+    assert suspend_rows
+    # Suspend replaced the "active" state — recorded verbatim.
+    assert suspend_rows[0]["prev_status"] == "active"
+
+
+@pytest.mark.parametrize("status", ["blocked", "deleted"])
+@pytest.mark.asyncio
+async def test_reinstate_only_revives_banned_accounts(db_client, monkeypatch, status):
+    """A `blocked` / `deleted` account was NOT suspended by this mechanism, so
+    reinstate must refuse (409) and leave the row untouched — it never silently
+    flips a pre-existing terminal state to active."""
+    await _seed_user(db_client, status=status)
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, "/api/admin/reinstate",
+        json={"user_id": UID, "actor": "ops-bot"},
+        headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["reinstated"] is False
+    assert detail["not_suspended_by_this_mechanism"] is True
+
+    # Row is UNCHANGED.
+    row = await db_client.get_one("users", {"user_id": UID})
+    assert row["status"] == status
+
+    # The refused attempt is still audited, with prev_status recorded.
+    audit = await db_client.get("ban_audit", {"user_id": UID})
+    reinstate_rows = [a for a in audit if a["action"] == "reinstate"]
+    assert reinstate_rows
+    assert reinstate_rows[0]["prev_status"] == status
 
 
 @pytest.mark.asyncio

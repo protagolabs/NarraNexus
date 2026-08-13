@@ -14,12 +14,15 @@ bypassed — no JWT required.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
+
+from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
@@ -492,12 +495,11 @@ SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
 # not one that may transact is refused at the door with a 403, so a suspended
 # account cannot use an already-issued (still-valid) JWT.
 #
-# The states that forbid transacting. Purely a set of `users.status` values —
-# this file holds no policy about how an account reaches one of them; a private
-# operator drives that via the admin endpoints. `banned` is the value the
-# suspension mechanism sets; `blocked`/`deleted` are pre-existing terminal
-# states that must equally not transact.
-_NON_TRANSACTING_STATES = frozenset({"banned", "blocked", "deleted"})
+# The states that forbid transacting are the shared
+# ``NON_TRANSACTING_USER_STATUSES`` set (imported above). Kept as a single
+# source of truth so this gate, the WS run gate, and the login gate can never
+# drift apart. This file holds no policy about how an account reaches one of
+# those states; a private operator drives that via the admin endpoints.
 
 # The middleware runs on every authenticated request, so a DB read per request
 # would put the users table on the hot path. A tiny in-process TTL cache keeps
@@ -506,7 +508,14 @@ _NON_TRANSACTING_STATES = frozenset({"banned", "blocked", "deleted"})
 # ~_ACCOUNT_STATE_TTL seconds even if the invalidate hook is missed (e.g. a
 # suspend applied on a different backend process). A module-level dict is fine:
 # it is per-process, best-effort, and self-correcting.
+#
+# Bounded so a burst of distinct user_ids (many short-lived sessions, or a
+# probe hitting the gate with junk-but-valid JWTs) cannot grow it without limit.
+# At the cap we drop the whole dict rather than evict one entry: the cache is
+# best-effort and self-refilling, so a wholesale clear is the cheapest bound and
+# costs at most one extra DB read per still-active user afterwards.
 _ACCOUNT_STATE_TTL_SECONDS = 30.0
+_ACCOUNT_STATE_MAX_ENTRIES = 10_000
 _account_state_cache: dict[str, "tuple[str, float]"] = {}
 
 
@@ -526,19 +535,29 @@ async def _account_state(user_id: str) -> str:
     returns ``"active"`` and does not cache. A transient DB blip must never
     lock every user out of the product — the gate exists to stop a specific
     suspended account, not to become a global availability dependency.
-    """
-    import time
 
+    Reads through ``UserRepository.get_user`` (a ``WHERE BINARY user_id`` query)
+    so the account-state READ is case-sensitive in exactly the same way the
+    suspension WRITE is — a plain ``get_one`` uses MySQL's default
+    case-INSENSITIVE collation and would let a look-alike user_id dodge the gate
+    (invisible on SQLite, which has no such collation). Its strong
+    ``_row_to_entity`` cast can raise on a ``status`` value not in
+    ``UserStatus``; the ``except Exception`` below fails that open too.
+    """
+    # Repository is imported lazily (inside the function) on purpose: it pulls
+    # the DB layer in, and auth.py must stay importable at process start without
+    # it.
     now = time.monotonic()
     cached = _account_state_cache.get(user_id)
     if cached is not None and cached[1] > now:
         return cached[0]
 
     try:
+        from xyz_agent_context.repository.user_repository import UserRepository
         from xyz_agent_context.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
-        row = await db.get_one("users", {"user_id": user_id})
+        user = await UserRepository(db).get_user(user_id)
     except Exception as e:  # noqa: BLE001 — availability over strictness
         logger.warning(
             f"[account-state] lookup failed for user={user_id!r}: "
@@ -546,12 +565,14 @@ async def _account_state(user_id: str) -> str:
         )
         return "active"
 
-    if not row:
+    if user is None:
         # No such row: nothing to suspend. Don't cache — the row may appear
         # (lazy user creation) and we don't want a stale miss to linger.
         return "active"
 
-    status = (row.get("status") or "active")
+    status = user.status.value
+    if len(_account_state_cache) >= _ACCOUNT_STATE_MAX_ENTRIES:
+        _account_state_cache.clear()
     _account_state_cache[user_id] = (status, now + _ACCOUNT_STATE_TTL_SECONDS)
     return status
 
@@ -779,7 +800,7 @@ async def auth_middleware(request: Request, call_next):
     # only re-mints the same token. Cached ~TTL seconds so this is DB-free on
     # the common (active) path.
     account_state = await _account_state(request.state.user_id)
-    if account_state in _NON_TRANSACTING_STATES:
+    if account_state in NON_TRANSACTING_USER_STATUSES:
         return auth_error_response(
             ACCOUNT_SUSPENDED,
             "Account is not available",

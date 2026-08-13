@@ -46,8 +46,14 @@ class BanAuditRepository:
         reason: Optional[str] = None,
         evidence_ref: Optional[str] = None,
         actor: Optional[str] = None,
+        prev_status: Optional[str] = None,
     ) -> None:
-        """Best-effort audit write. Never raises into the caller."""
+        """Best-effort audit write. Never raises into the caller.
+
+        ``prev_status`` records the account state the row was in immediately
+        before this action (opaque; a plain ``users.status`` value), so the
+        trail shows what a suspend replaced / what a reinstate reverted from.
+        """
         try:
             await self._db.insert(
                 self.TABLE,
@@ -57,6 +63,7 @@ class BanAuditRepository:
                     "reason": reason,
                     "evidence_ref": evidence_ref,
                     "actor": actor,
+                    "prev_status": prev_status,
                 },
             )
         except Exception as e:  # noqa: BLE001 — audit writes are advisory
@@ -72,9 +79,12 @@ class BanAuditRepository:
     ) -> list[dict[str, Any]]:
         """Return a user's account-state changes, newest first."""
         try:
-            rows = await self._db.get(self.TABLE, {"user_id": user_id})
-            rows.sort(key=lambda r: r.get("id", 0), reverse=True)
-            return rows[:limit]
+            return await self._db.get(
+                self.TABLE,
+                {"user_id": user_id},
+                limit=limit,
+                order_by="id DESC",
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"BanAudit history() failed: {type(e).__name__}: {e}")
             return []

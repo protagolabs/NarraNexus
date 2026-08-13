@@ -1585,6 +1585,12 @@ _register(
             Column("reason", "TEXT", "MEDIUMTEXT"),
             Column("evidence_ref", "TEXT", "MEDIUMTEXT"),
             Column("actor", "TEXT", "VARCHAR(128)"),
+            # The account state the row was in immediately BEFORE this action.
+            # Additive column (auto_migrate backfills it incrementally on
+            # existing deployments — no destructive migration). Lets a reinstate
+            # record what it reverted from, and lets suspend record what it
+            # replaced, without the audit trail carrying any policy vocabulary.
+            Column("prev_status", "TEXT", "VARCHAR(32)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

@@ -32,7 +32,8 @@ stub: false
 ## 设计决策
 
 - **Best-effort 写，永不向调用方抛异常**：`record` 整个包在 try/except 里，写失败只记一行 WARNING（"row dropped; audit is advisory"）。审计行是咨询性的——丢一行绝不能让运维请求的状态变更失败。`users.status` 更新是真相源，本表只是追踪轨迹。
-- **追加式（append-only）**：一次 action 一行，只增不改。`history(user_id, limit=50)` 读回某用户的状态变更，按 `id` 倒序（最新在前），读失败同样吞掉返回空列表。
+- **`record` 新增 `prev_status` kwarg（2026-08-13）**：记录动作发生前的账户状态（不透明，一个 `users.status` 值），写进新增的 `prev_status` 列（见 [[schema_registry.py]]）。suspend / reinstate 都传它。可选，默认 None。
+- **追加式（append-only）**：一次 action 一行，只增不改。`history(user_id, limit=50)` 读回某用户的状态变更，按 `id` 倒序（最新在前），读失败同样吞掉返回空列表。**排序下推 DB（2026-08-13）**：改为 `self._db.get(TABLE, {...}, limit=limit, order_by="id DESC")`，由 DB 侧排序 + 截断，去掉原来的 Python 侧 `rows.sort()+切片`。
 - **从 `ServiceAuditRepository` 泛化**：沿用「一张表 + 一个 best-effort 写方法 + 按 user_id 键」的既有形态，不发明新模式。
 - **构造函数不继承 `BaseRepository` 的强类型 client**：与 service_audit 同款，注入未标类型的 client，避免 import 期加载顺序耦合。
 

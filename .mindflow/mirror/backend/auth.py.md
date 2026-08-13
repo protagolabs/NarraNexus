@@ -7,23 +7,38 @@ stub: false
 ## 2026-08-13 — 账户状态闸门（account-state gate）+ 30s TTL 缓存 + 停用端点豁免
 
 middleware 在 JWT 验签通过、`request.state.user_id` 已就位之后、provider/quota
-resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.status`，若落在
-`_NON_TRANSACTING_STATES = {banned, blocked, deleted}`，立即返回 **403**
+resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.status`，若落在共享的
+`NON_TRANSACTING_USER_STATUSES = {banned, blocked, deleted}`（从
+`xyz_agent_context.schema` 顶层 import，[[entity_schema.py]] 的单一真相源，取代
+原来本文件里那份本地 `_NON_TRANSACTING_STATES` 字面量），立即返回 **403**
 （`ACCOUNT_SUSPENDED` code，见 [[auth_errors]]）。这样一个「仍然有效」的 JWT，
 在其命名的账户被停用后就不能再交易——账户停用机制（[[suspend.py]]）把
 `users.status` 置为 `banned`，`blocked`/`deleted` 是既有终态，同样不可交易。
+
+**读走 UserRepository（BINARY 大小写敏感）**：`_account_state` 经
+`UserRepository.get_user`（`WHERE BINARY user_id ... LIMIT 1`）读，而不是
+`db.get_one`。停用**写**侧用的就是 `WHERE BINARY`；若读侧用 MySQL 默认的
+大小写**不敏感** collation，一个仅大小写不同的 look-alike user_id 就能绕过闸门。
+只在真 MySQL 上出错——SQLite 无此 collation，`database.py` 还会把 `BINARY`
+关键字剥掉，所以单测**抓不到**这个 case。Repository 是**惰性 import**（函数内），
+避免 auth.py 在进程启动期把 DB 层拉进来。`get_user` 的强 `_row_to_entity` 转换
+在 status 值不在 `UserStatus` 时会抛——本函数的 `except Exception` fail-open 顺带
+兜住（返回 "active"、不缓存）。
 
 **为什么是 403 而不是 401**：401 会被 SPA 读成「会话死亡」而跳登录，但重登只会
 再铸一枚同样有效的 token 又被弹回，成死循环。403（已认证、不被许可）配一个
 专属 code，前端据此展示「账户不可用」而非登录循环。`ACCOUNT_SUSPENDED` 刻意
 **不在** `SESSION_DEAD_CODES` 里。
 
-**30s TTL 进程内缓存**：middleware 每个已认证请求都跑，逐请求查一次 users 表会
-把它压上热路径。`_account_state_cache`（module 级 dict，per-process、best-effort、
-自愈）缓存 `(status, expiry)` ~30s，常见情形（活跃账户狂发请求）零 DB。
+**30s TTL 进程内缓存 + 10k 条上界**：middleware 每个已认证请求都跑，逐请求查一次
+users 表会把它压上热路径。`_account_state_cache`（module 级 dict，per-process、
+best-effort、自愈）缓存 `(status, expiry)` ~30s，常见情形（活跃账户狂发请求）零 DB。
 `invalidate_account_state(user_id)` 在 suspend/reinstate 后由 [[suspend.py]] 调用，
 让改动在**本进程**立即可见；跨进程 staleness 由 TTL 兜底（一个刚被停用的账户
-最多再交易约 30s）。
+最多再交易约 30s）。写入前若 `len(cache) >= _ACCOUNT_STATE_MAX_ENTRIES (10_000)`
+则**整体 `clear()`**（不逐条淘汰）——缓存本就 best-effort、会自动重填，整体清空是
+最省的上界，最多让仍活跃的用户多走一次 DB 读，防止一串各异的 user_id（大量短会话，
+或拿垃圾但合法的 JWT 打闸门）把 dict 无界撑大。`import time` 已上移到模块顶部。
 
 **Fail OPEN**：`_account_state` 在任何查库异常、或 user 行查不到时，返回
 `"active"` 且**不缓存**。一次瞬时 DB 抖动绝不能把全体用户锁在产品外——这道闸
@@ -36,7 +51,20 @@ resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.st
 /api/admin/account-state/{user_id}` 是路径参数路由，无法精确匹配，改进
 `AUTH_EXEMPT_PREFIXES` 的 `/api/admin/account-state/`。
 
-**已知边界 · nx-service bearer 不受闸门约束**：账户闸门放在用户 JWT 分支上，`_is_nx_service_bearer` 分支在其之前 `return`。停用只治理用户**自己的会话与普通 API 流量**；被停用用户**在途的后台工作**（已在跑的 job/agent 经服务 bearer 调 backend）不由这道闸门掐断——而是由运营侧**吊销其网关 key**（LLM 花费随即失败）、以及处置到位时**销毁其 executor** 来止住。在内部热路径上再加一次 users 表读不划算，故在途止血刻意下放给 key-revoke。
+**已知边界 · 仅 nx-service bearer 不受闸门约束**：账户闸门放在用户 JWT 分支上，
+`_is_nx_service_bearer` 分支在其之前 `return`，所以**服务身份**（executor→mcp→backend
+的 nx-agent bearer）不过这道闸。这个边界**只**适用于 nx-service bearer——即被停用
+用户**在途的后台工作**（已在跑的 job/agent 经服务 bearer 调 backend）：它不由 HTTP
+闸门掐断，而是由运营侧**吊销其网关 key**（LLM 花费随即失败）、以及处置到位时
+**销毁其 executor** 来止住。在内部热路径上再加一次 users 表读不划算，故在途止血
+刻意下放给 key-revoke。
+
+**用户自己的 WS token 现在会被 gate**（更正旧说法）：曾经账户闸门只在 HTTP
+middleware，而 middleware 豁免 `/ws/*`，于是一个被停用用户拿自己有效的 JWT 仍能经
+WebSocket **发起新 run**（WS 是产品**主**路径）。现已在 WS handler 内补上同一道闸门
+（见 [[websocket.py]]），复用**同一个** `NON_TRANSACTING_USER_STATUSES` 与**同一个**
+`_account_state` 读取器（TTL 缓存、fail-open），两面不会漂移。`_account_state` 因此被
+WS 端 import——它现在是账户闸门的公共入口。
 
 ## 2026-08-11 — AUTH_EXEMPT_PATHS 新增 NarraMessenger prewarm 双端点
 
