@@ -57,7 +57,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
@@ -118,7 +117,7 @@ from ._rtc_voice import (
     parse_rtc_voice_input,
     split_narra_system_prompt,
 )
-from ._voice_delivery import VoiceDeliveryBridge, sanitize_for_tts
+from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
@@ -302,11 +301,6 @@ class _StreamReplyState:
     # gated). Keeps two tools' delta streams from interleaving into one
     # segment view.
     voice_stream_tool: str = ""
-    # True once a narra_reply carried this turn's reply. Scopes the
-    # raw-text room supplement: narra_reply doubles as the chat record
-    # (links/code must survive sanitization there), while speak is a
-    # voice-only surface.
-    saw_narra_reply: bool = False
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -1841,30 +1835,15 @@ class MatrixTrigger(ChannelTriggerBase):
                     await self._send_matrix_reply(
                         credential, message.chat_id, spoken
                     )
-                else:
-                    # The bridge delivered the TTS-SANITIZED text — right
-                    # for the spoken surface, but the room is also the
-                    # call's persistent record and must not silently lose
-                    # a link or code the model put in its reply. When the
-                    # sanitizer actually removed content (not just
-                    # collapsed whitespace), supplement the RAW text as a
-                    # plain message. Runs strictly AFTER close()'s
-                    # marker-free final edit, so the LiveKit worker never
-                    # treats it as another live segment to read aloud.
-                    raw = (state.narra_reply_text or "").strip()
-                    if (
-                        state.saw_narra_reply
-                        and raw
-                        and sanitize_for_tts(raw) != re.sub(r"\s+", " ", raw)
-                    ):
-                        logger.info(
-                            f"[matrix:{credential.agent_id}] sanitizer "
-                            f"removed content; supplementing raw text to "
-                            f"the room (room={message.chat_id})"
-                        )
-                        await self._send_matrix_reply(
-                            credential, message.chat_id, raw
-                        )
+                # Deliberately NOTHING else once the bridge delivered: on
+                # a live call the plain sender is a DELIVERY channel (the
+                # smoke report's plain-fallback turns were heard by the
+                # caller), so any supplement here would be a second
+                # playback that reads URLs/code aloud — bypassing the
+                # sanitizer's structural guarantee. Known cost: a link the
+                # model put in narra_reply does not reach the chat record;
+                # tracked in reference/self_notebook/todo/ pending a
+                # written worker-consumption contract from Hybrid.
                 return spoken
             # Nothing spoken: fall through to the legacy finalize so a
             # narra_reply answer, an error marker, or a silent turn all
@@ -2022,8 +2001,6 @@ class MatrixTrigger(ChannelTriggerBase):
             # non-empty spoken text, so this cannot double-deliver — but
             # it is the only delivery path left when the spoken form
             # sanitizes to nothing (emoji-only ack, URL-only reply).
-            if is_narra_reply:
-                state.saw_narra_reply = True
             state.narra_reply_text = (
                 f"{state.narra_reply_text} {text}".strip()
                 if is_speak and state.narra_reply_text

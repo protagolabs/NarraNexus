@@ -7,8 +7,9 @@ stub: false
 ## 2026-08-13（管线审后）— search_lines 封顶不可绕过
 
 三个绕过口全堵（管线审 I#3）：①空白查询先算 tokens、空即走 overview 分支（不再
-vacuous 全匹配）；②单 token 查询同受封顶；③card 行与工具行共享同一 `_SEARCH_MAX_HITS=12`
-上限（兜底已排名，封顶永远砍最弱）。overview 分支刻意不封顶——那就是全量清单请求。
+vacuous 全匹配）；②单 token 查询同受封顶；③工具行与 card 行**分类封顶**（`_SEARCH_MAX_HITS=12` + `_SEARCH_MAX_CARD_HITS=4`，
+二审：共享预算会让 12 条工具行饿死整个能力索引）；ALL 路径同样按 token 出现次数
+排名后截断（精确命中不再被 scope 序藏掉）。overview 分支刻意不封顶——那就是全量清单请求。
 `_hay` 预构建成 dict 复用（原 per-token 重拼）。
 
 ## 2026-08-13 — tool_search 多词查询分词匹配

@@ -4,14 +4,18 @@ stub: false
 last_verified: 2026-08-13
 ---
 
-## 2026-08-13（管线审后）— narra_reply 原文补发 + 认领键归一叶子名
+## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
 
-①语音轮 narra_reply 走桥后房间只见净化文本，链接/代码从聊天记录里静默消失（管线审
-I#4）。finalize 在 close() 终态 edit 之后补发**原文**普通消息（绝不带 live 标记，
-LiveKit 不会念它）；三重闸：`saw_narra_reply`（speak-only 轮不补——speak 是纯语音面）
-+ 净化器确实删了内容（空白折叠不算）+ spoken 非空。L1 锁 test_s1c。
+①二审 Critical 实锤：`_send_matrix_reply` 的平文消息在通话上**会被 Hybrid worker
+念给通话方**（冒烟报告里平文兜底轮有「首段延迟」=被听到；not-ok 兜底发的也是净化文
+本，正因平文进语音管线）。因此一审建议的「原文补发」= 二次播报 + URL/代码逐字进
+TTS，绕过 sanitize_for_tts 的结构层硬保证——**补发已整体摘除**。现契约：桥交付后
+finalize 不再写房间（test_s1c 锁 `plain == []`）。已知代价：语音轮 narra_reply 里的
+链接不落聊天记录，记 reference/self_notebook/todo/（等 Hybrid 给出 worker 消费面的
+书面契约后再选载体：m.notice / rtc.* 键 / 仅 inbox）。`narra_reply_text` 的语义就此
+定死为**净化后为空时的平文兜底捕获**，不是原文记录（二审 M#8 的字段两义已消）。
 ②认领键归一为叶子名（`rsplit('__',1)[-1]`）——delta 与 PROGRESS 两个事件源拼写可能
-不同，裸串相等会让完成 PROGRESS 挡掉同一工具后续 delta（管线审 Minor#6）。
+不同，裸串相等会让完成 PROGRESS 挡掉同一工具后续 delta（一审 Minor#6）。
 
 ## 2026-08-13 — 语音流认领制：narra_reply 也可驱动 live 交付
 

@@ -35,11 +35,14 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
     PolicyEngine,
 )
 
-# Ceiling for every non-overview ``search_lines`` result (tool hits AND
-# card-index lines combined) — no query shape may return the whole tool
-# surface. The deliberate exception is the empty/whitespace query, which
+# Ceilings for every non-overview ``search_lines`` result — no query
+# shape may return the whole tool surface. Tool hits and card-index
+# lines are capped SEPARATELY so neither class can starve the other
+# (one shared budget let 12 tool hits hide the entire capability
+# index). The deliberate exception is the empty/whitespace query, which
 # routes to the grouped overview: that IS the full-list request.
 _SEARCH_MAX_HITS = 12
+_SEARCH_MAX_CARD_HITS = 4
 
 
 def _missing_required(spec: ToolSpec, args: dict) -> list[str]:
@@ -195,20 +198,31 @@ class ToolDispatcher:
             return f"- {s.name}: {s.description.splitlines()[0][:100]}"
 
         hays = {s.name: s.name.lower() + " " + s.description.lower() for s in specs}
-        hits = [_line(s) for s in specs if all(t in hays[s.name] for t in tokens)]
-        all_matched = bool(hits)
-        if not hits and len(tokens) > 1:
-            # Any-token fallback, ranked by hit count: a natural-language
-            # probe whose tokens include glue words must surface the
-            # strongest matches, not the whole surface. Stable sort keeps
-            # scope order within equal scores.
+
+        def _ranked(pool) -> list[str]:
+            # Rank by total token occurrences so truncation always drops
+            # the weakest matches (a bare all()-filter kept scope order,
+            # and the cap then hid an exact hit at position 13). Stable
+            # sort keeps scope order within equal scores.
             scored = [
-                (sum(t in hays[s.name] for t in tokens), s) for s in specs
+                (sum(hays[s.name].count(t) for t in tokens), s) for s in pool
             ]
-            ranked = sorted(
-                (p for p in scored if p[0] > 0), key=lambda p: -p[0]
-            )
-            hits = [_line(s) for _, s in ranked]
+            return [
+                _line(s)
+                for _, s in sorted(
+                    (p for p in scored if p[0] > 0), key=lambda p: -p[0]
+                )
+            ]
+
+        all_pool = [s for s in specs if all(t in hays[s.name] for t in tokens)]
+        all_matched = bool(all_pool)
+        tool_hits = _ranked(all_pool)
+        if not tool_hits and len(tokens) > 1:
+            # Any-token fallback: a natural-language probe whose tokens
+            # include glue words must surface the strongest matches, not
+            # the whole surface.
+            tool_hits = _ranked(specs)
+        card_hits: list[str] = []
         if card_index:
             # Mirror the mode that produced the hits: a precise ALL-token
             # query must not get loose any-token card noise appended.
@@ -217,8 +231,6 @@ class ToolDispatcher:
                 if all_matched
                 else (lambda line: any(t in line.lower() for t in tokens))
             )
-            hits += [line for line in card_index.splitlines() if match(line)]
-        # One ceiling for every query shape (tool hits and card lines
-        # alike); the fallback is already ranked, so the cap always
-        # drops the weakest matches.
-        return hits[:_SEARCH_MAX_HITS]
+            card_hits = [line for line in card_index.splitlines() if match(line)]
+        # Separate ceilings: neither class can starve the other.
+        return tool_hits[:_SEARCH_MAX_HITS] + card_hits[:_SEARCH_MAX_CARD_HITS]

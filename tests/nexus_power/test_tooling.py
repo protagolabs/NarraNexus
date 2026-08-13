@@ -240,10 +240,14 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     # ...a single glue token is capped like any other query...
     single = dispatcher.search_lines("a")
     assert len(single) <= 12
-    # ...and card_index lines count against the same ceiling.
+    # ...and card_index lines have their OWN reserved seats: with 12+
+    # matching tools the capability index must not be starved out (round
+    # 2 review — the "my capabilities don't exist" spiral moved to the
+    # card side), while the combined result stays bounded.
     card = "\n".join(f"card-{i}: operates on a thing" for i in range(40))
     carded = dispatcher.search_lines("a thing", card_index=card)
-    assert len(carded) <= 12
+    assert len(carded) <= 16
+    assert any(line.startswith("card-") for line in carded)
 
 
 @pytest.mark.asyncio

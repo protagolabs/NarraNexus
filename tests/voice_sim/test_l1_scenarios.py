@@ -250,12 +250,16 @@ async def test_s1b_narra_reply_voice_turn_rides_live_lifecycle(harness, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_s1c_sanitized_content_is_supplemented_raw_to_the_room(harness, monkeypatch):
-    """Pipeline review Important #4: the bridge delivers the TTS-sanitized
-    text (URLs stripped — correct for the spoken surface), but the chat
-    record must not silently lose the link: finalize supplements the RAW
-    text as a plain (non-live) message, gated on the sanitizer having
-    actually removed content."""
+async def test_s1c_voice_turn_never_opens_a_second_delivery_channel(harness, monkeypatch):
+    """Pipeline review round 2 Critical #1: on a live call the plain
+    sender is a DELIVERY channel (Hybrid's worker reads plain-text turns
+    to the caller — the smoke report's fallback turns had first-segment
+    latency, i.e. were heard). A raw-text supplement would therefore be
+    a second playback that reads URLs aloud, bypassing the sanitizer's
+    structural guarantee. Lock: once the bridge delivered, NOTHING else
+    is sent — the known cost (a narra_reply link doesn't reach the chat
+    record) is tracked in reference/self_notebook/todo/ pending a
+    written worker-consumption contract from Hybrid."""
     trigger, sent, plain = harness
     raw = "报告在这里 https://example.com/report.pdf 请查收。"
     runtime = ScriptedRuntime([
@@ -278,20 +282,9 @@ async def test_s1c_sanitized_content_is_supplemented_raw_to_the_room(harness, mo
     for content in sent:
         body = content.get("m.new_content", content)["body"]
         assert "https://" not in body
-    # Chat record: the raw text arrives once via the plain sender.
-    assert plain == [raw]
+    # No second channel: the plain sender stays untouched.
+    assert plain == []
     assert out  # turn reports a delivered reply
-
-    # Control: a clean reply must NOT trigger the supplement.
-    plain.clear(); sent.clear()
-    runtime2 = ScriptedRuntime([
-        _progress("mcp__narramessenger_module__narra_reply", "好的，收到。", call_id=""),
-    ])
-    _install_runtime(monkeypatch, runtime2)
-    await _ingest_and_run(
-        trigger, build_voice_content("在吗"), event_id="$sim1c2"
-    )
-    assert plain == []  # no double message on clean replies
 
 
 @pytest.mark.asyncio
