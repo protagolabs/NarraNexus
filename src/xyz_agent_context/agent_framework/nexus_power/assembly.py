@@ -76,6 +76,11 @@ class LoopAssembly:
     retry: RetryPolicy = field(default=None)  # type: ignore[assignment]
     hooks: Any = None
     include_arg_deltas: bool = True
+    # Opt-in (voice turns): a turn about to close with zero expressive
+    # calls while expressive tools exist gets ONE steering nudge and one
+    # more step. Off by default — group rooms and bus turns keep their
+    # legal silence.
+    expression_nudge: bool = False
     # Side-event queue: channels that produce ui events during tool
     # execution (today update_plan; tomorrow subagent announcements)
     # append here and the loop drains it at the dispatch boundary — so a
@@ -337,6 +342,7 @@ async def run_turn_events(
             compaction=ToolResultPruner(),
             params=params,
             include_arg_deltas=opts.include_arg_deltas,
+            expression_nudge=opts.expression_nudge,
             side_events=side_events,
         )
         async for event in NexusPowerLoop(assembly, ledger).run_turn():

@@ -85,6 +85,8 @@ class NexusPowerLoop:
         self._ledger = ledger
         self._closed = False
         self._continuation_turn = False  # prefill repair, armed at most once
+        self._turn_expressed = False     # any expressive call seen this turn
+        self._expression_nudged = False  # mute-turn nudge, armed at most once
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
@@ -177,6 +179,8 @@ class NexusPowerLoop:
 
                 # ---- DISPATCH ---------------------------------------------
                 for call in step_calls:
+                    if a.expression.is_expressive(call.name):
+                        self._turn_expressed = True
                     if a.cancel.requested():
                         async for ev in self._interrupt("cancelled by user"):
                             yield ev
@@ -240,6 +244,28 @@ class NexusPowerLoop:
 
                 # ---- STOP_CHECK -------------------------------------------
                 if await a.stop.should_stop(step_calls, ledger):
+                    # Opt-in mute-turn repair (voice turns): about to close
+                    # with ZERO expressive calls while expressive tools
+                    # exist -> ONE steering nudge, one more step. Armed at
+                    # most once — a model that stays silent after the
+                    # nudge closes normally (never a spin loop, and never
+                    # a force-stop: this only ADDS a step).
+                    if (
+                        getattr(a, "expression_nudge", False)
+                        and not self._expression_nudged
+                        and not self._turn_expressed
+                        and a.expression.names()
+                    ):
+                        self._expression_nudged = True
+                        from .prompts.library import NexusPowerPrompts
+
+                        ledger.record_steering([{
+                            "role": "user",
+                            "content": NexusPowerPrompts.expression_nudge(
+                                a.expression.names()
+                            ),
+                        }])
+                        continue
                     await a.hooks.fire(HookEvent.STOP, {"steps": ledger.num_steps()})
                     yield await self._close(EndReason.NO_MORE_ACTIONS)
                     return

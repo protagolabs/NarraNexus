@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/loop.py
-last_verified: 2026-07-31
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — mute-turn nudge（opt-in，语音轮）
+
+STOP_CHECK 关轮前：若 `assembly.expression_nudge` 开且本轮零 expressive 调用而
+表达面非空，注入一条 steering 提醒（prompts.expression_nudge，点名默认回复工具）
+再给一步；至多一次（`_expression_nudged`），nudge 后仍沉默则正常收轮——只加步、
+不锁死、不 force-stop（铁律 #14）。默认关：群聊/bus 的合法静默不受影响。动机：
+8/13 对抗实测 1/22 语音轮对乱码 STT 输入闷声（'纳指鸡'），语音轮无回复=坏结局。
+expressive 见闻在 DISPATCH 处累计（`_turn_expressed`）。
 
 ## 2026-07-31 — 截断措辞不再被 stop_reason 一票否决
 

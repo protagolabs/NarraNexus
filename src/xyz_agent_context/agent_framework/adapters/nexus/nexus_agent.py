@@ -276,6 +276,8 @@ class NexusAgent:
         }
         if profile is not None and profile.include_arg_deltas is not None:
             options["include_arg_deltas"] = profile.include_arg_deltas
+        if profile is not None and profile.expression_nudge is not None:
+            options["expression_nudge"] = profile.expression_nudge
         return {
             "thread_id": f"turn_{uuid.uuid4().hex[:12]}",
             "messages": messages,

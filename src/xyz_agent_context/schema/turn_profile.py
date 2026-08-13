@@ -30,6 +30,7 @@ class TurnProfile(BaseModel, frozen=True):
     prompt_mode: Literal["full", "minimal"] = "full"
     reasoning_effort: Optional[str] = None            # -> llm_extra["reasoning_effort"]
     include_arg_deltas: Optional[bool] = None         # None = TurnOptions default
+    expression_nudge: Optional[bool] = None           # None = TurnOptions default
     # NOTE deliberately absent: a reply_tool field. The reply surface is
     # declared by modules (get_expressive_tools orders speak first on
     # voice turns via extra_data) — a profile field nothing consumes
@@ -46,6 +47,9 @@ class TurnProfile(BaseModel, frozen=True):
             prompt_mode="full",
             reasoning_effort=reasoning_effort,
             include_arg_deltas=True,
+            # An unanswered voice turn is never the right outcome — a
+            # mute turn gets one steering nudge before it may close.
+            expression_nudge=True,
         )
 
     @property

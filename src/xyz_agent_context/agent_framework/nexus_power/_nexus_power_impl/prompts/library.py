@@ -143,6 +143,21 @@ class NexusPowerPrompts:
             .replace("{{OTHER_REPLY_TOOLS_CLAUSE}}", clause)
         )
 
+    @classmethod
+    def expression_nudge(cls, reply_tools: tuple[str, ...]) -> str:
+        """The one-shot mute-turn repair message (loop STOP_CHECK,
+        opt-in via ``expression_nudge``). Names the turn's default reply
+        tool so the model's next step has exactly one obvious move."""
+        default = f"`{reply_tools[0]}`" if reply_tools else "a reply tool"
+        return (
+            "You are ending this turn WITHOUT having called any reply "
+            "tool — the user will receive nothing but silence. That is "
+            "never the right outcome for a direct conversation. Call "
+            f"{default} now with your reply; if the incoming message was "
+            "unclear or garbled, reply with ONE short clarifying "
+            "question instead."
+        )
+
     # ---- section rosters (order is contract: reordering breaks every
     # user's cache prefix and requires explicit review) ----------------
 
