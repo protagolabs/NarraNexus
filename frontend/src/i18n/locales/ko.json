@@ -2074,6 +2074,7 @@
     "desktopHint": "브라우저에서 NarraNexus를 열면 실시간 문서 미리보기를 볼 수 있습니다.",
     "loading": "실시간 미리보기를 여는 중…",
     "loadError": "실시간 미리보기를 열 수 없습니다.",
+    "retry": "다시 시도",
     "livePreview": "실시간 미리보기"
   },
   "common": {

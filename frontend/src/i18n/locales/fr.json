@@ -2075,6 +2075,7 @@
     "desktopHint": "Ouvrez NarraNexus dans un navigateur pour voir l'aperçu en direct du document.",
     "loading": "Ouverture de l'aperçu en direct…",
     "loadError": "Impossible d'ouvrir l'aperçu en direct.",
+    "retry": "Réessayer",
     "livePreview": "Aperçu en direct"
   },
   "common": {

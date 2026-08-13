@@ -2075,6 +2075,7 @@
     "desktopHint": "Öffnen Sie NarraNexus im Browser, um die Live-Dokumentvorschau zu sehen.",
     "loading": "Live-Vorschau wird geöffnet…",
     "loadError": "Live-Vorschau konnte nicht geöffnet werden.",
+    "retry": "Erneut versuchen",
     "livePreview": "Live-Vorschau"
   },
   "common": {

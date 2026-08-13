@@ -2501,6 +2501,7 @@
     "desktopHint": "Open NarraNexus in a browser to see the live document preview.",
     "loading": "Opening live preview…",
     "loadError": "Could not open the live preview.",
+    "retry": "Retry",
     "livePreview": "Live preview"
   },
   "marketplace": {
