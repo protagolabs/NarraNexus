@@ -141,6 +141,10 @@ def test_reconcile_adopts_live_orphan_instead_of_double_spawning(tmp_path, monke
     monkeypatch.setattr(ow, "_assignments", {})
     monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": p == ow.WATCH_PORT_MIN)
     monkeypatch.setattr(ow, "_pid_alive", lambda pid: pid == 4242)
+    # Identity evidence: the live process IS our officecli watch on this port.
+    monkeypatch.setattr(
+        ow, "_proc_cmdline", lambda pid: f"/x/officecli watch deck.pptx --port {ow.WATCH_PORT_MIN}"
+    )
     spawned = {"popen": False}
     monkeypatch.setattr(
         ow.subprocess, "Popen", lambda *a, **k: spawned.__setitem__("popen", True)
@@ -220,11 +224,36 @@ def test_reconcile_refuses_a_recycled_pid_with_mismatched_start_time(tmp_path, m
     )
     monkeypatch.setattr(ow, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": True)
-    monkeypatch.setattr(ow, "_proc_start_time", lambda pid: "999")  # recycled → different
+    # pid 4242 is alive but was recycled into some OTHER process — its cmdline
+    # is not our officecli watch, so identity fails cross-platform.
+    monkeypatch.setattr(ow, "_proc_cmdline", lambda pid: "/usr/bin/python some_script.py")
     monkeypatch.setattr(ow, "_assignments", {})
 
     ow._reconcile_from_disk(ws, abs_file)
     assert abs_file not in ow._assignments  # identity mismatch → not adopted
+
+
+def test_reconcile_refuses_to_adopt_without_identity_evidence(tmp_path, monkeypatch):
+    """macOS/desktop regression: when NO identity evidence is obtainable
+    (cmdline unreadable AND no start-time), reconcile must NOT adopt — a loud
+    double-spawn (front-end shows 'could not open' + Retry) beats silently
+    rendering another document. This is the hole the Linux-only start-time
+    guard left open."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    abs_file = str((ws / "deck.pptx").resolve())
+    # start=None (as macOS records) and no cmdline available.
+    (ws / ".officecli_watch_26323.meta").write_text(
+        '{"file": "%s", "pid": 4242, "port": 26323, "start": null}' % abs_file
+    )
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: True)  # recycled pid looks alive
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": True)
+    monkeypatch.setattr(ow, "_proc_cmdline", lambda pid: None)  # no /proc, ps unavailable
+    monkeypatch.setattr(ow, "_assignments", {})  # empty — the very moment reconcile runs
+
+    ow._reconcile_from_disk(ws, abs_file)
+    assert abs_file not in ow._assignments  # no evidence → refuse to adopt
 
 
 def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):
@@ -247,3 +276,5 @@ def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):
     port = ow.ensure_watch("a1", "u1", "deck.pptx", wait_s=0.01)
     assert port is None
     assert killed["pid"] == 5555  # orphan reaped, not leaked
+    # Its sidecar is removed too, so no stale meta survives the failed spawn.
+    assert not list(ws.glob(".officecli_watch_*.meta"))

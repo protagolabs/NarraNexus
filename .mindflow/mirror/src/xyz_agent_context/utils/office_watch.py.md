@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
 
-**(review 轮加固)** adopt 有三重防 wrong-content:① **单射**——绝不 adopt 已被 _assignments 里另一文件占用的端口(否则两文件映射同端口→A 的 tab 渲染 B 的文档);② **身份**——sidecar 记 pid **start-time**(Linux /proc/<pid>/stat 第22字段),重启后 pid 号被回收也认得出不是原进程(非 Linux 无 start-time 时退回 pid 存活,单射兜底);③ **reap 只由 pid 死亡驱动**——「pid 活 + 端口未监听」是启动窗口(meta 在 6s bind 等待前就写了)不再误删;端口已在 _assignments 里(本进程正在 spawn)跳过不管。冲突一律放弃 adopt、退回正常分配(绝不 release-then-grab,那是 wrong-content 另一种写法)。
+**(review 轮加固 ×2)** adopt 防 wrong-content 靠**跨平台进程身份**,不再是 Linux 专属:① **单射**——绝不 adopt 已被 _assignments 里另一文件占用的端口;② **身份=cmdline**——`_proc_cmdline`(Linux /proc/<pid>/cmdline;其它平台 `ps -p` 0.5s 超时)确认该 pid 确实是我们那个 `officecli … --port <port>` 进程,回收的 pid 号几乎不可能同时命中 `officecli` + 该端口;start-time 仅作 Linux 便宜交叉校验;**拿不到任何证据 → 拒绝 adopt**(退回正常分配=响的双 spawn:前端报 could not open + Retry,远好过静默串文档)。**为什么必须跨平台**:reconcile 只在重启后 `_assignments` 空时跑,此刻单射兜底也为空——两个 guard 失效窗口重合,所以不能靠单射兜身份;旧的「非 Linux 退回 pid 存活」在 desktop 上是 no-op 洞(review 轮 2 抓出)。③ **reap 只由 pid 死亡驱动**——「pid 活 + 端口未监听」是启动窗口不误删(reap 有意不接身份判据:adopt 端已用 cmdline 拒绝陈旧 meta,reap 再接身份会在 cmdline 瞬时读失败时误杀健康 watch)。冲突一律放弃 adopt(绝不 release-then-grab)。
 
 **磁盘为真 + reconcile**:spawn 时写 `.officecli_watch_<port>.meta`(file+pid+port);`ensure_watch` 内存无记录时先 `_reconcile_from_disk` 扫盘——同文件已有存活 watch(`_pid_alive` + `_port_listening`)则 adopt 复用,死 watch 的 sidecar 顺手 unlink 释放端口。**根治**:backend/executor 重启后内存 map 清空,旧 detached watch 仍在听,旧逻辑会给同文件另起第二个 watch(officecli 同文件单 watch→起不来→前端 4 次重试全败 'could not open'),正是「删相邻 artifact→docx 首挂载打不开」的服务端真身。**慢启动杀孤儿**:6s 没起来时 `_terminate_group(pid)`(start_new_session→杀进程组)+ 删 sidecar 再释放端口,不再留孤儿占「已被视为空闲」的端口。
 

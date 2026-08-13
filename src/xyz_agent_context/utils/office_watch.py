@@ -198,7 +198,7 @@ def _write_watch_meta(workspace: Path, port: int, abs_file: str, pid: int) -> No
             ),
             encoding="utf-8",
         )
-    except OSError as e:  # noqa: BLE001
+    except OSError as e:
         logger.warning(f"officecli watch: could not write sidecar for :{port}: {e}")
 
 
@@ -213,17 +213,48 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _proc_identity_ok(pid: int, recorded_start: str | None) -> bool:
-    """True if ``pid`` is the SAME process the sidecar recorded — its start-time
-    still matches. Best-effort: when either side is unknown (non-Linux, race),
-    fall back to trusting pid liveness, since the injective port guard is the
-    hard backstop against wrong-content either way."""
-    if recorded_start is None:
-        return True
-    current = _proc_start_time(pid)
-    if current is None:
-        return True
-    return current == recorded_start
+def _proc_cmdline(pid: int) -> str | None:
+    """The argv of ``pid`` as a space-joined string, cross-platform, or None if
+    unavailable. Linux reads /proc/<pid>/cmdline; elsewhere (macOS desktop)
+    falls back to ``ps`` with a tight timeout so it can't wedge the caller."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            raw = f.read()
+        if raw:
+            return raw.replace(b"\x00", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(  # noqa: S603,S607 — fixed argv, pid is an int
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip()
+    return line or None
+
+
+def _proc_identity_ok(pid: int, recorded_start: str | None, port: int) -> bool:
+    """True only when ``pid`` is provably OUR officecli watch for ``port``.
+
+    Wrong-content is silent, so identity must hold on EVERY platform, not just
+    Linux. Primary evidence is the live process's command line — a recycled pid
+    almost never re-runs ``officecli … --port <port>`` — which works without
+    /proc. Start-time is a cheaper Linux-only cross-check. When NO evidence is
+    obtainable we REFUSE (return False): a loud double-spawn (the front-end
+    shows 'could not open' + Retry) is strictly better than adopting a port
+    that may serve another document."""
+    cmd = _proc_cmdline(pid)
+    if cmd is not None:
+        return "officecli" in cmd and str(port) in cmd.split()
+    if recorded_start is not None:
+        current = _proc_start_time(pid)
+        if current is not None:
+            return current == recorded_start
+    return False  # no identity evidence → do not adopt
 
 
 def _terminate_group(pid: int) -> None:
@@ -231,7 +262,7 @@ def _terminate_group(pid: int) -> None:
     so the child leads its own group). Best-effort."""
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError) as e:  # noqa: BLE001
+    except (ProcessLookupError, PermissionError, OSError) as e:
         logger.warning(f"officecli watch: could not terminate pid {pid}: {e}")
 
 
@@ -240,19 +271,22 @@ def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
     and reap DEAD sidecars along the way. Called before allocation so a restart
     reuses an orphan watch instead of double-spawning it.
 
-    Safety (all three matter — a wrong adopt renders another file's document
+    Safety (all matter — a wrong adopt renders another file's document
     silently, the module's classic wrong-content class):
     - reap ONLY when the pid is gone; a "pid alive + port not yet listening"
       sidecar is a watch still inside its start-up window (meta is written
       before the ~6s bind wait) — leaving it is correct, deleting it strands a
-      healthy watch's record;
-    - never touch a port THIS process already owns (`_assignments.values()`):
+      healthy watch's record. (Dead-meta reaping runs regardless of which port
+      it names — a readable meta on a port we already own is stale, since the
+      mid-spawn meta isn't written until after Popen.)
+    - adopt never STEALS a port THIS process already owns (`_assignments.values()`):
       that slot is mid-spawn, not reconcile's business;
     - adopt only a port that is (a) free in our map — the INJECTIVE guard, so
       two files never map to one port — (b) serving our file per the sidecar,
-      and (c) still the SAME process (pid+start-time), so a recycled pid on a
-      port another agent's watch now serves can't be mistaken for ours.
-      On any conflict, DON'T steal — fall through to normal allocation.
+      and (c) provably the SAME officecli watch for this port (cmdline, with a
+      Linux start-time cross-check), so a recycled pid on a port another
+      agent's watch now serves can't be mistaken for ours. No evidence →
+      refuse. On any conflict, DON'T steal — fall through to normal allocation.
     """
     try:
         metas = list(workspace.glob(".officecli_watch_*.meta"))
@@ -277,7 +311,7 @@ def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
             continue  # mid-spawn by this process — not ours to reconcile
         if not _port_listening(port):
             continue  # healthy start-up window (pid alive, not yet bound)
-        if owner != abs_file or not _proc_identity_ok(pid, start):
+        if owner != abs_file or not _proc_identity_ok(pid, start, port):
             continue  # another file, or a recycled pid — never adopt
         with _alloc_lock:
             if port in set(_assignments.values()):
