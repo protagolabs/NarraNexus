@@ -29,6 +29,11 @@ class UserStatus(str, Enum):
     INACTIVE = "inactive"
     BLOCKED = "blocked"
     DELETED = "deleted"
+    # A distinct, administratively-set account state. Kept separate from
+    # BLOCKED/DELETED so the account-suspension mechanism has its own value
+    # (a reinstate returns the row to ACTIVE, and an existing "banned" row in
+    # the DB stays loadable rather than raising on enum coercion).
+    BANNED = "banned"
 
 
 # ===== Social Network Entity =====

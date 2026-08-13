@@ -1,8 +1,42 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 账户状态闸门（account-state gate）+ 30s TTL 缓存 + 停用端点豁免
+
+middleware 在 JWT 验签通过、`request.state.user_id` 已就位之后、provider/quota
+resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.status`，若落在
+`_NON_TRANSACTING_STATES = {banned, blocked, deleted}`，立即返回 **403**
+（`ACCOUNT_SUSPENDED` code，见 [[auth_errors]]）。这样一个「仍然有效」的 JWT，
+在其命名的账户被停用后就不能再交易——账户停用机制（[[suspend.py]]）把
+`users.status` 置为 `banned`，`blocked`/`deleted` 是既有终态，同样不可交易。
+
+**为什么是 403 而不是 401**：401 会被 SPA 读成「会话死亡」而跳登录，但重登只会
+再铸一枚同样有效的 token 又被弹回，成死循环。403（已认证、不被许可）配一个
+专属 code，前端据此展示「账户不可用」而非登录循环。`ACCOUNT_SUSPENDED` 刻意
+**不在** `SESSION_DEAD_CODES` 里。
+
+**30s TTL 进程内缓存**：middleware 每个已认证请求都跑，逐请求查一次 users 表会
+把它压上热路径。`_account_state_cache`（module 级 dict，per-process、best-effort、
+自愈）缓存 `(status, expiry)` ~30s，常见情形（活跃账户狂发请求）零 DB。
+`invalidate_account_state(user_id)` 在 suspend/reinstate 后由 [[suspend.py]] 调用，
+让改动在**本进程**立即可见；跨进程 staleness 由 TTL 兜底（一个刚被停用的账户
+最多再交易约 30s）。
+
+**Fail OPEN**：`_account_state` 在任何查库异常、或 user 行查不到时，返回
+`"active"` 且**不缓存**。一次瞬时 DB 抖动绝不能把全体用户锁在产品外——这道闸
+是为拦住某个具体被停用账户，不是要变成全局可用性依赖。查不到行也不缓存，避免
+懒创建的用户行出现后一条 stale miss 长期滞留。
+
+**豁免名单**：三条 admin 停用路径进豁免（它们各自用 `X-Admin-Secret` 自凭证，
+被停用账户也没有可用 JWT，用用户认证 gate 反而循环）——`/api/admin/suspend` 与
+`/api/admin/reinstate` 是精确路径进 `AUTH_EXEMPT_PATHS`；`GET
+/api/admin/account-state/{user_id}` 是路径参数路由，无法精确匹配，改进
+`AUTH_EXEMPT_PREFIXES` 的 `/api/admin/account-state/`。
+
+**已知边界 · nx-service bearer 不受闸门约束**：账户闸门放在用户 JWT 分支上，`_is_nx_service_bearer` 分支在其之前 `return`。停用只治理用户**自己的会话与普通 API 流量**；被停用用户**在途的后台工作**（已在跑的 job/agent 经服务 bearer 调 backend）不由这道闸门掐断——而是由运营侧**吊销其网关 key**（LLM 花费随即失败）、以及处置到位时**销毁其 executor** 来止住。在内部热路径上再加一次 users 表读不划算，故在途止血刻意下放给 key-revoke。
 
 ## 2026-08-11 — AUTH_EXEMPT_PATHS 新增 NarraMessenger prewarm 双端点
 

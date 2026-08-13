@@ -64,6 +64,7 @@ from backend.auth import (
     resolve_current_user_id,
 )
 from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
     IDENTITY_UNRESOLVED,
     NETMIND_TOKEN_INVALID,
     AuthError,
@@ -531,6 +532,20 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     user_row = await db_client.get_one("users", {"user_id": user.user_id})
     role = (user_row.get("role") if user_row else None) or "user"
+
+    # Account-state gate. A suspended account must not be issued a token, and —
+    # just as important — must not kick off the fire-and-forget login work
+    # below (session re-arm, provider/quota provisioning): those are exactly
+    # the background side effects a suspended account should stop consuming.
+    # Returning here short-circuits every one of them. The state values are an
+    # opaque set; this route holds no policy about how an account reaches one.
+    account_status = (user_row.get("status") if user_row else None) or "active"
+    if account_status in {"banned", "blocked", "deleted"}:
+        logger.warning(
+            f"[login] refused suspended account user={user.user_id} "
+            f"status={account_status} source={request.source or '-'}"
+        )
+        raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)
 
     token = create_token(user.user_id, role)
     logger.info(

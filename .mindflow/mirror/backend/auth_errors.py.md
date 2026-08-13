@@ -1,8 +1,22 @@
 ---
 code_file: backend/auth_errors.py
-last_verified: 2026-08-06
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — `ACCOUNT_SUSPENDED`（403）+ AuthError/response 的 status_code 覆盖
+
+新增 code `ACCOUNT_SUSPENDED = "account_suspended"`，语义是「账户状态不允许交易
+（由运维私有设置）」。它以 **HTTP 403** 发出（已认证、但不被许可），**绝不**用
+401——JWT 本身完全有效，重登只会铸出同一枚 token 再被弹回。因此它刻意**不进**
+`SESSION_DEAD_CODES`：前端应展示一个专属的「账户不可用」状态，而不是登录循环。
+
+为承载这个 403，`AuthError` 和 `auth_error_response()` 都新增了 `status_code`
+参数，默认仍是 401（这里绝大多数拒绝都是「未认证」）。仅在「已认证但不被许可」
+这一类场景显式传 403：[[routes/auth.py]] 的 netmind-login 对停用账户
+`raise AuthError(ACCOUNT_SUSPENDED, ..., status_code=403)`；[[auth]] middleware 的
+账户状态闸门用 `auth_error_response(..., status_code=403)`。`install_auth_error_handler`
+的渲染也从写死 401 改为透传 `exc.status_code`。body 形状（`{"detail", "code"}`）不变。
 
 ## 2026-08-06 (review R2) — 未验签 claims 必须先过 `_render_claim`
 

@@ -22,6 +22,7 @@ from fastapi import Depends, HTTPException, Request
 from loguru import logger
 
 from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
     GATEWAY_TOKEN_INVALID,
     IDENTITY_MISSING,
     IDENTITY_UNRESOLVED,
@@ -365,6 +366,14 @@ AUTH_EXEMPT_PATHS = {
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
     # migrator has no JWT. Same self-credentialed pattern as netmind-login.
     "/api/admin/migrate-identity",
+    # Account-suspension mechanism: self-credentialed on X-Admin-Secret inside
+    # the handlers (same pattern as migrate-identity). A private operator, not
+    # a user JWT, drives these — and a suspended account holds no usable JWT
+    # anyway, so gating them on the user auth path would be circular. The
+    # account-state READ is a path-parameter route, so it is exempted via the
+    # prefix list below rather than here.
+    "/api/admin/suspend",
+    "/api/admin/reinstate",
     # Runtime observability: polled by the deploy-side alert watcher (a
     # headless container with no user JWT), gated on the same X-Admin-Secret
     # inside the handler. Read-only.
@@ -407,6 +416,11 @@ def _is_marketplace_public_read(request: "Request") -> bool:
 
 
 AUTH_EXEMPT_PREFIXES = (
+    # Account-state READ (GET /api/admin/account-state/{user_id}): a
+    # path-parameter route, so it cannot be an exact entry in
+    # AUTH_EXEMPT_PATHS. Self-credentialed on X-Admin-Secret inside the
+    # handler, same as the two suspend/reinstate POSTs above.
+    "/api/admin/account-state/",
     "/ws/",  # WebSocket handles its own auth via message payload
     # Public transcription audio: NetMind's STT worker fetches via
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
@@ -469,6 +483,77 @@ QUOTA_BYPASS_PREFIXES = (
 # a response, e.g. backend/routes/manyfold/files.py's file-read endpoint,
 # stream bytes off disk and never touch an LLM).
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
+
+
+# ---------------------------------------------------------------------------
+# Account-state gate
+# ---------------------------------------------------------------------------
+# A per-request check on the caller's account state. An account whose state is
+# not one that may transact is refused at the door with a 403, so a suspended
+# account cannot use an already-issued (still-valid) JWT.
+#
+# The states that forbid transacting. Purely a set of `users.status` values —
+# this file holds no policy about how an account reaches one of them; a private
+# operator drives that via the admin endpoints. `banned` is the value the
+# suspension mechanism sets; `blocked`/`deleted` are pre-existing terminal
+# states that must equally not transact.
+_NON_TRANSACTING_STATES = frozenset({"banned", "blocked", "deleted"})
+
+# The middleware runs on every authenticated request, so a DB read per request
+# would put the users table on the hot path. A tiny in-process TTL cache keeps
+# the common case (an active account making many requests) DB-free; the TTL
+# bounds how long a just-suspended account can keep transacting to at most
+# ~_ACCOUNT_STATE_TTL seconds even if the invalidate hook is missed (e.g. a
+# suspend applied on a different backend process). A module-level dict is fine:
+# it is per-process, best-effort, and self-correcting.
+_ACCOUNT_STATE_TTL_SECONDS = 30.0
+_account_state_cache: dict[str, "tuple[str, float]"] = {}
+
+
+def invalidate_account_state(user_id: str) -> None:
+    """Best-effort drop of a cached account state.
+
+    Called after a suspend/reinstate so the change is visible immediately in
+    THIS process. Cross-process staleness is bounded by the TTL instead.
+    """
+    _account_state_cache.pop(user_id, None)
+
+
+async def _account_state(user_id: str) -> str:
+    """Return the caller's ``users.status`` (cached ~TTL seconds).
+
+    Fails OPEN: on any lookup error, or a user row that cannot be found, it
+    returns ``"active"`` and does not cache. A transient DB blip must never
+    lock every user out of the product — the gate exists to stop a specific
+    suspended account, not to become a global availability dependency.
+    """
+    import time
+
+    now = time.monotonic()
+    cached = _account_state_cache.get(user_id)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+
+    try:
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        row = await db.get_one("users", {"user_id": user_id})
+    except Exception as e:  # noqa: BLE001 — availability over strictness
+        logger.warning(
+            f"[account-state] lookup failed for user={user_id!r}: "
+            f"{type(e).__name__}: {e} (failing open)"
+        )
+        return "active"
+
+    if not row:
+        # No such row: nothing to suspend. Don't cache — the row may appear
+        # (lazy user creation) and we don't want a stale miss to linger.
+        return "active"
+
+    status = (row.get("status") or "active")
+    _account_state_cache[user_id] = (status, now + _ACCOUNT_STATE_TTL_SECONDS)
+    return status
 
 
 async def auth_middleware(request: Request, call_next):
@@ -647,6 +732,15 @@ async def auth_middleware(request: Request, call_next):
     # key provisioned = still 401). Early return also skips the provider/
     # quota resolver below on purpose — these are repository operations, not
     # LLM spends (same reason SAFE_HTTP_METHODS skip it).
+    #
+    # KNOWN, DELIBERATE BOUNDARY: this branch returns BEFORE the account-state
+    # gate further down. Suspension governs a user's OWN sessions and normal API
+    # traffic (login + user-JWT requests). A suspended user's IN-FLIGHT background
+    # work — a job/agent already running, calling backend via the service bearer —
+    # is NOT stopped here; it is stopped by the operator side revoking the user's
+    # gateway key (their LLM spend then fails) and, when armed, tearing down their
+    # executor. Adding a gate here would put a per-request users-table read on the
+    # hot internal path; deferring in-flight teardown to key-revoke keeps it off.
     if _is_nx_service_bearer(auth_header):
         identity = _verify_nx_service_bearer(request)
         if identity is None:
@@ -676,6 +770,23 @@ async def auth_middleware(request: Request, call_next):
         return auth_error_response(
             TOKEN_INVALID, "Invalid token",
             path=path, method=request.method, token=token,
+        )
+
+    # Account-state gate. The JWT is valid, but a still-valid token must not
+    # keep working once the account it names has been suspended. This is a 403
+    # (authenticated, not permitted) with a distinct code — never a 401, which
+    # the SPA reads as "session dead" and would bounce to a login loop that
+    # only re-mints the same token. Cached ~TTL seconds so this is DB-free on
+    # the common (active) path.
+    account_state = await _account_state(request.state.user_id)
+    if account_state in _NON_TRANSACTING_STATES:
+        return auth_error_response(
+            ACCOUNT_SUSPENDED,
+            "Account is not available",
+            path=path,
+            method=request.method,
+            user_id=request.state.user_id,
+            status_code=403,
         )
 
     # Provider routing. Tag current_user_id on the ContextVar (consumed by

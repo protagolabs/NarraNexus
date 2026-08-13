@@ -1569,6 +1569,31 @@ _register(
 )
 
 
+# ban_audit — append-only trail for administrative account-state changes.
+# One row per suspend / reinstate action. `reason` and `evidence_ref` are
+# OPAQUE free-text supplied by the caller (never an enum) so this table
+# carries no policy vocabulary of its own; `actor` records who made the
+# change. Append-only, queried by user_id.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="ban_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("action", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("reason", "TEXT", "MEDIUMTEXT"),
+            Column("evidence_ref", "TEXT", "MEDIUMTEXT"),
+            Column("actor", "TEXT", "VARCHAR(128)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_ban_audit_user_id", ["user_id"]),
+        ],
+    )
+)
+
+
 # Subproject 1: Team Membership (from main)
 _register(
     TableDef(

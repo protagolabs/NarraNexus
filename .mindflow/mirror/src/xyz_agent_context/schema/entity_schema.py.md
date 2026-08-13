@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — `UserStatus.BANNED`（账户停用专属状态值）
+
+`UserStatus` 枚举新增 `BANNED = "banned"`。它是一个由运维设置的、独立的账户状态，
+刻意与 `BLOCKED` / `DELETED` 分开，让账户停用机制（[[suspend.py]]）有自己的专属
+值：`reinstate` 只需把行恢复成 `ACTIVE`，而 DB 里已存在的 `banned` 行也能正常
+被枚举加载（不会在 enum 强制转换时报错）。middleware 的账户状态闸门把
+`banned` / `blocked` / `deleted` 一并视为「不可交易」（见 [[auth]]）。
 
 ## 2026-08-04 — `is_agent_description_unset` + legacy 占位符常量
 

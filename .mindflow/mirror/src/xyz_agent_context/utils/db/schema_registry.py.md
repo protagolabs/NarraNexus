@@ -1,10 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-11
-
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — ban_audit 新表（账户状态变更审计）
+
+注册 `ban_audit`：账户状态变更的追加式审计表，一次 suspend / reinstate 一行。
+列：`id`(BIGINT UNSIGNED 自增主键)、`user_id`(VARCHAR(64) NOT NULL)、
+`action`(VARCHAR(32) NOT NULL)、`reason`(MEDIUMTEXT)、`evidence_ref`(MEDIUMTEXT)、
+`actor`(VARCHAR(128))、`created_at`(DATETIME(6) NOT NULL，sqlite 侧
+`(datetime('now'))`)。索引 `idx_ban_audit_user_id(user_id)`，按 user_id 查询。
+
+`reason` / `evidence_ref` 是调用方提供的**不透明自由文本**（绝非 enum），本表因此
+不携带自己的策略词汇；`actor` 记录是谁做的变更。追加式、只增不改。写入方是
+[[ban_audit_repository]]（best-effort，advisory），真相源是 `users.status`。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 

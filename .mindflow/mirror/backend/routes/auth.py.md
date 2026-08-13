@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
+
+`netmind_login` 拿到 `user_row` 后、`create_token` 之前，多一道账户状态判定：读
+`user_row["status"]`，若落在 `{banned, blocked, deleted}`，记一行 WARNING 后
+`raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
+（见 [[auth_errors]]），**不签 token**。
+
+同等重要的是：early return **短路掉后续所有 fire-and-forget 登录副作用**
+（session 重整、provider/quota 供给等）——这些正是一个被停用账户应当停止消耗的
+后台工作。状态值是一个不透明集合，本路由不持有「账户如何走到停用」的任何策略。
+这与 [[auth]] middleware 的账户状态闸门是两道互补的关卡：middleware 拦住已有
+token 的后续请求，这里拦住停用账户**重新拿 token**。
 
 ## 2026-08-12 — reply_language 路由
 
