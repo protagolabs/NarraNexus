@@ -109,9 +109,14 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             if not required_env:
                 return f"Skill '{skill_name}' has no required environment variables."
 
+            from xyz_agent_context.module.skill_module.skill_module import (
+                configured_env_var_names,
+            )
+
+            configured_set = configured_env_var_names(env_config)
             lines = [f"Required environment variables for '{skill_name}':"]
             for key in required_env:
-                configured = key in env_config and env_config[key]
+                configured = key in configured_set
                 status = "✓ configured" if configured else "✗ not configured"
                 lines.append(f"  - {key}: {status}")
 

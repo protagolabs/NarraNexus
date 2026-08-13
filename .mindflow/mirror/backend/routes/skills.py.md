@@ -4,6 +4,10 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
+
+删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。改为 3 处路由判定(`_enrich_platform_env_status`、GET/PUT `/{name}/env`)统一调 [[skill_module]].configured_env_var_names;env_configured 在 _parse_skill_md 源头已诚实,list 端点不再需要单独降级。platform-resolved var 仍各站自理(enrich 查 DB、parse 乐观)。
+
 ## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
 
 新增 enrich pass `_downgrade_undecryptable_env_status`(list 端点,继 `_enrich_platform_env_status` 之后):`_parse_skill_md` 纯文件系统、把任何非空存值当「已配置」,导致坏凭据的 skill UI 显绿而运行时失败;此 pass 用 [[skill_module]].get_configured_env_var_names 把「必填 var 存值但解不开」的 skill env_configured 降为 False → UI 提示重录。fail-open,enrich 出错不 500 列表。

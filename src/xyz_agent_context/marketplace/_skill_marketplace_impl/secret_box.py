@@ -11,10 +11,15 @@ Key resolution order:
 2. Key file <key_dir>/skill_secrets.key, generated on first use with 0600
    perms (local/desktop; single-user machine, OS user is the boundary).
 
-decrypt() accepts three shapes so old .skill_meta.json files keep working:
-Fernet token (normal), legacy plain-base64 (pre-marketplace format, decoded
-and flagged for rewrite), anything else (returned unchanged rather than
-destroying a value we cannot interpret).
+decrypt() outcomes:
+- Fernet token this key can open → plaintext (normal).
+- legacy plain-base64 (pre-marketplace format) → decoded plaintext, flagged
+  for rewrite.
+- a Fernet-SHAPED token this key CANNOT open (the key rotated or was lost) →
+  raises SecretDecryptError. It FAILS CLOSED — returning the ciphertext let a
+  skill run with it as its credential and fail opaquely downstream (2026-08-01).
+- anything else (a genuinely plain, non-token value) → returned unchanged,
+  rather than destroying a value we can read.
 """
 
 import base64

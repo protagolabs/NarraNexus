@@ -137,6 +137,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     row for NETMIND_API_KEY) and downgrade env_configured when not."""
     from xyz_agent_context.module.skill_module.skill_module import (
         PLATFORM_RESOLVED_ENV,
+        configured_env_var_names,
         platform_env_available,
     )
 
@@ -155,38 +156,11 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
         return
     for skill in affected:
         env_config = skill_module.get_skill_env_config(skill.name)
+        configured = configured_env_var_names(env_config)
         skill.env_configured = all(
-            bool(env_config.get(v)) or (v in PLATFORM_RESOLVED_ENV and v in available)
+            (v in configured) or (v in PLATFORM_RESOLVED_ENV and v in available)
             for v in (skill.requires_env or [])
         )
-
-
-def _downgrade_undecryptable_env_status(skill_module: SkillModule, skills) -> None:
-    """A credential encrypted under a lost key is NOT usable config.
-
-    ``_parse_skill_md`` is filesystem-only: it counts any non-empty stored
-    value as configured, so a ciphertext this key can no longer decrypt reads
-    as "configured" and the skill shows green while it actually fails at run
-    time (2026-08-01). Here we downgrade ``env_configured`` to False for any
-    skill with a required var whose stored value is present but undecryptable,
-    so the UI prompts the user to re-enter it."""
-    from xyz_agent_context.module.skill_module.skill_module import PLATFORM_RESOLVED_ENV
-
-    for skill in skills:
-        if not skill.requires_env or skill.env_configured is False:
-            continue
-        try:
-            configured = skill_module.get_configured_env_var_names(skill.name)
-        except Exception as e:  # noqa: BLE001 — status enrich must never 500 the list
-            logger.warning(f"decrypt status enrich skipped for '{skill.name}': {e}")
-            continue
-        # A required var counts only if it decrypts here or is platform-resolved
-        # (those are resolved fresh per run, not from this stored config).
-        if any(
-            v not in configured and v not in PLATFORM_RESOLVED_ENV
-            for v in skill.requires_env
-        ):
-            skill.env_configured = False
 
 
 # =========================================================================
@@ -320,7 +294,6 @@ async def list_skills(
         skill_module = _get_skill_module(agent_id, user_id)
         skills = skill_module.list_skills(include_disabled=include_disabled)
         await _enrich_platform_env_status(skill_module, skills, user_id)
-        _downgrade_undecryptable_env_status(skill_module, skills)
 
         return SkillListResponse(skills=skills, total=len(skills))
 
@@ -612,6 +585,7 @@ async def get_skill_env(
         # when the user's provider config can back them at run time.
         from xyz_agent_context.module.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
             platform_env_available,
         )
         from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -619,8 +593,9 @@ async def get_skill_env(
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
             available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(env_config)
         env_configured = {
-            v: bool(env_config.get(v)) or v in available for v in requires_env
+            v: (v in configured) or v in available for v in requires_env
         }
 
         return SkillEnvConfigResponse(
@@ -664,6 +639,7 @@ async def set_skill_env(
 
         from xyz_agent_context.module.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
             platform_env_available,
         )
         from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -671,8 +647,9 @@ async def set_skill_env(
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
             available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(updated_config)
         env_configured = {
-            v: bool(updated_config.get(v)) or v in available for v in requires_env
+            v: (v in configured) or v in available for v in requires_env
         }
 
         return SkillEnvConfigResponse(

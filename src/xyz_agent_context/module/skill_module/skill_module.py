@@ -213,6 +213,41 @@ BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
 PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
 
 
+def configured_env_var_names(env_config: dict) -> set:
+    """The single source of truth for "which stored env vars are usable config".
+
+    A var counts only if its stored value is present AND decryptable. A value
+    that is ciphertext this key can no longer open (the SecretBox key rotated
+    or was lost) does NOT count — otherwise every "is this configured?" check
+    (list/detail routes, the skill_list_required_env MCP tool, the agent's
+    skills table, install/upgrade config_required) shows the skill as ready
+    while it fails at run time on a missing/garbage credential (2026-08-01).
+    This rule used to live inline as ``bool(env_config.get(v))`` in six places
+    with drifting semantics; keep it here so a fix lands once.
+
+    Takes a raw env_config DICT (not a skill name), so it is agnostic to
+    whether the skill is enabled or disabled — the caller reads the meta from
+    the skill's own directory. Platform-resolved vars are a SEPARATE concern
+    handled by each caller (they may be satisfied without a stored value).
+    """
+    from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
+        SecretDecryptError,
+        get_secret_box,
+    )
+
+    box = get_secret_box()
+    out = set()
+    for name, value in (env_config or {}).items():
+        if not value:
+            continue
+        try:
+            if box.decrypt(value):
+                out.add(name)
+        except SecretDecryptError:
+            pass  # ciphertext under a lost key → not usable config → prompt re-enter
+    return out
+
+
 async def platform_env_available(db, user_id: Optional[str]) -> set:
     """Which PLATFORM_RESOLVED_ENV vars are actually satisfiable for this user.
 
@@ -631,11 +666,15 @@ class SkillModule(XYZBaseModule):
                         requires_env = sorted(set(fm_requires_env + body_env + meta_requires_env)) or None
                         requires_bins = sorted(set(fm_requires_bins + meta_requires_bins)) or None
 
-                        # Check if all required env vars are configured
+                        # Check if all required env vars are configured — a
+                        # required var counts only if its stored value decrypts
+                        # (or is platform-resolved), so a credential under a
+                        # lost key reads as NOT configured (2026-08-01).
                         env_configured = None
                         if requires_env:
+                            configured = configured_env_var_names(env_config)
                             env_configured = all(
-                                env_config.get(v) or v in PLATFORM_RESOLVED_ENV
+                                v in configured or v in PLATFORM_RESOLVED_ENV
                                 for v in requires_env
                             )
 
@@ -662,8 +701,9 @@ class SkillModule(XYZBaseModule):
         requires_bins = sorted(set(meta_requires_bins)) or None
         env_configured = None
         if requires_env:
+            configured = configured_env_var_names(env_config)
             env_configured = all(
-                env_config.get(v) or v in PLATFORM_RESOLVED_ENV for v in requires_env
+                v in configured or v in PLATFORM_RESOLVED_ENV for v in requires_env
             )
 
         return SkillInfo(
@@ -942,6 +982,13 @@ class SkillModule(XYZBaseModule):
 
         Legacy plain-base64 values (pre-Fernet format) are decrypted
         transparently and re-persisted encrypted on first read.
+
+        A value that is ciphertext this key cannot decrypt (the SecretBox key
+        rotated or was lost) is SKIPPED, never injected as ciphertext — the
+        skill fails cleanly for a missing var instead of running with garbage
+        (2026-08-01). Legacy re-persist is skipped whenever any value in the
+        same skill failed, so we don't overwrite the still-recoverable
+        ciphertext of the failed one.
         """
         from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import get_secret_box
 
@@ -979,32 +1026,6 @@ class SkillModule(XYZBaseModule):
                 all_env[key] = value
         return all_env
 
-    def get_configured_env_var_names(self, skill_name: str) -> set:
-        """Var names whose stored credential is present AND decryptable.
-
-        Drives ``env_configured`` (backend/routes/skills.py): a var whose
-        ciphertext this key can no longer open does NOT count as configured,
-        so the UI stops showing the skill as green and prompts a re-enter —
-        instead of the old check that treated any non-empty (even ciphertext)
-        value as configured.
-        """
-        from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
-            SecretDecryptError,
-            get_secret_box,
-        )
-
-        box = get_secret_box()
-        env_config = self._read_skill_meta(skill_name).get("env_config", {})
-        present = set()
-        for name, value in env_config.items():
-            if not value:
-                continue
-            try:
-                if box.decrypt(value):
-                    present.add(name)
-            except SecretDecryptError:
-                pass  # undecryptable → not configured → prompts re-entry
-        return present
 
     # =========================================================================
     # Skill Management Methods (called by API layer)

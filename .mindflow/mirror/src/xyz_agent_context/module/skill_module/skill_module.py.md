@@ -3,6 +3,10 @@ code_file: src/xyz_agent_context/module/skill_module/skill_module.py
 last_verified: 2026-08-13
 ---
 
+## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
+
+新增模块函数 `configured_env_var_names(env_config)`——「一个 var 算不算已配置」的**单一真相**(存在且可解密;吃 dict 不吃 name,故对 enabled/disabled skill 一致)。此前该规则以 `bool(env_config.get(v))` 散在 6 处、3 种语义(密文非空即算已配置)。`_parse_skill_md` 两处 env_configured 改用它→源头即诚实,hook 表格与 install_pipeline 的 config_required 只读 env_configured 故自动跟对。删掉上一版的 `get_configured_env_var_names`(按 name 解析、只认 enabled 目录,会把禁用 skill 全判未配置)。
+
 ## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
 
 `get_all_skill_env_vars` 吃 3 元组:failed 的 var **跳过不注入**(skill 因缺 var 干净失败,而非拿密文跑)+ 每 skill error 日志点名需重录的 var。惰性迁移(needs_rewrite 重写 meta)在**有任何 failed 时跳过**——否则会覆盖坏值那份还能用旧 key 恢复的密文。新增 `get_configured_env_var_names(skill_name)`:只返回「存在且可解密」的 var,驱动 env_configured(见 [[skills.py]]),坏凭据不再算「已配置」。

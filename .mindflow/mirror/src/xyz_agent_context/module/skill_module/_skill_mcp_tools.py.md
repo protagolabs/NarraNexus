@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/_skill_mcp_tools.py
-last_verified: 2026-07-21
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
+
+`skill_list_required_env`(agent 自查 skill 为何不工作用)的 configured 判定由 `key in env_config and env_config[key]`(密文非空即 ✓)改为 `key in configured_env_var_names(env_config)`——解不开的凭据不再对 agent 报 ✓ configured,否则 agent 会在缺 var 下继续跑 skill(8/1 失败形态的 agent 侧变体)。
 
 ## 2026-07-21 — marketplace 三工具(stage 5)
 

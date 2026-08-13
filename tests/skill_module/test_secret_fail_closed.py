@@ -54,14 +54,62 @@ def test_get_all_skill_env_vars_skips_undecryptable(module, key):
     assert "BAD" not in env  # ciphertext never injected — fail closed
 
 
-def test_configured_env_var_names_excludes_undecryptable(module, key):
+def test_configured_env_var_names_excludes_undecryptable(key):
+    # The single source of truth for "is this var configured": present + it
+    # decrypts. A ciphertext under a lost key is NOT configured → drives
+    # env_configured False everywhere (list/detail/MCP/hook/install).
+    from xyz_agent_context.module.skill_module.skill_module import (
+        configured_env_var_names,
+    )
+
     box = sb.get_secret_box()
     stranded = Fernet(Fernet.generate_key()).encrypt(b"lost").decode("ascii")
-    _make_skill(module, "myskill", {"GOOD": box.encrypt("real-value"), "BAD": stranded})
+    env_config = {"GOOD": box.encrypt("real-value"), "BAD": stranded, "EMPTY": ""}
 
-    configured = module.get_configured_env_var_names("myskill")
-    assert "GOOD" in configured
-    assert "BAD" not in configured  # drives env_configured=False → UI prompts
+    configured = configured_env_var_names(env_config)
+    assert configured == {"GOOD"}  # BAD undecryptable, EMPTY blank
+
+
+def test_env_configured_reflects_decryptability_incl_disabled(module, key):
+    # env_configured is computed at the SkillModule source (_parse_skill_md),
+    # so it is truthful for ENABLED and DISABLED skills alike (the helper takes
+    # a raw env_config dict, never a name → no enabled-only path resolution).
+    import json
+
+    box = sb.get_secret_box()
+    stranded = Fernet(Fernet.generate_key()).encrypt(b"lost").decode("ascii")
+
+    # Enabled skill, credential intact → configured.
+    good = module.skills_dir / "good"
+    good.mkdir(parents=True)
+    (good / "SKILL.md").write_text("---\nname: good\nrequires:\n  env:\n    - API_KEY\n---\n# good\n")
+    (good / ".skill_meta.json").write_text(
+        json.dumps({"name": "good", "requires": {"env": ["API_KEY"]},
+                    "env_config": {"API_KEY": box.encrypt("v")}})
+    )
+    # Disabled skill, credential intact → must STAY configured (regression:
+    # the old downgrade pass resolved by name and only saw enabled dirs, so it
+    # flagged every disabled skill as needing re-entry).
+    disabled = module.skills_dir / ".disabled" / "kept"
+    disabled.mkdir(parents=True)
+    (disabled / "SKILL.md").write_text("---\nname: kept\nrequires:\n  env:\n    - API_KEY\n---\n# kept\n")
+    (disabled / ".skill_meta.json").write_text(
+        json.dumps({"name": "kept", "requires": {"env": ["API_KEY"]},
+                    "env_config": {"API_KEY": box.encrypt("v")}})
+    )
+    # Enabled skill whose credential is stranded → NOT configured.
+    bad = module.skills_dir / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\nname: bad\nrequires:\n  env:\n    - API_KEY\n---\n# bad\n")
+    (bad / ".skill_meta.json").write_text(
+        json.dumps({"name": "bad", "requires": {"env": ["API_KEY"]},
+                    "env_config": {"API_KEY": stranded}})
+    )
+
+    by_name = {s.name: s for s in module.list_skills(include_disabled=True)}
+    assert by_name["good"].env_configured is True
+    assert by_name["kept"].env_configured is True  # disabled + intact → still green
+    assert by_name["bad"].env_configured is False  # stranded → prompts re-enter
 
 
 def test_needs_rewrite_migration_skipped_when_any_value_undecryptable(module, key):
