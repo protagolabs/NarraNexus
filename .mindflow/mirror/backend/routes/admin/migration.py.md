@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/admin/migration.py
-last_verified: 2026-06-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — admin-secret 校验改用共享 helper
+
+本模块原先内联的 `_require_admin_secret` 已抽到共享私有模块
+[[_admin_secret.py]]（`require_admin_secret`），三个自凭证 admin 路由
+（migration / runtime / suspend）现在同用一份，不再各自 copy-paste。503（未配置）/
+403（缺失或错误）状态码语义不变，比较改为 `hmac.compare_digest`（常量时间）。
+本文件仍保留 `from xyz_agent_context.settings import settings`（另有
+`base_working_path` 等用途，也方便测试经 `mod.settings` 覆盖 secret——helper 读的是
+同一个 settings 单例）。下文旧描述里的 `_require_admin_secret` 即此共享 helper。
 
 # admin/migration.py — 单用户身份迁移 HTTP 端点
 

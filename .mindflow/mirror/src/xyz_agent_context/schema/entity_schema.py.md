@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — `UserStatus.BANNED` + `NON_TRANSACTING_USER_STATUSES`（账户停用）
+
+`UserStatus` 枚举新增 `BANNED = "banned"`。它是一个由运维设置的、独立的账户状态，
+刻意与 `BLOCKED` / `DELETED` 分开，让账户停用机制（[[suspend.py]]）有自己的专属
+值：`reinstate` 只需把行恢复成 `ACTIVE`，而 DB 里已存在的 `banned` 行也能正常
+被枚举加载（不会在 enum 强制转换时报错）。
+
+紧随枚举新增模块级常量 `NON_TRANSACTING_USER_STATUSES: frozenset[str] =
+{BANNED, BLOCKED, DELETED}`——「不可交易」状态的**单一真相源**。所有 gate 面共享
+它，绝不各自 copy-paste 而漂移：HTTP auth middleware（[[auth]]）、WebSocket 跑
+run 闸门（[[websocket.py]]）、netmind 登录闸门（[[auth 路由|auth.py]]），以及
+suspend 路由的幂等集（`_SUSPENDED_STATES` 直接指向它）。`INACTIVE` **刻意不在**
+集合里——它是良性生命周期状态（从未登录 / 休眠），不是停用。已从 `schema/__init__`
+导出并进 `__all__`。
 
 ## 2026-08-04 — `is_agent_description_unset` + legacy 占位符常量
 

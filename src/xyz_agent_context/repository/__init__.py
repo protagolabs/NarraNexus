@@ -33,6 +33,7 @@ from .job_repository import JobRepository
 from .inbox_repository import InboxRepository
 from .mcp_repository import MCPRepository
 from .user_repository import UserRepository
+from .ban_audit_repository import BanAuditRepository
 from .agent_repository import AgentRepository
 from .agent_registry_repository import AgentRegistryRepository
 from .agent_message_repository import AgentMessageRepository
@@ -89,6 +90,7 @@ __all__ = [
     "MCPUrl",
     # User
     "UserRepository",
+    "BanAuditRepository",
     "User",
     "UserStatus",
     # Agent

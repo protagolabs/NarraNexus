@@ -68,6 +68,12 @@ GATEWAY_TOKEN_INVALID = "gateway_token_invalid"
 # OpenAI-compatible surface: the caller's API key is bad. The caller is a
 # third-party client, not our SPA.
 API_KEY_INVALID = "api_key_invalid"
+# The account's state is not one that may transact (administratively set).
+# NOT a session-death code: the JWT is perfectly valid, so re-login would
+# only mint the same token and bounce again. The frontend should surface a
+# distinct "account unavailable" state rather than a login loop. Emitted with
+# HTTP 403 (authenticated but not permitted), never 401.
+ACCOUNT_SUSPENDED = "account_suspended"
 
 SESSION_DEAD_CODES = frozenset({
     TOKEN_EXPIRED,
@@ -78,17 +84,22 @@ SESSION_DEAD_CODES = frozenset({
 
 
 class AuthError(HTTPException):
-    """A 401 that says *why*.
+    """An auth rejection that says *why*.
 
     Route handlers raise this instead of ``HTTPException(401, ...)``.
     ``install_auth_error_handler`` renders it as
     ``{"detail": <message>, "code": <code>}`` — `detail` keeps the exact
     shape FastAPI already produced, so existing callers and log readers
     are unaffected; `code` is purely additive.
+
+    ``status_code`` defaults to 401 (almost every rejection here means "not
+    authenticated"). It is overridable for the authenticated-but-not-permitted
+    case: a suspended account raises this with 403 so the SPA does not read it
+    as a dead session and bounce to /login.
     """
 
-    def __init__(self, code: str, detail: str):
-        super().__init__(status_code=401, detail=detail)
+    def __init__(self, code: str, detail: str, status_code: int = 401):
+        super().__init__(status_code=status_code, detail=detail)
         self.code = code
 
 
@@ -172,11 +183,19 @@ def auth_error_response(
     token: Optional[str] = None,
     user_id: Optional[str] = None,
     extra: Optional[dict] = None,
+    status_code: int = 401,
 ) -> JSONResponse:
-    """Build (and log) a 401 from middleware, where raising is not an option.
+    """Build (and log) an auth-rejection response from middleware, where
+    raising is not an option.
 
     Middleware runs outside the exception-handler chain, so it returns a
     response directly instead of raising ``AuthError``. Same body shape.
+
+    ``status_code`` defaults to 401 (the vast majority of rejections here mean
+    "not authenticated"). It is overridable for the case where the caller IS
+    authenticated but not permitted — an account whose state forbids
+    transacting is a 403, not a 401, so the frontend never mistakes it for a
+    dead session and bounces to /login.
     """
     log_auth_rejection(
         code, detail, path=path, method=method, token=token, user_id=user_id
@@ -184,7 +203,7 @@ def auth_error_response(
     body = {"detail": detail, "code": code}
     if extra:
         body.update(extra)
-    return JSONResponse(status_code=401, content=body)
+    return JSONResponse(status_code=status_code, content=body)
 
 
 def install_auth_error_handler(app: FastAPI) -> None:
@@ -204,5 +223,6 @@ def install_auth_error_handler(app: FastAPI) -> None:
             user_id=getattr(request.state, "user_id", None),
         )
         return JSONResponse(
-            status_code=401, content={"detail": exc.detail, "code": exc.code}
+            status_code=exc.status_code,
+            content={"detail": exc.detail, "code": exc.code},
         )

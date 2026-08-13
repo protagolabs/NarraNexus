@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
 
@@ -97,3 +97,7 @@ fallback。但若把常量留在 `response_processor` 里定义，就会闭合�
 `MigrationSource/Agent/Skill/Memory/McpServer/Custom/Turn/Session`、`FrameworkDetection`、
 `MIGRATION_SCHEMA_VERSION`、`AWARENESS_IMPORT_CHAR_LIMIT`,并列进 `__all__`。纯导出,
 无 schema 形状变化。见 [[migration_schema]]。
+
+## 2026-08-13 — 新增 `NON_TRANSACTING_USER_STATUSES` 再导出
+
+从 [[entity_schema.py]] 再导出 `NON_TRANSACTING_USER_STATUSES`（`{banned, blocked, deleted}` frozenset，账户停用闸门的单一真相源），供 backend 三处停用面（auth middleware / 登录闸门 / suspend 路由）与未来 agent 包侧共用同一常量，避免规则在多处漂移。
