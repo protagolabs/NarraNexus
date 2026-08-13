@@ -129,3 +129,34 @@ def test_needs_rewrite_migration_skipped_when_any_value_undecryptable(module, ke
     # LEG NOT migrated to Fernet — meta untouched because BAD failed.
     assert meta["env_config"]["LEG"] == legacy
     assert meta["env_config"]["BAD"] == stranded
+
+
+def test_configured_env_var_names_is_total_on_bad_input(key):
+    # A malformed meta (agent-writable file) must NOT crash the panel / drop
+    # the whole agent's cred injection — every unreadable value degrades to
+    # "not configured" (fail-closed), never propagates an exception (🟡2).
+    from xyz_agent_context.module.skill_module.skill_module import (
+        configured_env_var_names,
+    )
+
+    box = sb.get_secret_box()
+
+    assert configured_env_var_names(None) == set()          # not a dict
+    assert configured_env_var_names("nope") == set()         # not a dict
+    assert configured_env_var_names({"A": 123}) == set()     # value not a str
+    assert configured_env_var_names({"A": ""}) == set()      # blank
+    # A good value still counts amid junk (per-var isolation).
+    assert configured_env_var_names({"A": box.encrypt("v"), "B": 5}) == {"A"}
+
+
+def test_configured_env_var_names_returns_empty_when_key_unavailable(monkeypatch):
+    # An invalid SKILL_SECRETS_KEY makes get_secret_box() fail fast; the helper
+    # must degrade to "nothing configured", not 500 the list.
+    import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as sbmod
+    from xyz_agent_context.module.skill_module.skill_module import (
+        configured_env_var_names,
+    )
+
+    monkeypatch.setattr(sbmod, "_default_box", None)
+    monkeypatch.setenv("SKILL_SECRETS_KEY", "not-a-valid-fernet-key")
+    assert configured_env_var_names({"A": "whatever"}) == set()

@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
 
-删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。改为 3 处路由判定(`_enrich_platform_env_status`、GET/PUT `/{name}/env`)统一调 [[skill_module]].configured_env_var_names;env_configured 在 _parse_skill_md 源头已诚实,list 端点不再需要单独降级。platform-resolved var 仍各站自理(enrich 查 DB、parse 乐观)。
+删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。GET/PUT `/{name}/env` 两处统一调 [[skill_module]].configured_env_var_names;`_enrich_platform_env_status` **只降级平台半边**(不再按 name 回查 meta / 重算 stored——那会把 .disabled/ 拿不到 meta 的禁用 skill 错判未配置,review 轮抓出),stored 半边由 _parse_skill_md 源头负责。platform-resolved var 仍各站自理(enrich 查 DB、parse 乐观)。
 
 ## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
 

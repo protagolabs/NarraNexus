@@ -44,3 +44,7 @@ Agent 应转告用户去 Skill tab 配置。桌面模式下这些工具经 cloud
 ## 新人易踩的坑
 
 - `skill_save_study_summary` 工具接受 `summary: str`（Markdown 格式），写到 `skills/<skill_name>/STUDY.md`。这个文件目前只是静态文档，不被 `hook_data_gathering` 自动加载到系统提示里——Agent 需要主动 `cat skills/<skill_name>/STUDY.md` 才能读到它。如果想让 Agent 每次执行时都能看到学习摘要，需要在 `_scan_skills()` 里把 STUDY.md 内容也注入 `ctx_data`。
+
+## `skill_list_required_env` 的配置判定必须与全局同源（2026-08-13）
+
+「某 env 是否已配置」这一判定散落过六处（list/detail/MCP/hook/install/enrich），是历史 bug 温床。现统一到 [[skill_module]] 模块级 `configured_env_var_names(env_config)`——**唯一真源**：present ∧ 可解密。`skill_list_required_env` 里 `configured = key in configured_set or key in PLATFORM_RESOLVED_ENV`——平台可解析变量（`NETMIND_API_KEY`）走并集补上，不然平台变量会被误判未配置。密文在轮换/丢钥后解不开的值**不算已配置**（fail-closed，2026-08-01 事件），驱动前端提示重新录入而不是拿密文当凭证跑。

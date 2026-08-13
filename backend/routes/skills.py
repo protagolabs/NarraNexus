@@ -137,7 +137,6 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     row for NETMIND_API_KEY) and downgrade env_configured when not."""
     from xyz_agent_context.module.skill_module.skill_module import (
         PLATFORM_RESOLVED_ENV,
-        configured_env_var_names,
         platform_env_available,
     )
 
@@ -154,13 +153,18 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     except Exception as e:
         logger.warning(f"platform env status enrich skipped: {e}")
         return
+    # ONLY downgrade the platform half: _parse_skill_md already computed the
+    # stored-credential half honestly (decrypt-aware, from the skill's own
+    # dir). Re-reading meta by name here would miss .disabled/ dirs and stomp
+    # that correct value back to False — the false positive #2 aimed to remove.
     for skill in affected:
-        env_config = skill_module.get_skill_env_config(skill.name)
-        configured = configured_env_var_names(env_config)
-        skill.env_configured = all(
-            (v in configured) or (v in PLATFORM_RESOLVED_ENV and v in available)
+        if skill.env_configured is False:
+            continue
+        if any(
+            v in PLATFORM_RESOLVED_ENV and v not in available
             for v in (skill.requires_env or [])
-        )
+        ):
+            skill.env_configured = False
 
 
 # =========================================================================

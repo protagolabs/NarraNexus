@@ -125,6 +125,8 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 **install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
 
+**凭证 fail-closed + 单一真源（2026-08-13）**：`configured_env_var_names(env_config)` 是模块级函数，是「某 env 是否已配置」的**唯一真源**——present ∧ 可解密（`get_secret_box().decrypt` 不抛 `SecretDecryptError`）。它是**全函数（total）**：非 dict、非 str、空串、`get_secret_box()` 失败、单变量异常，一律降级为「未配置」返回 `set()`，绝不 fail-open、绝不 500 面板。历史上这个判定散落六处（list/detail/MCP/hook/install/enrich）导致只改一处修不干净；现全部改调它。配套 `get_all_skill_env_vars` 用 `decrypt_env_config` 的三元组 `(plain, needs_rewrite, failed)`——解不开的密文**永不注入** env（否则技能拿密文当凭证跑、对下游不透明地失败，2026-08-01 事件），只 `logger.error` 一条带 skill/var 上下文的 ops 信号提示重新录入；任一 var 解不开时**跳过 legacy 迁移**（避免把还加密着的密文覆写掉、毁掉用旧钥恢复的最后机会）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` 是平台侧能解析的变量，判定处走并集。
+
 ## Gotcha / 边界情况
 
 - **`skills_dir` 可能是 `None`**：如果实例化 `SkillModule(agent_id=..., user_id=None)`，`skills_dir` 为 `None`，`_scan_skills()` 直接返回空列表。MCP Server 的工具函数也通过 `_get_skill_module(agent_id, user_id)` 实例化，如果没有 `user_id` 就没有技能目录。

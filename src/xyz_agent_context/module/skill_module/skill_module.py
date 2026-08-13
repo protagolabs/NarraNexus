@@ -27,7 +27,7 @@ import subprocess
 import zipfile
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Set
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -213,7 +213,7 @@ BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
 PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
 
 
-def configured_env_var_names(env_config: dict) -> set:
+def configured_env_var_names(env_config: dict) -> Set[str]:
     """The single source of truth for "which stored env vars are usable config".
 
     A var counts only if its stored value is present AND decryptable. A value
@@ -229,22 +229,38 @@ def configured_env_var_names(env_config: dict) -> set:
     whether the skill is enabled or disabled — the caller reads the meta from
     the skill's own directory. Platform-resolved vars are a SEPARATE concern
     handled by each caller (they may be satisfied without a stored value).
+
+    TOTAL by contract: this runs inside ``_parse_skill_md`` (once a pure
+    filesystem path) and behind ``GET /api/skills`` and the agent's per-turn
+    hook. A malformed meta (agent-writable file) or a key-load failure must
+    NOT crash the panel or drop the whole agent's credential injection — every
+    unreadable value degrades to "not configured" (fail-CLOSED), never to a
+    returned ciphertext (fail-open).
     """
+    if not isinstance(env_config, dict):
+        return set()
     from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
         SecretDecryptError,
         get_secret_box,
     )
 
-    box = get_secret_box()
-    out = set()
-    for name, value in (env_config or {}).items():
-        if not value:
+    try:
+        box = get_secret_box()
+    except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
+        logger.warning(f"SecretBox unavailable; treating all creds as unconfigured: {e}")
+        return set()
+
+    out: Set[str] = set()
+    for name, value in env_config.items():
+        if not isinstance(value, str) or not value:
             continue
         try:
             if box.decrypt(value):
                 out.add(name)
         except SecretDecryptError:
             pass  # ciphertext under a lost key → not usable config → prompt re-enter
+        except Exception as e:  # noqa: BLE001 — a single bad value must not blank the list
+            logger.warning(f"skill env var {name!r} unreadable, treating as unconfigured: {e}")
     return out
 
 
@@ -1025,7 +1041,6 @@ class SkillModule(XYZBaseModule):
                     logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")
                 all_env[key] = value
         return all_env
-
 
     # =========================================================================
     # Skill Management Methods (called by API layer)

@@ -26,7 +26,7 @@ import base64
 import binascii
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
 from loguru import logger
@@ -108,15 +108,13 @@ class SecretBox:
         # Neither a Fernet token this key can open NOR legacy base64. A value
         # SHAPED like a Fernet token (gAAAA…) that we can't open means the key
         # was rotated/lost (container rebuilt without SKILL_SECRETS_KEY and the
-        # file key gone). FAIL CLOSED — raising (instead of returning the raw
-        # ciphertext) stops a skill from running with ciphertext as its
-        # "credential" and failing opaquely downstream (2026-08-01 incident).
+        # file key gone). FAIL CLOSED — raise (instead of returning the raw
+        # ciphertext) so a skill never runs with ciphertext as its credential
+        # (2026-08-01 incident). Deliberately does NOT log: decrypt() runs on
+        # every skill scan / status query now, and a per-scan ERROR with no
+        # skill/var context would drown out the ONE loud, contextful ERROR the
+        # injection path emits (get_all_skill_env_vars) — the ops signal.
         if value.startswith(self.TOKEN_PREFIX):
-            logger.error(
-                "SecretBox: cannot decrypt a stored secret — the encryption "
-                "key appears to have changed or been lost. Re-enter the "
-                "affected skill credential (or set a stable SKILL_SECRETS_KEY)."
-            )
             raise SecretDecryptError(
                 "stored secret is a Fernet token this key cannot decrypt"
             )
@@ -129,7 +127,7 @@ class SecretBox:
 
     def decrypt_env_config(
         self, env: Dict[str, str]
-    ) -> Tuple[Dict[str, str], bool, list]:
+    ) -> Tuple[Dict[str, str], bool, List[str]]:
         """Return (plaintext dict, needs_rewrite, failed_keys).
 
         - plaintext dict: only the values that DECRYPTED — an undecryptable
@@ -141,7 +139,7 @@ class SecretBox:
         """
         plain: Dict[str, str] = {}
         needs_rewrite = False
-        failed: list = []
+        failed: List[str] = []
         for key, value in env.items():
             try:
                 plain[key] = self.decrypt(value)
