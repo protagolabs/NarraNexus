@@ -35,9 +35,11 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
     PolicyEngine,
 )
 
-# Ceiling for the any-token fallback slice of ``search_lines`` — a loose
-# multi-word probe must never return the whole tool surface.
-_FALLBACK_MAX_HITS = 12
+# Ceiling for every non-overview ``search_lines`` result (tool hits AND
+# card-index lines combined) — no query shape may return the whole tool
+# surface. The deliberate exception is the empty/whitespace query, which
+# routes to the grouped overview: that IS the full-list request.
+_SEARCH_MAX_HITS = 12
 
 
 def _missing_required(spec: ToolSpec, args: dict) -> list[str]:
@@ -177,35 +179,36 @@ class ToolDispatcher:
         tools did not exist (2026-08-13 voice run).
         """
         specs = self.visible_tools()
-        if not query:
+        tokens = [t for t in query.lower().split() if t]
+        if not tokens:
+            # Empty AND whitespace-only queries are the same request: the
+            # grouped overview. Routing "  " here also closes the cap
+            # bypass where zero tokens made every all()/any() below
+            # vacuously true (pipeline review 2026-08-13).
             lines = [f"{len(specs)} tools in scope:"]
             lines += [f"- {s.name}: {s.description.splitlines()[0][:100]}" for s in specs]
             if card_index:
                 lines += ["", "Expandable capabilities:", card_index]
             return lines
-        tokens = [t for t in query.lower().split() if t]
 
         def _line(s) -> str:
             return f"- {s.name}: {s.description.splitlines()[0][:100]}"
 
-        def _hay(s) -> str:
-            return s.name.lower() + " " + s.description.lower()
-
-        hits = [_line(s) for s in specs if all(t in _hay(s) for t in tokens)]
+        hays = {s.name: s.name.lower() + " " + s.description.lower() for s in specs}
+        hits = [_line(s) for s in specs if all(t in hays[s.name] for t in tokens)]
         all_matched = bool(hits)
         if not hits and len(tokens) > 1:
-            # Any-token fallback, ranked by hit count and CAPPED: a
-            # natural-language probe whose tokens include glue words
-            # would otherwise return the entire tool surface into the
-            # turn (review 2026-08-13). Stable sort keeps scope order
-            # within equal scores.
+            # Any-token fallback, ranked by hit count: a natural-language
+            # probe whose tokens include glue words must surface the
+            # strongest matches, not the whole surface. Stable sort keeps
+            # scope order within equal scores.
             scored = [
-                (sum(t in _hay(s) for t in tokens), s) for s in specs
+                (sum(t in hays[s.name] for t in tokens), s) for s in specs
             ]
             ranked = sorted(
                 (p for p in scored if p[0] > 0), key=lambda p: -p[0]
             )
-            hits = [_line(s) for _, s in ranked[:_FALLBACK_MAX_HITS]]
+            hits = [_line(s) for _, s in ranked]
         if card_index:
             # Mirror the mode that produced the hits: a precise ALL-token
             # query must not get loose any-token card noise appended.
@@ -215,4 +218,7 @@ class ToolDispatcher:
                 else (lambda line: any(t in line.lower() for t in tokens))
             )
             hits += [line for line in card_index.splitlines() if match(line)]
-        return hits
+        # One ceiling for every query shape (tool hits and card lines
+        # alike); the fallback is already ranked, so the cap always
+        # drops the weakest matches.
+        return hits[:_SEARCH_MAX_HITS]

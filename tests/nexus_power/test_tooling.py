@@ -232,6 +232,19 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     # The strongest multi-token match ranks into the slice.
     assert any("send_message_to_user_directly" in line for line in lines)
 
+    # Pipeline review Important #3 — the cap must not be bypassable:
+    # whitespace-only query routes to the grouped overview (not a
+    # vacuous match of everything)...
+    ws = dispatcher.search_lines("   ")
+    assert ws and ws[0].endswith("tools in scope:")
+    # ...a single glue token is capped like any other query...
+    single = dispatcher.search_lines("a")
+    assert len(single) <= 12
+    # ...and card_index lines count against the same ceiling.
+    card = "\n".join(f"card-{i}: operates on a thing" for i in range(40))
+    carded = dispatcher.search_lines("a thing", card_index=card)
+    assert len(carded) <= 12
+
 
 @pytest.mark.asyncio
 async def test_capability_expander_idempotent_and_seams():

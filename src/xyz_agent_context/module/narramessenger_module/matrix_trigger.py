@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
@@ -117,7 +118,7 @@ from ._rtc_voice import (
     parse_rtc_voice_input,
     split_narra_system_prompt,
 )
-from ._voice_delivery import VoiceDeliveryBridge
+from ._voice_delivery import VoiceDeliveryBridge, sanitize_for_tts
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
@@ -296,12 +297,16 @@ class _StreamReplyState:
     # every legacy branch below checks nothing and behaves exactly as
     # before (the guard is "bridge is None", not a mode flag).
     voice_bridge: Optional["VoiceDeliveryBridge"] = None
-    # Fully-qualified name of the reply tool that claimed the live voice
-    # stream (first speak/narra_reply delta or completed text wins). Only
-    # the claimant feeds the bridge; the other reply tool's events fall
-    # back to the legacy capture, so a dual-call turn never opens a second
-    # bridge segment (the 2026-08-07 duplicate-playback shape).
+    # Leaf name of the reply tool that claimed the live voice DELTA
+    # stream (first speak/narra_reply deltas win; completed texts are not
+    # gated). Keeps two tools' delta streams from interleaving into one
+    # segment view.
     voice_stream_tool: str = ""
+    # True once a narra_reply carried this turn's reply. Scopes the
+    # raw-text room supplement: narra_reply doubles as the chat record
+    # (links/code must survive sanitization there), while speak is a
+    # voice-only surface.
+    saw_narra_reply: bool = False
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -1836,6 +1841,30 @@ class MatrixTrigger(ChannelTriggerBase):
                     await self._send_matrix_reply(
                         credential, message.chat_id, spoken
                     )
+                else:
+                    # The bridge delivered the TTS-SANITIZED text — right
+                    # for the spoken surface, but the room is also the
+                    # call's persistent record and must not silently lose
+                    # a link or code the model put in its reply. When the
+                    # sanitizer actually removed content (not just
+                    # collapsed whitespace), supplement the RAW text as a
+                    # plain message. Runs strictly AFTER close()'s
+                    # marker-free final edit, so the LiveKit worker never
+                    # treats it as another live segment to read aloud.
+                    raw = (state.narra_reply_text or "").strip()
+                    if (
+                        state.saw_narra_reply
+                        and raw
+                        and sanitize_for_tts(raw) != re.sub(r"\s+", " ", raw)
+                    ):
+                        logger.info(
+                            f"[matrix:{credential.agent_id}] sanitizer "
+                            f"removed content; supplementing raw text to "
+                            f"the room (room={message.chat_id})"
+                        )
+                        await self._send_matrix_reply(
+                            credential, message.chat_id, raw
+                        )
                 return spoken
             # Nothing spoken: fall through to the legacy finalize so a
             # narra_reply answer, an error marker, or a silent turn all
@@ -1916,10 +1945,15 @@ class MatrixTrigger(ChannelTriggerBase):
         # deltas would double-deliver.
         if state.voice_bridge is not None and mt == MessageType.AGENT_REPLY_DELTA:
             tool = getattr(event, "tool_name", "") or ""
+            # The claim key is the LEAF name: deltas carry the qualified
+            # spelling while PROGRESS may carry either, and a spelling
+            # mismatch would let a completed PROGRESS block that same
+            # tool's later deltas (pipeline review Minor #6).
+            leaf = tool.rsplit("__", 1)[-1]
             if _is_voice_reply_tool(tool) and (
-                not state.voice_stream_tool or state.voice_stream_tool == tool
+                not state.voice_stream_tool or state.voice_stream_tool == leaf
             ):
-                state.voice_stream_tool = tool
+                state.voice_stream_tool = leaf
                 await state.voice_bridge.on_reply_delta(
                     call_id=getattr(event, "call_id", "") or "",
                     delta=getattr(event, "delta", "") or "",
@@ -1979,7 +2013,8 @@ class MatrixTrigger(ChannelTriggerBase):
             # by the bridge's exact-equality segment dedup, and same-call
             # correction rides the raw-prefix judge as before.
             if not state.voice_stream_tool:
-                state.voice_stream_tool = tool_name
+                # Leaf name — same normalization as the delta claim.
+                state.voice_stream_tool = tool_name.rsplit("__", 1)[-1]
             state.voice_bridge.on_segment_text(
                 call_id=str(details.get("call_id") or ""), text=text
             )
@@ -1987,6 +2022,8 @@ class MatrixTrigger(ChannelTriggerBase):
             # non-empty spoken text, so this cannot double-deliver — but
             # it is the only delivery path left when the spoken form
             # sanitizes to nothing (emoji-only ack, URL-only reply).
+            if is_narra_reply:
+                state.saw_narra_reply = True
             state.narra_reply_text = (
                 f"{state.narra_reply_text} {text}".strip()
                 if is_speak and state.narra_reply_text

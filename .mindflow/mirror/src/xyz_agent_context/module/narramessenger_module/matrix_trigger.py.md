@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-13
 ---
 
+## 2026-08-13（管线审后）— narra_reply 原文补发 + 认领键归一叶子名
+
+①语音轮 narra_reply 走桥后房间只见净化文本，链接/代码从聊天记录里静默消失（管线审
+I#4）。finalize 在 close() 终态 edit 之后补发**原文**普通消息（绝不带 live 标记，
+LiveKit 不会念它）；三重闸：`saw_narra_reply`（speak-only 轮不补——speak 是纯语音面）
++ 净化器确实删了内容（空白折叠不算）+ spoken 非空。L1 锁 test_s1c。
+②认领键归一为叶子名（`rsplit('__',1)[-1]`）——delta 与 PROGRESS 两个事件源拼写可能
+不同，裸串相等会让完成 PROGRESS 挡掉同一工具后续 delta（管线审 Minor#6）。
+
 ## 2026-08-13 — 语音流认领制：narra_reply 也可驱动 live 交付
 
 8/13 通话实锤：voice prompt 指令再硬（"ONLY way…speak"），模型仍 12/14 轮

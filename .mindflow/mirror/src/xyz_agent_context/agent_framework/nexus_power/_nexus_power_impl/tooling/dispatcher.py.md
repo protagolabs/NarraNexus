@@ -4,6 +4,13 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13（管线审后）— search_lines 封顶不可绕过
+
+三个绕过口全堵（管线审 I#3）：①空白查询先算 tokens、空即走 overview 分支（不再
+vacuous 全匹配）；②单 token 查询同受封顶；③card 行与工具行共享同一 `_SEARCH_MAX_HITS=12`
+上限（兜底已排名，封顶永远砍最弱）。overview 分支刻意不封顶——那就是全量清单请求。
+`_hay` 预构建成 dict 复用（原 per-token 重拼）。
+
 ## 2026-08-13 — tool_search 多词查询分词匹配
 
 整串子串匹配让多词验证探针（`tool_search("narra reply speak send")`）对在册工具返回

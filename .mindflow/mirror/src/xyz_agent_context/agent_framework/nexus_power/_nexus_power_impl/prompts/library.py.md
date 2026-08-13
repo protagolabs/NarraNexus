@@ -4,6 +4,13 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13（管线审后）— reminder 撤回「ONE call」与 VOICE 多段契约的冲突
+
+「Call ONE reply tool with your complete answer」与 VOICE register 的「long answers
+become SEVERAL short speak calls / 预告→答案两连调」直接打架（管线审 I#2）。改为
+「连续 reply 调用续写长答案、工具前的进度短句合法；但绝不重复已交付内容」——反重复
+半句保留（它是桥等值去重的提示侧对位）。
+
 ## 2026-08-13 — reply_reminder 声明默认回复工具（不再平铺列表）
 
 ExpressionContract 的声明序契约（首位=本轮默认回复工具）此前只活在 constitution 的

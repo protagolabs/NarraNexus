@@ -255,6 +255,39 @@ async def test_expression_nudge_skips_turns_that_already_expressed():
 
 
 @pytest.mark.asyncio
+async def test_expression_nudge_fires_when_the_only_reply_call_failed_to_parse():
+    """Pipeline review Important #1: a reply call whose argument JSON was
+    truncated is ANSWERED, not executed — nothing was delivered, so the
+    turn must still count as mute and get its nudge. This is the
+    highest-probability mute-turn shape on voice (long speak args hit
+    the output-token ceiling)."""
+    model = FakeModel([
+        [_broken_use("c1", "mcp__chat__reply",
+                     "unterminated string", truncated=True),
+         _done(stop="tool_use")],
+        # The model gives up after seeing the parse-error result — the
+        # turn is about to close having delivered NOTHING.
+        [_text("oh well"), _done(stop="end_turn")],
+        # The nudge buys one more step; the retry succeeds.
+        [_use("c2", "mcp__chat__reply", {"text": "short version"}),
+         _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 4
+    nudge_msgs = [m for m in model.requests[2].messages
+                  if m.get("role") == "user"
+                  and "reply tool" in str(m.get("content", ""))]
+    assert nudge_msgs, "truncated reply call must still trigger the nudge"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
 async def test_expression_nudge_defaults_off_and_respects_mute_state():
     # Off by default: silent turn closes immediately (group rooms / bus
     # turns keep their legal silence).

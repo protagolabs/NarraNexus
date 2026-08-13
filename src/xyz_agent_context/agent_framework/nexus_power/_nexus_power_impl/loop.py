@@ -58,11 +58,11 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.ar
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     estimate_message_tokens,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
-    NexusPowerPrompts,
-)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
+)
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
+    NexusPowerPrompts,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
@@ -182,8 +182,6 @@ class NexusPowerLoop:
 
                 # ---- DISPATCH ---------------------------------------------
                 for call in step_calls:
-                    if a.expression.is_expressive(call.name):
-                        self._turn_expressed = True
                     if a.cancel.requested():
                         async for ev in self._interrupt("cancelled by user"):
                             yield ev
@@ -238,6 +236,23 @@ class NexusPowerLoop:
                     # so this only surfaces them on the stream.
                     while a.side_events:
                         yield await self._log(a.side_events.pop(0))
+
+                # Expression accounting rides the contract's own
+                # adjudicator, on parse-VALID calls only: a reply call
+                # whose argument JSON was truncated is answered, not
+                # executed — nothing was delivered, so it must not mark
+                # the turn as expressed (pipeline review 2026-08-13
+                # Important #1). Hook-denied calls DO count as attempted:
+                # nudging a policy-denied tool would push the model to
+                # retry a forbidden call. Sits BEFORE the steering drain
+                # so a steering `continue` cannot drop a step's calls
+                # from the account.
+                self._turn_expressed = (
+                    self._turn_expressed
+                    or a.expression.turn_had_expression(
+                        [c for c in step_calls if c.parse_error is None]
+                    )
+                )
 
                 # ---- DRAIN_STEERING ---------------------------------------
                 injected = await a.steering.drain()

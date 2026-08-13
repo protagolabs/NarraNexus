@@ -250,6 +250,51 @@ async def test_s1b_narra_reply_voice_turn_rides_live_lifecycle(harness, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_s1c_sanitized_content_is_supplemented_raw_to_the_room(harness, monkeypatch):
+    """Pipeline review Important #4: the bridge delivers the TTS-sanitized
+    text (URLs stripped — correct for the spoken surface), but the chat
+    record must not silently lose the link: finalize supplements the RAW
+    text as a plain (non-live) message, gated on the sanitizer having
+    actually removed content."""
+    trigger, sent, plain = harness
+    raw = "报告在这里 https://example.com/report.pdf 请查收。"
+    runtime = ScriptedRuntime([
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta=raw,
+        ),
+        _progress("mcp__narramessenger_module__narra_reply", raw, call_id=""),
+    ])
+    _install_runtime(monkeypatch, runtime)
+
+    out = await _ingest_and_run(
+        trigger, build_voice_content("把报告链接发我")
+    )
+
+    # Live surface: sanitized (no URL read aloud, none in live bodies).
+    assert sent, "live lifecycle must have delivered"
+    for content in sent:
+        body = content.get("m.new_content", content)["body"]
+        assert "https://" not in body
+    # Chat record: the raw text arrives once via the plain sender.
+    assert plain == [raw]
+    assert out  # turn reports a delivered reply
+
+    # Control: a clean reply must NOT trigger the supplement.
+    plain.clear(); sent.clear()
+    runtime2 = ScriptedRuntime([
+        _progress("mcp__narramessenger_module__narra_reply", "好的，收到。", call_id=""),
+    ])
+    _install_runtime(monkeypatch, runtime2)
+    await _ingest_and_run(
+        trigger, build_voice_content("在吗"), event_id="$sim1c2"
+    )
+    assert plain == []  # no double message on clean replies
+
+
+@pytest.mark.asyncio
 async def test_s4_plain_turn_after_voice_keeps_legacy_path(harness, monkeypatch):
     trigger, sent, plain = harness
     runtime = ScriptedRuntime([

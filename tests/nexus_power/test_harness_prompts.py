@@ -185,6 +185,12 @@ def test_reply_reminder_names_the_declared_default_first():
     assert "default reply tool" in reminder
     head = reminder.split("mcp__narramessenger_module__narra_reply")[0]
     assert "mcp__narramessenger_module__speak" in head
+    # Anti-repeat without contradicting the VOICE register's
+    # multi-segment speak contract (pipeline review Important #2):
+    # consecutive continuation calls stay legal, repeats do not.
+    assert "never repeat" in reminder
+    assert "consecutive reply calls" in reminder
+    assert "ONE reply tool" not in reminder.split("ONLY what you pass")[1]
     # ...and a single tool renders without a dangling "others" clause.
     solo = NexusPowerPrompts.reply_reminder(("mcp__chat__reply",))
     assert "mcp__chat__reply" in solo

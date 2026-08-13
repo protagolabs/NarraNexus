@@ -4,6 +4,15 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13（管线审后）— expressed 记账走契约裁决器、只数 parse-valid
+
+置位从 DISPATCH 首行移除：截断参数的回复调用是「回答不执行」，零投递却标已表达，
+nudge 在它最高概率的触发场景（长 speak 参数撞 output 上限）失效（管线审 I#1）。
+现在 STOP_CHECK 前用 `expression.turn_had_expression([c for c in step_calls if
+c.parse_error is None])` 一次性算——语义回归 ExpressionContract 唯一裁决器；
+hook-denied 仍算已尝试（nudge 不该怂恿重试被禁工具）；记账在 steering drain 之前，
+steering continue 不丢账。突变锁 test_expression_nudge_fires_when_the_only_reply_call_failed_to_parse。
+
 ## 2026-08-13 — mute-turn nudge（opt-in，语音轮）
 
 STOP_CHECK 关轮前：若 `assembly.expression_nudge` 开且本轮零 expressive 调用而

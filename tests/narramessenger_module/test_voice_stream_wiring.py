@@ -4,15 +4,17 @@
 @description: _handle_stream_event — voice bridge wiring guards.
 
 Locks:
-- The live voice stream is CLAIMED by the first trigger-owned reply tool
-  (speak or narra_reply) that produces a delta or a completed text; only
-  the claimant feeds the bridge.
-- Claimant deltas (AGENT_REPLY_DELTA) feed the bridge; deltas from
-  non-reply tools never do.
-- A completed claimant PROGRESS carries authoritative text to the bridge
-  and never lands in narra_reply_text.
-- Reply-tool events from a NON-claimant fall back to the legacy capture
-  (narra_reply_text) so finalize keeps its existing precedence chain.
+- The claim gates DELTA streams only: the first trigger-owned reply tool
+  (speak or narra_reply) to stream deltas claims the bridge (leaf-name
+  key); the other tool's deltas stay out, and deltas from non-reply
+  tools never enter.
+- COMPLETED reply texts (PROGRESS) from either reply tool always enter
+  the bridge — preannounce-then-answer may split across tools; the
+  equality dedup covers the identical-text dual call.
+- The legacy capture (narra_reply_text) is ALWAYS retained alongside the
+  bridge: finalize returns early on any non-empty spoken text so it
+  cannot double-deliver, and it is the only delivery path left when the
+  spoken form sanitizes to nothing.
 - With no bridge (text turn), delta events are ignored exactly as before.
 """
 from __future__ import annotations
