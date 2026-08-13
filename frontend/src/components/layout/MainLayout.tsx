@@ -54,6 +54,7 @@ import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
+import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
@@ -529,12 +530,17 @@ export function MainLayout() {
           the chat view. Mobile keeps its entry in the sidebar drawer footer:
           the corner belongs to the composer there. */}
       {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
-      {/* One-time telemetry disclosure. Mounted HERE (MainLayout, like
-          FeedbackButton) and not inside ChatView: a team-first user or
-          a settings deep-link never renders ChatView, and a disclosure
-          that only chat users receive is not a disclosure. Self-gating:
-          renders nothing once seen or when telemetry is off. */}
-      <TelemetryNotice />
+      {/* One-time privacy disclosures. Mounted HERE (MainLayout, like
+          FeedbackButton) and not inside ChatView: a team-first user or a
+          settings deep-link never renders ChatView, and a disclosure that only
+          chat users receive is not a disclosure. Both self-gate (render nothing
+          once seen / when their data flow is off), so this shared stacking slot
+          sizes itself and the two never overlap — pointer-events-none on the
+          slot so it never blocks the composer when both are hidden. */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md flex flex-col gap-3 pointer-events-none">
+        <WebAnalyticsNotice />
+        <TelemetryNotice />
+      </div>
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (

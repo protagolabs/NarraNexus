@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/settings/PrivacySettings.tsx
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — analytics toggle now also gates third-party GTM
+
+`toggleAnalytics` governs BOTH the first-party product-analytics row AND the
+cloud web third-party GTM tag ([[webAnalytics.ts]]) — the `analyticsDesc` copy
+(10 locales) was updated to disclose this. On turning it OFF, after
+`setAnalyticsOptOut(true)` succeeds it: (1) calls `markWebAnalyticsConsentRevoked()`
+to close the in-flight `initWebAnalytics()` window, and (2) `window.location.reload()`
+**only if `isWebAnalyticsLoaded()`** — GTM can't be un-loaded, so a reload is how
+OFF takes effect now; but desktop / local / dev / self-host never loaded it and
+must not eat a pointless reload (dropping WS + streaming chat + unsaved edits).
+The reload is inside the `try` after the PUT, so the `catch` (revert) path never
+reloads. This is the reachable panel; the old [[SettingsModal.tsx]] never mounts.
 
 # PrivacySettings.tsx — "哪些数据离开这台机器"的两个开关
 

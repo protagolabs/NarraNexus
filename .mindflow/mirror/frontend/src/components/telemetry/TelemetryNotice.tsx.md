@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/telemetry/TelemetryNotice.tsx
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — positioning moved to MainLayout's shared slot
+
+The outer card dropped its own `fixed bottom-4 left-1/2 -translate-x-1/2 z-50
+max-w-md w-[…]` and is now a plain `w-full pointer-events-auto` card.
+[[MainLayout.tsx]] positions it (and [[WebAnalyticsNotice.tsx]]) inside one
+shared bottom-anchored `flex-col` slot so the two cloud disclosures stack rather
+than overlap. Behaviour/gating unchanged — layout only.
 
 # TelemetryNotice.tsx — 遥测首次告知(notice-and-choice 的 notice 半边)
 

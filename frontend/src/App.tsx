@@ -22,6 +22,7 @@ import {
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
@@ -324,6 +325,15 @@ function App() {
   // immediately. Polling alone would leave "your session expires in 5 hours"
   // sitting on top of the /login page for up to a full tick.
   const isLoggedIn = useConfigStore((s) => s.isLoggedIn);
+
+  // Third-party web analytics (GTM). Loaded only once the user is authenticated
+  // so the loader can read their per-user opt-out first. No-op on desktop, off
+  // the official host, when unconfigured, or when the user opted out; see
+  // lib/analytics/webAnalytics.ts.
+  useEffect(() => {
+    if (isLoggedIn) void initWebAnalytics();
+  }, [isLoggedIn]);
+
   useEffect(() => {
     const check = () => {
       // null in local mode (no JWT) — there is nothing to expire there.
