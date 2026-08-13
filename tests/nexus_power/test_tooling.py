@@ -235,16 +235,18 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     specs.append(ToolSpec(
         name="mcp__chat__send_message_to_user_directly",
         description="Reply to the user.", input_schema={"type": "object"},
-        annotations=ToolAnnotations(expressive=True),
     ))
     # The hostile shape (round 4): a reply tool whose NAME shares zero
     # tokens with the probe — `speak` has no `i`, no `reply` — and whose
-    # short description ties with the fillers on coverage.
+    # short description ties with the fillers on coverage. PRODUCTION
+    # path (round 5): reply tools are MCP specs whose annotations cannot
+    # carry `expressive` — the fact arrives via the injected live
+    # adjudicator, exactly as assembly passes
+    # ExpressionContract.is_expressive.
     specs.append(ToolSpec(
         name="mcp__narramessenger_module__speak",
         description="Speak to the user on the current real-time voice call.",
         input_schema={"type": "object"},
-        annotations=ToolAnnotations(expressive=True),
     ))
     builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
 
@@ -252,19 +254,71 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
         def list_tools(self):
             return specs
 
-    dispatcher = ToolDispatcher((builtin, _Chan()), policy=engine, ctx=ctx)
+    expressive_names = {
+        "mcp__narramessenger_module__speak",
+        "mcp__chat__send_message_to_user_directly",
+    }
+    dispatcher = ToolDispatcher(
+        (builtin, _Chan()), policy=engine, ctx=ctx,
+        is_expressive=expressive_names.__contains__,
+    )
     cap = dispatcher_mod._SEARCH_MAX_HITS
     lines = dispatcher.search_lines("how do i reply to the user")
     assert len(lines) <= cap  # capped, not the whole surface
     # Both REAL reply tools survive 30 verbose fillers: the friendly
     # name shape by content-word scoring, the hostile `speak` shape by
-    # its reserved expressive seat.
+    # its guaranteed expressive seat — granted through the production
+    # name-list path, no annotation involved.
     assert any("send_message_to_user_directly" in line for line in lines)
     assert any("__speak" in line for line in lines)
-    # Reserved seats require a filter hit: an expressive tool unrelated
-    # to the probe gets no free ride.
+    # Seats require a filter hit: an expressive tool unrelated to the
+    # probe gets no free ride.
     unrelated = dispatcher.search_lines("compile the kernel sources")
     assert not any("__speak" in line for line in unrelated)
+
+
+@pytest.mark.asyncio
+async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
+    """Round 5 review Important #1: the seat is a GUARANTEE, not top
+    placement — strong matches keep their rank order, and the missing
+    reply tool replaces only the weakest non-expressive seat at the
+    tail."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+        dispatcher as dispatcher_mod,
+    )
+
+    # 13 strong leaf-name matches for the probe (exact `search` in the
+    # leaf) — more than the slice holds on their own.
+    specs = [
+        ToolSpec(name=f"search_tool_{i:02d}", description="search things",
+                 input_schema={"type": "object"})
+        for i in range(13)
+    ]
+    # One expressive tool with coverage 1 only (description mentions
+    # `search` once, name shares nothing).
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__speak",
+        description="Speak results of a search to the user.",
+        input_schema={"type": "object"},
+    ))
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
+
+    class _Chan(_StubChannel):
+        def list_tools(self):
+            return specs
+
+    dispatcher = ToolDispatcher(
+        (builtin, _Chan()), policy=engine, ctx=ctx,
+        is_expressive={"mcp__narramessenger_module__speak"}.__contains__,
+    )
+    cap = dispatcher_mod._SEARCH_MAX_HITS
+    lines = dispatcher.search_lines("search")
+    assert len(lines) == cap
+    # The head keeps rank order (leaf-name matches, scope order): no
+    # fake top placement — speak sits in the LAST seat it displaced.
+    assert "search_tool_00" in lines[0]
+    assert "search_tool_01" in lines[1]
+    assert "__speak" in lines[-1]
 
     # Pipeline review Important #3 — the cap must not be bypassable:
     # whitespace-only query routes to the grouped overview (not a

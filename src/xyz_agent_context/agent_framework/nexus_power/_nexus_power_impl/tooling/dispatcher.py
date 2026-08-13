@@ -21,6 +21,8 @@ Invariants:
 
 from __future__ import annotations
 
+from typing import Callable
+
 from loguru import logger
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import ToolChannel
@@ -43,19 +45,24 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.pol
 # routes to the grouped overview: that IS the full-list request.
 _SEARCH_MAX_HITS = 12
 _SEARCH_MAX_CARD_HITS = 4
-# Reserved seats inside the tool slice for expressive (reply) tools that
-# pass the query filter: the turn's reply surface must never be crowded
-# out of a relevant probe's results by sheer filler volume — that is the
-# "my reply tools don't exist" silence spiral in ranking form.
+# Seat GUARANTEE (not top placement) inside the tool slice for
+# expressive (reply) tools that pass the query filter: at most this many
+# missing reply tools replace the weakest non-expressive seats, keeping
+# rank order otherwise. Word-form mismatch is substring scoring's upper
+# bound (a "reply" probe cannot score `speak`), and the reply surface
+# vanishing from a relevant probe is the "my reply tools don't exist"
+# silence spiral in ranking form. Entry bar is deliberately the plain
+# filter hit (any content-token coverage) — placement no longer distorts
+# order, so a looser bar costs tail seats only.
 _SEARCH_MAX_EXPRESSIVE_HITS = 3
-# Tokens that substring-match arbitrary names (`i` hits bind/cli/write,
-# `to` hits tool_search) — they stay in FILTER semantics but never score:
-# a top key decided by noise breaks the cap's "always drops the weakest"
-# promise. Membership test: short English glue; 1-2 char tokens are
-# dropped by the length gate regardless.
+# Glue tokens that substring-match arbitrary names — they stay in FILTER
+# semantics but never score: a top key decided by noise breaks the cap's
+# "always drops the weakest" promise. The list only carries words the
+# length gate (> 2 chars) cannot catch; 1-2 char glue (`i` hits
+# bind/cli/write, `to` hits tool_search, `a`/`an`/`of`/...) is dropped
+# by the gate itself.
 _GLUE_TOKENS = frozenset({
-    "a", "an", "the", "to", "do", "how", "i", "is", "it", "of", "my",
-    "me", "for", "and", "or", "in", "on", "with", "what", "can", "use",
+    "the", "how", "for", "and", "with", "what", "can", "use",
 })
 
 
@@ -85,6 +92,7 @@ class ToolDispatcher:
         disallowed_tools: frozenset[str] = frozenset(),
         allowed_tools: frozenset[str] = frozenset(),
         marker_tools: frozenset[str] = frozenset(),
+        is_expressive: Callable[[str], bool] | None = None,
     ) -> None:
         self._channels: list[ToolChannel] = list(channels)
         self._policy = policy
@@ -92,6 +100,13 @@ class ToolDispatcher:
         self._policy_ctx = PolicyContext(tool_ctx=ctx, disallowed_tools=disallowed_tools)
         self._allowed = allowed_tools
         self._markers = marker_tools
+        # Live callback (assembly passes ExpressionContract.is_expressive)
+        # — NOT a frozenset snapshot: the expressive list grows mid-turn
+        # via capability expansion, and a snapshot would miss delivery
+        # tools granted right before the probe that needs them. Same
+        # out-of-band pattern as marker_tools: MCP specs cannot carry the
+        # annotation, the platform injects the fact.
+        self._is_expressive = is_expressive or (lambda _n: False)
         self._cache: list[ToolSpec] | None = None
         self._cache_generations: tuple[int, ...] | None = None
 
@@ -224,7 +239,7 @@ class ToolDispatcher:
             t for t in tokens if len(t) > 2 and t not in _GLUE_TOKENS
         ] or tokens
 
-        def _score(s) -> tuple[int, int, int]:
+        def _score(s: ToolSpec) -> tuple[int, int, int]:
             # Tuple score, most-significant first:
             #   1. LEAF-name hit — a content token in the tool's leaf
             #      name (the `mcp__<server>__` prefix would hand one
@@ -241,7 +256,7 @@ class ToolDispatcher:
                 sum(hay.count(t) for t in scoring),
             )
 
-        def _ranked(pool) -> list:
+        def _ranked(pool) -> list[ToolSpec]:
             # Truncation must always drop the weakest matches; stable
             # sort keeps scope order within equal scores.
             scored = [(_score(s), s) for s in pool]
@@ -261,16 +276,27 @@ class ToolDispatcher:
             # include glue words must surface the strongest matches, not
             # the whole surface.
             ranked = _ranked(specs)
-        # Reserved seats for expressive tools that passed the filter:
-        # word-form mismatch (a "reply" probe cannot score `speak`) must
-        # not hide the turn's reply surface behind filler volume. No
-        # filter hit -> no free ride.
-        expressive = [
-            s for s in ranked
-            if getattr(s.annotations, "expressive", False)
-        ][:_SEARCH_MAX_EXPRESSIVE_HITS]
-        rest = [s for s in ranked if s not in expressive]
-        tool_hits = [_line(s) for s in (expressive + rest)[:_SEARCH_MAX_HITS]]
+        # Seat guarantee for reply tools that passed the filter. The
+        # expressive fact comes from the annotation OR the injected live
+        # adjudicator — production reply tools are MCP specs whose
+        # annotations cannot carry it (the platform declares the surface
+        # per-turn via TurnOptions.expressive_tools). No filter hit -> no
+        # free ride. Tools already ranked into the head keep their spots
+        # (no fake top placement); missing ones replace the weakest
+        # NON-expressive seats from the tail, so rank order — and the
+        # "truncation drops the weakest" invariant — survive.
+        def _is_expr(s: ToolSpec) -> bool:
+            return s.annotations.expressive or self._is_expressive(s.name)
+
+        head = ranked[:_SEARCH_MAX_HITS]
+        seated = {s.name for s in head}
+        missing = [s for s in ranked if _is_expr(s) and s.name not in seated]
+        for s in missing[:_SEARCH_MAX_EXPRESSIVE_HITS]:
+            for i in range(len(head) - 1, -1, -1):
+                if not _is_expr(head[i]):
+                    head[i] = s
+                    break
+        tool_hits = [_line(s) for s in head]
         card_hits: list[str] = []
         if card_index:
             # Mirror the mode that produced the hits: a precise ALL-token
@@ -287,5 +313,6 @@ class ToolDispatcher:
                 (line for line in card_index.splitlines() if match(line)),
                 key=lambda line: -sum(t in line.lower() for t in tokens),
             )
-        # Separate ceilings: neither class can starve the other.
-        return tool_hits[:_SEARCH_MAX_HITS] + card_hits[:_SEARCH_MAX_CARD_HITS]
+        # Separate ceilings: neither class can starve the other. The tool
+        # side is already capped where `head` is built — single cap point.
+        return tool_hits + card_hits[:_SEARCH_MAX_CARD_HITS]

@@ -296,6 +296,10 @@ async def run_turn_events(
         disallowed_tools=frozenset(opts.disallowed_tools),
         allowed_tools=frozenset(opts.allowed_tools),
         marker_tools=frozenset(opts.marker_tools),
+        # Live adjudicator, not a snapshot: the expressive list grows
+        # mid-turn (capability expansion), and tool_search's reserved
+        # reply seats must see tools granted moments earlier.
+        is_expressive=expression.is_expressive,
     )
 
     try:

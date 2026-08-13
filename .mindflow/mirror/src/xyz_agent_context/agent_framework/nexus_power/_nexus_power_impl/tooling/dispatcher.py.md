@@ -14,10 +14,15 @@ vacuous 全匹配）；②单 token 查询同受封顶；③工具行与 card �
 仍用完整 token**——这条边界别混。层级：叶子名命中（`rsplit('__',1)[-1]`，前缀
 `mcp__模块__` 不给整模块白送分）> 覆盖率（上界=token 数）> 出现次数（tiebreak，
 ALL 路径靠它排序）；token 用 dict.fromkeys 去重保序（排序可复现，别换 set）。
-⑤**expressive 保留席**（`_SEARCH_MAX_EXPRESSIVE_HITS=3`）：过滤命中的回复工具在
-slice 里有保底席位——词形不相关（reply 探针打不中 `speak`）是打分算法的上界，
-不该让当轮回复面消失在探针结果里；无过滤命中不占席（无关探针不搭车）。
-card 行也按覆盖率排名后截 4（展示文本按行打分，不套 _ranked）。
+⑤**expressive 保底席**（五审重做）：判据=`annotations.expressive` **or 注入的
+`is_expressive` 活回调**——生产回复工具全是 MCP spec，注解带不了这个字段（mcp_channel
+只映射 readOnly/destructive），真源是 TurnOptions.expressive_tools 名单；assembly 把
+`ExpressionContract.is_expressive` 传进 ToolDispatcher（**活对象不许快照**：expansion
+轮内会 add_tools）。席位语义=**保证在场不动序**：已排进前 12 的不动位置；没进的最多
+3 个从尾部替换最弱的**非 expressive** 席（「截断砍最弱」不变量保持）；入席门槛=过滤
+命中（内容词覆盖≥1），无命中不搭车——门槛故意宽，因为不再置顶、只花尾部席位。
+同款先例=marker_tools 的双判据（annotation or 注入名单）。_GLUE_TOKENS 只留长度门槛
+（>2 字符）管不到的词，≤2 字符胶水由门槛自身兜。card 行也按覆盖率排名后截 4（展示文本按行打分，不套 _ranked）。
 `all_matched` 语义固定=ALL 过滤非空（它决定 card 的 ALL/ANY 噪音策略，别换判据）。overview 分支刻意不封顶——那就是全量清单请求。
 `_hay` 预构建成 dict 复用（原 per-token 重拼）。
 

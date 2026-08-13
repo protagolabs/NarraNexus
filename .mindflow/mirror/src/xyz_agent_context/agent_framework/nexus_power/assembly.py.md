@@ -4,6 +4,12 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13（五审）— is_expressive 接入 ToolDispatcher
+
+dispatcher 的 expressive 保底席判据来源：`is_expressive=expression.is_expressive`
+与 marker_tools 并列传入——expression 在 build 段更早处构造，顺序安全；传活对象
+（不是 frozenset 快照），expansion 轮内 add_tools 的授予才可见。
+
 ## 2026-08-13 — expression_nudge 接线
 
 LoopAssembly 新增 `expression_nudge: bool = False`；`run_turn_events` 把
