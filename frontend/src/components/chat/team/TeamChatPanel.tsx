@@ -27,6 +27,8 @@ import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { TeamTranscript } from './TeamTranscript';
+import { mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
+import { isNearBottom } from '@/lib/scrollStickiness';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
@@ -123,6 +125,13 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
+  // Read by the poll without making `refresh` depend on the transcript: a
+  // changing dependency would tear down and recreate the interval on every
+  // message, which is how a 3s poll becomes a much faster one.
+  const messagesRef = useRef<TeamChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Workspace data lives HERE, not in the panel: a chip under a message and
   // the panel's own list must agree on what is open, so one component owns the
@@ -191,9 +200,18 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // --- Live transcript: poll the room while the panel is open. -------------
   const refresh = useCallback(async () => {
     try {
-      const r = await api.getTeamChat(teamId);
+      // Incremental: `since` has existed end to end for a long time and the
+      // panel simply never sent it, refetching all 200 messages every 3s. The
+      // full refetch was idempotent by construction (`setMessages(all)`), so
+      // the merge has to earn that back — see `mergeTeamMessages`, which is
+      // append-only-with-dedup because `bus_messages` is never updated in place
+      // (asserted in tests/message_bus/test_team_message_segments.py).
+      const cursor = sinceCursor(messagesRef.current);
+      const r = await api.getTeamChat(teamId, cursor);
       if (r.success) {
-        setMessages(r.messages);
+        setMessages((prev) =>
+          cursor ? mergeTeamMessages(prev, r.messages) : r.messages,
+        );
         setActivity(r.activity ?? []);
         setLeadAgentId(r.lead_agent_id ?? null);
       }
@@ -246,8 +264,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     setRosterExpandedId((cur) => (cur === agentId ? null : agentId));
   }, []);
 
-  // Keep the latest message in view as the transcript grows.
+  // Follow the transcript only while the reader is already at the bottom.
+  // Unconditional scrolling meant a user scrolled up to read something from two
+  // minutes ago was yanked down every few seconds — the room was least readable
+  // exactly when it was busiest.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
   useEffect(() => {
+    if (!stickRef.current) return;
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages.length]);
 
@@ -598,7 +622,15 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       <div className="relative flex flex-1 min-h-0">
         <div className="flex min-w-0 flex-1 flex-col min-h-0">
           {/* Timeline */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+          <div
+            ref={scrollRef}
+            data-testid="team-transcript-scroll"
+            onScroll={(e) => {
+              // The reader's position decides whether new messages may move it.
+              stickRef.current = isNearBottom(e.currentTarget);
+            }}
+            className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
+          >
             {messages.length === 0 ? (
               <TeamRoomHero
                 teamName={team.team.name}

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
 ## 2026-08-10 — 巡查行渲染
@@ -187,3 +187,13 @@ listing rows the server had deleted and every one of them 410'd on click.
 **只抽本批要动的**——整体重排作为独立 PR 更好 review，混进行为改动里更难。
 
 被抽走的三块（系统行、footer、时间戳）markup 与理由**原样搬运**，本批不改它们的行为。
+
+## 2026-08-13 — 增量轮询与滚动礼让
+
+轮询改为携带 `since`（见 [[mergeTeamMessages]]）。**首次加载仍然整体替换**：
+切换房间时往陈旧数组里合并，会把上一个团队的消息显示在新团队名下。
+
+transcript 用 `messagesRef` 而不是把 `messages` 放进 `refresh` 的依赖：
+依赖变化会**每来一条消息就重建一次定时器**，那正是把 3 秒轮询变成快得多的轮询的方式。
+
+滚动只在读者已经贴底时跟随（见 [[scrollStickiness]]）。

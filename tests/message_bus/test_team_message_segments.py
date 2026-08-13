@@ -198,3 +198,33 @@ async def test_the_route_passes_segments_to_the_panel(db_client):
 
     src = inspect.getsource(mod)
     assert '"segments": m.segments' in src
+
+
+def test_bus_messages_are_never_updated_in_place():
+    """The assumption the team room's incremental polling rests on.
+
+    The panel used to refetch all 200 messages every 3 seconds, which was
+    idempotent by construction. Sending `since` and merging is only equivalent
+    while a message, once written, never changes: an append-only merge cannot
+    see an edit, so an edit would silently never reach the screen.
+
+    Asserted against the source rather than by trying to perform an edit,
+    because the property is "no such path exists" — a behavioural test can only
+    show that the paths I happened to think of do not do it.
+
+    If this ever needs to change, `mergeTeamMessages` is the file that has to
+    change with it.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    offenders = []
+    for path in list((root / "src").rglob("*.py")) + list((root / "backend").rglob("*.py")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if 'update("bus_messages"' in text or "update('bus_messages'" in text:
+            offenders.append(str(path.relative_to(root)))
+
+    assert offenders == [], (
+        f"bus_messages is updated in place by {offenders}; the team room's "
+        f"incremental merge assumes append-only and would never show the edit"
+    )
