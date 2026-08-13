@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/prompts/library.py
-last_verified: 2026-07-31
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — reply_reminder 声明默认回复工具（不再平铺列表）
+
+ExpressionContract 的声明序契约（首位=本轮默认回复工具）此前只活在 constitution 的
+example slot；动态尾 reminder 把列表平铺，8/13 语音通话实测模型 12/14 轮跟随平铺列表
+选了 narra_reply 而非按 per-message 指令用 speak。reminder 现渲染
+「THIS TURN's default reply tool is X (other reply tools, only when …)」+
+「Call ONE reply tool …never repeat」；消息自带 reply instruction 仍然最高优先。
+模板占位从 {{REPLY_TOOLS}} 换为 {{DEFAULT_REPLY_TOOL}}/{{OTHER_REPLY_TOOLS_CLAUSE}}。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

@@ -182,6 +182,30 @@ async def test_dispatcher_routing_marker_and_filters(ctx, engine):
 
 
 @pytest.mark.asyncio
+async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
+    """2026-08-13 voice run: `tool_search("narra reply speak send")` came
+    back "(no matches)" because the whole query was one substring — the
+    model concluded its reply tools did not exist and went silent.
+    Multi-word queries must tokenize: all-token matches first, any-token
+    as the fallback so a verification probe never false-negatives on
+    tools that ARE in scope."""
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset({"files"}))
+    stub = _StubChannel()
+    dispatcher = ToolDispatcher((builtin, stub), policy=engine, ctx=ctx)
+
+    # ANY-token fallback: no single tool matches every word, but the
+    # probe still surfaces each tool that matches some word.
+    lines = dispatcher.search_lines("zeta reply")
+    assert any("zeta_tool" in line for line in lines)
+    assert any("send_message_to_user_directly" in line for line in lines)
+
+    # ALL-token matches rank alone when they exist.
+    lines = dispatcher.search_lines("reply user")
+    assert any("send_message_to_user_directly" in line for line in lines)
+    assert not any("zeta_tool" in line for line in lines)
+
+
+@pytest.mark.asyncio
 async def test_capability_expander_idempotent_and_seams():
     attached, env = [], {}
 

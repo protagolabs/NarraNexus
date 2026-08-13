@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/tooling/dispatcher.py
-last_verified: 2026-07-31
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — tool_search 多词查询分词匹配
+
+整串子串匹配让多词验证探针（`tool_search("narra reply speak send")`）对在册工具返回
+"(no matches)"，模型据此判定回复工具不存在而沉默（8/13 语音对抗实测）。
+`search_lines` 改分词：全 token AND 命中优先；AND 空且多词时降级 ANY token 兜底，
+card_index 行匹配同样按 token。单词查询行为不变。测试锁
+tests/nexus_power/test_tooling.py::test_search_lines_multi_word_query_tokenizes。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)(配套:C2 落地)
 

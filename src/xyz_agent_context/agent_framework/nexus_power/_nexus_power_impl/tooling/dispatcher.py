@@ -162,8 +162,16 @@ class ToolDispatcher:
         self._cache = None
 
     def search_lines(self, query: str, *, card_index: str = "") -> list[str]:
-        """Own-algorithm tool discovery (model-agnostic): substring match
-        over names and descriptions; empty query → grouped overview."""
+        """Own-algorithm tool discovery (model-agnostic): tokenized
+        substring match over names and descriptions; empty query →
+        grouped overview.
+
+        Multi-word queries match per token — ALL tokens first, ANY token
+        as the fallback. A single whole-string needle made a multi-word
+        verification probe ("narra reply speak send") return no matches
+        for tools that were in scope, and the model concluded its reply
+        tools did not exist (2026-08-13 voice run).
+        """
         specs = self.visible_tools()
         if not query:
             lines = [f"{len(specs)} tools in scope:"]
@@ -171,16 +179,22 @@ class ToolDispatcher:
             if card_index:
                 lines += ["", "Expandable capabilities:", card_index]
             return lines
-        needle = query.lower()
-        hits = [
-            f"- {s.name}: {s.description.splitlines()[0][:100]}"
-            for s in specs
-            if needle in s.name.lower() or needle in s.description.lower()
-        ]
+        tokens = [t for t in query.lower().split() if t]
+
+        def _hits(match) -> list[str]:
+            return [
+                f"- {s.name}: {s.description.splitlines()[0][:100]}"
+                for s in specs
+                if match(s.name.lower() + " " + s.description.lower())
+            ]
+
+        hits = _hits(lambda hay: all(t in hay for t in tokens))
+        if not hits and len(tokens) > 1:
+            hits = _hits(lambda hay: any(t in hay for t in tokens))
         if card_index:
             hits += [
                 line
                 for line in card_index.splitlines()
-                if needle in line.lower()
+                if any(t in line.lower() for t in tokens)
             ]
         return hits
