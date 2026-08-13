@@ -134,13 +134,28 @@ class SecretBox:
           value is never placed here (no ciphertext leaks to the caller).
         - needs_rewrite: True when any value was stored in a pre-Fernet format
           — the caller should re-persist the encrypted form.
-        - failed_keys: var names whose ciphertext this key cannot open (the
-          credential must be re-entered); the caller skips them.
+        - failed_keys: var names whose stored value is unusable (ciphertext
+          this key cannot open, or a corrupt non-string entry); the caller
+          skips them and prompts a re-enter.
+
+        TOTAL by contract: both callers (the status-query helper
+        ``configured_env_var_names`` and the injection path
+        ``get_all_skill_env_vars``) feed this a raw, agent-writable
+        ``env_config``. A malformed meta must NOT crash them — a non-dict
+        ``env`` yields empty results, and a non-string value is reported as
+        ``failed`` (fail-closed) rather than raising deep in ``decrypt``.
         """
         plain: Dict[str, str] = {}
         needs_rewrite = False
         failed: List[str] = []
+        if not isinstance(env, dict):
+            return plain, needs_rewrite, failed
         for key, value in env.items():
+            if not isinstance(value, str):
+                failed.append(key)  # corrupt meta → unusable cred → skip it
+                continue
+            if not value:
+                continue  # blank → simply absent, not injected, not an error
             try:
                 plain[key] = self.decrypt(value)
             except SecretDecryptError:

@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
 
-删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。GET/PUT `/{name}/env` 两处统一调 [[skill_module]].configured_env_var_names;`_enrich_platform_env_status` **只降级平台半边**(不再按 name 回查 meta / 重算 stored——那会把 .disabled/ 拿不到 meta 的禁用 skill 错判未配置,review 轮抓出),stored 半边由 _parse_skill_md 源头负责。platform-resolved var 仍各站自理(enrich 查 DB、parse 乐观)。
+删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。GET/PUT `/{name}/env` 两处统一调 [[skill_module]].configured_env_var_names。`_enrich_platform_env_status` **只降级「仅靠平台假设成立」的那半边**:读 `SkillInfo.env_platform_assumed`(由 [[skill_module]].env_config_status 在 parse 时算好、随对象带下来,内容=「必填 ∧ 属 PLATFORM_RESOLVED_ENV ∧ 非自存」的 var 名),把其中 DB 查不到 provider 的降为 False;`affected` 也从「requires_env 含平台 var」收窄成「env_platform_assumed 非空」。**关键修正(review round 3)**:上一版直接看 `requires_env` 里的平台 var,会把用户在 Skill tab **手填**了 `NETMIND_API_KEY` 的 skill 也降级(自存值走 parse 的 `v in configured` 支路,但 enrich 拿不到那半信息)——`netmind-vision`/`netmind-transcribe` 两个内置 skill 的 SKILL.md 正是指引用户手填这条路,会产生反向假阴性。现在自存平台 var 在 parse 时被排除出 `env_platform_assumed`,enrich 绝不碰它。enrich 的 `skill_module` 形参**刻意不用**(不得回查 stored meta),`tests/backend/test_skills_env_enrich.py` 的 `_FakeModule` 钉死这一点。
 
 ## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
 

@@ -160,3 +160,59 @@ def test_configured_env_var_names_returns_empty_when_key_unavailable(monkeypatch
     monkeypatch.setattr(sbmod, "_default_box", None)
     monkeypatch.setenv("SKILL_SECRETS_KEY", "not-a-valid-fernet-key")
     assert configured_env_var_names({"A": "whatever"}) == set()
+
+
+def test_get_all_skill_env_vars_survives_corrupt_meta_value(module, key):
+    # 🟡2: a non-string stored value (agent-writable meta) must NOT crash the
+    # injection path — it is skipped, and OTHER skills' credentials still inject.
+    box = sb.get_secret_box()
+    _make_skill(module, "corrupt", {"K": 123})            # non-str → skipped
+    _make_skill(module, "healthy", {"GOOD": box.encrypt("real")})
+
+    env = module.get_all_skill_env_vars()  # must not raise
+    assert env.get("GOOD") == "real"
+    assert "K" not in env
+
+
+def test_get_all_skill_env_vars_empty_when_box_unavailable(module, key, monkeypatch):
+    # 🟡2: a process-level key failure must fail CLOSED (inject nothing), not
+    # raise out of hook_data_gathering and drop the agent's whole contribution.
+    box = sb.get_secret_box()
+    _make_skill(module, "healthy", {"GOOD": box.encrypt("real")})
+
+    def _boom():
+        raise ValueError("SKILL_SECRETS_KEY is set but is not a valid Fernet key")
+
+    monkeypatch.setattr(sb, "get_secret_box", _boom)
+    assert module.get_all_skill_env_vars() == {}
+
+
+def test_env_config_status_keeps_self_stored_platform_var(key):
+    # 🟡1 at the source: a platform var that the user SELF-STORED (decryptable)
+    # must be counted configured AND left OUT of platform_assumed, so the API
+    # layer never downgrades it against the provider table.
+    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+
+    box = sb.get_secret_box()
+    env_config = {"NETMIND_API_KEY": box.encrypt("self-entered")}
+    configured, assumed = env_config_status(["NETMIND_API_KEY"], env_config)
+    assert configured is True
+    assert assumed is None  # self-stored → not a platform assumption
+
+
+def test_env_config_status_flags_platform_only_var_as_assumed(key):
+    # A platform var with NO stored value is optimistically configured, but
+    # recorded as platform_assumed so the API layer can DB-validate it.
+    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+
+    configured, assumed = env_config_status(["NETMIND_API_KEY"], {})
+    assert configured is True
+    assert assumed == ["NETMIND_API_KEY"]
+
+
+def test_env_config_status_non_platform_missing_var_is_unconfigured(key):
+    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+
+    configured, assumed = env_config_status(["MY_KEY"], {})
+    assert configured is False
+    assert assumed is None

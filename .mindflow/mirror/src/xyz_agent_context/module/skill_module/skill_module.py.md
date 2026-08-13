@@ -125,7 +125,9 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 **install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
 
-**凭证 fail-closed + 单一真源（2026-08-13）**：`configured_env_var_names(env_config)` 是模块级函数，是「某 env 是否已配置」的**唯一真源**——present ∧ 可解密（`get_secret_box().decrypt` 不抛 `SecretDecryptError`）。它是**全函数（total）**：非 dict、非 str、空串、`get_secret_box()` 失败、单变量异常，一律降级为「未配置」返回 `set()`，绝不 fail-open、绝不 500 面板。历史上这个判定散落六处（list/detail/MCP/hook/install/enrich）导致只改一处修不干净；现全部改调它。配套 `get_all_skill_env_vars` 用 `decrypt_env_config` 的三元组 `(plain, needs_rewrite, failed)`——解不开的密文**永不注入** env（否则技能拿密文当凭证跑、对下游不透明地失败，2026-08-01 事件），只 `logger.error` 一条带 skill/var 上下文的 ops 信号提示重新录入；任一 var 解不开时**跳过 legacy 迁移**（避免把还加密着的密文覆写掉、毁掉用旧钥恢复的最后机会）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` 是平台侧能解析的变量，判定处走并集。
+**凭证 fail-closed + 单一真源（2026-08-13，round 3 收口）**：三个模块级函数分工——`configured_env_var_names(env_config)` 是「某 env 是否已配置」的**唯一真源**（present ∧ 可解密），实现上**委托给 [[secret_box]] 的 total `decrypt_env_config`**（`set(plain.keys())`），不再自带一套 isinstance/try 净化——状态查询与凭据注入两条路共用同一个解密器。`get_secret_box()` 失败降 `logger.debug`（进程级事实、不 per-skill 刷屏），唯一带上下文的 ERROR 留给注入路径。历史上这个判定散落六处（list/detail/MCP/hook/install/enrich）导致只改一处修不干净；现全部改调它。
+`env_config_status(requires_env, env_config)` 是 `_parse_skill_md` **两个 return** 的单一来源，一次算出 `(env_configured, env_platform_assumed)`：前者=必填 var 全部「自存可解密 ∨ 属 `PLATFORM_RESOLVED_ENV`」；后者=其中「属平台且**非自存**」的子集，随 `SkillInfo` 带给 API 层做 DB 校验（见 [[skills.py]] 的 enrich 反向假阴性修复）。自存的平台 var 被排除出 assumed，永不被误降。
+`get_all_skill_env_vars`：`get_secret_box()` 现包 try——key 配错时 fail-closed 返回 `{}`（注入空、不抛出 hook_data_gathering、不拖垮整个 agent 的 skills 贡献），并发 ops ERROR。其余用 `decrypt_env_config` 三元组 `(plain, needs_rewrite, failed)`——解不开或损坏（非 str）的值**永不注入**、`failed` 里点名重录；任一 failed 时**跳过 legacy 迁移**（避免覆写还能用旧钥恢复的密文）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)`。
 
 ## Gotcha / 边界情况
 

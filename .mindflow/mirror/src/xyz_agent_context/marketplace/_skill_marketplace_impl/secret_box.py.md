@@ -4,6 +4,11 @@ last_verified: 2026-08-13
 stub: false
 ---
 
+## 2026-08-13 — decrypt_env_config 全函数化 + decrypt 不再打日志(review round 3)
+
+`decrypt_env_config` 变成**全函数(total)**:`env` 非 dict → 返回空三元组;单个 value 非 str → 计入 `failed`(而不是让 `decrypt` 深处抛 `AttributeError`);blank → 静默跳过(既不注入也不算失败)。目的是让状态查询 `configured_env_var_names` 与凭据注入 `get_all_skill_env_vars` **共用这一个解密器**——前者现在只是 `set(plain.keys())`,不再自带一套 isinstance/try 净化;后者的 `get_secret_box()` 也在调用方包了 try(key 配错时注入空、不拖垮整个 agent 的 skills 贡献)。
+`decrypt()` 的 fail-closed 分支**只抛不打日志**——唯一那条带 skill/var 上下文的 ERROR 由注入路径 `get_all_skill_env_vars` 发出(见 `skill_module.py`),不再每次 scan 刷屏;取代了下方 2026-07-22 段记录的「decrypt 解不开时打 ERROR」行为。
+
 ## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
 
 新增 `SecretDecryptError`;`decrypt` 对「像 Fernet token(gAAAA)但本 key 解不开」的值从**返回密文改为抛异常**——旧行为让调用方拿密文当凭据跑、下游 opaque 失败(8/1 那 2 个用户)。genuinely-plain 的非 token 值仍原样返回(不误伤)。`decrypt_env_config` 返回值 2→3 元组:`(plain, needs_rewrite, failed_keys)`,解不开的 key **排除出 plain**(密文永不泄给调用方)、列进 failed。key 丢失/轮换的根因是历史(key 曾放未挂载路径),已修;本改动只解决「解不开时的行为」。

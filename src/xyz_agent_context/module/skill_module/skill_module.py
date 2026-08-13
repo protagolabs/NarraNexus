@@ -27,7 +27,7 @@ import subprocess
 import zipfile
 import json
 from pathlib import Path
-from typing import Optional, List, Set
+from typing import Optional, List, Set, Tuple
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -235,33 +235,59 @@ def configured_env_var_names(env_config: dict) -> Set[str]:
     hook. A malformed meta (agent-writable file) or a key-load failure must
     NOT crash the panel or drop the whole agent's credential injection — every
     unreadable value degrades to "not configured" (fail-CLOSED), never to a
-    returned ciphertext (fail-open).
+    returned ciphertext (fail-open). Decryption itself is delegated to the
+    (total) ``decrypt_env_config`` so this and the injection path share ONE
+    decryptor — the ``plain`` dict it returns already excludes undecryptable,
+    corrupt, and blank values, which is exactly "configured".
     """
     if not isinstance(env_config, dict):
         return set()
     from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
-        SecretDecryptError,
         get_secret_box,
     )
 
     try:
         box = get_secret_box()
     except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
-        logger.warning(f"SecretBox unavailable; treating all creds as unconfigured: {e}")
+        # A process-level fact (misconfigured key), not per-skill; log at debug
+        # so it doesn't repeat per skill × per scan. The one loud, contextful
+        # ERROR is emitted by the injection path (get_all_skill_env_vars).
+        logger.debug(f"SecretBox unavailable; treating all creds as unconfigured: {e}")
         return set()
 
-    out: Set[str] = set()
-    for name, value in env_config.items():
-        if not isinstance(value, str) or not value:
-            continue
-        try:
-            if box.decrypt(value):
-                out.add(name)
-        except SecretDecryptError:
-            pass  # ciphertext under a lost key → not usable config → prompt re-enter
-        except Exception as e:  # noqa: BLE001 — a single bad value must not blank the list
-            logger.warning(f"skill env var {name!r} unreadable, treating as unconfigured: {e}")
-    return out
+    plain, _, _ = box.decrypt_env_config(env_config)
+    return set(plain.keys())
+
+
+def env_config_status(
+    requires_env: Optional[List[str]], env_config: dict
+) -> Tuple[Optional[bool], Optional[List[str]]]:
+    """Parse-time config status for a skill: (env_configured, platform_assumed).
+
+    Single source for the optimistic, filesystem-only status computed in both
+    ``_parse_skill_md`` return paths. A required var is satisfied when it is
+    self-stored + decryptable (``configured_env_var_names``) OR it is
+    platform-resolvable (``PLATFORM_RESOLVED_ENV``, auto-injected at run time).
+
+    ``platform_assumed`` lists exactly the vars that count as configured ONLY
+    because of the platform assumption AND are NOT self-stored — the API layer
+    later validates just these against the user's provider config and downgrades
+    the ones the platform can't actually satisfy, WITHOUT re-reading meta. A
+    self-stored platform var is left OUT of this list so it is never wrongly
+    downgraded (the 🟡1 reverse false-negative: a user who manually entered
+    NETMIND_API_KEY in the Skill tab must stay "configured").
+    """
+    if not requires_env:
+        return None, None
+    configured = configured_env_var_names(env_config)
+    env_configured = all(
+        v in configured or v in PLATFORM_RESOLVED_ENV for v in requires_env
+    )
+    platform_assumed = [
+        v for v in requires_env
+        if v in PLATFORM_RESOLVED_ENV and v not in configured
+    ] or None
+    return env_configured, platform_assumed
 
 
 async def platform_env_available(db, user_id: Optional[str]) -> set:
@@ -686,13 +712,12 @@ class SkillModule(XYZBaseModule):
                         # required var counts only if its stored value decrypts
                         # (or is platform-resolved), so a credential under a
                         # lost key reads as NOT configured (2026-08-01).
-                        env_configured = None
-                        if requires_env:
-                            configured = configured_env_var_names(env_config)
-                            env_configured = all(
-                                v in configured or v in PLATFORM_RESOLVED_ENV
-                                for v in requires_env
-                            )
+                        # platform_assumed carries the platform-only half down
+                        # so the API layer can DB-validate it without re-reading
+                        # meta (see env_config_status / _enrich_platform_env_status).
+                        env_configured, env_platform_assumed = env_config_status(
+                            requires_env, env_config
+                        )
 
                         return SkillInfo(
                             name=meta.get("name", skill_dir.name),
@@ -707,6 +732,7 @@ class SkillModule(XYZBaseModule):
                             requires_env=requires_env,
                             requires_bins=requires_bins,
                             env_configured=env_configured,
+                            env_platform_assumed=env_platform_assumed,
                             **study_fields,
                         )
         except Exception as e:
@@ -715,12 +741,9 @@ class SkillModule(XYZBaseModule):
         # Fallback: use directory name as the name
         requires_env = sorted(set(meta_requires_env)) or None
         requires_bins = sorted(set(meta_requires_bins)) or None
-        env_configured = None
-        if requires_env:
-            configured = configured_env_var_names(env_config)
-            env_configured = all(
-                v in configured or v in PLATFORM_RESOLVED_ENV for v in requires_env
-            )
+        env_configured, env_platform_assumed = env_config_status(
+            requires_env, env_config
+        )
 
         return SkillInfo(
             name=skill_dir.name,
@@ -733,6 +756,7 @@ class SkillModule(XYZBaseModule):
             requires_env=requires_env,
             requires_bins=requires_bins,
             env_configured=env_configured,
+            env_platform_assumed=env_platform_assumed,
             **study_fields,
         )
 
@@ -1008,7 +1032,14 @@ class SkillModule(XYZBaseModule):
         """
         from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import get_secret_box
 
-        box = get_secret_box()
+        try:
+            box = get_secret_box()
+        except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
+            # A process-level key failure must not raise out of hook_data_gathering
+            # (it would drop this agent's whole skills contribution). Fail CLOSED:
+            # inject nothing, and emit the single loud ops signal here.
+            logger.error(f"SecretBox unavailable; skipping ALL skill credential injection: {e}")
+            return {}
         all_env = {}
         skills = self._scan_skills()
         for skill in skills:

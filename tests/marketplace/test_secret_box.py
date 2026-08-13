@@ -88,6 +88,24 @@ def test_decrypt_env_config_excludes_and_reports_undecryptable_keys():
     assert "BAD" not in plain
 
 
+def test_decrypt_env_config_is_total_on_malformed_input(tmp_path):
+    # decrypt_env_config feeds both the status query and the injection path a
+    # raw, agent-writable meta. It must be TOTAL: a non-dict env yields empty
+    # results, and a non-string value is reported as `failed` (never raises
+    # deep in decrypt).
+    box = SecretBox.load(key_dir=tmp_path)
+
+    assert box.decrypt_env_config("not a dict") == ({}, False, [])
+    assert box.decrypt_env_config(None) == ({}, False, [])
+
+    plain, needs_rewrite, failed = box.decrypt_env_config(
+        {"GOOD": box.encrypt("v"), "BAD": 123, "BLANK": ""}
+    )
+    assert plain == {"GOOD": "v"}  # BAD non-str skipped, BLANK absent
+    assert failed == ["BAD"]       # corrupt value reported for a re-enter prompt
+    assert needs_rewrite is False
+
+
 def test_key_file_created_with_0600(tmp_path):
     SecretBox.load(key_dir=tmp_path)
     key_file = tmp_path / "skill_secrets.key"
