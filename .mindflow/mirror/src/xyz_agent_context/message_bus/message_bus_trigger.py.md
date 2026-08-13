@@ -42,6 +42,29 @@ PRD《看到的必须是真的》§四。此前 `_invoke_runtime` 返回 `(text,
 **它是第一个带 mentions 的平台类型**，也就是第一个能**成为触发消息**的平台类型 ——
 [[system_messages]] 的 `trigger_label` 分派表当初正是为这一天写的。
 
+## 2026-08-13（review 后）— 四处修正
+
+narranexus-review 抓到并逐条修掉：
+
+- **patrol 调用点漏改**（Critical）。`_invoke_runtime` 改成 `TurnResult` 后，全仓两个
+  调用点只改了主路径，`_patrol_body` 还在 `response_text, _ = await ...` 解包 —— 不可
+  迭代的 dataclass 会让每一轮 Leader 巡查在烧完一次 LLM turn 后抛 `TypeError`、写一行
+  warning、戳游标、下周期重来，**永不再发 patrol 行**。测试桩全返回元组所以 CI 全绿。
+  已改调用点 + 6 个桩为 `TurnResult(...)`。
+- **ping-pong 闸从「只挡 `system_undelivered`」扩到 `in PLATFORM_MSG_TYPES`**。patrol
+  行带 mentions 会成为被点名成员的 trigger，它被追到停滞、跑一轮仍无文本时不该读成
+  「用户问了没答」。平台自己发起的 turn 没有在等回答的人。
+- **`_delivered_to_anyone` 的 fail-open 补上「注册表静默降级」这一支**。
+  `MessageSourceRegistry.get()` 从不抛，对未注册 source 返回默认 handler（只有
+  owner-chat 工具），于是 bus send 不再算投递 → 每轮正确答复 peer 的 turn 都被扣上
+  「没有回复」。现在校验 `handler.name == "message_bus"`，不一致也 fail-open 到 True。
+- **owner 通知抽成 `_notify_owner` helper，加冷却**。此前 `_notify_undelivered_owner`
+  每次 `reached_nobody` 都写一行收件箱，一个纯文本回话、不调 bus 工具的 agent 会在一
+  条活跃 A2A 通道上每来一条消息刷一行同名通知，淹没共用一个收件箱的
+  `_notify_permanent_failure`。冷却按 agent 聚合（`f"{agent_id}:no_reply"`），且沿用
+  「写成功后才 arm」这条踩过的坑。`_notify_permanent_failure` 的 `trigger_message`
+  参数已删（不再需要）。
+
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
 
 `_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。

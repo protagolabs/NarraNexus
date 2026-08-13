@@ -289,3 +289,64 @@ async def test_a_notice_never_answers_a_notice(db_client, monkeypatch):
     await trigger._handle_channel_batch("agent_a", DM, [msg], msg)
 
     assert await _notices(db_client, DM, UNDELIVERED_MSG_TYPE) == []
+
+
+# ── delivery detection asks the registry, fail-open ─────────────────────────
+
+
+def test_delivered_to_anyone_recognises_the_bus_send_tools():
+    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["mcp__msgbus__bus_send_to_agent"]) is True
+
+
+def test_delivered_to_anyone_rejects_tools_that_do_not_deliver():
+    assert MessageBusTrigger._delivered_to_anyone(["Read", "work_complete_item"]) is False
+    assert MessageBusTrigger._delivered_to_anyone([]) is False
+
+
+def test_delivered_to_anyone_fails_open_when_the_registry_downgrades(monkeypatch):
+    """get() never raises — it falls back to the default handler (owner-chat
+    tool only), so the bus sends stop counting as delivery. That quiet downgrade
+    is the same bug as a raise and must fail open to True, or every turn that
+    answered its peer correctly gets stamped "no reply"."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceRegistry,
+        _DEFAULT_HANDLER,
+    )
+
+    monkeypatch.setattr(MessageSourceRegistry, "get", lambda src: _DEFAULT_HANDLER)
+    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+
+
+def test_delivered_to_anyone_fails_open_when_the_registry_raises(monkeypatch):
+    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+
+    def _boom(_src: str):
+        raise RuntimeError("registry exploded")
+
+    monkeypatch.setattr(MessageSourceRegistry, "get", _boom)
+    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+
+
+# ── the ping-pong guard covers every platform type, not only the notice ─────
+
+
+@pytest.mark.asyncio
+async def test_a_patrol_triggered_silence_gets_no_notice(db_client, monkeypatch):
+    """A patrol line mentions the members it is chasing; one of them going quiet
+    must not read as "the user asked and got nothing". Platform-initiated turns
+    have no one waiting on an answer."""
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    _returns(monkeypatch, trigger, TurnResult(text="", event_id="evt_1"))
+
+    msg = BusMessage(
+        message_id="m1", channel_id=DM, from_agent="agent_b",
+        content="chasing a stalled work item", msg_type=PATROL_MSG_TYPE,
+    )
+    await trigger._handle_channel_batch("agent_a", DM, [msg], msg)
+
+    assert await _notices(db_client, DM, UNDELIVERED_MSG_TYPE) == []

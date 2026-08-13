@@ -47,9 +47,10 @@ UNDELIVERED_MSG_TYPE = "system_undelivered"
 # The reply existed; posting it into the room failed.
 DELIVERY_FAILED_MSG_TYPE = "system_delivery_failed"
 
-# Cap on the error echoed into a transcript every member can read. Same budget
-# as the owner-inbox notice — this text lands in a strictly wider audience, so
-# it may not be more generous.
+# Cap on the error echoed into a transcript every member can read. Tighter than
+# the owner-inbox notice's MAX_REDACTED_ERROR_LEN (500) because this text lands
+# in a strictly wider audience — the two numbers are independent, not a shared
+# budget.
 MAX_NOTICE_ERROR_LEN = 300
 
 # English fallbacks. The frontend renders these lines from an i18n key (the
