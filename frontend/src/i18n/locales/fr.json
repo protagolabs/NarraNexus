@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
       "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire",
       "patrolNotice": "Contrôle du responsable",
+      "undeliveredNotice": "{{name}} a terminé ce tour sans répondre",
+      "deliveryFailedNotice": "La réponse de {{name}} n'a pas pu être publiée",
       "board": {
         "title": "Tableau de travail",
         "unclaimed": "non attribué",

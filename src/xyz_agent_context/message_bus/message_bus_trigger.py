@@ -49,6 +49,11 @@ from xyz_agent_context.message_bus.local_bus import (
     _as_utc,
     canonical_ts,
 )
+from xyz_agent_context.message_bus.delivery_notice import (
+    UNDELIVERED_MSG_TYPE,
+    announce_delivery_failure,
+    announce_undelivered,
+)
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
 from xyz_agent_context.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
@@ -119,6 +124,33 @@ FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 # narrative updater, Step-5 hooks) asks the same questions the same way.
 # ``_classify_error`` / ``_redact_error_for_owner`` below delegate to it.
 MAX_NOTIFIED_ERROR_LEN = MAX_REDACTED_ERROR_LEN
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    """What one bus turn produced, and whether it reached anyone.
+
+    ``delivered`` is the question a bare ``text`` could never answer. On a bus
+    turn the collected text is only ONE of two delivery surfaces: a peer is
+    reached exclusively by a bus send TOOL, and that tool's output never
+    appears in ``text``. So an empty ``text`` alone does not mean "nothing was
+    delivered" — asserting it would print "no reply" underneath a reply that
+    landed perfectly well.
+
+    Answered by asking the MessageSource registry (the one place that already
+    knows which tools deliver on a bus turn) rather than by matching tool names
+    here — a second list would drift from it the day a third send tool appears,
+    which is exactly how the 2026-08-01 no-reply metric got poisoned.
+    """
+
+    text: str
+    event_id: Optional[str]
+    delivered: bool = False
+
+    @property
+    def reached_nobody(self) -> bool:
+        """No text for the owner AND no tool that reached anyone."""
+        return not self.text and not self.delivered
 
 
 def im_channel_prefixes() -> tuple[str, ...]:
@@ -211,10 +243,11 @@ class MessageBusTrigger:
         # 3+ times. Observed in production (2026-05-12 13:20 — agent
         # processed one msg_4eb528dc three times, burned ~30K tokens).
         self._agent_locks: Dict[str, asyncio.Lock] = {}
-        # last `time.monotonic()` a permanent-failure inbox notice was
-        # written for a given "agent_id:error_category" key. See
-        # `_notify_permanent_failure`.
-        self._failure_notify_cooldown: Dict[str, float] = {}
+        # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
+        # for a given cooldown key. Shared by both notifiers so a burst of
+        # failures sharing one root cause writes at most one inbox row per
+        # `FAILURE_NOTIFY_COOLDOWN_SECONDS`. See `_notify_owner`.
+        self._notify_cooldown: Dict[str, float] = {}
         # In-flight dispatches, agent_id -> _InFlight. The poll loop spawns
         # these and does NOT await them (see `_poll_cycle`), so this is both
         # the "don't dispatch the same agent twice" guard and the raw material
@@ -794,6 +827,9 @@ class MessageBusTrigger:
         # DM branch overwrites this with the classifier's verdict; team rooms
         # keep False (they never carry the Owner-Relay/Answer-the-peer split).
         errand_continuation = False
+        # Flipped by the room-post handler below. Separate from `_hop_done`
+        # only in that it names WHY the hop did not complete.
+        posted = True
 
         # Hop timing ([bus-timing], 2026-08-05): the 2026-08-01 event clocked
         # a bus hop at 45-95s with no way to split "sat in the queue" from
@@ -927,7 +963,7 @@ class MessageBusTrigger:
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
                 # execution `prompt` is far noisier. See 2026-06-01 design.
-                response_text, turn_event_id = await self._invoke_runtime(
+                turn = await self._invoke_runtime(
                     agent_id=agent_id,
                     sender_agent_id=trigger_message.from_agent,
                     prompt=prompt,
@@ -977,12 +1013,12 @@ class MessageBusTrigger:
                 f"{len(messages)} messages in channel {channel_id}"
             )
 
-            if response_text:
+            if turn.text:
                 if is_team:
                     # Post the reply back into the shared room as this agent.
                     # Parse @mentions so an agent can hand off to a teammate
                     # (e.g. "@rabbit can you summarise?") and pull them in.
-                    mentions = self._extract_team_mentions(response_text, member_map)
+                    mentions = self._extract_team_mentions(turn.text, member_map)
                     # Cap agent↔agent cascades: if too many agent hops have
                     # piled up since the last human message, stop propagating
                     # @mentions so two agents can't loop forever.
@@ -994,22 +1030,42 @@ class MessageBusTrigger:
                                 f"in {channel_id}; dropping @mentions to break the loop"
                             )
                             mentions = []
-                    await self._bus.send_message(
-                        from_agent=agent_id,
-                        to_channel=channel_id,
-                        content=response_text,
-                        mentions=mentions or None,
-                        # Stamp the reply with the turn that produced it, so
-                        # the transcript can open this turn's full event_log.
-                        event_id=turn_event_id,
-                    )
+                    try:
+                        await self._bus.send_message(
+                            from_agent=agent_id,
+                            to_channel=channel_id,
+                            content=turn.text,
+                            mentions=mentions or None,
+                            # Stamp the reply with the turn that produced it, so
+                            # the transcript can open this turn's full event_log.
+                            event_id=turn.event_id,
+                        )
+                    except Exception as post_err:  # noqa: BLE001 — see below
+                        # The reply EXISTS and the room will never show it.
+                        # Deliberately handled here instead of falling through
+                        # to the generic handler: the cursor was advanced a few
+                        # lines up, so this message is already acked and
+                        # `record_failure` could only inflate a poison counter
+                        # for a delivery that will never be retried. What is
+                        # actually needed is for the loss to stop being silent.
+                        posted = False
+                        await self._announce_failed_room_post(
+                            agent_id, channel_id, trigger_message, turn, post_err
+                        )
                 else:
                     # Write response to inbox
                     await self._write_to_inbox(
-                        agent_id, channel_id, trigger_message, response_text
+                        agent_id, channel_id, trigger_message, turn.text
                     )
+            elif turn.reached_nobody:
+                await self._announce_undelivered_turn(
+                    agent_id, channel_id, trigger_message,
+                    is_team=is_team, errand_continuation=errand_continuation,
+                )
 
-            _hop_done = True
+            # A failed room post is not a completed hop: [bus-timing] measures
+            # delivery, and counting a lost reply would flatter the series.
+            _hop_done = posted
 
         except CancelledByUser as e:
             # `_hop_done` deliberately stays False: a stopped turn is not a
@@ -1067,7 +1123,6 @@ class MessageBusTrigger:
                 await self._notify_permanent_failure(
                     agent_id=agent_id,
                     channel_id=channel_id,
-                    trigger_message=trigger_message,
                     error=str(e),
                 )
 
@@ -1122,50 +1177,48 @@ class MessageBusTrigger:
         """
         return redact_secrets(error, MAX_NOTIFIED_ERROR_LEN)
 
-    async def _notify_permanent_failure(
+    async def _notify_owner(
         self,
         agent_id: str,
+        *,
+        title: str,
+        content: str,
+        source_type: str,
         channel_id: str,
-        trigger_message: BusMessage,
-        error: str,
-    ) -> None:
-        """Surface a permanently-dropped bus message to the owner's inbox.
+        message_id_prefix: str,
+        cooldown_key: str,
+    ) -> bool:
+        """Write a SYSTEM_NOTICE to the owner's inbox, de-duplicated per key.
 
-        Without this, hitting `POISON_FAILURE_THRESHOLD` is a pure silent
-        failure (upstream: NetMindAI-Open/NarraNexus#52) — e.g. a broken
-        OpenAI provider key makes every `_invoke_runtime` call raise, and
-        after 3 failures the message just vanishes from
-        `get_pending_messages` forever with zero owner-facing signal.
+        The one shared path for owner-facing system notices (permanent-failure
+        and no-reply-delivered). Resolves the owner, writes via
+        `InboxRepository`, and best-effort-logs on failure — never raises.
 
-        De-duplicated per (agent_id, error category) via
-        `_failure_notify_cooldown` (same in-memory, per-process pattern as
-        `_rate_counters` — a process restart resets it, which is an accepted
-        tradeoff here too) so a burst of messages failing for one root cause
-        writes at most one inbox row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+        Returns True when a row was written, False when the cooldown suppressed
+        it, the owner could not be resolved, or the write failed.
 
-        The cooldown is armed ONLY after a successful inbox write (see the
-        end of the `try` block) — arming it up-front would let one transient
-        write failure (DB blip, etc.) silently suppress the real
-        notification for the rest of the cooldown window.
+        The cooldown is armed ONLY after a successful inbox write — arming it
+        up-front would let one transient write failure (DB blip, etc.) silently
+        suppress the real notification for the rest of the cooldown window
+        (the exact trap the original `_notify_permanent_failure` docstring
+        recorded). In-memory, per-process: a restart resets it, an accepted
+        tradeoff shared with `_rate_counters`.
         """
-        category = self._classify_error(error)
-        cooldown_key = f"{agent_id}:{category}"
+        last_notified = self._notify_cooldown.get(cooldown_key)
         now = time.monotonic()
-        last_notified = self._failure_notify_cooldown.get(cooldown_key)
         if (
             last_notified is not None
             and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
         ):
-            return
+            return False
 
         try:
             owner_user_id = await self._get_agent_owner(agent_id)
             if not owner_user_id:
                 logger.warning(
-                    f"Cannot notify of permanent bus failure: agent "
-                    f"{agent_id} has no resolvable owner"
+                    f"Cannot notify owner: agent {agent_id} has no resolvable owner"
                 )
-                return
+                return False
 
             import uuid
 
@@ -1178,47 +1231,76 @@ class MessageBusTrigger:
             )
             from xyz_agent_context.utils.db.db_factory import get_db_client
 
-            if category == "provider_credential":
-                hint = (
-                    "This looks like a provider/credential problem — check "
-                    "the agent's LLM provider configuration (API key, base "
-                    "URL) in Provider settings, then retry the message."
-                )
-            else:
-                hint = (
-                    "Check the agent's recent activity for details, then "
-                    "retry the message."
-                )
-
-            safe_error = self._redact_error_for_owner(error)
-            content = (
-                f"Your agent could not process a message on channel "
-                f"{channel_id} after {POISON_FAILURE_THRESHOLD} attempts "
-                f"and has stopped retrying it automatically.\n\n"
-                f"Error: {safe_error}\n\n{hint}"
-            )
-
             db = await get_db_client()
             await InboxRepository(db).create_message(
                 user_id=owner_user_id,
-                message_id=f"busfail_{uuid.uuid4().hex[:16]}",
-                title=f"Message delivery failed: {agent_id}",
+                message_id=f"{message_id_prefix}{uuid.uuid4().hex[:16]}",
+                title=title,
                 content=content,
                 message_type=InboxMessageType.SYSTEM_NOTICE,
-                source=MessageSource(type="message_bus_failure", id=channel_id),
+                source=MessageSource(type=source_type, id=channel_id),
             )
             # Arm the cooldown only now that the write actually succeeded.
-            self._failure_notify_cooldown[cooldown_key] = now
+            self._notify_cooldown[cooldown_key] = now
             logger.warning(
-                f"MessageBusTrigger: notified owner {owner_user_id} of "
-                f"permanent failure for agent {agent_id} in channel "
-                f"{channel_id} (category={category})"
+                f"MessageBusTrigger: notified owner {owner_user_id} "
+                f"({source_type}) for agent {agent_id} in channel {channel_id}"
             )
+            return True
         except Exception as notify_err:  # noqa: BLE001 — notification is best-effort
             logger.warning(
-                f"Failed to write permanent-failure notification to inbox: "
-                f"{notify_err}"
+                f"Failed to write {source_type} notification to inbox: {notify_err}"
             )
+            return False
+
+    async def _notify_permanent_failure(
+        self,
+        agent_id: str,
+        channel_id: str,
+        error: str,
+    ) -> None:
+        """Surface a permanently-dropped bus message to the owner's inbox.
+
+        Without this, hitting `POISON_FAILURE_THRESHOLD` is a pure silent
+        failure (upstream: NetMindAI-Open/NarraNexus#52) — e.g. a broken
+        OpenAI provider key makes every `_invoke_runtime` call raise, and
+        after 3 failures the message just vanishes from
+        `get_pending_messages` forever with zero owner-facing signal.
+
+        De-duplicated per (agent_id, error category) via `_notify_owner`, so a
+        burst of messages failing for one root cause writes at most one inbox
+        row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+        """
+        category = self._classify_error(error)
+        if category == "provider_credential":
+            hint = (
+                "This looks like a provider/credential problem — check "
+                "the agent's LLM provider configuration (API key, base "
+                "URL) in Provider settings, then retry the message."
+            )
+        else:
+            hint = (
+                "Check the agent's recent activity for details, then "
+                "retry the message."
+            )
+
+        safe_error = self._redact_error_for_owner(error)
+        content = (
+            f"Your agent could not process a message on channel "
+            f"{channel_id} after {POISON_FAILURE_THRESHOLD} attempts "
+            f"and has stopped retrying it automatically.\n\n"
+            f"Error: {safe_error}\n\n{hint}"
+        )
+
+        await self._notify_owner(
+            agent_id,
+            title=f"Message delivery failed: {agent_id}",
+            content=content,
+            source_type="message_bus_failure",
+            channel_id=channel_id,
+            message_id_prefix="busfail_",
+            cooldown_key=f"{agent_id}:{category}",
+        )
 
     async def _team_roster(self, channel_id: str) -> List[dict]:
         """Who is in this room, and everything the prompt needs to say about it.
@@ -1539,7 +1621,7 @@ class MessageBusTrigger:
             watcher.register(run_id, cancellation)
             await act.note_event_id(run_id)
 
-        response_text, _ = await self._invoke_runtime(
+        turn = await self._invoke_runtime(
             agent_id=lead_agent_id,
             sender_agent_id=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             prompt=prompt,
@@ -1556,7 +1638,7 @@ class MessageBusTrigger:
             # never from a model parameter.
             team_id=team_id,
         )
-        text = (response_text or "").strip()
+        text = (turn.text or "").strip()
         if not text:
             return  # nothing wrong, nothing said
         # Re-checked because the pre-turn gate opened minutes ago and a
@@ -2450,7 +2532,7 @@ class MessageBusTrigger:
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
-    ) -> tuple[str, Optional[str]]:
+    ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
@@ -2472,10 +2554,12 @@ class MessageBusTrigger:
         the send site knows its target, so only the send site can decide; see
         ``_message_bus_mcp_tools._send_turn_source``.
 
-        Returns ``(response_text, event_id)`` — the collected agent response
-        text plus the turn's events-row id (None if the run died before
-        Step 0). The team branch stamps the id onto the reply it posts back
-        into the room, so the transcript can open that turn's event_log.
+        Returns a :class:`TurnResult` — the collected response text, the
+        turn's events-row id (None if the run died before Step 0), and whether
+        any reply tool actually delivered. The team branch stamps the id onto
+        the reply it posts back into the room, so the transcript can open that
+        turn's event_log; the caller reads ``delivered`` to tell a turn that
+        answered its peer through a tool apart from one that reached nobody.
 
         `on_event_id`, when provided (team branch only), is forwarded to
         `collect_run` so the turn's events-row id gets bound onto the
@@ -2554,13 +2638,178 @@ class MessageBusTrigger:
                 f"channel {channel_id}: {collection.error.error_type}: "
                 f"{collection.error.error_message}"
             )
-            return (
-                f"⚠️ I couldn't process your message right now "
-                f"({collection.error.error_type}). {collection.error.error_message}",
-                collection.event_id,
+            return TurnResult(
+                text=(
+                    f"⚠️ I couldn't process your message right now "
+                    f"({collection.error.error_type}). "
+                    f"{collection.error.error_message}"
+                ),
+                event_id=collection.event_id,
             )
 
-        return collection.output_text, collection.event_id
+        return TurnResult(
+            text=collection.output_text,
+            event_id=collection.event_id,
+            delivered=self._delivered_to_anyone(collection.tool_calls),
+        )
+
+    @staticmethod
+    def _delivered_to_anyone(tool_calls: Optional[List[str]]) -> bool:
+        """Did any tool this turn called actually reach a recipient?
+
+        Asks the MessageSource registry rather than matching names here: it
+        already owns the list of tools that DELIVER on a bus turn (the two bus
+        sends plus the owner-relay), and a second copy would drift from it the
+        day a third one appears — the precise way the 2026-08-01 no-reply
+        metric got poisoned.
+
+        Fails to **True**. The consumer of a False is a public "this turn
+        delivered nothing" line, so a registry hiccup would print that lie
+        underneath a reply that landed. Missing a real silence costs the user
+        nothing they were not already living with; inventing one costs exactly
+        the trust this whole change exists to rebuild.
+
+        ``MessageSourceRegistry.get`` NEVER raises — it silently falls back to
+        the default handler (owner-chat tool only) for an unregistered source,
+        which is a second, quieter failure mode than the exception this
+        try/except covers. Both must fail open to True: a downgraded registry
+        that no longer recognises ``bus_send_message`` would otherwise stamp
+        "no reply" under every turn that answered its peer correctly.
+        """
+        try:
+            from xyz_agent_context.channel.message_source_handler import (
+                MessageSourceRegistry,
+            )
+
+            handler = MessageSourceRegistry.get(WorkingSource.MESSAGE_BUS.value)
+            if handler.name != WorkingSource.MESSAGE_BUS.value:
+                # The bus handler was never registered (rename, a swallowed
+                # duplicate-registration ValueError, a lazy-import moved later).
+                # Treat it as "we can't prove delivery", never as "nothing was
+                # delivered" — the latter is the lie this whole change fights.
+                logger.warning(
+                    "message_bus handler not registered in MessageSourceRegistry "
+                    f"(got {handler.name!r}); delivery detection assuming delivered"
+                )
+                return True
+            return any(
+                handler.is_user_reply_tool(name or "") for name in tool_calls or ()
+            )
+        except Exception as e:  # noqa: BLE001 — see the fail-to-True note above
+            logger.warning(f"delivery detection failed, assuming delivered: {e}")
+            return True
+
+    async def _announce_failed_room_post(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        turn: "TurnResult", error: Exception,
+    ) -> None:
+        """The reply exists, the room post failed. Say so, and keep the reply.
+
+        Two separate losses, so two separate remedies:
+
+        * the room shows a delivery-failure line, because a user staring at an
+          unchanged room otherwise concludes the agent ignored them — with the
+          backend green and the run billed;
+        * the reply text goes to the owner's inbox, because it was generated
+          and paid for and one failed write is no reason to destroy it.
+
+        The notice travels the very path that just failed, so it failing too
+        is the expected case rather than an edge one — hence best-effort, and
+        hence the inbox write happening regardless of whether it landed.
+        """
+        logger.warning(
+            f"MessageBusTrigger: room post failed for agent {agent_id} in "
+            f"{channel_id}: {error}"
+        )
+        await announce_delivery_failure(
+            self._bus, channel_id, agent_id,
+            error=str(error),
+            root_run_id=trigger_message.root_run_id or None,
+        )
+        await self._write_to_inbox(
+            agent_id, channel_id, trigger_message, turn.text
+        )
+
+    async def _announce_undelivered_turn(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        *, is_team: bool, errand_continuation: bool,
+    ) -> None:
+        """The turn ran and reached nobody. Make that visible.
+
+        WHO is left waiting decides who gets woken, and the two surfaces
+        differ:
+
+        * team room — nobody is blocked. The line is posted without mentions:
+          it is there so the humans reading the room can tell "the agent said
+          nothing" apart from "the agent never ran", and waking every member
+          over a silence would cost more turns than the silence costs.
+        * A2A DM, and we are the one being ASKED — the peer IS blocked, and
+          only a message wakes it. It gets mentioned, which is how an errand
+          that would otherwise hang forever resolves itself.
+        * A2A DM, but this batch was a REPLY to our own errand — the peer
+          already answered and is waiting for nothing; our OWNER is the one
+          left hanging, so the inbox notice below is the whole remedy.
+
+        Never announces in answer to an announcement: two quiet agents would
+        otherwise volley platform lines at each other, each silence provoking
+        the next notice. Guarded against EVERY platform type, not only the
+        undelivered notice itself — a patrol line also mentions the members it
+        is chasing, and one of them going quiet must not then read as "the user
+        asked and got nothing". Platform-initiated turns have no one waiting on
+        an answer, so their silence is not a silence we owe the user an
+        explanation for.
+        """
+        if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
+            return
+
+        sender = trigger_message.from_agent or ""
+        wake_peer = (
+            not is_team
+            and not errand_continuation
+            and bool(sender)
+            and not sender.startswith(USER_SENDER_PREFIX)
+        )
+        await announce_undelivered(
+            self._bus, channel_id, agent_id,
+            mentions=[sender] if wake_peer else None,
+            root_run_id=trigger_message.root_run_id or None,
+        )
+        if not is_team:
+            # A team silence is already visible to the owner in the room. A DM
+            # silence happens somewhere nobody is watching, so the owner only
+            # ever learns of it here.
+            await self._notify_undelivered_owner(agent_id, channel_id, sender)
+
+    async def _notify_undelivered_owner(
+        self, agent_id: str, channel_id: str, sender: str,
+    ) -> None:
+        """Tell the owner their agent burned a turn and delivered nothing.
+
+        Its own notice rather than a `_write_to_inbox` row: that writer's
+        title and MESSAGE_BUS type say "your agent relayed something from a
+        peer", which is the opposite of what happened here.
+
+        Cooldown keyed per agent (not per agent+peer): the fix is "look at what
+        this agent keeps doing", not "look at this one message", so a busy A2A
+        channel where the agent goes quiet every turn must not flood the inbox
+        with one identically-titled row per incoming message.
+        """
+        await self._notify_owner(
+            agent_id,
+            title=f"No reply delivered: {agent_id}",
+            content=(
+                f"Your agent ran a turn for a message from {sender or 'a peer'} "
+                f"on channel {channel_id} and finished without delivering "
+                f"anything — no reply to the sender and nothing to you.\n\n"
+                f"The sender has been told, so it can ask again or route "
+                f"around it. Check the agent's recent activity to see what "
+                f"the turn did instead."
+            ),
+            source_type="message_bus_no_reply",
+            channel_id=channel_id,
+            message_id_prefix="busnorep_",
+            cooldown_key=f"{agent_id}:no_reply",
+        )
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

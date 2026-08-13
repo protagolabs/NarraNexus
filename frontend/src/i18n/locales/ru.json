@@ -153,6 +153,8 @@
       "leadTitle": "{{name}} · отвечает, когда никто не упомянут",
       "stoppedNotice": "Задача {{name}} остановлена владельцем",
       "patrolNotice": "Обход лидера",
+      "undeliveredNotice": "{{name}} завершил ход без ответа",
+      "deliveryFailedNotice": "Не удалось отправить ответ {{name}}",
       "board": {
         "title": "Доска задач",
         "unclaimed": "не назначено",

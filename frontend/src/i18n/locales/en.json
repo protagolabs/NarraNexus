@@ -184,6 +184,8 @@
       "leadTitle": "{{name}} · answers when no one is @mentioned",
       "stoppedNotice": "{{name}}'s task was stopped by the owner",
       "patrolNotice": "Leader patrol",
+      "undeliveredNotice": "{{name}} ended this turn without replying",
+      "deliveryFailedNotice": "{{name}}'s reply could not be posted",
       "board": {
         "title": "Work board",
         "unclaimed": "unclaimed",

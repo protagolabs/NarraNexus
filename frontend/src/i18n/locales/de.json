@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
       "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt",
       "patrolNotice": "Leader-Kontrolle",
+      "undeliveredNotice": "{{name}} hat diese Runde ohne Antwort beendet",
+      "deliveryFailedNotice": "Die Antwort von {{name}} konnte nicht gesendet werden",
       "board": {
         "title": "Arbeitsboard",
         "unclaimed": "nicht zugewiesen",

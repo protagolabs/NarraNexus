@@ -184,6 +184,8 @@
       "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手",
       "stoppedNotice": "{{name}} 的任务已被所有者停止",
       "patrolNotice": "Leader 巡查",
+      "undeliveredNotice": "{{name}} 这轮结束时没有回复",
+      "deliveryFailedNotice": "{{name}} 的回复没能发出去",
       "board": {
         "title": "工作板",
         "unclaimed": "待认领",

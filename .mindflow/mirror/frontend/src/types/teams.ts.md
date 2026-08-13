@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
+## 2026-08-13 — TeamChatMessage.msg_type 增加两种投递通知
+
+取值清单补上 `system_undelivered` / `system_delivery_failed`（与已有的
+`system_stop` / `patrol` / `system_bulletin` 同属房间级系统行，统一由
+[[TeamChatPanel]] 渲染）。语义见 [[delivery_notice]]：前者是「一轮 turn 没投递
+任何东西」，后者是「回复存在、上墙失败」。两者存在，是为了让「agent 无视了你」
+和「回复丢了」不再对用户不可区分。
+
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
 
 工作板的类型。`status` 在用户侧只会收到 ACTIVE 三态 + `paused`;`msg_type`

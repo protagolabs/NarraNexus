@@ -155,6 +155,8 @@
       "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد",
       "stoppedNotice": "تم إيقاف مهمة {{name}} بواسطة المالك",
       "patrolNotice": "جولة القائد",
+      "undeliveredNotice": "أنهى {{name}} هذه الجولة دون رد",
+      "deliveryFailedNotice": "تعذّر إرسال رد {{name}}",
       "board": {
         "title": "لوحة العمل",
         "unclaimed": "غير مُسندة",

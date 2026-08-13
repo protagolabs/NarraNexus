@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · 誰も @ されていないときに対応",
       "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました",
       "patrolNotice": "リーダー巡回",
+      "undeliveredNotice": "{{name}} は今回の応答を返しませんでした",
+      "deliveryFailedNotice": "{{name}} の返信を送信できませんでした",
       "board": {
         "title": "作業ボード",
         "unclaimed": "未割り当て",

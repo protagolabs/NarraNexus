@@ -37,9 +37,14 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
-  /** 'text' | 'multimodal' for ordinary messages. 'system_stop' is the
-   *  owner-stopped notice and 'patrol' is the Leader's sweep — both render as
-   *  room-level lines rather than as a member speaking. */
+  /** 'text' | 'multimodal' for ordinary messages. Everything else is the
+   *  PLATFORM narrating itself, rendered as a room-level line rather than as
+   *  a member speaking: 'system_stop' (owner stopped a run), 'patrol' (the
+   *  Leader's sweep), 'system_bulletin' (house rules changed),
+   *  'system_undelivered' (a turn ended without delivering anything) and
+   *  'system_delivery_failed' (the reply existed; posting it failed).
+   *  The last two exist so an empty room can no longer be mistaken for an
+   *  agent ignoring you — see message_bus/delivery_notice.py. */
   msg_type?: string | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */

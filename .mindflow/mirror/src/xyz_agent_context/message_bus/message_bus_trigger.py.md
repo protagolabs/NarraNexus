@@ -1,8 +1,70 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
+
+PRD《看到的必须是真的》§四。此前 `_invoke_runtime` 返回 `(text, event_id)`，
+投递逻辑是一句 `if response_text:` —— **空就什么都不做**。三个洞共用这一句。
+
+**`TurnResult` 取代二元组，多出来的是 `delivered`。** 这是 `text` 永远回答不了的
+问题：bus turn 有**两个**投递面，peer 只能被 bus send **工具**触达，而工具的产出从
+不出现在 `text` 里。所以「`text` 为空」不等于「什么都没送达」——照着它下判断，会在
+一条投递成功的回复底下印出「没有回复」。
+
+`delivered` 的判据**问 MessageSource 注册表**（`is_user_reply_tool`），不在这里重打
+工具名单：注册表已经是「哪些工具在 bus turn 上算投递」的唯一真源，第二份名单会在
+第三个 send 工具出现的那天悄悄跑偏 —— 2026-08-01 的 no-reply 指标就是这么被污染的。
+
+**`_delivered_to_anyone` 失败时返回 True（不是 False）。** False 的下游是一句公开的
+「本轮没有投递」，注册表抖一下就会把这句谎话印在一条正常送达的回复下面。漏报一次真
+沉默，用户损失的是他本来就已经在忍受的东西；**误报一次，损失的正是这整个改动要重建
+的信任**。
+
+**三处落点：**
+
+- **团队房间空回复** → `announce_undelivered`（不带 mentions）。判据是
+  `reached_nobody`，不是 `not text`：模型违规用工具把话发进了房间时，房间确实收到了，
+  这时候还说「没有回复」是**反方向的同一句谎话**。
+- **上墙失败** → `announce_delivery_failure` + `_write_to_inbox`。两种损失、两份补救：
+  房间说「发不出去」，收件箱**留住发不出去的那段正文** —— 它已经生成、已经计费，
+  一次写失败不是销毁它的理由。**故意不落到通用 except**：游标在几行之前已经推进，
+  这条消息早已 ack，`record_failure` 只能给一次永不会重试的投递刷毒药计数。
+  `_hop_done` 保持 False，`[bus-timing]` 量的是投递，把丢掉的回复算成一跳是自我美化。
+- **A2A 无投递** → 带 `mentions=[提问方]` 的通知 + `_notify_undelivered_owner`。
+  `errand_continuation=True` 时**不叫醒 peer**：那批消息是 peer 在回答我们的 errand，
+  它没在等；等的是我们自己的 owner，收件箱那一条才是全部补救。
+
+**ping-pong 闸**：触发消息本身就是 `system_undelivered` 时不再产生新通知。两个都不
+说话的 agent 否则会互相甩平台行 —— 每一次沉默都在诱发下一条通知。
+
+**它是第一个带 mentions 的平台类型**，也就是第一个能**成为触发消息**的平台类型 ——
+[[system_messages]] 的 `trigger_label` 分派表当初正是为这一天写的。
+
+## 2026-08-13（review 后）— 四处修正
+
+narranexus-review 抓到并逐条修掉：
+
+- **patrol 调用点漏改**（Critical）。`_invoke_runtime` 改成 `TurnResult` 后，全仓两个
+  调用点只改了主路径，`_patrol_body` 还在 `response_text, _ = await ...` 解包 —— 不可
+  迭代的 dataclass 会让每一轮 Leader 巡查在烧完一次 LLM turn 后抛 `TypeError`、写一行
+  warning、戳游标、下周期重来，**永不再发 patrol 行**。测试桩全返回元组所以 CI 全绿。
+  已改调用点 + 6 个桩为 `TurnResult(...)`。
+- **ping-pong 闸从「只挡 `system_undelivered`」扩到 `in PLATFORM_MSG_TYPES`**。patrol
+  行带 mentions 会成为被点名成员的 trigger，它被追到停滞、跑一轮仍无文本时不该读成
+  「用户问了没答」。平台自己发起的 turn 没有在等回答的人。
+- **`_delivered_to_anyone` 的 fail-open 补上「注册表静默降级」这一支**。
+  `MessageSourceRegistry.get()` 从不抛，对未注册 source 返回默认 handler（只有
+  owner-chat 工具），于是 bus send 不再算投递 → 每轮正确答复 peer 的 turn 都被扣上
+  「没有回复」。现在校验 `handler.name == "message_bus"`，不一致也 fail-open 到 True。
+- **owner 通知抽成 `_notify_owner` helper，加冷却**。此前 `_notify_undelivered_owner`
+  每次 `reached_nobody` 都写一行收件箱，一个纯文本回话、不调 bus 工具的 agent 会在一
+  条活跃 A2A 通道上每来一条消息刷一行同名通知，淹没共用一个收件箱的
+  `_notify_permanent_failure`。冷却按 agent 聚合（`f"{agent_id}:no_reply"`），且沿用
+  「写成功后才 arm」这条踩过的坑。`_notify_permanent_failure` 的 `trigger_message`
+  参数已删（不再需要）。
+
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
 
 `_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。
