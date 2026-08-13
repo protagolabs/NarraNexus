@@ -41,6 +41,7 @@ import asyncio
 import itertools
 import os
 import re
+import time
 from urllib.parse import quote
 
 import aiohttp
@@ -154,16 +155,24 @@ _active_streams: dict[int, dict] = {}  # seq (monotonic, = age order) -> {user_i
 
 
 async def _register_sse_stream(user_id: str, session: aiohttp.ClientSession) -> int:
-    """Register a live SSE stream, evicting this user's oldest over the cap.
+    """Register a live SSE stream, evicting this user's STALEST over the cap.
 
     Returns the stream id; pass it to `_unregister_sse_stream` in the body's
     finally. Eviction closes the victim's aiohttp session — that ends its body
     generator (its `async for` over the upstream stops) and closes the response.
+
+    Eviction is by LEAST-RECENT ACTIVITY (`last_active`, touched as frames
+    flow), not by age: a healthy long-open preview — e.g. the column stream
+    that stays live while its fullscreen modal opens a second one for the same
+    doc — must not lose its slot to a newer but idle stream. Stalest first
+    approximates "most likely already dead".
     """
+    now = time.monotonic()
     async with _stream_lock:
-        mine = sorted(sid for sid, e in _active_streams.items() if e["user_id"] == user_id)
+        mine = [(e["last_active"], sid) for sid, e in _active_streams.items() if e["user_id"] == user_id]
+        mine.sort()  # ascending last_active → stalest first
         # Keep at most MAX-1 existing, so this new one brings the total to MAX.
-        for victim in mine[: max(0, len(mine) - (MAX_SSE_STREAMS_PER_USER - 1))]:
+        for _, victim in mine[: max(0, len(mine) - (MAX_SSE_STREAMS_PER_USER - 1))]:
             entry = _active_streams.pop(victim, None)
             if entry is not None:
                 try:
@@ -171,8 +180,15 @@ async def _register_sse_stream(user_id: str, session: aiohttp.ClientSession) -> 
                 except Exception:  # noqa: BLE001 — best-effort eviction
                     pass
         sid = next(_stream_seq)
-        _active_streams[sid] = {"user_id": user_id, "session": session}
+        _active_streams[sid] = {"user_id": user_id, "session": session, "last_active": now}
         return sid
+
+
+def _touch_sse_stream(sid: int) -> None:
+    """Mark a stream active (called as frames flow) so eviction spares it."""
+    entry = _active_streams.get(sid)
+    if entry is not None:
+        entry["last_active"] = time.monotonic()
 
 
 def _unregister_sse_stream(sid: int) -> None:
@@ -369,6 +385,8 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
     async def _body():
         try:
             async for chunk in resp.content.iter_any():
+                if stream_id is not None:
+                    _touch_sse_stream(stream_id)  # keep an active stream off the evict list
                 yield chunk
         finally:
             resp.release()

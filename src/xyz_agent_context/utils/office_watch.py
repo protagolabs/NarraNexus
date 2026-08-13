@@ -22,7 +22,9 @@ in-container ports (e.g. the executor :8020 or sqlite :8100).
 
 from __future__ import annotations
 
+import json
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -157,6 +159,77 @@ def _release_port(abs_file: str, port: int) -> None:
             del _assignments[abs_file]
 
 
+# --- disk-is-truth reconcile (survives a backend/executor restart) -----------
+# The in-memory `_assignments` map is lost on restart, but the DETACHED watches
+# keep running. Without reconcile, the next open for a still-watched file sees
+# an empty map, skips the (still-listening) orphan port, and spawns a SECOND
+# watch — which officecli refuses (same-file single-watch), so it never comes
+# up and the tab shows "could not open". A tiny sidecar file per live watch
+# lets a fresh process rediscover and ADOPT the orphan instead of double-
+# spawning. Sidecars are `.`-prefixed (excluded from the files API, like the
+# watch log) and reaped when their watch is dead.
+
+
+def _watch_meta_path(workspace: Path, port: int) -> Path:
+    return workspace / f".officecli_watch_{port}.meta"
+
+
+def _write_watch_meta(workspace: Path, port: int, abs_file: str, pid: int) -> None:
+    """Record which file+pid owns a watch port (best-effort — a missing sidecar
+    only costs a reconcile miss, never correctness)."""
+    try:
+        _watch_meta_path(workspace, port).write_text(
+            json.dumps({"file": abs_file, "pid": pid, "port": port}), encoding="utf-8"
+        )
+    except OSError as e:  # noqa: BLE001
+        logger.warning(f"officecli watch: could not write sidecar for :{port}: {e}")
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if a process with ``pid`` exists (signal 0 probes without killing)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but owned by another uid — still alive
+    return True
+
+
+def _terminate_group(pid: int) -> None:
+    """Kill the detached watch's process GROUP (spawned with start_new_session,
+    so the child leads its own group). Best-effort."""
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError) as e:  # noqa: BLE001
+        logger.warning(f"officecli watch: could not terminate pid {pid}: {e}")
+
+
+def _reconcile_from_disk(workspace: Path, abs_file: str) -> None:
+    """Repopulate `_assignments[abs_file]` from a live sidecar if one exists,
+    and reap dead sidecars along the way. Called before allocation so a restart
+    reuses an orphan watch instead of double-spawning it."""
+    try:
+        metas = list(workspace.glob(".officecli_watch_*.meta"))
+    except OSError:
+        return
+    for meta_path in metas:
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            port = int(data["port"])
+            pid = int(data["pid"])
+            owner = str(data["file"])
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            continue
+        if _pid_alive(pid) and _port_listening(port):
+            if owner == abs_file:
+                with _alloc_lock:
+                    _assignments[abs_file] = port
+        else:
+            # Dead watch → drop the sidecar so its port frees up for reuse.
+            meta_path.unlink(missing_ok=True)
+
+
 def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0) -> int | None:
     """Ensure an `officecli watch` server is running for ``rel_file`` and return
     the port ALLOCATED to it (None on failure / range exhaustion).
@@ -180,6 +253,12 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     workspace = resolve_existing_workspace(agent_id, user_id)
     abs_file = str((workspace / rel_file).resolve())
 
+    # Disk-is-truth: after a restart the in-memory map is empty but the detached
+    # watch may still be live. Adopt it (and reap dead sidecars) BEFORE
+    # allocating, so we reuse the orphan instead of spawning a doomed 2nd watch.
+    if abs_file not in _assignments:
+        _reconcile_from_disk(workspace, abs_file)
+
     port, already_running = _allocate_port(abs_file)
     if port is None:
         logger.warning("officecli watch: no free port in range; too many live previews at once")
@@ -195,7 +274,7 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     log_path = workspace / f".officecli_watch_{port}.log"
     try:
         with open(log_path, "ab") as log:
-            subprocess.Popen(  # noqa: S603 — workspace-confined file + allowlisted port
+            proc = subprocess.Popen(  # noqa: S603 — workspace-confined file + allowlisted port
                 [_officecli_bin(), "watch", rel_file, "--port", str(port)],
                 cwd=str(workspace),
                 env=env,
@@ -209,16 +288,20 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
         _release_port(abs_file, port)
         return None
 
+    # Record the owner so a later process (restart) can adopt this watch instead
+    # of double-spawning it.
+    _write_watch_meta(workspace, port, abs_file, proc.pid)
+
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         if _port_listening(port):
             return port
         time.sleep(0.25)
-    # Slow to come up — the port may be wedged by a still-dying watch. Release
-    # the reservation so the NEXT open allocates a fresh port instead of retrying
-    # the same stuck slot; this is what makes restart-after-idle-death reliable
-    # (the "Could not open the live preview" symptom when a watch idle-died and
-    # its port hadn't fully released).
+    # Never came up: KILL the process we spawned before releasing the port —
+    # a bare release left it as an orphan that could come up later on a slot
+    # the allocator now believes is free (wrong-content / wedged-port class).
     logger.warning(f"officecli watch on :{port} did not come up within {wait_s}s")
+    _terminate_group(proc.pid)
+    _watch_meta_path(workspace, port).unlink(missing_ok=True)
     _release_port(abs_file, port)
     return None

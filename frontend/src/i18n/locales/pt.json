@@ -2075,6 +2075,7 @@
     "desktopHint": "Abra o NarraNexus em um navegador para ver a pré-visualização ao vivo do documento.",
     "loading": "Abrindo a pré-visualização ao vivo…",
     "loadError": "Não foi possível abrir a pré-visualização ao vivo.",
+    "retry": "Tentar novamente",
     "livePreview": "Pré-visualização ao vivo"
   },
   "common": {

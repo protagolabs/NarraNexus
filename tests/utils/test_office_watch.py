@@ -120,3 +120,71 @@ def test_allocate_port_exhaustion_then_dead_reclaim(monkeypatch):
     live.discard(ow.WATCH_PORT_MIN)
     port, running = ow._allocate_port("/ws/extra.pptx")
     assert port == ow.WATCH_PORT_MIN and running is False
+
+
+# --- lifecycle robustness: disk reconcile + kill-orphan (fix: docx won't load
+#     after a backend restart spawned a doomed 2nd watch for the same file) ----
+
+
+def test_reconcile_adopts_live_orphan_instead_of_double_spawning(tmp_path, monkeypatch):
+    """After a restart the in-memory map is empty but a detached watch is still
+    listening for the file. ensure_watch must ADOPT it, never spawn a second
+    watch (officecli is same-file single-watch; the 2nd would fail to come up
+    and the tab would show 'could not open')."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    (ws / "deck.pptx").write_bytes(b"x")
+    abs_file = str((ws / "deck.pptx").resolve())
+    ow._write_watch_meta(ws, ow.WATCH_PORT_MIN, abs_file, 4242)
+
+    monkeypatch.setattr(ow, "_assignments", {})
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": p == ow.WATCH_PORT_MIN)
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: pid == 4242)
+    spawned = {"popen": False}
+    monkeypatch.setattr(
+        ow.subprocess, "Popen", lambda *a, **k: spawned.__setitem__("popen", True)
+    )
+
+    port = ow.ensure_watch("a1", "u1", "deck.pptx")
+    assert port == ow.WATCH_PORT_MIN
+    assert spawned["popen"] is False  # adopted the orphan, did not respawn
+
+
+def test_reconcile_cleans_a_dead_watchs_meta(tmp_path, monkeypatch):
+    """A sidecar whose watch died (pid gone) is removed, not adopted — so the
+    port frees up for a fresh allocation."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    abs_file = str((ws / "deck.pptx").resolve())
+    ow._write_watch_meta(ws, 26320, abs_file, 9999)
+    monkeypatch.setattr(ow, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": False)
+
+    monkeypatch.setattr(ow, "_assignments", {})
+    ow._reconcile_from_disk(ws, abs_file)
+    assert not (ws / ".officecli_watch_26320.meta").exists()
+    assert abs_file not in ow._assignments
+
+
+def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):
+    """A watch that never comes up within wait_s is terminated — not left
+    listening later on a port the allocator now believes is free."""
+    import xyz_agent_context.utils.office_watch as ow
+
+    ws = _ws(tmp_path, monkeypatch)
+    (ws / "deck.pptx").write_bytes(b"x")
+    killed = {"pid": None}
+
+    class _Proc:
+        pid = 5555
+
+    monkeypatch.setattr(ow.subprocess, "Popen", lambda *a, **k: _Proc())
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": False)
+    monkeypatch.setattr(ow, "_terminate_group", lambda pid: killed.__setitem__("pid", pid))
+    monkeypatch.setattr(ow, "_assignments", {})
+
+    port = ow.ensure_watch("a1", "u1", "deck.pptx", wait_s=0.01)
+    assert port is None
+    assert killed["pid"] == 5555  # orphan reaped, not leaked

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/utils/office_watch.py
-last_verified: 2026-07-21
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+**磁盘为真 + reconcile**:spawn 时写 `.officecli_watch_<port>.meta`(file+pid+port);`ensure_watch` 内存无记录时先 `_reconcile_from_disk` 扫盘——同文件已有存活 watch(`_pid_alive` + `_port_listening`)则 adopt 复用,死 watch 的 sidecar 顺手 unlink 释放端口。**根治**:backend/executor 重启后内存 map 清空,旧 detached watch 仍在听,旧逻辑会给同文件另起第二个 watch(officecli 同文件单 watch→起不来→前端 4 次重试全败 'could not open'),正是「删相邻 artifact→docx 首挂载打不开」的服务端真身。**慢启动杀孤儿**:6s 没起来时 `_terminate_group(pid)`(start_new_session→杀进程组)+ 删 sidecar 再释放端口,不再留孤儿占「已被视为空闲」的端口。
 
 # office_watch.py — 实时 Office 预览的共享内核
 
