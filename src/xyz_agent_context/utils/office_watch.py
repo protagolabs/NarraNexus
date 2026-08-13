@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import shutil
+import signal
 import socket
 import subprocess
 import threading
@@ -46,6 +46,11 @@ OFFICE_LIVE_KIND = "application/vnd.officecli-live"
 # slots covers any realistic number of docs a single user previews at once.
 WATCH_PORT_MIN = 26315
 WATCH_PORT_MAX = 26334
+
+# The argv flag that binds a watch to its port. One constant so the spawn
+# (_watch_argv) and the adopt-time identity match (_cmdline_is_our_watch)
+# share the SAME fact — not two hardcoded copies that can drift apart.
+WATCH_PORT_FLAG = "--port"
 
 
 def is_watch_port(port: int) -> bool:
@@ -177,9 +182,9 @@ def _watch_meta_path(workspace: Path, port: int) -> Path:
 def _watch_argv(rel_file: str, port: int) -> list[str]:
     """The single source of truth for how a watch is launched. Both the spawn
     (``ensure_watch``) and the adopt-time identity check (``_cmdline_is_our_watch``)
-    derive from this, so a change to the command line can't silently break
-    adopt — a binding test spawns via this and matches against it."""
-    return [_officecli_bin(), "watch", rel_file, "--port", str(port)]
+    share the ``WATCH_PORT_FLAG`` token, so a change to the command line can't
+    silently break adopt — a binding test spawns via this and matches against it."""
+    return [_officecli_bin(), "watch", rel_file, WATCH_PORT_FLAG, str(port)]
 
 
 def _cmdline_is_our_watch(cmd: str, port: int) -> bool:
@@ -188,13 +193,14 @@ def _cmdline_is_our_watch(cmd: str, port: int) -> bool:
     Token-level, NOT full-argv equality: argv[0] varies (which/absolute/bare —
     see ``_officecli_bin``) and rel_file's form depends on cwd, so we only
     require the invariant shape from ``_watch_argv``: an ``officecli`` binary
-    plus adjacent ``--port <port>`` tokens."""
+    plus adjacent ``WATCH_PORT_FLAG <port>`` tokens."""
     tokens = cmd.split()
     if not any("officecli" in t for t in tokens):
         return False
     target = str(port)
     return any(
-        tokens[i] == "--port" and tokens[i + 1] == target for i in range(len(tokens) - 1)
+        tokens[i] == WATCH_PORT_FLAG and tokens[i + 1] == target
+        for i in range(len(tokens) - 1)
     )
 
 
@@ -236,8 +242,12 @@ def _proc_cmdline(pid: int) -> str | None:
         pass
     ps_bin = shutil.which("ps") or "/bin/ps"
     try:
-        out = subprocess.run(  # noqa: S603 — absolute ps, pid is an int
-            [ps_bin, "-p", str(pid), "-o", "command="],
+        # absolute ps, pid is an int. -ww: full argv — BSD/macOS ps truncates
+        # the command column to the terminal width (79 when piped, as here),
+        # and our identity token (--port <port>) is at the END of the argv, so
+        # a longer install path or nested file would drop it → adopt refused.
+        out = subprocess.run(
+            [ps_bin, "-ww", "-p", str(pid), "-o", "command="],
             capture_output=True,
             text=True,
             timeout=0.5,
@@ -374,7 +384,7 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     log_path = workspace / f".officecli_watch_{port}.log"
     try:
         with open(log_path, "ab") as log:
-            proc = subprocess.Popen(  # noqa: S603 — workspace-confined file + allowlisted port
+            proc = subprocess.Popen(  # workspace-confined file + allowlisted port
                 _watch_argv(rel_file, port),
                 cwd=str(workspace),
                 env=env,
@@ -383,7 +393,7 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,  # detach: survive the tool call / parent exit
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # spawn errors surface as None, never crash the caller
         logger.warning(f"failed to spawn officecli watch on :{port}: {e}")
         _release_port(abs_file, port)
         return None

@@ -212,13 +212,15 @@ def test_reconcile_refuses_to_adopt_a_port_owned_by_another_file(tmp_path, monke
 
 
 def test_reconcile_refuses_a_recycled_pid_with_mismatched_cmdline(tmp_path, monkeypatch):
-    """Identity guard: the sidecar's pid is alive but its start-time no longer
-    matches (the pid number was recycled into a different process after a
+    """Identity guard: the sidecar's pid is alive but its command line is not
+    our watch (the pid number was recycled into a different process after a
     restart) — refuse to adopt even though pid+port look live."""
     import xyz_agent_context.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
+    # An old-format sidecar still carrying a stray `start` key — proves it
+    # still parses (reconcile reads only file/pid/port).
     (ws / ".officecli_watch_26322.meta").write_text(
         '{"file": "%s", "pid": 4242, "port": 26322, "start": "111"}' % abs_file
     )
@@ -235,15 +237,17 @@ def test_reconcile_refuses_a_recycled_pid_with_mismatched_cmdline(tmp_path, monk
 
 def test_reconcile_refuses_to_adopt_without_identity_evidence(tmp_path, monkeypatch):
     """macOS/desktop regression: when NO identity evidence is obtainable
-    (cmdline unreadable AND no start-time), reconcile must NOT adopt — a loud
+    (the command line is unreadable), reconcile must NOT adopt — a loud
     double-spawn (front-end shows 'could not open' + Retry) beats silently
-    rendering another document. This is the hole the Linux-only start-time
-    guard left open."""
+    rendering another document. (Historically the check was a Linux-only
+    start-time compare, a no-op on desktop — this is that hole, now closed
+    by the cmdline evidence.)"""
     import xyz_agent_context.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
-    # start=None (as macOS records) and no cmdline available.
+    # Old-format sidecar (stray `start` key) with no cmdline available —
+    # forward-compat parsing AND refuse-on-no-evidence in one.
     (ws / ".officecli_watch_26323.meta").write_text(
         '{"file": "%s", "pid": 4242, "port": 26323, "start": null}' % abs_file
     )
@@ -312,3 +316,56 @@ def test_identity_recognizes_the_real_spawn_argv(tmp_path, monkeypatch):
     joined = " ".join(captured["argv"])
     assert ow._cmdline_is_our_watch(joined, port)
     assert not ow._cmdline_is_our_watch(joined, port + 1)
+
+
+def test_proc_cmdline_returns_full_argv_including_tail_token():
+    # Real _proc_cmdline (not monkeypatched): must return the WHOLE argv incl.
+    # the tail — our identity token (--port <port>) is the LAST pair, and a
+    # truncated result would silently refuse adopt. Covers /proc on Linux CI.
+    import subprocess
+    import sys
+
+    import xyz_agent_context.utils.office_watch as ow
+
+    sentinel = "ZZ_office_watch_tail_ZZ"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(3)", *["pad"] * 8, sentinel]
+    )
+    try:
+        cmd = ow._proc_cmdline(proc.pid)
+        assert cmd is not None and sentinel in cmd  # tail survived, no truncation
+    finally:
+        proc.terminate()
+        proc.wait(timeout=2)
+
+
+def test_proc_cmdline_ps_branch_keeps_tail(monkeypatch):
+    # Force the `ps` fallback (as on macOS, no /proc) and assert it keeps the
+    # tail — the `-ww` guard against BSD ps's 79-column truncation.
+    import subprocess
+    import sys
+
+    import xyz_agent_context.utils.office_watch as ow
+
+    real_open = open
+
+    def _no_proc(path, *a, **k):
+        if isinstance(path, str) and path.startswith("/proc/"):
+            raise FileNotFoundError(path)
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr("builtins.open", _no_proc)
+
+    sentinel = "ZZ_ps_tail_ZZ"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(3)", *["pad"] * 8, sentinel]
+    )
+    try:
+        cmd = ow._proc_cmdline(proc.pid)
+        # `ps` may be absent in a sandbox → None (refuse adopt) is acceptable;
+        # when present it MUST include the tail (the -ww fix).
+        if cmd is not None:
+            assert sentinel in cmd
+    finally:
+        proc.terminate()
+        proc.wait(timeout=2)
