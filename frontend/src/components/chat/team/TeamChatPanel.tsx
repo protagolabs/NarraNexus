@@ -654,6 +654,48 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       </div>
                     );
                   }
+                  // Two ways a turn can leave the room empty, and the room now
+                  // says which: the agent delivered nothing, or it delivered
+                  // something we then failed to post. Rendered as room-level
+                  // lines for the same reason as the stop notice — the
+                  // platform is the one speaking. The failure keeps its reason
+                  // in `title`: the chip stays quiet in the transcript, and the
+                  // detail is one hover away for whoever is debugging.
+                  if (
+                    m.msg_type === 'system_undelivered' ||
+                    m.msg_type === 'system_delivery_failed'
+                  ) {
+                    const failed = m.msg_type === 'system_delivery_failed';
+                    return (
+                      <div
+                        key={m.message_id}
+                        data-testid={`${failed ? 'delivery-failed' : 'undelivered'}-notice-${m.message_id}`}
+                        className="flex justify-center py-1"
+                      >
+                        <span
+                          title={m.content}
+                          className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono"
+                          style={{
+                            // A failed post is OUR fault and actionable, so it
+                            // carries warning weight; a silent turn is merely
+                            // information and stays as quiet as the other
+                            // platform lines.
+                            color: failed ? 'var(--color-warning)' : 'var(--nm-ink50)',
+                            borderColor: failed
+                              ? 'var(--color-warning)'
+                              : 'var(--border-subtle)',
+                          }}
+                        >
+                          {t(
+                            failed
+                              ? 'chat.team.deliveryFailedNotice'
+                              : 'chat.team.undeliveredNotice',
+                            { name: m.author_name },
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
                   // A patrol line is the platform taking stock, not a member
                   // talking. It is posted under the room's own marker, so
                   // `author_name` would resolve to a raw `team_<id>` — and more

@@ -27,6 +27,10 @@ module only assembles them, so adding a type does not mean moving it.
 
 from __future__ import annotations
 
+from xyz_agent_context.message_bus.delivery_notice import (
+    DELIVERY_FAILED_MSG_TYPE,
+    UNDELIVERED_MSG_TYPE,
+)
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
 from xyz_agent_context.message_bus.team_bulletin import (
     BULLETIN_NOTICE_MSG_TYPE,
@@ -37,19 +41,23 @@ from xyz_agent_context.message_bus.team_bulletin import (
 # them is an agent taking a turn or a person speaking.
 PLATFORM_MSG_TYPES = (
     BULLETIN_NOTICE_MSG_TYPE,
+    DELIVERY_FAILED_MSG_TYPE,
     PATROL_MSG_TYPE,
     STOP_NOTICE_MSG_TYPE,
+    UNDELIVERED_MSG_TYPE,
 )
 
 
 # How each platform line should be introduced when an agent is told to respond
 # to one. Keyed by type rather than hard-coded at the call site, which had
 # assumed patrol is the only platform message that can become a trigger — true
-# today (stop and bulletin notices send `mentions=None`, so they never trigger
-# anyone) but written nowhere except a comment, and silently wrong the day
-# another type starts carrying mentions.
+# until 2026-08-13, when the undelivered notice became the second: an A2A one
+# mentions the peer that asked, precisely so a blocked errand wakes up instead
+# of waiting forever. The dispatch table was written for exactly this day.
 _TRIGGER_LABELS = {
     PATROL_MSG_TYPE: "the team's Leader check",
+    UNDELIVERED_MSG_TYPE: "a platform notice that the agent you contacted "
+                          "ended its turn without replying",
 }
 # Neutral fallback: a new platform type gets a truthful vague label rather than
 # a synthetic `team_<id>` marker printed as if it were a teammate.

@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
+
+PRD《看到的必须是真的》§四。此前 `_invoke_runtime` 返回 `(text, event_id)`，
+投递逻辑是一句 `if response_text:` —— **空就什么都不做**。三个洞共用这一句。
+
+**`TurnResult` 取代二元组，多出来的是 `delivered`。** 这是 `text` 永远回答不了的
+问题：bus turn 有**两个**投递面，peer 只能被 bus send **工具**触达，而工具的产出从
+不出现在 `text` 里。所以「`text` 为空」不等于「什么都没送达」——照着它下判断，会在
+一条投递成功的回复底下印出「没有回复」。
+
+`delivered` 的判据**问 MessageSource 注册表**（`is_user_reply_tool`），不在这里重打
+工具名单：注册表已经是「哪些工具在 bus turn 上算投递」的唯一真源，第二份名单会在
+第三个 send 工具出现的那天悄悄跑偏 —— 2026-08-01 的 no-reply 指标就是这么被污染的。
+
+**`_delivered_to_anyone` 失败时返回 True（不是 False）。** False 的下游是一句公开的
+「本轮没有投递」，注册表抖一下就会把这句谎话印在一条正常送达的回复下面。漏报一次真
+沉默，用户损失的是他本来就已经在忍受的东西；**误报一次，损失的正是这整个改动要重建
+的信任**。
+
+**三处落点：**
+
+- **团队房间空回复** → `announce_undelivered`（不带 mentions）。判据是
+  `reached_nobody`，不是 `not text`：模型违规用工具把话发进了房间时，房间确实收到了，
+  这时候还说「没有回复」是**反方向的同一句谎话**。
+- **上墙失败** → `announce_delivery_failure` + `_write_to_inbox`。两种损失、两份补救：
+  房间说「发不出去」，收件箱**留住发不出去的那段正文** —— 它已经生成、已经计费，
+  一次写失败不是销毁它的理由。**故意不落到通用 except**：游标在几行之前已经推进，
+  这条消息早已 ack，`record_failure` 只能给一次永不会重试的投递刷毒药计数。
+  `_hop_done` 保持 False，`[bus-timing]` 量的是投递，把丢掉的回复算成一跳是自我美化。
+- **A2A 无投递** → 带 `mentions=[提问方]` 的通知 + `_notify_undelivered_owner`。
+  `errand_continuation=True` 时**不叫醒 peer**：那批消息是 peer 在回答我们的 errand，
+  它没在等；等的是我们自己的 owner，收件箱那一条才是全部补救。
+
+**ping-pong 闸**：触发消息本身就是 `system_undelivered` 时不再产生新通知。两个都不
+说话的 agent 否则会互相甩平台行 —— 每一次沉默都在诱发下一条通知。
+
+**它是第一个带 mentions 的平台类型**，也就是第一个能**成为触发消息**的平台类型 ——
+[[system_messages]] 的 `trigger_label` 分派表当初正是为这一天写的。
+
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
 
 `_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。

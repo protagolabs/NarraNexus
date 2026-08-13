@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
       "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다",
       "patrolNotice": "리더 점검",
+      "undeliveredNotice": "{{name}}이(가) 이번 턴에 답하지 않았습니다",
+      "deliveryFailedNotice": "{{name}}의 답변을 게시하지 못했습니다",
       "board": {
         "title": "작업 보드",
         "unclaimed": "미할당",

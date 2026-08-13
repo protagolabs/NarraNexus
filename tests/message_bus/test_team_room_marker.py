@@ -24,6 +24,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -46,7 +47,7 @@ async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
 def _recording_invoke(seen: dict):
     async def _record(*args, **kwargs):
         seen.update(kwargs)
-        return "", None
+        return TurnResult(text="", event_id=None, delivered=True)
 
     return _record
 
@@ -92,7 +93,8 @@ async def test_invoke_runtime_stamps_marker_into_trigger_extra_data(monkeypatch)
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
         return SimpleNamespace(
-            is_error=False, output_text="ok", event_id="evt_1", error=None
+            is_error=False, output_text="ok", event_id="evt_1", error=None,
+            tool_calls=[]
         )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))

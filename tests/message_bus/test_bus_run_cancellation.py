@@ -32,6 +32,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -79,7 +80,7 @@ async def test_a_live_token_reaches_the_runtime(db_client, monkeypatch):
 
     async def _record(*args, **kwargs):
         seen.update(kwargs)
-        return "", None
+        return TurnResult(text="", event_id=None, delivered=True)
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -105,7 +106,7 @@ async def test_token_is_registered_under_the_run_id_then_released(db_client, mon
 
         watcher = get_cancel_watcher(db_client)
         watched_during_run["ids"] = list(watcher._tokens.keys())
-        return "", "evt_run_1"
+        return TurnResult(text="", event_id="evt_run_1", delivered=True)
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -194,7 +195,10 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(is_error=False, output_text="ok", event_id="evt_1", error=None)
+        return SimpleNamespace(
+            is_error=False, output_text="ok", event_id="evt_1", error=None,
+            tool_calls=[],
+        )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
