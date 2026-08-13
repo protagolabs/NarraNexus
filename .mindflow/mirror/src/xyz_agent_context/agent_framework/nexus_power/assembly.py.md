@@ -9,6 +9,7 @@ stub: false
 dispatcher 的 expressive 保底席判据来源：`is_expressive=expression.is_expressive`
 与 marker_tools 并列传入——expression 在 build 段更早处构造，顺序安全；传活对象
 （不是 frozenset 快照），expansion 轮内 add_tools 的授予才可见。
+**测试覆盖缺口（诚实标注）**：run_turn_events 无测试入口（全仓 tests 不驱动它），本行接线的正确性目前靠人工逐跳核对（六审已验通：get_expressive_tools → mcp_tool_name → is_expressive 三处拼写一致）；smoke 补法记 reference/self_notebook/todo/。
 
 ## 2026-08-13 — expression_nudge 接线
 

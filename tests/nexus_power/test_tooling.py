@@ -276,50 +276,6 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     unrelated = dispatcher.search_lines("compile the kernel sources")
     assert not any("__speak" in line for line in unrelated)
 
-
-@pytest.mark.asyncio
-async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
-    """Round 5 review Important #1: the seat is a GUARANTEE, not top
-    placement — strong matches keep their rank order, and the missing
-    reply tool replaces only the weakest non-expressive seat at the
-    tail."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
-        dispatcher as dispatcher_mod,
-    )
-
-    # 13 strong leaf-name matches for the probe (exact `search` in the
-    # leaf) — more than the slice holds on their own.
-    specs = [
-        ToolSpec(name=f"search_tool_{i:02d}", description="search things",
-                 input_schema={"type": "object"})
-        for i in range(13)
-    ]
-    # One expressive tool with coverage 1 only (description mentions
-    # `search` once, name shares nothing).
-    specs.append(ToolSpec(
-        name="mcp__narramessenger_module__speak",
-        description="Speak results of a search to the user.",
-        input_schema={"type": "object"},
-    ))
-    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
-
-    class _Chan(_StubChannel):
-        def list_tools(self):
-            return specs
-
-    dispatcher = ToolDispatcher(
-        (builtin, _Chan()), policy=engine, ctx=ctx,
-        is_expressive={"mcp__narramessenger_module__speak"}.__contains__,
-    )
-    cap = dispatcher_mod._SEARCH_MAX_HITS
-    lines = dispatcher.search_lines("search")
-    assert len(lines) == cap
-    # The head keeps rank order (leaf-name matches, scope order): no
-    # fake top placement — speak sits in the LAST seat it displaced.
-    assert "search_tool_00" in lines[0]
-    assert "search_tool_01" in lines[1]
-    assert "__speak" in lines[-1]
-
     # Pipeline review Important #3 — the cap must not be bypassable:
     # whitespace-only query routes to the grouped overview (not a
     # vacuous match of everything)...
@@ -339,6 +295,63 @@ async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
     assert len(carded) <= cap + card_cap
     assert any(line.startswith("card-") for line in carded)
     assert any("card-best" in line for line in carded)
+
+
+@pytest.mark.asyncio
+async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
+    """Round 5 review Important #1: the seat is a GUARANTEE, not top
+    placement — strong matches keep their rank order, and the missing
+    reply tool replaces only the weakest non-expressive seat at the
+    tail."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+        dispatcher as dispatcher_mod,
+    )
+
+    # 13 strong leaf-name matches for the probe (exact `search` in the
+    # leaf) — more than the slice holds on their own.
+    specs = [
+        ToolSpec(name=f"search_tool_{i:02d}", description="search things",
+                 input_schema={"type": "object"})
+        for i in range(13)
+    ]
+    # TWO expressive tools with coverage 1 only (descriptions mention
+    # `search` once, names share nothing) — two, so seat order among the
+    # substitutes is falsifiable (round 6 Minor #2: a single substitute
+    # cannot distinguish tail-forward from reversed placement).
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__speak",
+        description="Speak results of a search to the user.",
+        input_schema={"type": "object"},
+    ))
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__narra_send",
+        description="Send search results to a room.",
+        input_schema={"type": "object"},
+    ))
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
+
+    class _Chan(_StubChannel):
+        def list_tools(self):
+            return specs
+
+    dispatcher = ToolDispatcher(
+        (builtin, _Chan()), policy=engine, ctx=ctx,
+        is_expressive={
+            "mcp__narramessenger_module__speak",
+            "mcp__narramessenger_module__narra_send",
+        }.__contains__,
+    )
+    cap = dispatcher_mod._SEARCH_MAX_HITS
+    lines = dispatcher.search_lines("search")
+    assert len(lines) == cap
+    # The head keeps rank order (leaf-name matches, scope order): no
+    # fake top placement — the substitutes take the LAST seats, and keep
+    # their own rank order between them (speak ranks above narra_send
+    # here by scope order, so it sits first of the two tail seats).
+    assert "search_tool_00" in lines[0]
+    assert "search_tool_01" in lines[1]
+    assert "__speak" in lines[-2]
+    assert "__narra_send" in lines[-1]
 
 
 @pytest.mark.asyncio

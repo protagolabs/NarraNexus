@@ -291,11 +291,23 @@ class ToolDispatcher:
         head = ranked[:_SEARCH_MAX_HITS]
         seated = {s.name for s in head}
         missing = [s for s in ranked if _is_expr(s) and s.name not in seated]
-        for s in missing[:_SEARCH_MAX_EXPRESSIVE_HITS]:
+        # Reversed placement: the backward victim scan hands out seats
+        # from the tail inward, so iterating the strongest substitute
+        # LAST parks it on the earliest (front-most) freed seat — the
+        # substitutes keep their own rank order in the final slice.
+        for s in reversed(missing[:_SEARCH_MAX_EXPRESSIVE_HITS]):
             for i in range(len(head) - 1, -1, -1):
                 if not _is_expr(head[i]):
                     head[i] = s
                     break
+            else:
+                # No non-expressive seat left (head already saturated
+                # with reply tools) — this substitute stays unseated.
+                # Loud enough to find, quiet enough not to spam.
+                logger.debug(
+                    f"tool_search: no seat left for expressive "
+                    f"{s.name!r}; head is all-expressive"
+                )
         tool_hits = [_line(s) for s in head]
         card_hits: list[str] = []
         if card_index:

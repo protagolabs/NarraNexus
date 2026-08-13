@@ -20,7 +20,7 @@ ALL 路径靠它排序）；token 用 dict.fromkeys 去重保序（排序可复�
 `ExpressionContract.is_expressive` 传进 ToolDispatcher（**活对象不许快照**：expansion
 轮内会 add_tools）。席位语义=**保证在场不动序**：已排进前 12 的不动位置；没进的最多
 3 个从尾部替换最弱的**非 expressive** 席（「截断砍最弱」不变量保持）；入席门槛=过滤
-命中（内容词覆盖≥1），无命中不搭车——门槛故意宽，因为不再置顶、只花尾部席位。
+命中（内容词覆盖≥1），无命中不搭车——门槛故意宽，因为不再置顶、只花尾部席位。补席**倒序放置**（最强的最后放→占最靠前的空出尾席），多个补席工具间保持排名序；非 expressive 席耗尽时多余 missing 不再补、logger.debug 留痕（六审 M#2/M#4）。
 同款先例=marker_tools 的双判据（annotation or 注入名单）。_GLUE_TOKENS 只留长度门槛
 （>2 字符）管不到的词，≤2 字符胶水由门槛自身兜。card 行也按覆盖率排名后截 4（展示文本按行打分，不套 _ranked）。
 `all_matched` 语义固定=ALL 过滤非空（它决定 card 的 ALL/ANY 噪音策略，别换判据）。overview 分支刻意不封顶——那就是全量清单请求。
