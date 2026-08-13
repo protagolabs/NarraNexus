@@ -686,6 +686,11 @@ async def get_skill(
         if not skill:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
+        # Same platform-assumed downgrade the list endpoint applies, so detail
+        # never gives a more optimistic env_configured than the list (enrich is
+        # a no-op unless the skill has an unmet platform assumption).
+        await _enrich_platform_env_status(skill_module, [skill], user_id)
+
         return SkillOperationResponse(success=True, skill=skill)
 
     except HTTPException:

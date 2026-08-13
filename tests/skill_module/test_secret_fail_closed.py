@@ -70,6 +70,19 @@ def test_configured_env_var_names_excludes_undecryptable(key):
     assert configured == {"GOOD"}  # BAD undecryptable, EMPTY blank
 
 
+def test_configured_env_var_names_excludes_empty_ciphertext(key):
+    # "decryptable" is not "usable": encrypt("") is a real Fernet token that
+    # decrypts to "". A scrubbed-bundle restore + legacy migration can leave
+    # this shape; it must read as NOT configured (green-card-with-empty-key is
+    # the exact 8/1 shape, just empty instead of ciphertext).
+    from xyz_agent_context.module.skill_module.skill_module import (
+        configured_env_var_names,
+    )
+
+    box = sb.get_secret_box()
+    assert configured_env_var_names({"A": box.encrypt("")}) == set()
+
+
 def test_env_configured_reflects_decryptability_incl_disabled(module, key):
     # env_configured is computed at the SkillModule source (_parse_skill_md),
     # so it is truthful for ENABLED and DISABLED skills alike (the helper takes
@@ -216,3 +229,67 @@ def test_env_config_status_non_platform_missing_var_is_unconfigured(key):
     configured, assumed = env_config_status(["MY_KEY"], {})
     assert configured is False
     assert assumed is None
+
+
+def _make_skill_with_frontmatter(module, name, requires_env, env_config):
+    d = module.skills_dir / name
+    d.mkdir(parents=True, exist_ok=True)
+    env_lines = "\n".join(f"    - {v}" for v in requires_env)
+    (d / "SKILL.md").write_text(f"---\nname: {name}\nrequires:\n  env:\n{env_lines}\n---\n# {name}\n")
+    (d / ".skill_meta.json").write_text(
+        json.dumps({"name": name, "requires": {"env": requires_env}, "env_config": env_config})
+    )
+    return d
+
+
+def test_parse_wires_env_platform_assumed_into_skillinfo(module, key):
+    # 🟡2: the parse → SkillInfo.env_platform_assumed → enrich seam. enrich's
+    # ONLY input is this field, so _parse_skill_md must actually populate it —
+    # asserted through the real list_skills → _parse_skill_md path, not a
+    # hand-built SkillInfo.
+    box = sb.get_secret_box()
+    # Platform var, NO stored value → optimistically configured but flagged
+    # assumed so the API layer DB-validates it.
+    _make_skill_with_frontmatter(module, "platform-only", ["NETMIND_API_KEY"], {})
+    # Same platform var, SELF-STORED → configured and NOT assumed (never
+    # downgraded against the provider table).
+    _make_skill_with_frontmatter(
+        module, "self-stored", ["NETMIND_API_KEY"], {"NETMIND_API_KEY": box.encrypt("k")}
+    )
+
+    by_name = {s.name: s for s in module.list_skills(include_disabled=True)}
+    assert by_name["platform-only"].env_configured is True
+    assert by_name["platform-only"].env_platform_assumed == ["NETMIND_API_KEY"]
+    assert by_name["self-stored"].env_configured is True
+    assert by_name["self-stored"].env_platform_assumed is None
+
+
+def test_parse_fallback_path_also_wires_env_platform_assumed(module, key):
+    # The fallback return (SKILL.md present but WITHOUT frontmatter) must fill
+    # the field too — the round-2 asymmetric-return bug lived here. requires_env
+    # then comes only from .skill_meta.json.
+    d = module.skills_dir / "no-frontmatter"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text("# just a heading, no yaml frontmatter\n")
+    (d / ".skill_meta.json").write_text(
+        json.dumps({"name": "no-frontmatter", "requires": {"env": ["NETMIND_API_KEY"]}, "env_config": {}})
+    )
+
+    skill = {s.name: s for s in module.list_skills()}["no-frontmatter"]
+    assert skill.env_configured is True
+    assert skill.env_platform_assumed == ["NETMIND_API_KEY"]
+
+
+def test_list_skills_survives_non_dict_meta(module, key):
+    # 🟢5: a .skill_meta.json holding a JSON array (agent-writable) must not
+    # crash _parse_skill_md / _scan_skills — the skill is still listed, other
+    # skills unaffected.
+    box = sb.get_secret_box()
+    bad = module.skills_dir / "arraymeta"
+    bad.mkdir(parents=True, exist_ok=True)
+    (bad / "SKILL.md").write_text("---\nname: arraymeta\n---\n# arraymeta\n")
+    (bad / ".skill_meta.json").write_text(json.dumps(["not", "a", "dict"]))
+    _make_skill(module, "healthy", {"GOOD": box.encrypt("real")})
+
+    names = {s.name for s in module.list_skills()}  # must not raise
+    assert {"arraymeta", "healthy"} <= names

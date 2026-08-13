@@ -237,10 +237,17 @@ def configured_env_var_names(env_config: dict) -> Set[str]:
     unreadable value degrades to "not configured" (fail-CLOSED), never to a
     returned ciphertext (fail-open). Decryption itself is delegated to the
     (total) ``decrypt_env_config`` so this and the injection path share ONE
-    decryptor — the ``plain`` dict it returns already excludes undecryptable,
-    corrupt, and blank values, which is exactly "configured".
+    decryptor; the ``plain`` it returns already excludes undecryptable, corrupt,
+    and blank-stored values. We ALSO drop values that decrypt to an empty string
+    (e.g. ``encrypt("")`` — a real token a scrubbed bundle restore can leave
+    behind): "decryptable" is not "usable", and an empty credential reads as NOT
+    configured so the UI prompts a re-enter instead of showing a green card that
+    injects an empty key at run time.
     """
     if not isinstance(env_config, dict):
+        # Fast return: skip get_secret_box() entirely for a malformed meta.
+        # decrypt_env_config is itself total on non-dict; this is an entry guard,
+        # not a second sanitization layer.
         return set()
     from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
         get_secret_box,
@@ -256,7 +263,7 @@ def configured_env_var_names(env_config: dict) -> Set[str]:
         return set()
 
     plain, _, _ = box.decrypt_env_config(env_config)
-    return set(plain.keys())
+    return {name for name, value in plain.items() if value}
 
 
 def env_config_status(
@@ -563,13 +570,7 @@ class SkillModule(XYZBaseModule):
                 else:
                     # Directory without SKILL.md (may be a skill auto-created by agent)
                     # Still list it, using directory name as the name
-                    meta_file = skill_path / ".skill_meta.json"
-                    meta_data = {}
-                    if meta_file.exists():
-                        try:
-                            meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-                        except Exception:
-                            pass
+                    meta_data = self._load_meta_dict(skill_path / ".skill_meta.json")
 
                     info = SkillInfo(
                         name=skill_path.name,
@@ -639,14 +640,10 @@ class SkillModule(XYZBaseModule):
         source_url = None
         installed_at = None
 
-        # Read .skill_meta.json (if exists)
-        meta_file = skill_dir / ".skill_meta.json"
-        meta_data = {}
-        if meta_file.exists():
-            try:
-                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"Failed to read .skill_meta.json: {e}")
+        # Read .skill_meta.json (if exists). Coerced to a dict so a malformed,
+        # agent-writable meta cannot crash the .get() chain below (which runs
+        # OUTSIDE the frontmatter try) and take down _scan_skills with it.
+        meta_data = self._load_meta_dict(skill_dir / ".skill_meta.json")
 
         # Extract fields from meta_data
         source_url = meta_data.get("source_url")
@@ -901,18 +898,36 @@ class SkillModule(XYZBaseModule):
                         pass
         return None
 
+    @staticmethod
+    def _load_meta_dict(meta_file: Path) -> dict:
+        """Read a .skill_meta.json into a dict, coercing away malformed shapes.
+
+        The file is agent-writable, so it may be absent, non-JSON, or valid JSON
+        that is not an object (an array / string / number). Every one of those
+        yields ``{}`` — a malformed meta must never crash ``_parse_skill_md`` /
+        ``_scan_skills`` / the credential-injection path (the "malformed meta
+        must not crash the panel or drop the agent's skills" contract). The
+        non-object case is logged (with the path) rather than swallowed, so a
+        corrupt file leaves a breadcrumb instead of silently reading as empty.
+        """
+        if not meta_file.exists():
+            return {}
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001 — corrupt/non-JSON agent-written file
+            logger.warning(f"Failed to read {meta_file}: {e}")
+            return {}
+        if isinstance(data, dict):
+            return data
+        logger.warning(f".skill_meta.json is not a JSON object, ignoring: {meta_file}")
+        return {}
+
     def _read_skill_meta(self, skill_name: str) -> dict:
         """Read .skill_meta.json for a skill, returns empty dict if not found"""
         skill_dir = self._resolve_skill_dir(skill_name)
         if not skill_dir:
             return {}
-        meta_file = skill_dir / ".skill_meta.json"
-        if meta_file.exists():
-            try:
-                return json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"Failed to read .skill_meta.json for '{skill_name}': {e}")
-        return {}
+        return self._load_meta_dict(skill_dir / ".skill_meta.json")
 
     def _write_skill_meta(self, skill_name: str, meta_data: dict) -> None:
         """Write .skill_meta.json for a skill"""
