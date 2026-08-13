@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/system_messages.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -39,3 +39,8 @@ stub: false
 今天成立（停止通知与公告栏通知都是 `mentions=None`），但这条前提只写在注释里，
 没有任何东西守住它——哪天另一种类型开始带 mentions，它就静默错了。
 未知类型落到中性兜底，而不是把 `team_<id>` 当成队友名字印出来。
+
+## 2026-08-12 — 再加两种：`system_cascade` / `system_roster`
+
+见 [[team_notices]]。加进这个元组同时意味着它们被排除在总结触发、transcript 发言者渲染、
+**和 agent 跳数**之外——最后一条对封顶通知是必须的：一条计入跳数的封顶通知会让上限越收越紧。

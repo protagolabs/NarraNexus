@@ -31,8 +31,22 @@ import { useTranslation } from 'react-i18next';
 import { TeamMessageBubble } from './TeamMessageBubble';
 import type { TeamChatMessage } from '@/types/teams';
 
-/** Message kinds the platform writes about itself. */
-const SYSTEM_MSG_TYPES = new Set(['system_bulletin', 'system_stop', 'patrol']);
+/**
+ * Message kinds the platform writes about itself.
+ *
+ * Mirrors `message_bus/system_messages.PLATFORM_MSG_TYPES` on the server. Two
+ * lists rather than one is a real cost, and the honest reason is that the wire
+ * carries strings: a type the server starts sending and this set does not know
+ * renders as a member speaking, which is the failure this set exists to prevent.
+ * Adding one means editing both — the test asserts every known type is here.
+ */
+const SYSTEM_MSG_TYPES = new Set([
+  'system_bulletin',
+  'system_cascade',
+  'system_roster',
+  'system_stop',
+  'patrol',
+]);
 
 export interface TeamTranscriptProps {
   messages: TeamChatMessage[];

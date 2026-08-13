@@ -110,3 +110,29 @@ describe('TeamTranscript', () => {
     expect(screen.getAllByTestId(/^day-sep-/)).toHaveLength(1);
   });
 });
+
+describe('platform lines the server can send', () => {
+  // The wire carries strings, so a type the server sends and the client does not
+  // know renders as a member speaking — with an identity colour and a bubble,
+  // exactly the failure this set exists to prevent. These are the types
+  // `message_bus/system_messages.PLATFORM_MSG_TYPES` currently registers.
+  for (const t of [
+    'system_bulletin',
+    'system_cascade',
+    'system_roster',
+    'system_stop',
+    'patrol',
+  ]) {
+    test(`${t} is not given a bubble`, () => {
+      render(
+        <TeamTranscript
+          messages={[msg('s', '2026-08-12T09:00:00Z', { msg_type: t })] as never}
+          userLabel="Bin"
+          leadAgentId=""
+          memberNames={{ agent_a: 'Ana' }}
+        />,
+      );
+      expect(screen.queryByTestId('bubble-s')).toBeNull();
+    });
+  }
+});

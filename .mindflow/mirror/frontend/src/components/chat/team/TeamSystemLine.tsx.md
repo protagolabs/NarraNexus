@@ -12,3 +12,8 @@ stub: false
 
 markup 和理由都是从 [[TeamChatPanel]] **原样搬出**的，只换了位置：让 [[TeamTranscript]] 能决定
 系统行**放在哪**，而不必同时拥有它**长什么样**。
+
+## 2026-08-12 — 两种新平台行
+
+`system_cascade`（封顶，正文自带「谁没被拉进来」）与 `system_roster`（成员/lead 变更）。
+两者都渲染成居中灰行，**在事情发生的位置**，这样它上方的 transcript 不会被读成当前这批人写的。

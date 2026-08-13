@@ -226,7 +226,8 @@
       "leadBadge": "lead",
       "expand": "Show more",
       "collapse": "Show less",
-      "today": "Today"
+      "today": "Today",
+      "agentPaused": "This agent is paused ({{reason}}). Use Resume in the banner above once the cause is cleared."
     },
     "execution": {
       "showSteps": "Show execution steps",

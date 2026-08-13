@@ -965,6 +965,7 @@ class MessageBusTrigger:
                     # Cap agent↔agent cascades: if too many agent hops have
                     # piled up since the last human message, stop propagating
                     # @mentions so two agents can't loop forever.
+                    capped_mentions: list[str] = []
                     if mentions:
                         depth = await self._team_cascade_depth(channel_id)
                         if depth >= MAX_TEAM_AGENT_HOPS:
@@ -972,6 +973,9 @@ class MessageBusTrigger:
                                 f"Team cascade depth {depth} >= {MAX_TEAM_AGENT_HOPS} "
                                 f"in {channel_id}; dropping @mentions to break the loop"
                             )
+                            capped_mentions = [
+                                member_map.get(m, m) for m in mentions if m != "@everyone"
+                            ]
                             mentions = []
                     await self._bus.send_message(
                         from_agent=agent_id,
@@ -986,6 +990,23 @@ class MessageBusTrigger:
                         # a team turn has one (`include_monologue=is_team`).
                         segments=reply_segments or None,
                     )
+                    if capped_mentions:
+                        # Posted after the reply, so the room reads in the order
+                        # things happened: the agent speaks, then the platform
+                        # explains what it declined to do. A log line left the
+                        # user thinking the teammate had ignored the request.
+                        from xyz_agent_context.message_bus.team_notices import (
+                            post_cascade_capped,
+                        )
+                        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                        await post_cascade_capped(
+                            await get_db_client(),
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            dropped=capped_mentions,
+                            depth=MAX_TEAM_AGENT_HOPS,
+                        )
                 else:
                     # Write response to inbox
                     await self._write_to_inbox(

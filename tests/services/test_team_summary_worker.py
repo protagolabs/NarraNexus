@@ -608,17 +608,21 @@ async def test_patrol_lines_are_not_shown_to_the_summariser(db_client):
 def test_the_filter_is_built_from_constants_not_retyped_strings():
     """The first version hard-coded two literals and #259's third type slipped
     past it. Importing the constants is what makes the next one impossible to
-    miss silently."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
-    from xyz_agent_context.message_bus.team_bulletin import (
-        BULLETIN_NOTICE_MSG_TYPE,
-        STOP_NOTICE_MSG_TYPE,
-    )
+    miss silently.
+
+    Asserted as "every registered platform type is in the filter", not as a
+    fixed list: pinning the exact set meant this test failed the moment two more
+    types were registered (system_cascade / system_roster), which is a green-to-
+    red signal about the wrong thing. What must hold is that the worker filters
+    ALL of them — a new type nobody added here would let the platform trigger
+    itself again, which is the actual fault this guards.
+    """
+    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
     from xyz_agent_context.services.team_summary_worker import _SYSTEM_MSG_TYPES
 
-    assert set(_SYSTEM_MSG_TYPES) == {
-        PATROL_MSG_TYPE, BULLETIN_NOTICE_MSG_TYPE, STOP_NOTICE_MSG_TYPE,
-    }
+    assert set(_SYSTEM_MSG_TYPES) == set(PLATFORM_MSG_TYPES)
+    # And the registry is not empty, or the assertion above passes vacuously.
+    assert len(PLATFORM_MSG_TYPES) >= 3
 
 
 @pytest.mark.asyncio

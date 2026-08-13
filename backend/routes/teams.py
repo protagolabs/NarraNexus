@@ -637,8 +637,18 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
             if lead not in members:
                 raise HTTPException(status_code=400, detail="lead_agent_id must be a team member")
         updates["lead_agent_id"] = lead or None
+    lead_changed = (
+        "lead_agent_id" in updates
+        and (updates["lead_agent_id"] or "") != (getattr(team, "lead_agent_id", None) or "")
+    )
     if updates:
         await team_repo.update_team(team_id, updates)
+    if lead_changed and updates.get("lead_agent_id"):
+        # The lead is who answers when nobody is named and who patrol wakes, so
+        # changing it changes who is responsible. Only announced when a lead was
+        # SET: clearing it hands responsibility back to the earliest-joined
+        # member by rule, which is not an event with a name to report.
+        await _announce_roster(db, team_id, "lead", updates["lead_agent_id"])
     refreshed = await team_repo.get_team(team_id)
     return TeamOperationResponse(success=True, team=refreshed, message="Team updated")
 
@@ -972,6 +982,31 @@ async def list_team_files(team_id: str, request: Request):
 
 
 @router.post("/{team_id}/members", response_model=TeamOperationResponse)
+async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None:
+    """Tell the room its roster or lead changed.
+
+    Only when the room EXISTS: a team whose chat has never been opened has no
+    channel, and creating one to narrate a membership edit would be the tail
+    wagging the dog. Best-effort — the edit itself already succeeded.
+    """
+    from xyz_agent_context.message_bus.team_notices import post_roster_change
+
+    channel = await db.get_one(
+        "bus_channels",
+        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}", "channel_type": "group"},
+    )
+    if not channel:
+        return
+    agent = await db.get_one("agents", {"agent_id": agent_id})
+    await post_roster_change(
+        db,
+        team_id=team_id,
+        channel_id=channel["channel_id"],
+        action=action,
+        agent_name=(agent or {}).get("agent_name") or agent_id,
+    )
+
+
 async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
@@ -991,6 +1026,11 @@ async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
         raise HTTPException(status_code=403, detail="Cannot add another user's agent")
 
     added = await member_repo.add_member(team_id, payload.agent_id)
+    if added:
+        # Who is in the room decides what @all reaches and who can answer. It
+        # used to change silently, which also leaves the transcript above the
+        # change reading as though the current roster wrote it.
+        await _announce_roster(db, team_id, "joined", payload.agent_id)
     return TeamOperationResponse(
         success=True,
         message="Agent added to team" if added else "Agent already in team",
@@ -1013,6 +1053,7 @@ async def remove_member(team_id: str, agent_id: str, request: Request):
     deleted = await member_repo.remove_member(team_id, agent_id)
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Member not found in team")
+    await _announce_roster(db, team_id, "left", agent_id)
     return TeamOperationResponse(success=True, message="Member removed")
 
 

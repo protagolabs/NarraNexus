@@ -53,6 +53,37 @@ export function TeamSystemLine({ message: m }: { message: TeamChatMessage }) {
     );
   }
 
+  // The cap fired: the user asked for a teammate and the platform declined.
+  // Shown as its own line rather than folded into the reply, because it is not
+  // the agent's statement — and it names who to @ manually.
+  if (m.msg_type === 'system_cascade') {
+    return (
+      <div data-testid={`cascade-notice-${m.message_id}`} className="flex justify-center py-1">
+        <span
+          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+          style={{ color: 'var(--nm-ink50)' }}
+        >
+          {m.content}
+        </span>
+      </div>
+    );
+  }
+
+  // Membership or lead changed. Rendered as a line in the flow, at the point it
+  // happened, so the transcript above it is not read as the current roster's.
+  if (m.msg_type === 'system_roster') {
+    return (
+      <div data-testid={`roster-notice-${m.message_id}`} className="flex justify-center py-1">
+        <span
+          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
+          style={{ color: 'var(--nm-ink50)' }}
+        >
+          {m.content}
+        </span>
+      </div>
+    );
+  }
+
   // Patrol: the platform taking stock. Shown, because the chase it carries is
   // real work the room should see, but never as a member speaking.
   return (

@@ -28,6 +28,10 @@ module only assembles them, so adding a type does not mean moving it.
 from __future__ import annotations
 
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+from xyz_agent_context.message_bus.team_notices import (
+    CASCADE_MSG_TYPE,
+    ROSTER_MSG_TYPE,
+)
 from xyz_agent_context.message_bus.team_bulletin import (
     BULLETIN_NOTICE_MSG_TYPE,
     STOP_NOTICE_MSG_TYPE,
@@ -37,7 +41,9 @@ from xyz_agent_context.message_bus.team_bulletin import (
 # them is an agent taking a turn or a person speaking.
 PLATFORM_MSG_TYPES = (
     BULLETIN_NOTICE_MSG_TYPE,
+    CASCADE_MSG_TYPE,
     PATROL_MSG_TYPE,
+    ROSTER_MSG_TYPE,
     STOP_NOTICE_MSG_TYPE,
 )
 
