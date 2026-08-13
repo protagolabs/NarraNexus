@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — profile.expression_nudge 映射
+
+与 include_arg_deltas 同款三态映射：profile 非 None 且字段非 None 才写 options。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

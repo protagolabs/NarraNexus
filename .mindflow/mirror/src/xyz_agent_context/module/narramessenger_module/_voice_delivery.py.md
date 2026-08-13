@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_voice_delivery.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — 连续同文段去重（exact-equality only）
+
+对抗实测：模型同轮两次 speak 说同一句话（不同 provider call_id），房间/TTS 听两遍。
+两道闸：_close_segment 丢弃与上一完成段完全相等的新段（等值=零新内容，丢弃不可能
+丢信息，「宁重勿丢」原则不破）；_cumulative 在当前开放段的净化文本仍是上一段前缀时
+把它排除出 live 视图（否则 flush 会把重复增量流给 TTS）——一旦分叉整段进入（刻意
+重复仍可交付）。非等值的换述重复不拦（相似度阈值会吞意图，见 PR#236 教训）。
 
 ## 2026-08-07 — dev 全真探针抓到的重复播报 bug
 
@@ -44,5 +52,7 @@ live 标记两处都在），final edit 两处去标记。Hybrid LiveKit worker 
 ## Downstream
 
 matrix_trigger：_StreamReplyState.voice_bridge 持有；_handle_stream_event
-只喂 speak 的 AGENT_REPLY_DELTA / PROGRESS；finalize 处 close + 兜底。
+喂**认领工具**（speak 或 narra_reply，2026-08-13 认领制）的
+AGENT_REPLY_DELTA / PROGRESS；finalize 处 close + 兜底。桥自身零改动——
+段语义/前缀判据对任何认领工具同样成立。
 测试 tests/narramessenger_module/test_voice_delivery_bridge.py + test_voice_stream_wiring.py。

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/turn_profile.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — voice_fast 增 expression_nudge=True
+
+新字段 `expression_nudge: Optional[bool] = None`（None=TurnOptions 默认关）；voice_fast 置 True——语音轮哑轮补救 opt-in（机制见 nexus_power loop.py.md）。
 
 ## Why it exists
 

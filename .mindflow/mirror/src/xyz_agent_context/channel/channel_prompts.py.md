@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-06
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 语音模板：通话上人人有回应
+
+VOICE_REPLY_INSTRUCTION_TEMPLATE 增一条：通话中每句话都要有语音回应——问候/确认/告别也要回短句。动机：DM 协议的「纯确认可沉默」豁免被模型套用到语音告别轮（8/13 实测「拜拜」闷声），通话里的沉默听起来是掉线不是克制。测试锁 test_voice_register。
 
 ## 2026-08-06 — voice register 实测硬化（dev 网关真 V4 Flash bench）
 

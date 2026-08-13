@@ -121,6 +121,10 @@ class TurnOptions(BaseModel):
     # --- output control ---
     output_mode: Literal["legacy_dict", "loop_events"] = "legacy_dict"
     include_arg_deltas: bool = True
+    # Opt-in mute-turn repair: a turn about to close with zero expressive
+    # calls (while expressive tools exist) gets one steering nudge and
+    # one more step. Voice turns set this via TurnProfile.voice_fast().
+    expression_nudge: bool = False
     # System-prompt surface. String literal on purpose: contracts is the
     # wire layer and never imports the PromptMode enum from impl; the
     # assembler converts. "full" = the previously hardwired default.

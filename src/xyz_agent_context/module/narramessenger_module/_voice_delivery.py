@@ -193,12 +193,25 @@ class VoiceDeliveryBridge:
 
     def _close_segment(self) -> None:
         segment = sanitize_for_tts(self._current_raw)
-        if segment:
+        # An exactly-identical consecutive segment carries zero new
+        # content (2026-08-13: the model called speak twice with the same
+        # text and the room heard it twice) — dropping it cannot lose
+        # anything. Equality only: anything shorter/longer/disjoint keeps
+        # the "content loss is worse than duplication" rule intact.
+        if segment and not (self._segments and self._segments[-1] == segment):
             self._segments.append(segment)
         self._current_raw = ""
 
     def _cumulative(self) -> str:
-        parts = [*self._segments, sanitize_for_tts(self._current_raw)]
+        current = sanitize_for_tts(self._current_raw)
+        # While an open call is re-speaking the previous segment (its
+        # sanitized text is a prefix of it), keep it out of the live view
+        # — flushes would stream the duplicate to TTS as it grows. If it
+        # ever diverges it enters whole (rare deliberate repetition stays
+        # deliverable).
+        if current and self._segments and self._segments[-1].startswith(current):
+            current = ""
+        parts = [*self._segments, current]
         return " ".join(p for p in parts if p).strip()
 
     async def _maybe_flush(self) -> None:

@@ -183,6 +183,127 @@ async def test_tool_roundtrip_then_stop():
 
 
 @pytest.mark.asyncio
+async def test_expression_nudge_gives_a_mute_turn_one_more_step():
+    """Opt-in (voice turns): a turn about to close with ZERO expressive
+    calls while expressive tools exist gets ONE steering nudge and one
+    more step — an unanswered voice turn is never the right outcome
+    (2026-08-13: 1/22 adversarial turns went silent on a garbled STT
+    input)."""
+    model = FakeModel([
+        [_text("hmm, unclear input"), _done(stop="end_turn")],
+        [_use("c1", "mcp__chat__reply", {"text": "could you say that again?"}),
+         _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(
+        _assembly(model, tools, expression_nudge=True)
+    )
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    # The nudge rode the second request as an injected message; once the
+    # reply landed, the close is normal (no second nudge on step 3).
+    assert len(model.requests) == 3
+    nudge_msgs = [m for m in model.requests[1].messages
+                  if "reply tool" in str(m.get("content", ""))]
+    assert nudge_msgs, "second request must carry the expression nudge"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_fires_at_most_once():
+    model = FakeModel([
+        [_text("silent one"), _done(stop="end_turn")],
+        [_text("still silent"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert len(model.requests) == 2  # nudge once, then close — no spin
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_skips_turns_that_already_expressed():
+    """Mutation lock for the `_turn_expressed` guard (review 2026-08-13
+    Important #5): a turn whose EARLIER step already called the reply
+    tool closes silently on a later no-call step — nudging it would
+    claim \"you have not replied\" falsely and provoke a duplicated
+    spoken reply."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "the answer"}),
+         _done(stop="tool_use")],
+        [_text("wrap-up thoughts"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert len(model.requests) == 2  # no third, nudged step
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert not any(
+        "reply tool" in str(m.get("content", ""))
+        for m in model.requests[1].messages
+        if m.get("role") == "user"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_fires_when_the_only_reply_call_failed_to_parse():
+    """Pipeline review Important #1: a reply call whose argument JSON was
+    truncated is ANSWERED, not executed — nothing was delivered, so the
+    turn must still count as mute and get its nudge. This is the
+    highest-probability mute-turn shape on voice (long speak args hit
+    the output-token ceiling)."""
+    model = FakeModel([
+        [_broken_use("c1", "mcp__chat__reply",
+                     "unterminated string", truncated=True),
+         _done(stop="tool_use")],
+        # The model gives up after seeing the parse-error result — the
+        # turn is about to close having delivered NOTHING.
+        [_text("oh well"), _done(stop="end_turn")],
+        # The nudge buys one more step; the retry succeeds.
+        [_use("c2", "mcp__chat__reply", {"text": "short version"}),
+         _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 4
+    nudge_msgs = [m for m in model.requests[2].messages
+                  if m.get("role") == "user"
+                  and "reply tool" in str(m.get("content", ""))]
+    assert nudge_msgs, "truncated reply call must still trigger the nudge"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_defaults_off_and_respects_mute_state():
+    # Off by default: silent turn closes immediately (group rooms / bus
+    # turns keep their legal silence).
+    model = FakeModel([[_text("quiet"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+    assert len(model.requests) == 1
+    # Opt-in but NO expressive tools: mute agents are legal — no nudge.
+    model2 = FakeModel([[_text("quiet"), _done(stop="end_turn")]])
+    events2, _ = await _run(_assembly(
+        model2, FakeTools(), expression=ExpressionContract(()),
+        expression_nudge=True,
+    ))
+    assert len(model2.requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_expression_arg_stream_becomes_the_user_reply():
     """The reply streams as the model writes the expression tool's
     argument — legacy shape response.reply.delta, ordered before the
