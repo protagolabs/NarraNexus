@@ -8,8 +8,11 @@ stub: false
 
 整串子串匹配让多词验证探针（`tool_search("narra reply speak send")`）对在册工具返回
 "(no matches)"，模型据此判定回复工具不存在而沉默（8/13 语音对抗实测）。
-`search_lines` 改分词：全 token AND 命中优先；AND 空且多词时降级 ANY token 兜底，
-card_index 行匹配同样按 token。单词查询行为不变。测试锁
+`search_lines` 改分词：全 token AND 命中优先；AND 空且多词时降级 **ANY token 兜底
+——按 token 命中数排名并封顶 `_FALLBACK_MAX_HITS=12`**（胶水词探针不许把整个
+工具面灌进 turn，二轮 review Important #4）。card_index 行过滤**镜像产生 hits 的
+模式**（AND 命中就 AND，兜底才 ANY）——精确查询不再被松散卡片噪音尾随。
+单词查询行为不变。测试锁
 tests/nexus_power/test_tooling.py::test_search_lines_multi_word_query_tokenizes。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)(配套:C2 落地)

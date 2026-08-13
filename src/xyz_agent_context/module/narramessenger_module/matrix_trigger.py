@@ -2117,8 +2117,10 @@ class MatrixTrigger(ChannelTriggerBase):
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
             tool_name = str(item.get("tool_name") or "")
-            is_reply = "narra_reply" in tool_name
-            is_speak = tool_name.endswith("__speak")
+            is_reply = (
+                tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+            )
+            is_speak = tool_name == "speak" or tool_name.endswith("__speak")
             if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}
