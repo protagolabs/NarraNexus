@@ -8,8 +8,12 @@ stub: false
 
 三个绕过口全堵（管线审 I#3）：①空白查询先算 tokens、空即走 overview 分支（不再
 vacuous 全匹配）；②单 token 查询同受封顶；③工具行与 card 行**分类封顶**（`_SEARCH_MAX_HITS=12` + `_SEARCH_MAX_CARD_HITS=4`，
-二审：共享预算会让 12 条工具行饿死整个能力索引）；ALL 路径同样按 token 出现次数
-排名后截断（精确命中不再被 scope 序藏掉）。overview 分支刻意不封顶——那就是全量清单请求。
+二审：共享预算会让 12 条工具行饿死整个能力索引）。④打分是**元组**（三审：裸出现
+次数会让长描述靠胶水词霸榜）：名字命中 > 覆盖率（去重 token，上界=token 数，长文
+吹不大）> 出现次数（仅作 tiebreak——ALL 路径覆盖率恒平，靠它排序）；token 用
+dict.fromkeys 去重保序（排序可复现，别换 set）。名字命中最高位=精确名探针必进
+slice。card 行也按覆盖率排名后截 4（展示文本按行打分，不套 _ranked）。
+`all_matched` 语义固定=ALL 过滤非空（它决定 card 的 ALL/ANY 噪音策略，别换判据）。overview 分支刻意不封顶——那就是全量清单请求。
 `_hay` 预构建成 dict 复用（原 per-token 重拼）。
 
 ## 2026-08-13 — tool_search 多词查询分词匹配

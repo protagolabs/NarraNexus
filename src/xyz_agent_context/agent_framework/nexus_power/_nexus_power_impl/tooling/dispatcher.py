@@ -182,7 +182,10 @@ class ToolDispatcher:
         tools did not exist (2026-08-13 voice run).
         """
         specs = self.visible_tools()
-        tokens = [t for t in query.lower().split() if t]
+        # Deduped, order-stable tokens: "reply to the user to ..." must
+        # not double-count `to`, and dict.fromkeys keeps sort inputs
+        # reproducible (a set would not).
+        tokens = list(dict.fromkeys(t for t in query.lower().split() if t))
         if not tokens:
             # Empty AND whitespace-only queries are the same request: the
             # grouped overview. Routing "  " here also closes the cap
@@ -199,18 +202,33 @@ class ToolDispatcher:
 
         hays = {s.name: s.name.lower() + " " + s.description.lower() for s in specs}
 
+        def _score(s) -> tuple[int, int, int]:
+            # Tuple score, most-significant first (round-3 review: raw
+            # occurrence counts let a verbose description outrank the
+            # real match on glue tokens alone):
+            #   1. name hit — a token in the tool NAME is the strongest
+            #      signal; an exact-name probe always enters the slice;
+            #   2. coverage — how many distinct tokens matched (bounded
+            #      by len(tokens), so long prose cannot inflate it);
+            #   3. occurrences — tiebreak only; on the ALL path coverage
+            #      ties by construction and this provides the ordering.
+            hay = hays[s.name]
+            name = s.name.lower()
+            return (
+                sum(t in name for t in tokens),
+                sum(t in hay for t in tokens),
+                sum(hay.count(t) for t in tokens),
+            )
+
         def _ranked(pool) -> list[str]:
-            # Rank by total token occurrences so truncation always drops
-            # the weakest matches (a bare all()-filter kept scope order,
-            # and the cap then hid an exact hit at position 13). Stable
+            # Truncation must always drop the weakest matches; stable
             # sort keeps scope order within equal scores.
-            scored = [
-                (sum(hays[s.name].count(t) for t in tokens), s) for s in pool
-            ]
+            scored = [(_score(s), s) for s in pool]
             return [
                 _line(s)
                 for _, s in sorted(
-                    (p for p in scored if p[0] > 0), key=lambda p: -p[0]
+                    (p for p in scored if p[0][1] > 0),
+                    key=lambda p: (-p[0][0], -p[0][1], -p[0][2]),
                 )
             ]
 
@@ -231,6 +249,12 @@ class ToolDispatcher:
                 if all_matched
                 else (lambda line: any(t in line.lower() for t in tokens))
             )
-            card_hits = [line for line in card_index.splitlines() if match(line)]
+            # Card lines are ranked too (display text, not ToolSpecs —
+            # coverage over the line): the strongest card match claims a
+            # seat ahead of glue-token noise.
+            card_hits = sorted(
+                (line for line in card_index.splitlines() if match(line)),
+                key=lambda line: -sum(t in line.lower() for t in tokens),
+            )
         # Separate ceilings: neither class can starve the other.
         return tool_hits[:_SEARCH_MAX_HITS] + card_hits[:_SEARCH_MAX_CARD_HITS]

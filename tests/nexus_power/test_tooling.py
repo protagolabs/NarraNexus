@@ -207,17 +207,31 @@ async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
 
 @pytest.mark.asyncio
 async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine):
-    """Review 2026-08-13 Important #4: a natural-language probe whose
-    tokens include glue words ("to"/"a"/"the") must not flood the
-    context with the whole tool surface — the fallback ranks by token
-    hit count and caps the slice."""
+    """Review 2026-08-13 Important #4 + round 3 Important #1: a
+    natural-language probe whose tokens include glue words must not
+    flood the context NOR let long-winded descriptions outrank the real
+    match. Coverage ranks first (occurrence counts are only a
+    tiebreak), and a name hit outranks description-only hits — so the
+    reply tool enters the slice even against 30 verbose fillers."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+        dispatcher as dispatcher_mod,
+    )
+
+    verbose = (
+        "This module operates on a broad set of resources and it is "
+        "designed so that i can be invoked whenever a workflow needs to "
+        "coordinate the state of a resource with the state of another "
+        "resource, and it will do so in a way that is careful about how "
+        "the user of the system perceives the interaction with the "
+        "system as a whole over time."
+    )
     specs = [
-        ToolSpec(name=f"filler_tool_{i:02d}", description="operates on a thing",
+        ToolSpec(name=f"filler_tool_{i:02d}", description=verbose,
                  input_schema={"type": "object"})
         for i in range(30)
     ]
     specs.append(ToolSpec(
-        name="mcp__chat__send_message_to_user_directly",
+        name="mcp__chat__reply_to_user",
         description="Reply to the user.", input_schema={"type": "object"},
     ))
     builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
@@ -227,10 +241,12 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
             return specs
 
     dispatcher = ToolDispatcher((builtin, _Chan()), policy=engine, ctx=ctx)
-    lines = dispatcher.search_lines("how to send a message to the user")
-    assert len(lines) <= 12  # capped, not the whole surface
-    # The strongest multi-token match ranks into the slice.
-    assert any("send_message_to_user_directly" in line for line in lines)
+    cap = dispatcher_mod._SEARCH_MAX_HITS
+    lines = dispatcher.search_lines("how do i reply to the user")
+    assert len(lines) <= cap  # capped, not the whole surface
+    # Coverage + name-hit priority: the real reply tool must survive 30
+    # verbose fillers whose glue-token OCCURRENCE counts are enormous.
+    assert any("reply_to_user" in line for line in lines)
 
     # Pipeline review Important #3 — the cap must not be bypassable:
     # whitespace-only query routes to the grouped overview (not a
@@ -239,15 +255,18 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     assert ws and ws[0].endswith("tools in scope:")
     # ...a single glue token is capped like any other query...
     single = dispatcher.search_lines("a")
-    assert len(single) <= 12
+    assert len(single) <= cap
     # ...and card_index lines have their OWN reserved seats: with 12+
-    # matching tools the capability index must not be starved out (round
-    # 2 review — the "my capabilities don't exist" spiral moved to the
-    # card side), while the combined result stays bounded.
-    card = "\n".join(f"card-{i}: operates on a thing" for i in range(40))
-    carded = dispatcher.search_lines("a thing", card_index=card)
-    assert len(carded) <= 16
+    # matching tools the capability index must not be starved out, while
+    # the combined result stays bounded. Card lines are ranked too: the
+    # strongest card match must claim a seat ahead of weaker ones.
+    card_cap = dispatcher_mod._SEARCH_MAX_CARD_HITS
+    card_lines = [f"card-{i}: operates on a thing" for i in range(40)]
+    card_lines.append("card-best: reply directly to the user of a thing")
+    carded = dispatcher.search_lines("reply user thing", card_index="\n".join(card_lines))
+    assert len(carded) <= cap + card_cap
     assert any(line.startswith("card-") for line in carded)
+    assert any("card-best" in line for line in carded)
 
 
 @pytest.mark.asyncio
