@@ -167,8 +167,9 @@ class ClaudeConfig:
         # when the base_url is our own gateway, so we never leak it to a BYOK
         # third party. The gateway verifies it where the deploy-side check is live
         # (deploy litellm/prefill_compat._enforce_identity — currently deploy
-        # `staging` PR #20; NOT on `dev`/`main` yet, so the header is a harmless
-        # no-op there until it lands).
+        # `staging` PR #20; NOT on `dev`/`main` yet) AND only when that check is
+        # armed (NX_IDENTITY_VERIFY_MODE audit|enforce; DEFAULT off). Until both
+        # hold, the header is a harmless no-op.
         if self.identity_token and _is_own_gateway_url(self.base_url):
             env["ANTHROPIC_CUSTOM_HEADERS"] = (
                 f"{_IDENTITY_HEADER_NAME}: {self.identity_token}"

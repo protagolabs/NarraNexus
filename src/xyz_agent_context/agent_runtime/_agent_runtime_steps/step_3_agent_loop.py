@@ -1402,9 +1402,10 @@ async def step_3_agent_loop(
         # rides provider_configs to the executor and is emitted as the
         # X-NarraNexus-Identity-Token header on our-gateway LLM calls. Where the
         # deploy-side check is live (litellm/prefill_compat._enforce_identity —
-        # deploy `staging` PR #20; not `dev`/`main` yet) the gateway verifies it,
-        # so an exfiltrated wallet key is useless off-platform THERE; until it
-        # lands the header is a harmless no-op.
+        # deploy `staging` PR #20; not `dev`/`main` yet) AND armed
+        # (NX_IDENTITY_VERIFY_MODE audit|enforce; DEFAULT off) the gateway verifies
+        # it, so an exfiltrated wallet key is useless off-platform THERE; until
+        # both hold the header is a harmless no-op.
         if identity_token:
             from xyz_agent_context.agent_framework.api_config import (
                 bind_platform_identity,
