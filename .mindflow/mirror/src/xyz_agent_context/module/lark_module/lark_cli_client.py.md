@@ -19,11 +19,11 @@ zero-creds migration this file claimed to have finished:
 - CWD resolution lost its `db` parameter and resolves
   `agents.created_by` through the seam's `get_agent_owner`; after
   review Important-3 the lark and narra copies were merged into ONE
-  shared `workspace_paths.resolve_agent_workspace_cwd(agent_id,
-  log_tag="lark-cli")` — works in both direct-db and zero-cred
-  deployments. An empty owner is NOT cached, so a later re-bind
-  re-resolves. The file is back to zero `get_mcp_db_client`, keeping
-  channel_store.py's "mcp can drop DATABASE_URL" claim true.
+  shared `data_access.workspace_cwd.resolve_agent_workspace_cwd(
+  agent_id, log_tag="lark-cli")` — works in both direct-db and
+  zero-cred deployments. An empty owner is NOT cached, so a later
+  re-bind re-resolves. The file is back to zero `get_mcp_db_client`,
+  keeping channel_store.py's "mcp can drop DATABASE_URL" claim true.
 
 Regression tests in `test_lark_cli_cwd.py` drive `_run_with_agent_id`
 end-to-end (store/hydration/subprocess mocked) so any undefined name in
@@ -81,7 +81,7 @@ critical detail.
 
 ### Fix
 1. Helper `resolve_agent_workspace_cwd(agent_id, log_tag=...)` (since
-   2026-08-14 the shared implementation in `utils/workspace_paths`)
+   2026-08-14 the shared implementation in `data_access/workspace_cwd`)
    resolves `agents.created_by` → `user_id` via the channel seam's
    `get_agent_owner`, computes the workspace
    path via `attachment_storage.get_workspace_path(agent_id, user_id)`,

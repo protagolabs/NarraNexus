@@ -32,20 +32,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
-from xyz_agent_context.utils.workspace_paths import (
+from xyz_agent_context.module.data_access.workspace_cwd import (
     _cwd_owner_cache,
     resolve_agent_workspace_cwd,
 )
+from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
 
-
-@pytest.fixture(autouse=True)
-def _clear_user_cache():
-    # The owner cache is shared by every channel CLI (lark + narra), so
-    # stale entries would leak across test modules, not just tests.
-    _cwd_owner_cache.clear()
-    yield
-    _cwd_owner_cache.clear()
+# The shared owner cache is cleared by the repo-wide autouse fixture in
+# tests/conftest.py — every channel CLI test module shares that cache.
 
 
 # ── Unit: _exec_lark_cli threads cwd → create_subprocess_exec ───────────
@@ -115,7 +109,7 @@ async def test_resolve_agent_workspace_cwd_happy_path(tmp_path: Path, monkeypatc
         str(tmp_path),
     )
     with patch(
-        "xyz_agent_context.module.data_access.get_channel_credential_store",
+        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store("user_alice"),
     ):
         ws = await resolve_agent_workspace_cwd("agent_abc", log_tag="lark-cli")
@@ -134,7 +128,7 @@ async def test_resolve_agent_workspace_cwd_caches_user_id(tmp_path, monkeypatch)
     )
     store = _owner_store("user_bob")
     with patch(
-        "xyz_agent_context.module.data_access.get_channel_credential_store",
+        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
         return_value=store,
     ):
         await resolve_agent_workspace_cwd("agent_xyz", log_tag="lark-cli")
@@ -153,7 +147,7 @@ async def test_resolve_agent_workspace_cwd_returns_none_when_no_owner(tmp_path, 
         str(tmp_path),
     )
     with patch(
-        "xyz_agent_context.module.data_access.get_channel_credential_store",
+        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store(""),
     ):
         ws = await resolve_agent_workspace_cwd("agent_orphan", log_tag="lark-cli")
@@ -165,7 +159,7 @@ async def test_resolve_agent_workspace_cwd_returns_none_when_no_owner(tmp_path, 
 async def test_resolve_agent_workspace_cwd_returns_none_on_store_error(monkeypatch):
     """Seam exception is swallowed (logged) and None is returned."""
     with patch(
-        "xyz_agent_context.module.data_access.get_channel_credential_store",
+        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store(RuntimeError("store down")),
     ):
         ws = await resolve_agent_workspace_cwd("agent_x", log_tag="lark-cli")

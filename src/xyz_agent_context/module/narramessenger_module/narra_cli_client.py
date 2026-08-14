@@ -165,9 +165,9 @@ def _narra_cli_home() -> str:
 
 # =============================================================================
 # Agent workspace CWD (same P0 fix as lark 2026-05-28) — shared
-# implementation in workspace_paths.
+# implementation in data_access.
 # =============================================================================
-from xyz_agent_context.utils.workspace_paths import resolve_agent_workspace_cwd
+from xyz_agent_context.module.data_access import resolve_agent_workspace_cwd
 
 
 # =============================================================================

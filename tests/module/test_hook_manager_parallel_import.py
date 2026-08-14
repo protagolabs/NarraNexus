@@ -31,10 +31,33 @@ class _EchoModule:
         return ctx
 
 
+class _BoomModule:
+    """Stand-in for a module whose data_gathering raises."""
+
+    class config:  # noqa: D106 — mirrors XYZBaseModule.config.name access
+        name = "BoomModule"
+
+    async def hook_data_gathering(self, ctx: ContextData) -> ContextData:
+        raise RuntimeError("gathering blew up")
+
+
 @pytest.mark.asyncio
 async def test_parallel_data_gathering_path_is_executable():
     mgr = HookManager(parallel_data_gathering=True)
     ctx = ContextData(agent_id="agent_x", user_id=None, input_content="hi")
     result = await mgr.hook_data_gathering([_EchoModule()], ctx)
+    assert isinstance(result, ContextData)
+    assert result.agent_id == "agent_x"
+
+
+@pytest.mark.asyncio
+async def test_parallel_data_gathering_error_branch_is_executable():
+    """The error branch (DataGatheringError construction + structured log)
+    is just as lazily-executed as the import was — drive it for real: a
+    raising module must be dropped without failing the turn, and the
+    healthy module's result must still be merged."""
+    mgr = HookManager(parallel_data_gathering=True)
+    ctx = ContextData(agent_id="agent_x", user_id=None, input_content="hi")
+    result = await mgr.hook_data_gathering([_BoomModule(), _EchoModule()], ctx)
     assert isinstance(result, ContextData)
     assert result.agent_id == "agent_x"

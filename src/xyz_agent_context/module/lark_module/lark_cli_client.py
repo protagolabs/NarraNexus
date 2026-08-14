@@ -49,8 +49,8 @@ from loguru import logger
 
 # Agent workspace CWD resolution (2026-05-28 P0): lark-cli writes
 # default-relative outputs to its CWD, so agent-scoped calls spawn inside
-# the agent's workspace — shared implementation in workspace_paths.
-from xyz_agent_context.utils.workspace_paths import resolve_agent_workspace_cwd
+# the agent's workspace — shared implementation in data_access.
+from xyz_agent_context.module.data_access import resolve_agent_workspace_cwd
 
 
 # =============================================================================

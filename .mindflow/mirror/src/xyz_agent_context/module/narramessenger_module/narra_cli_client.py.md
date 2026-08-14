@@ -4,12 +4,13 @@ stub: false
 last_verified: 2026-08-14
 ---
 
-## 2026-08-14 — CWD 解析收敛到 workspace_paths 共享实现
+## 2026-08-14 — CWD 解析收敛到 data_access 共享实现
 
 本地 `_resolve_agent_workspace_cwd` + `_agent_user_id_cache` 删除，改用
-[[workspace_paths]] 的 `resolve_agent_workspace_cwd(agent_id, log_tag="narra-cli")`
+[[workspace_cwd]] 的 `resolve_agent_workspace_cwd(agent_id, log_tag="narra-cli")`
 ——与 lark 的副本曾是字面重复且行为已开始漂移（lark 版空 owner 打 debug 日志、
-narra 版静默）。语义不变，缓存跨渠道共享。
+narra 版静默）。语义不变，缓存跨渠道共享（落点为何是 data_access 而非 utils，
+见该文件 mirror）。
 
 ## 2026-08-11 — 凭据 + workspace owner 改走 seam（narra 零凭据）
 
