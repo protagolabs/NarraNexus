@@ -345,7 +345,7 @@ class NarrativeRetrieval:
         # LLM not enabled - Create new Narrative directly
         else:
             logger.info("LLM not enabled, creating new topic directly")
-            new_narrative = await self._create_narrative(
+            new_narrative = await self.create_from_query(
                 query=query,
                 user_id=user_id,
                 agent_id=agent_id,
@@ -726,7 +726,7 @@ class NarrativeRetrieval:
 
         # 5. No match, create new Narrative
         logger.info("LLM determined no match with any Narrative, creating new topic")
-        new_narrative = await self._create_narrative(
+        new_narrative = await self.create_from_query(
             query=query,
             user_id=user_id,
             agent_id=agent_id,
@@ -826,7 +826,7 @@ class NarrativeRetrieval:
             logger.exception(f"PARTICIPANT Narratives: Query failed: {e}")
             return []
 
-    async def _create_narrative(
+    async def create_from_query(
         self,
         query: str,
         user_id: str,

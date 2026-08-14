@@ -40,6 +40,10 @@
       "dropFile": "Drop file to attach…",
       "placeholder": "Type a message or / for skills…"
     },
+    "fastMode": {
+      "label": "Fast",
+      "tooltip": "Fast mode: switches this turn to the fast agent framework with lighter memory retrieval and low reasoning effort — quicker but simpler replies"
+    },
     "audio": {
       "stopRecording": "Stop recording",
       "recordVoice": "Record voice message",

@@ -4,6 +4,13 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — `_create_narrative` 公开更名 `create_from_query`
+
+行为零变化，纯改名+两处内部调用同步。动机：NarrativeService.create_fast
+（chat fast mode durable miss 路径）需要同一套查询式创建（BM25 路由面
+一致），跨 facade 调私有方法不如给它正名。
+
+
 ## 2026-08-14 — 两个独立读并发 + `keyword_ms` / `judge_ms` 落审计
 
 **先说结论，免得误导后来人**：这个并行**不是**叙事选择的延迟修复。实测（本地真机

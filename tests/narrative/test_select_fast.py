@@ -1,13 +1,16 @@
 """
 @file_name: test_select_fast.py
 @date: 2026-08-06
-@description: NarrativeService.select_fast — BM25 top-1 direct pick.
+@description: NarrativeService.select_fast — BM25 top-1 probe.
 
 Locks:
 - Zero LLM, zero creation, zero session writes: the method only calls
-  the BM25 keyword search (top_k=1) and CRUD load_by_id.
-- No candidate -> None (caller runs bare; nothing is created).
-- Retrieval returning an id whose row vanished -> None (no crash).
+  the BM25 keyword search (top_k=1) and, on a decisive pick, CRUD
+  load_by_id.
+- 2026-08-14 (PR #307): returns a FastSelectResult. No candidate ->
+  narrative None; sub-floor top-1 -> narrative None but the raw score
+  still rides out (audit calibration); vanished row -> narrative None
+  (no crash).
 """
 from __future__ import annotations
 
@@ -36,7 +39,8 @@ async def test_top1_hit_loads_and_returns_narrative():
 
     result = await service.select_fast("agent_a", "user_u", "weather query")
 
-    assert result is narrative
+    assert result.narrative is narrative
+    assert result.top1_raw == 5.0
     service._retrieval.keyword_search.assert_awaited_once_with(
         query="weather query", user_id="user_u", agent_id="agent_a", top_k=1
     )
@@ -44,26 +48,34 @@ async def test_top1_hit_loads_and_returns_narrative():
 
 
 @pytest.mark.asyncio
-async def test_no_candidates_returns_none():
+async def test_no_candidates_is_a_bare_probe():
     service = _service_with_fakes([], None)
-    assert await service.select_fast("a", "u", "q") is None
+    result = await service.select_fast("a", "u", "q")
+    assert result.narrative is None
+    assert result.top1_raw is None
     service._crud.load_by_id.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_vanished_row_returns_none():
+async def test_vanished_row_yields_no_narrative():
     hit = SimpleNamespace(narrative_id="nar_gone", raw_score=9.0)
     service = _service_with_fakes([hit], None)
-    assert await service.select_fast("a", "u", "q") is None
+    result = await service.select_fast("a", "u", "q")
+    assert result.narrative is None
+    # The score still rides out — the miss was the row, not the match.
+    assert result.top1_raw == 9.0
 
 
 @pytest.mark.asyncio
-async def test_below_floor_score_is_a_miss():
-    """Review finding #7: the full path gates weak BM25 matches behind an
-    LLM tier; the fast path has no LLM, so the same raw floor applies
+async def test_below_floor_score_is_a_miss_but_score_is_reported():
+    """Review finding #7 (PR #294): the full path gates weak BM25 matches
+    behind an LLM tier; the fast path has no LLM, so the raw floor applies
     directly — a one-word accidental overlap must not become the turn's
-    background narrative. Sub-floor top-1 = miss (bare run)."""
+    background narrative. Sub-floor top-1 = no pick, but the raw score is
+    still reported for audit calibration (PR #307 round 2)."""
     weak = SimpleNamespace(narrative_id="nar_weak", raw_score=1.0)
     service = _service_with_fakes([weak], SimpleNamespace(id="nar_weak"))
-    assert await service.select_fast("a", "u", "q") is None
+    result = await service.select_fast("a", "u", "q")
+    assert result.narrative is None
+    assert result.top1_raw == 1.0
     service._crud.load_by_id.assert_not_awaited()

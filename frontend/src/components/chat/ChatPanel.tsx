@@ -22,9 +22,10 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ComposerModelBadge } from './ComposerModelBadge';
+import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
-import { useAgentWebSocket } from '@/hooks';
+import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
@@ -316,6 +317,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       ? localizedBootstrapGreeting
       : content;
   const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
+
+  const [fastMode, setFastMode] = useFastMode(agentId);
 
   const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
@@ -799,7 +802,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const agentName = currentAgent?.name || agentId;
-      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined);
+      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }
@@ -1328,8 +1331,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           )}
         </div>
 
-        {/* Tools row — attach (+) and voice on the left; read-only model
-            badge on the right (links to Settings — see ComposerModelBadge). */}
+        {/* Tools row — attach (+) and voice on the left; fast-mode toggle
+            (ComposerFastToggle) and model badge (ComposerModelBadge) on the
+            right. */}
         <div className="mt-1 flex items-center justify-between gap-2">
           <div className="flex items-center gap-0.5">
           <Button
@@ -1375,7 +1379,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             }}
           />
           </div>
-          <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          <div className="flex items-center gap-1.5">
+            <ComposerFastToggle
+              enabled={fastMode}
+              onToggle={setFastMode}
+              disabled={!agentId}
+            />
+            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          </div>
         </div>
       </div>
 

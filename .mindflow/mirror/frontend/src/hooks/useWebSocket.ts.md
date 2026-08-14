@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/hooks/useWebSocket.ts
-last_verified: 2026-05-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: run() 增第 6 参 fastMode
+
+`run(agentId, userId, inputContent, agentName?, attachments?, fastMode?)`
+——可选布尔原样进 wsManager.run 的 options.fastMode（[[useFastMode]] 是
+状态源，[[wsManager]] 负责上 wire）。缺省 undefined = 今日行为。
 
 ## 2026-05-13 — Phase C: 增加 reconnect 回调
 

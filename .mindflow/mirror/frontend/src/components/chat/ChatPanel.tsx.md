@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: tools row 接入开关
+
+tools row 右侧从单独的 ComposerModelBadge 变为 flex 组：
+[[ComposerFastToggle]]（左）+ badge（右）。状态经 [[useFastMode]]
+per-agent 持有；handleSubmit 把 fastMode 作为 run() 第 6 参传出。
+无 agentId 时开关禁用。
 
 ## 2026-08-10 — message submitted at the action boundary
 

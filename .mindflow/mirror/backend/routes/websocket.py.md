@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: 首包可带 fast_mode
+
+`AgentRunRequest` 新增 `fast_mode: bool = False`（首包可选字段；缺省=
+今日路径）。fresh-run 的 drive kwargs 构造抽成纯函数
+`_fresh_run_drive_kwargs(request, *, session_id, working_source,
+mcp_servers)`（沿 `_circuit_open_frame` 的纯函数可测 idiom），字段逐项
+锁在 tests/backend/test_websocket_fast_mode.py——WS payload → drive 契约
+不能静默丢字段。fast_mode 纯透传：策略在 AgentRuntime 的
+`_resolve_turn_profile`，本文件零判断；reconnect 路径不涉及（profile
+不持久化，重连只回放）。
 
 ## 2026-08-13 — WebSocket 账户状态闸门（停用用户不能起 run）
 
