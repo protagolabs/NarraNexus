@@ -9,6 +9,7 @@ stub: false
 无游标 = 最新一页（房间打开时），`since` = 往后追（3 秒轮询），`before` = 往上翻历史。
 两个游标**互斥**，在这里就地判掉：同时带上去，服务端只会看其中一个，而调用方会以为自己
 拿到了两者的交集。
+
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
@@ -88,6 +89,7 @@ PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
+
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
@@ -160,6 +162,7 @@ per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
 user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
 
  
+
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 
 `recharge(amount, currency?)` POSTs the top-up and returns

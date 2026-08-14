@@ -755,6 +755,13 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # Why this message's `mentions` are what they are. NULL = the sender
+            # typed them. "default_responder" = a team room had none and the
+            # route picked the fallback agent so the room would not go silent.
+            # Recorded at the point of the decision because nothing downstream
+            # can reconstruct it: "one mention, and it is the lead" is exactly
+            # what a user deliberately naming the lead looks like.
+            Column("routed_by", "TEXT", "VARCHAR(32)", nullable=True),
             # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
             # size_bytes/category/rel_path). rel_path is base_working_path-relative
             # and points into the per-user shared area; markers are built from it
@@ -1570,6 +1577,37 @@ _register(
 )
 
 
+# ban_audit — append-only trail for administrative account-state changes.
+# One row per suspend / reinstate action. `reason` and `evidence_ref` are
+# OPAQUE free-text supplied by the caller (never an enum) so this table
+# carries no policy vocabulary of its own; `actor` records who made the
+# change. Append-only, queried by user_id.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="ban_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("action", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("reason", "TEXT", "MEDIUMTEXT"),
+            Column("evidence_ref", "TEXT", "MEDIUMTEXT"),
+            Column("actor", "TEXT", "VARCHAR(128)"),
+            # The account state the row was in immediately BEFORE this action.
+            # Additive column (auto_migrate backfills it incrementally on
+            # existing deployments — no destructive migration). Lets a reinstate
+            # record what it reverted from, and lets suspend record what it
+            # replaced, without the audit trail carrying any policy vocabulary.
+            Column("prev_status", "TEXT", "VARCHAR(32)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_ban_audit_user_id", ["user_id"]),
+        ],
+    )
+)
+
+
 # Subproject 1: Team Membership (from main)
 _register(
     TableDef(
@@ -2198,6 +2236,9 @@ _register(
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
             Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
             Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # Reply language preference (i18n code, e.g. "zh"); NULL = never
+            # set — the model picks freely (historical behavior).
+            Column("reply_language", "TEXT", "VARCHAR(16)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

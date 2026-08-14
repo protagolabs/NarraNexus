@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — admin_suspend_router 注册
+
+新增 `from backend.routes.admin.suspend import router as admin_suspend_router` 和
+`app.include_router(admin_suspend_router, tags=["AdminSuspend"])`。router 自带
+prefix `/api/admin`（`include_router` 不再传 prefix），挂载账户停用机制的三条端点
+（`POST /api/admin/suspend`、`POST /api/admin/reinstate`、`GET
+/api/admin/account-state/{user_id}`）。与 `admin_migration_router` /
+`admin_quota_router` 同 pattern。见 [[suspend.py]]。
 
 ## 2026-08-11 — cloud 关 API docs + JWT 启动 fail-fast（安全审计 P2-1/P0-2）
 

@@ -336,6 +336,46 @@ async def test_anonymous_shorter_second_call_never_truncates_the_first():
 
 
 @pytest.mark.asyncio
+async def test_identical_repeat_segment_is_spoken_once():
+    """2026-08-13 adversarial run: the model called speak twice with the
+    SAME text (distinct provider call_ids) and the room heard the answer
+    twice. An exactly-identical consecutive segment carries zero new
+    content — dropping it cannot lose anything."""
+    rec = Recorder()
+    bridge = _bridge(rec)
+    await bridge.on_reply_delta(call_id="c1", delta="广州很好，欢迎来玩。")
+    bridge.on_segment_text(call_id="", text="广州很好，欢迎来玩。")
+    await bridge.on_reply_delta(call_id="c2", delta="广州很好，欢迎来玩。")
+    bridge.on_segment_text(call_id="", text="广州很好，欢迎来玩。")
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "广州很好，欢迎来玩。"
+
+
+@pytest.mark.asyncio
+async def test_identical_repeat_never_streams_live_duplicate():
+    """The duplicate must not reach the LIVE stream either (TTS reads
+    increments as they flush): while the repeat call's text is a prefix
+    of the previous segment, the cumulative view must not grow."""
+    rec = Recorder()
+    clock = FakeClock()
+    bridge = VoiceDeliveryBridge(send=rec, clock=clock, flush_interval_s=0.4)
+    await bridge.on_reply_delta(call_id="c1", delta="今天天气不错。")
+    clock.t += 1.0
+    await bridge.on_reply_delta(call_id="c1", delta="")
+    sends_after_first = len(rec.sent)
+    # Second call repeats the same text; every flush window elapses.
+    for piece in ("今天", "天气", "不错。"):
+        await bridge.on_reply_delta(call_id="c2", delta=piece)
+        clock.t += 1.0
+        await bridge.on_reply_delta(call_id="c2", delta="")
+    assert len(rec.sent) == sends_after_first  # no duplicate live frames
+    text, ok = await bridge.close()
+    assert ok
+    assert text == "今天天气不错。"
+
+
+@pytest.mark.asyncio
 async def test_same_explicit_call_id_always_corrects_in_place():
     """PR-251 review #3: if ids ever propagate, an explicitly IDENTICAL id
     must short-circuit to same-segment even when the text is disjoint."""

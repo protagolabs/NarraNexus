@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
+
+①二审 Critical 实锤：`_send_matrix_reply` 的平文消息在通话上**会被 Hybrid worker
+念给通话方**（冒烟报告里平文兜底轮有「首段延迟」=被听到；not-ok 兜底发的也是净化文
+本，正因平文进语音管线）。因此一审建议的「原文补发」= 二次播报 + URL/代码逐字进
+TTS，绕过 sanitize_for_tts 的结构层硬保证——**补发已整体摘除**。现契约：桥交付后
+finalize 不再写房间（test_s1c 锁 `plain == []`）。已知代价：语音轮 narra_reply 里的
+链接不落聊天记录，记 reference/self_notebook/todo/（等 Hybrid 给出 worker 消费面的
+书面契约后再选载体：m.notice / rtc.* 键 / 仅 inbox）。`narra_reply_text` 的语义就此
+定死为**净化后为空时的平文兜底捕获**，不是原文记录（二审 M#8 的字段两义已消）。
+②认领键归一为叶子名（`rsplit('__',1)[-1]`）——delta 与 PROGRESS 两个事件源拼写可能
+不同，裸串相等会让完成 PROGRESS 挡掉同一工具后续 delta（一审 Minor#6）。
+
+## 2026-08-13 — 语音流认领制：narra_reply 也可驱动 live 交付
+
+8/13 通话实锤：voice prompt 指令再硬（"ONLY way…speak"），模型仍 12/14 轮
+用 narra_reply 回复——首字被钉死在 finalize（25–90s），而裸上游首字仅 ~3s。
+Owner 约束：fast mode 是通用能力，不接受按 channel 遮蔽工具。修法改为
+**认领制（8/13 Opus 预审后收窄为只管 delta）**：首个 trigger 托管回复工具
+（`speak`/`narra_reply`，精确裸名或 `__` 后缀，见 `_is_voice_reply_tool`）产出
+delta 即认领（`voice_stream_tool`），**只有认领者的 AGENT_REPLY_DELTA 喂桥**——
+防两工具 delta 交错。**完成文本（PROGRESS）则全部进桥**：VOICE prompt 教的
+预告→答案两连调可能跨工具，答案必须播出（review Important #3）；同文双调由桥的
+等值段去重消化。**legacy capture 同时全保留**（narra_reply_text）：finalize 在
+spoken 非空时提前返回不会双投，而净化后为空的回复（纯 emoji/纯 URL）只有这条
+平文兜底路（review Critical #2——认领版曾把它丢了）。narra_send 永不进桥（自带
+room_send，桥接=双投）。行为差异（有意）：narra_reply 走桥后其文本以 **TTS 净化形态**
+落房间（URL/代码被剥）——语音轮链接的正路是 narra_send（自投递、不净化），
+与 VOICE 模板「链接发到聊天里」的指引一致。裸名工具形态（`narra_reply`）是
+既有事件形态（test_matrix_streaming_reply 112/117 行明确双形态钉住），谓词
+接受精确裸名或精确 `__` 后缀，atomic extract_output 同谓词。NexusPower 侧零改动：expressive 面本就
+含 narra_reply，其 arg delta 一直在到达，此前只是被 `__speak` 后缀滤掉。
+测试：test_voice_stream_wiring（认领矩阵+真桥双场景）、
+test_l1_scenarios::test_s1b（全链路：RTC→voice_fast→narra_reply 流→live）。
 
 ## 2026-08-11 — 通话级串行 key 统一为 per-room（review Important #2）
 

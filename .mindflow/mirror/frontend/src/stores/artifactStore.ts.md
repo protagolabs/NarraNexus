@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
+
+新增 `_pickVisibleActive(list, minimized, preferred)` 作为「谁是 active」的**单一真相**:remove + 两个 loader(loadForSession/loadPinned 各两分支)+ minimizeTab 全部过它,active 永不落在最小化 tab(此前 4 个 loader 写入点仍取 [0],刷新后配合 effectiveActiveId 从「显示错图」退化为「整列全白」——review Critical ①,治根因)。`chartInstances` 由单槽 `Record<id, T|null>` 改**数组** `Record<id, T[]>`:register 追加、unregister 按身份 filter、空则删键——修 modal 关闭后列内活实例被清空导致下载报 not ready(review ③);`|null` 死路径清除(铁律 #2)。upsert 的 focus 分支**不**走 helper(故意先取消最小化再聚焦)。
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+`remove()` 新 active 过滤 minimizedTabIds(此前 list[0] 可指最小化 tab→整列空白),并顺带清 minimizedTabIds/chartInstances 该 id;新增 `unregisterChartInstance(id, instance)` 身份校验(只有当前 owner 能清槽);`minimizeTab`/`restoreTab` 补 `_promoteChartLru`(此前是唯二跳过 LRU 的路径,恢复到不在池里的 chart=无挂载空白)。
 
 ## 2026-07-23 — upsert focus option
 

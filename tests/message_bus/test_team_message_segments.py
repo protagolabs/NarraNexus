@@ -173,20 +173,24 @@ def test_the_team_reply_hands_its_segments_to_the_bus():
     from xyz_agent_context.message_bus import message_bus_trigger as mod
 
     src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert "segments=reply_segments" in src
+    assert "segments=turn.segments" in src
     assert "getattr(collection" not in src
 
 
 def test_invoke_runtime_returns_the_segments_it_collected():
-    """Third element, APPENDED. A tuple element inserted in the middle rebinds
-    every positional unpack silently — this codebase has paid that exact tax
-    before, on ContextRuntime's constructor."""
+    """A FIELD on TurnResult, not a third tuple element.
+
+    It began as one, and the merge with the turn-result refactor is exactly why
+    it should not have been: a tuple that grows rebinds every positional unpack
+    silently, and every caller had to be found by hand. A field with a default
+    is invisible to callers that do not want it.
+    """
     import inspect
 
     from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
 
     src = inspect.getsource(MessageBusTrigger._invoke_runtime)
-    assert "return collection.output_text, collection.event_id, collection.segments" in src
+    assert "segments=collection.segments" in src
 
 
 @pytest.mark.asyncio

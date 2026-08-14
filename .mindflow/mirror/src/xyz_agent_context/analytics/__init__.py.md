@@ -1,10 +1,19 @@
 ---
 code_file: src/xyz_agent_context/analytics/__init__.py
-last_verified: 2026-08-10
+last_verified: 2026-08-12
 stub: false
 ---
 
 # __init__.py (analytics)
+
+## 2026-08-12 — reverse pointer to the frontend GTM loader (doc-only)
+
+Docstring now notes that third-party WEB analytics on the cloud site is a
+SEPARATE, client-side system ([[webAnalytics.ts]], GTM only, event-only, gated
+on the same per-user opt-out). This backend sink stays first-party / DB-only /
+no-vendor. The note exists so a future reader does not "enable a cloud vendor
+sink" here believing cloud has no product analytics. Comment-only; intent below
+unchanged.
 
 ## Why it exists
 

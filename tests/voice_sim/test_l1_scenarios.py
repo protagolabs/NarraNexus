@@ -203,6 +203,91 @@ async def test_s1_single_voice_turn_full_lifecycle(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_s1b_narra_reply_voice_turn_rides_live_lifecycle(harness, monkeypatch):
+    """2026-08-13 call finding: models routinely answer voice turns via
+    narra_reply despite the spoken-register instructions (12/14 turns).
+    The reply tool the model picks must not decide whether the caller
+    hears the first word live — narra_reply deltas claim the bridge and
+    ride the same base-live -> final-edit lifecycle as speak."""
+    trigger, sent, plain = harness
+    runtime = ScriptedRuntime([
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta="Guangzhou is the hub ",
+        ),
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta="of South China.",
+        ),
+        # Real streams: PROGRESS carries an EMPTY call_id (run_collector
+        # does not propagate tool_call_id) — the raw-prefix judge keeps
+        # this the same segment, so nothing is spoken twice.
+        _progress(
+            "mcp__narramessenger_module__narra_reply",
+            "Guangzhou is the hub of South China.",
+            call_id="",
+        ),
+    ])
+    _install_runtime(monkeypatch, runtime)
+
+    out = await _ingest_and_run(
+        trigger, build_voice_content("Introduce Guangzhou briefly.")
+    )
+
+    assert runtime.calls[0]["turn_profile"].name == "voice_fast"
+    assert len(sent) >= 2
+    base, final = sent[0], sent[-1]
+    assert base[LIVE_KEY] == {} and "m.relates_to" not in base
+    assert final["m.relates_to"]["rel_type"] == "m.replace"
+    assert LIVE_KEY not in final and LIVE_KEY not in final["m.new_content"]
+    assert final["m.new_content"]["body"] == "Guangzhou is the hub of South China."
+    assert out == "Guangzhou is the hub of South China."
+    assert plain == []  # live path delivered once; no duplicate fallback
+
+
+@pytest.mark.asyncio
+async def test_s1c_voice_turn_never_opens_a_second_delivery_channel(harness, monkeypatch):
+    """Pipeline review round 2 Critical #1: on a live call the plain
+    sender is a DELIVERY channel (Hybrid's worker reads plain-text turns
+    to the caller — the smoke report's fallback turns had first-segment
+    latency, i.e. were heard). A raw-text supplement would therefore be
+    a second playback that reads URLs aloud, bypassing the sanitizer's
+    structural guarantee. Lock: once the bridge delivered, NOTHING else
+    is sent — the known cost (a narra_reply link doesn't reach the chat
+    record) is tracked in reference/self_notebook/todo/ pending a
+    written worker-consumption contract from Hybrid."""
+    trigger, sent, plain = harness
+    raw = "报告在这里 https://example.com/report.pdf 请查收。"
+    runtime = ScriptedRuntime([
+        SimpleNamespace(
+            message_type=MessageType.AGENT_REPLY_DELTA,
+            tool_name="mcp__narramessenger_module__narra_reply",
+            call_id="prov1",
+            delta=raw,
+        ),
+        _progress("mcp__narramessenger_module__narra_reply", raw, call_id=""),
+    ])
+    _install_runtime(monkeypatch, runtime)
+
+    out = await _ingest_and_run(
+        trigger, build_voice_content("把报告链接发我")
+    )
+
+    # Live surface: sanitized (no URL read aloud, none in live bodies).
+    assert sent, "live lifecycle must have delivered"
+    for content in sent:
+        body = content.get("m.new_content", content)["body"]
+        assert "https://" not in body
+    # No second channel: the plain sender stays untouched.
+    assert plain == []
+    assert out  # turn reports a delivered reply
+
+
+@pytest.mark.asyncio
 async def test_s4_plain_turn_after_voice_keeps_legacy_path(harness, monkeypatch):
     trigger, sent, plain = harness
     runtime = ScriptedRuntime([

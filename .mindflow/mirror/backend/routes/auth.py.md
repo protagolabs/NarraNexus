@@ -1,8 +1,54 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
+
+`netmind_login` 在 `create_token` 之前，多一道账户状态判定：状态从 `user`
+实体（`upsert_netmind_user` 返回值，本身就是经 `UserRepository.get_user` 的
+`WHERE BINARY user_id` 读到的行，故大小写敏感、与停用**写**侧同 collation）取
+`user.status.value`，若落在共享的 `NON_TRANSACTING_USER_STATUSES`（从
+`xyz_agent_context.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
+内联的 `{banned, blocked, deleted}` 字面量），记一行 WARNING 后
+`raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
+（见 [[auth_errors]]），**不签 token**。
+
+**大小写敏感 + fail-open**：不再用 `db_client.get_one`（MySQL 默认大小写不敏感
+collation，会让 look-alike user_id 绕过闸门）。`role` 不在 `User` 实体上，故单独
+用一条 `WHERE BINARY user_id` 的 raw SELECT 读，同样大小写敏感。两处读都裹
+try/except **fail-open**（分别退回 `"active"` / `"user"`）：登录绝不能因为状态读
+抖动就挂——闸门是拦某个被停用账户，不是变成登录可用性依赖。
+
+同等重要的是：early return **短路掉后续所有 fire-and-forget 登录副作用**
+（session 重整、provider/quota 供给等）——这些正是一个被停用账户应当停止消耗的
+后台工作。状态值是一个不透明集合，本路由不持有「账户如何走到停用」的任何策略。
+这与 [[auth]] middleware 的账户状态闸门是两道互补的关卡：middleware 拦住已有
+token 的后续请求，这里拦住停用账户**重新拿 token**。
+
+## 2026-08-12 — reply_language 路由
+
+GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由 i18n languageChanged 写透 + boot 回填,读方是 [[context_runtime.py]] system prompt 注入。
+
+## 2026-08-12 — funnel 白名单加两个 send-code stage（配前端 #289）
+
+`/api/auth/funnel-report` 的 `_FUNNEL_STAGES` 是**枚举白名单**（caller-controlled 输入的第二道闸，不是自由 tag：未知 stage 直接 400，且 400 在写 `[login-funnel]` 日志之前 return，所以不落痕）。前端 #289 新增三条上报路径（`SignUpDialog.sendCode` / `useNetmindAuth.sendResetCode` / `resetPassword`），对应加入 `signup_send_code_failed` / `netmind_reset_code_failed` / `netmind_reset_password_failed`——**必须与前端同 PR 合**，否则前端上报被 400 静默吞掉（`api.reportAuthFunnel` fire-and-forget），诊断空转。前端 `api.ts` 的 `AuthFunnelStage` 联合类型把这条跨端契约提前到 `tsc`（前端加白名单外的 stage 就编译不过）；`test_auth_funnel_observability.py` 的 `test_all_known_funnel_stages_are_accepted` 兜反向（后端误删/改名已用 stage）——两个守卫互补。
+
+## 2026-08-11 — telemetry consent 端点(与 analytics 并排但语义相反的持久化)
+
+`GET/PUT /api/auth/settings/telemetry`。与 analytics(per-USER,
+user_settings 行)刻意不同:遥测同意是 **per-MACHINE 标记文件**
+(`~/.narranexus/telemetry_optout`,utils/logging 每次外发都读)——
+logging 先于 DB 启动,DB 装不下这个状态。per-machine 带来两条端点
+必须执行的边界:多租户云一个用户不得静音整机 → PUT 403、GET
+`controllable=false`(那个面由部署 env 治理);`NEXUS_DIAG_SHIP`
+显式覆盖时标记写入静默无效 → PUT 409、GET `source=env`。GET 另带
+`managed_by: env|cloud|null`——不可控状态要说清**是谁在管**:自托管
+多租户装机(source=default 但 cloud mode)若复用 env 措辞,等于把
+内置默认归因给一个没人设过的环境变量(预审抓的"归因谎言")。身份
+仍走 `_require_request_user`(与邻居 analytics 一致)。
+Tests: `tests/backend/test_telemetry_consent_routes.py`。
 
 ## 2026-08-10 — cloud signup capture repaired
 

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 平台来源绑定：stamp identity 上 provider 配置
+
+紧接 MCP token stamp 之后，`identity_token` 非空则调 `bind_platform_identity(identity_token)`
+把同一 token 盖到本 turn 的 provider 配置上（同 task context，早于 driver 快照）→ 随
+`provider_configs` 过线到 executor，出站 LLM 调用带 `X-NarraNexus-Identity-Token`（仅自家网关）。
+配合网关验签让被外带的钱包 key 到平台外作废。与 MCP 面的 [[identity/tokens]] 复用同一 broker token。
 
 ## 2026-08-10 — dispatch 时 stamp MCP 身份 token（蓝图 P1）
 

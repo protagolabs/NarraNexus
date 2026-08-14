@@ -345,16 +345,25 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     resolved = ["@everyone" if m == "@all" else m for m in (payload.mentions or [])]
     # No @mention → route to the team's default responder so the room never
     # goes silent. Exactly one agent is triggered; it can @-delegate from there.
+    routed_by = None
     if not resolved:
         default_responder = resolve_default_responder(getattr(team, "lead_agent_id", None), members)
         if default_responder:
             resolved = [default_responder]
+            # Stamp WHY this mention exists. Without it the trigger cannot tell
+            # a routed wake-up from the user typing that agent's name, and the
+            # prompt ends up claiming "you were just @mentioned by User" when
+            # nobody was mentioned at all. Guessing downstream is not available:
+            # a lone mention naming the lead is exactly what a user deliberately
+            # naming the lead looks like.
+            routed_by = "default_responder"
     msg_id = await bus.send_message(
         from_agent=f"{USER_SENDER_PREFIX}{user_id}",
         to_channel=channel_id,
         content=payload.content.strip(),
         mentions=resolved or None,
         attachments=valid_attachments or None,
+        routed_by=routed_by,
     )
     logger.info(f"Team chat: user {user_id} -> team {team_id} channel {channel_id} (mentions={resolved})")
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
@@ -774,6 +783,22 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
     )
     if updates:
         await team_repo.update_team(team_id, updates)
+        # The room carries its own copy of the name, and it is the copy agents
+        # see: `Your Channels` renders `bus_channels.name`. Without this
+        # write-back a rename lands in the UI only, and every member keeps
+        # citing the old name back at the user indefinitely.
+        if "name" in updates and updates["name"]:
+            try:
+                await db.update(
+                    "bus_channels",
+                    {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                     "channel_type": "group"},
+                    {"name": updates["name"]},
+                )
+            except Exception as e:  # noqa: BLE001 — the rename itself is done
+                logger.warning(
+                    f"[teams] renamed {team_id} but could not update its room: {e}"
+                )
     if lead_changed and updates.get("lead_agent_id"):
         # The lead is who answers when nobody is named and who patrol wakes, so
         # changing it changes who is responsible. Only announced when a lead was

@@ -1,8 +1,71 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
+
+PRD《看到的必须是真的》§四。此前 `_invoke_runtime` 返回 `(text, event_id)`，
+投递逻辑是一句 `if response_text:` —— **空就什么都不做**。三个洞共用这一句。
+
+**`TurnResult` 取代二元组，多出来的是 `delivered`。** 这是 `text` 永远回答不了的
+问题：bus turn 有**两个**投递面，peer 只能被 bus send **工具**触达，而工具的产出从
+不出现在 `text` 里。所以「`text` 为空」不等于「什么都没送达」——照着它下判断，会在
+一条投递成功的回复底下印出「没有回复」。
+
+`delivered` 的判据**问 MessageSource 注册表**（`is_user_reply_tool`），不在这里重打
+工具名单：注册表已经是「哪些工具在 bus turn 上算投递」的唯一真源，第二份名单会在
+第三个 send 工具出现的那天悄悄跑偏 —— 2026-08-01 的 no-reply 指标就是这么被污染的。
+
+**`_delivered_to_anyone` 失败时返回 True（不是 False）。** False 的下游是一句公开的
+「本轮没有投递」，注册表抖一下就会把这句谎话印在一条正常送达的回复下面。漏报一次真
+沉默，用户损失的是他本来就已经在忍受的东西；**误报一次，损失的正是这整个改动要重建
+的信任**。
+
+**三处落点：**
+
+- **团队房间空回复** → `announce_undelivered`（不带 mentions）。判据是
+  `reached_nobody`，不是 `not text`：模型违规用工具把话发进了房间时，房间确实收到了，
+  这时候还说「没有回复」是**反方向的同一句谎话**。
+- **上墙失败** → `announce_delivery_failure` + `_write_to_inbox`。两种损失、两份补救：
+  房间说「发不出去」，收件箱**留住发不出去的那段正文** —— 它已经生成、已经计费，
+  一次写失败不是销毁它的理由。**故意不落到通用 except**：游标在几行之前已经推进，
+  这条消息早已 ack，`record_failure` 只能给一次永不会重试的投递刷毒药计数。
+  `_hop_done` 保持 False，`[bus-timing]` 量的是投递，把丢掉的回复算成一跳是自我美化。
+- **A2A 无投递** → 带 `mentions=[提问方]` 的通知 + `_notify_undelivered_owner`。
+  `errand_continuation=True` 时**不叫醒 peer**：那批消息是 peer 在回答我们的 errand，
+  它没在等；等的是我们自己的 owner，收件箱那一条才是全部补救。
+
+**ping-pong 闸**：触发消息本身就是 `system_undelivered` 时不再产生新通知。两个都不
+说话的 agent 否则会互相甩平台行 —— 每一次沉默都在诱发下一条通知。
+
+**它是第一个带 mentions 的平台类型**，也就是第一个能**成为触发消息**的平台类型 ——
+[[system_messages]] 的 `trigger_label` 分派表当初正是为这一天写的。
+
+## 2026-08-13（review 后）— 四处修正
+
+narranexus-review 抓到并逐条修掉：
+
+- **patrol 调用点漏改**（Critical）。`_invoke_runtime` 改成 `TurnResult` 后，全仓两个
+  调用点只改了主路径，`_patrol_body` 还在 `response_text, _ = await ...` 解包 —— 不可
+  迭代的 dataclass 会让每一轮 Leader 巡查在烧完一次 LLM turn 后抛 `TypeError`、写一行
+  warning、戳游标、下周期重来，**永不再发 patrol 行**。测试桩全返回元组所以 CI 全绿。
+  已改调用点 + 6 个桩为 `TurnResult(...)`。
+- **ping-pong 闸从「只挡 `system_undelivered`」扩到 `in PLATFORM_MSG_TYPES`**。patrol
+  行带 mentions 会成为被点名成员的 trigger，它被追到停滞、跑一轮仍无文本时不该读成
+  「用户问了没答」。平台自己发起的 turn 没有在等回答的人。
+- **`_delivered_to_anyone` 的 fail-open 补上「注册表静默降级」这一支**。
+  `MessageSourceRegistry.get()` 从不抛，对未注册 source 返回默认 handler（只有
+  owner-chat 工具），于是 bus send 不再算投递 → 每轮正确答复 peer 的 turn 都被扣上
+  「没有回复」。现在校验 `handler.name == "message_bus"`，不一致也 fail-open 到 True。
+- **owner 通知抽成 `_notify_owner` helper，加冷却**。此前 `_notify_undelivered_owner`
+  每次 `reached_nobody` 都写一行收件箱，一个纯文本回话、不调 bus 工具的 agent 会在一
+  条活跃 A2A 通道上每来一条消息刷一行同名通知，淹没共用一个收件箱的
+  `_notify_permanent_failure`。冷却按 agent 聚合（`f"{agent_id}:no_reply"`），且沿用
+  「写成功后才 arm」这条踩过的坑。`_notify_permanent_failure` 的 `trigger_message`
+  参数已删（不再需要）。
+
 ## 2026-08-10 — patrol lane:poll cycle 的第二个候选源
 
 `_dispatch_patrols` / `_dispatch_patrol` / `_run_patrol` 接入 `_poll_cycle`。
@@ -665,6 +728,7 @@ inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢�
 同时在 prompt 里点名 `bus_pin_team_rule`（没人告知的工具就是没人用的工具），
 并在同一句里劝阻把公告栏当记事本——预算很小且与用户的规则共享，
 一个往里钉「发现」的 agent 会挤掉它本该遵守的规则。
+
 ## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
 
 **巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
@@ -864,6 +928,73 @@ where it stands」），所以它会成为被点名成员这一轮的**触发消
 
 现在平台行渲染为 `[system] <content>`，前提成立。这也是"标注而不是丢弃"的第二个理由，
 当时没人提出过。
+
+## 2026-08-12 — team prompt 从「一串名字」变成一张卡
+
+此前一个成员醒来时知道的全部是:自己的名字、"你在一个团队群聊里"、队友的**逗号分隔
+名字串**、最近 20 条消息、共享目录路径。团队叫什么、为什么存在、队友是干什么的、
+谁在忙 —— 一个都没有。
+
+**团队卡**(`_team_card_lines`):名称 + `description` 全文 + `intro_md`(截到
+`TEAM_INTRO_MAX_CHARS=1200`,在行边界回退以免切断 markdown 表格/代码块;截了就标注,
+没截绝不标注 —— 对完整文本打截断标记是会连累其它标记可信度的小谎)。字段缺失渲染成
+**什么都没有**而不是空标题。位置在房间头之后、共享目录之前:"我在哪、和谁、为什么"
+是读下面一切的框,不能垫在机制说明底下。数据来自 `_team_board` 本来就查了的 `teams`
+整行(它读完 `lead_agent_id` 就把其余丢了),**零新增查询**。
+
+**roster**(`_team_roster` + `_roster_lines`):一行一个成员,格式对齐
+`message_bus_module` 的 Known Agents(`` `id` — name: desc ``)。这不是审美 —— 那份
+列表正是 agent 学到 `bus_send_to_agent` 要什么标识符的地方,两个面用两套标识符等于
+逼模型去猜映射。**自己也在名单里并标 `(you)`**;lead 标记挂在**每一行**,于是非 lead
+成员终于知道谁在负责(此前只有 lead 自己被告知)。描述未设置时整段不渲染,和 Known
+Agents 同一条 2026-08-04 的教训。
+
+数据层从「每个成员一次 `get_one` 只取名字」改成**三次批量读**。不做 JOIN:
+`LocalMessageBus._db` 是 RAW backend,四表 LEFT JOIN 会是本包方言最脆的一句 SQL,而
+一个 team 最多几十人,收益为零。有一条看门狗测试钉住"不许退回逐个查"。
+
+**队友状态**(`_member_status`):只讲两件事 —— `running (3m)` 和
+`running but no signal`。**idle 什么都不渲染**(常态挂在每个名字后面就是背景噪音,
+和巡查"不要每几分钟报平安"同一条产品原则);**`phase` 不注入**(内部步骤名,给模型只
+会诱导它评论队友的工具使用,而且每几秒抖一次)。时长取 `started_at` 而非 `updated_at`
+(后者是心跳,永远约等于现在),整数,不给假精度。
+
+活动行取自 `get_channel_activity`(**按 channel**)。这一点必须守住:
+`bus_agent_activity` 主键是 `(agent_id, channel_id)`,只按 agent 取会拿到字典序靠前的
+**别的房间**的行 —— 这个洞本仓库已经出过一次(巡查的 stalled 判定),别再来第二次。
+
+**scrollback 的 @ 标注**:`BusMessage.mentions` 一直存在,这个 prompt 从没读过它。
+现在逐行标 `[→ 谁]`(是自己就写 `you`)。知道一个请求已经有主,正是避免两个 agent
+做同一件事的依据。
+
+**多条 @ 逐条列**:此前只指 `trigger_messages[-1]`,更早那几条混在 scrollback 里像
+别人的流量 —— 问了却被无声丢掉,在用户看来就是 agent 无视了它们。
+
+**真假 @ 分支**:`routed_by == "default_responder"` 时不再说 "You were just
+@mentioned",改成「X 发言时没有 @ 任何人,你是这个团队的默认应答人,所以它落到了你
+这里;回答它,或按 roster 交给更合适的人」—— 顺带回答了"为什么是我"。
+
+## 2026-08-12 (review 后) — 三处自我纠正
+
+**① 缺口判定改用 `has_unread_before`。** 见 [[local_bus]] 同日条目:我用无 limit 的
+`get_unread` 回答一个布尔问题,把同一批改动刚消灭的形状请了回来。
+
+**② 真假 @ 的判据从「是不是只有一条」改成「整批是不是都被路由」。** 初版只在
+`len(trigger_messages) == 1` 时区分 `routed_by`,于是用户在一个 poll 窗口(3-12s)里
+连发两条都没 @ 人的消息时,复数分支照样打出「2 messages @mentioned you」——**要删掉的
+那句谎话换了个分支活着**。现在按批次分组:全部路由 → 复数版的默认应答人措辞;全是
+真 @ → 原措辞;混合 → 复数版并**逐条标注**哪条是路由补的(scrollback 的 `[→ …]`
+已经证明逐条标注读起来没问题)。
+
+**③ `activity` 覆盖参数删除。** 它在生产没有任何调用方,而 5 条状态测试全靠它驱动 ——
+也就是说 `_team_roster` → `roster[i]["activity"]` → `_member_status` 这条**真实链路
+一条测试都没走过**。参数删掉,测试改用真实形状,另补一条端到端用例:往
+`bus_agent_activity` 写一行 running、外加**同一个 agent 在另一个房间的 idle 行**,
+断言 prompt 里出现的是本房间的时长 —— 顺带把「必须按 channel 取」钉死。
+
+顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
+一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
+成员,读回空意味着读失败,不是房间空了。
 
 ## 2026-08-12 — 把 segments 交给 bus
 

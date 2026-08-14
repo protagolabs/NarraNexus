@@ -43,8 +43,10 @@ import type { TeamChatMessage } from '@/types/teams';
 const SYSTEM_MSG_TYPES = new Set([
   'system_bulletin',
   'system_cascade',
+  'system_delivery_failed',
   'system_roster',
   'system_stop',
+  'system_undelivered',
   'patrol',
 ]);
 

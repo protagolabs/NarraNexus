@@ -29,7 +29,11 @@ from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema.team_schema import BulletinEntry
 
-MEMBERS = {"agent_a": "Alice", "agent_b": "Bob"}
+# The builder takes a roster now (team-card change), same two members.
+MEMBERS = [
+    {"agent_id": "agent_a", "name": "Alice"},
+    {"agent_id": "agent_b", "name": "Bob"},
+]
 
 
 def _entry(content, *, source="user", author_id="usr_1", tier="long_term", eid="bul_1"):

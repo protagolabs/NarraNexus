@@ -196,7 +196,10 @@ def test_the_agent_is_told_the_tool_exists():
     prompt = MessageBusTrigger(bus=None)._build_team_prompt(
         "agent_b",
         [],
-        {"agent_a": "Alice", "agent_b": "Bob"},
+        [
+            {"agent_id": "agent_a", "name": "Alice"},
+            {"agent_id": "agent_b", "name": "Bob"},
+        ],
         owner_user_id="user_a",
         team_id="team_42",
         bulletin=None,
@@ -212,7 +215,10 @@ def test_the_prompt_discourages_using_the_bulletin_as_a_notepad():
     prompt = MessageBusTrigger(bus=None)._build_team_prompt(
         "agent_b",
         [],
-        {"agent_a": "Alice", "agent_b": "Bob"},
+        [
+            {"agent_id": "agent_a", "name": "Alice"},
+            {"agent_id": "agent_b", "name": "Bob"},
+        ],
         owner_user_id="user_a",
         team_id="team_42",
         bulletin=None,

@@ -23,6 +23,10 @@ from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.logging import (
+    set_telemetry_optout,
+    telemetry_consent,
+)
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
@@ -33,6 +37,7 @@ from xyz_agent_context.repository import (
     UserRepository,
 )
 from xyz_agent_context.schema import (
+    NON_TRANSACTING_USER_STATUSES,
     LoginRequest,
     LoginResponse,
     NetmindLoginRequest,
@@ -60,6 +65,7 @@ from backend.auth import (
     resolve_current_user_id,
 )
 from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
     IDENTITY_UNRESOLVED,
     NETMIND_TOKEN_INVALID,
     AuthError,
@@ -310,6 +316,14 @@ _funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
 _FUNNEL_STAGES = frozenset({
     "netmind_email_login_failed",
     "netmind_oauth_failed",
+    # Registration + forgot-password failures (browser->NetMind direct, so the
+    # funnel is the only server-side trace). Frontend callers:
+    # SignUpDialog.sendCode / useNetmindAuth.sendResetCode|resetPassword. Kept in
+    # lockstep with the frontend `AuthFunnelStage` union (frontend/src/lib/api.ts).
+    # This allowlist is a caller-controlled-input gate — never free text.
+    "signup_send_code_failed",
+    "netmind_reset_code_failed",
+    "netmind_reset_password_failed",
 })
 
 
@@ -517,8 +531,46 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         except Exception:  # noqa: BLE001 — analytics must never break login
             pass
 
-    user_row = await db_client.get_one("users", {"user_id": user.user_id})
-    role = (user_row.get("role") if user_row else None) or "user"
+    # Account-state gate + role, read CASE-SENSITIVELY.
+    #
+    # `user` (returned by upsert_netmind_user) is already the row fetched via
+    # UserRepository.get_user — a `WHERE BINARY user_id` lookup — so
+    # `user.status` is the case-sensitive account state, matching the collation
+    # the suspension WRITE uses. A plain get_one here would use MySQL's default
+    # case-INSENSITIVE collation and could let a look-alike user_id dodge the
+    # gate. `role` is not carried on the User entity, so it is read separately
+    # with the same `WHERE BINARY` collation.
+    #
+    # Fail-OPEN to "active" / "user" on any read hiccup (including a stored
+    # status value the strong entity cast cannot coerce): a login must never
+    # break because the state read stumbled. The gate exists to stop a specific
+    # suspended account, not to become a login availability dependency.
+    try:
+        account_status = user.status.value
+    except Exception:  # noqa: BLE001 — availability over strictness
+        account_status = "active"
+    try:
+        role_rows = await db_client.execute(
+            "SELECT role FROM users WHERE BINARY user_id = %s LIMIT 1",
+            params=(user.user_id,),
+            fetch=True,
+        )
+        role = (role_rows[0].get("role") if role_rows else None) or "user"
+    except Exception:  # noqa: BLE001 — role read must never break login
+        role = "user"
+
+    # A suspended account must not be issued a token, and — just as important —
+    # must not kick off the fire-and-forget login work below (session re-arm,
+    # provider/quota provisioning): those are exactly the background side
+    # effects a suspended account should stop consuming. Returning here
+    # short-circuits every one of them. The state values are the shared opaque
+    # set; this route holds no policy about how an account reaches one.
+    if account_status in NON_TRANSACTING_USER_STATUSES:
+        logger.warning(
+            f"[login] refused suspended account user={user.user_id} "
+            f"status={account_status} source={request.source or '-'}"
+        )
+        raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)
 
     token = create_token(user.user_id, role)
     logger.info(
@@ -1729,6 +1781,11 @@ class SetAnalyticsOptOutRequest(BaseModel):
     opted_out: bool
 
 
+class SetReplyLanguageRequest(BaseModel):
+    # i18n code ("zh", "en", ...); empty string clears the preference.
+    language: str = Field(default="", max_length=16, pattern=r"^[a-zA-Z-]*$")
+
+
 @router.get("/settings/analytics")
 async def get_analytics_opt_out(http_request: Request):
     """Return whether the current user has opted out of product analytics.
@@ -1748,3 +1805,99 @@ async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
     repo = UserSettingsRepository(await get_db_client())
     await repo.set_analytics_opt_out(uid, request.opted_out)
     return {"success": True, "opted_out": request.opted_out}
+
+
+# =============================================================================
+# Telemetry (diagnostic log shipping) consent
+# =============================================================================
+#
+# Unlike analytics (a per-USER row in user_settings), telemetry consent
+# is a marker file (~/.narranexus/telemetry_optout — per USER ACCOUNT
+# on this host, shared by all sidecars on a desktop install) read by
+# utils/logging at every send — logging starts before the DB does, so
+# the DB cannot hold this state. Host-level scope has two consequences
+# the endpoints must enforce:
+#   - multi-tenant cloud: one user must not silence (or re-enable)
+#     telemetry for everyone → PUT is 403, GET says controllable=false
+#     (that surface is governed by the deployment env instead);
+#   - an explicit NEXUS_DIAG_SHIP env override is the deployment's
+#     decision: a marker write would be silently ineffective, so PUT is
+#     409 and GET reports source=env / controllable=false.
+
+
+class SetTelemetryOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+def _telemetry_state() -> dict:
+    consent = telemetry_consent()
+    # managed_by tells the UI WHO owns a non-controllable state — "your
+    # deployment set an env var" and "this is a multi-tenant install"
+    # are different facts, and showing the env wording on a cloud
+    # install whose telemetry comes from the built-in default would
+    # attribute a decision nobody made.
+    managed_by = None
+    if consent["source"] == "env":
+        managed_by = "env"
+    elif _is_cloud_mode():
+        managed_by = "cloud"
+    return {
+        "mode": consent["mode"],
+        "source": consent["source"],
+        "opted_out": consent["source"] == "optout",
+        "controllable": managed_by is None,
+        "managed_by": managed_by,
+    }
+
+
+@router.get("/settings/telemetry")
+async def get_telemetry_consent_state(http_request: Request):
+    """Current telemetry consent state + whether the toggle applies."""
+    _require_request_user(http_request)
+    return _telemetry_state()
+
+
+@router.put("/settings/telemetry")
+async def set_telemetry_consent_state(request: SetTelemetryOptOutRequest,
+                                      http_request: Request):
+    """Flip the per-machine telemetry opt-out marker."""
+    uid = _require_request_user(http_request)
+    if _is_cloud_mode():
+        raise HTTPException(
+            status_code=403,
+            detail="telemetry consent is per-machine; on a multi-tenant "
+                   "install it is governed by the deployment, not a user",
+        )
+    if telemetry_consent()["source"] == "env":
+        raise HTTPException(
+            status_code=409,
+            detail="NEXUS_DIAG_SHIP is set: the deployment overrides "
+                   "telemetry mode and a marker write would be ineffective",
+        )
+    set_telemetry_optout(request.opted_out)
+    logger.info(
+        f"Telemetry opt-out set to {request.opted_out} by {uid}"
+    )
+    return {"success": True, "opted_out": request.opted_out}
+@router.get("/settings/reply-language")
+async def get_reply_language(http_request: Request):
+    """The user's reply-language preference; null = never set (model free)."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"language": await repo.get_reply_language(uid)}
+
+
+@router.put("/settings/reply-language")
+async def set_reply_language(request: SetReplyLanguageRequest,
+                             http_request: Request):
+    """Persist the reply-language preference (empty clears it).
+
+    Written by the frontend replyLanguageSync (i18n languageChanged +
+    one-time backfill), read by
+    ContextRuntime into the system prompt — the fix for "UI set to
+    Chinese but replies stay English": the preference used to live only
+    in frontend i18n and never reached the model."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_reply_language(uid, request.language)
+    return {"success": True, "language": request.language or None}

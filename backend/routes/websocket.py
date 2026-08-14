@@ -34,15 +34,18 @@ from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
-from backend.auth import _is_cloud_mode, decode_token
+from backend.auth import _account_state, _is_cloud_mode, decode_token
 from backend.routes._mcp_egress import filter_public_mcp_servers
 from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
     IDENTITY_MISSING,
     IDENTITY_UNRESOLVED,
     TOKEN_EXPIRED,
     TOKEN_INVALID,
     TOKEN_MISSING,
 )
+
+from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
@@ -752,6 +755,29 @@ async def websocket_agent_run(websocket: WebSocket):
                 return
 
             logger.info(f"WS auth OK: user_id={token_user_id}, role={payload.get('role')}")
+
+            # ---- Account-state gate (cloud) ----
+            # The JWT is valid, but a suspended account must not be able to
+            # start (or reconnect to) a run on its still-valid token. The HTTP
+            # auth middleware enforces this for /api/* and exempts /ws/*, so the
+            # gate has to be repeated here — WS is the product's MAIN run path.
+            # Uses the SAME shared non-transacting set and the SAME _account_state
+            # reader (TTL-cached, fail-OPEN) as the HTTP gate, so the two never
+            # drift. A JSONResponse (auth_error_response) is unsendable over a
+            # WebSocket, so we use the error-frame + close form already used for
+            # every other WS auth failure above.
+            if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:
+                logger.warning(
+                    f"WS auth failed: account suspended user_id={token_user_id}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Account is not available",
+                    "error_type": "AuthError",
+                    "error_code": ACCOUNT_SUSPENDED,
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
 
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to

@@ -350,6 +350,17 @@ async def test_dev_label_has_own_partition(env):
     assert not (env / "unknown").exists()
 
 
+async def test_sprite_label_has_own_partition(env):
+    """Non-staging manyfold sandboxes label themselves "sprite"
+    (run.sh) — first-class vocabulary with its own partition, so a
+    full-level sandbox fleet rotates itself under the size cap instead
+    of crowding prod's history."""
+    resp = await _post(gzip.compress(_lines("x", env_label="sprite").encode()))
+    assert resp.status_code == 200
+    assert (env / "sprite").is_dir()
+    assert not (env / "unknown").exists()
+
+
 async def test_collapse_warning_memo_resets_after_window(env, monkeypatch):
     """A hundred rotated garbage labels must not permanently silence
     the warning this memo exists FOR — our own vocabulary drifting.

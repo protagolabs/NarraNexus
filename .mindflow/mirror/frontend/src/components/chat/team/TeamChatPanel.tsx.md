@@ -3,6 +3,7 @@ code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
 last_verified: 2026-08-14
 stub: false
 ---
+
 ## 2026-08-14 — 往上翻历史，以及一个跨房间的游标 bug
 
 房间现在打开在**最新**一页（服务端改动见 [[teams.py]]），滚到顶部请求上一页
@@ -237,6 +238,20 @@ listing rows the server had deleted and every one of them 410'd on click.
 
 面板加载 effect 也挂在 `workspaceRefreshTick` 上：清团队数据可能带走公告栏，
 面板留在屏上列已删掉的规则比空着更糟。
+
+## 2026-08-13 — 投递通知渲染
+
+`system_undelivered` / `system_delivery_failed` 两个新平台行，照 `system_stop` /
+`system_bulletin` 的先例渲染成居中胶囊行——平台在说话，不是成员在说话。
+
+两种行**视觉权重不同**：上墙失败是**我们的错、可追责**，用 warning 色；静默一轮只是
+信息，和别的平台行一样安静。失败原因不进正文，落在 `title` 上（hover 才见）——
+transcript 保持安静，排障的人一个 hover 就能拿到原因。
+
+`content` 是给纯文本消费者的英文兜底，**不是**给读者看的：数据库不知道读者的语言，
+所以正文照 `stoppedNotice` 的路子走 i18n key。测试里专门钉了「英文兜底句子不上屏」。
+
+对应后端：[[delivery_notice]]、[[message_bus_trigger]]。
 
 ## 2026-08-12 — 消息渲染抽件（1134 → 970 行）
 

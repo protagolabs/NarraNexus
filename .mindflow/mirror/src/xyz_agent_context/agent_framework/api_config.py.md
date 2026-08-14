@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-13 — 平台来源绑定：identity token 上 provider 配置
+
+三个 slot 配置（Claude/OpenAI/Codex）加 `identity_token` 字段；`bind_platform_identity(token)`
+把 broker 签名的 token 盖到当前 turn 的 ContextVar 配置上（`dataclasses.replace`，在 driver
+快照前、同一 task context —— step_3 调）。`to_cli_env` **仅当** `base_url` 是自家网关
+（`_is_own_gateway_url`：host ∈ **llm-gateway** / litellm / 127.0.0.1 / localhost）才发
+`ANTHROPIC_CUSTOM_HEADERS: X-NarraNexus-Identity-Token: <tok>`（冒号空格格式，Claude Code CLI
+转发到 ANTHROPIC_BASE_URL）——绝不泄露给 BYOK 第三方。token 随 `provider_configs`(asdict) 过线到
+executor。网关侧验签见 deploy 仓 `stacks/narranexus-app/litellm/prefill_compat.py` 的
+`_enforce_identity`（读 `data["proxy_server_request"]["headers"]` 的该头、Ed25519 验签 +
+交叉校验 token `sub` **等于从 `free::<uid>` 别名剥出的裸 `uid`**，`NX_IDENTITY_VERIFY_MODE`
+**默认 `off`**、渐进 `off`→`audit`→`enforce`）——**该验签在 deploy `staging`（PR #20），deploy
+`dev`/`main` 分支的 prefill_compat 尚无此逻辑，别对着旧分支找**。
+
+> **`llm-gateway` 是承重项，不是可删的多余项**（2026-08-14 review 修正）：2026-08-07 RCE 整改后，
+> 云端 executor 落在 sandbox 网络，到网关的**唯一**可达入口是 `http://llm-gateway:4000`
+> （sandbox → Caddy 白名单前置 → litellm），`litellm:4000` 云端够不到。名单漏掉 `llm-gateway`
+> = 云端**一次都不发头**（enforce 那天全站免费档 turn 被网关 403，且无任何日志）。`litellm` + loopback
+> 保留给 local/dev。这份名单与 [[model_client]] 的 `_OWN_GATEWAY_HOSTS` 是**双份物理副本**，由
+> `test_gateway_host_lists_stay_in_sync` 强制一致——两处必须同改。
 
 ## 2026-08-10 — per-slot provider attribution ContextVar
 

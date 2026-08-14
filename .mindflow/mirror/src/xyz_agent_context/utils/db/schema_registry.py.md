@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — ban_audit 新表（账户状态变更审计）
+
+注册 `ban_audit`：账户状态变更的追加式审计表，一次 suspend / reinstate 一行。
+列：`id`(BIGINT UNSIGNED 自增主键)、`user_id`(VARCHAR(64) NOT NULL)、
+`action`(VARCHAR(32) NOT NULL)、`reason`(MEDIUMTEXT)、`evidence_ref`(MEDIUMTEXT)、
+`actor`(VARCHAR(128))、`prev_status`(VARCHAR(32))、`created_at`(DATETIME(6)
+NOT NULL，sqlite 侧 `(datetime('now'))`)。索引 `idx_ban_audit_user_id(user_id)`，
+按 user_id 查询。
+
+**`prev_status`（2026-08-13 追加列）**：记录该行动作发生**前**账户的状态（不透明，
+就是一个 `users.status` 值）。additive 列——`auto_migrate` 在既有部署上增量补列，
+无破坏性迁移、不触铁律 #6。suspend 写它替换掉的状态、reinstate（含被 409 拒绝的
+那次）写它试图恢复前的状态，让「reinstate 从什么状态翻回来 / suspend 覆盖了什么」
+可追溯，而审计表仍不携带任何策略词汇。
+
+`reason` / `evidence_ref` 是调用方提供的**不透明自由文本**（绝非 enum），本表因此
+不携带自己的策略词汇；`actor` 记录是谁做的变更。追加式、只增不改。写入方是
+[[ban_audit_repository]]（best-effort，advisory），真相源是 `users.status`。
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+`user_settings` 新增 `reply_language`(VARCHAR(16),NULL=从未设置=模型自由)。auto_migrate 增量加列,无危险变更。
+
 ## 2026-08-11 — channel_narramessenger_credentials gains idx_nm_cred_profile
 
 Added a non-unique `Index("idx_nm_cred_profile", ["nexus_profile_id"])`
@@ -254,6 +278,7 @@ agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审�
 provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
 错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
 `scripts/data_migrations/backfill_cost_records_user_id.py`。
+
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -666,6 +691,15 @@ Important #1).
   `"system"` 哨兵，然后每个「谁写的」路径都要用字符串比较把它排除掉。
 - **`watermark_at` 是专用列**，只在总结行有值。第一版把它塞进 `author_id`——
   那正是上面那条自己批评的一列两义，提交前改掉。
+
+## 2026-08-12 — `bus_messages.routed_by`(可空,additive)
+
+记录一条消息的 `mentions` 是谁写的。语义见 [[schemas]]。
+
+**为什么不复用 `msg_type`**:`send_message` 会把带附件的消息自动改写成
+`"multimodal"`,而"无人被 @"是**正交**的另一个事实,两者塞进同一列会互相覆盖。
+`multimodal` 目前没有消费方,但重载一个字段表达两件事迟早出事。加一个可空列是本项目
+的常规机制,`auto_migrate` 幂等处理,不触发铁律 #6(它禁的是收窄类型和破坏性迁移)。
 
 ## 2026-08-12 — `bus_messages.segments`
 

@@ -1,8 +1,16 @@
 ---
 code_file: scripts/diag_collector/collector.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 ---
+
+## 2026-08-11(十)— 词汇表 +sprite(#286 三审)
+
+非 staging 的 manyfold 沙盒经 run.sh 自标 `sprite`,进默认
+KNOWN_ENVS 与 discovery 示例(三边同批)。动机:沙盒跑 full
+(量级比 meta 高 1-2 个数量级),若回落 "cloud" 与 prod 栈同分区,
+水位找平会按最旧优先冲掉 prod 自己的诊断历史——专属分区让沙盒
+群在 20GB 硬帽下轮转自己。
 
 ## 2026-08-11(九)— 第 10 轮:改口要扫到读者真正读的那份清单
 
@@ -173,7 +181,12 @@ review Critical:旧防线三处不成立——XFF 首段是客户端写的(每�
 伪造信封只污染我方诊断数据,换不到权限。`DIAG_COLLECT_TOKEN` 设置
 即强制(私有部署旋钮)。新增 `GET /v1/config`:从
 `DIAG_COLLECT_CONFIG_JSON` 原样伺服发现文档(只含 URL,公开无鉴权)
-——URL 轮换 = prod collector 一处 env 变更,零客户端发版。部署面:
+——URL 轮换 = 对应 collector 一处 env 变更,零客户端发版。**发现
+文档不再是"只有 prod 一处入口"**(rc.2 起):发送端按 env 标签选
+向哪台 collector 取 map——prod 是内置默认,**staging 沙盒经 run.sh
+改问 dev collector**,所以每台被标签路由到的 collector 都必须自带
+`DIAG_COLLECT_CONFIG_JSON`(dev 机已配,含 default/staging/dev),
+否则那批发送端 404、退避整个 TTL。部署面:
 prod = xyz-algo(agent.narra.nexus),staging = NarraNexus-dev
 (**dev-agent.narra.nexus,需新增 DNS A 记录**),各一容器 + caddy
 `/telemetry/*` 路由;"默认开"的版本发布必须晚于两台部署。

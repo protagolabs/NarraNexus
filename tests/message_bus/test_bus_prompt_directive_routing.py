@@ -341,7 +341,7 @@ async def test_invoke_runtime_forwards_the_errand_scope(monkeypatch):
         async def run_and_collect(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
-                is_error=False, output_text="ok", event_id="evt_1", segments=[]
+                is_error=False, output_text="ok", event_id="evt_1", tool_calls=[], segments=[]
             )
 
     monkeypatch.setattr(rt_client, "get_agent_runtime_client", lambda: _FakeClient())

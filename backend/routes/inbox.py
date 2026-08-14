@@ -29,6 +29,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
+from backend.routes._ownership import assert_owned
+
 router = APIRouter()
 
 
@@ -77,6 +79,7 @@ async def _resolve_agent_names(db, agent_ids: list[str]) -> dict[str, str]:
 
 @router.get("")
 async def get_agent_inbox(
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
     is_read: Optional[bool] = Query(None, description="Filter by read status"),
     limit: Optional[int] = Query(None, description="Max messages per channel (-1 for unlimited)"),
@@ -84,12 +87,15 @@ async def get_agent_inbox(
     """
     Get all channels and messages for an agent.
 
+    Owner-only: the inbox is scoped to whoever owns the agent.
+
     Returns data shaped for the frontend InboxRoom format:
     {
       rooms: [{ room_id, room_name, members, unread_count, messages, latest_at }],
       total_unread: int
     }
     """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 
@@ -246,10 +252,10 @@ async def get_agent_inbox(
 
 
 @router.put("/{message_id}/read")
-async def mark_message_read(message_id: str, agent_id: str = Query(...)):
+async def mark_message_read(message_id: str, request: Request, agent_id: str = Query(...)):
     """
     Mark a single message as read by advancing the read cursor to that
-    message's timestamp.
+    message's timestamp. Owner-only.
 
     NOTE: this only clears messages up to and including `message_id`.
     For "clear the whole channel" semantics (e.g. the user clicked the
@@ -257,6 +263,7 @@ async def mark_message_read(message_id: str, agent_id: str = Query(...)):
     use `POST /rooms/{room_id}/read` instead — it advances the cursor
     to NOW without needing a message_id.
     """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 
@@ -284,10 +291,10 @@ async def mark_message_read(message_id: str, agent_id: str = Query(...)):
 
 
 @router.post("/rooms/{room_id}/read")
-async def mark_room_read(room_id: str, agent_id: str = Query(...)):
+async def mark_room_read(room_id: str, request: Request, agent_id: str = Query(...)):
     """
     Mark **every** message in a channel as read by advancing the agent's
-    `last_read_at` cursor to NOW. Click-the-channel UX (2026-05-28).
+    `last_read_at` cursor to NOW. Click-the-channel UX (2026-05-28). Owner-only.
 
     Why we don't reuse `PUT /{message_id}/read`: the inbox list caps each
     channel's `messages` array at 50, but `unread_count` is computed
@@ -304,6 +311,7 @@ async def mark_room_read(room_id: str, agent_id: str = Query(...)):
     The frontend just re-fetches the inbox afterwards; we don't bother
     recomputing the unread_count delta here.
     """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 

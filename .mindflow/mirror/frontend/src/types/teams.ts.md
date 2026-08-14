@@ -3,6 +3,7 @@ code_file: frontend/src/types/teams.ts
 last_verified: 2026-08-14
 stub: false
 ---
+
 ## 2026-08-14 — TeamWithMembers 带上房间活动
 
 `last_message_at` / `last_message_preview` / `last_message_author`：房间上一次说了

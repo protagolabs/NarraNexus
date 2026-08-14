@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
       "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire",
       "patrolNotice": "Contrôle du responsable",
+      "undeliveredNotice": "{{name}} a terminé ce tour sans répondre",
+      "deliveryFailedNotice": "La réponse de {{name}} n'a pas pu être publiée",
       "board": {
         "title": "Tableau de travail",
         "unclaimed": "non attribué",
@@ -808,7 +810,7 @@
       "privacyHeading": "Confidentialité",
       "privacyIntro": "Contrôlez les données que NarraNexus collecte pour améliorer le produit.",
       "analyticsTitle": "Analyses du produit",
-      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
+      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Dans la version web cloud, des données anonymes d'interaction avec les pages sont également envoyées à Google Tag Manager, un service d'analyse tiers ; désactiver cette option l'arrête. Aucun contenu de conversation n'est collecté.",
       "desktopHeading": "Bureau",
       "desktopIntro": "Paramètres contrôlant la manière dont NarraNexus interagit avec cet ordinateur. Disponible uniquement dans l'application de bureau.",
       "lockedUseTitle": "Locked Use — garder l'ordinateur éveillé",
@@ -1183,8 +1185,6 @@
       "localAccess": "Local · Accès",
       "cloudMode": "Mode cloud",
       "signInWithNetmind": "Connectez-vous avec votre compte NetMind.AI",
-      "migrationNoticeHeading": "Nous avons réorganisé notre système de comptes.",
-      "migrationNoticeBody": "Vos données ont été migrées vers le compte associé à l'e-mail utilisé pour recevoir votre code d'invitation. Pour vous connecter, réinitialisez d'abord le mot de passe de cet e-mail (utilisez « Mot de passe oublié ? » ci-dessous). Pour toute autre question, contactez notre équipe à",
       "emailLabel": "E-mail",
       "passwordLabel": "Mot de passe",
       "forgotPassword": "Mot de passe oublié ?",
@@ -1199,7 +1199,12 @@
       "accessTerminal": "Accéder au terminal",
       "createNewUser": "Créer un utilisateur",
       "loginFailed": "Échec de la connexion",
+      "invalidCredentials": "E-mail ou mot de passe invalide",
       "enterUserId": "Veuillez saisir votre identifiant utilisateur",
+      "resetCodeInvalid": "Le code est invalide ou a expiré. Demandez-en un nouveau.",
+      "forgotResetIntro": "Nous enverrons un code de vérification à l'e-mail de votre compte NetMind.",
+      "forgotCodeSentHint": "Si un compte existe pour cet e-mail, nous avons envoyé un code de vérification.",
+      "useDifferentEmail": "Utiliser un autre e-mail",
       "connectionFailed": "Échec de la connexion. Veuillez réessayer."
     },
     "modeSelect": {
@@ -1241,6 +1246,9 @@
     "settings": {
       "title": "Paramètres",
       "headerSections": "Fournisseurs · Bundle · Artefacts · Agents",
+      "nav": {
+        "privacy": "Confidentialité"
+      },
       "providers": {
         "label": "Fournisseurs LLM"
       },
@@ -1280,6 +1288,19 @@
         "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
+      },
+      "privacy": {
+        "label": "Confidentialité",
+        "hint": "Ce qui quitte cette machine, et les interrupteurs pour le contrôler.",
+        "analyticsTitle": "Analyses du produit",
+        "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Dans la version web cloud, des données anonymes d'interaction avec les pages sont également envoyées à Google Tag Manager, un service d'analyse tiers ; désactiver cette option l'arrête. Aucun contenu de conversation n'est collecté.",
+        "telemetryTitle": "Télémétrie de diagnostic",
+        "telemetryDesc": "Envoyer les journaux de service de cette installation au collecteur propre à NarraNexus afin de pouvoir déboguer les plantages et les pannes. Au niveau par défaut, cela se limite aux événements structurés, aux avertissements et aux erreurs — sans aucun contenu de messages. Les déploiements qui utilisent le niveau \"full\" (sandbox gérées, environnements de débogage) envoient les lignes de journal complètes, qui peuvent inclure du contenu de messages consigné par les services. Rien n'est envoyé à un tiers.",
+        "telemetryTiming": "La désactivation prend effet en quelques secondes. Si la télémétrie était déjà désactivée au démarrage de l'application, l'activation prend effet au prochain démarrage.",
+        "telemetryManaged": "Géré par votre déploiement (variable d'environnement) — l'interrupteur n'est pas disponible ici.",
+        "telemetryManagedCloud": "Votre administrateur contrôle la télémétrie de diagnostic de cette installation.",
+        "telemetryUnavailable": "L'état de la télémétrie n'a pas pu être chargé — l'interrupteur est masqué plutôt que deviné. Rechargez pour réessayer.",
+        "telemetryError": "La modification n'a pas pu être enregistrée. L'interrupteur affiche l'état actuel réel."
       }
     },
     "system": {
@@ -2061,6 +2082,7 @@
     "desktopHint": "Ouvrez NarraNexus dans un navigateur pour voir l'aperçu en direct du document.",
     "loading": "Ouverture de l'aperçu en direct…",
     "loadError": "Impossible d'ouvrir l'aperçu en direct.",
+    "retry": "Réessayer",
     "livePreview": "Aperçu en direct"
   },
   "common": {
@@ -2079,5 +2101,16 @@
     "roomSpoke": "Nouvelle activité dans le salon",
     "agent": "Agent",
     "room": "Salon"
+  },
+"webAnalyticsNotice": {
+    "body": "Ceci est la version web cloud de NarraNexus. Elle utilise Google Tag Manager, un service d'analyse tiers, pour collecter des données anonymes d'interaction avec les pages (pages vues, clics, référent). Aucun contenu de conversation n'est collecté. Vous pouvez désactiver cette option à tout moment dans Paramètres → Confidentialité.",
+    "settings": "Ouvrir les paramètres",
+    "dismiss": "J'ai compris"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus envoie désormais les journaux de service de diagnostic de cette installation à son propre collecteur, afin d'aider à déboguer les plantages et les pannes d'intégration. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages. Vous pouvez le désactiver à tout moment dans Paramètres → Confidentialité.",
+    "settings": "Ouvrir les paramètres",
+    "dismiss": "Compris",
+    "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages."
   }
 }

@@ -28,6 +28,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -75,7 +76,7 @@ async def _trigger_with_fake_runtime(db_client, monkeypatch, *, fail=False):
             raise RuntimeError("turn blew up")
     else:
         async def _fake_invoke(*_a, **_k):
-            return "the reply", "evt_t1", []
+            return TurnResult(text="the reply", event_id="evt_t1")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
     return trigger

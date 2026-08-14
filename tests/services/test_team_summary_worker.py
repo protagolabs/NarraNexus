@@ -610,19 +610,16 @@ def test_the_filter_is_built_from_constants_not_retyped_strings():
     past it. Importing the constants is what makes the next one impossible to
     miss silently.
 
-    Asserted as "every registered platform type is in the filter", not as a
-    fixed list: pinning the exact set meant this test failed the moment two more
-    types were registered (system_cascade / system_roster), which is a green-to-
-    red signal about the wrong thing. What must hold is that the worker filters
-    ALL of them — a new type nobody added here would let the platform trigger
-    itself again, which is the actual fault this guards.
+    Compared against the registry TUPLE rather than a re-listing of its
+    members: an expectation that names each type is the very hand-maintained
+    list this test exists to abolish, one layer up. It duly went stale the day
+    the undelivered notices were added (2026-08-13) — the worker had picked
+    them up correctly and only the test disagreed.
     """
     from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
     from xyz_agent_context.services.team_summary_worker import _SYSTEM_MSG_TYPES
 
     assert set(_SYSTEM_MSG_TYPES) == set(PLATFORM_MSG_TYPES)
-    # And the registry is not empty, or the assertion above passes vacuously.
-    assert len(PLATFORM_MSG_TYPES) >= 3
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — expression_nudge 开关
+
+TurnOptions 新增 `expression_nudge: bool = False`：opt-in 哑轮补救（见 loop.py.md
+同日条目）。TurnProfile.voice_fast() 置 True，经 nexus_agent 适配器映射进 options，再由 assembly.py 的 build 段接进 LoopAssembly（那才是唯一接线点）。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

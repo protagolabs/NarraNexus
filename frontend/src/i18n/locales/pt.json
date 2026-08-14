@@ -151,6 +151,8 @@
       "leadTitle": "{{name}} · responde quando ninguém é mencionado",
       "stoppedNotice": "A tarefa de {{name}} foi parada pelo proprietário",
       "patrolNotice": "Ronda do líder",
+      "undeliveredNotice": "{{name}} terminou este turno sem responder",
+      "deliveryFailedNotice": "Não foi possível publicar a resposta de {{name}}",
       "board": {
         "title": "Quadro de trabalho",
         "unclaimed": "sem responsável",
@@ -808,7 +810,7 @@
       "privacyHeading": "Privacidade",
       "privacyIntro": "Controle que dados o NarraNexus recolhe para melhorar o produto.",
       "analyticsTitle": "Análise de produto",
-      "analyticsDesc": "Permitir que o NarraNexus guarde metadados de utilização para análise. No modo cloud, são armazenados numa base de dados gerida pelo NarraNexus; no modo local ou de ambiente de trabalho, ficam neste dispositivo. Nunca são enviados para um serviço de análise de terceiros. O conteúdo das conversas nunca é recolhido.",
+      "analyticsDesc": "Permitir que o NarraNexus guarde metadados de utilização para análise. No modo cloud, são armazenados numa base de dados gerida pelo NarraNexus; no modo local ou de ambiente de trabalho, ficam neste dispositivo. Na versão web na nuvem, dados anónimos de interação com a página também são enviados ao Google Tag Manager, um serviço de análise de terceiros; desativar isto interrompe-o. O conteúdo das conversas nunca é recolhido.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Configurações que controlam como o NarraNexus interage com este computador. Disponível apenas no aplicativo desktop.",
       "lockedUseTitle": "Locked Use — manter o computador acordado",
@@ -1183,8 +1185,6 @@
       "localAccess": "Local · Acesso",
       "cloudMode": "Modo nuvem",
       "signInWithNetmind": "Entre com sua conta NetMind.AI",
-      "migrationNoticeHeading": "Reorganizamos nosso sistema de contas.",
-      "migrationNoticeBody": "Seus dados foram migrados para a conta vinculada ao e-mail que você usou para receber seu código de convite. Para entrar, redefina primeiro a senha desse e-mail (use “Esqueceu a senha?” abaixo). Para outras dúvidas, contate nossa equipe em",
       "emailLabel": "E-mail",
       "passwordLabel": "Senha",
       "forgotPassword": "Esqueceu a senha?",
@@ -1199,7 +1199,12 @@
       "accessTerminal": "Acessar terminal",
       "createNewUser": "Criar novo usuário",
       "loginFailed": "Falha no login",
+      "invalidCredentials": "E-mail ou senha inválidos",
       "enterUserId": "Informe seu ID de usuário",
+      "resetCodeInvalid": "O código é inválido ou expirou. Solicite um novo.",
+      "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
+      "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
+      "useDifferentEmail": "Usar outro e-mail",
       "connectionFailed": "Falha na conexão. Tente novamente."
     },
     "modeSelect": {
@@ -1241,6 +1246,9 @@
     "settings": {
       "title": "Configurações",
       "headerSections": "Provedores · Pacote · Artefatos · Agentes",
+      "nav": {
+        "privacy": "Privacidade"
+      },
       "providers": {
         "label": "Provedores de LLM"
       },
@@ -1280,6 +1288,19 @@
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
+      },
+      "privacy": {
+        "label": "Privacidade",
+        "hint": "O que sai deste dispositivo e os interruptores para o controlar.",
+        "analyticsTitle": "Análise de produto",
+        "analyticsDesc": "Permitir que o NarraNexus guarde metadados de utilização para análise. No modo cloud, são armazenados numa base de dados gerida pelo NarraNexus; no modo local ou de ambiente de trabalho, ficam neste dispositivo. Na versão web na nuvem, dados anónimos de interação com a página também são enviados ao Google Tag Manager, um serviço de análise de terceiros; desativar isto interrompe-o. O conteúdo das conversas nunca é recolhido.",
+        "telemetryTitle": "Telemetria de diagnóstico",
+        "telemetryDesc": "Enviar os registos de serviço desta instalação para o coletor do próprio NarraNexus, para permitir depurar falhas e avarias. No nível predefinido, isto significa eventos estruturados, avisos e erros — sem conteúdo de mensagens. As implementações que executam o nível \"full\" (sandboxes geridas, ambientes de depuração) enviam linhas de registo completas, que podem incluir conteúdo de mensagens registado pelos serviços. Nada é enviado a terceiros.",
+        "telemetryTiming": "Ao desativar, produz efeito em poucos segundos. Se a telemetria já estava desativada quando a aplicação arrancou, ativá-la produz efeito no próximo arranque.",
+        "telemetryManaged": "Gerido pela sua implantação (definição de ambiente) — o interruptor não está disponível aqui.",
+        "telemetryManagedCloud": "O seu administrador controla a telemetria de diagnóstico desta instalação.",
+        "telemetryUnavailable": "Não foi possível carregar o estado da telemetria — o interruptor é ocultado em vez de adivinhado. Recarregue para tentar novamente.",
+        "telemetryError": "Não foi possível guardar a alteração. O interruptor mostra o estado atual real."
       }
     },
     "system": {
@@ -2061,6 +2082,7 @@
     "desktopHint": "Abra o NarraNexus em um navegador para ver a pré-visualização ao vivo do documento.",
     "loading": "Abrindo a pré-visualização ao vivo…",
     "loadError": "Não foi possível abrir a pré-visualização ao vivo.",
+    "retry": "Tentar novamente",
     "livePreview": "Pré-visualização ao vivo"
   },
   "common": {
@@ -2079,5 +2101,16 @@
     "roomSpoke": "Nova atividade na sala",
     "agent": "Agente",
     "room": "Sala"
+  },
+"webAnalyticsNotice": {
+    "body": "Esta é a versão web na nuvem do NarraNexus. Utiliza o Google Tag Manager, um serviço de análise de terceiros, para recolher dados anónimos de interação com a página (visualizações, cliques, referenciador). Nenhum conteúdo de conversa é recolhido. Pode desativar isto a qualquer momento em Definições → Privacidade.",
+    "settings": "Abrir definições",
+    "dismiss": "Entendido"
+  },
+  "telemetryNotice": {
+    "body": "O NarraNexus envia agora os registos de serviço de diagnóstico desta instalação para o seu próprio coletor, para ajudar a depurar falhas e problemas de integração. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens. Pode desativar isto a qualquer momento em Configurações → Privacidade.",
+    "settings": "Abrir configurações",
+    "dismiss": "Entendido",
+    "bodyManaged": "Esta instalação envia registos de serviço de diagnóstico (erros e eventos de diagnóstico) para o coletor do próprio NarraNexus, conforme configurado pelo seu administrador. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens."
   }
 }

@@ -40,6 +40,10 @@ class MessageBusService(ABC):
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
         segments: Optional[List[dict]] = None,
     ) -> str:
         """
@@ -111,6 +115,36 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def get_messages_before(
+        self,
+        channel_id: str,
+        before: str,
+        limit: int = 50,
+    ) -> List[BusMessage]:
+        """
+        Get the page immediately ABOVE ``before``, oldest→newest.
+
+        The mirror image of ``get_messages(since=…)``, and deliberately not
+        symmetrical with it: ``since`` returns the OLDEST after the cursor
+        (catching up must never skip a message), while this returns the NEWEST
+        before it (scrolling up wants the page directly above what is on
+        screen). Either one implemented in the other direction produces a
+        transcript with a silent hole rather than an error.
+
+        Args:
+            channel_id: The channel to fetch messages from.
+            before: ISO timestamp string; EXCLUSIVE, so the caller passes the
+                timestamp of the oldest message it already holds.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            at the top of the history — which is how a caller knows to stop
+            offering "load more" rather than inferring it from a short page.
+        """
+        ...
+
+    @abstractmethod
     async def get_unread(
         self, agent_id: str, limit: Optional[int] = None
     ) -> List[BusMessage]:
@@ -128,6 +162,26 @@ class MessageBusService(ABC):
 
         Returns:
             List of BusMessage that the agent has not yet read.
+        """
+        ...
+
+    @abstractmethod
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        """
+        Whether this channel still holds unread messages older than a point.
+
+        An existence question, so implementations must answer it without
+        materialising the backlog.
+
+        Args:
+            agent_id: The agent whose unread set is being asked about.
+            channel_id: The channel to look in.
+            before: ISO 8601 timestamp; only strictly older messages count.
+
+        Returns:
+            True when at least one such message exists.
         """
         ...
 

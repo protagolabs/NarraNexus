@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
+
+路由用 `React.lazy` 切 chunk；发版后老 tab 加载旧 hash chunk→404→未捕获异常→整树卸载成白屏。用 [[ChunkErrorBoundary.tsx]] 包住 `<Suspense><Routes>`。**boundary 是唯一的恢复驱动**（复审后重构：刻意不挂 `vite:preloadError` 全局监听，原因见 [[chunkReload.ts]]）：到达 render 的崩溃**分两类**——stale-chunk 失败 → 一次自愈 + 显示「有新版本，刷新」；真 render bug → 不自愈 + 显示「出错了，刷新重试」（不再把真 bug 伪装成新版本）。另本轮给 `isLoggedIn` 后台预取 `import('@/components/layout/MainLayout')` 补 `.catch(() => {})`（同 [[Sidebar.tsx]] 悬停预取，删监听后预取失败应静默）。
+
+## 2026-08-12 — web-analytics (GTM) init on login
+
+`App()` mounts an effect keyed on `isLoggedIn` calling `initWebAnalytics()`
+([[webAnalytics.ts]]). Gated on login on purpose — the loader reads the
+per-user opt-out before injecting GTM. Reuses the existing `isLoggedIn`
+subscription (added for the expiry banner), not a second one. No-op on desktop,
+off the official host, unconfigured, or opted-out.
 
 ## 2026-08-10 — workspace-ready after session validation
 

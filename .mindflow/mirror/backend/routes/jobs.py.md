@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — job-id 路由补 ownership + last_error 脱敏（SEC-02，Mark IDOR 批）
+
+`GET /{job_id}`、`PUT /{job_id}/cancel` 原来只按 `job_id` 查 `instance_jobs`，无身份校验——任何登录用户知道 job_id 即可读他人 job（含 payload/last_error）并取消其正在跑的 job。修复：新增 `_assert_job_owner(request, db, job_id)`，取出 job 的 `agent_id` 后过 canonical `assert_owned`（job 访问归属其 agent 的 owner，与全站 agent-scoped 路由同源）；两个 handler 加 `request` 参数。因 handler 用 `except Exception` 兜底会把 `assert_owned` 抛的 HTTPException 压成 200，故各加 `except HTTPException: raise` 让 403/404/503 透出。另 `last_error` 经 `_scrub_internal`（`nx-exec-<user>-<hash>` executor 主机名 → `nx-exec-<redacted>`）后才进 `JobResponse`，list/detail 共享。
+
+**同批扫到（Opus 预审 C1，铁律 #8 adjacent sweep）**：`POST /complex`（create_job_complex）是**更严重**的写-IDOR——原签名只吃 Pydantic body（参数名恰为 `request`）、无 FastAPI `Request`，直接用 `body.agent_id`+`body.user_id` 建 job 并执行，任何登录用户可用他人 agent+user_id 建并跑任意 payload、烧他人额度。修复：body 改名 `body`、加 `request: Request`，`try` 之前 `assert_owned(request, body.agent_id)`，且 user_id 一律取 `resolve_current_user_id(request)`（不再信 body.user_id）。**并从 `CreateJobComplexRequest` 删除 `user_id` 字段**（管线复审 Issue 2：留着=必填但被无视的死字段，正是当初 IDOR 的诱因；铁律 #2 无兼容层，Pydantic 忽略老客户端多传的 user_id）；前端 `frontend/src/types/jobComplex.ts` 同步删。
 
 ## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
 

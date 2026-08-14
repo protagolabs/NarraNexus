@@ -199,7 +199,7 @@ def test_the_notice_comes_after_the_reply():
     from xyz_agent_context.message_bus import message_bus_trigger as mod
 
     src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert src.index("segments=reply_segments") < src.index("post_cascade_capped(")
+    assert src.index("await self._bus.send_message(") < src.index("post_cascade_capped(")
 
 
 def test_a_dropped_everyone_is_not_reported_as_a_member():

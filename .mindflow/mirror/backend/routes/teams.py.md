@@ -3,6 +3,7 @@ code_file: backend/routes/teams.py
 last_verified: 2026-08-14
 stub: false
 ---
+
 ## 2026-08-14 — 房间打开的是**最新**一页（一个一直存在的严重 bug）
 
 `get_team_chat` 之前是 `get_messages(channel_id, since=since, limit=200)`，而
@@ -70,6 +71,7 @@ tuple 存在的全部理由就是这类过滤器各写各的会漂移。方向�
 
 `Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
 `_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
+
 ## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
 
 **同一条规则改了两次，第二次才是重点。**
@@ -358,6 +360,7 @@ Drives the team status strip + activity bubbles.
 `_post_bulletin_notice` 移到核心包 [[team_bulletin]]（agent 写入也需要它，而核心包不能反向
 import 路由），这里改为 import。`Optional` / `BulletinUsage` 在预算函数搬走后成了未用 import，
 已删。
+
 ## 2026-08-10 — the work-board endpoint stopped writing its own SQL
 
 `GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
@@ -388,6 +391,17 @@ reason to reach into.
 `_resolve_default_responder` 上一轮变成了一层同名私有壳，只为了不改两个调用点和一个测试
 import——那是兼容层，违反铁律 #2。壳已删除，调用点直接用 [[team_schema]] 的实现，
 测试也改为 import 核心包那一份，这样那 5 条断言测的是**两个消费者真正共用的那份**，而不是壳。
+
+## 2026-08-12 — 合成的 mention 记上来历;改名回写房间
+
+**不取消合成。** team 房间靠合成 owner marker 关掉了"owner 全激活",没有 mention 就
+没人被激活 —— 取消它房间就不应答了。所以路由行为一行未动,只是把「这个 mention 是
+路由补的」写进 `routed_by`,让 trigger 能说真话。
+
+**改名回写 `bus_channels.name`。** 房间自己存了一份名字,而**那一份才是 agent 看到
+的**(`Your Channels` 渲染的是它)。此前改名只落 teams 表,于是每个成员继续把旧名字
+念给用户听,而 UI 显示新名 —— 两边对不上,谁也解释不了。best-effort:改名本身已经
+成功,回写失败只记警告。
 
 ## 2026-08-12 — `get_team_chat` 透传 `segments`
 

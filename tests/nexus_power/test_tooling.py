@@ -182,6 +182,179 @@ async def test_dispatcher_routing_marker_and_filters(ctx, engine):
 
 
 @pytest.mark.asyncio
+async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
+    """2026-08-13 voice run: `tool_search("narra reply speak send")` came
+    back "(no matches)" because the whole query was one substring — the
+    model concluded its reply tools did not exist and went silent.
+    Multi-word queries must tokenize: all-token matches first, any-token
+    as the fallback so a verification probe never false-negatives on
+    tools that ARE in scope."""
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset({"files"}))
+    stub = _StubChannel()
+    dispatcher = ToolDispatcher((builtin, stub), policy=engine, ctx=ctx)
+
+    # ANY-token fallback: no single tool matches every word, but the
+    # probe still surfaces each tool that matches some word.
+    lines = dispatcher.search_lines("zeta reply")
+    assert any("zeta_tool" in line for line in lines)
+    assert any("send_message_to_user_directly" in line for line in lines)
+
+    # ALL-token matches rank alone when they exist.
+    lines = dispatcher.search_lines("reply user")
+    assert any("send_message_to_user_directly" in line for line in lines)
+    assert not any("zeta_tool" in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine):
+    """Review 2026-08-13 rounds 2-4: a natural-language probe whose
+    tokens include glue words must not flood the context, must not let
+    long-winded descriptions outrank the real match, and must not let
+    single-letter tokens decide the top key. Scoring uses CONTENT words
+    only (leaf-name hit first, then coverage, then occurrences as the
+    tiebreak); filter semantics keep the full token list. Expressive
+    (reply) tools that pass the filter hold reserved seats, so the
+    turn's reply surface can never be crowded out by fillers."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+        dispatcher as dispatcher_mod,
+    )
+
+    verbose = (
+        "This module operates on a broad set of resources and it is "
+        "designed so that i can be invoked whenever a workflow needs to "
+        "coordinate the state of a resource with the state of another "
+        "resource, and it will do so in a way that is careful about how "
+        "the user of the system perceives the interaction with the "
+        "system as a whole over time."
+    )
+    specs = [
+        ToolSpec(name=f"filler_tool_{i:02d}", description=verbose,
+                 input_schema={"type": "object"})
+        for i in range(30)
+    ]
+    specs.append(ToolSpec(
+        name="mcp__chat__send_message_to_user_directly",
+        description="Reply to the user.", input_schema={"type": "object"},
+    ))
+    # The hostile shape (round 4): a reply tool whose NAME shares zero
+    # tokens with the probe — `speak` has no `i`, no `reply` — and whose
+    # short description ties with the fillers on coverage. PRODUCTION
+    # path (round 5): reply tools are MCP specs whose annotations cannot
+    # carry `expressive` — the fact arrives via the injected live
+    # adjudicator, exactly as assembly passes
+    # ExpressionContract.is_expressive.
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__speak",
+        description="Speak to the user on the current real-time voice call.",
+        input_schema={"type": "object"},
+    ))
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
+
+    class _Chan(_StubChannel):
+        def list_tools(self):
+            return specs
+
+    expressive_names = {
+        "mcp__narramessenger_module__speak",
+        "mcp__chat__send_message_to_user_directly",
+    }
+    dispatcher = ToolDispatcher(
+        (builtin, _Chan()), policy=engine, ctx=ctx,
+        is_expressive=expressive_names.__contains__,
+    )
+    cap = dispatcher_mod._SEARCH_MAX_HITS
+    lines = dispatcher.search_lines("how do i reply to the user")
+    assert len(lines) <= cap  # capped, not the whole surface
+    # Both REAL reply tools survive 30 verbose fillers: the friendly
+    # name shape by content-word scoring, the hostile `speak` shape by
+    # its guaranteed expressive seat — granted through the production
+    # name-list path, no annotation involved.
+    assert any("send_message_to_user_directly" in line for line in lines)
+    assert any("__speak" in line for line in lines)
+    # Seats require a filter hit: an expressive tool unrelated to the
+    # probe gets no free ride.
+    unrelated = dispatcher.search_lines("compile the kernel sources")
+    assert not any("__speak" in line for line in unrelated)
+
+    # Pipeline review Important #3 — the cap must not be bypassable:
+    # whitespace-only query routes to the grouped overview (not a
+    # vacuous match of everything)...
+    ws = dispatcher.search_lines("   ")
+    assert ws and ws[0].endswith("tools in scope:")
+    # ...a single glue token is capped like any other query...
+    single = dispatcher.search_lines("a")
+    assert len(single) <= cap
+    # ...and card_index lines have their OWN reserved seats: with 12+
+    # matching tools the capability index must not be starved out, while
+    # the combined result stays bounded. Card lines are ranked too: the
+    # strongest card match must claim a seat ahead of weaker ones.
+    card_cap = dispatcher_mod._SEARCH_MAX_CARD_HITS
+    card_lines = [f"card-{i}: operates on a thing" for i in range(40)]
+    card_lines.append("card-best: reply directly to the user of a thing")
+    carded = dispatcher.search_lines("reply user thing", card_index="\n".join(card_lines))
+    assert len(carded) <= cap + card_cap
+    assert any(line.startswith("card-") for line in carded)
+    assert any("card-best" in line for line in carded)
+
+
+@pytest.mark.asyncio
+async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
+    """Round 5 review Important #1: the seat is a GUARANTEE, not top
+    placement — strong matches keep their rank order, and the missing
+    reply tool replaces only the weakest non-expressive seat at the
+    tail."""
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+        dispatcher as dispatcher_mod,
+    )
+
+    # 13 strong leaf-name matches for the probe (exact `search` in the
+    # leaf) — more than the slice holds on their own.
+    specs = [
+        ToolSpec(name=f"search_tool_{i:02d}", description="search things",
+                 input_schema={"type": "object"})
+        for i in range(13)
+    ]
+    # TWO expressive tools with coverage 1 only (descriptions mention
+    # `search` once, names share nothing) — two, so seat order among the
+    # substitutes is falsifiable (round 6 Minor #2: a single substitute
+    # cannot distinguish tail-forward from reversed placement).
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__speak",
+        description="Speak results of a search to the user.",
+        input_schema={"type": "object"},
+    ))
+    specs.append(ToolSpec(
+        name="mcp__narramessenger_module__narra_send",
+        description="Send search results to a room.",
+        input_schema={"type": "object"},
+    ))
+    builtin = BuiltinToolset(ctx, enabled_groups=frozenset())
+
+    class _Chan(_StubChannel):
+        def list_tools(self):
+            return specs
+
+    dispatcher = ToolDispatcher(
+        (builtin, _Chan()), policy=engine, ctx=ctx,
+        is_expressive={
+            "mcp__narramessenger_module__speak",
+            "mcp__narramessenger_module__narra_send",
+        }.__contains__,
+    )
+    cap = dispatcher_mod._SEARCH_MAX_HITS
+    lines = dispatcher.search_lines("search")
+    assert len(lines) == cap
+    # The head keeps rank order (leaf-name matches, scope order): no
+    # fake top placement — the substitutes take the LAST seats, and keep
+    # their own rank order between them (speak ranks above narra_send
+    # here by scope order, so it sits first of the two tail seats).
+    assert "search_tool_00" in lines[0]
+    assert "search_tool_01" in lines[1]
+    assert "__speak" in lines[-2]
+    assert "__narra_send" in lines[-1]
+
+
+@pytest.mark.asyncio
 async def test_capability_expander_idempotent_and_seams():
     attached, env = [], {}
 

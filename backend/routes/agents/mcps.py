@@ -20,6 +20,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
+from backend.routes._ownership import assert_owned
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
@@ -131,10 +132,13 @@ async def create_mcp(
     payload: MCPCreateRequest,
     request: Request,
 ):
-    """Create a new MCP URL. Identity from auth_middleware."""
+    """Create a new MCP URL. Identity from auth_middleware. Owner-only —
+    create was the one route here that trusted the URL's agent_id without an
+    ownership check (update/delete/validate already gate)."""
     user_id = await resolve_current_user_id(request)
     logger.info(f"Creating MCP for agent: {agent_id}, user: {user_id}, name: {payload.name}")
 
+    await assert_owned(request, agent_id)
     try:
         if not payload.url.startswith(("http://", "https://")):
             return MCPResponse(

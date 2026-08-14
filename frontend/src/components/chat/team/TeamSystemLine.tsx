@@ -4,8 +4,9 @@
  * @date: 2026-08-12
  * @description: A line the ROOM wrote, not a member.
  *
- * Three kinds today: a run stopped by the owner, a bulletin change, and a
- * patrol sweep. All three are the platform narrating itself, so none of them
+ * Several kinds: a run stopped by the owner, a bulletin change, a patrol sweep,
+ * a capped cascade, a roster change, a turn that reached nobody and a reply the
+ * room never received. All of them are the platform narrating itself, so none
  * gets an avatar, an identity colour or a bubble — dressing a platform event as
  * a member's message attributes it to whoever happened to trigger it, and in
  * patrol's case to a `team_<id>` marker that resolves to no member at all.
@@ -48,6 +49,38 @@ export function TeamSystemLine({ message: m }: { message: TeamChatMessage }) {
           style={{ color: 'var(--nm-ink50)' }}
         >
           {t('chat.team.stoppedNotice', { name: m.author_name })}
+        </span>
+      </div>
+    );
+  }
+
+  // A turn that reached nobody, and a reply the room never received. Both are
+  // room-level lines for the same reason as the stop notice — the platform is
+  // the one speaking. The failure keeps its reason in `title`: the chip stays
+  // quiet in the transcript, and the detail is one hover away for whoever is
+  // debugging.
+  if (m.msg_type === 'system_undelivered' || m.msg_type === 'system_delivery_failed') {
+    const failed = m.msg_type === 'system_delivery_failed';
+    return (
+      <div
+        data-testid={`${failed ? 'delivery-failed' : 'undelivered'}-notice-${m.message_id}`}
+        className="flex justify-center py-1"
+      >
+        <span
+          title={m.content}
+          className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono"
+          style={{
+            // A failed post is OUR fault and actionable, so it carries warning
+            // weight; a silent turn is merely information and stays as quiet as
+            // the other platform lines.
+            color: failed ? 'var(--color-warning)' : 'var(--nm-ink50)',
+            borderColor: failed ? 'var(--color-warning)' : 'var(--border-subtle)',
+          }}
+        >
+          {t(
+            failed ? 'chat.team.deliveryFailedNotice' : 'chat.team.undeliveredNotice',
+            { name: m.author_name },
+          )}
         </span>
       </div>
     );

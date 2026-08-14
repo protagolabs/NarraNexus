@@ -88,7 +88,23 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         raw = payload.get(key)
         if raw is None:
             return None
-        return _CONFIG_TYPES[key](**raw)
+        # Defensive forward-compat: reconstruct only the dataclass's KNOWN fields
+        # so a field one end serializes that the other doesn't define can never
+        # raise TypeError and fail the turn. (The broker already replaces stale-
+        # IMAGE executors on ensure() via _is_stale, so the "new orchestrator →
+        # old warm executor" window is narrow; this is belt-and-suspenders against
+        # any residual skew — e.g. a same-image content change, or local mode.)
+        # Adding identity_token to the three configs was the concrete trigger.
+        cls = _CONFIG_TYPES[key]
+        known = {f.name for f in dataclasses.fields(cls)}
+        unknown = [k for k in raw if k not in known]
+        if unknown:
+            # Not silent: a deploy skew this covers should still be visible.
+            logger.warning(
+                f"provider_configs[{key}] dropped unknown field(s) {unknown} — "
+                "orchestrator/executor version skew (expected during a rolling deploy)"
+            )
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
     set_user_config(
         claude=_build("claude") or ClaudeConfig(),

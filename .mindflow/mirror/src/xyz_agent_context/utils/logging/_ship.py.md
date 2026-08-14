@@ -1,8 +1,117 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/_ship.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 ---
+
+## 2026-08-12(rc.2 / #292)— staging 从 dev collector 取发现文档 + 4xx 退避
+
+run.sh 让 **staging 沙盒的发现入口改指 dev-agent**(内置默认仍是
+prod)——发现契约从"三边"变**四边**:标签 → 白名单(存储分区)→
+map key(接收主机)→ **哪台 collector 伺服这份 map**。四处"只有
+prod 一处入口 / URL 轮换=prod 一处 env / 三边契约"的旧表述改口为
+四边,共六处:`_ship.py` 模块 docstring(发送端自己的规范性说明)、
+collector.py 两处 docstring、`.env.example` 两处、run.sh 一处;外加
+两份 mirror 的现状描述段。dev collector
+已配 `DIAG_COLLECT_CONFIG_JSON`(curl 实测 200,含 staging→dev-
+ingest,贴进 PR)。
+
+`_ingest_url` 加 **4xx→整 TTL 退避**:404(collector 无 CONFIG_JSON)
+是明确的"这里没有发现文档",与"200 但非文档形状"同类(3xx 我们
+不跟随、自家 collector 直接 200 伺服,故 3xx-4xx 同归 TTL 退避);
+**5xx/网络错误保持 60s 短重试**(瞬态,不可扩到它们上——test_5xx_keeps_short_
+retry / test_unresolvable_drops_quietly 建立在此);3xx/404/5xx 三条
+用例补在 html-backoff 测试旁。run.sh 重定向的可执行不变量测试落在
+**tests/utils/logging/test_diag_ship.py**(遥测契约测试聚拢处;复用
+run.sh 文本断言的做法,用本地 `parents[3]` 读取仓库根)——断言方式
+是**从重定向 export 行反向锚定它所在 if 的条件**,要求同一条件里
+重定向、`"staging"` 标签、`_is_manyfold_sandbox` 门控三者共现
+(整文件 `in text` 会因 token 在别处出现而虚假通过)。重定向门控加
+`_is_manyfold_sandbox`——个人装机手设 staging 标签不会把日志泄漏到
+dev。
+
+## 2026-08-12(四审)— 同意标记的持久性是挂载属性
+
+四审抓住托管默认层正当性链条的最后一环:"opt-out 仍然赢"要求
+**标记活得过沙盒重建**,而默认落点 `$HOME/.narranexus/…` 在容器里
+是可写层(Dockerfile.manyfold 的持久面是 /data)——升级/重建即丢,
+full 档静默复发。修:run.sh 容器模式把
+`NEXUS_DIAG_OPTOUT_FILE` 默认指到 **/data/telemetry_optout**(与
+workspaces/logs/db 同一持久卷:用户的 opt-out 与其数据同寿)。
+docstring 第 2 层补"耐久性是挂载属性"——**改 Dockerfile 的
+HOME/卷布局就是在改同意状态**,该句是给下一个动镜像布局的人的。
+bodyManaged 文案同批补 full 档内容句(managed 变体恰恰多为 full
+部署)。ops 排序备忘:rc.2 沙盒铺开前,线上两台 collector 的
+KNOWN_ENVS/discovery 需先含 sprite(记 todo)。
+
+## 2026-08-11(十一)— 三审 ⛔:沙盒 full 从"覆盖"降到"托管默认层"
+
+初版 run.sh 给沙盒 `export NEXUS_DIAG_SHIP=full`,占的是同意链第 1
+层——三件事同时成立:发的是含完整用户消息的 full、沙盒用户开关灰
++PUT 409(撤回权为零,本 PR 建的"撤回一个 flush 生效"在沙盒上不
+存在)、managed 文案比实际外发窄。修复(评审推荐方案①):
+
+- **同意链插入第 3 层"托管默认"**:`env > optout >
+  NEXUS_DIAG_DEFAULT_SHIP(meta|full)> 内置 meta`。它改变的是"用户
+  未表态时适用什么",**用户的 optout 标记仍然赢、开关仍然活**;
+  `off` 不被接受(想静默是覆盖层的事,"默认关"会渲染一个开不了的
+  开关)。run.sh 改为导出 `NEXUS_DIAG_DEFAULT_SHIP=full`;
+- **沙盒身份判据对齐单一解析点**(manyfold_outbound.
+  manyfold_runtime_env:token+runtime_id 双非空,webhook URL 明文
+  允许缺席):原 URL 嗅探会漏掉 escape-hatch 配置的真沙盒,更糟的
+  是让仅设了 URL 的自托管容器开始外发用户正文;
+- **非 staging 沙盒获得专属标签 `sprite`**(三边同批:KNOWN_ENVS +
+  discovery 示例):否则 prod 沙盒回落 "cloud" 与 prod 栈同分区,
+  full 量级(比 meta 高 1-2 个数量级)会按最旧优先冲掉 prod 诊断
+  历史;429 在发送端走 4xx 丢弃不重试,预算打满伤及全体;
+- 告知文案点名 full 档内容("整行外发,可能含消息内容"),
+  desc 与横幅 body 同批改口,10 语种。
+
+## 2026-08-11(十)— 同意 UI PR:默认 off→meta,撤回即时生效
+
+`_DEFAULT_MODE` 翻为 **meta**(非 full)——与它的同意基础(首次告知
+横幅 + 设置→隐私开关)同一变更落地,兑现第 3 轮立下的"默认值与
+同意基础同批到达"。**为什么是 meta 不是 full**(预审 Critical):
+full 逐字外发 INFO 行,而生产 INFO 含完整用户消息
+(agent_runtime 的 `Input content:`)、IM 入站正文、LLM 结构化输出
+——告知文案("启动、错误、诊断事件")没有覆盖这些;`redact()` 在
+ship 路径上也从未被调用。full 到达一台机器只有两条路,都是明确的
+部署行为:**托管默认层**(见三审条目——我方 run.sh 给 manyfold
+沙盒注入 `NEXUS_DIAG_DEFAULT_SHIP=full`,用户 opt-out 仍然赢)或
+机器本地 `.env` 的显式 `NEXUS_DIAG_SHIP` 覆盖(仓库不断言哪台机器
+这么配了);把**内置默认**抬到 full 的前置是 ship 侧脱敏 + 重写
+告知文案。配套:
+
+- **发现探测退避**:2xx 但非发现文档形状(如 SPA fallback 的
+  200+HTML)按"本部署没有遥测服务"处理,退避整个 TTL(1h)而非
+  60s 网络重试——闲置安装群不得每分钟向 vendor 发信标;网络错误
+  仍走短重试(网络坏是瞬态,端点错不是);
+- 时效措辞修正:重启只在"启动时遥测本就关闭"时才需要;运行中
+  off→on 经同一 `_send` 闸门下个 flush 即恢复(本 PR 自己的测试
+  证明了这点,文档曾与其矛盾);
+- 标记文件作用域如实改口:per-USER-ACCOUNT per-host(Path.home()),
+  非严格 per-machine——不同 HOME 的旁进程各持其态,桌面装机所有
+  sidecar 共享 HOME 时该区别潜伏;
+- **标记路径可配置**(`NEXUS_DIAG_OPTOUT_FILE`,二审补):容器化
+  单租户自托管(SQLite+compose,cloud 判定走 local、PUT 放行)下
+  `~/.narranexus` 不是卷——backend 容器写的 marker 其他容器看不见
+  (它们继续外发而 UI 报"已关闭"),且随可写层在 recreate 时消失。
+  补一个共享挂载点的路径旋钮;我方 compose 栈的跟进(挂卷 + 设变量)
+  记在 deploy 侧待办。
+
+原"三件配套"如下:
+
+- **公开同意 API**:`telemetry_consent()`(mode + 决定它的层级
+  env/optout/default——UI 只在 optout/default 时提供开关)与
+  `set_telemetry_optout()`,经包 `__init__` **惰性**再导出
+  (_ship 顶层 import httpx,import 期失败只能坏 shipping 不能坏
+  logging 包);`ship_mode()` 降为 `telemetry_consent()` 的视图,
+  优先级规则单点;
+- **撤回不等重启**:`_send`(唯一出口,flush 与 backfill 共用)每次
+  外发前重查 `ship_mode()`,optout 写入后一个 flush 周期内静默;
+  重新开启等下次启动(sink 未注册)——不对称性偏向隐私一侧;
+- **per-machine 语义由调用方把关**:标记文件是整机的,backend 路由
+  在多租户云模式拒写(403)、env 覆盖时拒写(409)。
 
 ## 2026-08-11(九)— 第 10 轮:路由测试的诚实边界
 
@@ -69,7 +178,8 @@ docstring 曾互相矛盾);`_setup` 的 `from ._ship import` 移入 try
 
 - **默认改回 off**(`_DEFAULT_MODE`):review Critical——"默认开"所
   依赖的同意基础(首次告知 UI + optout 写入)不在本 PR;默认值与其
-  同意基础必须**同批到达**,UI PR 落地时翻 full。顺带消解"合并即
+  同意基础必须**同批到达**,UI PR 落地时再翻(当时预期 full,实际
+  落地为 meta,见第十条)。顺带消解"合并即
   dev 环境未经 ops 同意定时打 prod 域名";
 - **发现 URL 白名单**:`https` + `*.narra.nexus` 才接受——发现文档
   来自公开端点且决定用户日志去向,被劫持/配错时拒绝切换、保留旧值;
@@ -89,9 +199,11 @@ manyfold 的观测性依赖清零,且顺带覆盖本地 DMG 用户:
 
 - **同意模型**:env 显式覆盖(off/meta/full,也是测试套件灭火开关,
   见 tests/conftest.py)> `~/.narranexus/telemetry_optout` 标记文件
-  (设置 UI 写)> **缺省 full 开**(首次告知在 UI);
-- **URL 发现**:代码只写死一个入口
-  `https://agent.narra.nexus/telemetry/v1/config`(prod collector 的
+  (设置 UI 写)> 缺省开(首次告知在 UI;当时预期 full,同意 UI
+  落地时定为 **meta**,理由见第十条);
+- **URL 发现**(rc.2 起为多入口):代码写死内置默认入口
+  `https://agent.narra.nexus/telemetry/v1/config`(**staging 沙盒经
+  run.sh 改指 dev-agent**,故 dev collector 也须自带发现文档;prod collector 的
   `/v1/config` 伺服,env 可覆盖),响应是 env→ingest URL 的 map,
   发送端按自身标签选路(显式 `NEXUS_DIAG_ENV` > manyfold webhook
   含 api-staging 判 staging > NARRA_SURFACE)——staging 噪声进

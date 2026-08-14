@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-07-13
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+SSE 逐出从「按 age 逐出最老」改「按 `last_active` 逐出最不活跃」:`_active_streams` entry 加 `last_active`,流体每帧 `_touch_sse_stream`,超上限时逐出最久无帧的那条。**根治**:全屏(列内+modal 同 docx 双 SSE)/双标签页会开多条同文件流,旧逻辑杀最老=杀还在用的健康流;现在杀最可能已死的空闲流。per-process 计数的固有局限(多 worker 上限=8×workers)未变,注释保留。
 
 # office_watch/proxy.py — office artifact 实时预览的反向代理
 
