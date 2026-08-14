@@ -84,10 +84,16 @@ def test_narrative_persistence_default_is_ephemeral():
     assert TurnProfile().narrative_persistence == "ephemeral"
 
 
-def test_fast_for_chat_is_durable_voice_is_ephemeral():
-    # Chat is a persisted surface: a fast turn must never vanish from
-    # history (BM25 miss creates instead of running bare). Voice keeps
-    # the F28 ephemeral contract.
+def test_fast_for_durability_follows_is_from_human():
+    # Durability whitelists persisted human chat surfaces via
+    # WorkingSource.is_from_human — the same predicate the step layer
+    # uses to honor durability, so declaration and enforcement can't
+    # diverge. Background/machine sources and non-enum surfaces (the
+    # live "voice" RTC path) stay ephemeral: a durable profile on a
+    # non-human source would silently run bare and lose the turn.
     assert TurnProfile.fast_for("chat").narrative_persistence == "durable"
+    assert TurnProfile.fast_for("lark").narrative_persistence == "durable"
+    assert TurnProfile.fast_for("job").narrative_persistence == "ephemeral"
+    assert TurnProfile.fast_for("message_bus").narrative_persistence == "ephemeral"
     assert TurnProfile.fast_for("voice").narrative_persistence == "ephemeral"
     assert TurnProfile.voice_fast().narrative_persistence == "ephemeral"

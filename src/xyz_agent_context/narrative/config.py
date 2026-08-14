@@ -32,6 +32,10 @@ class NarrativeConfig:
     # so the anchor must persist indefinitely. Sessions are one tiny,
     # overwritten-in-place file per (agent, user); they do not grow without
     # bound, so there is nothing to time out. (Was SESSION_TIMEOUT = 600.)
+    # The fast path (step_1_fast_select) honors the same rule: a live
+    # anchor is reused regardless of age. It briefly reintroduced a
+    # 30-minute window (2026-08-14) — removed the same day for exactly
+    # the reason above.
 
     # ==================== Continuity Detection (LLM version) ====================
 
@@ -98,6 +102,20 @@ class NarrativeConfig:
     # deferring. At 2.0 the eval set short-circuits 54.9% of turns.
     NARRATIVE_MATCH_RAW_FLOOR = 3.0
     NARRATIVE_MATCH_MARGIN_RATIO = 2.0
+
+    # Fast-path (TurnProfile bm25_top1) anchor-override floor.
+    # The fast path has no continuity LLM: when the session carries a live
+    # anchor (current_narrative_id), that thread is reused by default and a
+    # BM25 top-1 may steal the turn away from it ONLY above this raw score.
+    # Deliberately high — raw BM25 scales with query length (median top1:
+    # ~5.3 under 40 chars vs 12-15 over, see RAW_FLOOR note above), so short
+    # follow-ups can never clear it and stay in their thread, while a long,
+    # topic-rich message that decisively matches another thread still
+    # switches. Distinct from RAW_FLOOR, which is a noise filter for the
+    # anchorless case. Env override: NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR
+    FAST_ANCHOR_OVERRIDE_FLOOR = float(
+        _env("NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR", "12.0")
+    )
 
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)
     # LLM will determine:

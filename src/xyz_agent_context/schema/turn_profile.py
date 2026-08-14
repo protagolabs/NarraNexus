@@ -56,13 +56,23 @@ class TurnProfile(BaseModel, frozen=True):
         the shared F28 v1 decisions: FULL prompt, tools kept, BM25 top-1
         narrative, low reasoning effort.
         """
+        from xyz_agent_context.schema.hook_schema import WorkingSource
+
         source = getattr(working_source, "value", None) or str(working_source)
+        # The one per-surface knob, and its whitelist is WorkingSource.
+        # is_from_human — the same judgement the step layer uses to honor
+        # durability, so declaration and enforcement can never diverge:
+        # persisted human chat surfaces (chat/lark/slack/telegram) are
+        # durable (miss = create, anchor kept); background/machine sources
+        # (job/message_bus/callback) and non-enum surfaces (the live
+        # "voice" RTC path) stay ephemeral (miss = bare turn).
+        try:
+            durable = WorkingSource(source).is_from_human()
+        except ValueError:
+            durable = False
         return cls(
             name=f"{source}_fast",
-            # The one per-surface knob: voice is a live ephemeral surface
-            # (miss = bare turn); every persisted chat surface is durable
-            # (miss = create, continuity anchor kept consistent).
-            narrative_persistence="ephemeral" if source == "voice" else "durable",
+            narrative_persistence="durable" if durable else "ephemeral",
             narrative_strategy="bm25_top1",
             framework_override="nexus_power",
             prompt_mode="full",

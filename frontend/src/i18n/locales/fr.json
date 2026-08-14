@@ -31,6 +31,10 @@
       "dropFile": "Déposez le fichier pour le joindre…",
       "placeholder": "Saisissez un message ou / pour les compétences…"
     },
+    "fastMode": {
+      "label": "Rapide",
+      "tooltip": "Mode rapide : bascule ce tour sur le framework d'agent rapide avec une récupération de mémoire allégée et un faible effort de raisonnement — réponses plus rapides mais plus simples"
+    },
     "audio": {
       "stopRecording": "Arrêter l'enregistrement",
       "recordVoice": "Enregistrer un message vocal",

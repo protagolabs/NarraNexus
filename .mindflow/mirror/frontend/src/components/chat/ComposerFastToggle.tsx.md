@@ -19,7 +19,7 @@ BM25 top-1 叙事 + fast 框架 + 低 reasoning effort）。
   `enabled/onToggle/disabled`——与 AudioRecorder 的受控风格一致，可独立测试。
 - **a11y**：`aria-pressed` 镜像开关态（测试锁定）；`disabled` 阻断切换。
 - 开启态用 carbon 强调色（同发送按钮活跃态），图标 fill-current 加强可辨。
-- i18n key `chat.fastMode.*`（en/zh，其余 locale 回退 en）。tooltip 如实
+- i18n key `chat.fastMode.*`（10 个 locale 全量翻译——composer 行里不能出现 9 译 1 英，#307 🟡5）。tooltip 如实
   披露本轮实际发生的三件事（切换快速框架 / 轻量记忆检索 / 低推理档位）
   ——framework_override 覆盖用户 per-agent 框架选择是 spec 接受的偏差
   （与 voice F28 v1 同款 knobs），不许只写「更快」（预审 I3）。

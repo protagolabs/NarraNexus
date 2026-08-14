@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — durable 白名单改挂 WorkingSource.is_from_human（#307 🟡3）
+
+`fast_for` 不再「非 voice 一律 durable」：durable 只给
+`WorkingSource.is_from_human()` 为真的持久人类聊天面（chat/lark/slack/
+telegram/wechat/narramessenger/discord/manyfold/a2a），job/message_bus/
+callback/skill_study 与非枚举 source（"voice"）显式 ephemeral——与 step
+层兑现 durable 的 `_is_user_chat` 同一谓词，声明与执行不可能分岔（否则
+bus/Team 未来 opt-in 时 durable 声明+裸跑兑现=刚修掉的 C1 原样复活）。
+
 ## 2026-08-14 — narrative_persistence：miss 语义按 surface 分化（预审 C1/I4）
 
 新字段 `narrative_persistence: Literal["ephemeral","durable"] = "ephemeral"`，

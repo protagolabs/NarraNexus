@@ -17,7 +17,9 @@ import xyz_agent_context.agent_runtime.agent_runtime as agent_runtime_module
 from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 
 
-class _CtxCaptured(Exception):
+class _CtxCaptured(BaseException):
+    # BaseException on purpose: run()'s broad `except Exception` handlers
+    # must not swallow the sentinel, so pytest.raises stays exact.
     pass
 
 
@@ -35,9 +37,7 @@ async def _capture_ctx_kwargs(monkeypatch, **run_kwargs) -> dict:
     gen = runtime.run(
         agent_id="agent_a", user_id="user_u", input_content="hi", **run_kwargs
     )
-    with pytest.raises(BaseException):
-        # run() may re-raise or surface the abort as its own error path;
-        # either way construction already captured the kwargs.
+    with pytest.raises(_CtxCaptured):
         async for _ in gen:
             pass
     assert captured, "RunContext was never constructed"

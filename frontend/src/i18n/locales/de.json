@@ -31,6 +31,10 @@
       "dropFile": "Datei zum Anhängen ablegen…",
       "placeholder": "Nachricht eingeben oder / für Skills…"
     },
+    "fastMode": {
+      "label": "Schnell",
+      "tooltip": "Schnellmodus: schaltet diesen Zug auf das schnelle Agenten-Framework mit leichterem Speicherabruf und niedrigem Reasoning-Aufwand um — schnellere, aber einfachere Antworten"
+    },
     "audio": {
       "stopRecording": "Aufnahme stoppen",
       "recordVoice": "Sprachnachricht aufnehmen",

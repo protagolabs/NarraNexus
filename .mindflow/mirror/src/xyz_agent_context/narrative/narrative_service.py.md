@@ -4,6 +4,16 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — select_fast 双 floor + audit_fast（#307 🟡1/🟡4）
+
+`select_fast` 增 `against_live_anchor: bool = False`：调用方持有 live
+session 锚点时命中意味着**抢线**，用 `config.FAST_ANCHOR_OVERRIDE_FLOOR`
+（强分阈值）而非噪声 floor。新增 `audit_fast(...)`：快路径每个路由决策
+（命中/复用/新建/裸跑）落一行 RoutingAudit（selection_method="fast"，
+continuity/judge 字段保持「该 tier 未跑」的 None 语义，不填 0/假值），
+委托既有 `_write_audit` best-effort——快路径与 full select() 同享 DB 证
+据契约。
+
 ## 2026-08-14 — create_fast：快路径的 CRUD-only 创建
 
 `create_fast(agent_id, user_id, query)` 委托 retrieval impl 的

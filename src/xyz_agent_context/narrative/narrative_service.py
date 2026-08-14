@@ -123,28 +123,80 @@ class NarrativeService:
     # =========================================================================
 
     async def select_fast(
-        self, agent_id: str, user_id: str, query: str
+        self,
+        agent_id: str,
+        user_id: str,
+        query: str,
+        *,
+        against_live_anchor: bool = False,
     ) -> Optional[Narrative]:
         """BM25 top-1 direct pick — the fast-mode (F28) narrative path.
 
         Zero LLM, zero creation, zero session writes: one keyword search
-        (top_k=1) plus a CRUD load. None when nothing scores or the row
-        vanished between search and load. What the caller does on a miss
-        is the surface's call: voice runs the turn bare, durable chat
-        surfaces fall through to ``create_fast`` below. The continuity /
-        LLM tiers remain exclusive to the full select().
+        (top_k=1) plus a CRUD load. None when nothing clears the active
+        floor or the row vanished between search and load. What the caller
+        does with the result is the surface's call: voice runs a miss
+        bare; durable chat surfaces reuse the session anchor and fall
+        through to ``create_fast`` below. The continuity / LLM tiers
+        remain exclusive to the full select().
+
+        ``against_live_anchor``: the caller holds a live session anchor,
+        so a hit here would STEAL the turn away from the active thread —
+        require the strong FAST_ANCHOR_OVERRIDE_FLOOR instead of the
+        noise-filter RAW_FLOOR (thresholds and rationale in config.py).
         """
         from .config import config
 
+        floor = (
+            config.FAST_ANCHOR_OVERRIDE_FLOOR
+            if against_live_anchor
+            else config.NARRATIVE_MATCH_RAW_FLOOR
+        )
         results = await self._retrieval.keyword_search(
             query=query, user_id=user_id, agent_id=agent_id, top_k=1
         )
-        # Same raw-score floor the full path uses before direct-return: the
-        # fast path has no LLM arbitration tier, so a sub-floor top-1 (a
-        # one-word accidental overlap) is a miss, not a background pick.
-        if not results or results[0].raw_score < config.NARRATIVE_MATCH_RAW_FLOOR:
+        # The fast path has no LLM arbitration tier, so a sub-floor top-1
+        # (a one-word accidental overlap) is a miss, not a background pick.
+        if not results or results[0].raw_score < floor:
             return None
         return await self._crud.load_by_id(results[0].narrative_id)
+
+    async def audit_fast(
+        self,
+        agent_id: str,
+        user_id: str,
+        query: str,
+        *,
+        retrieval_method: str,
+        chosen_narrative_id: Optional[str],
+        trigger: str = "",
+        is_user_chat: bool = True,
+        keyword_ms: Optional[int] = None,
+        is_new: bool = False,
+    ) -> None:
+        """Best-effort audit row for one fast-path routing decision.
+
+        The fast path hits, reuses or creates — all decisions with
+        persistent consequences — so it must leave the same DB evidence
+        the full select() does (loguru rotates away; the audit table is
+        the reliable record). Continuity/judge fields stay at their
+        "tier did not run" defaults (None, not zero) so latency and
+        routing stats never mix "skipped" with "ran and found nothing".
+        Delegates to ``_write_audit`` — best-effort, never breaks a turn.
+        """
+        audit = RoutingAudit(
+            agent_id=agent_id,
+            user_id=user_id,
+            query_text=query,
+            trigger=trigger,
+            is_user_chat=is_user_chat,
+            keyword_ms=keyword_ms,
+            selection_method="fast",
+            retrieval_method=retrieval_method,
+            chosen_narrative_id=chosen_narrative_id,
+            is_new=is_new,
+        )
+        await self._write_audit(audit, {})
 
     async def create_fast(
         self, agent_id: str, user_id: str, query: str

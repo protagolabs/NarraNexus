@@ -57,15 +57,48 @@ async def test_create_fast_persists_with_routing_surface(service):
 
 
 @pytest.mark.asyncio
-async def test_select_fast_returns_narrative_or_none_never_raises(service):
-    # Empty corpus: a miss is a clean None (the step layer decides what a
-    # miss means per surface), never an exception.
+async def test_select_fast_empty_corpus_is_a_clean_none(service):
+    # Empty corpus: a miss is strictly None (the step layer decides what
+    # a miss means per surface), never an exception.
     assert await service.select_fast(AGENT, USER, "anything at all") is None
 
-    await service.create_fast(AGENT, USER, "renew my passport before the trip")
-    hit = await service.select_fast(AGENT, USER, "renew my passport before the trip")
+
+@pytest.mark.asyncio
+async def test_select_fast_hit_is_the_created_narrative(service):
+    created = await service.create_fast(
+        AGENT, USER, "renew my passport before the trip"
+    )
+    hit = await service.select_fast(
+        AGENT, USER, "renew my passport before the trip"
+    )
     # Small-corpus BM25 may legitimately miss even the verbatim query
-    # (IDF degeneracy) — the contract is only Narrative-or-None. If this
-    # ever starts hitting reliably, the step-level session-reuse branch
-    # still owns fragmentation protection.
-    assert hit is None or hit.narrative_info is not None
+    # (IDF degeneracy) — that reality is exactly why the step layer's
+    # anchor-reuse branch exists. But when it DOES hit, it must be the
+    # right row.
+    if hit is not None:
+        assert hit.id == created.id
+
+
+@pytest.mark.asyncio
+async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    # A mid-strength score (above the noise floor, below the override
+    # floor) picks normally but must NOT be allowed to steal a live
+    # anchor. Thresholds live in narrative/config.py.
+    from xyz_agent_context.narrative.config import config
+
+    score = (config.NARRATIVE_MATCH_RAW_FLOOR + config.FAST_ANCHOR_OVERRIDE_FLOOR) / 2
+
+    async def _fake_search(**_kw):
+        return [SimpleNamespace(narrative_id="n1", raw_score=score)]
+
+    monkeypatch.setattr(service._retrieval, "keyword_search", _fake_search)
+    loaded = SimpleNamespace(id="n1")
+    monkeypatch.setattr(service._crud, "load_by_id", AsyncMock(return_value=loaded))
+
+    assert await service.select_fast(AGENT, USER, "q") is loaded
+    assert (
+        await service.select_fast(AGENT, USER, "q", against_live_anchor=True) is None
+    )

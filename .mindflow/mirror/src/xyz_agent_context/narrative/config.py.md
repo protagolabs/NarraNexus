@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-07-29
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — FAST_ANCHOR_OVERRIDE_FLOOR（#307 🟡1/🟡2）
+
+新阈值：fast 路径持有 live 锚点时 BM25 抢线所需的强分下限（默认 12.0，
+env `NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR`）。刻意高——raw BM25 随 query
+长度伸缩（<40 字符中位 ~5.3），短跟进句永远抢不了线、留在原线程；长而
+主题明确的消息可以切。与 RAW_FLOOR（噪声滤网）职责不同。同时在
+2026-05-20 session 永不超时 NOTE 旁补注：fast 路径同守此规（曾短暂引入
+30 分钟窗，同日删除）。
 
 ## 2026-07-29 — 高置信判据换成 RAW_FLOOR + MARGIN_RATIO
 

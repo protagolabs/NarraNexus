@@ -4,6 +4,22 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — auto-review 收口：锚点优先判序 + 去时间窗 + audit（#307 🟡1/🟡2/🟡4/🟡7/🟢8）
+
+判序对齐 full 路径的 continuity-first：durable chat 且 session 带
+`current_narrative_id` 时**默认复用该线程**（不看年龄——30 分钟窗
+`FAST_REUSE_WINDOW_S` 已删，遵守 2026-05-20「session 永不超时」决定），
+BM25 只有越过 `config.FAST_ANCHOR_OVERRIDE_FLOOR`（强分抢线阈值，在
+narrative/config.py，经 `select_fast(against_live_anchor=True)` 生效）才
+允许把 turn 抢到别的线程；锚点行消失则按噪声 floor 重试再 create。
+检索文本改用共享 helper `resolve_retrieval_text`（手抄副本删除——它写进
+session.last_query，两路径口径必须同源）。每个决策落一行 RoutingAudit
+（`narrative_service.audit_fast`，best-effort，selection_method="fast"，
+retrieval_method ∈ bm25_fast/session_fast/bm25_fast_created，带
+keyword_ms）。`_is_durable` 改直接属性访问（缺字段要炸响，不许静默滑向
+丢历史分支）；durable profile 落在非 user-chat source 时 warning 明示
+本轮不持久化。
+
 ## 2026-08-14 — durable miss 先复用 session 线程再创建（复核 N1）
 
 小语料 BM25 退化（逐字重复的 query 都可能低于 floor——floor 是噪声滤网
