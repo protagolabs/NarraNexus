@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — durable miss 先复用 session 线程再创建（复核 N1）
+
+小语料 BM25 退化（逐字重复的 query 都可能低于 floor——floor 是噪声滤网
+不是强度测试，见 narrative/config.py），miss 即创建会把一场对话打碎成
+每 turn 一条 narrative（各带独立 ChatModule instance = 各自的历史，用户
+体验为失忆）。修：durable miss 时若 `session.current_narrative_id` 在
+`FAST_REUSE_WINDOW_S`（30 分钟）内被触碰过则单次 load 复用
+（retrieval_method="session_fast"），行不通才 create_fast。naive 时间戳
+按 UTC 处理（与 continuity.py 同规则）。ephemeral（voice）不受影响。
+真 service 层锁在 tests/narrative/test_fast_path_service.py（create_fast
+持久化 + 小语料 miss 现实性）。
+
 ## 2026-08-14 — durable 模式：miss 建 narrative + session 锚定（预审 C1/I4）
 
 签名增可选 `session_service=None`；「结构上不可能写 session」的旧契约改为

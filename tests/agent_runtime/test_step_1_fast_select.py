@@ -144,6 +144,116 @@ async def test_durable_miss_creates_narrative_and_anchors_session(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_durable_miss_reuses_recent_current_narrative(monkeypatch):
+    # Small-corpus BM25 is degenerate (even a verbatim repeat can score
+    # below the floor), so a sub-floor miss inside a live session must
+    # NOT fragment the conversation: reuse the session's current thread.
+    from datetime import datetime, timedelta, timezone
+
+    reused = SimpleNamespace(
+        id="nar_old", narrative_info=SimpleNamespace(name="Old", current_summary="s")
+    )
+    service = SimpleNamespace(
+        select_fast=AsyncMock(return_value=None),
+        create_fast=AsyncMock(),
+        load_narrative_from_db=AsyncMock(return_value=reused),
+    )
+    session_service = SimpleNamespace(save_session=AsyncMock())
+    monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
+
+    session = _session()
+    session.last_query_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+    ctx = _ctx(session=session, turn_profile=_durable_profile())
+    messages = await _drain(mod.step_1_fast_select(ctx, service, session_service))
+
+    service.create_fast.assert_not_awaited()
+    service.load_narrative_from_db.assert_awaited_once_with("nar_old")
+    assert ctx.narrative_list == [reused]
+    assert ctx.session.current_narrative_id == "nar_old"
+    session_service.save_session.assert_awaited_once_with(ctx.session)
+    assert messages[-1].details["retrieval_method"] == "session_fast"
+
+
+@pytest.mark.asyncio
+async def test_durable_miss_stale_anchor_creates_instead_of_reusing(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    created = SimpleNamespace(
+        id="nar_new", narrative_info=SimpleNamespace(name="New", current_summary="")
+    )
+    service = SimpleNamespace(
+        select_fast=AsyncMock(return_value=None),
+        create_fast=AsyncMock(return_value=created),
+        load_narrative_from_db=AsyncMock(),
+    )
+    session_service = SimpleNamespace(save_session=AsyncMock())
+    monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
+
+    session = _session()
+    session.last_query_time = datetime.now(timezone.utc) - timedelta(
+        seconds=mod.FAST_REUSE_WINDOW_S + 60
+    )
+    ctx = _ctx(session=session, turn_profile=_durable_profile())
+    await _drain(mod.step_1_fast_select(ctx, service, session_service))
+
+    service.load_narrative_from_db.assert_not_awaited()
+    service.create_fast.assert_awaited_once()
+    assert ctx.narrative_list == [created]
+
+
+@pytest.mark.asyncio
+async def test_durable_miss_vanished_anchor_row_creates(monkeypatch):
+    from datetime import datetime, timezone
+
+    created = SimpleNamespace(
+        id="nar_new", narrative_info=SimpleNamespace(name="New", current_summary="")
+    )
+    service = SimpleNamespace(
+        select_fast=AsyncMock(return_value=None),
+        create_fast=AsyncMock(return_value=created),
+        load_narrative_from_db=AsyncMock(return_value=None),
+    )
+    session_service = SimpleNamespace(save_session=AsyncMock())
+    monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
+
+    session = _session()
+    session.last_query_time = datetime.now(timezone.utc)
+    ctx = _ctx(session=session, turn_profile=_durable_profile())
+    await _drain(mod.step_1_fast_select(ctx, service, session_service))
+
+    service.create_fast.assert_awaited_once()
+    assert ctx.narrative_list == [created]
+
+
+@pytest.mark.asyncio
+async def test_durable_miss_naive_recent_timestamp_still_reuses(monkeypatch):
+    # DB round-trips can strip tzinfo — a naive-but-recent last_query_time
+    # must be treated as UTC (same rule as continuity.py), not as stale.
+    from datetime import datetime, timedelta, timezone
+
+    reused = SimpleNamespace(
+        id="nar_old", narrative_info=SimpleNamespace(name="Old", current_summary="s")
+    )
+    service = SimpleNamespace(
+        select_fast=AsyncMock(return_value=None),
+        create_fast=AsyncMock(),
+        load_narrative_from_db=AsyncMock(return_value=reused),
+    )
+    session_service = SimpleNamespace(save_session=AsyncMock())
+    monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
+
+    session = _session()
+    session.last_query_time = (
+        datetime.now(timezone.utc) - timedelta(minutes=5)
+    ).replace(tzinfo=None)
+    ctx = _ctx(session=session, turn_profile=_durable_profile())
+    await _drain(mod.step_1_fast_select(ctx, service, session_service))
+
+    service.create_fast.assert_not_awaited()
+    assert ctx.narrative_list == [reused]
+
+
+@pytest.mark.asyncio
 async def test_durable_hit_anchors_session_without_creating(monkeypatch):
     narrative = SimpleNamespace(
         id="nar_hit", narrative_info=SimpleNamespace(name="N", current_summary="s")

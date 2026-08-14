@@ -57,6 +57,12 @@ describe('useFastMode', () => {
     expect(result.current[0]).toBe(false);
   });
 
+  it('treats a scalar payload as empty', () => {
+    localStorage.setItem('narra-nexus-fast-mode', '5');
+    const { result } = renderHook(() => useFastMode('agent-1'));
+    expect(result.current[0]).toBe(false);
+  });
+
   it('treats a non-object payload (array) as empty', () => {
     localStorage.setItem('narra-nexus-fast-mode', '["agent-1"]');
     const { result } = renderHook(() => useFastMode('agent-1'));

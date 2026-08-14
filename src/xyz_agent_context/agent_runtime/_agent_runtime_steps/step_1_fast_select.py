@@ -14,12 +14,15 @@ What happens on a miss is the surface's call, carried by
 * ``"ephemeral"`` (voice, F28): the turn runs bare — no creation, no
   session writes — so a normal follow-up message continuity-checks
   exactly as if the voice turn never happened.
-* ``"durable"`` (persisted chat surfaces): a miss falls through to a
-  CRUD-only narrative creation, and the session continuity anchor
-  (last_query / current_narrative_id) is kept consistent on hit and
-  create alike. A fast chat turn must never vanish from history — both
-  history endpoints are narrative-scoped, and step_4 persists nothing
-  for a bare turn.
+* ``"durable"`` (persisted chat surfaces): a miss first reuses the
+  session's current thread when it was touched within
+  ``FAST_REUSE_WINDOW_S`` (small-corpus BM25 is degenerate — the floor
+  is a noise filter, not a strength test), and only then falls through
+  to a CRUD-only narrative creation. The session continuity anchor
+  (last_query / current_narrative_id) is kept consistent on hit, reuse
+  and create alike. A fast chat turn must never vanish from history —
+  both history endpoints are narrative-scoped, and step_4 persists
+  nothing for a bare turn.
 
 What it still MUST do on every hit: ensure the user's ChatModule
 instance on the narrative (chat history assembly and turn persistence
@@ -41,12 +44,41 @@ if TYPE_CHECKING:
     from .context import RunContext
 
 
+#: How long the session's ``current_narrative_id`` counts as "the live
+#: conversation" for sub-floor BM25 misses. Small corpora make BM25
+#: degenerate (even a verbatim repeat can score below the floor — the
+#: floor is a noise filter, not a strength test, see narrative/config.py),
+#: so inside this window a miss reuses the session thread instead of
+#: fragmenting the conversation one narrative per turn. The full path's
+#: equivalent judgement is continuity's LLM tier; the fast path trades it
+#: for this deterministic horizon.
+FAST_REUSE_WINDOW_S = 30 * 60
+
+
 def _is_durable(ctx: "RunContext") -> bool:
     profile = ctx.turn_profile
     return (
         profile is not None
         and getattr(profile, "narrative_persistence", "ephemeral") == "durable"
     )
+
+
+def _anchor_is_recent(ctx: "RunContext") -> bool:
+    """True iff the session points at a thread touched within the reuse
+    window. Naive timestamps are assumed UTC (same rule continuity.py
+    applies — DB round-trips can strip tzinfo)."""
+    from datetime import datetime, timezone
+
+    session = ctx.session
+    if session is None or not getattr(session, "current_narrative_id", None):
+        return False
+    last = getattr(session, "last_query_time", None)
+    if last is None:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+    return elapsed <= FAST_REUSE_WINDOW_S
 
 
 async def _anchor_session(
@@ -106,11 +138,26 @@ async def step_1_fast_select(
 
     if narrative is None:
         if _is_durable(ctx) and _is_user_chat(ctx):
-            narrative = await narrative_service.create_fast(
-                ctx.agent_id, ctx.user_id, query
-            )
-            retrieval_method = "bm25_fast_created"
-            logger.info(f"[step_1_fast] miss — created narrative={narrative.id}")
+            # Sub-floor miss inside a live session: reuse the session
+            # thread before creating — small-corpus BM25 misses even
+            # verbatim repeats, and one narrative per turn would shatter
+            # the conversation (each narrative carries its own ChatModule
+            # instance, i.e. its own history).
+            if _anchor_is_recent(ctx):
+                narrative = await narrative_service.load_narrative_from_db(
+                    ctx.session.current_narrative_id
+                )
+            if narrative is not None:
+                retrieval_method = "session_fast"
+                logger.info(
+                    f"[step_1_fast] miss — reusing session narrative={narrative.id}"
+                )
+            else:
+                narrative = await narrative_service.create_fast(
+                    ctx.agent_id, ctx.user_id, query
+                )
+                retrieval_method = "bm25_fast_created"
+                logger.info(f"[step_1_fast] miss — created narrative={narrative.id}")
         else:
             ctx.narrative_list = []
             logger.info("[step_1_fast] no BM25 candidate — running bare")
