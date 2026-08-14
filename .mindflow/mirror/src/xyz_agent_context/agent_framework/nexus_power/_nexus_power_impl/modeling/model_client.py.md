@@ -17,6 +17,10 @@ stub: false
   deploy `dev`/`main`/`staging` 当前的 `prefill_compat.py` 只看 `data["messages"]`、不读该头。所以补
   `llm-gateway` 后头会**发出**，但在那个分支合入前网关照旧无条件追加 continuation 子句，nexus_power
   的 opt-out 在生产上暂不生效（inert）。要真正生效需合并该 deploy 分支。
+- **⚠ 别据此删 loop.py 的 prefill 自救路径**：`loop.py` 的 `PREFILL_REJECTED` → `_continuation_turn`
+  修复（`:146-161`）与 `_build_request` 里 `_ends_with_assistant` 的二次判定（`:304`）**与网关是否注入
+  无关**——它们服务的是**直连/BYOK 后端真返 400** 的场景（网关注入的那句续写客户端根本看不见）。因果别
+  写反成「网关不注入了所以要留着」：真实理由是二者独立，即便 opt-out 头哪天生效也不能删这条路径。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 
