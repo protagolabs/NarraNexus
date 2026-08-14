@@ -49,7 +49,11 @@ PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
 # Hostnames of our own gateway. The header above is a private agreement
 # with it and buys nothing at a third party — a direct OpenAI/DeepSeek
 # call would just carry our internal vocabulary off-site.
-_OWN_GATEWAY_HOSTS = ("litellm", "127.0.0.1", "localhost")
+# Includes `llm-gateway`: post-2026-08-07 RCE remediation cloud executors reach
+# the gateway only as `http://llm-gateway:4000`, not `litellm:4000` — without it
+# this private header (and the identity header via api_config's twin list) is
+# never sent in cloud. Keep in sync with api_config._OWN_GATEWAY_HOSTS.
+_OWN_GATEWAY_HOSTS = ("llm-gateway", "litellm", "127.0.0.1", "localhost")
 
 
 def _is_own_gateway(base_url: str) -> bool:

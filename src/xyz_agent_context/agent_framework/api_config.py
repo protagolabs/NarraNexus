@@ -43,6 +43,28 @@ from xyz_agent_context.schema.provider_schema import (
 # Configuration Dataclasses (public interface, unchanged)
 # =============================================================================
 
+# Hosts that ARE our own free-tier gateway. The platform-origin identity header
+# is emitted ONLY when a call targets one of these, so we never leak the token to
+# a BYOK third party (official Anthropic, OpenRouter, ...).
+# MUST include `llm-gateway`: since the 2026-08-07 RCE remediation, cloud
+# executors sit on the sandbox network and reach the gateway ONLY as
+# `http://llm-gateway:4000` (the Caddy allowlist front), never `litellm:4000`
+# (litellm is app-network-only). Miss it and the header is never emitted in
+# cloud → a later enforce flip 403s every free-tier turn. `litellm` + loopback
+# kept for local/dev. Keep in sync with nexus_power model_client._OWN_GATEWAY_HOSTS.
+_OWN_GATEWAY_HOSTS = ("llm-gateway", "litellm", "127.0.0.1", "localhost")
+
+_IDENTITY_HEADER_NAME = "X-NarraNexus-Identity-Token"
+
+
+def _is_own_gateway_url(base_url: str) -> bool:
+    from urllib.parse import urlparse
+
+    if not base_url:
+        return False
+    return (urlparse(base_url).hostname or "") in _OWN_GATEWAY_HOSTS
+
+
 @dataclass(frozen=True)
 class ClaudeConfig:
     """Claude API configuration (passed to Claude Code CLI subprocess)."""
@@ -63,6 +85,12 @@ class ClaudeConfig:
     # (_resolve_reasoning_options), not here.
     thinking: str = ""
     reasoning_effort: str = ""
+    # Platform-origin binding: broker-signed Ed25519 identity token stamped on
+    # the per-turn config (see bind_platform_identity). Emitted as the
+    # X-NarraNexus-Identity-Token header ONLY when base_url is our own gateway,
+    # so the free-tier gateway can prove the call originates on-platform. Empty
+    # off-platform / BYOK. Rides provider_configs to the executor automatically.
+    identity_token: str = ""
 
     @property
     def cli_config_dir(self) -> str:
@@ -132,6 +160,16 @@ class ClaudeConfig:
                 env["CLAUDE_CODE_OAUTH_TOKEN"] = self.api_key
             else:
                 env["ANTHROPIC_API_KEY"] = self.api_key
+
+        # Platform-origin binding: forward the broker identity token as a custom
+        # header the CLI adds to every request to ANTHROPIC_BASE_URL (colon-space
+        # name/value; docs: llm-gateway-connect "Send additional headers"). ONLY
+        # when the base_url is our own gateway, so we never leak it to a BYOK
+        # third party. The gateway verifies it (deploy: litellm/prefill_compat).
+        if self.identity_token and _is_own_gateway_url(self.base_url):
+            env["ANTHROPIC_CUSTOM_HEADERS"] = (
+                f"{_IDENTITY_HEADER_NAME}: {self.identity_token}"
+            )
 
         # #7 resilience: bound a stalled request and turn on the CLI's built-in
         # retry, both from settings (.env-tunable). API_TIMEOUT_MS is a
@@ -228,6 +266,9 @@ class OpenAIConfig:
     # a second. Per-call-site overrides still take precedence — see
     # OpenAIAgentsSDK._resolve_model.
     model: str = "gpt-5.4-mini-2026-03-17"
+    # Platform-origin binding token (see ClaudeConfig.identity_token). Present so
+    # the helper slot can also carry it once its transport emits the header.
+    identity_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -280,6 +321,8 @@ class CodexConfig:
     # ``thinking`` has no Codex equivalent and is ignored there.
     thinking: str = ""
     reasoning_effort: str = ""
+    # Platform-origin binding token (see ClaudeConfig.identity_token).
+    identity_token: str = ""
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the ``codex exec`` subprocess.
@@ -640,6 +683,25 @@ def set_user_config(
     _codex_ctx.set(codex or CodexConfig())
     _anthropic_helper_ctx.set(anthropic_helper)
     _cli_helper_ctx.set(cli_helper)
+
+
+def bind_platform_identity(token: str) -> None:
+    """Stamp the broker-signed identity token onto THIS turn's provider configs.
+
+    Called once the cloud token exists (after ensure(), in step_3). The token
+    rides provider_configs to the executor via ``dataclasses.asdict`` and is
+    emitted as the X-NarraNexus-Identity-Token header on our-gateway LLM calls
+    (ClaudeConfig.to_cli_env for claude_code; nexus_agent for nexus_power). No-op
+    without a token; leaves unset slots untouched. Must run BEFORE the driver
+    snapshots the configs, in the same task context (guaranteed in step_3)."""
+    if not token:
+        return
+    import dataclasses
+
+    for ctx in (_claude_ctx, _openai_ctx, _codex_ctx):
+        cfg = ctx.get()
+        if cfg is not None:
+            ctx.set(dataclasses.replace(cfg, identity_token=token))
 
 
 def snapshot_user_config() -> dict[str, Optional[object]]:

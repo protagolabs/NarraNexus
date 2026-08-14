@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-08-03
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 自家网关名单补 `llm-gateway`（恢复云端 prefill 头）
+
+`_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。这改的是
+`PREFILL_SELF_HANDLED_HEADER`（`x-nexus-prefill-retry`）的**发送条件**——不是注释调整：
+`_is_own_gateway("http://llm-gateway:4000")` 从 `False` 翻成 `True`。
+- **为什么补**：2026-08-07 RCE 整改把云端 executor 关进 sandbox 网络，到网关唯一可达入口变成
+  `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），`litellm:4000` 云端够不到。
+- **补之前的实际状态**：从 08-07 到本次，这个头在**云端一直没送达**——网关每次照旧白补一句
+  continuation 子句（prefill_compat 兜底仍生效，所以没人察觉，但契约「我自己重试」在云端是空的）。
+- 这份名单与 [[api_config]] 的 `_OWN_GATEWAY_HOSTS` 是**双份物理副本**，由
+  `test_gateway_host_lists_stay_in_sync` 强制一致；改网关拓扑/名字时两处必须同改。
+- 该头对网关拓扑变更敏感、且已悄悄漂过一次——后续动拓扑务必回看这两份名单。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 
