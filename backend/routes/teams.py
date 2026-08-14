@@ -721,19 +721,28 @@ async def _team_room_activity(
         # is too, and neither of two things said in the same microsecond is the
         # more correct one to show. A guard that picked the first stood here
         # until a mutation showed nothing could tell the difference.
+        # Compared on the RAW column, not on `format_for_api`'s output: that
+        # truncates to whole seconds, so two rooms that spoke in the same second
+        # would tie and the first row would win by accident. The formatted value
+        # is for the wire only.
+        raw_at = msg.get("created_at")
         seen = out.get(team_id)
-        at = format_for_api(msg.get("created_at"))
-        if seen and (seen["last_message_at"] or "") >= (at or ""):
+        if seen and str(seen["_raw_at"]) >= str(raw_at):
             continue
         # Flattened and capped like the agent rows' preview right above it in the
         # same sidebar: a row is one line, and this rides in every refresh for
         # every team, so an untrimmed reply would be payload nobody can see.
         flat = " ".join((msg.get("content") or "").split())
         out[team_id] = {
-            "last_message_at": at,
+            # Kept for the comparison above and stripped before the response —
+            # see the pop below.
+            "_raw_at": raw_at,
+            "last_message_at": format_for_api(raw_at),
             "from_agent": msg.get("from_agent") or "",
             "preview": flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…",
         }
+    for entry in out.values():
+        entry.pop("_raw_at", None)
     return out
 
 

@@ -244,6 +244,9 @@ async def test_two_messages_at_the_same_instant_report_one_room_once(db_client):
 
     assert list(got) == [TEAM]
     assert got[TEAM]["preview"] in ("one", "two")
+    # And nothing internal leaks to the caller: the raw timestamp used for the
+    # cross-room comparison is not part of the response.
+    assert "_raw_at" not in got[TEAM]
 
 
 @pytest.mark.asyncio
@@ -257,9 +260,45 @@ async def test_a_team_with_two_rooms_reports_the_newer_one(db_client):
     """
     old_room = await _room(db_client, TEAM)
     new_room = await _room(db_client, TEAM)
-    await _say(db_client, old_room, "agent_a", "older")
-    await _say(db_client, new_room, "agent_a", "newer")
+    older = await _say(db_client, old_room, "agent_a", "older")
+    newer = await _say(db_client, new_room, "agent_a", "newer")
+    # Stamped explicitly. Two inserts a few microseconds apart landed in the
+    # same second often enough that this test passed alone and failed in a full
+    # run — and it was asserting the wall clock, not the rule.
+    await db_client.update(
+        "bus_messages", {"message_id": older}, {"created_at": "2026-08-14T10:00:00+00:00"}
+    )
+    await db_client.update(
+        "bus_messages", {"message_id": newer}, {"created_at": "2026-08-14T10:05:00+00:00"}
+    )
 
     got = await _team_room_activity(db_client, [TEAM], user_sender=USER)
 
     assert got[TEAM]["preview"] == "newer"
+
+
+@pytest.mark.asyncio
+async def test_the_mark_and_the_transcript_agree_on_precision(db_client):
+    """`last_message_at` and the transcript's `created_at` come from the SAME
+    formatter, so the client's two halves cannot disagree.
+
+    `format_for_api` truncates to whole seconds. The client marks a room read up
+    to the newest `created_at` it has RENDERED, and compares that watermark to
+    this `last_message_at`. If one side kept sub-second precision and the other
+    did not, a reply at :00.800 would compare as :00.000 against a watermark of
+    :00.500 — the dot would not appear, for one message, sometimes. Consistent
+    coarseness is what makes the comparison sound; this asserts they are drawn
+    from one source rather than two that happen to agree today.
+    """
+    channel = await _room(db_client, TEAM)
+    mid = await _say(db_client, channel, "agent_a", "hello")
+    await db_client.update(
+        "bus_messages", {"message_id": mid}, {"created_at": "2026-08-14T10:00:00.800000+00:00"}
+    )
+
+    activity = await _team_room_activity(db_client, [TEAM], user_sender=USER)
+    row = await db_client.get_one("bus_messages", {"message_id": mid})
+
+    from xyz_agent_context.utils import format_for_api
+
+    assert activity[TEAM]["last_message_at"] == format_for_api(row["created_at"])
