@@ -1400,9 +1400,13 @@ async def step_3_agent_loop(
         # Platform-origin binding: stamp the same token onto this turn's provider
         # configs (in THIS task context, before the driver snapshots them) so it
         # rides provider_configs to the executor and is emitted as the
-        # X-NarraNexus-Identity-Token header on our-gateway LLM calls. The gateway
-        # verifies it (deploy: litellm/prefill_compat) so an exfiltrated wallet
-        # key is useless off-platform.
+        # X-NarraNexus-Identity-Token header on our-gateway LLM calls. Where the
+        # deploy-side check is live (litellm/prefill_compat._enforce_identity —
+        # deploy `staging` PR #20; not `dev`/`main` yet): `audit` verifies + logs
+        # but ALLOWS, only `enforce` rejects — so an exfiltrated wallet key is
+        # useless off-platform only under `enforce` (NX_IDENTITY_VERIFY_MODE,
+        # DEFAULT off; audit is the observe-only rollout step). Until it is both
+        # deployed and enforcing, the header is a harmless no-op.
         if identity_token:
             from xyz_agent_context.agent_framework.api_config import (
                 bind_platform_identity,
