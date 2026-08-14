@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — BusMessage.segments
+
+`Optional[List[dict]]`，每项是 `{kind: "monologue"|"reply", text}`：agent 自己的思考和
+它的回答之间的分界，`content` 因为拼接而丢掉、下游谁也恢复不了的那个信息。
+
+**`content` 一个字节都没变**，这是刻意的：它是所有**文本**消费者读的东西——记忆索引、
+其他 agent 的 scrollback。一个渲染特性不能改写系统其余部分读的那份内容。
+
+`None` 表示"没有记录过分界"，包括这个字段存在之前写的每一条消息（铁律 #2：不回填、不做
+兼容垫片），读者把它们渲染成一整块——也就是此前的行为。空列表也存成 NULL：它不携带任何
+读者能用的信息，而一个看起来像数据的值会引诱读者去相信"这一轮确实没有分界"。
+
 ## 2026-08-07 — BusMessage.root_run_id
 
 发送方那一轮所属的触发树。被唤起的 run 从这里继承,级联停止才能越过

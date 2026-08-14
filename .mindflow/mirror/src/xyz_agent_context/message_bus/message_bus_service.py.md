@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — `segments` 参数 + `get_messages_before`
+
+`send_message` 增加 `segments`（独白/回复的分界，见 [[schemas.py]]），**追加在最后**并
+且必须留在最后：这个方法有位置传参的调用方，插在中间会静默重绑每一个。这条规则由
+`test_team_message_segments` 断言。同一次合并里 dev 也追加了 `routed_by`，两个都在，
+`segments` 仍在末位。
+
+`get_messages_before` 进抽象契约（实现见 [[local_bus.py]]，cloud 侧是 stub）。它和
+`get_messages(since=…)` **刻意不对称**：`since` 返回游标之后**最旧的** n 条（补进度不能
+跳过任何一条），`before` 返回游标之前**最新的** n 条（往上翻要的是屏幕正上方那一页）。
+写反了不会报错，只会产出中间静静少一段的 transcript。
+
 ## 2026-08-07 — send_message / send_to_agent 增加 root_run_id
 
 抽象契约跟着 local 实现走,否则协议层无法透传。语义见 [[local_bus]]。
