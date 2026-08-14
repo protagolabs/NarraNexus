@@ -76,6 +76,20 @@ def test_bind_noop_without_token():
     assert serialize_provider_configs()["claude"]["identity_token"] == ""
 
 
+def test_apply_tolerates_unknown_wire_fields():
+    # Rolling-deploy skew: a NEW orchestrator serializes a field an OLD executor
+    # dataclass lacks. apply must drop it, not crash the turn.
+    payload = {
+        "claude": {"api_key": "k", "base_url": _GW, "future_field_x": "boom"},
+        "openai": None,
+        "codex": None,
+        "anthropic_helper": None,
+        "cli_helper": None,
+    }
+    apply_provider_configs(payload)  # must not raise
+    assert snapshot_user_config()["claude"].api_key == "k"
+
+
 # ---- nexus_power leg (_build_request_payload) -----------------------------
 
 def _nexus_slot(monkeypatch, *, base_url, token):

@@ -88,7 +88,14 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         raw = payload.get(key)
         if raw is None:
             return None
-        return _CONFIG_TYPES[key](**raw)
+        # Tolerate wire fields this executor's dataclass doesn't know: during a
+        # rolling deploy a NEW orchestrator can dispatch to an OLD warm/pooled
+        # executor (broker's lazy stale-executor reuse), and a new field like
+        # identity_token would otherwise raise TypeError and fail the turn.
+        # Drop unknown keys instead of crashing (铁律 #3 lockstep hazard).
+        cls = _CONFIG_TYPES[key]
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
     set_user_config(
         claude=_build("claude") or ClaudeConfig(),
