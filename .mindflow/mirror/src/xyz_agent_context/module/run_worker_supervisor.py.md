@@ -119,7 +119,7 @@ door for zombies — this is the door.)
   today, but any future accidental blocking call starves ALL workers, not one.
 - **MySQL pool sizing.** Four independent pools became one. SQLite is strictly
   better (single opener); MySQL must be sized for the busiest concurrent mix
-  (poller 3 + jobs 5 + bus 3 + channels workers). Pool size is now env-tunable
+  (poller 3 + jobs 5 + bus `settings.bus_max_workers` + channels workers). Pool size is now env-tunable
   via `MYSQL_POOL_SIZE` (default 10; see [[db_factory.py]]) — a supervisor
   deployment should set ≥25. **2026-08-14 correction**: the "cloud still runs 4
   separate containers, so the single-pool case has not bitten yet" note that

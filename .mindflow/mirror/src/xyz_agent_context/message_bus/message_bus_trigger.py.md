@@ -36,10 +36,18 @@ stub: false
 轮询周期都会在 Event 上泄漏一个 waiter；`_wake_event.clear()` 放在 sleep 出口而不是调用
 点——留着不清会让**下一次** sleep 立刻返回，把循环转成空转。
 
-**范围限制（必须记住）**：只覆盖**本进程**的投递，也就是下面这条团队房回帖路径。agent
-通过 `bus_send` MCP 工具发消息是在 MCP server **另一个进程**，进程内 Event 够不着，那条
-路仍走轮询。团队接力（PRD 的主战场）覆盖到了，peer DM 没有。要跨进程就得上 DB 信号 +
-读取方，等 peer DM 延迟真成为抱怨再说。
+**覆盖范围**：本进程的**全部**投递——团队房回帖与 leader 巡查，两者统一走
+`_post_to_room`。agent 通过 `bus_send` MCP 工具发消息是在 MCP server **另一个进程**，
+进程内 Event 够不着，那条路仍走轮询。团队接力（PRD 的主战场）覆盖到了，peer DM 没有。
+要跨进程就得上 DB 信号 + 读取方，等 peer DM 延迟真成为抱怨再说。
+
+**`_post_to_room` 存在的理由不是"投递需要抽象"**（那就一行），而是**「投递」与「唤醒」
+不可分割**。它们曾经是可分的，于是两个调用点里漏了一个：巡查以房间自己的标记发言、且会
+@ 到成员，被 @ 的队友因此变成候选，却要干等一个完整自适应间隔——平台自己制造的死寂，比
+agent 慢更难看。守卫是**结构性**测试
+`tests/message_bus/test_bus_relay_wake.py::test_every_in_process_post_goes_through_the_waking_helper`：
+本模块内除 helper 自身外禁止出现 `self._bus.send_message(`。第三个调用点想漏，得先绕开
+这条测试。
 
 **`_check_worker_starvation`**：`liveness_snapshot()` 从 2026-07-27 那次 wedge 起就带着
 `running`/`waiting`/`max_workers`，docstring 也早写明「持续 running==max_workers 且

@@ -14,8 +14,9 @@ The fix is one `asyncio.Event`: a successful team-room post sets it, and the
 poll loop's sleep waits on it as well as on stop. The room's own delivery is
 what schedules the next hop, instead of a timer noticing later.
 
-Scope, stated because it is easy to over-read: this covers posts made by the
-TRIGGER process (the team-room reply path below). An agent that calls the
+Scope, stated because it is easy to over-read: this covers every post made by
+the TRIGGER process — the team-room reply and the leader patrol, both routed
+through `_post_to_room`. An agent that calls the
 `bus_send` MCP tool posts from the MCP server process, where an in-process
 Event cannot reach; that path still waits for the poll. Team relay — the PRD's
 subject — is covered; peer DM via the tool is not.
@@ -133,24 +134,38 @@ def test_every_in_process_post_goes_through_the_waking_helper():
 
     from xyz_agent_context.message_bus import message_bus_trigger as mod
 
+    import re
+
     src = inspect.getsource(mod)
-    body = src.split("async def _post_to_room", 1)
-    assert len(body) == 2, "_post_to_room is gone — the invariant has no owner"
-    # Everything except the helper's own single call.
-    outside = body[0] + body[1].split("\n    ", 1)[1].split("def _wake", 1)[1]
+    head, _, rest = src.partition("    async def _post_to_room")
+    assert rest, "_post_to_room is gone — the invariant has no owner"
+
+    # Cut at the helper's OWN end, not at some later landmark: excluding
+    # everything up to `_wake` would also excuse any method added in between —
+    # and "another posting helper" is the most natural thing to put there.
+    nxt = re.search(r"\n    (?:async )?def ", rest)
+    helper, after = (rest[: nxt.start()], rest[nxt.start():]) if nxt else (rest, "")
+
+    outside = head + after
     assert "self._bus.send_message(" not in outside, (
         "a direct self._bus.send_message() bypasses _post_to_room and will not "
         "wake the poll loop — route it through the helper"
     )
+    assert "self._bus.send_message(" in helper, (
+        "the helper stopped posting — this test would now pass vacuously"
+    )
 
 
 @pytest.mark.asyncio
-async def test_a_patrol_post_wakes_the_poll_loop(db_client):
-    """The site the first version missed.
+async def test_a_room_marker_post_wakes_the_poll_loop(db_client):
+    """A post under the ROOM's marker — the shape the patrol lane uses.
 
-    The patrol line is posted by the trigger process under
-    `team_owner:<team_id>`, so it is not self-sent for any member and an
-    @-mentioned teammate becomes a candidate immediately.
+    Named for what it exercises: this drives `_post_to_room` with patrol-shaped
+    arguments, NOT `_patrol_body`. What actually guarantees the patrol lane
+    wakes the loop is the structural test above; this one documents why that
+    shape matters — the line is posted as `team_owner:<team_id>`, so it is not
+    self-sent for any member and an @-mentioned teammate becomes a candidate
+    immediately.
     """
     trig = _trigger(db_client, {})
     await _seed_room(db_client)

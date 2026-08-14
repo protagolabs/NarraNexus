@@ -147,3 +147,65 @@ async def test_drain_is_bounded_and_leaves_the_stragglers_tracked():
     gate.set()
     await drain(timeout=1.0)
     assert task.done()
+
+# --- loop scoping: the reason drain() stopped being process-wide ------------
+
+def test_pending_outside_a_running_loop_is_empty():
+    """A sync caller has no loop, so it has nothing meaningful to report.
+
+    Returning the whole set here would hand back other loops' corpses.
+    """
+    assert pending() == frozenset()
+
+
+async def test_a_task_from_a_closed_loop_is_neither_reported_nor_waited_on():
+    """The whole point of the loop filter, stated as the failure it prevents.
+
+    `spawn` now sits under `DataLoader._schedule_dispatch`, which most of the
+    suite touches indirectly. pytest-asyncio gives every test its own loop, so a
+    dispatch still in flight when a loop closes never runs its done-callback and
+    stays in `_TASKS` forever. Before the filter that corpse (a) failed another
+    file's `pending() == frozenset()` with evidence pointing at the wrong test,
+    and (b) made `drain()` burn its entire timeout waiting on something that can
+    never complete.
+
+    The ghost is built on a THREAD: a second loop cannot be driven from inside a
+    running one.
+    """
+    import threading
+
+    from xyz_agent_context.utils import background_tasks as _bt
+
+    box: dict[str, asyncio.Task] = {}
+
+    def _make_ghost() -> None:
+        other = asyncio.new_event_loop()
+        asyncio.set_event_loop(other)
+
+        async def _spawn_and_park():
+            box["task"] = spawn(asyncio.Event().wait(), name="ghost")
+            await asyncio.sleep(0)  # let it start, never let it finish
+
+        other.run_until_complete(_spawn_and_park())
+        other.close()
+
+    th = threading.Thread(target=_make_ghost)
+    th.start()
+    th.join()
+
+    ghost = box["task"]
+    assert ghost in _bt._TASKS, "precondition: the corpse really is still tracked"
+
+    try:
+        assert ghost not in pending(), "a dead loop's task leaked into pending()"
+
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        await drain(timeout=2.0)
+        assert loop.time() - t0 < 0.5, (
+            "drain() waited on a task whose loop is closed — it can never be "
+            "satisfied, so the whole timeout burns on every call"
+        )
+    finally:
+        # This test would otherwise BE the pollution it exists to prevent.
+        _bt._TASKS.discard(ghost)

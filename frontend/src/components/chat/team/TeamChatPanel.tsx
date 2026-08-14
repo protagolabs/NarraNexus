@@ -78,28 +78,6 @@ const POLL_MS = 3000;
  * different severities, one state. Softening is applied ON TOP of the semantic
  * colour (see `opacity` below), never by swapping it for another one.
  */
-/** The duration line under a liveness bubble, or nothing.
- *
- * `elapsedSince` returns '' when the timestamp is missing (its documented
- * contract), and "waiting " with a blank tail reads like a truncated string
- * rather than a missing value. No duration => no detail line.
- */
-function livenessDetail(
-  t: (k: string, v?: Record<string, unknown>) => string,
-  a: TeamMemberActivity,
-  now: number,
-): string | undefined {
-  if (a.status === 'queued') {
-    const d = elapsedSince(a.queued_since, now);
-    return d ? t('chat.team.activity.waitingFor', { duration: d }) : undefined;
-  }
-  if (a.status === 'stalled') {
-    const d = elapsedSince(a.last_signal_at, now);
-    return d ? t('chat.team.activity.silentFor', { duration: d }) : undefined;
-  }
-  return undefined;
-}
-
 function LivenessIndicator({
   name,
   status,
@@ -182,6 +160,28 @@ function LivenessIndicator({
       </div>
     </div>
   );
+}
+
+/** The duration line under a liveness bubble, or nothing.
+ *
+ * `elapsedSince` returns '' when the timestamp is missing (its documented
+ * contract), and "waiting " with a blank tail reads like a truncated string
+ * rather than a missing value. No duration => no detail line.
+ */
+function livenessDetail(
+  t: (k: string, v?: Record<string, unknown>) => string,
+  a: TeamMemberActivity,
+  now: number,
+): string | undefined {
+  if (a.status === 'queued') {
+    const d = elapsedSince(a.queued_since, now);
+    return d ? t('chat.team.activity.waitingFor', { duration: d }) : undefined;
+  }
+  if (a.status === 'stalled') {
+    const d = elapsedSince(a.last_signal_at, now);
+    return d ? t('chat.team.activity.silentFor', { duration: d }) : undefined;
+  }
+  return undefined;
 }
 
 export function TeamChatPanel({ teamId }: TeamChatPanelProps) {

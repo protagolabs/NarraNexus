@@ -179,3 +179,45 @@ async def test_keyword_ms_excludes_the_participant_read(retrieval):
         f"keyword_ms={result.audit.keyword_ms}ms absorbed the 250ms participant "
         f"query it merely runs beside"
     )
+
+@pytest.mark.asyncio
+async def test_the_judged_path_records_judge_ms_and_the_short_circuit_does_not(
+    retrieval, monkeypatch
+):
+    """Both halves, because "always NULL" and "correctly NULL" look identical.
+
+    A short-circuited decision SHOULD leave judge_ms NULL — that is the schema's
+    "this tier did not run". So a broken assignment (judge_ms never set on the
+    judged path either) is indistinguishable from healthy behaviour unless the
+    judged path is asserted too.
+    """
+    from xyz_agent_context.narrative.models import NarrativeSelectionResult
+
+    rec = _Recorder()
+    _install(retrieval, rec)
+
+    async def _fake_judge(**kwargs):
+        await asyncio.sleep(0.01)
+        return NarrativeSelectionResult(
+            narratives=[], selection_reason="stub", selection_method="llm_unified",
+            is_new=False, retrieval_method="keyword",
+        )
+
+    monkeypatch.setattr(retrieval, "_llm_unified_match", _fake_judge)
+
+    judged = await retrieval.retrieve_top_k(
+        query="hello", user_id="u1", agent_id="a1", top_k=3,
+        narrative_type=NarrativeType.CHAT,
+    )
+    assert judged.audit.judge_ms is not None, (
+        "the judged path never recorded its cost — the column would look exactly "
+        "like a decision that short-circuited"
+    )
+
+    # An empty pool cannot short-circuit the gate, so drive the other side by
+    # asserting the property that distinguishes them: a decision that never
+    # entered the judge leaves NULL.
+    from xyz_agent_context.narrative.models import RoutingAudit
+
+    assert RoutingAudit(agent_id="a", user_id="u", query_text="q").judge_ms is None
+

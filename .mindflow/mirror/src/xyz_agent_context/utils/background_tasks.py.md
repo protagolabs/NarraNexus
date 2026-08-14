@@ -34,6 +34,11 @@ stub: false
 测试只能 sleep 然后祈祷；`tests/agent_runtime/test_post_turn_hooks_background.py`
 依赖 `drain()` 才写得出来。
 
+**两者都按当前事件循环取范围**（loop-scoped）：只报告 / 只等待 `t.get_loop() is
+asyncio.get_running_loop()` 的 task；不在 running loop 里调用（同步调用方）返回空集。
+生产是单个长驻 loop，这条不体现；但 `spawn` 现在挂在 `DataLoader._schedule_dispatch`
+上，pytest-asyncio 又给每个测试一个新 loop，所以过滤是必需的——见下面「坑」。
+
 ## 设计决策
 
 **这不是 supervisor**。不重试、不重启、不定时取消。一个脱离的钩子跑一小时是合法负载
@@ -52,6 +57,16 @@ try/except 里（`agent_runtime._run_hooks_background` 就是这么做的）。�
 
 ## 坑
 
-`_TASKS` 的规模由**并发数**决定而非累计数——done-callback 会把自己摘掉。但 callback
-是**被调度**执行的、不与 `await task` 同步发生，所以 `await task` 之后立刻断言
-`pending()` 会读到旧值；先 `await asyncio.sleep(0)` 让出一轮。测试里踩过。
+`_TASKS` 的规模在**同一个 loop 内**由并发数决定而非累计数——done-callback 会把自己
+摘掉。但 callback 是**被调度**执行的、不与 `await task` 同步发生，所以 `await task` 之后
+立刻断言 `pending()` 会读到旧值；先 `await asyncio.sleep(0)` 让出一轮。测试里踩过。
+
+**跨 loop 则不然**：loop 关闭时尚未完成的 task，其 done-callback **永不执行**，会永久留在
+`_TASKS` 里。`pending()` 把它们**过滤掉**（而不是摘除），所以它们不会污染别人的断言，也
+不会让 `drain()` 白等满超时——但集合本身仍会随死 loop 数缓慢增长。生产无此情形（单 loop）；
+测试进程里按整轮 pytest 累计，当前规模无害。`tests/utils/test_background_tasks.py::
+test_a_task_from_a_closed_loop_is_neither_reported_nor_waited_on` 用一个线程造出这种
+"幽灵"来锁住这两条性质。
+
+`_on_done` 里的 `_TASKS.discard(task)` 必须保持**无条件**——加了过滤，被过滤掉的 task 就
+再也摘不掉，集合会从「按并发数有界」退化成「按累计数无界」。

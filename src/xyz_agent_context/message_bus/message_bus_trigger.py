@@ -332,7 +332,16 @@ class MessageBusTrigger:
 
         await self.audit.stopped(self.liveness_snapshot())
 
-    async def _post_to_room(self, **kwargs) -> None:
+    async def _post_to_room(
+        self,
+        *,
+        from_agent: str,
+        to_channel: str,
+        content: str,
+        mentions: Optional[List[str]] = None,
+        msg_type: str = "text",
+        event_id: Optional[str] = None,
+    ) -> None:
         """Put a message in a room and tell the poll loop to look again.
 
         The ONLY way this process should post to the bus. Not because posting
@@ -352,7 +361,17 @@ class MessageBusTrigger:
         never show it" case, and the patrol site is content to let a failure
         surface.
         """
-        await self._bus.send_message(**kwargs)
+        # Parameters listed explicitly rather than **kwargs: a passthrough
+        # signature hides a misspelled kwarg from pyright and only surfaces it
+        # as a runtime TypeError — on the patrol path, an unhandled one.
+        await self._bus.send_message(
+            from_agent=from_agent,
+            to_channel=to_channel,
+            content=content,
+            mentions=mentions,
+            msg_type=msg_type,
+            event_id=event_id,
+        )
         # Unconditional rather than "only when mentions is non-empty": an
         # owner-addressed reply can also make the room's lead due, and one extra
         # poll cycle costs a single indexed query.

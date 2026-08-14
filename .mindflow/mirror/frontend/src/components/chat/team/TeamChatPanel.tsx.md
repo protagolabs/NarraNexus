@@ -19,8 +19,15 @@ stub: false
 显示」。`idle` 仍然什么都不渲染。
 
 **三态的视觉区分是有意的**：只有 `running` 的点会 bounce。queued/stalled 也跳动会读成
-「正在工作」，那正是四态存在要防止的误读；queued 压到 0.72 不透明度，stalled 走 warning
-色调。
+「正在工作」，那正是四态存在要防止的误读。
+
+**颜色与文案一律取自 `STATUS_TONES`**（`lib/teamActivity.ts`）。这是第四个渲染同一组状态
+的界面，而 `teamActivity.ts` 的存在理由就是「三个界面永远不会对『stalled 长什么样』产生
+分歧」。第一版在这里**硬编码**了调色板，结果是同一成员同一时刻：转录区 stalled 画成
+warning 琥珀、右栏 roster 画成 **error 红**；queued 则是 silicon 对 warning。两种严重度
+暗示，而颜色比文字更先被看到。柔化只允许**叠在语义色之上**（queued 的 0.72 不透明度），
+不允许换成另一个语义色。`TeamChatPanel.liveness.test.tsx` 里有测试断言气泡 style 含
+`STATUS_TONES.stalled.color`。
 
 **一个 i18n key 都没新增**，直接复用 roster 的
 `chat.team.activity.{queued,stalled,waitingFor,silentFor}`。两个界面对同一状态说同一个
