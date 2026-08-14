@@ -40,6 +40,10 @@
       "dropFile": "拖放文件以添加附件…",
       "placeholder": "输入消息，或输入 / 使用技能…"
     },
+    "fastMode": {
+      "label": "极速",
+      "tooltip": "极速模式：轻量上下文，更快回复"
+    },
     "audio": {
       "stopRecording": "停止录音",
       "recordVoice": "录制语音消息",

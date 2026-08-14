@@ -40,6 +40,10 @@
       "dropFile": "Drop file to attach…",
       "placeholder": "Type a message or / for skills…"
     },
+    "fastMode": {
+      "label": "Fast",
+      "tooltip": "Fast mode: lighter context, quicker replies"
+    },
     "audio": {
       "stopRecording": "Stop recording",
       "recordVoice": "Record voice message",
