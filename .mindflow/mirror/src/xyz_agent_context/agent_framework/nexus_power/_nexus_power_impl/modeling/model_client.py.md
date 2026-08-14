@@ -60,10 +60,10 @@ output_tokens=2000、参数被切成 `{"path": "game.html"`)。信了它就会�
 extra_headers 里恒带 PREFILL_SELF_HANDLED_HEADER。网关 hook 默认给纯文本「以
 assistant 结尾」的对话补一句续写 user 消息以躲开某些后端的 400,代价是对本来能
 接受 prefill 的后端也白付一次重复措辞。本循环能自己重试(见 loop 的
-PREFILL_REJECTED),所以退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
+PREFILL_REJECTED),所以**意图**退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
 重试路径,继续被网关兜着。改名是 deploy 仓 lockstep 改动
-(stacks/narranexus-app/litellm/prefill_compat.py),但两边不同步是**安全的**——
-认不出的 header 只会让 hook 继续改写,即今天的行为。
+(stacks/narranexus-app/litellm/prefill_compat.py)——但**对端今天只存在于未合分支**(见上方横幅),
+所以两边不同步是**安全的**:认不出的 header 只会让 hook 继续改写,即今天的行为。
 
 只发给自家网关(`_is_own_gateway` 按 base_url 主机名判):这是和我们自己 proxy 的私下
 约定,直连 OpenAI/DeepSeek 时带上它零收益,只是把内部词汇泄给外部厂商。
