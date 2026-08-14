@@ -719,7 +719,8 @@
       "agentCount_two": "وكيلان",
       "agentCount_few": "{{count}} وكلاء",
       "agentCount_many": "{{count}} وكيلًا",
-      "agentCount_other": "{{count}} وكيل"
+      "agentCount_other": "{{count}} وكيل",
+      "unread": "رسائل غير مقروءة"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",

@@ -710,7 +710,8 @@
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 그룹 채팅",
-      "agentCount_other": "에이전트 {{count}}명"
+      "agentCount_other": "에이전트 {{count}}명",
+      "unread": "읽지 않은 메시지"
     },
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",

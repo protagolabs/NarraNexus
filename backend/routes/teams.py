@@ -36,6 +36,10 @@ from xyz_agent_context.message_bus.attachments import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES,
+    placeholders as _platform_placeholders,
+)
 from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
 from xyz_agent_context.repository.team_workspace_repository import (
@@ -569,6 +573,89 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
     return out
 
 
+async def _team_room_activity(
+    db, team_ids: list[str], *, user_sender: str
+) -> dict[str, dict]:
+    """When each team's room last said something worth coming back for.
+
+    The sidebar has no transcript — it never loads one — so "did anything happen
+    while I was away" cannot be derived on the client. The unread WATERMARK is
+    client-side (localStorage, per device, so the server cannot know it); what the
+    server owes is the other half of the comparison: one timestamp per room.
+
+    Two exclusions decide whether a message qualifies, and both are the
+    difference between a mark users trust and one they learn to ignore:
+
+      * the user's own message does not count, or sending a message would badge
+        the room it was sent from;
+      * platform lines do not count. A bulletin notice fires on the user's own
+        edit and a roster notice on their own member change — badging those says
+        "someone replied" when the only actor was the user.
+
+    Deliberately does NOT create rooms. Listing teams is a read; materialising a
+    channel for every team the user has never opened would mean the sidebar
+    creates rooms by looking at them.
+
+    Args:
+        db: AsyncDatabaseClient.
+        team_ids: Teams to report on. Empty is answered without a query — an
+            ``IN ()`` with no values is a syntax error in both dialects.
+        user_sender: This user's room sender id (``usr_<user_id>``).
+
+    Returns:
+        team_id -> {last_message_at, from_agent, preview}, omitting any team
+        whose room does not exist or has nothing qualifying in it.
+    """
+    if not team_ids:
+        return {}
+
+    team_by_marker = {f"{TEAM_ROOM_OWNER_PREFIX}{tid}": tid for tid in team_ids}
+    channel_rows = await db.execute(
+        "SELECT channel_id, created_by FROM bus_channels "
+        f"WHERE channel_type = 'group' AND created_by IN ({', '.join(['%s'] * len(team_by_marker))})",
+        tuple(team_by_marker),
+        fetch=True,
+    )
+
+    out: dict[str, dict] = {}
+    for row in channel_rows or []:
+        team_id = team_by_marker.get(row.get("created_by") or "")
+        if not team_id:
+            continue
+        # The newest QUALIFYING message, filtered in SQL rather than by reading a
+        # window and skipping rows: a room whose tail is all platform lines would
+        # otherwise report silence while a real reply sits just behind them.
+        #
+        # The filter names the platform's types rather than admitting known-good
+        # ones. An ordinary type added later shows up correctly under an
+        # exclusion list and would be INVISIBLE under an allowlist — a talking
+        # room reading as silent. `msg_type IS NULL` cannot happen (the column is
+        # NOT NULL) but is kept so this filter is word-for-word the one in
+        # `message_bus_trigger`, which is what `system_messages` exists to hold
+        # together.
+        msg_rows = await db.execute(
+            "SELECT from_agent, content, created_at FROM bus_messages "
+            "WHERE channel_id = %s AND from_agent != %s "
+            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders()})) "
+            "ORDER BY created_at DESC LIMIT 1",
+            (row["channel_id"], user_sender, *PLATFORM_MSG_TYPES),
+            fetch=True,
+        )
+        if not msg_rows:
+            continue
+        msg = msg_rows[0]
+        # Flattened and capped like the agent rows' preview right above it in the
+        # same sidebar: a row is one line, and this rides in every refresh for
+        # every team, so an untrimmed reply would be payload nobody can see.
+        flat = " ".join((msg.get("content") or "").split())
+        out[team_id] = {
+            "last_message_at": format_for_api(msg.get("created_at")),
+            "from_agent": msg.get("from_agent") or "",
+            "preview": flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…",
+        }
+    return out
+
+
 @router.get("", response_model=TeamListResponse)
 async def list_teams(request: Request):
     user_id = await _user_id_for_request(request)
@@ -577,10 +664,32 @@ async def list_teams(request: Request):
     member_repo = TeamMemberRepository(db)
 
     teams = await team_repo.list_teams_by_owner(user_id)
+    activity = await _team_room_activity(
+        db, [t.team_id for t in teams], user_sender=f"{USER_SENDER_PREFIX}{user_id}"
+    )
+
+    agent_names: dict[str, str] = {}
+    speakers = [a["from_agent"] for a in activity.values() if a.get("from_agent")]
+    if speakers:
+        rows = await db.get_by_ids("agents", "agent_id", speakers)
+        agent_names = {r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in rows if r}
+
     enriched: list[TeamWithMembers] = []
     for t in teams:
         members = await member_repo.list_members_by_team(t.team_id)
-        enriched.append(TeamWithMembers(team=t, member_agent_ids=members))
+        act = activity.get(t.team_id)
+        enriched.append(
+            TeamWithMembers(
+                team=t,
+                member_agent_ids=members,
+                last_message_at=(act or {}).get("last_message_at"),
+                last_message_preview=(act or {}).get("preview"),
+                # Resolved here rather than in the frontend: the sidebar has no
+                # agent-name map for members of teams it is not showing, and a
+                # raw agent_id in a preview line reads as a bug.
+                last_message_author=agent_names.get((act or {}).get("from_agent") or ""),
+            )
+        )
     return TeamListResponse(teams=enriched)
 
 
@@ -981,7 +1090,6 @@ async def list_team_files(team_id: str, request: Request):
     return await _team_files(db, team_id)
 
 
-@router.post("/{team_id}/members", response_model=TeamOperationResponse)
 async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None:
     """Tell the room its roster or lead changed.
 
@@ -1007,6 +1115,7 @@ async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None
     )
 
 
+@router.post("/{team_id}/members", response_model=TeamOperationResponse)
 async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
     user_id = await _user_id_for_request(request)
     db = await get_db_client()

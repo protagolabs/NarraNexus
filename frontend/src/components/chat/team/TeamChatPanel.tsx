@@ -29,6 +29,7 @@ import { TeamRosterPanel } from './TeamRosterPanel';
 import { TeamTranscript } from './TeamTranscript';
 import { mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
 import { isNearBottom } from '@/lib/scrollStickiness';
+import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
@@ -132,6 +133,20 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Everything on screen has been seen — including the platform's own lines,
+  // which the SERVER excludes when deciding whether a room is worth returning
+  // to. The two rules differ on purpose: the server answers "is this worth a
+  // mark", this answers "what has the user looked at", and a line rendered in
+  // front of them has been looked at whoever wrote it. Marking less than what is
+  // displayed would leave a room that only narrated itself permanently marked.
+  //
+  // Monotonic, so it composes with the sidebar's own marking (which can only see
+  // the list response) without either being able to undo the other.
+  useEffect(() => {
+    if (!teamId) return;
+    markTeamRead(teamId, latestTeamMessageMs(messages));
+  }, [teamId, messages]);
 
   // Workspace data lives HERE, not in the panel: a chip under a message and
   // the panel's own list must agree on what is open, so one component owns the

@@ -711,7 +711,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — Gruppenchat",
       "agentCount_one": "{{count}} Agent",
-      "agentCount_other": "{{count}} Agents"
+      "agentCount_other": "{{count}} Agents",
+      "unread": "Ungelesene Nachrichten"
     },
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",

@@ -1,10 +1,30 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-05-14
+last_verified: 2026-08-14
 stub: false
 ---
 
 # useAutoRefresh.ts — Tiered background polling with Visibility API pause
+
+## 2026-08-14 — Teams join the mid tier, and the scheduler stops requiring an agent
+
+The team rows in the sidebar carry a room-activity mark: a comparison between a
+client watermark and a server timestamp that arrives with the TEAM LIST (see
+[[unread.ts]]). Nothing refreshed that list on a timer — it was fetched once,
+when the sidebar found it unloaded. A room could talk for an hour and the mark
+would appear only on the next full page reload, which from the user's side is
+indistinguishable from a feature that does not work.
+
+`tickMid` now calls `useTeamsStore.getState().refresh()`, deliberately BEFORE
+the agent guard: a team room needs no agent selected, and the sidebar's team
+rows exist whether one is or not. For the same reason the scheduler's own guard
+relaxed from `!agentId || !userId` to `!userId` — every poll that needs an agent
+already checks for one itself, and gating the whole scheduler on a selected
+agent left a user sitting in a team room with no background refresh at all.
+
+Behind the visibility guard like everything else, so a hidden tab still issues
+zero requests; and on re-focus `tickMid` fires immediately, which is exactly
+when the user wants to know what happened while they were away.
 
 ## 2026-05-14 — Artifacts join refreshAll (but NOT the timers)
 
@@ -36,7 +56,7 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
 
 ## Design decisions
 
-**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): polls `getSimpleChatHistory` across ALL agents looking for new turns from server-initiated jobs or Matrix messages.
+**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): teams, jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): polls `getSimpleChatHistory` across ALL agents looking for new turns from server-initiated jobs or Matrix messages.
 
 **Visibility API.** All tick functions return early if `document.hidden`. On tab re-focus, `handleVisibilityChange` fires both `tickHigh` and `tickMid` immediately so the user sees fresh data without waiting for the next interval.
 

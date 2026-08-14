@@ -710,7 +710,8 @@
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",
-      "agentCount_other": "{{count}} 体のエージェント"
+      "agentCount_other": "{{count}} 体のエージェント",
+      "unread": "未読メッセージ"
     },
     "teamRowMenu": {
       "options": "グループチャットのオプション",

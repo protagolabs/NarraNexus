@@ -808,7 +808,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 群聊",
       "agentCount_one": "{{count}} 个智能体",
-      "agentCount_other": "{{count}} 个智能体"
+      "agentCount_other": "{{count}} 个智能体",
+      "unread": "未读消息"
     },
     "teamRowMenu": {
       "options": "群聊选项",

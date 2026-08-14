@@ -1,8 +1,37 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — `list_teams` 带上房间活动；一个被装饰器吃掉的 handler
+
+`_team_room_activity` 给每个 team 回答一件事：**这个房间上一次说了值得回来看的话
+是什么时候**。sidebar 从不加载 transcript，所以「我不在的时候有事发生吗」在客户端
+根本推不出来；而未读水位线又在 localStorage 里、逐设备，服务端也无从知道。于是切成
+两半：服务端给时间戳，客户端拿自己的水位线去比（见 [[unread.ts]]）。
+
+**两条排除决定了它有没有用**：
+
+- 用户自己的消息不算 —— 否则发一条消息就会给自己刚发消息的那个房间打标记；
+- 平台自己的通知不算 —— 公告通知是在**用户自己编辑公告**时发出的，名册通知是在
+  用户自己增删成员时发出的。给这些打标记，等于告诉用户「有人回你了」，而唯一动作
+  的人是他自己。
+
+排除用的是 `PLATFORM_MSG_TYPES`（[[system_messages]]），而不是手写字符串——这个
+tuple 存在的全部理由就是这类过滤器各写各的会漂移。方向是**排除平台类型**而非
+**放行已知类型**：以后新增一种普通消息，在排除式下正常显示，在白名单下会隐形——
+一个正在说话的房间读起来像哑的。两种失败不对称。
+
+**它不创建房间**。列 team 是读操作；给每个用户从没打开过的 team 都物化一个 channel，
+等于 sidebar 看一眼就把房间建出来了。
+
+同一次改动里修掉一个真 bug：`_announce_roster` 被插在了
+`@router.post("/{team_id}/members")` 和 `add_member` 之间，装饰器抓住了紧随其后的
+那个函数——于是「加成员」这个接口打到了一个私有 helper 上（它的第一个参数是数据库
+客户端），而 `add_member` 无人可达。import 不报错、没有测试覆盖。
+`tests/backend/test_route_registration.py` 现在按命名约定守住整类问题：`_` 开头的
+函数不应该在回答 HTTP。
+
 ## 2026-08-10 — Clear team data 增加 board 作用域
 
 `_wipe_team_data` 增加 `clear_board`,端点增加 `board` 查询参数。

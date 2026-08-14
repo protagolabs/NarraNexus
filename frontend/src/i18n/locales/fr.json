@@ -711,7 +711,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — discussion de groupe",
       "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents"
+      "agentCount_other": "{{count}} agents",
+      "unread": "Messages non lus"
     },
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",

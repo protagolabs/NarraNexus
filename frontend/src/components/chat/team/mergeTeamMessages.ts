@@ -69,9 +69,11 @@ export function sinceCursor(messages: TeamChatMessage[]): string | undefined {
   let bestMs = -Infinity;
   let best: string | undefined;
   for (const m of messages) {
+    // An unreadable row cannot poison the cursor: `NaN > bestMs` is false, so it
+    // never wins the max and `best` keeps the newest row that DID parse. An
+    // explicit isFinite guard stood here until a mutation showed it changed
+    // nothing.
     const ms = Date.parse(m.created_at);
-    // One unreadable row must not poison the cursor and stall every later poll.
-    if (!Number.isFinite(ms)) continue;
     if (ms > bestMs) {
       bestMs = ms;
       best = m.created_at;

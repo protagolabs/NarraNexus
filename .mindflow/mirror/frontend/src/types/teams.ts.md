@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — TeamWithMembers 带上房间活动
+
+`last_message_at` / `last_message_preview` / `last_message_author`：房间上一次说了
+什么、谁说的。这是未读标记的**服务端那一半**——客户端那一半（水位线）在
+[[unread.ts]]，逐设备存在 localStorage 里，服务端无从知道，所以它只回答"这个房间
+上次说话是什么时候"。
+
+三个字段对以下房间都是 null：还不存在的房间；以及只有用户自己的消息和平台自己的
+通知的房间——两者都不算数，否则发一条消息就会给自己发消息的那个房间打上标记。
+
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
 
 工作板的类型。`status` 在用户侧只会收到 ACTIVE 三态 + `paused`;`msg_type`

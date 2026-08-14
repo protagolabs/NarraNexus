@@ -5,7 +5,7 @@
  * @description: Smart auto-refresh hook for background data polling
  *
  * Features:
- * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): jobs/awareness/socialNetwork
+ * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): teams/jobs/awareness/socialNetwork
  * 2. Background message detection (15s): polls chat history to detect new messages from jobs/lark
  * 3. Visibility API — pauses all polling when the tab is hidden, refreshes immediately on re-focus
  * 4. Exposes refreshAll() for full data reload after agent execution completes
@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore } from '@/stores';
+import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 
 // ── Polling interval config ─────────────────────
@@ -88,7 +88,10 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   // ── Polling scheduler (all polls are silent) ──
 
   useEffect(() => {
-    if (!agentId || !userId) return;
+    // Only userId is required. The polls that need an agent guard on one
+    // themselves, and gating the whole scheduler on a selected agent left a
+    // user sitting in a team room with no background refresh at all.
+    if (!userId) return;
 
     // High-freq tick: agentInbox (silent — no loading flicker, no re-render if unchanged)
     const tickHigh = () => {
@@ -98,12 +101,20 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       refreshAgentInbox(aid, true);
     };
 
-    // Mid-freq tick: jobs + awareness + agent list (silent)
+    // Mid-freq tick: teams + jobs + awareness + agent list (silent)
     const tickMid = () => {
       if (document.hidden) return;
       const aid = agentIdRef.current;
       const uid = userIdRef.current;
-      if (!aid || !uid) return;
+      if (!uid) return;
+      // Teams carry the room-activity mark the sidebar shows for a room the
+      // user has left. Without this the mark would only ever appear on a full
+      // reload, which is indistinguishable from it not working.
+      //
+      // Ahead of the agent guard on purpose: a team room needs no agent
+      // selected, and the sidebar's team rows exist whether one is or not.
+      useTeamsStore.getState().refresh();
+      if (!aid) return;
       refreshJobs(aid, undefined, undefined, true);
       refreshAwareness(aid, true);
       refreshSocialNetwork(aid, true);

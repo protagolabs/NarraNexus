@@ -808,7 +808,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
       "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents"
+      "agentCount_other": "{{count}} agents",
+      "unread": "Unread messages"
     },
     "teamRowMenu": {
       "options": "Group chat options",

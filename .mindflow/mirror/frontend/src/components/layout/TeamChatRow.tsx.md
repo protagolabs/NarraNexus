@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-07-22
+last_verified: 2026-08-14
 stub: false
 ---
 
@@ -13,6 +13,14 @@ stub: false
 > [[TeamRowMenu]] 的 "Add agent" 项。这把"在某 team 下新建 agent"的能力接回了新结构
 > (旧入口在已废弃的 [[AgentGroupSection]] team header `+` 上)。Row 自身不持有逻辑,
 > 只做透传;真正的 `createAgent({ teamId })` 在 [[AgentList]]。
+
+> 2026-08-14：新增 `unread` / `preview` / `authorName` 三个 prop。行现在有第二行——
+> 房间里最后一句话，和说话的人——和它下面的 agent 行一致；右侧多一个未读圆点。
+>
+> **是圆点不是数字**，这是数据位置决定的：sidebar 从不加载 transcript，而服务端无法
+> 数出"这台设备上的未读数"（水位线在 localStorage 里，逐设备）。判定逻辑不在这里，
+> Row 只负责渲染——`teamHasUnread` 在 [[unread.ts]]，服务端那一半在 [[teams.py]] 的
+> `_team_room_activity`。
 
 # layout/TeamChatRow.tsx — One team's group-chat entry in the sidebar
 

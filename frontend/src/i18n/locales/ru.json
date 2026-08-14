@@ -715,7 +715,8 @@
       "agentCount_one": "{{count}} агент",
       "agentCount_few": "{{count}} агента",
       "agentCount_many": "{{count}} агентов",
-      "agentCount_other": "{{count}} агентов"
+      "agentCount_other": "{{count}} агентов",
+      "unread": "Непрочитанные сообщения"
     },
     "teamRowMenu": {
       "options": "Параметры группового чата",
