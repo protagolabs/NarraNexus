@@ -41,6 +41,20 @@ from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
 
+#: Severities that are a VERDICT on a fatal rather than a competing claim about
+#: it: ``recovered`` (the helper-LLM fallback answered anyway) and
+#: ``recovered_after_reply`` (the agent had already spoken). Both are only ever
+#: emitted BECAUSE a fatal happened, so any rule that reasons "a fatal was seen,
+#: therefore fatal wins" has to exempt them or it overrules the only thing they
+#: exist to say.
+#:
+#: One name because this knowledge had drifted into three copies in this file,
+#: and the drift's symptom is concrete: add a fourth "answered anyway" severity
+#: to one list and not the other, and a turn that produced a real reply gets a
+#: failure notice in its place. That bug has already been paid for once here.
+VERDICT_ON_FATAL_SEVERITIES = ("recovered", "recovered_after_reply")
+
+
 @dataclass(frozen=True)
 class RunError:
     """A failure surfaced by AgentRuntime via a ``MessageType.ERROR`` event.
@@ -53,13 +67,21 @@ class RunError:
         error_message: Human-readable explanation. May be surfaced to
             the owner in web chat verbatim, or replaced by a friendlier
             text for IM channels where the sender is not the owner.
-        severity: What the failure means for the turn's OUTPUT.
-            ``"recoverable"`` — a transient provider hiccup that the loop
-            absorbed; it kept going and produced a real reply, so a consumer
-            that treats this as "the turn failed" will discard a correct
-            answer or announce a failure that did not happen.
+        severity: What the failure means for the turn's OUTPUT. FOUR values,
+            and a consumer that knows only two will discard a correct answer
+            or announce a failure that did not happen:
             ``"fatal"`` — the turn has no usable output.
-            Empty when the runtime did not say.
+            ``"recoverable"`` — a transient provider hiccup the loop absorbed;
+            it kept going and produced a real reply.
+            ``"recovered"`` — a fatal-class failure the helper-LLM fallback
+            papered over with a real reply.
+            ``"recovered_after_reply"`` — the agent had already spoken when
+            the failure landed.
+            The last two are a VERDICT on a fatal rather than a competing
+            claim about the turn (see ``VERDICT_ON_FATAL_SEVERITIES``), which
+            is why the sticky-fatal rule at collection time exempts them.
+            Empty when the runtime did not say — read as fatal, because
+            calling a possibly-empty turn a success is the worse mistake.
     """
 
     error_type: str
@@ -107,13 +129,11 @@ class RunCollection:
         """
         return self.error is not None
 
-    #: Severities that still leave the turn with something worth showing.
-    #: ``recoverable`` — absorbed mid-loop, the agent answered anyway.
-    #: ``recovered`` — a fatal-class failure the helper-LLM fallback papered
-    #: over with a real reply. ``recovered_after_reply`` — the agent had
-    #: already spoken before the failure landed. Treating any of these as
-    #: fatal discards a reply the user is entitled to see.
-    _NON_FATAL_SEVERITIES = ("recoverable", "recovered", "recovered_after_reply")
+    #: Severities that still leave the turn with something worth showing:
+    #: ``recoverable`` (absorbed mid-loop, the agent answered anyway) plus the
+    #: two verdicts ON a fatal. Treating any of these as fatal discards a reply
+    #: the user is entitled to see.
+    _NON_FATAL_SEVERITIES = ("recoverable", *VERDICT_ON_FATAL_SEVERITIES)
 
     @property
     def is_fatal(self) -> bool:
@@ -228,7 +248,7 @@ async def collect_run(
             # follow-up frame is still a run with no usable output, and letting
             # the later frame overwrite the verdict would present a broken turn
             # as a working one.
-            if severity == "fatal":
+            if severity not in RunCollection._NON_FATAL_SEVERITIES:
                 saw_fatal = True
 
         # Raw payload on any message type (Lark needs it from TOOL_CALL
@@ -313,12 +333,17 @@ async def collect_run(
     # thing they exist to say, and the turn's real reply would be replaced by a
     # failure notice.
     #
-    # What the rule is actually for: a `recoverable` (or unlabelled) frame
-    # arriving after a fatal, where the later frame knows less, not more.
+    # What the rule is actually for: a `recoverable` frame arriving after a
+    # fatal, where the later frame knows less, not more.
+    #
+    # `""` is exempt for a different reason than the verdicts: it already READS
+    # as fatal (`is_fatal` takes the worse side for anything unlabelled), so
+    # stamping it would change nothing except to destroy the one thing the
+    # empty string carries — that the runtime did not say.
     if (
         error is not None
         and saw_fatal
-        and error.severity not in ("fatal", "recovered", "recovered_after_reply")
+        and error.severity not in ("", "fatal", *VERDICT_ON_FATAL_SEVERITIES)
     ):
         error = RunError(
             error_type=error.error_type,

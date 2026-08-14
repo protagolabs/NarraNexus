@@ -146,7 +146,8 @@ existing trigger); the team bus path uses it to mirror a live activity status
 
 **fatal 是粘性的**:收集时 `error` 是"last error wins",对 fatal 不适用 —— 先 fatal
 后 recoverable 的一轮仍然没有可用输出,让后来的帧覆盖掉结论会把坏掉的轮次呈现成好的。
-所以全程扫到过 fatal 就在收尾时压住 severity。
+所以全程扫到过 fatal,收尾时会把结论压回 fatal —— 但**只压那些知道得更少的后续帧**,
+不是无条件的。豁免哪些、为什么,见下面 08-14 那节(它取代本段末句的早期版本)。
 
 ## 2026-08-14 — `is_fatal` 之前把两种"其实答了"的情形误判成 fatal
 
@@ -158,3 +159,28 @@ fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**
 
 现在只有 `fatal` 与未标注算 fatal(未标注取更坏的一侧:把可能为空的一轮当成成功,
 是两个方向里更有害的那个)。
+
+**粘性 fatal 同批让路,判据是"谁更知情"。** 只改 `is_fatal` 不够:收集器出口的粘性
+步骤会把最后一条 error 的 severity 压回 `"fatal"`,而 `recovered` / `recovered_after_reply`
+的**前置条件就是先发生过一次 fatal` —— 粘性必然触发,于是修好的 `is_fatal` 收到的输入
+已经被改写成 `"fatal"`,整个修复是空转的。
+
+分界不是"哪些 severity 比较轻",而是**这一帧在说什么**:
+
+* `recoverable` / 未标注 —— 对这一轮的**竞争性描述**,而且比那条 fatal 帧知道得少
+  (它不知道前面已经崩过)。粘性挡的就是它们。
+* `recovered` / `recovered_after_reply` —— 对那次 fatal 的**裁决**(fallback 答了 /
+  agent 先答过)。它们只会**因为**有 fatal 才被发出,把它们上调回 fatal,等于抹掉它们
+  存在的唯一意义。
+
+这条知识在同一个文件里一度写了三份(`is_fatal` 的名单、粘性步骤的行内 tuple、`saw_fatal`
+只认字面 `"fatal"`),而漂移的表现就是上面这个 bug 本身。现已收成模块级
+`VERDICT_ON_FATAL_SEVERITIES`,三处都从它派生。
+
+`saw_fatal` 的置位同批改成"不在 `_NON_FATAL_SEVERITIES` 里就置位":此前它只认字面
+`"fatal"`,于是"先未标注、后 recoverable"的一轮不触发粘性,最后一条 `recoverable` 赢,
+`is_fatal` 变 False —— 与它自己 docstring 承诺的"未标注按更坏的一侧处理"相矛盾,是第三
+套口径。
+
+收尾改写则**豁免 `""`**,理由与豁免裁决帧不同:未标注本来就被读成 fatal,改写它唯一的
+效果是抹掉空串携带的那一个信息 —— runtime 没说。

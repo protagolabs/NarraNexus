@@ -965,9 +965,18 @@ class MessageBusTrigger:
                     if note_event_id is not None:
                         await note_event_id(run_id)
 
-                # Set by the deliverer so the post-turn bookkeeping below can
-                # tell a lost reply from a delivered one.
-                room_post_failed: list[Exception | None] = [None]
+                # The deliverer's outcome, in THREE states rather than two:
+                # it landed, it was called and failed, or it was never called
+                # at all. The last one is the runtime having refused to deliver,
+                # and its gate is stricter than `turn.fatal` — a raised
+                # exception makes step_3 refuse, while the error frame that
+                # follows can be `recovered_after_reply`, which leaves the
+                # collection non-fatal. Collapsing "never called" into "no
+                # error recorded" therefore books a turn the platform never
+                # delivered as a completed hop, in silence.
+                room_post: list[tuple[str, Exception | None]] = [
+                    ("not_attempted", None)
+                ]
 
                 async def _post_to_room(text: str) -> bool:
                     """Put the agent's plain text into the room. True if it landed.
@@ -1011,8 +1020,9 @@ class MessageBusTrigger:
                         # not reach the room, so nothing records that it did.
                         # The loss is announced after the turn, where the
                         # already-built machinery for it lives.
-                        room_post_failed[0] = post_err
+                        room_post[0] = ("failed", post_err)
                         return False
+                    room_post[0] = ("ok", None)
                     return True
 
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
@@ -1079,7 +1089,25 @@ class MessageBusTrigger:
                     # `_post_to_room`). Doing it again here would make the room
                     # say everything twice; what is left is the case where it
                     # did NOT land.
-                    if turn.fatal:
+                    post_state, post_err = room_post[0]
+                    if post_state != "ok":
+                        # Whatever the reason, nothing of this turn is in the
+                        # room, so the hop did not complete.
+                        posted = False
+                    if post_state == "failed":
+                        # The reply EXISTS and the room will never show it.
+                        # Deliberately handled here instead of raising: the
+                        # cursor was advanced a few lines up, so this message is
+                        # already acked and `record_failure` could only inflate
+                        # a poison counter for a delivery that will never be
+                        # retried. What is needed is for the loss to stop being
+                        # silent — which is what this announcement does, and it
+                        # also keeps the text for the owner's inbox.
+                        await self._announce_failed_room_post(
+                            agent_id, channel_id, trigger_message, turn,
+                            post_err or "the room post failed",
+                        )
+                    elif turn.fatal:
                         # `turn.text` is a failure notice, not the agent's
                         # words, and the in-turn delivery deliberately refuses
                         # to post on a fatal run (a half-streamed fragment
@@ -1090,7 +1118,6 @@ class MessageBusTrigger:
                         # reply the agent made, and routing it through the
                         # normal path would parse @mentions and drag teammates
                         # into somebody else's failure.
-                        posted = False
                         try:
                             await self._bus.send_message(
                                 from_agent=channel_owner,
@@ -1107,19 +1134,20 @@ class MessageBusTrigger:
                                 f"[team-room] could not post failure notice in "
                                 f"{channel_id}: {e}"
                             )
-                    post_err = room_post_failed[0]
-                    if post_err is not None:
-                        # The reply EXISTS and the room will never show it.
-                        # Deliberately handled here instead of raising: the
-                        # cursor was advanced a few lines up, so this message is
-                        # already acked and `record_failure` could only inflate
-                        # a poison counter for a delivery that will never be
-                        # retried. What is needed is for the loss to stop being
-                        # silent — which is what this announcement does, and it
-                        # also keeps the text for the owner's inbox.
-                        posted = False
+                    elif post_state == "not_attempted":
+                        # The runtime declined to deliver, yet nothing here
+                        # calls this turn failed either — the two gates
+                        # disagreed. Reachable when the loop raises after the
+                        # agent already spoke: step_3 refuses to post (a
+                        # half-streamed fragment reads as an answer) and the
+                        # closing frame is `recovered_after_reply`, which is not
+                        # fatal. Without this arm the room stays silent, and the
+                        # teammate that @mentioned this agent cannot tell "not
+                        # interested" from "broken" — the same failure surface
+                        # the fatal arm above exists to prevent.
                         await self._announce_failed_room_post(
-                            agent_id, channel_id, trigger_message, turn, post_err
+                            agent_id, channel_id, trigger_message, turn,
+                            "the runtime did not deliver this turn to the room",
                         )
                 else:
                     # Write response to inbox
@@ -2785,9 +2813,14 @@ class MessageBusTrigger:
 
     async def _announce_failed_room_post(
         self, agent_id: str, channel_id: str, trigger_message: BusMessage,
-        turn: "TurnResult", error: Exception,
+        turn: "TurnResult", error: Exception | str,
     ) -> None:
-        """The reply exists, the room post failed. Say so, and keep the reply.
+        """The reply exists, the room never got it. Say so, and keep the reply.
+
+        `error` is the write's exception when the post was tried and failed, or
+        a plain reason when it was never tried at all — the remedy is the same
+        either way, and which of the two it was is the notice's content, not a
+        different code path.
 
         Two separate losses, so two separate remedies:
 
@@ -2802,8 +2835,8 @@ class MessageBusTrigger:
         hence the inbox write happening regardless of whether it landed.
         """
         logger.warning(
-            f"MessageBusTrigger: room post failed for agent {agent_id} in "
-            f"{channel_id}: {error}"
+            f"MessageBusTrigger: reply never reached the room for agent "
+            f"{agent_id} in {channel_id}: {error}"
         )
         await announce_delivery_failure(
             self._bus, channel_id, agent_id,

@@ -1092,3 +1092,29 @@ agent 自己的一次发言。
 
 **为什么不用异常穿透**:回调是被 `step_3` await 的,抛出去会打断投递阶段并落进
 runtime 的通用错误处理,把"一条消息没贴成"升级成"这一轮失败"。
+
+## 2026-08-14 (再补) — 这个信箱要三态,两态会把"从没投递"记成一次成功的 hop
+
+上一条描述的 `room_post_failed` 只区分"记到异常"与"没记到异常",于是**回调压根没被
+调用**这第三种情形塌进了后者,被读成"投递成功了"。它不是理论情形:两道 fatal 门问的
+不是同一个问题 ——
+
+* runtime 侧(`step_3` 的 `_turn_hit_a_fatal`):`captured_error is not None` 或存在
+  字面 fatal 帧 → 拒绝在 turn 内代发(半截流出来的文本会被读成一个答案);
+* trigger 侧(`turn.fatal` ← `RunCollection.is_fatal`):看最后一条 error 帧的
+  severity。
+
+agent 已经先答过、随后 loop 抛异常的那一轮,runtime 侧拒发,而收尾帧是
+`recovered_after_reply` —— 按 [[run_collector]] 的裁决语义**不算 fatal**。两边各自都对,
+合起来的结果是:房间一个字都收不到,`turn.fatal` 为 False 所以不贴 ⚠️,`post_err` 为
+None 所以不走失败公告,而 `posted` 停在初值 `True`,`[bus-timing]` 记下一次**什么都没
+投递的成功 hop** —— 而这条序列正是用来判断"投递有没有问题"的那个指标。
+
+现在这个信箱记 `("ok" | "failed" | "not_attempted", exc | None)`:
+
+* `failed` / `not_attempted` 都把 `posted` 置 False —— 房间里没有这一轮,hop 就没完成;
+* `not_attempted` 且非 fatal 时走同一个 `_announce_failed_room_post`(它的 `error` 形参
+  因此放宽到 `Exception | str`):补救是一样的两件事 —— 房间留一行可见的投递失败、回复
+  原文进 owner 的 inbox;是"发失败了"还是"压根没发"属于公告内容,不该是两条代码路径。
+
+**不要从"没记到错"推断"投递成功了"** —— 这是本 lane 反复付过学费的同一类错误。

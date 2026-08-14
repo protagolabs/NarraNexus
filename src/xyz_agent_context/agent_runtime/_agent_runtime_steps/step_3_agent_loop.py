@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
+from typing import AsyncGenerator, Any, Optional, Union, TYPE_CHECKING
 
 from loguru import logger
 from xyz_agent_context.utils.logging import timed
