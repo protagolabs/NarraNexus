@@ -4,18 +4,23 @@ last_verified: 2026-08-14
 stub: false
 ---
 
-## 2026-08-14 — 自家网关名单补 `llm-gateway`（恢复云端 prefill 头）
+## 2026-08-14 — 自家网关名单补 `llm-gateway`（让头发得出去；⚠ 网关侧并不读它）
 
 `_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。这改的是
-`PREFILL_SELF_HANDLED_HEADER`（`x-nexus-prefill-retry`）的**发送条件**——不是注释调整：
-`_is_own_gateway("http://llm-gateway:4000")` 从 `False` 翻成 `True`。
-- **为什么补**：2026-08-07 RCE 整改把云端 executor 关进 sandbox 网络，到网关唯一可达入口变成
-  `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），`litellm:4000` 云端够不到。
-- **补之前的实际状态**：从 08-07 到本次，这个头在**云端一直没送达**——网关每次照旧白补一句
-  continuation 子句（prefill_compat 兜底仍生效，所以没人察觉，但契约「我自己重试」在云端是空的）。
-- 这份名单与 [[api_config]] 的 `_OWN_GATEWAY_HOSTS` 是**双份物理副本**，由
-  `test_gateway_host_lists_stay_in_sync` 强制一致；改网关拓扑/名字时两处必须同改。
-- 该头对网关拓扑变更敏感、且已悄悄漂过一次——后续动拓扑务必回看这两份名单。
+`PREFILL_SELF_HANDLED_HEADER`（`x-nexus-prefill-retry`）的**发送条件**：
+`_is_own_gateway("http://llm-gateway:4000")` 从 `False` 翻成 `True`，所以在云端（2026-08-07 RCE
+整改后 executor 落 sandbox 网络、到网关唯一入口是 `http://llm-gateway:4000`）这个头现在**会被发出**。
+- **⚠ 但网关侧从未实现这个 opt-out（review 更正）**：deploy 仓 `stacks/narranexus-app/litellm/
+  prefill_compat.py` 的 hook 只看 `data["messages"]`、**一次都不读 header**；全仓 grep
+  `x-nexus-prefill-retry` 零命中。即 `PREFILL_SELF_HANDLED_HEADER` 自 2026-07-31 引入起在网关侧
+  就是 **inert**——不是被 08-07 拓扑打断的。补 `llm-gateway` 后头发出去了，但网关照旧对**每一个**
+  尾部 assistant 请求追加 continuation 子句，**nexus_power 行为一个字节都不变**。别据此删掉
+  NexusPowerLoop 对被注入 user turn 的容忍/去重逻辑（那才是真回归）。要让 opt-out 生效需 deploy 侧
+  让 prefill_compat 读该 header——独立 TODO。
+- **补 `llm-gateway` 的真实价值在别处**：`api_config` 那份**同名孪生**名单用于**平台身份头**
+  `X-NarraNexus-Identity-Token`，网关侧 prefill_compat（deploy staging，#20）**确实会验签**它——
+  漏掉 `llm-gateway` 会让身份头云端一次都不发。两份名单由 `test_gateway_host_lists_stay_in_sync`
+  强制一致，改网关拓扑/名字时两处必须同改。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 

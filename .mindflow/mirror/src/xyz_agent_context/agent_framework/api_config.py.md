@@ -12,7 +12,10 @@ stub: false
 （`_is_own_gateway_url`：host ∈ **llm-gateway** / litellm / 127.0.0.1 / localhost）才发
 `ANTHROPIC_CUSTOM_HEADERS: X-NarraNexus-Identity-Token: <tok>`（冒号空格格式，Claude Code CLI
 转发到 ANTHROPIC_BASE_URL）——绝不泄露给 BYOK 第三方。token 随 `provider_configs`(asdict) 过线到
-executor。网关侧验签见 deploy `litellm/prefill_compat`（audit→enforce）。
+executor。网关侧验签见 deploy 仓 `stacks/narranexus-app/litellm/prefill_compat.py` 的
+`_enforce_identity`（读 `data["proxy_server_request"]["headers"]` 的该头、Ed25519 验签 +
+`sub==free::<uid>` 交叉校验，`NX_IDENTITY_VERIFY_MODE` audit→enforce）——**该验签在 deploy
+`staging`（PR #20），deploy `dev`/`main` 分支的 prefill_compat 尚无此逻辑，别对着旧分支找**。
 
 > **`llm-gateway` 是承重项，不是可删的多余项**（2026-08-14 review 修正）：2026-08-07 RCE 整改后，
 > 云端 executor 落在 sandbox 网络，到网关的**唯一**可达入口是 `http://llm-gateway:4000`
