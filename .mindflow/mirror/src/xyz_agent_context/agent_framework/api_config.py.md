@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 平台来源绑定：identity token 上 provider 配置
+
+三个 slot 配置（Claude/OpenAI/Codex）加 `identity_token` 字段；`bind_platform_identity(token)`
+把 broker 签名的 token 盖到当前 turn 的 ContextVar 配置上（`dataclasses.replace`，在 driver
+快照前、同一 task context —— step_3 调）。`to_cli_env` **仅当** `base_url` 是自家网关
+（`_is_own_gateway_url`：host ∈ litellm/127.0.0.1/localhost）才发
+`ANTHROPIC_CUSTOM_HEADERS: X-NarraNexus-Identity-Token: <tok>`（冒号空格格式，Claude Code CLI
+转发到 ANTHROPIC_BASE_URL）——绝不泄露给 BYOK 第三方。token 随 `provider_configs`(asdict) 过线到
+executor。网关侧验签见 deploy `litellm/prefill_compat`（audit→enforce）。
 
 ## 2026-08-10 — per-slot provider attribution ContextVar
 

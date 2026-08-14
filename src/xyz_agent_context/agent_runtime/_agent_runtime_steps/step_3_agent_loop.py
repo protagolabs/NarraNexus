@@ -1397,6 +1397,18 @@ async def step_3_agent_loop(
             from xyz_agent_context.module import stamp_identity_token
 
             stamp_identity_token(ctx.mcp_servers, identity_token)
+        # Platform-origin binding: stamp the same token onto this turn's provider
+        # configs (in THIS task context, before the driver snapshots them) so it
+        # rides provider_configs to the executor and is emitted as the
+        # X-NarraNexus-Identity-Token header on our-gateway LLM calls. The gateway
+        # verifies it (deploy: litellm/prefill_compat) so an exfiltrated wallet
+        # key is useless off-platform.
+        if identity_token:
+            from xyz_agent_context.agent_framework.api_config import (
+                bind_platform_identity,
+            )
+
+            bind_platform_identity(identity_token)
         driver = get_agent_loop_driver(
             framework=framework_name,
             executor_url=executor_url,
