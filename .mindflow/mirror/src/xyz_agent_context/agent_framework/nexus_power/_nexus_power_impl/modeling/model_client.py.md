@@ -4,18 +4,23 @@ last_verified: 2026-08-14
 stub: false
 ---
 
-## 2026-08-14 — 自家网关名单补 `llm-gateway`（恢复云端 prefill 头）
+## 2026-08-14 — 自家网关名单补 `llm-gateway`
 
-`_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。这改的是
-`PREFILL_SELF_HANDLED_HEADER`（`x-nexus-prefill-retry`）的**发送条件**——不是注释调整：
-`_is_own_gateway("http://llm-gateway:4000")` 从 `False` 翻成 `True`。
-- **为什么补**：2026-08-07 RCE 整改把云端 executor 关进 sandbox 网络，到网关唯一可达入口变成
-  `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），`litellm:4000` 云端够不到。
-- **补之前的实际状态**：从 08-07 到本次，这个头在**云端一直没送达**——网关每次照旧白补一句
-  continuation 子句（prefill_compat 兜底仍生效，所以没人察觉，但契约「我自己重试」在云端是空的）。
-- 这份名单与 [[api_config]] 的 `_OWN_GATEWAY_HOSTS` 是**双份物理副本**，由
-  `test_gateway_host_lists_stay_in_sync` 强制一致；改网关拓扑/名字时两处必须同改。
-- 该头对网关拓扑变更敏感、且已悄悄漂过一次——后续动拓扑务必回看这两份名单。
+`_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。2026-08-07 RCE 整改后
+云端 executor 落 sandbox 网络，到网关唯一入口是 `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），
+`litellm:4000` 云端够不到。名单漏掉它 = 依赖 `_is_own_gateway` 的两个头在云端一次都不发。
+- **真实价值在平台身份头**：`api_config` 那份**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
+  deploy staging（#20）的 prefill_compat 会验签它——漏掉 `llm-gateway` 会让身份头云端一次都不发。
+  两份名单由 `test_gateway_host_lists_stay_in_sync` 强制一致，改网关拓扑/名字两处必须同改。
+- **对 `x-nexus-prefill-retry`（opt-out 头）：设计意图见源码注释，但当前部署未生效**——网关侧读该头的
+  逻辑写在 deploy 分支 `fix/gateway-prefill-opt-out`（`5df4f22`，2026-07-30）但**尚未合入**，
+  deploy `dev`/`main`/`staging` 当前的 `prefill_compat.py` 只看 `data["messages"]`、不读该头。所以补
+  `llm-gateway` 后头会**发出**，但在那个分支合入前网关照旧无条件追加 continuation 子句，nexus_power
+  的 opt-out 在生产上暂不生效（inert）。要真正生效需合并该 deploy 分支。
+- **⚠ 别据此删 loop.py 的 prefill 自救路径**：`loop.py` 的 `PREFILL_REJECTED` → `_continuation_turn`
+  修复（`:146-161`）与 `_build_request` 里 `_ends_with_assistant` 的二次判定（`:304`）**与网关是否注入
+  无关**——它们服务的是**直连/BYOK 后端真返 400** 的场景（网关注入的那句续写客户端根本看不见）。因果别
+  写反成「网关不注入了所以要留着」：真实理由是二者独立，即便 opt-out 头哪天生效也不能删这条路径。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 

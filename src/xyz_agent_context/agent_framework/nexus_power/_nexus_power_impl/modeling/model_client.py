@@ -44,6 +44,11 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 # only on an actual rejection. The claude CLI cannot, so it stays
 # covered. Renaming this header is a deploy-repo lockstep change
 # (stacks/narranexus-app/litellm/prefill_compat.py).
+# NOTE (2026-08-14): the gateway-side READER of this header is written but
+# UNMERGED (deploy branch fix/gateway-prefill-opt-out, 5df4f22, 2026-07-30);
+# on the currently-deployed branches prefill_compat.py does not read it, so this
+# opt-out is inert in prod (the gateway still appends the clause unconditionally)
+# until that branch lands. The header is sent regardless once base_url matches.
 PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
 
 # Hostnames of our own gateway. The header above is a private agreement
