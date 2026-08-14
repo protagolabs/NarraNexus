@@ -27,3 +27,14 @@ The `utils` package contains many small modules. Without an `__init__.py` that a
 **The embedding import crosses layer boundaries.** `agent_framework/llm/api/embedding.py` is re-exported from `utils/__init__.py`. If the embedding module is refactored or renamed, this import will break `utils/__init__.py` even though the change is in a different layer. Be aware of this coupling when moving embedding code.
 
 **New-contributor trap.** `DatabaseClient` and `AsyncDatabaseClient` are the same object. Code that checks `isinstance(obj, DatabaseClient)` and code that checks `isinstance(obj, AsyncDatabaseClient)` are checking against the same class — there is no separate `DatabaseClient` class.
+
+## 2026-08-14 — `spawn` / background-task helpers exported
+
+Added `spawn`, `pending_background_tasks`, `drain_background_tasks` (from
+`utils/background_tasks.py`) to the re-export surface and `__all__`.
+
+Exported deliberately rather than left as a drill-down import: the point of the
+helper is that it becomes the *obvious* way to fire a detached task, and a
+utility nobody can autocomplete loses to `asyncio.create_task` every time. The
+two renamed exports (`pending` → `pending_background_tasks`, `drain` →
+`drain_background_tasks`) avoid names too generic to read at a call site.
