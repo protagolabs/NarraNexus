@@ -53,8 +53,10 @@ class MessageBusService(ABC):
             mentions: List of agent_ids to mention, or ["@everyone"].
             attachments: Optional list of bus-attachment dicts (see
                 _bus_attachment_impl); files travel by reference, not bytes.
-            event_id: events row id of the turn that produced this message
-                (agent replies posted by the trigger); None otherwise.
+            event_id: WHICH turn produced this message — the events-row id.
+                Stamped by the trigger's in-turn room post AND by the agent's
+                own bus sends, so a present id does NOT mean "the platform
+                posted it". None when the caller cannot tell, never a guess.
             sender_turn_source: WHICH KIND of turn produced this send —
                 a WorkingSource value ("chat"/"job"/"message_bus"/…) or
                 BUS_ERRAND_TURN_SOURCE. Recipients' trigger uses it to tell

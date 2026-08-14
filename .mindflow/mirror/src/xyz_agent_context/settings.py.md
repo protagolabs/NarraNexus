@@ -345,3 +345,17 @@ Before this file, configuration was loaded through scattered `load_dotenv()` + `
 **`extra="ignore"` silently drops unknown variables.** Any environment variable that does not match a `Settings` field is silently ignored. If you mistype a variable name in `.env` (e.g., `ANTHROPIC_API_KEYS` instead of `ANTHROPIC_API_KEY`), pydantic-settings will not warn you.
 
 **New-contributor trap.** The sync to `os.environ` at the bottom of the file only covers the four API key variables. Other settings (e.g., `DATABASE_URL`) are not written to `os.environ`. Code that tries to read `os.environ["DATABASE_URL"]` directly rather than `settings.database_url` will get nothing.
+
+## 2026-08-14 — 「槽位很便宜」要加一个限定:便宜的是等待,不是持有
+
+上面那句成立的前提是槽位周转快。2026-08-14 起团队房的回复**在 turn 内**代发,而槽位
+到 **turn 结束**才归还 —— 按铁律 #14,agent 在回复之后继续干几十分钟是一等场景。于是
+下一跳在上一个 turn 还在跑时就被派发,同一房间一次 D 跳接力峰值占用最多 D 个槽位
+(旧顺序是 1 个)。
+
+实践后果只有一条要记住:`service_audit` 里的 `worker_starvation` 在团队接力期是
+**预期信号**,不是「有人的 agent 卡住了」,要连着当时有几个房间在接力一起读。
+详见 [[message_bus_trigger]] 的 08-14 节。
+
+(第 26-27 行讲的是 MySQL **连接**按查询借还 —— 那是另一件事,仍然成立。)
+

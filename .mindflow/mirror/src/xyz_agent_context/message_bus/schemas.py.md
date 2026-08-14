@@ -20,6 +20,8 @@ header 的适配器上为 None,消费方必须按未知降级 —— 见
 that produced this message (set by the trigger on agent replies posted into
 team rooms). None for user messages and legacy rows.
 
+> ⚠️ 括号里那句已于 2026-08-14 失效 —— 见本文件 08-14 节。
+
 ## 2026-07-20 — BusMessage.attachments
 
 `BusMessage` gained `attachments: Optional[List[dict]]` (bus-attachment dicts:

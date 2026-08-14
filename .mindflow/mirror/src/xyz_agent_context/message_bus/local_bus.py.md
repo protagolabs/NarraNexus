@@ -55,6 +55,8 @@ owner 面 turn(chat/job/…)= 发送方在跑差事、这条是**提问**;`messa
 branch passes it (the turn that produced the reply); every other caller keeps
 the default None.
 
+> ⚠️ 末句已于 2026-08-14 失效 —— agent 自己的 bus 发送也盖。见本文件 08-14 节。
+
 ## 2026-07-28 — batched room pending summary + the poison threshold moves here
 
 `get_room_pending_summary(channel_id, agent_ids)` answers "what is still waiting
@@ -230,7 +232,14 @@ SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于�
 
 只问存在性:调用方在决定"要不要公告",消息正文与这个决定无关。
 
-## 2026-08-14 (补) — `send_to_agent` 也透传 `event_id`
+## 2026-08-14 (补) — `send_to_agent` 也透传 `event_id`(并作废 07-31 那句)
 
 它本来就是 `send_message` 的一层包装,只是没把新参数往下带。一列的含义如果取决于
 **哪个工具写的行**,这一列就没法被查询 —— 归因要么处处都有,要么不如没有。
+
+**上面 07-31 那节的「Only the trigger's team branch passes it … every other
+caller keeps the default None」已经失效。** 现在 agent 自己调
+`bus_send_message` / `bus_send_to_agent` 发的行也带 id(见
+[[_message_bus_mcp_tools]]),包括 **DM 频道的行** —— 而 DM 从来不是「平台代发」。
+所以 `event_id IS NOT NULL` **不能**当「这条是平台代发的」过滤条件用;它现在只表示
+「发的时候知道自己在哪一轮」。

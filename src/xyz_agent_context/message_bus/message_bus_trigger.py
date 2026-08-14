@@ -374,6 +374,13 @@ class MessageBusTrigger:
         team-reply site has its own handler for the "reply exists, room will
         never show it" case, and the patrol site is content to let a failure
         surface.
+
+        Three callers now, not two: the team reply moved INSIDE the turn
+        (`_deliver_reply`), and the team-room failure notice posts here too.
+        The notice's wake finds nothing to dispatch — a platform line mentions
+        nobody — so it costs one indexed query and is left in rather than
+        special-cased, because "post and wake are inseparable" is worth more
+        than one avoided empty cycle.
         """
         # Parameters listed explicitly rather than **kwargs: a passthrough
         # signature hides a misspelled kwarg from pyright and only surfaces it
@@ -394,9 +401,9 @@ class MessageBusTrigger:
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
 
-        Called when THIS process just put work into the bus — either in-process
-        post: a team-room reply or a leader patrol line, both routed through
-        `_post_to_room`. The relay gap acceptance #5 is about is not inside a
+        Called when THIS process just put work into the bus — every in-process
+        post goes through `_post_to_room`: a team-room reply (from inside the
+        turn), a leader patrol line, or a team-room failure notice. The relay gap acceptance #5 is about is not inside a
         turn, it is between turns: A finishes and posts, B is mentioned in that
         post, and B then waits out a full poll interval (3-12s) to be noticed.
         Stacked across a three-hop relay that is most of the dead air a person

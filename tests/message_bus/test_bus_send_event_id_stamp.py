@@ -22,8 +22,6 @@ without a single test going red. This one goes through the registered tool.
 """
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 
 from xyz_agent_context.module._mcp_identity import agent_id_headers
@@ -31,30 +29,12 @@ from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 
+from ._mcp_headers import injected
+
 ME = "agent_stamp_me"
 PEER = "agent_stamp_peer"
 ROOM = "ch_stamp_room"
 TURN = "evt_the_turn"
-
-
-class _Headers(dict):
-    def get(self, key, default=None):  # noqa: D102
-        return super().get(key.lower(), default)
-
-
-@contextlib.contextmanager
-def injected(headers: dict):
-    """Same shape as `test_bus_send_stamp.py` — a real ambient MCP request."""
-    from mcp.server.lowlevel.server import request_ctx
-
-    request = type("Req", (), {
-        "headers": _Headers({k.lower(): v for k, v in headers.items()})
-    })()
-    token = request_ctx.set(type("Ctx", (), {"request": request})())
-    try:
-        yield
-    finally:
-        request_ctx.reset(token)
 
 
 class _RecordingBus:
@@ -138,7 +118,7 @@ async def test_a_codex_shaped_caller_still_carries_the_turn():
 
 
 @pytest.mark.asyncio
-async def test_no_headers_records_nothing_rather_than_guessing():
+async def test_no_headers_stamps_no_event_id():
     """The documented degradation, pinned: absence must reach the row as None.
 
     This is the contract the consumer depends on — `has_message_from_turn`

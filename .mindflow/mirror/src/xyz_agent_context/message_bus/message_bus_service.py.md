@@ -96,7 +96,14 @@ raises NotImplementedError. Files are references, not bytes — see
 agent 自己调工具发**都**盖这个 id,一个方法覆盖两条投递路径。实现方不得为此把消息全量
 拉回内存 —— 调用点在一轮已经降级的 turn 收尾处,那里最不该再加一次全表搬运。
 
-## 2026-08-14 (补) — `send_to_agent` 签名加 `event_id`
+## 2026-08-14 (补) — `send_to_agent` 签名加 `event_id`,并订正 `send_message` 的说法
 
 与 `send_message` 对齐:两条 agent 主动发消息的路径都必须能记下「这是哪一轮」。
 None 表示说不准,不是猜一个。
+
+同批订正 `send_message` 那个形参的 docstring —— 它原来写「agent replies posted by
+the trigger」,而 `send_to_agent` 新写的是正确版本,同一个 protocol 里同一个参数两个
+兄弟方法两种说法。这不是措辞洁癖:**新 bus 实现的作者第一眼看的就是这份 protocol**,
+照旧说法实现的云端 `send_message` 会不透传 agent 自发消息的 `event_id`,于是
+`has_message_from_turn` 对那一半永远返 False,房间里出现「投递失败 ⚠️」而它上方就摆着
+agent 刚说的那句话 —— 正是本 PR 存在的理由,换一个实现复现一遍。
