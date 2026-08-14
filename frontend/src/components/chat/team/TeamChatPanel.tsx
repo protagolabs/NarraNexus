@@ -58,7 +58,7 @@ const POLL_MS = 3000;
  *
  *   running  animated dots, "is typing" — unchanged
  *   queued   still dots, dimmed, plus how long it has been waiting
- *   stalled  warning tone, plus how long there has been no signal
+ *   stalled  plus how long there has been no signal
  *
  * Why `queued` belongs here at all: it is derived from pending messages on the
  * GET, so it is true within one 3s poll of the message landing — it does not

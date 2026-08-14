@@ -12,14 +12,17 @@ stub: false
 
 **span 名已变**：两个独立读并发之后，原 `narrative.retrieve.participant_query` 改名
 `narrative.retrieve.independent_reads`，量的是 max(participant, pool)。拿旧名去 grep
-历史日志做前后对照会得零命中——而"扒日志做前后对照"正是本项目自己示范并写在下面的方法。真正的成本是两侧的 helper LLM：
-continuity ~3.9s、unified judge ~4.7s。谁来这里想让选择变快，应该去看那两个。
+历史日志做前后对照会得零命中——而"扒日志做前后对照"正是本项目自己示范并写在下面的
+方法。
+
+真正的成本是两侧的 helper LLM：continuity ~3.9s、unified judge ~4.7s。谁来这里想让
+选择变快，应该去看那两个。
 
 **`ensure_defaults` 不能进 gather**，这是**正确性**约束不是偏好：它在默认 narrative
 缺失时会**创建**它们，pool 读若与创建竞争，BM25 候选集会静默漏掉它们——那是错答案不是
 慢答案。`tests/narrative/test_retrieval_concurrency.py` 第一条就锁这个顺序。
 
-`participant_query` 与 `load_pool` 互不喂给对方，所以并发。**裸协程直接进 gather，不包
+participant 查询（`_get_participant_narratives`）与 `load_pool` 互不喂给对方，所以并发。**裸协程直接进 gather，不包
 `create_task`**：gather 本身就并发调度，自己持 Task 句柄只会白多两个对象。变异检验证实：
 包不包 create_task 行为一致，退回**纯串行**才会让「重叠」那条测试挂。
 

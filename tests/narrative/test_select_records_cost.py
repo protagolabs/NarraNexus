@@ -71,6 +71,13 @@ def _narrative(nid: str = "nar_x") -> Narrative:
 
 @pytest.fixture
 def service(monkeypatch, db_client):
+    """A NarrativeService whose audit write is captured, not persisted.
+
+    `db_client` is here so constructing the service has a backend to bind to;
+    no assertion in this file goes through it. Persistence is
+    `test_routing_audit_timing.py`'s job — this file only asks whether the two
+    fields are ever ASSIGNED.
+    """
     from xyz_agent_context.narrative.narrative_service import NarrativeService
 
     async def _get_db():

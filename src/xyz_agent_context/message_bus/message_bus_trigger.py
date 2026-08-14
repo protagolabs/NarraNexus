@@ -380,8 +380,9 @@ class MessageBusTrigger:
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
 
-        Called when THIS process just put work into the bus — today that means
-        a team-room reply. The relay gap acceptance #5 is about is not inside a
+        Called when THIS process just put work into the bus — either in-process
+        post: a team-room reply or a leader patrol line, both routed through
+        `_post_to_room`. The relay gap acceptance #5 is about is not inside a
         turn, it is between turns: A finishes and posts, B is mentioned in that
         post, and B then waits out a full poll interval (3-12s) to be noticed.
         Stacked across a three-hop relay that is most of the dead air a person

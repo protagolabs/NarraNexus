@@ -181,15 +181,11 @@ async def test_keyword_ms_excludes_the_participant_read(retrieval):
     )
 
 @pytest.mark.asyncio
-async def test_the_judged_path_records_judge_ms_and_the_short_circuit_does_not(
-    retrieval, monkeypatch
-):
-    """Both halves, because "always NULL" and "correctly NULL" look identical.
-
-    A short-circuited decision SHOULD leave judge_ms NULL — that is the schema's
-    "this tier did not run". So a broken assignment (judge_ms never set on the
-    judged path either) is indistinguishable from healthy behaviour unless the
-    judged path is asserted too.
+async def test_the_judged_path_records_judge_ms(retrieval, monkeypatch):
+    """Half of the pair. The other half is the short-circuit test below, and
+    both are needed: a short-circuited decision SHOULD leave judge_ms NULL, so
+    an assignment that never fires anywhere is indistinguishable from healthy
+    behaviour unless the judged path is asserted too.
     """
     from xyz_agent_context.narrative.models import NarrativeSelectionResult
 
@@ -214,10 +210,52 @@ async def test_the_judged_path_records_judge_ms_and_the_short_circuit_does_not(
         "like a decision that short-circuited"
     )
 
-    # An empty pool cannot short-circuit the gate, so drive the other side by
-    # asserting the property that distinguishes them: a decision that never
-    # entered the judge leaves NULL.
-    from xyz_agent_context.narrative.models import RoutingAudit
+@pytest.mark.asyncio
+async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monkeypatch):
+    """The other half — driven through the real gate, not asserted on a default.
 
-    assert RoutingAudit(agent_id="a", user_id="u", query_text="q").judge_ms is None
+    An earlier version of this pair "covered" the short circuit by asserting
+    `RoutingAudit(...).judge_ms is None`, i.e. a Pydantic default that holds
+    without the retrieval code existing at all. That left the branch itself
+    unguarded, which matters because the next planned change here (wrapping
+    `judge_ms` in try/finally so a raising judge still records its cost) can
+    very easily hoist the assignment out past the gate — at which point
+    short-circuited rows start carrying a judge cost, `NULL = did not run`
+    breaks, and every test stays green.
 
+    One candidate scoring above the raw floor: `evaluate_gate` gives a lone
+    candidate an infinite margin, so the floor is the only evidence and it
+    short-circuits. `_get_participant_narratives` returns [] here, so P0-4
+    cannot force the judge either.
+    """
+    from xyz_agent_context.narrative.config import config
+    from xyz_agent_context.narrative.models import NarrativeSearchResult
+
+    rec = _Recorder()
+    _install(retrieval, rec)
+
+    hit = NarrativeSearchResult(
+        narrative_id="nar_hit",
+        similarity_score=0.9,
+        rank=1,
+        raw_score=config.NARRATIVE_MATCH_RAW_FLOOR + 5.0,
+    )
+    retrieval.rank_pool = lambda *a, **k: [hit]  # type: ignore[assignment]
+
+    async def _judge_must_not_run(**kwargs):
+        pytest.fail("the judge ran on a path that should have short-circuited")
+
+    # Deliberately NOT a working stub: a judge that returns successfully would
+    # let "the short circuit silently stopped working" pass this test.
+    monkeypatch.setattr(retrieval, "_llm_unified_match", _judge_must_not_run)
+
+    result = await retrieval.retrieve_top_k(
+        query="hello", user_id="u1", agent_id="a1", top_k=3,
+        narrative_type=NarrativeType.CHAT,
+    )
+
+    assert result.audit.gate_short_circuit is True, "precondition: it short-circuited"
+    assert result.audit.judge_ms is None, (
+        "a decision that never entered the judge recorded a judge cost — "
+        "NULL no longer means 'this tier did not run'"
+    )
