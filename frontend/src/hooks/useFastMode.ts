@@ -12,7 +12,7 @@ const STORAGE_KEY = 'narra-nexus-fast-mode';
 function readMap(): Record<string, boolean> {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
-    return parsed && typeof parsed === 'object'
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, boolean>)
       : {};
   } catch {

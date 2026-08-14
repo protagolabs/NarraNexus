@@ -42,7 +42,7 @@
     },
     "fastMode": {
       "label": "Fast",
-      "tooltip": "Fast mode: lighter context, quicker replies"
+      "tooltip": "Fast mode: switches this turn to the fast agent framework with lighter memory retrieval and low reasoning effort — quicker but simpler replies"
     },
     "audio": {
       "stopRecording": "Stop recording",
