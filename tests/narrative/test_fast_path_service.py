@@ -57,10 +57,27 @@ async def test_create_fast_persists_with_routing_surface(service):
 
 
 @pytest.mark.asyncio
-async def test_select_fast_empty_corpus_is_a_clean_none(service):
-    # Empty corpus: a miss is strictly None (the step layer decides what
-    # a miss means per surface), never an exception.
-    assert await service.select_fast(AGENT, USER, "anything at all") is None
+async def test_select_fast_empty_corpus_short_query(service):
+    # Empty corpus + short query: no pick, no relation, and the silence
+    # is NOT trusted as a new topic (elliptical follow-ups score zero).
+    res = await service.select_fast(AGENT, USER, "ok great")
+    assert res.narrative is None
+    assert res.related is False
+    assert res.suggests_new_thread is False
+    assert res.top1_raw is None
+
+
+@pytest.mark.asyncio
+async def test_select_fast_trusted_silence_on_long_query(service):
+    # A query past FAST_NEW_THREAD_MIN_QUERY_CHARS with zero overlap is
+    # trusted as a genuinely new topic.
+    long_query = "please compare the health insurance options for the new hires"
+    from xyz_agent_context.narrative.config import config
+
+    assert len(long_query) >= config.FAST_NEW_THREAD_MIN_QUERY_CHARS
+    res = await service.select_fast(AGENT, USER, long_query)
+    assert res.narrative is None
+    assert res.suggests_new_thread is True
 
 
 @pytest.mark.asyncio
@@ -68,15 +85,15 @@ async def test_select_fast_hit_is_the_created_narrative(service):
     created = await service.create_fast(
         AGENT, USER, "renew my passport before the trip"
     )
-    hit = await service.select_fast(
+    res = await service.select_fast(
         AGENT, USER, "renew my passport before the trip"
     )
     # Small-corpus BM25 may legitimately miss even the verbatim query
     # (IDF degeneracy) — that reality is exactly why the step layer's
-    # anchor-reuse branch exists. But when it DOES hit, it must be the
+    # anchor-reuse branch exists. But when it DOES pick, it must be the
     # right row.
-    if hit is not None:
-        assert hit.id == created.id
+    if res.narrative is not None:
+        assert res.narrative.id == created.id
 
 
 @pytest.mark.asyncio
@@ -86,7 +103,8 @@ async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatc
 
     # A mid-strength score (above the noise floor, below the override
     # floor) picks normally but must NOT be allowed to steal a live
-    # anchor. Thresholds live in narrative/config.py.
+    # anchor — yet it still reports `related`, so the step layer reuses
+    # the anchor instead of creating. Thresholds live in config.py.
     from xyz_agent_context.narrative.config import config
 
     score = (config.NARRATIVE_MATCH_RAW_FLOOR + config.FAST_ANCHOR_OVERRIDE_FLOOR) / 2
@@ -98,7 +116,12 @@ async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatc
     loaded = SimpleNamespace(id="n1")
     monkeypatch.setattr(service._crud, "load_by_id", AsyncMock(return_value=loaded))
 
-    assert await service.select_fast(AGENT, USER, "q") is loaded
-    assert (
-        await service.select_fast(AGENT, USER, "q", against_live_anchor=True) is None
-    )
+    plain = await service.select_fast(AGENT, USER, "q")
+    assert plain.narrative is loaded
+    assert plain.top1_raw == score
+
+    guarded = await service.select_fast(AGENT, USER, "q", against_live_anchor=True)
+    assert guarded.narrative is None
+    assert guarded.related is True
+    assert guarded.suggests_new_thread is False
+    assert guarded.top1_raw == score

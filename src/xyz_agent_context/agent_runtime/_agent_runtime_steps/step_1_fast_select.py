@@ -17,6 +17,12 @@ Selection order mirrors the full path's continuity-first shape:
   ``FAST_ANCHOR_OVERRIDE_FLOOR``. Raw BM25 scales with query length, so
   short follow-ups stay in their thread while a long, topic-rich message
   can still switch.
+* With a live anchor, a genuinely NEW topic still opens a new thread:
+  BM25 silence (top-1 below the noise floor — the ranked anchor is
+  provably sub-floor too) on a query long enough to trust that silence
+  (``FAST_NEW_THREAD_MIN_QUERY_CHARS``) falls through to creation
+  instead of being force-filed into the anchor forever. Short
+  elliptical follow-ups ("ok") keep reusing the anchor.
 * Without a live anchor, BM25 top-1 above the noise floor picks the
   background directly.
 
@@ -126,15 +132,8 @@ async def step_1_fast_select(
         (ctx.trigger_extra_data or {}).get("retrieval_anchor"), ctx.input_content
     )
 
-    durable_chat = _is_durable(ctx) and _is_user_chat(ctx)
-    if _is_durable(ctx) and not _is_user_chat(ctx):
-        # fast_for only marks human chat surfaces durable, so this fires
-        # only if that classification and this one ever diverge — make
-        # the non-persisted turn visible instead of silently running bare.
-        logger.warning(
-            "[step_1_fast] durable profile on non-user-chat source "
-            f"{ctx.working_source!r} — this turn will NOT persist"
-        )
+    is_chat = _is_user_chat(ctx)
+    durable_chat = _is_durable(ctx) and is_chat
 
     anchor_id: Optional[str] = (
         getattr(ctx.session, "current_narrative_id", None)
@@ -143,22 +142,37 @@ async def step_1_fast_select(
     )
 
     _t0 = time.monotonic()
-    narrative = await narrative_service.select_fast(
+    probe = await narrative_service.select_fast(
         ctx.agent_id, ctx.user_id, query, against_live_anchor=bool(anchor_id)
     )
-    keyword_ms = int((time.monotonic() - _t0) * 1000)
+    narrative = probe.narrative
+    top1_raw = probe.top1_raw
 
     retrieval_method = "bm25_fast"
     is_new = False
-    if narrative is None and anchor_id:
-        narrative = await narrative_service.load_narrative_from_db(anchor_id)
-        if narrative is not None:
-            retrieval_method = "session_fast"
+    if narrative is not None and anchor_id and narrative.id != anchor_id:
+        # Cleared the strong override floor on a DIFFERENT thread — the
+        # one decision that steals the turn away from the live anchor.
+        # Distinct audit label so the floor can be calibrated from data.
+        retrieval_method = "bm25_fast_override"
+    elif narrative is None and anchor_id:
+        if probe.suggests_new_thread:
+            # BM25 silence on a query long enough to trust it: not even
+            # the anchor relates — a genuinely new topic opens a new
+            # thread (the create branch below). Without this, fast mode
+            # could never open a second narrative once anchored.
+            pass
         else:
-            # Anchor row vanished — retry anchorless at the noise floor.
-            narrative = await narrative_service.select_fast(
-                ctx.agent_id, ctx.user_id, query
-            )
+            narrative = await narrative_service.load_narrative_from_db(anchor_id)
+            if narrative is not None:
+                retrieval_method = "session_fast"
+            else:
+                # Anchor row vanished — retry anchorless at the noise floor.
+                probe = await narrative_service.select_fast(
+                    ctx.agent_id, ctx.user_id, query
+                )
+                narrative = probe.narrative
+                top1_raw = probe.top1_raw
     if narrative is None and durable_chat:
         narrative = await narrative_service.create_fast(
             ctx.agent_id, ctx.user_id, query
@@ -166,9 +180,21 @@ async def step_1_fast_select(
         retrieval_method = "bm25_fast_created"
         is_new = True
         logger.info(f"[step_1_fast] miss — created narrative={narrative.id}")
+    # Covers the rare second search on the vanished-anchor path too.
+    keyword_ms = int((time.monotonic() - _t0) * 1000)
 
     if narrative is None:
         ctx.narrative_list = []
+        if _is_durable(ctx) and not is_chat:
+            # fast_for only marks human chat surfaces durable, so this
+            # fires only if that classification and _is_user_chat ever
+            # diverge — make the non-persisted miss visible instead of
+            # silently running bare. (A HIT on such a turn still
+            # persists through the chat instance as usual.)
+            logger.warning(
+                "[step_1_fast] durable profile on non-user-chat source "
+                f"{ctx.working_source!r} — a miss on this turn will NOT persist"
+            )
         logger.info("[step_1_fast] no candidate — running bare")
         await narrative_service.audit_fast(
             ctx.agent_id,
@@ -177,8 +203,9 @@ async def step_1_fast_select(
             retrieval_method="bm25_fast",
             chosen_narrative_id=None,
             trigger=_trigger_label(ctx),
-            is_user_chat=_is_user_chat(ctx),
+            is_user_chat=is_chat,
             keyword_ms=keyword_ms,
+            top1_raw=top1_raw,
         )
         yield ProgressMessage(
             step="1",
@@ -214,9 +241,10 @@ async def step_1_fast_select(
         retrieval_method=retrieval_method,
         chosen_narrative_id=narrative.id,
         trigger=_trigger_label(ctx),
-        is_user_chat=_is_user_chat(ctx),
+        is_user_chat=is_chat,
         keyword_ms=keyword_ms,
         is_new=is_new,
+        top1_raw=top1_raw,
     )
 
     logger.info(f"[step_1_fast] narrative={narrative.id} method={retrieval_method}")

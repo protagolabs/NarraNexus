@@ -117,6 +117,23 @@ class NarrativeConfig:
         _env("NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR", "12.0")
     )
 
+    # Fast-path new-thread gate: with a live anchor, a turn may open a NEW
+    # narrative only when BM25 found nothing above the noise floor (top-1
+    # sub-floor implies the anchor is sub-floor too — scores are ranked)
+    # AND the query is long enough for that silence to be trusted. Raw
+    # BM25 scales with length (the ~40-char boundary measured above): a
+    # short elliptical follow-up ("ok", "继续") scores zero against
+    # everything yet must stay in its thread, while a full sentence with
+    # zero overlap against every narrative is a genuinely new topic.
+    # Known residual bias, on purpose: a SHORT brand-new-topic message
+    # stays in the old thread until a fuller message opens the new one —
+    # one mis-filed turn beats a thread-per-"ok" (the fragmentation
+    # failure this gate replaces). NOT a time window (see the 2026-05-20
+    # NOTE). Env override: NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS
+    FAST_NEW_THREAD_MIN_QUERY_CHARS = int(
+        _env("NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS", "40")
+    )
+
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)
     # LLM will determine:
     #   - Whether it matches searched Narratives (returns a list)

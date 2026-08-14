@@ -4,6 +4,21 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — auto-review R2 收口：新线门 + 抢线标签（#307 增量 🟡1/🟡2/🟢3-5）
+
+上一轮判序把 create_fast 变成了「持锚点不可达」——fast 模式永不开第二条
+narrative（碎片化的镜像失败）。修：`select_fast` 返回 `FastSelectResult`
+（narrative/related/suggests_new_thread/top1_raw），锚点在手时若 probe 报
+`suggests_new_thread`（top-1 连噪声底都不过——排名单调故锚点必然同样不过
+——且 query ≥ `FAST_NEW_THREAD_MIN_QUERY_CHARS`，零重叠的沉默才可信）则
+直接 create 开新线；短省略句（"ok"）沉默不可信，照旧复用锚点（防碎片化
+不回退，也仍然不是时间窗）。抢线命中（越过 override floor 且落在非锚点
+线程）标 `retrieval_method="bm25_fast_override"`，与无锚点命中区分；
+audit 行新带 `top1_raw`（写 `gate_top1_raw` 列）——override floor 从此有
+线上数据可校准。另：divergence warning 挪到 miss 分支并改述（hit 照常持
+久化，只有 miss 不落）；`keyword_ms` 覆盖 vanished-anchor 的第二次搜索；
+`_is_user_chat` 结果存局部变量复用。
+
 ## 2026-08-14 — auto-review 收口：锚点优先判序 + 去时间窗 + audit（#307 🟡1/🟡2/🟡4/🟡7/🟢8）
 
 判序对齐 full 路径的 continuity-first：durable chat 且 session 带

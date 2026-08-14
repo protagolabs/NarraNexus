@@ -4,6 +4,15 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — FAST_NEW_THREAD_MIN_QUERY_CHARS（#307 增量 🟡1）
+
+fast 路径开新线的长度门（默认 40，env
+`NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS`）：锚点在手时只有「BM25 全面
+沉默 + query 长到沉默可信」才 create。依据即本文件 RAW_FLOOR 注释里的实
+测（<40 字符中位 top1 ~5.3）：短省略句零重叠属常态、不可当新话题证据；
+完整句子零重叠=真新话题。已声明的残余偏置：短的新话题句会先留在旧线程，
+等更完整的消息再开新线——一次错归档好过每个"ok"开一条线。不是时间窗。
+
 ## 2026-08-14 — FAST_ANCHOR_OVERRIDE_FLOOR（#307 🟡1/🟡2）
 
 新阈值：fast 路径持有 live 锚点时 BM25 抢线所需的强分下限（默认 12.0，

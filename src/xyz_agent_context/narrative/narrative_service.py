@@ -19,6 +19,8 @@ from __future__ import annotations
 import time as _perf
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
+from dataclasses import dataclass
+
 from loguru import logger
 
 from .models import (
@@ -56,6 +58,26 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     if retrieval_anchor and retrieval_anchor.strip():
         return retrieval_anchor
     return input_content
+
+
+@dataclass(frozen=True)
+class FastSelectResult:
+    """Outcome of one fast-path BM25 probe (``select_fast``).
+
+    In-process value object (never crosses a wire, hence a dataclass and
+    not a pydantic model). ``narrative`` is the decisive pick under the
+    active floor (strong override floor when probing against a live
+    anchor, noise floor otherwise); ``related`` says whether the top-1
+    cleared the noise floor at all; ``suggests_new_thread`` says BM25
+    silence can be trusted as "genuinely new topic" (query long enough —
+    see config); ``top1_raw`` rides into the audit row so the floors can
+    be calibrated from data.
+    """
+
+    narrative: Optional[Narrative] = None
+    related: bool = False
+    suggests_new_thread: bool = False
+    top1_raw: Optional[float] = None
 
 
 class NarrativeService:
@@ -129,21 +151,23 @@ class NarrativeService:
         query: str,
         *,
         against_live_anchor: bool = False,
-    ) -> Optional[Narrative]:
-        """BM25 top-1 direct pick — the fast-mode (F28) narrative path.
+    ) -> "FastSelectResult":
+        """BM25 top-1 probe — the fast-mode (F28) narrative path.
 
         Zero LLM, zero creation, zero session writes: one keyword search
-        (top_k=1) plus a CRUD load. None when nothing clears the active
-        floor or the row vanished between search and load. What the caller
-        does with the result is the surface's call: voice runs a miss
-        bare; durable chat surfaces reuse the session anchor and fall
+        (top_k=1) plus, on a decisive pick, a CRUD load. What the caller
+        does with the outcome is the surface's call: voice runs a miss
+        bare; durable chat surfaces reuse the session anchor or fall
         through to ``create_fast`` below. The continuity / LLM tiers
         remain exclusive to the full select().
 
         ``against_live_anchor``: the caller holds a live session anchor,
-        so a hit here would STEAL the turn away from the active thread —
-        require the strong FAST_ANCHOR_OVERRIDE_FLOOR instead of the
-        noise-filter RAW_FLOOR (thresholds and rationale in config.py).
+        so a decisive pick here would STEAL the turn away from the active
+        thread — the pick requires the strong FAST_ANCHOR_OVERRIDE_FLOOR
+        instead of the noise-filter RAW_FLOOR. The result also carries
+        ``related`` / ``suggests_new_thread`` / ``top1_raw`` so the caller
+        can arbitrate reuse-vs-create and the audit row can carry the
+        score that justified it (thresholds and rationale in config.py).
         """
         from .config import config
 
@@ -155,11 +179,27 @@ class NarrativeService:
         results = await self._retrieval.keyword_search(
             query=query, user_id=user_id, agent_id=agent_id, top_k=1
         )
-        # The fast path has no LLM arbitration tier, so a sub-floor top-1
-        # (a one-word accidental overlap) is a miss, not a background pick.
-        if not results or results[0].raw_score < floor:
-            return None
-        return await self._crud.load_by_id(results[0].narrative_id)
+        top1_raw = results[0].raw_score if results else None
+        # The noise floor separates "this query relates to SOMETHING" from
+        # BM25 silence. Scores are ranked, so a sub-floor top-1 means every
+        # narrative — the anchor included — is sub-floor.
+        related = top1_raw is not None and top1_raw >= config.NARRATIVE_MATCH_RAW_FLOOR
+        # Trust the silence only when the query is long enough to have
+        # produced a score if a matching thread existed (rationale on
+        # FAST_NEW_THREAD_MIN_QUERY_CHARS in config.py).
+        suggests_new_thread = (
+            not related
+            and len(query.strip()) >= config.FAST_NEW_THREAD_MIN_QUERY_CHARS
+        )
+        narrative: Optional[Narrative] = None
+        if top1_raw is not None and top1_raw >= floor:
+            narrative = await self._crud.load_by_id(results[0].narrative_id)
+        return FastSelectResult(
+            narrative=narrative,
+            related=related,
+            suggests_new_thread=suggests_new_thread,
+            top1_raw=top1_raw,
+        )
 
     async def audit_fast(
         self,
@@ -173,6 +213,7 @@ class NarrativeService:
         is_user_chat: bool = True,
         keyword_ms: Optional[int] = None,
         is_new: bool = False,
+        top1_raw: Optional[float] = None,
     ) -> None:
         """Best-effort audit row for one fast-path routing decision.
 
@@ -191,6 +232,9 @@ class NarrativeService:
             trigger=trigger,
             is_user_chat=is_user_chat,
             keyword_ms=keyword_ms,
+            # The BM25 score that justified (or failed to justify) the
+            # pick — the calibration data for FAST_ANCHOR_OVERRIDE_FLOOR.
+            gate_top1_raw=top1_raw,
             selection_method="fast",
             retrieval_method=retrieval_method,
             chosen_narrative_id=chosen_narrative_id,

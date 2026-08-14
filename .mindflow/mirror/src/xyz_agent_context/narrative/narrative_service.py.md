@@ -4,6 +4,16 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — select_fast 返回 FastSelectResult（#307 增量 🟡1/🟡2）
+
+契约从 Narrative-or-None 升级为 frozen dataclass `FastSelectResult`
+（进程内值对象不上 wire，故不用 pydantic）：`narrative`=当前 floor 下的
+决断命中；`related`=top-1 过噪声底；`suggests_new_thread`=沉默可信（无
+related 且 query ≥ config.FAST_NEW_THREAD_MIN_QUERY_CHARS）；`top1_raw`
+随行给 audit。`audit_fast` 增 `top1_raw` 参数写既有 `gate_top1_raw` 列
+（不动表、无双方言面）。三个测试消费方（test_select_fast /
+test_fast_path_service / test_step_1_fast_select）同批更新。
+
 ## 2026-08-14 — select_fast 双 floor + audit_fast（#307 🟡1/🟡4）
 
 `select_fast` 增 `against_live_anchor: bool = False`：调用方持有 live
