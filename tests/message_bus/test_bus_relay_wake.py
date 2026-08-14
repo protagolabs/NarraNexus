@@ -75,7 +75,15 @@ def _trigger(db, replies: dict[str, str]) -> MessageBusTrigger:
 
     async def _invoke(**kwargs):
         aid = kwargs.get("agent_id")
-        return TurnResult(text=replies.get(aid, "ok"), event_id=f"evt_{aid}")
+        text = replies.get(aid, "ok")
+        # The team-room post happens INSIDE the turn (the chat rows are written
+        # before `run()` returns, so a post made afterwards cannot be recorded
+        # as a reply). The wake rides that same post, so a stub that skips the
+        # deliverer would be asserting about a path production does not take.
+        deliver = kwargs.get("on_plain_text_delivery")
+        if deliver is not None and text:
+            await deliver(text)
+        return TurnResult(text=text, event_id=f"evt_{aid}")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t

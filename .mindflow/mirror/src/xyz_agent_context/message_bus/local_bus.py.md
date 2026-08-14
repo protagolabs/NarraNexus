@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
@@ -54,6 +54,8 @@ owner 面 turn(chat/job/…)= 发送方在跑差事、这条是**提问**;`messa
 `bus_messages` row and surfaced by `_row_to_message`. Only the trigger's team
 branch passes it (the turn that produced the reply); every other caller keeps
 the default None.
+
+> ⚠️ 末句已于 2026-08-14 失效 —— agent 自己的 bus 发送也盖。见本文件 08-14 节。
 
 ## 2026-07-28 — batched room pending summary + the poison threshold moves here
 
@@ -215,3 +217,29 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到
 SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于把一条已经咬过人的规则实现
 两遍。
+
+## 2026-08-14 — `has_message_from_turn`:用 turn id 问"这个房间听见它说话了吗"
+
+团队房的失败公告要回答一个此前没人问过的问题:**这一轮有没有任何东西以本 agent 的身份
+落进本房间**。问它的场合很窄(平台代发没发生、但这一轮又不算 fatal),答错的代价却是
+在房间里贴一条假的投递失败 —— 而房间里同时还摆着 agent 自己发的那句话。
+
+判据用 **turn id**,不是时间窗:两条投递路径(平台在 turn 内代发、agent 自己调
+`bus_send_message`)现在都往 `bus_messages.event_id` 上盖同一个 id,所以一次
+`SELECT 1 ... LIMIT 1` 就同时覆盖两者。时间窗只能回答"差不多那会儿",而且要再写一遍
+本模块刚清理掉的那套时间戳比较 —— 这个仓库为它付过一次学费(见 08-12 那节的
+`canonical_ts`)。身份是精确的。
+
+只问存在性:调用方在决定"要不要公告",消息正文与这个决定无关。
+
+## 2026-08-14 (补) — `send_to_agent` 也透传 `event_id`(并作废 07-31 那句)
+
+它本来就是 `send_message` 的一层包装,只是没把新参数往下带。一列的含义如果取决于
+**哪个工具写的行**,这一列就没法被查询 —— 归因要么处处都有,要么不如没有。
+
+**上面 07-31 那节的「Only the trigger's team branch passes it … every other
+caller keeps the default None」已经失效。** 现在 agent 自己调
+`bus_send_message` / `bus_send_to_agent` 发的行也带 id(见
+[[_message_bus_mcp_tools]]),包括 **DM 频道的行** —— 而 DM 从来不是「平台代发」。
+所以 `event_id IS NOT NULL` **不能**当「这条是平台代发的」过滤条件用;它现在只表示
+「发的时候知道自己在哪一轮」。

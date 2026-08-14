@@ -63,7 +63,13 @@ def _patch_db_factory(monkeypatch, db_client):
     )
 
 
-async def _trigger_with_fake_runtime(db_client, monkeypatch, *, fail=False):
+async def _trigger_with_fake_runtime(
+    db_client, monkeypatch, *, fail=False, deliver=True
+):
+    """`deliver=False` is the runtime declining to post: it produced text, it
+    never handed it to the deliverer, and it did not report the turn fatal
+    either. That is what step_3 does when the loop raises after the agent has
+    already spoken. The hop must NOT close on it — see the test below."""
     _patch_db_factory(monkeypatch, db_client)
     await db_client.insert(
         "agents", {"agent_id": "agent_a", "agent_name": "A", "created_by": "user_x"}
@@ -76,6 +82,11 @@ async def _trigger_with_fake_runtime(db_client, monkeypatch, *, fail=False):
             raise RuntimeError("turn blew up")
     else:
         async def _fake_invoke(*_a, **_k):
+            # A team room's reply is posted from INSIDE the turn, so a stub that
+            # skips the deliverer is measuring a path production never takes.
+            post = _k.get("on_plain_text_delivery")
+            if deliver and post is not None:
+                await post("the reply")
             return TurnResult(text="the reply", event_id="evt_t1")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
@@ -105,6 +116,58 @@ async def test_team_hop_emits_timing_line(db_client, monkeypatch, log_lines):
     assert float(m["oldest"]) >= float(m["queue"]) >= 0.0
     # hop covers queue + turn + delivery.
     assert float(m["hop"]) >= float(m["turn"])
+
+
+@pytest.mark.asyncio
+async def test_a_turn_the_runtime_would_not_deliver_closes_no_hop(
+    db_client, monkeypatch, log_lines
+):
+    """The series measures DELIVERY. A turn the platform never put in the room
+    entering it as a success flatters the one number used to judge whether
+    delivery is healthy — and this is the case with no exception to notice it
+    by: the runtime's fatal gate refused, the collection's gate said the turn
+    was fine, and nothing in between reconciles them."""
+    trigger = await _trigger_with_fake_runtime(db_client, monkeypatch, deliver=False)
+    msg = BusMessage(
+        message_id="m_nd", channel_id=ROOM, from_agent="usr_user_x",
+        content="@A hello",
+        created_at=datetime.now(timezone.utc),
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert _timing_hits(log_lines) == []
+
+
+@pytest.mark.asyncio
+async def test_a_turn_that_reached_nobody_closes_no_hop(
+    db_client, monkeypatch, log_lines
+):
+    """Same invariant, the other branch: the only thing in the room is the
+    platform's own "it said nothing" line, and a notice is not a delivery."""
+    _patch_db_factory(monkeypatch, db_client)
+    await db_client.insert(
+        "agents", {"agent_id": "agent_a", "agent_name": "A", "created_by": "user_x"}
+    )
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+
+    async def _silent(*_a, **_k):
+        return TurnResult(text="", event_id="evt_t1", delivered=False)
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _silent)
+    msg = BusMessage(
+        message_id="m_rn", channel_id=ROOM, from_agent="usr_user_x",
+        content="@A hello",
+        created_at=datetime.now(timezone.utc),
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert _timing_hits(log_lines) == []
 
 
 @pytest.mark.asyncio

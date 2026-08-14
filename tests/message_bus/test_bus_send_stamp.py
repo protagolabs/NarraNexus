@@ -25,8 +25,6 @@ scope: only the errand peer/channel gets the errand stamp.
 """
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 
 from xyz_agent_context.module._mcp_identity import agent_id_headers
@@ -35,30 +33,13 @@ from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
 )
 from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
 
+from ._mcp_headers import injected
+
 ME = "agent_xiaoque"
 ERRAND_PEER = "agent_yushu"       # answered our errand → follow-ups go here
 OTHER_PEER = "agent_c"            # asked us something, arrived via unread
 ERRAND_CHANNEL = "ch_dm_errand"
 OTHER_CHANNEL = "ch_dm_other"
-
-
-class _Headers(dict):
-    def get(self, key, default=None):  # noqa: D102
-        return super().get(key.lower(), default)
-
-
-@contextlib.contextmanager
-def injected(headers: dict):
-    from mcp.server.lowlevel.server import request_ctx
-
-    request = type("Req", (), {
-        "headers": _Headers({k.lower(): v for k, v in headers.items()})
-    })()
-    token = request_ctx.set(type("Ctx", (), {"request": request})())
-    try:
-        yield
-    finally:
-        request_ctx.reset(token)
 
 
 def _errand_turn(**kwargs) -> dict:

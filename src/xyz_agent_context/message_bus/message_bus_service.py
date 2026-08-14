@@ -53,8 +53,10 @@ class MessageBusService(ABC):
             mentions: List of agent_ids to mention, or ["@everyone"].
             attachments: Optional list of bus-attachment dicts (see
                 _bus_attachment_impl); files travel by reference, not bytes.
-            event_id: events row id of the turn that produced this message
-                (agent replies posted by the trigger); None otherwise.
+            event_id: WHICH turn produced this message — the events-row id.
+                Stamped by the trigger's in-turn room post AND by the agent's
+                own bus sends, so a present id does NOT mean "the platform
+                posted it". None when the caller cannot tell, never a guess.
             sender_turn_source: WHICH KIND of turn produced this send —
                 a WorkingSource value ("chat"/"job"/"message_bus"/…) or
                 BUS_ERRAND_TURN_SOURCE. Recipients' trigger uses it to tell
@@ -152,6 +154,27 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
+    ) -> bool:
+        """
+        Whether this agent put any message into this channel during a turn.
+
+        An existence question keyed on the turn id that both delivery paths
+        stamp, so it covers a reply the platform posted and one the agent sent
+        through a tool alike.
+
+        Args:
+            channel_id: The channel to look in.
+            from_agent: The sender whose messages count.
+            event_id: The turn id stamped on messages produced by that run.
+
+        Returns:
+            True when at least one such message exists.
+        """
+        ...
+
+    @abstractmethod
     async def count_unread(self, agent_id: str) -> int:
         """
         How many unread messages exist, independent of any window.
@@ -185,6 +208,7 @@ class MessageBusService(ABC):
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -201,6 +225,8 @@ class MessageBusService(ABC):
                 _bus_attachment_impl); files travel by reference, not bytes.
             sender_turn_source: WHICH KIND of turn produced this send (see
                 ``send_message``); None when unknown.
+            event_id: WHICH turn produced it — the events-row id. None when
+                the caller cannot tell, never a guess.
 
         Returns:
             The generated message_id.

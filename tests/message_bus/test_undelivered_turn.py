@@ -9,6 +9,8 @@ ignored them:
 
 * team room — the turn produced no reply text;
 * team room — the reply existed and the ROOM POST failed;
+* team room — the reply existed and the RUNTIME DECLINED to post it, while
+  reporting the turn as non-fatal (the two fatal gates disagreeing);
 * A2A DM — the turn neither answered the peer nor said anything to its owner,
   leaving the asking agent blocked forever.
 
@@ -54,6 +56,17 @@ async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
 
 def _returns(monkeypatch, trigger, result: TurnResult):
     async def _fake(*_a, **_k):
+        # A team room's reply is posted from INSIDE the turn now (the chat rows
+        # are written before `run()` returns, so a post made afterwards cannot
+        # be recorded as a reply). A stub therefore has to do what the runtime
+        # does — report the run id, then hand the plain text to the deliverer —
+        # or it exercises a path production no longer takes.
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id(result.event_id or "evt_stub")
+        deliver = _k.get("on_plain_text_delivery")
+        if deliver is not None and result.text and not result.fatal:
+            await deliver(result.text)
         return result
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
@@ -188,6 +201,135 @@ async def test_a_failed_room_post_keeps_the_reply_in_the_owners_inbox(
 
     rows = await db_client.get("inbox_table", {"user_id": "user_x"})
     assert any("the answer" in (r.get("content") or "") for r in rows)
+
+
+# ── team room: the runtime declined to deliver, and said it was fine ────────
+
+
+def _returns_without_delivering(monkeypatch, trigger, result: TurnResult):
+    """The runtime's OTHER refusal: it produced text, it never handed it to the
+    deliverer, and it did not report the turn as fatal either.
+
+    Not hypothetical — it is what step_3 does when the loop raises after the
+    agent has already spoken: `_should_deliver_team_reply` refuses (a
+    half-streamed fragment would read as an answer) while the closing error
+    frame is `recovered_after_reply`, which `RunCollection.is_fatal` correctly
+    does NOT call fatal. The two fatal gates are asking different questions, so
+    the trigger must not infer delivery from the absence of a failure.
+    """
+    async def _fake(*_a, **_k):
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id(result.event_id or "evt_stub")
+        return result
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
+
+
+@pytest.mark.asyncio
+async def test_a_turn_the_runtime_would_not_deliver_is_not_silent(
+    db_client, monkeypatch
+):
+    """Nobody was told anything: the room must hear about it. A teammate that
+    @mentioned this agent otherwise gets silence, and cannot tell "not
+    interested" from "broken" — the hand-off simply stops."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    _returns_without_delivering(
+        monkeypatch, trigger,
+        TurnResult(text="half an answer", event_id="evt_1", fatal=False),
+    )
+
+    msg = BusMessage(
+        message_id="m1", channel_id=ROOM, from_agent="usr_user_x", content="@A hello"
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert len(await _notices(db_client, ROOM, DELIVERY_FAILED_MSG_TYPE)) == 1
+    # And the text survives: it was generated and paid for.
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert any("half an answer" in (r.get("content") or "") for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_no_notice_when_the_agent_posted_into_the_room_itself(
+    db_client, monkeypatch
+):
+    """The other half of the same branch, and the one that makes it reachable
+    at all: `recovered_after_reply` is emitted BECAUSE the agent used a
+    delivery tool, and `bus_send_message` at this room is the most natural one
+    to reach for. The prompt forbids it; the platform does not police whether
+    the model obeys (CLAUDE.md binding rule #15). The room has already heard the
+    agent, so a failure notice on top of its reply is a false ⚠️ — the exact
+    shape this lane spent two rounds removing from the DM side."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+
+    async def _fake(*_a, **_k):
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id("evt_1")
+        # What the disobedient tool call does, stamped the way the MCP tool
+        # stamps it — the turn id is the only thing tying it to this run.
+        await bus.send_message(
+            from_agent="agent_a", to_channel=ROOM,
+            content="I did the thing", event_id="evt_1",
+        )
+        return TurnResult(text="I did the thing", event_id="evt_1", fatal=False)
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
+
+    msg = BusMessage(
+        message_id="m1", channel_id=ROOM, from_agent="usr_user_x", content="@A hello"
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert await _notices(db_client, ROOM, DELIVERY_FAILED_MSG_TYPE) == []
+
+
+@pytest.mark.asyncio
+async def test_a_post_to_someone_else_still_leaves_this_room_owed_a_notice(
+    db_client, monkeypatch
+):
+    """Third sub-case: the agent did use a delivery tool, but aimed it at a
+    teammate's DM (or only at its owner). THIS room heard nothing, so the
+    narrowing above must not swallow the notice — the test that would miss
+    this is one that only checks "did the agent send anything at all"."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+
+    async def _fake(*_a, **_k):
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id("evt_1")
+        await bus.send_message(
+            from_agent="agent_a", to_channel=DM,
+            content="psst, over here", event_id="evt_1",
+        )
+        return TurnResult(text="psst, over here", event_id="evt_1", fatal=False)
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
+
+    msg = BusMessage(
+        message_id="m1", channel_id=ROOM, from_agent="usr_user_x", content="@A hello"
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert len(await _notices(db_client, ROOM, DELIVERY_FAILED_MSG_TYPE)) == 1
 
 
 # ── A2A: the peer that asked is the one left hanging ────────────────────────

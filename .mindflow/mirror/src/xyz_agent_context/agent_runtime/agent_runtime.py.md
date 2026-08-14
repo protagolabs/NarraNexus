@@ -244,3 +244,9 @@ R1 的 total_s 从 Step 0 才起算,漏掉 run() 前段（懒加载 DB client、
 并有格式测试钉住（tests/agent_runtime/test_turn_timing_line.py）——纯观测
 代码的 format 坏掉时会在持久化后、后台 hook 前炸主链路,所以必须可测。
 同函数两个 time 别名合并为一个 `_time`。
+
+## 2026-08-12 — `run()` 透传 `on_plain_text_delivery`
+
+与 `cancellation` 同一条显式参数路径(不塞 `trigger_extra_data` —— 那是个会被序列化的
+dict,放 callable 是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,所以中间没有
+任何签名要改。
