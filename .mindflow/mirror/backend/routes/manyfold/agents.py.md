@@ -1,8 +1,65 @@
 ---
 code_file: backend/routes/manyfold/agents.py
-last_verified: 2026-07-23
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — create now materializes the workspace DIRECTORY (Manyfold #832)
+
+`POST /manyfold/agents` used to write the `users` / `agents` rows and return
+200 having **never created a directory**. `GET .../files/roots` then resolved
+and returned that path anyway (`resolve_existing_workspace` falls back to the
+current-layout default when no candidate exists), so the platform stored a
+**path to nothing** and its runner — which calls `workspace.ensure(create=false)`,
+correctly refusing to invent directories inside another system's layout —
+could not start the sandbox.
+
+**Ownership call**: the path is defined by NarraNexus (the layout has already
+changed once under the platform, see [[workspace_paths]]), so **materializing
+it is ours too**. The fix belongs in the create contract — not in the runner
+(flipping it to `create=true` would hand the platform the right to create
+arbitrary framework paths) and not in `roots` (a read endpoint must not have
+side effects, and mkdir/mv/rm are deliberately unexposed on this gateway, see
+[[files.py]]).
+
+Three semantics worth keeping:
+
+- **Exists before we answer**: `_ensure_workspace` delegates to
+  [[workspace_paths]]`.ensure_agent_workspace` (via `asyncio.to_thread` — mkdir
+  is blocking I/O). Failure → **500, never a false success**. A false success
+  is a delayed detonation: it resurfaces minutes later on the platform side as
+  a sandbox error that looks unrelated to agent creation.
+- **Runs on the update leg too**: idempotent replay IS the repair channel — a
+  workspace deleted out from under us comes back on the next addAgent
+  (`agent_created=false`, directory restored).
+- **No rollback**: a materialization failure does not delete the rows already
+  written. Replay repairs, whereas deleting rows would destroy the data of an
+  agent that **already existed** (on the update leg those rows are usually not
+  ours to remove).
+
+Two supporting changes:
+
+- **Id validation moved ahead of the writes**: `agent_id` arrives verbatim in
+  the body and becomes a **path segment** here, so `validate_workspace_segments`
+  runs before any row is written (400). It was previously unvalidated; now that
+  we mkdir with it, a `../x` value must be rejected before it lands in the DB —
+  otherwise a 400 still leaves a half-provisioned agent behind. The `user_id`
+  side was already sanitised by `_normalize_user_id`; this is defense in depth.
+- **Response gained a `workspace` field**: hands back the path we just
+  guaranteed so callers stop re-deriving the layout (the platform's
+  `narraNexusSeedWorkspacePath` calls itself "a SEED, not an answer", and its
+  listAgents comment says to read such a field if NarraNexus ever adds one).
+  The platform parses loosely (`res.json<T>()`), so an added field breaks no
+  existing adapter.
+
+**Deliberately not done**: `DELETE /manyfold/agents/{id}` still does not remove
+the workspace directory (it only cascades DB rows). Deleting files is
+irreversible and asymmetrically riskier than creating them, so it stays a
+separate decision; the leftover-orphan-dir behaviour is unchanged by this fix.
+
+Tests: tests/backend/test_manyfold_workspace_materialize.py (first create /
+second same-user agent isolation / replay repair / failure is not a false
+success / unsafe id / create→roots round trip).
 
 ## 2026-07-23 — 收口第 4 条 agents 写路径的长度上限(review #2)
 

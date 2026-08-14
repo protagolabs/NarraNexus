@@ -8,7 +8,10 @@ Manyfold needs to:
   - Enumerate all agents in the container regardless of which NarraNexus
     user created them (GET /manyfold/agents).
   - Create a new NarraNexus user + agent when a Manyfold user creates an
-    agent via the Manyfold UI (POST /manyfold/agents).
+    agent via the Manyfold UI (POST /manyfold/agents). Create owns the
+    agent's on-disk workspace too: it returns only once the canonical
+    directory exists, because the platform's runner takes the path we
+    report and calls ``ensure(create=false)`` on it (Manyfold #832).
 
 Registered only when ENABLE_MANYFOLD_API=1 (see backend/main.py). The
 auth middleware requires a valid MANYFOLD_GATEWAY_TOKEN before the
@@ -21,6 +24,7 @@ expects "list everything" semantics — we honor it.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Optional
 
@@ -34,7 +38,12 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
     netmind_slots_only,
 )
+from xyz_agent_context.settings import settings as core_settings
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.workspace_paths import (
+    ensure_agent_workspace,
+    validate_workspace_segments,
+)
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -143,14 +152,26 @@ async def create_agent_for_manyfold(
       2. Ensure an agent row exists with ``created_by`` set to the user
          from step 1. If it already exists, just update the name /
          description to keep them in sync with Manyfold's side.
+      3. Ensure the agent's canonical workspace DIRECTORY exists, and only
+         answer once it does (see ``_ensure_workspace``).
 
     Returns the canonical NarraNexus agent_id + the (possibly newly
-    created) NarraNexus user_id so the caller can stash it.
+    created) NarraNexus user_id so the caller can stash it, plus the
+    workspace path this call guaranteed.
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
 
     nx_user_id = _normalize_user_id(body.manyfold_user_id)
+    # Reject an id that cannot be a path segment BEFORE it becomes a row:
+    # step 3 turns both ids into directory names, and a rejected create must
+    # not leave a half-provisioned agent behind. `_normalize_user_id` already
+    # sanitises its side; this covers `agent_id`, which arrives verbatim.
+    try:
+        validate_workspace_segments(body.agent_id, nx_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     user_row = await db.get_one("users", {"user_id": nx_user_id})
     user_created = False
     if not user_row:
@@ -207,12 +228,59 @@ async def create_agent_for_manyfold(
         f"created_by={nx_user_id!r}"
     )
 
+    # The rows alone do not satisfy this contract — run it on the update leg
+    # too, so a replay repairs a workspace that went missing.
+    workspace = await _ensure_workspace(body.agent_id, nx_user_id)
+
     return {
         "agent_id": body.agent_id,
         "user_id": nx_user_id,
         "user_created": user_created,
         "agent_created": agent_created,
+        "workspace": workspace,
     }
+
+
+async def _ensure_workspace(agent_id: str, user_id: str) -> str:
+    """Materialize the agent's canonical workspace dir, or fail the request.
+
+    Manyfold #832: this endpoint used to return 200 having written only the
+    `users` / `agents` rows. The directory did not exist, yet
+    ``GET .../files/roots`` happily resolved and returned its name, so the
+    platform stored a path to nothing and its runner — which calls
+    ``workspace.ensure(create=false)``, correctly refusing to invent
+    directories inside another system's layout — could not start the sandbox.
+    The path belongs to NarraNexus, so materializing it does too.
+
+    Never returns a path it has not just proven exists: a false success here
+    resurfaces on the Manyfold side much later, as a sandbox error that looks
+    unrelated to agent creation.
+    """
+    try:
+        workspace = await asyncio.to_thread(
+            ensure_agent_workspace,
+            agent_id,
+            user_id,
+            str(core_settings.base_working_path),
+        )
+    except ValueError as exc:
+        # Unsafe segment — already screened at the top of the handler, so
+        # reaching here means a caller bypassed it. Still a 4xx, never a mkdir.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.error(
+            f"[manyfold-create] workspace materialization failed for "
+            f"{agent_id!r} (owner={user_id!r}): {type(exc).__name__}: {exc}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"failed to materialize agent workspace for {agent_id!r}: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        ) from exc
+    logger.info(f"[manyfold-create] workspace ready for {agent_id!r}: {workspace}")
+    return str(workspace)
 
 
 # ---------------------------------------------------------------------------

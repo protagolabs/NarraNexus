@@ -3,11 +3,14 @@
 @date: 2026-06-17
 @description: Central workspace-layout helper. Locks the current (flat)
 behaviour so the 3a conversion is provably identical, and locks the
-nested-layout shape that 3b will switch on.
+nested-layout shape that 3b will switch on. Also locks
+`ensure_agent_workspace`, the materializing counterpart (2026-08-14).
 """
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 import xyz_agent_context.utils.workspace_paths as wp
 
@@ -141,3 +144,62 @@ def test_resolve_file_missing_returns_direct(tmp_path, monkeypatch):
     monkeypatch.setattr(wp, "_LAYOUT", "nested")
     got = wp.resolve_workspace_relative_file("u/agent_x/nope.html", "agent_x", "u", str(tmp_path))
     assert got == tmp_path / "u/agent_x/nope.html"
+
+
+# ---------- ensure_agent_workspace (the materializing counterpart) ----------
+
+def test_ensure_creates_the_current_layout_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    got = wp.ensure_agent_workspace("agent_x", "u", str(tmp_path))
+    assert got == tmp_path / "u" / "agent_x"
+    assert got.is_dir()
+
+
+def test_ensure_is_idempotent_and_keeps_contents(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    first = wp.ensure_agent_workspace("agent_x", "u", str(tmp_path))
+    (first / "marker.txt").write_text("keep", encoding="utf-8")
+
+    second = wp.ensure_agent_workspace("agent_x", "u", str(tmp_path))
+
+    assert second == first
+    assert (second / "marker.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_ensure_adopts_a_legacy_flat_dir_instead_of_shadowing_it(tmp_path, monkeypatch):
+    """A pre-nested agent must not gain an empty nested twin.
+
+    `resolve_existing_workspace` prefers the CURRENT layout, so creating the
+    nested dir for an agent whose files still live flat would hide the
+    populated dir from every reader.
+    """
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    legacy = tmp_path / "agent_x_u"
+    legacy.mkdir()
+    (legacy / "marker.txt").write_text("legacy", encoding="utf-8")
+
+    got = wp.ensure_agent_workspace("agent_x", "u", str(tmp_path))
+
+    assert got == legacy
+    assert not (tmp_path / "u" / "agent_x").exists()
+
+
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "", "with space", "dot.dot"])
+def test_ensure_rejects_unsafe_segments_without_creating_anything(
+    bad, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    with pytest.raises(ValueError, match="unsafe agent_id"):
+        wp.ensure_agent_workspace(bad, "u", str(tmp_path))
+    with pytest.raises(ValueError, match="unsafe user_id"):
+        wp.ensure_agent_workspace("agent_x", bad, str(tmp_path))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_ensure_propagates_a_filesystem_failure(tmp_path, monkeypatch):
+    """A base that cannot hold the dir must raise, never quietly no-op."""
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(OSError):
+        wp.ensure_agent_workspace("agent_x", "u", str(blocker / "ws"))

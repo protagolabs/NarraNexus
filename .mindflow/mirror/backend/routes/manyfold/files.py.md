@@ -1,8 +1,22 @@
 ---
 code_file: backend/routes/manyfold/files.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — who guarantees the path `roots` reports (no code change here)
+
+`roots` names the workspace; it does not create it, and it must not — a read
+endpoint with a mkdir side effect is how mkdir/mv/rm creep onto a gateway that
+deliberately exposes exactly one write door. The guarantee belongs to
+[[agents.py]]'s create, which since Manyfold #832 returns only after the
+directory exists. Read the two together: before that fix `roots` served a
+resolvable path to a directory that had never been created, and the platform's
+runner (`ensure(create=false)`) was right to refuse it.
+
+The `list` gotcha below still stands and is still correct — an agent
+provisioned before that fix, or by another path, can still have no directory,
+and an empty tree beats a 404 in the UI.
 
 ## 2026-08-10 — write 端点每次尝试落审计行(batch-2 §B)
 

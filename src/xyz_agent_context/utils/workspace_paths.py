@@ -21,6 +21,7 @@ site already routes through here.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -166,6 +167,72 @@ def resolve_existing_workspace(
         if p.is_dir():
             return p
     return root / agent_workspace_relpath(agent_id, user_id)
+
+
+# A workspace path is composed of ids that arrive from callers (a gateway
+# request body, an MCP tool argument). Both become PATH SEGMENTS, so a value
+# like ``../other_user`` would dig outside the intended subtree the moment
+# something materializes it. `provision_new_agent` applies the same rule at the
+# provisioning seam; this one guards the seam that actually touches the disk.
+_SAFE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def validate_workspace_segments(agent_id: str, user_id: str) -> None:
+    """Raise ValueError unless both ids are safe as a single path segment.
+
+    Exposed separately from :func:`ensure_agent_workspace` so a caller can
+    reject a bad id BEFORE it becomes a database key too — by the time the
+    mkdir runs, the row is usually already written.
+
+    Raises:
+        ValueError: naming which id is unsafe (the value is quoted, so the
+            message is safe to return to a service-to-service caller).
+    """
+    for label, value in (("agent_id", agent_id), ("user_id", user_id)):
+        # fullmatch, not match: `$` would accept a trailing newline, and this
+        # is a security primitive.
+        if not _SAFE_PATH_SEGMENT.fullmatch(value or ""):
+            raise ValueError(
+                f"unsafe {label} for a workspace path segment "
+                f"(must match [A-Za-z0-9_-]+): {value!r}"
+            )
+
+
+def ensure_agent_workspace(
+    agent_id: str, user_id: str, base: Optional[str] = None
+) -> Path:
+    """Materialize an agent's workspace dir and return it.
+
+    The counterpart of :func:`agent_workspace_path`, for callers that must
+    GUARANTEE the directory rather than merely name it — a create contract
+    whose consumer then does ``ensure(create=false)`` and refuses to invent
+    the path itself (Manyfold #832: rows written, directory never created,
+    so the platform's runner could not start the sandbox).
+
+    Resolves through :func:`resolve_existing_workspace` first, so an agent
+    whose files still sit in a legacy flat dir keeps that dir instead of
+    gaining an empty nested twin — which, being the preferred candidate,
+    would then SHADOW the populated one for every reader.
+
+    Idempotent and concurrency-safe: ``mkdir(parents=True, exist_ok=True)``
+    is a no-op on a directory that already exists and two callers racing on
+    the same agent converge on one dir, so a replay repairs a workspace that
+    went missing without disturbing a populated one.
+
+    Blocking I/O — call it via ``asyncio.to_thread`` from async code.
+
+    Raises:
+        ValueError: an id is unsafe as a path segment (see
+            :func:`validate_workspace_segments`).
+        OSError: the directory could not be created (permissions, a file in
+            the way, a full disk). Deliberately NOT swallowed: a caller that
+            reports success without the directory is the bug this exists to
+            prevent.
+    """
+    validate_workspace_segments(agent_id, user_id)
+    workspace = resolve_existing_workspace(agent_id, user_id, base)
+    workspace.mkdir(parents=True, exist_ok=True)
+    return workspace
 
 
 def resolve_workspace_relative_file(

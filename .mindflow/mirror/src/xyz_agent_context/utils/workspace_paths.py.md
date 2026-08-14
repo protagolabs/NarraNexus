@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — `ensure_agent_workspace`: the materializing counterpart
+
+`agent_workspace_path` only NAMES a directory. Every caller that needed one to
+actually exist did its own `mkdir(parents=True, exist_ok=True)` (`profiles.py`,
+`step_3_agent_loop`, `agents/files.py`), and the one caller that forgot became
+Manyfold #832: [[agents.py]]'s gateway create returned 200 with rows written
+and no directory, while `files/roots` happily reported the path — a path the
+platform's runner then refused to `ensure(create=false)`. So the seam now
+exists here, next to the layout it depends on.
+
+**Why it goes through `resolve_existing_workspace` instead of
+`agent_workspace_path`**: the resolver prefers the CURRENT layout, so
+mkdir-ing the nested path for an agent whose files still live in a legacy flat
+dir would create an empty twin that then **shadows the populated one for every
+reader** — a silent data-disappearance bug, exactly the failure mode the reader
+fallbacks above were built to avoid. Adopting whatever already exists makes the
+helper safe to call on any agent, migrated or not.
+
+**Idempotent + concurrency-safe by construction**: `exist_ok=True` makes a
+second call a no-op and lets two racing callers converge on one directory, so
+"repair a workspace that went missing" and "create it the first time" are the
+same code path. `OSError` is deliberately propagated, never swallowed — the
+caller reporting success without the directory IS the bug.
+
+**`validate_workspace_segments` is public on purpose**: `ensure_*` calls it,
+but a caller usually needs to reject an unsafe id BEFORE it becomes a database
+key as well, and by the time the mkdir runs the row is already written. Same
+rule as `provision_new_agent`'s `_SAFE_AGENT_ID` (that one guards the
+provisioning seam; this one guards the seam that touches the disk).
+
+Blocking I/O — async callers wrap it in `asyncio.to_thread`.
 
 ## 2026-08-10 (review 修正) — 新增 `turn_accessible_roots`
 
