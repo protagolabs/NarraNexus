@@ -165,10 +165,11 @@ def _retrieval_with_stubs(monkeypatch, narratives_by_id):
     retrieval = NarrativeRetrieval.__new__(NarrativeRetrieval)
     retrieval.agent_id = AGENT
     retrieval._crud = SimpleNamespace(
-        load_by_id=AsyncMock(side_effect=lambda nid: narratives_by_id.get(nid))
-    )
-    retrieval._create_narrative = AsyncMock(
-        return_value=_narrative("nar_new", name="new topic")
+        load_by_id=AsyncMock(side_effect=lambda nid: narratives_by_id.get(nid)),
+        # dev renamed _create_narrative -> create_from_query (2026-08-14), which
+        # goes through _crud.create; the old attribute stub stopped intercepting
+        # anything, so the real path runs and needs this edge stubbed instead.
+        create=AsyncMock(return_value=_narrative("nar_new", name="new topic")),
     )
 
     captured: dict = {}
