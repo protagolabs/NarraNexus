@@ -8,19 +8,15 @@ stub: false
 
 `_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。2026-08-07 RCE 整改后
 云端 executor 落 sandbox 网络，到网关唯一入口是 `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），
-`litellm:4000` 云端够不到。名单漏掉它 = 依赖 `_is_own_gateway` 的两个头在云端一次都不发。
-- **真实价值在平台身份头**：`api_config` 那份**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
-  deploy staging（#20）的 prefill_compat 会验签它——漏掉 `llm-gateway` 会让身份头云端一次都不发。
+`litellm:4000` 云端够不到——漏掉它，依赖 `_is_own_gateway` 的两个头在云端一次都不发。
+- **真实价值在平台身份头**：`api_config` 的**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
+  deploy `staging`（#20）的 prefill_compat `_enforce_identity` 会验签它；漏 `llm-gateway` = 身份头云端不发。
   两份名单由 `test_gateway_host_lists_stay_in_sync` 强制一致，改网关拓扑/名字两处必须同改。
-- **对 `x-nexus-prefill-retry`（opt-out 头）：设计意图见源码注释，但当前部署未生效**——网关侧读该头的
-  逻辑写在 deploy 分支 `fix/gateway-prefill-opt-out`（`5df4f22`，2026-07-30）但**尚未合入**，
-  deploy `dev`/`main`/`staging` 当前的 `prefill_compat.py` 只看 `data["messages"]`、不读该头。所以补
-  `llm-gateway` 后头会**发出**，但在那个分支合入前网关照旧无条件追加 continuation 子句，nexus_power
-  的 opt-out 在生产上暂不生效（inert）。要真正生效需合并该 deploy 分支。
-- **⚠ 别据此删 loop.py 的 prefill 自救路径**：`loop.py` 的 `PREFILL_REJECTED` → `_continuation_turn`
-  修复（`:146-161`）与 `_build_request` 里 `_ends_with_assistant` 的二次判定（`:304`）**与网关是否注入
-  无关**——它们服务的是**直连/BYOK 后端真返 400** 的场景（网关注入的那句续写客户端根本看不见）。因果别
-  写反成「网关不注入了所以要留着」：真实理由是二者独立，即便 opt-out 头哪天生效也不能删这条路径。
+- **`x-nexus-prefill-retry`（opt-out 头）的当前状态见下方 2026-07-31 段的更正**：补 `llm-gateway`
+  只让它在云端**发得出去**，是否生效由网关侧是否读它决定（当前 inert）。
+- **⚠ 别据此删 loop.py 的 prefill 自救路径**：`PREFILL_REJECTED` → `_continuation_turn` 修复与
+  `_ends_with_assistant` 二次判定（`loop.py`，以符号名为锚）**与网关是否注入无关**——服务的是直连/BYOK
+  后端真返 400 的场景（网关注入的那句续写客户端根本看不见、无从去重）；即便 opt-out 头哪天生效也不能删。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 
@@ -54,7 +50,13 @@ output_tokens=2000、参数被切成 `{"path": "game.html"`)。信了它就会�
 
 ## 2026-07-31 — 向网关声明「prefill 我自己重试」
 
-extra_headers 里恒带 PREFILL_SELF_HANDLED_HEADER。网关 hook 默认给所有「以
+> ⚠ **2026-08-14 更正（取代本段下面关于"已退出这层保护"的结论）**：本段写的是**设计意图**。网关侧
+> 读 `x-nexus-prefill-retry` 的逻辑写在**未合入**的 deploy 分支 `fix/gateway-prefill-opt-out`（`5df4f22`），
+> 当前部署的 `prefill_compat.py` **不读它** → 这层 opt-out 在生产上 **inert**：网关照旧对**纯文本尾部
+> assistant**（`_has_tool_use` 命中的 tool_use 尾部**豁免**、非"所有以 assistant 结尾"）补续写。要真正
+> 退出这层保护需合并该 deploy 分支。见上方 2026-08-14 段。
+
+extra_headers 里恒带 PREFILL_SELF_HANDLED_HEADER。网关 hook 默认给纯文本「以
 assistant 结尾」的对话补一句续写 user 消息以躲开某些后端的 400,代价是对本来能
 接受 prefill 的后端也白付一次重复措辞。本循环能自己重试(见 loop 的
 PREFILL_REJECTED),所以退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
