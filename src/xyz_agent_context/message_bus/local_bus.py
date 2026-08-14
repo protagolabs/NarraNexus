@@ -307,6 +307,13 @@ class LocalMessageBus(MessageBusService):
 
         Existence only — the caller is deciding whether to announce a delivery
         failure, and the message body has no bearing on that.
+
+        No dedicated index, on purpose: ``idx_bus_msg_channel_time`` already
+        makes this one channel's rows the scan, and the one caller runs it at
+        most once per turn on a branch that needs a provider failure to be
+        reached at all. A third index on the busiest table in the bus would be
+        paid for by every insert, forever, to speed up a query that rarely
+        runs. Revisit if a second, hotter caller appears.
         """
         if not channel_id or not from_agent or not event_id:
             return False
@@ -367,6 +374,7 @@ class LocalMessageBus(MessageBusService):
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -405,6 +413,7 @@ class LocalMessageBus(MessageBusService):
             from_agent, channel_id, content, msg_type, attachments=attachments,
             sender_turn_source=sender_turn_source,
             root_run_id=root_run_id,
+            event_id=event_id,
         )
 
     # ===== Channel Management =====

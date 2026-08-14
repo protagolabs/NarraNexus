@@ -95,3 +95,8 @@ raises NotImplementedError. Files are references, not bytes — see
 一个存在性问题:某 agent 在某轮里有没有往某频道发过东西。键是 turn id,因为平台代发与
 agent 自己调工具发**都**盖这个 id,一个方法覆盖两条投递路径。实现方不得为此把消息全量
 拉回内存 —— 调用点在一轮已经降级的 turn 收尾处,那里最不该再加一次全表搬运。
+
+## 2026-08-14 (补) — `send_to_agent` 签名加 `event_id`
+
+与 `send_message` 对齐:两条 agent 主动发消息的路径都必须能记下「这是哪一轮」。
+None 表示说不准,不是猜一个。

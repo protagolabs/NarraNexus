@@ -206,6 +206,7 @@ class MessageBusService(ABC):
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -222,6 +223,8 @@ class MessageBusService(ABC):
                 _bus_attachment_impl); files travel by reference, not bytes.
             sender_turn_source: WHICH KIND of turn produced this send (see
                 ``send_message``); None when unknown.
+            event_id: WHICH turn produced it — the events-row id. None when
+                the caller cannot tell, never a guess.
 
         Returns:
             The generated message_id.

@@ -43,8 +43,11 @@ class BusMessage(BaseModel):
     # rel_path). Populated when the sender attaches files; None for text-only.
     # The trigger renders these into Read-tool markers at delivery time.
     attachments: Optional[List[dict]] = None
-    # events row id of the turn that produced this message (set by the trigger
-    # on agent replies). None for user messages and legacy rows.
+    # events row id of the turn that produced this message. Stamped by the
+    # trigger's in-turn room post AND by the agent's own bus sends (identity
+    # header, 2026-08-14), so a present id does not mean "the platform posted
+    # it". None for user messages, legacy rows, and any send whose caller
+    # could not tell which turn it was in.
     event_id: Optional[str] = None
     # WHICH KIND of turn produced this message — "chat"/"job"/… (the sender
     # was running an errand for its owner, so this is a QUESTION) vs

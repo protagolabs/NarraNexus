@@ -66,3 +66,7 @@ TypeError), defeating its placeholder purpose.
 
 随协议新增一个 `NotImplementedError` 占位,与本文件其余方法同形。这份实现始终是
 "协议长什么样"的镜子,不是可用后端。
+
+## 2026-08-14 (补) — `send_to_agent` 跟进签名
+
+同上,占位实现随协议同步。

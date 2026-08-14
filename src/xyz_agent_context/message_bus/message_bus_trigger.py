@@ -122,6 +122,9 @@ TEAM_HISTORY_LIMIT = 20
 # which are the parts that decide what the agent does THIS turn. Truncation is
 # always announced; silently cutting an owner's house rules would be worse than
 # not carrying them.
+
+TEAM_INTRO_MAX_CHARS = 1200
+
 #: Outcomes of the in-turn room deliverer, as three states rather than two.
 #: "the runtime never called it" is NOT "it landed" — reading it that way books
 #: an undelivered turn as a completed hop and announces a failure to a room
@@ -129,8 +132,6 @@ TEAM_HISTORY_LIMIT = 20
 POST_OK = "ok"
 POST_FAILED = "failed"
 POST_NOT_ATTEMPTED = "not_attempted"
-
-TEAM_INTRO_MAX_CHARS = 1200
 
 # Owned by local_bus (whose `get_pending_messages` enforces the filter) and
 # imported here so the two can't drift. Once a message's failure_count reaches
@@ -1322,6 +1323,13 @@ class MessageBusTrigger:
                         # reply the agent made, and routing it through the
                         # normal path would parse @mentions and drag teammates
                         # into somebody else's failure.
+                        #
+                        # Deliberately does NOT ask "did the agent post here
+                        # itself?" the way the arm below does. That question
+                        # decides whether a DELIVERY FAILURE claim would be
+                        # false; this notice claims the TURN failed, which is
+                        # true either way, and a room whose agent spoke and
+                        # then broke needs the second half stated.
                         try:
                             await self._post_to_room(
                                 from_agent=channel_owner,
@@ -1353,7 +1361,8 @@ class MessageBusTrigger:
                         # used a delivery tool, and one of those tools posts
                         # into this very room. The prompt forbids them, but that
                         # is prompt text and the platform does not police what
-                        # the model does with it (鐵律 #15). So ask the room
+                        # the model does with it (CLAUDE.md binding rule
+                        # #15). So ask the room
                         # instead of assuming: a notice on top of the agent's
                         # own reply is the same false ⚠️ this lane spent two
                         # rounds removing from the DM side.

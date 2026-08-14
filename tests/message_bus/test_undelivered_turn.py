@@ -263,7 +263,8 @@ async def test_no_notice_when_the_agent_posted_into_the_room_itself(
     at all: `recovered_after_reply` is emitted BECAUSE the agent used a
     delivery tool, and `bus_send_message` at this room is the most natural one
     to reach for. The prompt forbids it; the platform does not police whether
-    the model obeys (鐵律 #15). The room has already heard the agent, so a
+    the model obeys (CLAUDE.md binding rule #15). The room has already heard
+    the agent, so a
     failure notice on top of its reply is a false ⚠️ — the exact shape this
     lane spent two rounds removing from the DM side."""
     _patch_db_factory(monkeypatch, db_client)

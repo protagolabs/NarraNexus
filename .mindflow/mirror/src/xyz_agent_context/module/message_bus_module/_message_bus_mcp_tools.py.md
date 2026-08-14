@@ -117,3 +117,16 @@ agent 说话",平台自己代发的那条消息盖了 turn id、agent 用本工�
 
 `event_id` 从 `_mcp_identity` 的请求头取(`caller_event_id_from_request`),不是模型
 参数;artifact 工具早就是这么记归因的,这里只是把同一条路补齐。
+
+## 2026-08-14 (补) — `bus_send_to_agent` 一并盖章,并补上真入口测试
+
+只给 `bus_send_message` 盖 `event_id` 会让 `bus_messages.event_id` 的含义取决于
+写它的是哪个工具。两处一起盖。
+
+这半条链此前**零测试**:trigger 侧的用例都是桩里自己写一行带 `event_id` 的消息,
+等于把「工具会盖章」当前提写死,而不是验证它。而
+`caller_event_id_from_request()` 设计上就是**头缺失即静默返回 None** —— 头注入链
+(context_runtime 传参 → `agent_id_headers` → adapter 转发 / bearer 第 8 段)任何一环
+断掉都不会有测试变红,症状却是团队房里偶发的假 ⚠️。
+`test_bus_send_event_id_stamp.py` 走注册后的真工具函数 + 伪造 ambient request 头,
+并把「无头 → None」这条降级契约也钉住(实测过去掉盖章四条全红)。

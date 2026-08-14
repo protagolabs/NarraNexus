@@ -193,6 +193,8 @@ def register_message_bus_mcp_tools(
                 # has to guess, which is how a room that DID hear the agent gets
                 # told delivery failed. Same attribution the artifact tool
                 # records (`_mcp_identity` header, not a model parameter).
+                # Absent header degrades to None by design; the consumer treats
+                # a missing id as "cannot tell", never as "it happened".
                 event_id=caller_event_id_from_request(),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
@@ -365,6 +367,9 @@ def register_message_bus_mcp_tools(
                 # Same lineage hop as bus_send_message — this is the ask that
                 # spawns a peer's run, i.e. exactly how a tree grows.
                 root_run_id=caller_root_run_id(),
+                # And the same turn attribution: a column whose meaning depends
+                # on which tool wrote the row is a column nobody can query.
+                event_id=caller_event_id_from_request(),
             )
             return {
                 "success": True,
