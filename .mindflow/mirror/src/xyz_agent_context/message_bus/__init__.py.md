@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/__init__.py
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 stub: false
 ---
 
@@ -37,3 +37,8 @@ run 也记 NO-REPLY（8/1 实锤，如 Maestro run_1994fd41）——既错标运
 
 - 判定是子串匹配（`pattern in tool_name`），mcp__ 前缀形态自然命中；
   bus_get_messages 等非投递工具不含 send 名单子串，不会误判。
+
+## 2026-08-13 — 注释指向更新
+
+`_delivered_to_origin` 现在只是 `bool(_origin_delivered_text(...))`,真正做抽取的是
+后者,注释随之改指。

@@ -321,3 +321,96 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
     activities = [m for m in history
                   if (m.get("meta_data") or {}).get("message_type") == "activity"]
     assert activities == [], f"activity rows leaked into chat_history: {activities!r}"
+
+
+@pytest.mark.asyncio
+async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
+    """The claim this whole change rests on, tested end to end at last.
+
+    The earlier tests in this file checked `_delivered_to_origin` and the
+    summary wording in isolation and passed, which is how "the row shape
+    follows delivery" went unverified. It does not: the branch selector reads
+    `is_no_response`, which comes from the OWNER-visible extractor, and that one
+    returns None for `bus_send_message` before it ever looks at
+    `_platform_reply_text`. So a delivered team turn still filed as `activity`,
+    and both history loaders still dropped it.
+
+    What has to hold: the row carries what the agent actually said, and is not
+    an activity row — otherwise the next turn starts cold no matter what the
+    accounting says.
+    """
+    from xyz_agent_context.channel.message_source_handler import (
+        PLATFORM_REPLY_TEXT_KEY,
+    )
+    from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+
+    frame = ProgressMessage(
+        step="3.4.team_room",
+        title="Reply (team room auto-post)",
+        description="posted",
+        status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__message_bus_module__bus_send_message",
+            "arguments": {
+                "content": "the OCR is done",
+                "channel_id": "ch_1",
+                PLATFORM_REPLY_TEXT_KEY: "the OCR is done",
+            },
+            "reply_via": "team_room_autopost",
+        },
+    )
+    params = _hook_params(
+        working_source=WorkingSource.MESSAGE_BUS, agent_loop_response=[frame],
+    )
+
+    await chat_module.hook_persist_turn(params)
+
+    memory = await chat_module.event_memory_module.search_instance_json_format_memory(
+        "ChatModule", "chat_disp_instance"
+    )
+    rows = [m for m in memory.get("messages", []) if m["role"] == "assistant"]
+    assert len(rows) == 1
+    assert rows[0]["content"] == "the OCR is done"
+    assert rows[0]["meta_data"].get("message_type") != "activity"
+
+
+@pytest.mark.asyncio
+async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
+    """The other half of the chain, and the one the PRD actually asks for.
+
+    Writing the right row is only half of it — the loaders are what decide
+    whether the next turn sees it. Testing the write alone is exactly how this
+    shipped once already looking finished.
+    """
+    from xyz_agent_context.channel.message_source_handler import (
+        PLATFORM_REPLY_TEXT_KEY,
+    )
+    from xyz_agent_context.schema import ContextData, ProgressMessage, ProgressStatus
+
+    frame = ProgressMessage(
+        step="3.4.team_room", title="Reply (team room auto-post)",
+        description="posted", status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__message_bus_module__bus_send_message",
+            "arguments": {
+                "content": "I finished the OCR and posted the folio table",
+                "channel_id": "ch_1",
+                PLATFORM_REPLY_TEXT_KEY: "I finished the OCR and posted the folio table",
+            },
+        },
+    )
+    await chat_module.hook_persist_turn(_hook_params(
+        working_source=WorkingSource.MESSAGE_BUS,
+        agent_loop_response=[frame],
+        input_content="[Team] how is the OCR going?",
+    ))
+
+    ctx_data = ContextData(
+        agent_id="a_disp", user_id="u_disp", input_content="and the index?",
+    )
+    ctx_data = await chat_module.hook_data_gathering(ctx_data)
+
+    said = " ".join(
+        str(m.get("content") or "") for m in (ctx_data.chat_history or [])
+    )
+    assert "posted the folio table" in said

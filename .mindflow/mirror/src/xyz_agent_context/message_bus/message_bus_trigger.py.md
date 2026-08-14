@@ -611,6 +611,10 @@ process your message right now (error_type). error_message"` string so
 the sender agent sees the failure inline instead of receiving an empty
 reply.
 
+> **2026-08-13 更新**:返回值现在是三元组,第三个元素就是"这是错误串"。
+> DM lane 的行为不变;team lane 的投递已搬进 turn,所以那条 ⚠️ 由 team 分支
+> **以房间身份**单独贴出(详见同日条目),而不再经由这里的返回值被当成回复贴进房间。
+
 ## 2026-05-12 — IM channel skip extended to telegram_ / slack_
 
 `_process_agent()` already skipped `lark_` channels (written by `ChannelInboxWriter`
@@ -993,3 +997,66 @@ Agents 同一条 2026-08-04 的教训。
 顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
 一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
 成员,读回空意味着读失败,不是房间空了。
+
+## 2026-08-12 — 房间投递从"turn 之后"搬进"turn 之内"
+
+`_post_to_room` 闭包取代了原先在 `_invoke_runtime` 返回后才执行的那段代发,并作为
+`on_plain_text_delivery` 交给 runtime。**分层没有倒挂**:回调是数据往下流,而"投递
+意味着什么"仍然全部留在这里 —— @mention 解析(工作交接靠它)、级联封顶(bus 策略)、
+run id 盖章(transcript 靠它打开某一行背后的那一轮)。runtime 只决定这次投递**算不算
+一次回复**。
+
+事后那段必须删掉,不能留着:房间会把每句话说两遍,而"房间重复发言"比它要修的记账问题
+更糟。有测试钉住"恰好贴一次"。
+
+event_id 现在取 `watched_run_id[0]`(`on_event_id` 填的),因为回调跑在
+`_invoke_runtime` 返回之前,那时还没有返回值可用。**这一点连带改了两个测试的桩**:
+它们此前只 `return ("text", "evt")`,现在必须像 runtime 那样先报 run id、再把纯文本交给
+deliverer —— 桩不模拟真实时序,测的就不是真实链路。
+
+`send_message` 失败时回调返回 False,于是 step_3 不发帧:那一轮确实没回复,记忆里也就
+不会出现一条房间从没收到的话。
+
+## 2026-08-13 (review 后) — 三处自我纠正
+
+**① 记账修对了,冷启动一分没修 —— 而我声称修好了。** 详见
+[[chat_module]] 同日条目。此处只记教训:那一批测试全在孤立地验
+`_delivered_to_origin` 和摘要文案,**没有一条走落盘**,于是"行类型跟着投递走"这个
+断言从头到尾没被检验过。文件名承诺了一件事,四条测试一条也没验它。
+
+**② team 房间的错误面被删掉了。** 投递搬进 turn 之后,`collection.is_error` 时
+`_invoke_runtime` 返回的那条 ⚠️ 在 team lane 没有任何消费方 —— 而 turn 内那条路是
+**刻意**在 loop 失败时不投递的(免得半截明文读起来像答案)。两头一夹,fatal 的 team
+turn 变成"房间完全沉默"或"没标记的半截话"。
+
+`_invoke_runtime` 因此返回三元组,team 分支在 `run_failed` 时**以房间身份**
+(`from_agent=channel_owner`,即 `team_<id>` 标记)贴出通知。**刻意不走
+`_post_to_room`**:那条路会解析 @mention(把队友拖进一次故障)、盖 run id、并被记成
+agent 的一次回复 —— 在一个专门消除假账的改动里再造一笔假账。
+
+沉默是这里最坏的结局:@ 了这个 agent 的队友分不清"不感兴趣"和"坏了",交接原地停死。
+这正是 2026-04-20 那条通知存在的理由。
+
+**③ 3.4.T 漏了取消门。** 取消是 Step 4 之后才抛(为了让被打断的 turn 也进历史),
+所以 step_3 一定跑到底。缺这个门的代价不止是多一行:`_post_to_room` 会解析 @mention,
+于是一轮**被用户中止的** turn 能把工作级联给房间里其他 agent,各自跑一整轮。判定抽成
+`_should_deliver_team_reply` 纯函数 —— 和同文件 `_should_run_helper_llm_fallback`
+同一个形状,否则这个门测不了(我第一版测试在测试里重写了一遍条件,生产代码删掉门它
+照样绿)。
+
+## 2026-08-13 (review 后) — 通知只在 fatal 时发,且失败要留痕
+
+**判据统一。** 通知此前看 `collection.is_error`(任何错误帧),而 turn 内投递的门看
+`captured_error`(只有抛异常)—— 两个不相交的判据。差集正好是两条真实路径:
+recoverable 抖动 → 房间收到**正确答案 + 一条假的 ⚠️**;没抛出来的 fatal → 房间收到
+**没标记的半截话 + ⚠️**,而 agent 自己历史里一个字都没有。现在两端都读 `severity`
+(见 [[run_collector]]),`is_fatal` 才发通知。
+
+顺带修掉一个既有行为:一次 provider 抖动会把整轮真实回复替换成 ⚠️。现在 recoverable
+时返回真实输出,DM lane 的 inbox 也跟着受益。
+
+**通知发送失败不再静默。** 原先用 `contextlib.suppress(Exception)` —— 而它保护的正是
+房间**唯一**的故障可见面。失败无痕会让"房间安静了"退化成两个无法区分的原因:代码没跑
+到,还是跑到了但发不出去。异常仍然吞(通知是 best-effort,不该拖挂 turn;而且这段在
+`ack_processed` 之后,抛出去会触发 `record_failure` 把这条消息推向 poison 阈值 ——
+把"通知没发出"升级成"这条消息永远投不出去"),但必须留一条 warning。

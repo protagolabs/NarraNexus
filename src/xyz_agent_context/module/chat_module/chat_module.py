@@ -415,17 +415,21 @@ class ChatModule(XYZBaseModule):
         return im_reply, direct_notify, combined
 
     @staticmethod
-    def _delivered_to_origin(working_source: str, agent_loop_response: list) -> bool:
-        """Did ANY reply tool deliver to whoever contacted the agent?
+    def _origin_delivered_text(working_source: str, agent_loop_response: list) -> str:
+        """What this turn actually said to whoever contacted it, or "".
 
-        The origin-delivery question, distinct from owner visibility: a bus
-        turn that answered its peer via ``bus_send_message`` delivered fine
-        even though the owner saw nothing. This is the live consumer of the
-        handler's full ``user_reply_tool_names`` (owner-visible consumers
-        use the owner subset) — it drives the [DELIVERED-BG]/[NO-REPLY-BG]
-        split below, which is the no-reply metric the delivery-fallback
-        decision reads. Fail-open to False: a registry hiccup only makes
-        the row read as silent, never crashes persistence.
+        The twin of `_delivered_to_origin`: same extractor, same full
+        `user_reply_tool_names` list, but it returns the TEXT rather than a
+        verdict, because a turn that replied has to be able to record what it
+        replied WITH.
+
+        Deliberately the origin extractor and not the owner-visible one. A team
+        room's reply reaches the room, not the owner's chat panel, so the
+        owner-visible gate says None for it — correctly, and that gate must keep
+        saying None or every team reply would re-anchor the owner's session.
+        "Did the owner see it" and "is this a real thing the agent said" are
+        different questions, and only the second one decides whether the agent
+        can remember it next turn.
         """
         from xyz_agent_context.schema import ProgressMessage
         from xyz_agent_context.channel.message_source_handler import (
@@ -434,18 +438,36 @@ class ChatModule(XYZBaseModule):
 
         try:
             handler = MessageSourceRegistry.get(working_source)
+            parts: list[str] = []
             for response in agent_loop_response or []:
                 if not (isinstance(response, ProgressMessage) and response.details):
                     continue
-                if handler.extract_reply_text(
+                text = handler.extract_reply_text(
                     response.details.get("tool_name", ""),
                     response.details.get("arguments", {}) or {},
-                ):
-                    return True
-        except Exception as e:  # noqa: BLE001 — metric, never turn-fatal
-            logger.warning(f"_delivered_to_origin detection failed: {e}")
-            return False
-        return False
+                )
+                if text and text.strip():
+                    parts.append(text.strip())
+            return "\n\n".join(parts)
+        except Exception as e:  # noqa: BLE001 — never turn-fatal
+            logger.warning(f"_origin_delivered_text extraction failed: {e}")
+            return ""
+
+    @classmethod
+    def _delivered_to_origin(cls, working_source: str, agent_loop_response: list) -> bool:
+        """Did ANY reply tool deliver to whoever contacted the agent?
+
+        The origin-delivery question, distinct from owner visibility: a bus turn
+        that answered its peer via ``bus_send_message`` delivered fine even
+        though the owner saw nothing.
+
+        Expressed in terms of `_origin_delivered_text` rather than repeating the
+        scan. The two were line-for-line copies of one extraction, and their
+        agreeing is exactly what makes the row-shape logic below correct — a
+        divergence (say, one of them learning to skip a tool) would be silent
+        and would show up as rows filed the wrong way.
+        """
+        return bool(cls._origin_delivered_text(working_source, agent_loop_response))
 
     @staticmethod
     def _build_activity_summary(
@@ -1243,6 +1265,28 @@ class ChatModule(XYZBaseModule):
                 else "(Agent decided no response needed)"
             )
         is_no_response = assistant_content == "(Agent decided no response needed)"
+
+        # A turn that DID reply, just not somewhere the owner can see, is not a
+        # turn with no response. The owner-visible split says nothing here on
+        # purpose: a team room's reply lands in the room, and the gate that
+        # keeps it out of `assistant_content` is the same gate that stops every
+        # team reply from re-anchoring the owner's chat session.
+        #
+        # But "the owner did not see it" was being read as "nothing was said",
+        # so the row became an `activity` row and both history loaders dropped
+        # it — the agent came back to a room it had no memory of speaking in.
+        # Recording delivery without recording WHAT was delivered fixed the
+        # metric and left the amnesia in place.
+        # `turn_interrupted` cannot be true here — an interrupted turn's fallback
+        # text is "(Interrupted by user)", which is not the no-response marker.
+        if is_no_response:
+            delivered_text = self._origin_delivered_text(
+                working_source, params.agent_loop_response
+            )
+            if delivered_text:
+                assistant_content = delivered_text
+                is_no_response = False
+                assistant_meta["delivered_to_origin"] = True
         if turn_interrupted:
             assistant_meta["interrupted"] = True
 
@@ -1351,29 +1395,28 @@ class ChatModule(XYZBaseModule):
             # silent". The distinction IS the no-reply metric: counting
             # delivered bus turns as NO-REPLY is what poisoned the 8/1
             # numbers and would poison the fallback decision built on them.
-            delivered_to_origin = self._delivered_to_origin(
-                working_source, params.agent_loop_response
-            )
+            # Reaching here means the turn said nothing to ANYONE: a turn that
+            # delivered to its origin had its text recovered further up and left
+            # `is_no_response` False, so it never arrives in this branch. There
+            # used to be a `delivered_to_origin` split here with its own
+            # [DELIVERED-BG] log; once the recovery above existed that branch
+            # became unreachable, and a log line that can never print is worse
+            # than none — anyone watching it would read "no bus turn ever
+            # delivers".
             activity_summary = self._build_activity_summary(
-                working_source, shared_meta, delivered_to_origin=delivered_to_origin
+                working_source, shared_meta
             )
-            if delivered_to_origin:
-                logger.info(
-                    f"[DELIVERED-BG] event_id={params.event_id} working_source={working_source} "
-                    f"delivered to origin via channel tools (not owner-visible); writing activity row"
-                )
-            else:
-                logger.info(
-                    f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
-                    f"writing activity row (background trigger, no user-facing reply)"
-                )
+            logger.info(
+                f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
+                f"writing activity row (background trigger, no reply of any kind)"
+            )
             messages.append({
                 "role": "assistant",
                 "content": activity_summary,
                 "meta_data": {
                     **assistant_meta,
                     "message_type": "activity",
-                    "delivered_to_origin": delivered_to_origin,
+                    "delivered_to_origin": False,
                 },
             })
 

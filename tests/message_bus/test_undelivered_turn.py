@@ -54,6 +54,17 @@ async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
 
 def _returns(monkeypatch, trigger, result: TurnResult):
     async def _fake(*_a, **_k):
+        # A team room's reply is posted from INSIDE the turn now (the chat rows
+        # are written before `run()` returns, so a post made afterwards cannot
+        # be recorded as a reply). A stub therefore has to do what the runtime
+        # does — report the run id, then hand the plain text to the deliverer —
+        # or it exercises a path production no longer takes.
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id(result.event_id or "evt_stub")
+        deliver = _k.get("on_plain_text_delivery")
+        if deliver is not None and result.text and not result.fatal:
+            await deliver(result.text)
         return result
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake)

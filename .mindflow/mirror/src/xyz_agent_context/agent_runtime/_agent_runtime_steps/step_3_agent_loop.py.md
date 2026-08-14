@@ -663,3 +663,56 @@ Chat history is injected into the system prompt (not as native multi-turn messag
 - Trying to add module data gathering here: all data gathering belongs in `ContextRuntime` (which calls `hook_data_gathering` on each module). This step only orchestrates.
 - Assuming `ctx.execution_result` is set inside this generator: the router (`step_3_execute_path.py`) sets it after intercepting the `PathExecutionResult` yield.
 - Forgetting that `skill_env_vars` must be a `dict[str, str]` — passing any other type will cause the SDK subprocess to reject it silently.
+
+## 2026-08-12 — `_emit_team_room_delivery`:平台代发也要先确认再记账
+
+team 房间是唯一"你的纯文本**就是**消息"的表面 —— 它的回复面被整体清空,agent 连投递
+工具都调不到。于是 turn 的 trace 里没有任何东西说"回复过",`_delivered_to_origin`
+**正确地**得出"没回复":每一轮 team turn 都记成 no reply sent,落成 activity 行,而
+下一轮的历史加载器会丢掉 activity 行。这就是 team 房间每轮冷启动的成因。
+
+投递因此搬进 turn 里(见 [[message_bus_trigger]] 同日条目):会话行由
+`hook_persist_turn` 在 `run()` 返回**之前**写完,trigger 事后再贴,账已经结了。
+
+**但不能乐观地合成伪帧。** 本文件下面 IM DM fallback 那段自己立了规矩:
+帧只在**渠道确认发送之后**才发出,因为给一条从未离开进程的消息记"已回复",和我们
+正在修的"纯文本被丢弃"是同一类谎。所以 `deliver` 返回 True 才 yield 帧;返回 False
+或抛异常都不发 —— 那一轮**确实**没回复。
+
+`deliver` 的语义归调用方(mention 解析、级联封顶、run id 盖章),这里只决定它**算不算**。
+
+帧骑的是 `bus_send_message`:它在 message_bus handler 的 `user_reply_tool_names` 里,
+但**不在** `owner_visible_reply_tool_names` 里。这个不对称是承重的 —— 提升它会让每次
+团队回复重新锚定 owner 的会话(PR #230 修过一次的 bug),有专门测试钉住。
+
+## 2026-08-13 — `_should_deliver_team_reply`:两个必须挡住的情形
+
+3.4.T 位于 loop 的 `try/except` **之后**,所以"不该投递"的每一个理由都得在那里显式
+检查,而且写成内联 `if` 就既容易漏又测不了。抽成命名谓词,和同文件
+`_should_run_helper_llm_fallback` 同一个形状。
+
+* **`captured_error`** —— loop 死了。`state.final_output` 此时是断掉之前流出来的部分,
+  贴出去就是把一句没写完的话摆在整个房间面前,而它读起来像答案。故障由 trigger 侧
+  以房间身份单独通知。
+* **`cancelled`** —— owner 点了停止。`CancelledByUser` 只在 step 4 之后才抛(为了让被
+  打断的 turn 也进历史),所以这段代码一定会跑到,必须自己查。漏掉的代价不只是多一行:
+  投递路径会解析 @mention,于是一轮**被用户杀掉的** turn 能把队友唤醒去跑各自的一整轮。
+  本文件两条 helper-LLM fallback 流早就设了同一个门,只有这条 lane 漏了。
+
+## 2026-08-13 (review 后) — 两个判据合一,阶段整体可测
+
+**`_turn_hit_a_fatal` 取代了裸 `captured_error`。** `captured_error` 只在 loop **抛
+异常**时被赋值,而 `auth_expired` / `config_actionable` 标着 `severity="fatal"` 却是
+**return 一个帧**,不 raise —— 于是门看不见它们,fatal 的一轮照样把断掉之前流出来的
+半截明文贴进房间。判定复用 `chat_module._detect_fatal_error_in_agent_loop`,不造第三份
+副本:平台不该对"这轮成没成"持有两种意见。
+
+**`_emit_team_room_delivery` 拆成 `_post_team_room_reply`(返回 bool)+
+`_team_room_reply_frame`(调用点造帧)。** 原先是 async generator —— 一个没人迭代的
+async generator**什么都不做,而且是静默的**,这对"决定一轮会不会被记住"的唯一代码路径
+是很差的形状。
+
+**整个阶段抽成 `_team_room_delivery_phase`。** 门和投递各自可测并不够:没有任何测试
+覆盖**它们怎么被接在一起**。把门的结果换成 `team_deliver is not None`、或把
+`captured_error` 误传 None,这一片的测试**全部保持绿色** —— 本次会话已经栽过同一类
+坑三次。现在阶段整体有 6 条测试,并且实测过"把门换成裸判断会让 3 条变红"。

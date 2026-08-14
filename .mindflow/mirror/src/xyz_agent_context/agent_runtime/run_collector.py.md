@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-07-30
+last_verified: 2026-08-13
 stub: false
 ---
 
@@ -133,3 +133,17 @@ trigger 可以忽略。
 message (kind ∈ thinking|tool|response|error). Opt-in (default None → zero overhead for every
 existing trigger); the team bus path uses it to mirror a live activity status
 ([[_bus_activity]]). Never raises — exceptions are swallowed so status can't break the run.
+
+## 2026-08-13 — `RunError.severity` 与 `is_fatal`:`is_error` 不是"这轮失败了"
+
+`is_error` 由**任何** ERROR 帧置位,包括 `severity="recoverable"` —— 那类帧是 loop
+吸收掉、随后照常产出**正确回复**的抖动(provider 429/5xx)。把它读成"这轮失败了"的
+后果有两种,都真实发生过:bus lane 把整轮真实回复替换成 ⚠️;team 房间因为通知是单独
+贴的,于是**同时**收到正确答案和一条"我处理不了你的消息"。
+
+`is_fatal` 才是"这轮有没有可用输出"的答案。未标注 severity 的错误按 fatal 处理 ——
+把可能为空的一轮当成成功,是两个方向里更有害的那个。
+
+**fatal 是粘性的**:收集时 `error` 是"last error wins",对 fatal 不适用 —— 先 fatal
+后 recoverable 的一轮仍然没有可用输出,让后来的帧覆盖掉结论会把坏掉的轮次呈现成好的。
+所以全程扫到过 fatal 就在收尾时压住 severity。

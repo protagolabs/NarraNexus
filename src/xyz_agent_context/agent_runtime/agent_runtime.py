@@ -263,6 +263,7 @@ class AgentRuntime:
         forced_narrative_id: Optional[str] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
+        on_plain_text_delivery: Optional[Any] = None,
         silent: bool = False,
         turn_profile: Optional["TurnProfile"] = None,
     ) -> AsyncGenerator:
@@ -416,6 +417,7 @@ class AgentRuntime:
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
+                on_plain_text_delivery=on_plain_text_delivery,
                 turn_profile=turn_profile,
             )
 

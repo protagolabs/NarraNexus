@@ -83,7 +83,12 @@ def _trigger(db, reply: str = "on it"):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        return (reply, "evt_turn")
+        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+
+        cb = kwargs.get("on_plain_text_delivery")
+        if cb is not None and reply.strip():
+            await cb(reply)
+        return TurnResult(text=reply, event_id="evt_turn")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t
@@ -271,3 +276,183 @@ async def test_a_backlog_the_scrollback_covers_is_cleared(db_client):
 
     assert await _read_cursor(db_client) is not None
     assert await trigger._bus.get_unread(ME) == []
+
+
+# ── the reply is posted from inside the turn ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_the_team_reply_is_posted_exactly_once(db_client):
+    """The delivery moved into the turn; the trigger must not also post.
+
+    The room post has to happen before `run()` returns, because the chat rows
+    are written inside it — a post that lands afterwards cannot be recorded as
+    a reply, which is why every team turn used to file as "no reply sent". The
+    hazard of moving it is the obvious one: leaving the old call site in place
+    posts the same reply twice, and a room that double-speaks is worse than the
+    accounting bug being fixed.
+    """
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    await _post(trigger._bus, mentions=[ME])
+
+    delivered: list[str] = []
+
+    async def _invoke(**kwargs):
+        cb = kwargs.get("on_plain_text_delivery")
+        assert cb is not None, "the team lane must hand the runtime a deliverer"
+        assert await cb("on it") is True
+        delivered.append("on it")
+        return ("on it", "evt_turn")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ME)
+
+    mine = [
+        m for m in await trigger._bus.get_recent_messages(CHANNEL, limit=10)
+        if m.from_agent == ME
+    ]
+    assert [m.content for m in mine] == ["on it"]
+    assert delivered == ["on it"]
+
+
+@pytest.mark.asyncio
+async def test_the_deliverer_still_parses_mentions_and_stamps_the_run(db_client):
+    """What delivery MEANS stays in the trigger.
+
+    Mention parsing, the agent-hop cap and the run-id stamp are bus concerns;
+    the runtime only decides whether the post counted. Moving the call must not
+    quietly drop them — @mentions are how work is handed on, and without the
+    stamp the transcript cannot open the turn behind a line.
+    """
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    await _post(trigger._bus, mentions=[ME])
+
+    async def _invoke(**kwargs):
+        # Real ordering: Step 0 mints the run id and the runtime reports it
+        # long before the reply is delivered at the end of the turn.
+        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+
+        await kwargs["on_event_id"]("evt_turn")
+        await kwargs["on_plain_text_delivery"]("@Pat can you take the index?")
+        return TurnResult(text="@Pat can you take the index?", event_id="evt_turn")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ME)
+
+    posted = [
+        m for m in await trigger._bus.get_recent_messages(CHANNEL, limit=10)
+        if m.from_agent == ME
+    ][0]
+    assert posted.mentions == [PEER]
+    assert posted.event_id == "evt_turn"
+
+
+@pytest.mark.asyncio
+async def test_a_peer_dm_gets_no_deliverer(db_client):
+    """Only team rooms auto-post. A DM reply goes to the inbox, and handing
+    that lane a deliverer would post it into the channel as well."""
+    trigger = _trigger(db_client)
+    await db_client.insert("bus_channels", {
+        "channel_id": "ch_dm", "name": "dm", "channel_type": "direct",
+        "created_by": PEER,
+    })
+    for aid in (ME, PEER):
+        await db_client.insert(
+            "bus_channel_members", {"channel_id": "ch_dm", "agent_id": aid}
+        )
+        await db_client.insert(
+            "agents", {"agent_id": aid, "agent_name": aid, "created_by": "usr_1"}
+        )
+    await trigger._bus.send_message(
+        from_agent=PEER, to_channel="ch_dm", content="ping",
+    )
+    seen: dict = {}
+
+    async def _invoke(**kwargs):
+        seen["cb"] = kwargs.get("on_plain_text_delivery")
+        return ("pong", "evt_turn")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ME)
+
+    assert seen["cb"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_team_turn_tells_the_room(db_client):
+    """The room's only window onto a broken agent.
+
+    Moving delivery into the turn took this with it: on a failed run the trigger
+    gets a ⚠️ notice instead of the agent's text, and the team lane had stopped
+    reading its return value. The in-turn path cannot cover it either — it is
+    gated on the loop NOT having failed, so a half-streamed fragment never reads
+    as an answer.
+
+    Silence is the worst outcome here: a teammate that @mentioned this agent
+    cannot tell "not interested" from "broken", and the hand-off just stops.
+    """
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    await _post(trigger._bus, mentions=[ME])
+
+    async def _invoke(**kwargs):
+        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+
+        # What `_invoke_runtime` returns on a fatal run: the notice text, and
+        # `fatal` saying it is one rather than the agent's words.
+        return TurnResult(
+            text="⚠️ I couldn't process your message right now (auth). key dead",
+            event_id=None, fatal=True,
+        )
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ME)
+
+    posted = await trigger._bus.get_recent_messages(CHANNEL, limit=10)
+    notices = [m for m in posted if "couldn't process" in m.content]
+    assert len(notices) == 1
+    # As the ROOM, not as the agent: it is not a reply the agent made, and it
+    # must not count as one or drag teammates in through @mentions.
+    assert notices[0].from_agent.startswith("team_")
+    assert notices[0].mentions is None
+    # And nothing was posted under the agent's own name.
+    assert [m for m in posted if m.from_agent == ME] == []
+
+
+@pytest.mark.asyncio
+async def test_a_transient_hiccup_does_not_announce_a_failure(db_client):
+    """The dual of the test above, and the failure it guards is worse than a
+    missing notice: a notice that is not true.
+
+    "Failed" was read two different ways — the notice fired on ANY error frame,
+    while the in-turn delivery gate only looked at whether the loop raised. A
+    recoverable provider blip sets the first and not the second, so the room got
+    the correct answer AND "I couldn't process your message". A failure surface
+    that cries wolf during every provider wobble is one nobody believes when it
+    finally matters.
+    """
+    trigger = _trigger(db_client)
+    await _seed_team_room(db_client)
+    await _post(trigger._bus, mentions=[ME])
+
+    async def _invoke(**kwargs):
+        # What `_invoke_runtime` returns after a recoverable hiccup: the real
+        # reply, and run_failed=False.
+        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+
+        await kwargs["on_event_id"]("evt_turn")
+        await kwargs["on_plain_text_delivery"]("here is your answer")
+        return TurnResult(text="here is your answer", event_id="evt_turn")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ME)
+
+    posted = await trigger._bus.get_recent_messages(CHANNEL, limit=10)
+    assert [m.content for m in posted if m.from_agent == ME] == ["here is your answer"]
+    assert [m for m in posted if "couldn't process" in m.content] == []

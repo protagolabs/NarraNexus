@@ -93,7 +93,7 @@ async def test_invoke_runtime_stamps_marker_into_trigger_extra_data(monkeypatch)
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
         return SimpleNamespace(
-            is_error=False, output_text="ok", event_id="evt_1", error=None,
+            is_error=False, is_fatal=False, output_text="ok", event_id="evt_1", error=None,
             tool_calls=[]
         )
 

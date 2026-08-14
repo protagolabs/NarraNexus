@@ -53,10 +53,18 @@ class RunError:
         error_message: Human-readable explanation. May be surfaced to
             the owner in web chat verbatim, or replaced by a friendlier
             text for IM channels where the sender is not the owner.
+        severity: What the failure means for the turn's OUTPUT.
+            ``"recoverable"`` — a transient provider hiccup that the loop
+            absorbed; it kept going and produced a real reply, so a consumer
+            that treats this as "the turn failed" will discard a correct
+            answer or announce a failure that did not happen.
+            ``"fatal"`` — the turn has no usable output.
+            Empty when the runtime did not say.
     """
 
     error_type: str
     error_message: str
+    severity: str = ""
 
 
 @dataclass
@@ -90,7 +98,27 @@ class RunCollection:
 
     @property
     def is_error(self) -> bool:
+        """Any failure frame reached the collector, recoverable ones included.
+
+        Consumers deciding whether the turn produced usable OUTPUT want
+        ``is_fatal`` instead: a recoverable hiccup sets this while the loop goes
+        on to answer correctly, so treating it as failure means discarding a
+        real reply — or announcing a breakdown that did not happen.
+        """
         return self.error is not None
+
+    @property
+    def is_fatal(self) -> bool:
+        """The turn has no usable output.
+
+        True when the runtime marked a failure ``fatal``, or when it gave no
+        severity at all — an unlabelled error is treated as the worse case,
+        since presenting a possibly-empty turn as a success is the more harmful
+        direction.
+        """
+        if self.error is None:
+            return False
+        return self.error.severity != "recoverable"
 
 
 async def collect_run(
@@ -137,6 +165,7 @@ async def collect_run(
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    saw_fatal = False
     event_id: Optional[str] = None
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
@@ -179,10 +208,19 @@ async def collect_run(
             # Last error wins — keep the most specific failure the run
             # reached (typically there's only one, but AgentRuntime may
             # yield a generic + specific pair in edge cases).
+            severity = str(getattr(msg, "severity", "") or "")
             error = RunError(
                 error_type=getattr(msg, "error_type", "unknown"),
                 error_message=getattr(msg, "error_message", str(msg)),
+                severity=severity,
             )
+            # Fatality is sticky, because "last error wins" is the wrong rule
+            # for it: a run that hits a fatal and then emits a recoverable
+            # follow-up frame is still a run with no usable output, and letting
+            # the later frame overwrite the verdict would present a broken turn
+            # as a working one.
+            if severity == "fatal":
+                saw_fatal = True
 
         # Raw payload on any message type (Lark needs it from TOOL_CALL
         # events; other triggers simply ignore the list).
@@ -258,6 +296,13 @@ async def collect_run(
                     except Exception:  # noqa: BLE001 — status must never break the run
                         logger.opt(exception=True).warning("on_event_id callback failed")
 
+    # A fatal seen anywhere in the run outranks whatever the last frame said.
+    if error is not None and saw_fatal and error.severity != "fatal":
+        error = RunError(
+            error_type=error.error_type,
+            error_message=error.error_message,
+            severity="fatal",
+        )
     return RunCollection(
         output_text="".join(text_parts),
         tool_calls=tool_calls,

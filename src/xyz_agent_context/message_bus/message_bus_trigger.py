@@ -146,6 +146,11 @@ class TurnResult:
     text: str
     event_id: Optional[str]
     delivered: bool = False
+    #: The turn produced no usable output at all — a distinct question from
+    #: ``delivered`` ("did anything reach a recipient"). A fatal turn's ``text``
+    #: is a failure notice, not the agent's words, so a consumer that posts
+    #: plain text needs to know not to.
+    fatal: bool = False
 
     @property
     def reached_nobody(self) -> bool:
@@ -960,6 +965,56 @@ class MessageBusTrigger:
                     if note_event_id is not None:
                         await note_event_id(run_id)
 
+                # Set by the deliverer so the post-turn bookkeeping below can
+                # tell a lost reply from a delivered one.
+                room_post_failed: list[Exception | None] = [None]
+
+                async def _post_to_room(text: str) -> bool:
+                    """Put the agent's plain text into the room. True if it landed.
+
+                    Handed to the runtime so the post happens INSIDE the turn:
+                    the chat rows are written by `hook_persist_turn` before
+                    `run()` returns, so a post made after it cannot be recorded
+                    as a reply — which is why a team turn used to file as "no
+                    reply sent" and start the next one cold.
+
+                    What delivery MEANS stays here: @mention parsing is how work
+                    is handed on, the hop cap is a bus policy, and the run-id
+                    stamp is what lets the transcript open the turn behind a
+                    line. The runtime only decides whether the post counted.
+                    """
+                    mentions = self._extract_team_mentions(text, member_map)
+                    # Cap agent↔agent cascades: if too many agent hops have
+                    # piled up since the last human message, stop propagating
+                    # @mentions so two agents can't loop forever.
+                    if mentions:
+                        depth = await self._team_cascade_depth(channel_id)
+                        if depth >= MAX_TEAM_AGENT_HOPS:
+                            logger.info(
+                                f"Team cascade depth {depth} >= "
+                                f"{MAX_TEAM_AGENT_HOPS} in {channel_id}; "
+                                f"dropping @mentions to break the loop"
+                            )
+                            mentions = []
+                    try:
+                        await self._bus.send_message(
+                            from_agent=agent_id,
+                            to_channel=channel_id,
+                            content=text,
+                            mentions=mentions or None,
+                            # Stamp the reply with the turn that produced it, so
+                            # the transcript can open this turn's full event_log.
+                            event_id=watched_run_id[0] or None,
+                        )
+                    except Exception as post_err:  # noqa: BLE001
+                        # Returning False keeps the books honest: the turn did
+                        # not reach the room, so nothing records that it did.
+                        # The loss is announced after the turn, where the
+                        # already-built machinery for it lives.
+                        room_post_failed[0] = post_err
+                        return False
+                    return True
+
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
                 # execution `prompt` is far noisier. See 2026-06-01 design.
@@ -988,6 +1043,11 @@ class MessageBusTrigger:
                     # must learn it from the server, never from a model
                     # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
+                    # Team rooms only: this is the one surface whose contract
+                    # is "your plain text IS the message". A DM reply goes to
+                    # the inbox, and handing that lane a deliverer would post
+                    # it into the channel as well.
+                    on_plain_text_delivery=_post_to_room if is_team else None,
                     # Same fact, module-side consumer: the team room must NOT
                     # advertise bus tools as its reply surface (plain text
                     # auto-posts; the prompt forbids delivery tools), so the
@@ -1015,39 +1075,48 @@ class MessageBusTrigger:
 
             if turn.text:
                 if is_team:
-                    # Post the reply back into the shared room as this agent.
-                    # Parse @mentions so an agent can hand off to a teammate
-                    # (e.g. "@rabbit can you summarise?") and pull them in.
-                    mentions = self._extract_team_mentions(turn.text, member_map)
-                    # Cap agent↔agent cascades: if too many agent hops have
-                    # piled up since the last human message, stop propagating
-                    # @mentions so two agents can't loop forever.
-                    if mentions:
-                        depth = await self._team_cascade_depth(channel_id)
-                        if depth >= MAX_TEAM_AGENT_HOPS:
-                            logger.info(
-                                f"Team cascade depth {depth} >= {MAX_TEAM_AGENT_HOPS} "
-                                f"in {channel_id}; dropping @mentions to break the loop"
+                    # The post itself already happened, inside the turn (see
+                    # `_post_to_room`). Doing it again here would make the room
+                    # say everything twice; what is left is the case where it
+                    # did NOT land.
+                    if turn.fatal:
+                        # `turn.text` is a failure notice, not the agent's
+                        # words, and the in-turn delivery deliberately refuses
+                        # to post on a fatal run (a half-streamed fragment
+                        # would read as an answer). Nothing else would reach
+                        # the room, so a teammate that @mentioned this agent
+                        # could not tell "not interested" from "broken" — the
+                        # hand-off just stops. Posted as the ROOM: it is not a
+                        # reply the agent made, and routing it through the
+                        # normal path would parse @mentions and drag teammates
+                        # into somebody else's failure.
+                        posted = False
+                        try:
+                            await self._bus.send_message(
+                                from_agent=channel_owner,
+                                to_channel=channel_id,
+                                content=turn.text,
                             )
-                            mentions = []
-                    try:
-                        await self._bus.send_message(
-                            from_agent=agent_id,
-                            to_channel=channel_id,
-                            content=turn.text,
-                            mentions=mentions or None,
-                            # Stamp the reply with the turn that produced it, so
-                            # the transcript can open this turn's full event_log.
-                            event_id=turn.event_id,
-                        )
-                    except Exception as post_err:  # noqa: BLE001 — see below
+                        except Exception as e:  # noqa: BLE001
+                            # Swallowed — a notice must not take the turn down
+                            # — but never silently: this is the room's only
+                            # window onto a broken agent, and a version that
+                            # fails without a trace makes "the room went quiet"
+                            # two indistinguishable causes.
+                            logger.warning(
+                                f"[team-room] could not post failure notice in "
+                                f"{channel_id}: {e}"
+                            )
+                    post_err = room_post_failed[0]
+                    if post_err is not None:
                         # The reply EXISTS and the room will never show it.
-                        # Deliberately handled here instead of falling through
-                        # to the generic handler: the cursor was advanced a few
-                        # lines up, so this message is already acked and
-                        # `record_failure` could only inflate a poison counter
-                        # for a delivery that will never be retried. What is
-                        # actually needed is for the loss to stop being silent.
+                        # Deliberately handled here instead of raising: the
+                        # cursor was advanced a few lines up, so this message is
+                        # already acked and `record_failure` could only inflate
+                        # a poison counter for a delivery that will never be
+                        # retried. What is needed is for the loss to stop being
+                        # silent — which is what this announcement does, and it
+                        # also keeps the text for the owner's inbox.
                         posted = False
                         await self._announce_failed_room_post(
                             agent_id, channel_id, trigger_message, turn, post_err
@@ -2634,10 +2703,17 @@ class MessageBusTrigger:
         # inline so the sender sees what went wrong.
         if collection.is_error:
             logger.warning(
-                f"[MessageBusTrigger] agent {agent_id} run failed in "
+                f"[MessageBusTrigger] agent {agent_id} run reported an error in "
                 f"channel {channel_id}: {collection.error.error_type}: "
-                f"{collection.error.error_message}"
+                f"{collection.error.error_message} "
+                f"(severity={collection.error.severity or 'unlabelled'})"
             )
+        # FATAL only. `is_error` is set by ANY error frame, recoverable ones
+        # included — and a recoverable hiccup is one the loop absorbed before
+        # going on to answer correctly. Reading it as "the turn failed" replaced
+        # that real reply with a failure notice, so one provider wobble cost the
+        # sender their answer.
+        if collection.is_fatal:
             return TurnResult(
                 text=(
                     f"⚠️ I couldn't process your message right now "
@@ -2645,6 +2721,7 @@ class MessageBusTrigger:
                     f"{collection.error.error_message}"
                 ),
                 event_id=collection.event_id,
+                fatal=True,
             )
 
         return TurnResult(
