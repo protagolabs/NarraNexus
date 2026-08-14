@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — §4.3 回写 `event_log`，不再只回写 `final_output`
+
+§4.3 一直只把一个字段同步回内存里的 Event：
+
+```python
+ctx.event.final_output = execution_result.final_output
+```
+
+而 `ctx.event` 是 §0 用 `event_log=[]` 造出来的（`_event_impl/crud.py`），
+**从创建到运行结束都没人给它赋过值**。于是 §4.3 之后所有拿 `ctx.event` 的下游
+（§4.4 的 narrative 更新、§5 的 hooks）被告知"这一轮什么都没干"—— 内存对象和刚
+写进库里的那一行**互相矛盾**。
+
+这个半同步已经咬过一次：2026-08-05 那条记录里的幽灵行，正是从这个内存对象复制
+出来的，签名里就有 `event_log='[]'`。
+
+第二次是 A1（narrative 抽取不看工具调用）。修 A1 时给 updater 加了
+`build_action_digest(event.event_log)`，把这一轮的工具动作压进检索面 —— 但
+`event.event_log` 是空的，**整个改动在生产上是个静默空转**，而单元测试因为自己
+手工构造 Event 全都是绿的。
+
+改动是一行，与既有的 `final_output` 回写并排：
+
+```python
+ctx.event.final_output = execution_result.final_output
+ctx.event.event_log = event_log_entries
+```
+
+钉住它的测试：`tests/agent_runtime/test_step4_event_log_sync.py`。其中
+`test_synced_event_log_reaches_the_action_digest` 是**穿过真实 step_4** 跑的，
+不是手工构造 Event —— 这是唯一能让"内存对象撒谎"这类 bug 露头的测法。
+
+**给后来者的一般教训**：把库里更新过的字段回写内存对象时，**要么全部回写，要么
+一个都别回写**。挑一个回写最危险 —— 对象看起来是新鲜的，实际只有你当时关心的那
+个字段是新鲜的。
 
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 
