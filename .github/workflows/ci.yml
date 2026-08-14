@@ -39,6 +39,15 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check src/ backend/
 
+      # pyrightconfig.json is deliberately narrowed (typeCheckingMode off,
+      # only the two diagnostics that catch the recurring incident class:
+      # undefined names + attribute typos). It was green-but-unwired since
+      # PR #202; the 2026-08-14 lark NameError outage (#282 leftover) and
+      # the bus_list_team_files NameError (#255) are exactly what this step
+      # would have blocked.
+      - name: Pyright (undefined names + attribute typos)
+        run: uv run pyright
+
   # ── Frontend checks ─────────────────────────────────────────────────────
   frontend:
     name: Frontend Lint & Build

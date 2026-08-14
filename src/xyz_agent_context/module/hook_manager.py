@@ -121,7 +121,7 @@ class HookManager:
         - Dict fields (e.g., extra_data): deep merge
         - Simple fields: non-None values override
         """
-        from .ctx_data_merger import ContextDataMerger
+        from ._module_impl import ContextDataMerger
 
         logger.debug(f"        Parallel data_gathering for {len(module_list)} modules")
 

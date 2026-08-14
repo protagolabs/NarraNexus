@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — 新增 `resolve_agent_workspace_cwd`（channel-CLI 共享 CWD 解析）
+
+lark_cli_client 与 narra_cli_client 各自维护的 `_resolve_agent_workspace_cwd` +
+owner 缓存收敛为一份（PR#308 review Important-3）：owner 走 channel seam 的
+`get_agent_owner`（direct-db 与零凭据部署行为一致）、空 owner **不入缓存**（re-bind
+后可重解析）、mkdir -p 保证 CLI 有处可写、任何失败返回 None=继承父 CWD（只坏下载、
+不坏发送）。`log_tag` 参数保留 `[lark-cli]`/`[narra-cli]` 排障前缀。seam import 在
+函数内——本模块加载期仍零依赖。守卫测试在 test_lark_cli_cwd.py（共享缓存由 autouse
+fixture 清理，防 lark/narra 测试互染）。
 
 ## 2026-08-10 (review 修正) — 新增 `turn_accessible_roots`
 

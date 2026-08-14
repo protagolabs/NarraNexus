@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/module/hook_manager.py
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — `_parallel_data_gathering` 的死导入修复
+
+`from .ctx_data_merger import ContextDataMerger` 指向一个不存在的模块（真身在
+`_module_impl.ctx_merger`，早年搬家漏扫）——并行采集是默认关闭的旁路，全仓无人传
+`parallel_data_gathering=True`，所以这个 ImportError 潜伏至今，被 PR#308 接进 CI 的
+pyright（reportMissingImports warning）照出来。修复=改从 `._module_impl` 导入；新增
+test_hook_manager_parallel_import.py 真正驱动该分支，防止「文档写着能开、一开就炸」。
+
 ## 2026-08-14 — 依赖链回调实例改走 `spawn`
 
 `hook_callback_results` 里触发新激活实例的 `asyncio.create_task` 改为

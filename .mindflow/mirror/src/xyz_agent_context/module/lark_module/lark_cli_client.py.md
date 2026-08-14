@@ -16,13 +16,14 @@ zero-creds migration this file claimed to have finished:
   `patch_credential("lark", …)`; the envelope is checked and a failed
   write logs a warning (the seam never raises, so silence here would
   mean the migration retries invisibly on every call forever).
-- `_resolve_agent_workspace_cwd(agent_id)` lost its `db` parameter and
-  resolves `agents.created_by` through the seam's `get_agent_owner` —
-  byte-identical twin of narra_cli_client's resolver, works in both
-  direct-db and zero-cred deployments. An empty owner is NOT cached, so
-  a later re-bind re-resolves. The file is back to zero
-  `get_mcp_db_client`, keeping channel_store.py's "mcp can drop
-  DATABASE_URL" claim true.
+- CWD resolution lost its `db` parameter and resolves
+  `agents.created_by` through the seam's `get_agent_owner`; after
+  review Important-3 the lark and narra copies were merged into ONE
+  shared `workspace_paths.resolve_agent_workspace_cwd(agent_id,
+  log_tag="lark-cli")` — works in both direct-db and zero-cred
+  deployments. An empty owner is NOT cached, so a later re-bind
+  re-resolves. The file is back to zero `get_mcp_db_client`, keeping
+  channel_store.py's "mcp can drop DATABASE_URL" claim true.
 
 Regression tests in `test_lark_cli_cwd.py` drive `_run_with_agent_id`
 end-to-end (store/hydration/subprocess mocked) so any undefined name in
@@ -79,13 +80,13 @@ isolation). HOME is what `lark-cli` uses for config + OAuth tokens
 critical detail.
 
 ### Fix
-1. Module-level helper `_resolve_agent_workspace_cwd(agent_id)`
-   resolves `agents.created_by` → `user_id` (since 2026-08-14 via the
-   channel seam's `get_agent_owner`), computes the workspace
+1. Helper `resolve_agent_workspace_cwd(agent_id, log_tag=...)` (since
+   2026-08-14 the shared implementation in `utils/workspace_paths`)
+   resolves `agents.created_by` → `user_id` via the channel seam's
+   `get_agent_owner`, computes the workspace
    path via `attachment_storage.get_workspace_path(agent_id, user_id)`,
-   ensures it exists, and returns the `Path`. Result is cached in
-   `_agent_user_id_cache` (immutable per agent) so subsequent calls
-   don't re-query the DB.
+   ensures it exists, and returns the `Path`. Result is cached
+   (immutable per agent) so subsequent calls don't re-query.
 2. `_run_with_agent_id` calls the helper and forwards the result as
    the new `cwd=` parameter on `_exec_lark_cli`.
 3. `_exec_lark_cli` passes `cwd=str(cwd) if cwd else None` into
