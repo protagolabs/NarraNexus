@@ -32,6 +32,13 @@ from xyz_agent_context.utils.retry import (
     DEFAULT_RETRYABLE_EXCEPTIONS,
 )
 
+# Detached background tasks (incident lesson #2)
+from xyz_agent_context.utils.background_tasks import (
+    spawn,
+    pending as pending_background_tasks,
+    drain as drain_background_tasks,
+)
+
 # Database factory (global singleton)
 from xyz_agent_context.utils.db.db_factory import (
     get_db_client,
@@ -73,6 +80,10 @@ __all__ = [
     # Retry
     "with_retry",
     "DEFAULT_RETRYABLE_EXCEPTIONS",
+    # Background tasks
+    "spawn",
+    "pending_background_tasks",
+    "drain_background_tasks",
     # Database factory
     "get_db_client",
     "get_db_client_sync",

@@ -84,8 +84,16 @@ def _trigger(db, reply: str = "on it"):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
-
+        # `TurnResult`, not the old `(text, event_id)` tuple. Production
+        # switched on 2026-08-13 (delivery is a field, not an inference from a
+        # non-empty string); this stub kept returning a tuple and survived only
+        # because nothing on the path these tests take read an attribute off it.
+        # A stub that lies about the return type is a trap armed for whoever
+        # next touches the caller.
+        #
+        # The team-room post also happens INSIDE the turn now, so the stub has
+        # to hand the text to the deliverer the way the runtime does — these
+        # tests are about the read cursor, which only moves on a turn that ran.
         cb = kwargs.get("on_plain_text_delivery")
         if cb is not None and reply.strip():
             await cb(reply)

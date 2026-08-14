@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-04
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
+
+message bus trigger 的并发 turn 上限。这是**我们自己的**资源决策，不是对 agent 运行时长
+的限制（铁律 #14）：池子决定同时能服务几个房间，池子太小在用户那儿的表现就是「群聊死了」
+——恰恰是平台有责任避免的那个失效模式。
+
+写死成 3 让槽位短缺既**看不见**、又**必须改代码**才能修。8 是新的舒适下限：bus turn 几乎
+全是 await（LLM + DB），槽位很便宜，而一个团队房内部接力就能同时占掉好几个。
+
+槽位等待就在 `[bus-timing]` 行的 `queue_wait_s` 里面，所以调这个值再重跑
+`make latency-report` 是**可测量**的改动，不是拍脑袋。
+
+**跨仓依赖（再调之前必读）**：生产跑 `run_worker_supervisor`，poller + jobs + bus +
+所有 channel trigger 共享一个 asyncio loop、因而共享**一个 MySQL 池**。那个池的大小定
+在 deploy 仓 `stacks/narranexus-app/compose.yml` 的 `workers` 服务（`MYSQL_POOL_SIZE`），
+其注释的算式是「poller(3) + jobs(5) + bus + 每个 channel worker/subscriber」——本项就是
+算式里的 `bus` 项。在这边改而不回头看那个数，就是「bus 的改动变成 poller / jobs / 每个
+IM channel 一起说『数据库变慢了』」的由来。
+
+**为什么调高仍然便宜**：连接是**按查询**借还的，不是按 turn 占住。一个 bus turn 约 24
+秒里有 20 秒在等 LLM，那期间不占连接——这也是池子一直按「典型并发查询数」而非「理论
+任务数」来定的原因（光 channel trigger 每个就允许 50 个 worker）。
+
+**再往上调需要证据**：`service_audit` 里出现 `worker_starvation` 行才说明池子真的是瓶颈
+（见 `_check_worker_starvation`）；没有，就不是。
 
 ## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
 

@@ -118,6 +118,13 @@ class NarrativeRoutingAuditRepository:
             "retrieval_method": audit.retrieval_method,
             "chosen_narrative_id": audit.chosen_narrative_id,
             "is_new": int(audit.is_new),
+            # Passed through untouched, NULL included: None means "this tier
+            # did not run", and coercing it to 0 would make a skipped judge
+            # look like an instant one.
+            "continuity_ms": audit.continuity_ms,
+            "retrieve_ms": audit.retrieve_ms,
+            "keyword_ms": audit.keyword_ms,
+            "judge_ms": audit.judge_ms,
         }
 
     async def _store_snapshots(self, snapshots: Dict[str, str]) -> None:

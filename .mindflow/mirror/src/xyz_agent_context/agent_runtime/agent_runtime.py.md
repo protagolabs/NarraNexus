@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `[turn-timing]` 保持只进日志
+
+一度加过「同时写 `turn_timing` 表」，已撤回；理由见
+`mirror/scripts/diag_collector/latency_report.py.md`。四段的划分与行格式未变。
+
+## 2026-08-14 — Step 5-6 后台任务改走 `spawn`，不再裸 `create_task`
+
+`asyncio.create_task(_run_hooks_background())` 的返回值此前无人持有——教训 #2 的
+两半同时中招：循环只持弱引用，逃逸的异常也只在 GC 时冒个 warning。改用
+`utils.background_tasks.spawn`，task 名为 `post_turn_hooks:{agent}:{event}`。
+
+职责边界没变：协程内部的 try/except 仍然拥有**领域**失败（凭据告警、owner inbox、
+按模块隔离、`clear_cost_context`），`spawn` 只保证任务丢不了、死了有声。
+
+副作用是它顺手给测试开了口子——此前这个 task 没有任何句柄，
+`tests/agent_runtime/test_post_turn_hooks_background.py` 靠 `drain()` 才写得出来。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 

@@ -36,19 +36,23 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
 
 
 # Told to the gateway, which otherwise defends every client against
-# prefill-rejecting upstreams by appending a continuation turn to EVERY
-# conversation that ends with an assistant message. That defence costs a
-# repeated clause on backends that would have accepted the prefill, and
-# it cannot help a client that could simply retry. This loop can (see
-# ``NexusPowerLoop`` PREFILL_REJECTED), so it opts out and pays the cost
-# only on an actual rejection. The claude CLI cannot, so it stays
-# covered. Renaming this header is a deploy-repo lockstep change
-# (stacks/narranexus-app/litellm/prefill_compat.py).
+# prefill-rejecting upstreams by appending a continuation turn to every
+# conversation that ends with a TEXT-ONLY assistant message (tails carrying
+# tool_use / tool_calls are left untouched). That defence costs a repeated clause
+# on backends that would have accepted the prefill, and it cannot help a client
+# that could simply retry. This loop can (see ``NexusPowerLoop`` PREFILL_REJECTED),
+# so it INTENDS to opt out and pay the cost only on an actual rejection; the claude
+# CLI cannot, so it stays covered. Renaming this header is a deploy-repo lockstep
+# change (stacks/narranexus-app/litellm/prefill_compat.py) — but the consumer today
+# lives ONLY on the unmerged branch named below, so the two sides being out of sync
+# is safe: an unrecognised header just leaves the hook rewriting, i.e. today's
+# behaviour.
 # NOTE (2026-08-14): the gateway-side READER of this header is written but
 # UNMERGED (deploy branch fix/gateway-prefill-opt-out, 5df4f22, 2026-07-30);
 # on the currently-deployed branches prefill_compat.py does not read it, so this
-# opt-out is inert in prod (the gateway still appends the clause unconditionally)
-# until that branch lands. The header is sent regardless once base_url matches.
+# opt-out is inert in prod (the gateway still appends the clause to text-only
+# assistant tails) until that branch lands. The header is sent regardless once
+# base_url matches.
 PREFILL_SELF_HANDLED_HEADER = {"x-nexus-prefill-retry": "1"}
 
 # Hostnames of our own gateway. The header above is a private agreement

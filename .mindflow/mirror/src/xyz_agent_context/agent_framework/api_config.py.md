@@ -15,8 +15,8 @@ stub: false
 executor。网关侧验签见 deploy 仓 `stacks/narranexus-app/litellm/prefill_compat.py` 的
 `_enforce_identity`（读 `data["proxy_server_request"]["headers"]` 的该头、Ed25519 验签 +
 交叉校验 token `sub` **等于从 `free::<uid>` 别名剥出的裸 `uid`**，`NX_IDENTITY_VERIFY_MODE`
-**默认 `off`**、渐进 `off`→`audit`→`enforce`）——**该验签在 deploy `staging`（PR #20），deploy
-`dev`/`main` 分支的 prefill_compat 尚无此逻辑，别对着旧分支找**。
+**默认 `off`**、渐进 `off`→`audit`→`enforce`）——**该验签随 deploy promotion 推进：截至 2026-08-14
+在 deploy `staging`（PR #20），`dev`/`main` 分支的 prefill_compat 尚无此逻辑；先看 `staging`，别对着旧分支找**。
 
 > **`llm-gateway` 是承重项，不是可删的多余项**（2026-08-14 review 修正）：2026-08-07 RCE 整改后，
 > 云端 executor 落在 sandbox 网络，到网关的**唯一**可达入口是 `http://llm-gateway:4000`

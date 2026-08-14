@@ -3,6 +3,72 @@ code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
 last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14（二次）— 饥饿判定改用墙钟，因为周期在饥饿时会变稀
+
+第一版按「连续 N 个轮询周期」计数，单测全绿——**因为测试循环里周期是瞬间**。真机验证
+（`bus_max_workers=1`、两个 agent、@all）打脸：一次**真实 28 秒**的饥饿只产生了 **4 个
+周期**，而阈值是 5，告警根本没响。
+
+根因是自反馈：饥饿时 `_poll_cycle` 派发数为 0（候选都卡在信号量后面），于是自适应间隔
+从 3s 一路退避到 12s——**采样频率恰好在最该采样的时候降下来**。用周期计数当阈值，等于
+让被测量的现象自己决定测量精度。
+
+改成 `STARVATION_ALERT_AFTER_S = 20.0` 墙钟。测试同批换成注入的假时钟，并新增
+`test_cycle_frequency_does_not_change_the_verdict`：同样 30 秒的短缺，采样 2 次和采样
+40 次必须给出同一个判定；退回周期计数会让 `checks=2` 那条挂。
+
+真机复验通过：`service_audit` 落到
+`{"stage": "worker_starvation", "starved_for_s": 27, "running": 1, "waiting": 1,
+"max_workers": 1, "longest_running_agent": ...}`。
+
+## 2026-08-14 — 投递即唤醒（`_wake`）+ 槽位饥饿告警 + `MAX_WORKERS` 配置化
+
+三件事，都在 `start()` 这条线上。
+
+**`_wake` / `_sleep_until_due`**：验收⑤说的「零迹象窗口」不在一轮**之内**，在两轮
+**之间**——A 跑完投递，B 在这条消息里被 @，然后 B 要干等一个完整轮询间隔（3-12s）才被
+发现；三跳接力叠下来就是用户看到的大部分死寂。修法是一个 `asyncio.Event`：团队房投递
+成功后 set，poll 循环的 sleep 同时等 stop 和 wake。房间自己的投递来调度下一跳，而不是
+让定时器过一会儿才想起来。
+
+`_sleep_until_due` 每轮都取消两个 waiter（包括已完成的那个，取消是 no-op），否则每个
+轮询周期都会在 Event 上泄漏一个 waiter；`_wake_event.clear()` 放在 sleep 出口而不是调用
+点——留着不清会让**下一次** sleep 立刻返回，把循环转成空转。
+
+**覆盖范围**：本进程的**全部**投递——团队房回帖与 leader 巡查，两者统一走
+`_post_to_room`。agent 通过 `bus_send` MCP 工具发消息是在 MCP server **另一个进程**，
+进程内 Event 够不着，那条路仍走轮询。团队接力（PRD 的主战场）覆盖到了，peer DM 没有。
+要跨进程就得上 DB 信号 + 读取方，等 peer DM 延迟真成为抱怨再说。
+
+**`_post_to_room` 存在的理由不是"投递需要抽象"**（那就一行），而是**「投递」与「唤醒」
+不可分割**。它们曾经是可分的，于是两个调用点里漏了一个：巡查以房间自己的标记发言、且会
+@ 到成员，被 @ 的队友因此变成候选，却要干等一个完整自适应间隔——平台自己制造的死寂，比
+agent 慢更难看。守卫是**结构性**测试
+`tests/message_bus/test_bus_relay_wake.py::test_every_in_process_post_goes_through_the_waking_helper`：
+本模块内除 helper 自身外禁止出现 `self._bus.send_message(`。第三个调用点想漏，得先绕开
+这条测试。
+
+**`_check_worker_starvation`**：`liveness_snapshot()` 从 2026-07-27 那次 wedge 起就带着
+`running`/`waiting`/`max_workers`，docstring 也早写明「持续 running==max_workers 且
+waiting>0 = 池子是瓶颈」，但没人读它。这条延迟上很要紧：**槽位等待就在 `[bus-timing]` 行的 `queue_wait_s` 里面**，也就是验收①判定所依据的那一列——没有这个信号，
+池子饿死和「大家的 turn 都变慢了」长得一模一样。
+
+三个刻意的性质：要**持续**满足 `STARVATION_ALERT_AFTER_S` 墙钟才算（单个瞬间满载是池子在正常干活）；一个 streak **只告警一次**（满载一小时是一个问题不是六十个，每周期都响的
+告警没人看，教训 #3）；**纯诊断**——不取消、不停机、不改优先级（铁律 #14），也**不进
+owner inbox**（槽位不够是平台侧的事，owner 动不了，塞进去只会训练他忽略 inbox）。
+
+**`MAX_WORKERS` 挪到 `settings.bus_max_workers`，默认 3 → 8**。池子大小是**我们自己的**
+资源决策，不是对 agent 的限制（铁律 #14）；写死成 3 让槽位短缺既看不见、又必须改代码才能
+修。bus turn 几乎全是 await（LLM + DB），槽位很便宜，而一个团队房内部接力就能同时占掉
+好几个。改完重跑 `make latency-report` 能直接看出差别——这是可测的改动，不是拍脑袋。
+
+## 2026-08-14 — `[bus-timing]` 保持只进日志
+
+一度加过「同时写 `bus_hop_timing` 表」，已撤回；理由见
+`mirror/scripts/diag_collector/latency_report.py.md`。本文件因此回到只打日志行，
+`[bus-timing]` 的格式与「失败的 turn 不算一跳」（`_hop_done`）的约定均未变。
+
 ## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
 
 PRD《看到的必须是真的》§四。此前 `_invoke_runtime` 返回 `(text, event_id)`，
@@ -1154,3 +1220,14 @@ expressive declaration,不是工具面),按铁律 #15 平台不管模型听不�
 抛出去会被 step_3 接住返回 False,而信箱停在 `not_attempted` —— 于是 `_team_cascade_depth`
 的一次 DB 故障会被写成「runtime 拒绝投递」,把排查引到另一道门上。**调用过就失败,一律记
 `failed`**。
+
+## 2026-08-14 (合 dev #303) — turn 内代发必须走 `_post_to_room`,而不是 `_bus.send_message`
+
+#303 把「发帖」与「叫醒 poll loop」绑成同一个方法,理由是它们分开过一次:巡查那条路径
+漏了 wake,被 @ 的队友因此白等一个完整的自适应轮询间隔。本 lane 的 turn 内代发是**同一
+类**调用点,而且是更主要的那条 —— 团队回复的下一跳就是队友。合并时闭包直接调
+`self._bus.send_message` 会静默绕开 wake,把刚修掉的死气原样引回主路径。
+
+两件事同批:闭包改名 `_deliver_reply`(dev 的方法就叫 `_post_to_room`,重名会让「唯一入口」
+这条规矩看起来有两个入口),fatal 通知那条 post 也改走同一入口。dev 自带的两条 wake 测试
+原来的桩在 turn **外**代发,对齐生产后它们才真的覆盖这条新路径 —— 实测过绕开入口会红。
