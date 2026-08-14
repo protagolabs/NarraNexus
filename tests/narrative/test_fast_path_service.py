@@ -57,44 +57,10 @@ async def test_create_fast_persists_with_routing_surface(service):
 
 
 @pytest.mark.asyncio
-async def test_select_fast_empty_corpus_short_query(service):
-    # Empty corpus + short query: no pick, no relation, and the silence
-    # is NOT trusted as a new topic (elliptical follow-ups score zero).
+async def test_select_fast_empty_corpus_is_a_clean_miss(service):
     res = await service.select_fast(AGENT, USER, "ok great")
     assert res.narrative is None
-    assert res.related is False
-    assert res.suggests_new_thread is False
     assert res.top1_raw is None
-
-
-@pytest.mark.asyncio
-async def test_select_fast_trusted_silence_on_full_sentence(service):
-    # A query past FAST_NEW_THREAD_MIN_QUERY_UNITS with zero overlap is
-    # trusted as a genuinely new topic — in any script. The CJK case is
-    # the one a char-count gate got wrong: a complete 12-char Chinese
-    # sentence is a full new topic, not a "short" message.
-    from xyz_agent_context.narrative.config import config
-    from xyz_agent_context.narrative.narrative_service import query_units
-
-    for query in (
-        "please compare the health insurance options for the new hires",
-        "帮我看看这个月的招聘计划进展如何",
-    ):
-        assert query_units(query) >= config.FAST_NEW_THREAD_MIN_QUERY_UNITS
-        res = await service.select_fast(AGENT, USER, query)
-        assert res.narrative is None
-        assert res.suggests_new_thread is True
-
-
-def test_query_units_is_script_independent():
-    from xyz_agent_context.narrative.narrative_service import query_units
-
-    assert query_units("ok great") == 2
-    assert query_units("好的谢谢") == 4
-    assert query_units("继续") == 2
-    assert query_units("帮我看看这个月的招聘计划") == 12
-    # Mixed script: CJK chars count per-character, the rest per token.
-    assert query_units("帮我 review 一下 PR") == 4 + 2
 
 
 @pytest.mark.asyncio
@@ -147,8 +113,7 @@ async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatc
 
     # A mid-strength score (above the noise floor, below the override
     # floor) picks normally but must NOT be allowed to steal a live
-    # anchor — yet it still reports `related`, so the step layer reuses
-    # the anchor instead of creating. Thresholds live in config.py.
+    # anchor — the step layer reuses the anchor. Thresholds in config.py.
     from xyz_agent_context.narrative.config import config
 
     score = (config.NARRATIVE_MATCH_RAW_FLOOR + config.FAST_ANCHOR_OVERRIDE_FLOOR) / 2
@@ -166,6 +131,4 @@ async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatc
 
     guarded = await service.select_fast(AGENT, USER, "q", against_live_anchor=True)
     assert guarded.narrative is None
-    assert guarded.related is True
-    assert guarded.suggests_new_thread is False
     assert guarded.top1_raw == score

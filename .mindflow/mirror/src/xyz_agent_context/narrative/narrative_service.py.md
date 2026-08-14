@@ -4,6 +4,13 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — 撤回 query_units/新线旗标（supersede 下一条）
+
+`query_units` 与 `FastSelectResult.related/suggests_new_thread` 删除
+（单位门实测在中文上复发碎片化，见 config.py.md 同日条目）。终版契约：
+`FastSelectResult{narrative, top1_raw}`——命中与分数，仲裁全在 step 层，
+分数进 audit（`gate_top1_raw` 落库锁保留）。
+
 ## 2026-08-14 — query_units + audit 落库锁（R2 复核 I2/I3）
 
 新增模块级纯函数 `query_units(text)`：脚本无关的 query 体量（CJK 每字 1

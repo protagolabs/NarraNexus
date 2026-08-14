@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — 持锚点不创建（实测终案，supersede 新线门条目）
+
+create-on-silence 分支删除：durable+锚点在手时判定梯只剩 强分抢线
+（bm25_fast_override）/ 复用（session_fast）/ 锚行消失→无锚重试→create。
+`test_live_anchor_never_creates` 钉死。新线来源=无锚首轮 / 强分切既有
+线程 / 下一个 full-path turn。实测依据见 config.py.md。
+
 ## 2026-08-14 — keyword_ms 口径修正（R2 复核 I1）
 
 `keyword_ms` 一度被挪到整个判定梯之后——把 create/load 的 CRUD 也算了进

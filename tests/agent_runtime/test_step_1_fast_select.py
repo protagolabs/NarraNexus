@@ -9,9 +9,9 @@ Locks (2026-08-14 anchor-first ordering + new-thread gate):
   BM25 may steal the turn only via the strong-floor probe
   (against_live_anchor=True), labeled "bm25_fast_override" when it lands
   on a different thread.
-- With a live anchor, trusted BM25 silence (probe.suggests_new_thread)
-  opens a NEW narrative — create_fast must stay reachable, else fast
-  mode force-files every topic into one thread forever.
+- With a live anchor, create_fast never fires (measured decision —
+  see test_live_anchor_never_creates); new threads arrive anchorless,
+  via a strong override, or from the next full-path turn.
 - Full miss: durable creates (CRUD only), ephemeral runs bare with zero
   session reads/writes.
 - The user's ChatModule instance is ensured on every pick (history and
@@ -55,14 +55,9 @@ def _narrative(nid: str, name: str = "N"):
     )
 
 
-def _probe(narrative=None, related=False, suggests=False, top1=None):
+def _probe(narrative=None, top1=None):
     """Shape of narrative_service.select_fast's FastSelectResult."""
-    return SimpleNamespace(
-        narrative=narrative,
-        related=related,
-        suggests_new_thread=suggests,
-        top1_raw=top1,
-    )
+    return SimpleNamespace(narrative=narrative, top1_raw=top1)
 
 
 def _service(**overrides):
@@ -112,7 +107,7 @@ async def test_hit_fills_ctx_and_ensures_chat_instance(monkeypatch):
     narrative = _narrative("nar_1")
     service = _service(
         select_fast=AsyncMock(
-            return_value=_probe(narrative=narrative, related=True, top1=8.0)
+            return_value=_probe(narrative=narrative, top1=8.0)
         )
     )
     ensure = AsyncMock(return_value="chat_i1")
@@ -189,7 +184,7 @@ async def test_strong_bm25_hit_on_other_thread_is_labeled_override(monkeypatch):
     strong = _narrative("nar_visa", "Visa")
     service = _service(
         select_fast=AsyncMock(
-            return_value=_probe(narrative=strong, related=True, top1=15.0)
+            return_value=_probe(narrative=strong, top1=15.0)
         )
     )
     session_service = SimpleNamespace(save_session=AsyncMock())
@@ -209,7 +204,7 @@ async def test_strong_hit_on_anchor_itself_is_plain_bm25_fast(monkeypatch):
     anchor = _narrative("nar_old", "Old")
     service = _service(
         select_fast=AsyncMock(
-            return_value=_probe(narrative=anchor, related=True, top1=15.0)
+            return_value=_probe(narrative=anchor, top1=15.0)
         )
     )
     session_service = SimpleNamespace(save_session=AsyncMock())
@@ -223,29 +218,22 @@ async def test_strong_hit_on_anchor_itself_is_plain_bm25_fast(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_new_topic_with_live_anchor_opens_a_new_thread(monkeypatch):
-    # Trusted BM25 silence (long query, nothing — anchor included —
-    # above the noise floor): create instead of force-filing into the
-    # anchor. Without this branch, fast mode could never open a second
-    # narrative once anchored.
-    created = _narrative("nar_new", "New")
-    service = _service(
-        select_fast=AsyncMock(return_value=_probe(suggests=True)),
-        create_fast=AsyncMock(return_value=created),
-    )
+async def test_live_anchor_never_creates(monkeypatch):
+    # Measured decision (PR #307 verify round, real zh BM25 data): with a
+    # live anchor, create_fast must never fire — BM25 cannot separate
+    # "new topic" from "elliptical continuation" in CJK, and a misfiled
+    # turn is recoverable while a fragmented thread (empty ChatModule
+    # history mid-conversation) is not. Numbers in narrative/config.py.
+    reused = _narrative("nar_old", "Old")
+    service = _service(load_narrative_from_db=AsyncMock(return_value=reused))
     session_service = SimpleNamespace(save_session=AsyncMock())
     monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
 
     ctx = _ctx(session=_session(), turn_profile=_durable_profile())
-    messages = await _drain(mod.step_1_fast_select(ctx, service, session_service))
+    await _drain(mod.step_1_fast_select(ctx, service, session_service))
 
-    service.load_narrative_from_db.assert_not_awaited()
-    service.create_fast.assert_awaited_once_with(
-        "agent_a", "user_u", "raw execution prompt"
-    )
-    assert ctx.narrative_list == [created]
-    assert ctx.session.current_narrative_id == "nar_new"
-    assert messages[-1].details["retrieval_method"] == "bm25_fast_created"
+    service.create_fast.assert_not_awaited()
+    assert ctx.narrative_list == [reused]
 
 
 @pytest.mark.asyncio
@@ -328,7 +316,7 @@ async def test_durable_non_user_chat_never_touches_session(monkeypatch):
     # human surfaces, so this is the divergence guard).
     service = _service(
         select_fast=AsyncMock(
-            return_value=_probe(narrative=_narrative("nar_hit"), related=True, top1=9.0)
+            return_value=_probe(narrative=_narrative("nar_hit"), top1=9.0)
         )
     )
     session_service = SimpleNamespace(save_session=AsyncMock())
@@ -350,7 +338,7 @@ async def test_durable_non_user_chat_never_touches_session(monkeypatch):
 async def test_every_decision_writes_an_audit_row_with_score(monkeypatch):
     reused = _narrative("nar_old", "Old")
     service = _service(
-        select_fast=AsyncMock(return_value=_probe(related=False, top1=1.2)),
+        select_fast=AsyncMock(return_value=_probe(top1=1.2)),
         load_narrative_from_db=AsyncMock(return_value=reused),
     )
     session_service = SimpleNamespace(save_session=AsyncMock())

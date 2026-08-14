@@ -17,13 +17,13 @@ Selection order mirrors the full path's continuity-first shape:
   ``FAST_ANCHOR_OVERRIDE_FLOOR``. Raw BM25 scales with query length, so
   short follow-ups stay in their thread while a long, topic-rich message
   can still switch.
-* With a live anchor, a genuinely NEW topic still opens a new thread:
-  BM25 silence (top-1 below the noise floor — the ranked anchor is
-  provably sub-floor too) on a query big enough to trust that silence
-  (``FAST_NEW_THREAD_MIN_QUERY_UNITS``, script-independent units) falls
-  through to creation instead of being force-filed into the anchor
-  forever. Elliptical follow-ups ("ok", "好的谢谢") keep reusing the
-  anchor.
+* With a live anchor the fast path never CREATES a narrative — a
+  measured decision, not an oversight: BM25 cannot separate "new topic"
+  from "elliptical continuation" in CJK (numbers on
+  ``FAST_ANCHOR_OVERRIDE_FLOOR`` in narrative/config.py), and a
+  misfiled turn is recoverable (next full-path turn re-routes) while a
+  fragmented thread is not. New threads arrive anchorless, via a strong
+  override onto an existing thread, or from the next full-path turn.
 * Without a live anchor, BM25 top-1 above the noise floor picks the
   background directly.
 
@@ -161,25 +161,24 @@ async def step_1_fast_select(
         # Distinct audit label so the floor can be calibrated from data.
         retrieval_method = "bm25_fast_override"
     elif narrative is None and anchor_id:
-        if probe.suggests_new_thread:
-            # BM25 silence on a query long enough to trust it: not even
-            # the anchor relates — a genuinely new topic opens a new
-            # thread (the create branch below). Without this, fast mode
-            # could never open a second narrative once anchored.
-            pass
+        # No steal-grade hit: reuse the live thread. Deliberately NO
+        # create-on-silence here — measured on real BM25 distributions,
+        # CJK cannot distinguish "new topic" from "elliptical
+        # continuation" (rationale + numbers on FAST_ANCHOR_OVERRIDE_FLOOR
+        # in narrative/config.py), and a misfiled turn is recoverable
+        # while a fragmented thread is not.
+        narrative = await narrative_service.load_narrative_from_db(anchor_id)
+        if narrative is not None:
+            retrieval_method = "session_fast"
         else:
-            narrative = await narrative_service.load_narrative_from_db(anchor_id)
-            if narrative is not None:
-                retrieval_method = "session_fast"
-            else:
-                # Anchor row vanished — retry anchorless at the noise floor.
-                _t1 = time.monotonic()
-                probe = await narrative_service.select_fast(
-                    ctx.agent_id, ctx.user_id, query
-                )
-                keyword_ms += int((time.monotonic() - _t1) * 1000)
-                narrative = probe.narrative
-                top1_raw = probe.top1_raw
+            # Anchor row vanished — retry anchorless at the noise floor.
+            _t1 = time.monotonic()
+            probe = await narrative_service.select_fast(
+                ctx.agent_id, ctx.user_id, query
+            )
+            keyword_ms += int((time.monotonic() - _t1) * 1000)
+            narrative = probe.narrative
+            top1_raw = probe.top1_raw
     if narrative is None and durable_chat:
         narrative = await narrative_service.create_fast(
             ctx.agent_id, ctx.user_id, query

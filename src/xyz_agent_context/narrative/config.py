@@ -113,35 +113,24 @@ class NarrativeConfig:
     # topic-rich message that decisively matches another thread still
     # switches. Distinct from RAW_FLOOR, which is a noise filter for the
     # anchorless case. Env override: NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR
+    #
+    # NOTE (2026-08-14, measured): with a live anchor the fast path never
+    # CREATES a narrative. Two "trusted silence ⇒ new topic" gates were
+    # tried and measured against real BM25 distributions: a 40-char gate
+    # never opened for CJK (complete zh sentences are 11-15 chars), and a
+    # script-independent 8-unit gate fragmented one coherent 7-turn zh
+    # conversation into 5 narratives (on-topic zh continuations score
+    # 1.0-3.2 — straddling RAW_FLOOR — and >=8-unit pure ACKs like
+    # "嗯嗯我明白了那就这样吧" probe as silence). BM25 cannot separate
+    # "new topic" from "elliptical continuation" in CJK, and the error
+    # asymmetry decides: a misfiled turn is recoverable (the next
+    # full-path turn re-routes via continuity; switch_narrative exists),
+    # a fragmented thread is not (permanent split + an empty ChatModule
+    # history for the agent mid-conversation). New threads under fast
+    # mode arrive via: no live anchor (first conversation), a strong
+    # override hit onto an existing thread, or the next full-path turn.
     FAST_ANCHOR_OVERRIDE_FLOOR = float(
         _env("NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR", "12.0")
-    )
-
-    # Fast-path new-thread gate: with a live anchor, a turn may open a NEW
-    # narrative only when BM25 found nothing above the noise floor (top-1
-    # sub-floor implies the anchor is sub-floor too — scores are ranked)
-    # AND the query is big enough for that silence to be trusted: an
-    # elliptical follow-up ("ok", "继续", "好的谢谢") scores zero against
-    # everything yet must stay in its thread, while a full sentence with
-    # zero overlap against every narrative is a genuinely new topic.
-    #
-    # Measured in script-independent UNITS (narrative_service.query_units:
-    # 1 per CJK character — han/kana/hangul carry roughly a word each —
-    # plus 1 per whitespace token of the rest). A plain char count would
-    # be blind to CJK: a complete 12-char Chinese sentence is a full new
-    # topic, not a "short" message, and a char threshold tuned on English
-    # prose would keep the gate shut for zh users essentially forever.
-    #
-    # Known residual bias, on purpose and in EVERY language: a new-topic
-    # message under the unit threshold (e.g. a 6-word English command)
-    # stays in the old thread until a fuller message opens the new one —
-    # one mis-filed turn beats a thread-per-"ok" (the fragmentation
-    # failure this gate replaces). The default is a provisional
-    # calibration; retune from gate_top1_raw once fast-path audit rows
-    # accumulate. NOT a time window (see the 2026-05-20 NOTE).
-    # Env override: NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS
-    FAST_NEW_THREAD_MIN_QUERY_UNITS = int(
-        _env("NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS", "8")
     )
 
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)

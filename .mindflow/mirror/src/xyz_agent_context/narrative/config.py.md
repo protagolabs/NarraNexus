@@ -4,6 +4,17 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — 撤回单位门：持锚点不创建是实测终案（supersede 下一条）
+
+单位门（8 units）上线前实测被否：中文正常延续句 BM25 top-1 落在 1.0-3.2
+（骑在 RAW_FLOOR=3.0 上），≥8 单位的纯确认句（「嗯嗯我明白了那就这样吧」）
+probe 出来就是沉默——一段连贯 7 轮中文对话被打成 5 条 narrative（40 字符
+门下同对话=1 条）。BM25 在 CJK 上无法区分「新话题」与「省略式延续」，
+错误不对称定案：错归档可恢复（下一个 full turn continuity 重路由、
+switch_narrative 在），碎片化不可恢复（永久分裂+agent 半途拿空历史）。
+故 `FAST_NEW_THREAD_MIN_QUERY_UNITS` 删除，持 live 锚点时 fast 路径一律
+不创建；完整数据与新线三来源写在 FAST_ANCHOR_OVERRIDE_FLOOR 的 NOTE。
+
 ## 2026-08-14 — 新线门改按语言单位计数（R2 复核 I3）
 
 `FAST_NEW_THREAD_MIN_QUERY_CHARS`(40 字符) → `FAST_NEW_THREAD_MIN_QUERY_UNITS`

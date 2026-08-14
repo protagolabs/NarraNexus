@@ -60,32 +60,6 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     return input_content
 
 
-_CJK_RANGES = (
-    ("\u3040", "\u30ff"),  # Japanese kana
-    ("\u4e00", "\u9fff"),  # CJK unified ideographs
-    ("\uac00", "\ud7a3"),  # Hangul syllables
-)
-
-
-def query_units(text: str) -> int:
-    """Script-independent query size for the fast-path new-thread gate.
-
-    1 unit per CJK character (han / kana / hangul carry roughly a word
-    each) plus 1 per whitespace token of the remaining text — so a
-    complete 12-char Chinese sentence and a 12-word English sentence
-    both measure ~12, where ``len()`` would call the former "short".
-    Rationale on FAST_NEW_THREAD_MIN_QUERY_UNITS in config.py.
-    """
-    cjk = 0
-    rest = []
-    for ch in text:
-        if any(lo <= ch <= hi for lo, hi in _CJK_RANGES):
-            cjk += 1
-            rest.append(" ")
-        else:
-            rest.append(ch)
-    return cjk + len("".join(rest).split())
-
 
 @dataclass(frozen=True)
 class FastSelectResult:
@@ -94,16 +68,11 @@ class FastSelectResult:
     In-process value object (never crosses a wire, hence a dataclass and
     not a pydantic model). ``narrative`` is the decisive pick under the
     active floor (strong override floor when probing against a live
-    anchor, noise floor otherwise); ``related`` says whether the top-1
-    cleared the noise floor at all; ``suggests_new_thread`` says BM25
-    silence can be trusted as "genuinely new topic" (query long enough —
-    see config); ``top1_raw`` rides into the audit row so the floors can
-    be calibrated from data.
+    anchor, noise floor otherwise); ``top1_raw`` rides into the audit row
+    so the floors can be calibrated from data.
     """
 
     narrative: Optional[Narrative] = None
-    related: bool = False
-    suggests_new_thread: bool = False
     top1_raw: Optional[float] = None
 
 
@@ -192,9 +161,8 @@ class NarrativeService:
         so a decisive pick here would STEAL the turn away from the active
         thread — the pick requires the strong FAST_ANCHOR_OVERRIDE_FLOOR
         instead of the noise-filter RAW_FLOOR. The result also carries
-        ``related`` / ``suggests_new_thread`` / ``top1_raw`` so the caller
-        can arbitrate reuse-vs-create and the audit row can carry the
-        score that justified it (thresholds and rationale in config.py).
+        ``top1_raw`` so the audit row records the score that justified —
+        or failed to justify — the pick (thresholds in config.py).
         """
         from .config import config
 
@@ -207,27 +175,10 @@ class NarrativeService:
             query=query, user_id=user_id, agent_id=agent_id, top_k=1
         )
         top1_raw = results[0].raw_score if results else None
-        # The noise floor separates "this query relates to SOMETHING" from
-        # BM25 silence. Scores are ranked, so a sub-floor top-1 means every
-        # narrative — the anchor included — is sub-floor.
-        related = top1_raw is not None and top1_raw >= config.NARRATIVE_MATCH_RAW_FLOOR
-        # Trust the silence only when the query is big enough to have
-        # produced a score if a matching thread existed — measured in
-        # script-independent units, not characters (rationale on
-        # FAST_NEW_THREAD_MIN_QUERY_UNITS in config.py).
-        suggests_new_thread = (
-            not related
-            and query_units(query) >= config.FAST_NEW_THREAD_MIN_QUERY_UNITS
-        )
         narrative: Optional[Narrative] = None
         if top1_raw is not None and top1_raw >= floor:
             narrative = await self._crud.load_by_id(results[0].narrative_id)
-        return FastSelectResult(
-            narrative=narrative,
-            related=related,
-            suggests_new_thread=suggests_new_thread,
-            top1_raw=top1_raw,
-        )
+        return FastSelectResult(narrative=narrative, top1_raw=top1_raw)
 
     async def audit_fast(
         self,

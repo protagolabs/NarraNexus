@@ -10,8 +10,7 @@ Locks:
 - 2026-08-14 (PR #307): returns a FastSelectResult. No candidate ->
   narrative None; sub-floor top-1 -> narrative None but the raw score
   still rides out (audit calibration); vanished row -> narrative None
-  (no crash). Semantic flags (related / suggests_new_thread) are locked
-  in tests/narrative/test_fast_path_service.py.
+  (no crash).
 """
 from __future__ import annotations
 
@@ -41,7 +40,6 @@ async def test_top1_hit_loads_and_returns_narrative():
     result = await service.select_fast("agent_a", "user_u", "weather query")
 
     assert result.narrative is narrative
-    assert result.related is True
     assert result.top1_raw == 5.0
     service._retrieval.keyword_search.assert_awaited_once_with(
         query="weather query", user_id="user_u", agent_id="agent_a", top_k=1
@@ -54,7 +52,6 @@ async def test_no_candidates_is_a_bare_probe():
     service = _service_with_fakes([], None)
     result = await service.select_fast("a", "u", "q")
     assert result.narrative is None
-    assert result.related is False
     assert result.top1_raw is None
     service._crud.load_by_id.assert_not_awaited()
 
@@ -80,6 +77,5 @@ async def test_below_floor_score_is_a_miss_but_score_is_reported():
     service = _service_with_fakes([weak], SimpleNamespace(id="nar_weak"))
     result = await service.select_fast("a", "u", "q")
     assert result.narrative is None
-    assert result.related is False
     assert result.top1_raw == 1.0
     service._crud.load_by_id.assert_not_awaited()
