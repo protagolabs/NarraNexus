@@ -349,6 +349,7 @@ class MessageBusTrigger:
         mentions: Optional[List[str]] = None,
         msg_type: str = "text",
         event_id: Optional[str] = None,
+        segments: Optional[List[dict]] = None,
     ) -> None:
         """Put a message in a room and tell the poll loop to look again.
 
@@ -372,6 +373,13 @@ class MessageBusTrigger:
         # Parameters listed explicitly rather than **kwargs: a passthrough
         # signature hides a misspelled kwarg from pyright and only surfaces it
         # as a runtime TypeError — on the patrol path, an unhandled one.
+        #
+        # Which is exactly what an explicit list costs if it falls behind: this
+        # funnel and the segments-carrying reply landed in parallel branches, and
+        # for one merge every team reply raised TypeError here, got caught by the
+        # caller's "the room will never show this" handler, and was announced as
+        # a delivery failure instead of being posted. Anything `send_message`
+        # accepts and a room caller passes has to appear here too.
         await self._bus.send_message(
             from_agent=from_agent,
             to_channel=to_channel,
@@ -379,6 +387,7 @@ class MessageBusTrigger:
             mentions=mentions,
             msg_type=msg_type,
             event_id=event_id,
+            segments=segments,
         )
         # Unconditional rather than "only when mentions is non-empty": an
         # owner-addressed reply can also make the room's lead due, and one extra

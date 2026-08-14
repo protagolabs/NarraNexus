@@ -232,3 +232,77 @@ def test_bus_messages_are_never_updated_in_place():
         f"bus_messages is updated in place by {offenders}; the team room's "
         f"incremental merge assumes append-only and would never show the edit"
     )
+
+
+# ── the seam, driven for real ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
+    """A team reply posted by the TRIGGER carries its segments into the row.
+
+    Every other test here either calls `send_message` directly or reads the
+    trigger's source. Both stayed green through a merge in which the reply path
+    raised `TypeError` on every single team turn: a new `_post_to_room` funnel
+    landed on one branch, segments on another, and the funnel did not accept
+    them. The caller's own "the room will never show this reply" handler caught
+    it and announced a delivery failure instead — so the room lost every reply,
+    loudly, while the source assertions still matched.
+
+    This is the only test that would have gone red on its own.
+    """
+    from xyz_agent_context.message_bus.message_bus_trigger import (
+        MessageBusTrigger,
+        TurnResult,
+    )
+    from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+
+    room = "ch_seam"
+    await db_client.insert("bus_channels", {
+        "channel_id": room, "channel_type": "group",
+        "created_by": f"{TEAM_ROOM_OWNER_PREFIX}t_seam", "name": "Desk",
+    })
+    await db_client.insert("teams", {
+        "team_id": "t_seam", "owner_user_id": "usr_1", "name": "Desk",
+        "lead_agent_id": "agent_me",
+    })
+    await db_client.insert("bus_channel_members", {"channel_id": room, "agent_id": "agent_me"})
+    await db_client.insert("agents", {
+        "agent_id": "agent_me", "agent_name": "Mia", "created_by": "usr_1",
+    })
+
+    async def _get_db():
+        return db_client
+
+    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get_db)
+
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+
+    async def _invoke(**kwargs):
+        return TurnResult(
+            text="thinkinganswering",
+            event_id="evt_seam",
+            segments=[
+                {"kind": "monologue", "text": "thinking"},
+                {"kind": "reply", "text": "answering"},
+            ],
+        )
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._bus.send_message(
+        from_agent="usr_1", to_channel=room, content="anyone?", mentions=["agent_me"]
+    )
+    await trigger._process_agent("agent_me")
+
+    rows = await db_client.execute(
+        "SELECT content, segments FROM bus_messages "
+        "WHERE channel_id = %s AND from_agent = %s",
+        (room, "agent_me"),
+        fetch=True,
+    )
+    assert len(rows) == 1, "the reply did not reach the room at all"
+    assert json.loads(rows[0]["segments"]) == [
+        {"kind": "monologue", "text": "thinking"},
+        {"kind": "reply", "text": "answering"},
+    ]
