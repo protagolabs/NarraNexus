@@ -233,6 +233,47 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
+    async def get_messages_before(
+        self, channel_id: str, before: str, limit: int = 50
+    ) -> List[BusMessage]:
+        """The page immediately ABOVE ``before``, returned oldest→newest.
+
+        The mirror image of ``get_messages(since=…)``, and the two directions
+        are deliberately not symmetrical:
+
+          * ``since`` returns the OLDEST after the cursor — catching up must
+            never skip a message, so it walks forward from where the reader is.
+          * ``before`` returns the NEWEST before it — scrolling up wants the
+            page directly above what is on screen, not the start of the room's
+            history.
+
+        Either one implemented in the other direction produces a transcript
+        with a silent hole in it rather than an error.
+
+        EXCLUSIVE on the cursor: the caller passes the timestamp of the oldest
+        message it already has. Inclusive would re-send that message on every
+        page, which the frontend's merge would then dedup away — leaving each
+        page one message shorter than asked for, for no visible reason.
+
+        Args:
+            channel_id: Channel to read.
+            before: ISO timestamp string, as handed out by the API.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            when the top of the history has been reached — which is how a caller
+            knows to stop offering "load more" without inferring it from a short
+            page (a short page also just means a sparse window).
+        """
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+            f"AND created_at < {ph} ORDER BY created_at DESC LIMIT {int(limit)}",
+            (channel_id, before),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
     def _unread_where(self, ph: str) -> str:
         """The unread predicate, shared by the fetch and the count.
 

@@ -170,7 +170,8 @@
       },
       "sendFailed": "Não foi possível enviar. Seu texto continua aqui — tente de novo.",
       "uploadFailed": "Não foi possível enviar “{{name}}”.",
-      "uploadFailedGeneric": "Não foi possível enviar o arquivo."
+      "uploadFailedGeneric": "Não foi possível enviar o arquivo.",
+      "loadingOlder": "Carregando mensagens anteriores…"
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/mergeTeamMessages.ts
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
 
@@ -36,3 +36,12 @@ stub: false
 一条无法解析的时间戳不会污染游标：`NaN > bestMs` 恒为 false，它永远赢不了那个最大值。
 这里原本写着一个显式的 `isFinite` 守卫，变异测试证明它不改变任何行为——注释也曾声称
 它是承载性的，其实不是。删掉守卫、把机制写清楚，比留一个假的护栏诚实。
+
+## 2026-08-14 — `beforeCursor`：另一个方向的水位线
+
+`sinceCursor` 是屏幕上**最新**的时间戳（往后追），`beforeCursor` 是**最旧**的（往上翻）。
+空 transcript 返回 undefined：屏幕上什么都没有就没有"上一页"，硬问会把最新那一页再取一次
+然后和自己合并。
+
+合并本身**不需要**第二条代码路径：`mergeTeamMessages` 按时间排序 + 按 id 去重，所以更旧的
+一页自然落在前面。两个方向共用一个合并，也就不存在两条路径互相不一致的可能。

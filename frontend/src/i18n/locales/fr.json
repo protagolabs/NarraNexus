@@ -170,7 +170,8 @@
       },
       "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
       "uploadFailed": "Impossible d’envoyer « {{name}} ».",
-      "uploadFailedGeneric": "Impossible d’envoyer le fichier."
+      "uploadFailedGeneric": "Impossible d’envoyer le fichier.",
+      "loadingOlder": "Chargement des messages plus anciens…"
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",

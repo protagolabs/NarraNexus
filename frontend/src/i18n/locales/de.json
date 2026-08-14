@@ -170,7 +170,8 @@
       },
       "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
       "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",
-      "uploadFailedGeneric": "Upload fehlgeschlagen."
+      "uploadFailedGeneric": "Upload fehlgeschlagen.",
+      "loadingOlder": "Ältere Nachrichten werden geladen…"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",

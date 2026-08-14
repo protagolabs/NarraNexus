@@ -81,6 +81,11 @@ from backend.auth import resolve_current_user_id
 
 router = APIRouter()
 
+# How many room messages one request carries. The same number in all three
+# directions (newest page / catching up / scrolling back) so a reader cannot
+# tell which mode produced the page they are looking at.
+PAGE_SIZE = 200
+
 
 async def _user_id_for_request(request: Request) -> str:
     # Unified across cloud (JWT) and local (X-User-Id header) modes —
@@ -429,7 +434,19 @@ async def upload_team_chat_attachment(
 
 
 @router.get("/{team_id}/chat/messages")
-async def get_team_chat(team_id: str, request: Request, since: str | None = None):
+async def get_team_chat(
+    team_id: str, request: Request, since: str | None = None, before: str | None = None
+):
+    """The room's transcript, in one of three modes.
+
+    * no cursor — the NEWEST page. This was `get_messages(limit=200)`, which is
+      `ORDER BY created_at ASC LIMIT n`: the OLDEST 200. A room that had said
+      more than that opened on its first day and, because every later poll used
+      `since` to walk forward from what was on screen, stayed there. Nothing
+      looked broken; it showed the wrong end of the conversation forever.
+    * `since` — everything after the cursor, oldest first. The 3s poll.
+    * `before` — the page above the cursor. Scrolling up through history.
+    """
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
     team_repo = TeamRepository(db)
@@ -445,7 +462,12 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
     bus = LocalMessageBus(backend=db._backend)
     channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
 
-    messages = await bus.get_messages(channel_id, since=since, limit=200)
+    if before:
+        messages = await bus.get_messages_before(channel_id, before=before, limit=PAGE_SIZE)
+    elif since:
+        messages = await bus.get_messages(channel_id, since=since, limit=PAGE_SIZE)
+    else:
+        messages = await bus.get_recent_messages(channel_id, limit=PAGE_SIZE)
 
     # Resolve sender display names: agents -> agent_name; usr_<id> -> the user.
     agent_rows = await db.get_by_ids("agents", "agent_id", members) if members else []

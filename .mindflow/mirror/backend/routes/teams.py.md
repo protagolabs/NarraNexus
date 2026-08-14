@@ -3,6 +3,20 @@ code_file: backend/routes/teams.py
 last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — 房间打开的是**最新**一页（一个一直存在的严重 bug）
+
+`get_team_chat` 之前是 `get_messages(channel_id, since=since, limit=200)`，而
+`get_messages` 是 `ORDER BY created_at ASC LIMIT n` —— **最旧的 200 条**。于是一个说过
+超过 200 句话的房间，永远打开在它的第一天；而之后每次轮询都用 `since` 从屏幕上最新那条
+**往前**走，所以它就停在史前时代了。没有任何东西看起来是坏的，它只是永远显示了会话的错误
+一端。
+
+现在三种模式：无游标 = 最新一页（`get_recent_messages`），`since` = 往后追（3 秒轮询），
+`before` = 往上翻历史（见 [[local_bus.py]]）。三个方向共用同一个 `PAGE_SIZE`，读者无法
+从页面大小反推自己拿到的是哪一种。
+
+值得记的是：`get_recent_messages` **一直都在**，路由调的是另一个。
+
 ## 2026-08-14 — `list_teams` 带上房间活动；一个被装饰器吃掉的 handler
 
 `_team_room_activity` 给每个 team 回答一件事：**这个房间上一次说了值得回来看的话

@@ -174,7 +174,8 @@
       },
       "sendFailed": "تعذّر الإرسال. نصّك لا يزال هنا — حاول مرة أخرى.",
       "uploadFailed": "تعذّر رفع «{{name}}».",
-      "uploadFailedGeneric": "تعذّر رفع الملف."
+      "uploadFailedGeneric": "تعذّر رفع الملف.",
+      "loadingOlder": "جارٍ تحميل الرسائل الأقدم…"
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",

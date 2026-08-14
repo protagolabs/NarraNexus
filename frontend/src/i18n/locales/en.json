@@ -230,7 +230,8 @@
       "agentPaused": "This agent is paused ({{reason}}). Use Resume in the banner above once the cause is cleared.",
       "sendFailed": "Could not send. Your text is still here — try again.",
       "uploadFailed": "Could not upload “{{name}}”.",
-      "uploadFailedGeneric": "Could not upload the file."
+      "uploadFailedGeneric": "Could not upload the file.",
+      "loadingOlder": "Loading older messages…"
     },
     "execution": {
       "showSteps": "Show execution steps",

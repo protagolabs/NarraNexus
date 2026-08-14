@@ -65,6 +65,32 @@ export function mergeTeamMessages(
  * Undefined for an empty transcript, so the first poll is an unambiguous full
  * load rather than a `since=` the server has to interpret.
  */
+/**
+ * The `before` value for paging back: the OLDEST timestamp on screen.
+ *
+ * The mirror of `sinceCursor`, and the two are the room's two directions.
+ * Scrolling up asks for the page immediately above the top of the transcript,
+ * so this is the low watermark rather than the high one.
+ *
+ * Undefined for an empty transcript: with nothing on screen there is no page
+ * above, and asking anyway would fetch a second copy of the newest page and
+ * merge it into itself.
+ */
+export function beforeCursor(messages: TeamChatMessage[]): string | undefined {
+  let bestMs = Infinity;
+  let best: string | undefined;
+  for (const m of messages) {
+    const ms = Date.parse(m.created_at);
+    // NaN loses this comparison too, so an unreadable row is skipped without a
+    // guard — see the note in sinceCursor.
+    if (ms < bestMs) {
+      bestMs = ms;
+      best = m.created_at;
+    }
+  }
+  return best;
+}
+
 export function sinceCursor(messages: TeamChatMessage[]): string | undefined {
   let bestMs = -Infinity;
   let best: string | undefined;

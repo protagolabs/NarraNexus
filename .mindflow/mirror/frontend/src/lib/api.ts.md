@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `getTeamChat` 有三种模式
+
+无游标 = 最新一页（房间打开时），`since` = 往后追（3 秒轮询），`before` = 往上翻历史。
+两个游标**互斥**，在这里就地判掉：同时带上去，服务端只会看其中一个，而调用方会以为自己
+拿到了两者的交集。
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含

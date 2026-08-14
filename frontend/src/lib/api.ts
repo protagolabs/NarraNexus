@@ -1929,8 +1929,22 @@ class ApiClient {
 
   // --- Team group chat (over the message bus) ---
 
-  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
-    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+  /**
+   * A page of a team room's transcript.
+   *
+   * Three modes, and the cursors are mutually exclusive: no cursor is the
+   * NEWEST page (what the room opens on), `since` walks forward from what is on
+   * screen (the poll), `before` walks back into history (load more).
+   */
+  async getTeamChat(
+    teamId: string,
+    since?: string,
+    before?: string,
+  ): Promise<TeamChatHistoryResponse> {
+    const params = new URLSearchParams();
+    if (before) params.set('before', before);
+    else if (since) params.set('since', since);
+    const q = params.toString() ? `?${params}` : '';
     return this.request<TeamChatHistoryResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
     );

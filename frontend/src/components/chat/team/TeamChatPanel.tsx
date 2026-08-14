@@ -27,8 +27,8 @@ import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
 import { TeamTranscript } from './TeamTranscript';
-import { mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
-import { isNearBottom } from '@/lib/scrollStickiness';
+import { beforeCursor, mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
+import { isNearBottom, isNearTop } from '@/lib/scrollStickiness';
 import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
 import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
 import { TeamSystemLine } from './TeamSystemLine';
@@ -292,9 +292,72 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     }
   }, [teamId]);
 
+  // Paging BACK. `hasMoreRef` is a ref, not state: the scroll handler reads it
+  // on every scroll event, and a state read there would be a render behind.
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  // The same fact as the ref, for the reader rather than the guard: scrolling
+  // to the top and seeing nothing happen looks exactly like having reached the
+  // beginning of the room.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  /**
+   * Fetch the page above the transcript and prepend it.
+   *
+   * The scroll position is restored by hand. Prepending moves everything the
+   * reader is looking at DOWN by exactly the height of what was added, so
+   * leaving `scrollTop` alone teleports them away from the message that made
+   * them scroll up — the one thing a "load more" must not do.
+   */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMoreRef.current) return;
+    const cursor = beforeCursor(messagesRef.current);
+    // Nothing on screen means no page above it. Asking anyway would refetch the
+    // newest page under a cursor and merge it into itself.
+    if (!cursor) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = scrollRef.current;
+    const heightBefore = el?.scrollHeight ?? 0;
+    const topBefore = el?.scrollTop ?? 0;
+    try {
+      const r = await api.getTeamChat(teamId, undefined, cursor);
+      if (!r.success) return;
+      if (!r.messages.length) {
+        // The top of the history. Without latching this the room re-asks on
+        // every scroll event for the rest of the session.
+        hasMoreRef.current = false;
+        return;
+      }
+      setMessages((prev) => mergeTeamMessages(prev, r.messages));
+      requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node) return;
+        node.scrollTop = topBefore + (node.scrollHeight - heightBefore);
+      });
+    } catch {
+      // transient — the next scroll to the top retries
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [teamId]);
+
   useEffect(() => {
     let alive = true;
     setMessages([]);
+    // Cleared HERE as well, not just through the state: `refresh` and
+    // `loadOlder` read the transcript through this ref, and it is synced by an
+    // effect that has not run yet. Leaving it would fetch the new room with a
+    // cursor taken from the PREVIOUS room's conversation — everything older
+    // than that timestamp would never arrive, and if the old room's last
+    // message was the newer of the two, the new room would render empty.
+    messagesRef.current = [];
+    // A new room has its own history; inheriting "the top was reached" would
+    // make the second room silently refuse to page back at all.
+    hasMoreRef.current = true;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     setActivity([]);
     setLeadAgentId(null);
     refresh();
@@ -717,9 +780,21 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             onScroll={(e) => {
               // The reader's position decides whether new messages may move it.
               stickRef.current = isNearBottom(e.currentTarget);
+              // ...and reaching the top is the request for older ones. Scroll
+              // events arrive in bursts; loadOlder is idempotent under that.
+              if (isNearTop(e.currentTarget)) void loadOlder();
             }}
             className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
           >
+            {loadingOlder && (
+              <div
+                data-testid="loading-older"
+                className="flex items-center justify-center gap-2 py-2 text-xs text-[var(--text-tertiary)]"
+              >
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t('chat.team.loadingOlder')}
+              </div>
+            )}
             {messages.length === 0 ? (
               <TeamRoomHero
                 teamName={team.team.name}

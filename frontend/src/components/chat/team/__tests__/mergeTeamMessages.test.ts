@@ -19,7 +19,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { mergeTeamMessages, sinceCursor } from '../mergeTeamMessages';
+import { beforeCursor, mergeTeamMessages, sinceCursor } from '../mergeTeamMessages';
 
 function m(id: string, at: string) {
   return { message_id: id, created_at: at, content: id } as never;
@@ -104,6 +104,48 @@ describe('sinceCursor', () => {
     expect(
       sinceCursor([m('a', 'not-a-date'), m('b', '2026-08-12T09:01:00Z')]),
     ).toBe('2026-08-12T09:01:00Z');
+  });
+});
+
+describe('beforeCursor', () => {
+  test('is the oldest timestamp on screen', () => {
+    // The mirror of sinceCursor. Paging back asks for the page above the top of
+    // the transcript, so the cursor is the LOW watermark.
+    expect(
+      beforeCursor([m('b', '2026-08-12T09:02:00Z'), m('a', '2026-08-12T09:00:00Z')]),
+    ).toBe('2026-08-12T09:00:00Z');
+  });
+
+  test('is undefined on an empty transcript', () => {
+    // Nothing on screen means nothing to page above — asking anyway would fetch
+    // a second copy of the newest page and merge it into itself.
+    expect(beforeCursor([])).toBeUndefined();
+  });
+
+  test('ignores an unparseable timestamp', () => {
+    expect(
+      beforeCursor([m('a', 'not-a-date'), m('b', '2026-08-12T09:01:00Z')]),
+    ).toBe('2026-08-12T09:01:00Z');
+  });
+});
+
+describe('merging an older page', () => {
+  test('older messages land above what is on screen', () => {
+    // The same merge as the poll: sorted by time, so an older page prepends
+    // without a second code path that could disagree with the first.
+    const out = mergeTeamMessages(
+      [m('c', '2026-08-12T09:02:00Z')],
+      [m('a', '2026-08-12T09:00:00Z'), m('b', '2026-08-12T09:01:00Z')],
+    );
+    expect(out.map((x) => x.message_id)).toEqual(['a', 'b', 'c']);
+  });
+
+  test('a page that overlaps what is already there does not duplicate it', () => {
+    const out = mergeTeamMessages(
+      [m('b', '2026-08-12T09:01:00Z'), m('c', '2026-08-12T09:02:00Z')],
+      [m('a', '2026-08-12T09:00:00Z'), m('b', '2026-08-12T09:01:00Z')],
+    );
+    expect(out.map((x) => x.message_id)).toEqual(['a', 'b', 'c']);
   });
 });
 

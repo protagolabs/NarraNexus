@@ -170,7 +170,8 @@
       },
       "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
       "uploadFailed": "「{{name}}」をアップロードできませんでした。",
-      "uploadFailedGeneric": "ファイルをアップロードできませんでした。"
+      "uploadFailedGeneric": "ファイルをアップロードできませんでした。",
+      "loadingOlder": "過去のメッセージを読み込み中…"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
