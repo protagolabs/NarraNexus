@@ -73,8 +73,8 @@ def test_apply_patch_sets_a_top_level_field():
 
 def test_apply_patch_writes_only_the_patched_columns():
     # The concurrency fix: apply_patch must write ONLY the columns its patch
-    # names, so a concurrent single-column writer (update_auth_status /
-    # update_workspace_path) on a DISJOINT column isn't clobbered by a whole-row
+    # names, so a concurrent single-column writer (update_auth_status from
+    # lark_trigger) on a DISJOINT column isn't clobbered by a whole-row
     # rewrite of a stale read.
     db = _FakeDb(_row())
     mgr = LarkCredentialManager(db)

@@ -71,6 +71,19 @@ def _isolate_shared_db(tmp_path_factory):
         os.environ["SQLITE_PROXY_URL"] = original_proxy
 
 
+@pytest.fixture(autouse=True)
+def _clear_cwd_owner_cache():
+    """The channel-CLI owner cache (data_access.workspace_cwd) is one
+    process-wide dict shared by lark and narra — clear it around every
+    test or a cached owner leaks ACROSS test modules, which surfaces as
+    order-dependent "green alone, red in the full run" failures."""
+    from xyz_agent_context.module.data_access.workspace_cwd import _cwd_owner_cache
+
+    _cwd_owner_cache.clear()
+    yield
+    _cwd_owner_cache.clear()
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Close leaked factory clients so their worker threads let us exit."""
     from xyz_agent_context.utils.db.db_factory import close_db_client

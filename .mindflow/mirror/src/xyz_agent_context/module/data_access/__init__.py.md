@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/__init__.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — 导出 `resolve_agent_workspace_cwd`
+
+新增 [[workspace_cwd]] 的共享 channel-CLI CWD 解析（lark/narra 两份副本收敛，
+PR#308）。
 
 ## 2026-08-11 (PR-A) — 导出 ChannelCredentialStore 家族
 

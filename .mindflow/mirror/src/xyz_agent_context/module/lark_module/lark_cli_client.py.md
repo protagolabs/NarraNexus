@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 ---
+## 2026-08-14 — regression fix: undefined `db`/`mgr` after the seam migration
+
+The 2026-08-11 zero-creds migration removed the local `db`/`mgr` bindings
+in `_run_with_agent_id` but left two references to them, so EVERY
+agent-scoped lark-cli call raised `NameError: name 'db' is not defined`
+(prod outage 2026-08-14: no agent could reply, react, or finalize setup
+on Lark; dev carried the same bug unexercised). Fix completes the
+zero-creds migration this file claimed to have finished:
+
+- workspace_path lazy migration now persists via the seam's
+  `patch_credential("lark", …)`; the envelope is checked and a failed
+  write logs a warning (the seam never raises, so silence here would
+  mean the migration retries invisibly on every call forever).
+- CWD resolution lost its `db` parameter and resolves
+  `agents.created_by` through the seam's `get_agent_owner`; after
+  review Important-3 the lark and narra copies were merged into ONE
+  shared `data_access.workspace_cwd.resolve_agent_workspace_cwd(
+  agent_id, log_tag="lark-cli")` — works in both direct-db and
+  zero-cred deployments. An empty owner is NOT cached, so a later
+  re-bind re-resolves. The file is back to zero `get_mcp_db_client`,
+  keeping channel_store.py's "mcp can drop DATABASE_URL" claim true.
+
+Regression tests in `test_lark_cli_cwd.py` drive `_run_with_agent_id`
+end-to-end (store/hydration/subprocess mocked) so any undefined name in
+its body turns the suite red.
+
 ## 2026-08-11 (lark 零凭据收尾)
 
 两处 CLI-args 构建里的凭据读（workspace 路径迁移 / profile_remove）从 `get_mcp_db_client()+LarkCredentialManager` 改走 seam `get_credential("lark")`+`_cred_from_raw`——lark_cli 透传路径也零 db 凭据。
@@ -54,12 +80,13 @@ isolation). HOME is what `lark-cli` uses for config + OAuth tokens
 critical detail.
 
 ### Fix
-1. Module-level helper `_resolve_agent_workspace_cwd(agent_id, db)`
-   resolves `agents.created_by` → `user_id`, computes the workspace
+1. Helper `resolve_agent_workspace_cwd(agent_id, log_tag=...)` (since
+   2026-08-14 the shared implementation in `data_access/workspace_cwd`)
+   resolves `agents.created_by` → `user_id` via the channel seam's
+   `get_agent_owner`, computes the workspace
    path via `attachment_storage.get_workspace_path(agent_id, user_id)`,
-   ensures it exists, and returns the `Path`. Result is cached in
-   `_agent_user_id_cache` (immutable per agent) so subsequent calls
-   don't re-query the DB.
+   ensures it exists, and returns the `Path`. Result is cached
+   (immutable per agent) so subsequent calls don't re-query.
 2. `_run_with_agent_id` calls the helper and forwards the result as
    the new `cwd=` parameter on `_exec_lark_cli`.
 3. `_exec_lark_cli` passes `cwd=str(cwd) if cwd else None` into

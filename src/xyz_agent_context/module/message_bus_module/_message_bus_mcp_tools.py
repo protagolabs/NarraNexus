@@ -523,13 +523,17 @@ def register_message_bus_mcp_tools(
             agent_id: Your own agent id.
             team_id: The team whose folder to list.
         """
-        from xyz_agent_context.message_bus.team_files import list_team_files
-        from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+        try:
+            from xyz_agent_context.message_bus.team_files import list_team_files
+            from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
-        db = await get_db_client()
-        return await list_team_files(
-            db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
-        )
+            db = await get_db_client()
+            return await list_team_files(
+                db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
