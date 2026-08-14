@@ -19,10 +19,11 @@ Selection order mirrors the full path's continuity-first shape:
   can still switch.
 * With a live anchor, a genuinely NEW topic still opens a new thread:
   BM25 silence (top-1 below the noise floor — the ranked anchor is
-  provably sub-floor too) on a query long enough to trust that silence
-  (``FAST_NEW_THREAD_MIN_QUERY_CHARS``) falls through to creation
-  instead of being force-filed into the anchor forever. Short
-  elliptical follow-ups ("ok") keep reusing the anchor.
+  provably sub-floor too) on a query big enough to trust that silence
+  (``FAST_NEW_THREAD_MIN_QUERY_UNITS``, script-independent units) falls
+  through to creation instead of being force-filed into the anchor
+  forever. Elliptical follow-ups ("ok", "好的谢谢") keep reusing the
+  anchor.
 * Without a live anchor, BM25 top-1 above the noise floor picks the
   background directly.
 
@@ -141,10 +142,14 @@ async def step_1_fast_select(
         else None
     )
 
+    # keyword_ms must mean the same thing full-path rows mean ("BM25 pool
+    # load + rank", models.py) — accumulate probe durations only, never
+    # the CRUD load/create that may follow.
     _t0 = time.monotonic()
     probe = await narrative_service.select_fast(
         ctx.agent_id, ctx.user_id, query, against_live_anchor=bool(anchor_id)
     )
+    keyword_ms = int((time.monotonic() - _t0) * 1000)
     narrative = probe.narrative
     top1_raw = probe.top1_raw
 
@@ -168,9 +173,11 @@ async def step_1_fast_select(
                 retrieval_method = "session_fast"
             else:
                 # Anchor row vanished — retry anchorless at the noise floor.
+                _t1 = time.monotonic()
                 probe = await narrative_service.select_fast(
                     ctx.agent_id, ctx.user_id, query
                 )
+                keyword_ms += int((time.monotonic() - _t1) * 1000)
                 narrative = probe.narrative
                 top1_raw = probe.top1_raw
     if narrative is None and durable_chat:
@@ -180,8 +187,6 @@ async def step_1_fast_select(
         retrieval_method = "bm25_fast_created"
         is_new = True
         logger.info(f"[step_1_fast] miss — created narrative={narrative.id}")
-    # Covers the rare second search on the vanished-anchor path too.
-    keyword_ms = int((time.monotonic() - _t0) * 1000)
 
     if narrative is None:
         ctx.narrative_list = []

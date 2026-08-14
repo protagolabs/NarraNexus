@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — keyword_ms 口径修正（R2 复核 I1）
+
+`keyword_ms` 一度被挪到整个判定梯之后——把 create/load 的 CRUD 也算了进
+去，与 full 路径「BM25 pool load + rank」的列语义（models.py）分岔，fast
+行与 full 行不可比。修：只累计两次 probe 的时长（首测 + vanished-anchor
+重试），CRUD 不计。新线门常量改引 `FAST_NEW_THREAD_MIN_QUERY_UNITS`
+（语言单位，见 config.py.md）。
+
 ## 2026-08-14 — auto-review R2 收口：新线门 + 抢线标签（#307 增量 🟡1/🟡2/🟢3-5）
 
 上一轮判序把 create_fast 变成了「持锚点不可达」——fast 模式永不开第二条

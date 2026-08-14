@@ -68,16 +68,60 @@ async def test_select_fast_empty_corpus_short_query(service):
 
 
 @pytest.mark.asyncio
-async def test_select_fast_trusted_silence_on_long_query(service):
-    # A query past FAST_NEW_THREAD_MIN_QUERY_CHARS with zero overlap is
-    # trusted as a genuinely new topic.
-    long_query = "please compare the health insurance options for the new hires"
+async def test_select_fast_trusted_silence_on_full_sentence(service):
+    # A query past FAST_NEW_THREAD_MIN_QUERY_UNITS with zero overlap is
+    # trusted as a genuinely new topic — in any script. The CJK case is
+    # the one a char-count gate got wrong: a complete 12-char Chinese
+    # sentence is a full new topic, not a "short" message.
     from xyz_agent_context.narrative.config import config
+    from xyz_agent_context.narrative.narrative_service import query_units
 
-    assert len(long_query) >= config.FAST_NEW_THREAD_MIN_QUERY_CHARS
-    res = await service.select_fast(AGENT, USER, long_query)
-    assert res.narrative is None
-    assert res.suggests_new_thread is True
+    for query in (
+        "please compare the health insurance options for the new hires",
+        "帮我看看这个月的招聘计划进展如何",
+    ):
+        assert query_units(query) >= config.FAST_NEW_THREAD_MIN_QUERY_UNITS
+        res = await service.select_fast(AGENT, USER, query)
+        assert res.narrative is None
+        assert res.suggests_new_thread is True
+
+
+def test_query_units_is_script_independent():
+    from xyz_agent_context.narrative.narrative_service import query_units
+
+    assert query_units("ok great") == 2
+    assert query_units("好的谢谢") == 4
+    assert query_units("继续") == 2
+    assert query_units("帮我看看这个月的招聘计划") == 12
+    # Mixed script: CJK chars count per-character, the rest per token.
+    assert query_units("帮我 review 一下 PR") == 4 + 2
+
+
+@pytest.mark.asyncio
+async def test_audit_fast_persists_top1_raw(service, db_client):
+    # _write_audit swallows every failure by design, so only a
+    # persisted-row assertion can catch a mapping regression — the
+    # object-level kwargs assert in the step tests cannot.
+    await service.audit_fast(
+        AGENT,
+        USER,
+        "calibration probe",
+        retrieval_method="bm25_fast_override",
+        chosen_narrative_id="nar_x",
+        trigger="chat",
+        is_user_chat=True,
+        keyword_ms=7,
+        top1_raw=13.75,
+    )
+    row = await db_client.get_one(
+        "narrative_routing_audit", {"agent_id": AGENT, "user_id": USER}
+    )
+    assert row is not None
+    assert row["gate_top1_raw"] == 13.75
+    assert row["retrieval_method"] == "bm25_fast_override"
+    assert row["selection_method"] == "fast"
+    assert row["keyword_ms"] == 7
+    assert row["continuity_ms"] is None
 
 
 @pytest.mark.asyncio

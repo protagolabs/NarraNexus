@@ -60,6 +60,33 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     return input_content
 
 
+_CJK_RANGES = (
+    ("\u3040", "\u30ff"),  # Japanese kana
+    ("\u4e00", "\u9fff"),  # CJK unified ideographs
+    ("\uac00", "\ud7a3"),  # Hangul syllables
+)
+
+
+def query_units(text: str) -> int:
+    """Script-independent query size for the fast-path new-thread gate.
+
+    1 unit per CJK character (han / kana / hangul carry roughly a word
+    each) plus 1 per whitespace token of the remaining text — so a
+    complete 12-char Chinese sentence and a 12-word English sentence
+    both measure ~12, where ``len()`` would call the former "short".
+    Rationale on FAST_NEW_THREAD_MIN_QUERY_UNITS in config.py.
+    """
+    cjk = 0
+    rest = []
+    for ch in text:
+        if any(lo <= ch <= hi for lo, hi in _CJK_RANGES):
+            cjk += 1
+            rest.append(" ")
+        else:
+            rest.append(ch)
+    return cjk + len("".join(rest).split())
+
+
 @dataclass(frozen=True)
 class FastSelectResult:
     """Outcome of one fast-path BM25 probe (``select_fast``).
@@ -184,12 +211,13 @@ class NarrativeService:
         # BM25 silence. Scores are ranked, so a sub-floor top-1 means every
         # narrative — the anchor included — is sub-floor.
         related = top1_raw is not None and top1_raw >= config.NARRATIVE_MATCH_RAW_FLOOR
-        # Trust the silence only when the query is long enough to have
-        # produced a score if a matching thread existed (rationale on
-        # FAST_NEW_THREAD_MIN_QUERY_CHARS in config.py).
+        # Trust the silence only when the query is big enough to have
+        # produced a score if a matching thread existed — measured in
+        # script-independent units, not characters (rationale on
+        # FAST_NEW_THREAD_MIN_QUERY_UNITS in config.py).
         suggests_new_thread = (
             not related
-            and len(query.strip()) >= config.FAST_NEW_THREAD_MIN_QUERY_CHARS
+            and query_units(query) >= config.FAST_NEW_THREAD_MIN_QUERY_UNITS
         )
         narrative: Optional[Narrative] = None
         if top1_raw is not None and top1_raw >= floor:

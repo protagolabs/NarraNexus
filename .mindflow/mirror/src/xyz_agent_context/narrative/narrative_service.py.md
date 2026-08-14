@@ -4,6 +4,15 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — query_units + audit 落库锁（R2 复核 I2/I3）
+
+新增模块级纯函数 `query_units(text)`：脚本无关的 query 体量（CJK 每字 1
+单位 + 其余每空白词 1 单位），select_fast 的新线门改用它（字符数对 CJK
+全盲）。`audit_fast` 的 `top1_raw→gate_top1_raw` 映射补了**落库断言**
+（test_fast_path_service.test_audit_fast_persists_top1_raw，删映射即红，
+mutation 验证过）——`_write_audit` 按设计吞掉一切异常，对象层断言抓不住
+repository 映射回归，只有查回持久化行才算锁住。
+
 ## 2026-08-14 — select_fast 返回 FastSelectResult（#307 增量 🟡1/🟡2）
 
 契约从 Narrative-or-None 升级为 frozen dataclass `FastSelectResult`

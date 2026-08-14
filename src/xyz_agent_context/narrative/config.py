@@ -120,18 +120,28 @@ class NarrativeConfig:
     # Fast-path new-thread gate: with a live anchor, a turn may open a NEW
     # narrative only when BM25 found nothing above the noise floor (top-1
     # sub-floor implies the anchor is sub-floor too — scores are ranked)
-    # AND the query is long enough for that silence to be trusted. Raw
-    # BM25 scales with length (the ~40-char boundary measured above): a
-    # short elliptical follow-up ("ok", "继续") scores zero against
+    # AND the query is big enough for that silence to be trusted: an
+    # elliptical follow-up ("ok", "继续", "好的谢谢") scores zero against
     # everything yet must stay in its thread, while a full sentence with
     # zero overlap against every narrative is a genuinely new topic.
-    # Known residual bias, on purpose: a SHORT brand-new-topic message
+    #
+    # Measured in script-independent UNITS (narrative_service.query_units:
+    # 1 per CJK character — han/kana/hangul carry roughly a word each —
+    # plus 1 per whitespace token of the rest). A plain char count would
+    # be blind to CJK: a complete 12-char Chinese sentence is a full new
+    # topic, not a "short" message, and a char threshold tuned on English
+    # prose would keep the gate shut for zh users essentially forever.
+    #
+    # Known residual bias, on purpose and in EVERY language: a new-topic
+    # message under the unit threshold (e.g. a 6-word English command)
     # stays in the old thread until a fuller message opens the new one —
     # one mis-filed turn beats a thread-per-"ok" (the fragmentation
-    # failure this gate replaces). NOT a time window (see the 2026-05-20
-    # NOTE). Env override: NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS
-    FAST_NEW_THREAD_MIN_QUERY_CHARS = int(
-        _env("NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS", "40")
+    # failure this gate replaces). The default is a provisional
+    # calibration; retune from gate_top1_raw once fast-path audit rows
+    # accumulate. NOT a time window (see the 2026-05-20 NOTE).
+    # Env override: NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS
+    FAST_NEW_THREAD_MIN_QUERY_UNITS = int(
+        _env("NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS", "8")
     )
 
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)

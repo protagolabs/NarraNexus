@@ -4,6 +4,17 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — 新线门改按语言单位计数（R2 复核 I3）
+
+`FAST_NEW_THREAD_MIN_QUERY_CHARS`(40 字符) → `FAST_NEW_THREAD_MIN_QUERY_UNITS`
+（默认 8，env `NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS`）。字符计数对
+CJK 全盲：中文完整句 11-15 字符，40 字符门对 zh 用户几乎永不打开——锚点
+仍吞掉一切换题（正是要修的症状）。单位=CJK 每字 1（汉字/假名/谚文约各
+承一词）+ 其余按空白分词每词 1（`narrative_service.query_units`），中英
+同尺。残余偏置对所有语言一致声明：低于 N 单位的新话题句先留旧线程（如
+6 词英文短命令），等更完整消息再开新线。默认值是临时校准，待
+gate_top1_raw 数据落地后重调。
+
 ## 2026-08-14 — FAST_NEW_THREAD_MIN_QUERY_CHARS（#307 增量 🟡1）
 
 fast 路径开新线的长度门（默认 40，env
