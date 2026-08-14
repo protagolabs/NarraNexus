@@ -525,6 +525,7 @@ def register_message_bus_mcp_tools(
         """
         from xyz_agent_context.message_bus.team_files import list_team_files
         from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
         return await list_team_files(

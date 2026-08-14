@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — bus_list_team_files 补上漏掉的 get_db_client 导入
+
+该工具自 2026-08-07 落地起就引用了未导入的 `get_db_client`（本文件的 db 导入全是**函数内局部**——82/396/463/498 各在别的函数作用域，闭包解析不到），每次调用必炸 `NameError`，而 [[test_list_team_files_tool]] 原有测试只测 impl 不过 wrapper，全绿假象。修复=补函数内导入（与兄弟工具同款，保持模块加载期不引 db_factory 的循环导入规避）；新增走 `register_message_bus_mcp_tools` 注册面的 wrapper 回归测试。教训：MCP 工具的测试必须打到注册的 wrapper，不能只打 impl。
+
 ## 2026-08-07 — 两个发送工具盖上 root_run_id
 
 `bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进

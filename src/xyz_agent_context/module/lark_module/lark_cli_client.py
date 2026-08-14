@@ -69,11 +69,13 @@ from loguru import logger
 _agent_user_id_cache: dict[str, str] = {}
 
 
-async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
+async def _resolve_agent_workspace_cwd(agent_id: str) -> Optional[Path]:
     """Return the agent's workspace dir to use as the subprocess CWD.
 
-    Returns None if:
-      - the agent has no `created_by` (orphaned bind / corrupted row)
+    The owner (``agents.created_by``) is resolved through the channel
+    seam's ``get_agent_owner`` — same in direct-db and zero-cred
+    deployments (twin: narra_cli_client's resolver). Returns None if:
+      - the agent has no owner (orphaned bind / corrupted row)
       - the workspace path can't be ensured (filesystem error)
     Callers MUST tolerate None — they fall back to inheriting the parent
     CWD (the pre-2026-05-28 behaviour), which is wrong for downloads but
@@ -82,16 +84,17 @@ async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
     user_id = _agent_user_id_cache.get(agent_id)
     if user_id is None:
         try:
-            from xyz_agent_context.repository import AgentRepository
-            repo = AgentRepository(db)
-            agent = await repo.get_agent(agent_id)
-            if agent is None or not agent.created_by:
+            from xyz_agent_context.module.data_access import (
+                get_channel_credential_store,
+            )
+
+            user_id = await get_channel_credential_store().get_agent_owner(agent_id)
+            if not user_id:
                 logger.debug(
-                    f"[lark-cli] no created_by for {agent_id}; "
+                    f"[lark-cli] no owner for {agent_id}; "
                     f"subprocess will inherit parent CWD"
                 )
                 return None
-            user_id = agent.created_by
             _agent_user_id_cache[agent_id] = user_id
         except Exception as e:
             logger.debug(f"[lark-cli] could not resolve user_id for {agent_id}: {e}")
@@ -262,7 +265,8 @@ class LarkCLIClient:
         from ._lark_credential_manager import _cred_from_raw
         from ._lark_workspace import get_home_env, get_workspace_path
 
-        raw = await get_channel_credential_store().get_credential("lark", agent_id)
+        store = get_channel_credential_store()
+        raw = await store.get_credential("lark", agent_id)
         cred = _cred_from_raw(raw) if raw is not None else None
         if not cred:
             return {
@@ -270,17 +274,28 @@ class LarkCLIClient:
                 "error": f"No Lark credential for agent {agent_id}. Run lark_setup first.",
             }
 
-        # Lazy migration: pre-refactor manual binds had workspace_path=""
+        # Lazy migration: pre-refactor manual binds had workspace_path="".
+        # Persist through the seam so it works in both direct-db and
+        # zero-cred deployments; the seam never raises, so a failed write
+        # only surfaces here — warn or the migration retries invisibly on
+        # every call.
         if not cred.workspace_path:
             cred.workspace_path = str(get_workspace_path(agent_id))
-            await mgr.update_workspace_path(agent_id, cred.workspace_path)
+            res = await store.patch_credential(
+                "lark", agent_id, {"workspace_path": cred.workspace_path}
+            )
+            if not res.get("success"):
+                logger.warning(
+                    f"[lark-cli] workspace_path migration not persisted for "
+                    f"{agent_id}: {res.get('error')}"
+                )
 
         hydrated, err = await self._ensure_hydrated(cred)
         if not hydrated:
             return {"success": False, "error": err}
 
         env = get_home_env(agent_id)
-        cwd = await _resolve_agent_workspace_cwd(agent_id, db)
+        cwd = await _resolve_agent_workspace_cwd(agent_id)
         cmd = ["lark-cli"] + args
         logger.debug(
             f"lark-cli [{agent_id}/{cred.profile_name}] cwd={cwd}: {' '.join(cmd)}"
