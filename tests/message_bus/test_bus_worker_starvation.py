@@ -8,7 +8,7 @@ the 2026-07-27 wedge, and its docstring already names the signal: sustained
 `running == max_workers` with `waiting > 0` means the POOL is the bottleneck,
 not the agents. Nobody reads it. It goes into a heartbeat row and stops there.
 
-That matters for PRD《Team 群聊响应速度》specifically, because slot wait is
+That matters for PRD "Team chat responsiveness" specifically, because slot wait is
 inside `queue_wait_ms` — the column acceptance #1 is judged on. A starved pool
 shows up as "the bus got slower" with no way to tell it from "the agents got
 slower".

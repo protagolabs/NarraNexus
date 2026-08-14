@@ -332,6 +332,32 @@ class MessageBusTrigger:
 
         await self.audit.stopped(self.liveness_snapshot())
 
+    async def _post_to_room(self, **kwargs) -> None:
+        """Put a message in a room and tell the poll loop to look again.
+
+        The ONLY way this process should post to the bus. Not because posting
+        needs abstracting — the call is one line — but because "post" and "wake"
+        must not be separable. They were, and the second of two call sites was
+        already missing the wake: the leader patrol posts under the room's own
+        marker and @-mentions members, so a patrolled teammate became pending
+        and then waited out a full adaptive interval to be noticed. Platform-
+        initiated dead air, which reads worse than an agent being slow.
+
+        A third caller cannot repeat that mistake without going out of its way.
+
+        The wake fires only after `send_message` RETURNS: a post that threw put
+        nothing in the room, so there is nothing new to look at
+        (`test_a_failed_room_post_does_not_wake`). Exceptions propagate — the
+        team-reply site has its own handler for the "reply exists, room will
+        never show it" case, and the patrol site is content to let a failure
+        surface.
+        """
+        await self._bus.send_message(**kwargs)
+        # Unconditional rather than "only when mentions is non-empty": an
+        # owner-addressed reply can also make the room's lead due, and one extra
+        # poll cycle costs a single indexed query.
+        self._wake()
+
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
 
@@ -1166,7 +1192,7 @@ class MessageBusTrigger:
                             )
                             mentions = []
                     try:
-                        await self._bus.send_message(
+                        await self._post_to_room(
                             from_agent=agent_id,
                             to_channel=channel_id,
                             content=turn.text,
@@ -1175,15 +1201,6 @@ class MessageBusTrigger:
                             # the transcript can open this turn's full event_log.
                             event_id=turn.event_id,
                         )
-                        # The reply is IN the room. If it @-mentioned a
-                        # teammate, that teammate is now pending — ask the poll
-                        # loop to look immediately rather than let the relay sit
-                        # out another 3-12s interval (acceptance #5). Set
-                        # unconditionally rather than only when `mentions` is
-                        # non-empty: an owner-addressed reply can also make the
-                        # room's lead due, and one extra poll cycle costs a
-                        # single indexed query.
-                        self._wake()
                     except Exception as post_err:  # noqa: BLE001 — see below
                         # The reply EXISTS and the room will never show it.
                         # Deliberately handled here instead of falling through
@@ -1793,7 +1810,7 @@ class MessageBusTrigger:
         # Posted under the ROOM's marker, not the lead's id: that is what
         # keeps the line out of the agent-hop count, and it reads honestly
         # — this is the platform taking stock, not the lead chatting.
-        await self._bus.send_message(
+        await self._post_to_room(
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             to_channel=channel_id,
             content=text,

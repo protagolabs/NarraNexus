@@ -43,12 +43,10 @@ stub: false
 
 **`_check_worker_starvation`**：`liveness_snapshot()` 从 2026-07-27 那次 wedge 起就带着
 `running`/`waiting`/`max_workers`，docstring 也早写明「持续 running==max_workers 且
-waiting>0 = 池子是瓶颈」，但没人读它。这条延迟上很要紧：**槽位等待就在
-`bus_hop_timing.queue_wait_ms` 里面**，也就是验收①判定所依据的那一列——没有这个信号，
+waiting>0 = 池子是瓶颈」，但没人读它。这条延迟上很要紧：**槽位等待就在 `[bus-timing]` 行的 `queue_wait_s` 里面**，也就是验收①判定所依据的那一列——没有这个信号，
 池子饿死和「大家的 turn 都变慢了」长得一模一样。
 
-三个刻意的性质：要**连续**满足 `STARVATION_STREAK_CYCLES` 才算（单个周期满载是池子在
-正常干活）；一个 streak **只告警一次**（满载一小时是一个问题不是六十个，每周期都响的
+三个刻意的性质：要**持续**满足 `STARVATION_ALERT_AFTER_S` 墙钟才算（单个瞬间满载是池子在正常干活）；一个 streak **只告警一次**（满载一小时是一个问题不是六十个，每周期都响的
 告警没人看，教训 #3）；**纯诊断**——不取消、不停机、不改优先级（铁律 #14），也**不进
 owner inbox**（槽位不够是平台侧的事，owner 动不了，塞进去只会训练他忽略 inbox）。
 

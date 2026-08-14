@@ -27,7 +27,8 @@ legitimate workload (binding rule #14) — the only thing being fixed here is ou
 own ability to lose it.
 
 ``pending()`` / ``drain()`` exist so tests can await what a run left behind
-instead of sleeping and hoping. ``drain`` is bounded and makes no promise that
+instead of sleeping and hoping. Both are scoped to the CURRENT event loop —
+see ``pending()`` for why that matters under pytest-asyncio. ``drain`` is bounded and makes no promise that
 the work completed; check ``pending()`` afterwards if that matters.
 
 Callers that need more than a log line on failure (an owner-facing notice, an
@@ -87,8 +88,25 @@ def spawn(
 
 
 def pending() -> FrozenSet[asyncio.Task]:
-    """The tasks still in flight. A snapshot — safe to iterate while tasks settle."""
-    return frozenset(_TASKS)
+    """Tasks still in flight ON THE CURRENT EVENT LOOP.
+
+    Loop-scoped, not process-scoped. `_TASKS` is a module global while asyncio
+    loops are not: a task whose loop closed before it finished never runs its
+    done-callback, so it stays in the set forever. In production there is one
+    long-lived loop and this never comes up; under pytest-asyncio every test
+    gets its own, and `spawn` now sits under `DataLoader._schedule_dispatch` —
+    the batch entry point most of the suite touches indirectly. Without this
+    filter, one test's leftover makes another file's `pending() == frozenset()`
+    fail, with evidence pointing at the wrong culprit.
+
+    Outside a running loop (a sync caller) there is nothing meaningful to
+    report, so the answer is empty rather than "everything, including corpses".
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return frozenset()
+    return frozenset(t for t in _TASKS if t.get_loop() is loop)
 
 
 async def drain(timeout: Optional[float] = None) -> None:
@@ -99,7 +117,10 @@ async def drain(timeout: Optional[float] = None) -> None:
     when the budget runs out stays tracked and keeps going. Tasks spawned WHILE
     draining are not waited on; call again if that matters.
     """
-    in_flight = list(_TASKS)
+    # `pending()`, not `_TASKS`: waiting on a task parked on a CLOSED loop can
+    # never be satisfied, so it would burn the whole timeout every call and
+    # blame the wrong code.
+    in_flight = list(pending())
     if not in_flight:
         return
     await asyncio.wait(in_flight, timeout=timeout)

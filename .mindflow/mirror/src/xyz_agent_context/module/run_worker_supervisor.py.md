@@ -121,8 +121,13 @@ door for zombies — this is the door.)
   better (single opener); MySQL must be sized for the busiest concurrent mix
   (poller 3 + jobs 5 + bus 3 + channels workers). Pool size is now env-tunable
   via `MYSQL_POOL_SIZE` (default 10; see [[db_factory.py]]) — a supervisor
-  deployment should set ≥25. Note: cloud compose still runs the 4 separate
-  containers today, so the single-pool case only bites once compose switches to
-  the supervisor (author-local todo).
+  deployment should set ≥25. **2026-08-14 correction**: the "cloud still runs 4
+  separate containers, so the single-pool case has not bitten yet" note that
+  used to sit here is obsolete — deploy `stacks/narranexus-app/compose.yml` runs
+  the `workers` service on `run_worker_supervisor` with `MYSQL_POOL_SIZE: "25"`.
+  The single pool is live, so the arithmetic above is load-bearing: the `bus`
+  term is `settings.bus_max_workers` (3 → 8 on 2026-08-14), and raising it again
+  means revisiting that 25. Found while reviewing that change — the stale note
+  had been used as evidence that raising the bus term was free.
 - The individual workers keep their `if __name__ == "__main__"` blocks as
   standalone DEBUG entrypoints only — no launcher wires them anymore.

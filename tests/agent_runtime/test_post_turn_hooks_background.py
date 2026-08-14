@@ -3,7 +3,7 @@
 @date: 2026-08-14
 @description: Steps 5-6 run detached — the contract nobody had pinned.
 
-PRD《Team 群聊响应速度》acceptance #3 is two claims, and only the first half
+PRD "Team chat responsiveness" acceptance #3 is two claims, and only the first half
 was ever asserted anywhere: "the reply does not wait for the post-turn hooks"
 AND "the memory / social / narrative writes still complete correctly once they
 run in the background". The second half has been load-bearing since 2026-05

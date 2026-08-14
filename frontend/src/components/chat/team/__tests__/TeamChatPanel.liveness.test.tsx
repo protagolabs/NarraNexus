@@ -2,7 +2,7 @@
  * @file_name: TeamChatPanel.liveness.test.tsx
  * @description: The transcript shows a sign of life, not only a running turn.
  *
- * PRD《Team 群聊响应速度》is about "群里死寂" — the room going visibly dead
+ * PRD "Team chat responsiveness" is about the room going visibly dead
  * after someone speaks. The backend has known better all along: the team GET
  * reports four states, and `queued` is computed straight from pending messages,
  * so it is true within one 3s poll of the message landing — it does not wait
@@ -58,6 +58,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { TeamChatPanel } from '../TeamChatPanel';
+import { STATUS_TONES } from '@/lib/teamActivity';
 
 const AGENTS = [
   { agent_id: 'a1', name: 'Ana' },
@@ -192,6 +193,34 @@ describe('TeamChatPanel · the transcript shows a sign of life', () => {
     expect(livenessBubbles('chat.team.typing')).toHaveLength(0);
     expect(livenessBubbles('chat.team.activity.queued')).toHaveLength(0);
     expect(livenessBubbles('chat.team.activity.stalled')).toHaveLength(0);
+  });
+
+  test('the bubble uses the roster\'s semantic colour, not its own', async () => {
+    // teamActivity.ts exists so the surfaces cannot disagree about what
+    // "stalled" looks like. The first version of this bubble hard-coded its
+    // palette and drew stalled as warning-amber while the roster drew the same
+    // member error-red — two severities for one state, and colour is read
+    // before words are.
+    await renderRoom([STALLED]);
+    const [bubble] = await waitFor(() => {
+      const found = livenessBubbles('chat.team.activity.stalled');
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(bubble.getAttribute('style')).toContain(STATUS_TONES.stalled.color);
+    expect(bubble.getAttribute('style')).not.toContain('var(--color-silicon)');
+  });
+
+  test('a queued member with no timestamp shows no half-written duration', async () => {
+    // elapsedSince returns '' for a missing stamp; "waiting " with a blank tail
+    // reads as a truncated string rather than an absent value.
+    await renderRoom([{ agent_id: 'a2', status: 'queued' as const }]);
+    const [bubble] = await waitFor(() => {
+      const found = livenessBubbles('chat.team.activity.queued');
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(bubble.textContent).not.toContain('waitingFor');
   });
 
   test('a mixed room shows each member in its own state', async () => {

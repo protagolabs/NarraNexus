@@ -6,7 +6,8 @@ Usage:
                                                           [--channel ch_xxx]
                                                           [--logs DIR]
 
-This is the evidence half of PRD《Team 群聊响应速度》acceptance #1, which asks to
+This is the evidence half of PRD "Team chat responsiveness" acceptance #1,
+which asks to
 take the bus hop "from 45-95s to under 30s, with measured before/after data".
 
 Why it reads LOGS and not a table
@@ -30,7 +31,8 @@ What the numbers mean
 `queue_wait` is the column acceptance #1 is judged on: message insert -> the
 dispatch that picked it up, which already includes the adaptive poll interval,
 the wait for a worker slot, and the per-agent lock. That is exactly
-"消息 → 触发 → 开始处理". It does NOT include the turn — read `turn` for that,
+"message -> trigger -> start of processing". It does NOT include the turn —
+read `turn` for that,
 and `hop` for the whole round trip including delivery.
 
 Rows with a `-1` sentinel are EXCLUDED from every percentile and counted

@@ -3,7 +3,8 @@
 @date: 2026-08-14
 @description: The handoff gap — a reply into the room wakes the poll at once.
 
-PRD《Team 群聊响应速度》acceptance #5: "三跳接力全程无零迹象窗口". The gap it is
+PRD "Team chat responsiveness" acceptance #5: a three-hop relay must never
+show a zero-sign window. The gap it is
 about is not inside a turn, it is BETWEEN turns. A finishes and posts; B is
 mentioned in that post; B waits for the next poll tick to be noticed. At the
 adaptive interval that is 3-12s of nothing happening, per hop, and it stacks
@@ -117,6 +118,55 @@ async def test_a_failed_room_post_does_not_wake(db_client, monkeypatch):
     await trig._process_agent(A)
 
     assert not trig._wake_event.is_set()
+
+
+def test_every_in_process_post_goes_through_the_waking_helper():
+    """Structural: nobody may call `_bus.send_message` directly from here.
+
+    Reviewed and found the hard way — this file originally pinned the team-reply
+    site only, and the leader-patrol post (which @-mentions members under the
+    room's own marker) sat right next to it with no wake. A per-call-site test
+    can only ever catch the sites someone remembered to test; this catches the
+    NEXT one too.
+    """
+    import inspect
+
+    from xyz_agent_context.message_bus import message_bus_trigger as mod
+
+    src = inspect.getsource(mod)
+    body = src.split("async def _post_to_room", 1)
+    assert len(body) == 2, "_post_to_room is gone — the invariant has no owner"
+    # Everything except the helper's own single call.
+    outside = body[0] + body[1].split("\n    ", 1)[1].split("def _wake", 1)[1]
+    assert "self._bus.send_message(" not in outside, (
+        "a direct self._bus.send_message() bypasses _post_to_room and will not "
+        "wake the poll loop — route it through the helper"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_patrol_post_wakes_the_poll_loop(db_client):
+    """The site the first version missed.
+
+    The patrol line is posted by the trigger process under
+    `team_owner:<team_id>`, so it is not self-sent for any member and an
+    @-mentioned teammate becomes a candidate immediately.
+    """
+    trig = _trigger(db_client, {})
+    await _seed_room(db_client)
+    assert not trig._wake_event.is_set()
+
+    await trig._post_to_room(
+        from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}",
+        to_channel=CHANNEL,
+        content="@Bo the board says this is stuck",
+        mentions=[B],
+    )
+
+    assert trig._wake_event.is_set(), (
+        "the platform spoke and then nobody looked — a teammate it @-mentioned "
+        "waits out a full poll interval"
+    )
 
 
 @pytest.mark.asyncio

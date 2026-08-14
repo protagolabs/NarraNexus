@@ -4,8 +4,8 @@
 @description: Narrative selection records WHERE its seconds went, per decision.
 
 `[TIMED] narrative.*` has split narrative selection into six spans for a while
-— into loguru only. `turn_timing.setup_ms` (2026-08-14) says the setup phase is
-the largest single block of a turn, but not which tier inside it, and the log
+— into loguru only. `[turn-timing]`'s `setup_s` says the setup phase is the largest single block
+of a turn, but not which tier inside it, and the log
 lines that would say cannot be aggregated and do not survive a restart
 (incident lesson #5).
 

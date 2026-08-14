@@ -6,8 +6,7 @@ stub: false
 
 ## 2026-08-14 — `continuity_ms` / `retrieve_ms` 落审计行
 
-`[TIMED] narrative.*` 一直在量这些，但只进 loguru：会轮转、没法聚合（教训 #5）。而
-`turn_timing.setup_ms`（2026-08-14）只能说"setup 是一轮里最大的一块"，说不出是里面
+`[TIMED] narrative.*` 一直在量这些，但只进 loguru：会轮转、没法聚合（教训 #5）。而 `[turn-timing]` 的 `setup_s` 只能说"setup 是一轮里最大的一块"，说不出是里面
 **哪一层**。
 
 四列的价值不在"叙事选择有多慢"，在**把成本和它买到的那个决策连起来**：短路的决策 vs

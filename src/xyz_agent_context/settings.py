@@ -151,6 +151,26 @@ class Settings(BaseSettings):
     # Slot wait is inside the `queue_wait_s` that `[bus-timing]` reports, so
     # raising this and re-reading `make latency-report` is a measurable change,
     # not a guess.
+    #
+    # CROSS-REPO DEPENDENCY — read before raising this again.
+    # Production runs `run_worker_supervisor`: poller + jobs + bus + every
+    # channel trigger share ONE asyncio loop and therefore ONE MySQL pool. That
+    # pool is sized in the deploy repo, `stacks/narranexus-app/compose.yml`
+    # (service `workers`, `MYSQL_POOL_SIZE`), whose comment derives the number
+    # from "poller(3) + jobs(5) + bus + every channel worker/subscriber". This
+    # value is the `bus` term in that arithmetic; changing it here without
+    # revisiting that number there is how a bus change turns into "the database
+    # got slow" for poller, jobs and every IM channel at once.
+    #
+    # Why raising it is nonetheless cheap: a connection is borrowed per QUERY,
+    # not held for the turn. A bus turn spends ~20 of its ~24 seconds waiting on
+    # an LLM and holds nothing during that time — which is also why the pool has
+    # always been sized for the typical concurrent QUERY mix rather than the
+    # theoretical task count (channel triggers alone allow 50 workers each).
+    #
+    # If this ever needs to go higher, get evidence first: a `worker_starvation`
+    # row in `service_audit` means the pool really is the bottleneck (see
+    # `_check_worker_starvation`); its absence means it is not.
     bus_max_workers: int = 8
 
 

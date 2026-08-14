@@ -37,7 +37,7 @@ class _Recorder:
 
 
 def _install(retrieval, rec: _Recorder, *, pool_fails: bool = False,
-             participant_fails: bool = False):
+             participant_fails: bool = False, participant_delay: float = 0.02):
     async def _ensure(agent_id, user_id):
         rec.mark('defaults:start')
         await asyncio.sleep(0.01)
@@ -47,7 +47,7 @@ def _install(retrieval, rec: _Recorder, *, pool_fails: bool = False,
         rec.mark('participants:start')
         if participant_fails:
             raise RuntimeError('participant query exploded')
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(participant_delay)
         rec.mark('participants:end')
         return []
 
@@ -133,3 +133,49 @@ async def test_a_failing_read_is_raised_not_swallowed(retrieval, which):
             query="hello", user_id="u1", agent_id="a1", top_k=3,
             narrative_type=NarrativeType.CHAT,
         )
+
+# --- the columns are only useful if something FILLS them --------------------
+
+@pytest.mark.asyncio
+async def test_a_retrieval_fills_the_cost_columns(retrieval):
+    """Reviewed gap: the audit tests proved "if the field is set, it reaches the
+    table" and nothing proved the field gets set.
+
+    Delete `audit.keyword_ms = ...` and every other test here stays green while
+    the column goes permanently NULL — a failure whose only symptom is "that new
+    column never has data", noticed by whoever happens to look.
+    """
+    rec = _Recorder()
+    _install(retrieval, rec)
+
+    result = await retrieval.retrieve_top_k(
+        query="hello", user_id="u1", agent_id="a1", top_k=3,
+        narrative_type=NarrativeType.CHAT,
+    )
+
+    # `is not None`, not `> 0`: a stubbed read can finish inside one millisecond
+    # and int(...*1000) legitimately yields 0, which in this schema means "ran,
+    # was fast" — a different thing from NULL ("did not run").
+    assert result.audit is not None
+    assert result.audit.keyword_ms is not None, (
+        "keyword_ms was never assigned — the column would sit at NULL forever"
+    )
+
+
+@pytest.mark.asyncio
+async def test_keyword_ms_excludes_the_participant_read(retrieval):
+    """It means "BM25 pool load + rank", and the participant query now runs
+    alongside the pool load. Charging a slow participant query to BM25 would
+    make this column answer its own question wrongly."""
+    rec = _Recorder()
+    _install(retrieval, rec, participant_delay=0.25)
+
+    result = await retrieval.retrieve_top_k(
+        query="hello", user_id="u1", agent_id="a1", top_k=3,
+        narrative_type=NarrativeType.CHAT,
+    )
+
+    assert result.audit.keyword_ms < 200, (
+        f"keyword_ms={result.audit.keyword_ms}ms absorbed the 250ms participant "
+        f"query it merely runs beside"
+    )

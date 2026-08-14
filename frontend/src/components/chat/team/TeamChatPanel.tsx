@@ -34,7 +34,7 @@ import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
-import { elapsedSince } from '@/lib/teamActivity';
+import { STATUS_TONES, elapsedSince } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
@@ -64,15 +64,42 @@ const POLL_MS = 3000;
  * GET, so it is true within one 3s poll of the message landing — it does not
  * wait for the poll interval, a worker slot and Step 0 the way `running` does.
  * Showing only `running` is what left the conversation blank while the roster
- * already knew someone was up, which is the "群里死寂" the PRD is about.
+ * already knew someone was up, which is the "dead room" the PRD is about.
  *
  * `idle` still renders nothing: a FINISHED turn leaves no trace in the flow,
  * its record lives one click away in the roster. That rule is unchanged — it
  * was never "only running may show", it was "finished leaves nothing".
  *
- * Copy is the roster's existing vocabulary, deliberately. Two surfaces naming
- * the same state with different words is its own kind of confusion.
+ * Colour and copy both come from `STATUS_TONES` — this is the FOURTH surface
+ * rendering these states, and `teamActivity.ts` exists precisely so they cannot
+ * disagree about what "stalled" looks like. Hard-coding them here (the first
+ * version did) put `stalled` at warning-amber in the transcript while the
+ * roster drew it error-red for the same member at the same moment: two
+ * different severities, one state. Softening is applied ON TOP of the semantic
+ * colour (see `opacity` below), never by swapping it for another one.
  */
+/** The duration line under a liveness bubble, or nothing.
+ *
+ * `elapsedSince` returns '' when the timestamp is missing (its documented
+ * contract), and "waiting " with a blank tail reads like a truncated string
+ * rather than a missing value. No duration => no detail line.
+ */
+function livenessDetail(
+  t: (k: string, v?: Record<string, unknown>) => string,
+  a: TeamMemberActivity,
+  now: number,
+): string | undefined {
+  if (a.status === 'queued') {
+    const d = elapsedSince(a.queued_since, now);
+    return d ? t('chat.team.activity.waitingFor', { duration: d }) : undefined;
+  }
+  if (a.status === 'stalled') {
+    const d = elapsedSince(a.last_signal_at, now);
+    return d ? t('chat.team.activity.silentFor', { duration: d }) : undefined;
+  }
+  return undefined;
+}
+
 function LivenessIndicator({
   name,
   status,
@@ -88,15 +115,16 @@ function LivenessIndicator({
 }) {
   const { t } = useTranslation();
 
+  const tone = STATUS_TONES[status];
+
   // `running` keeps its exact original label: it is the accessible name the
   // room has always had for this, and it is what existing tests target.
   const label =
     status === 'running'
       ? t('chat.team.typing', { name })
-      : `${name} · ${t(`chat.team.activity.${status}`)}`;
+      : `${name} · ${t(tone.labelKey)}`;
 
-  const accent =
-    status === 'stalled' ? 'var(--color-warning)' : 'var(--color-silicon)';
+  const accent = tone.color;
 
   return (
     <div className="flex gap-3">
@@ -115,14 +143,14 @@ function LivenessIndicator({
           className="nm-bubble-ai inline-flex items-center gap-2 rounded-[var(--radius-lg)] px-3.5 py-2.5"
           style={{
             background:
-              status === 'stalled'
-                ? 'color-mix(in srgb, var(--color-warning) 8%, transparent)'
-                : 'var(--color-silicon-soft)',
+              status === 'running'
+                ? 'var(--color-silicon-soft)'
+                : `color-mix(in srgb, ${accent} 8%, transparent)`,
             border: highlighted
               ? `1px solid ${accent}`
-              : status === 'stalled'
-                ? '1px solid color-mix(in srgb, var(--color-warning) 35%, transparent)'
-                : '1px solid var(--color-silicon-hair)',
+              : status === 'running'
+                ? '1px solid var(--color-silicon-hair)'
+                : `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
             // A queued member is not working yet; the bubble should read as
             // present-but-not-active rather than compete with a live turn.
             opacity: status === 'queued' ? 0.72 : 1,
@@ -900,7 +928,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                     `queued` is true within one 3s poll of the message landing,
                     so widening the filter is what closes the window where the
                     roster knew somebody was up and the conversation looked
-                    dead — the "群里死寂" the PRD is named after. */}
+                    dead — the "dead room" the PRD is named after. */}
                 {activity
                   .filter((a) => a.status !== 'idle')
                   .map((a) => (
@@ -908,17 +936,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       key={`liveness-${a.agent_id}`}
                       name={nameOf(a.agent_id)}
                       status={a.status as 'running' | 'queued' | 'stalled'}
-                      detail={
-                        a.status === 'queued'
-                          ? t('chat.team.activity.waitingFor', {
-                              duration: elapsedSince(a.queued_since, now),
-                            })
-                          : a.status === 'stalled'
-                            ? t('chat.team.activity.silentFor', {
-                                duration: elapsedSince(a.last_signal_at, now),
-                              })
-                            : undefined
-                      }
+                      detail={livenessDetail(t, a, now)}
                       highlighted={rosterExpandedId === a.agent_id}
                       onClick={() => {
                         toggleRoster(a.agent_id);

@@ -168,20 +168,39 @@ class NarrativeRetrieval:
         # anyone arriving here to make selection faster should go there — see
         # the `continuity_ms` / `judge_ms` columns on narrative_routing_audit,
         # which exist to make that obvious without re-deriving it.
-        _t_keyword = _perf.monotonic()
-        with timed("narrative.retrieve.participant_query"):
+        async def _load_pool_timed():
+            """`load_pool` plus its own elapsed ms.
+
+            Timed separately because the two reads now overlap: the enclosing
+            span measures max(participant, pool), which is the right number for
+            "how long did this step take" and the WRONG one for `keyword_ms`,
+            whose documented meaning is "BM25 pool load + rank". Without this,
+            a slow participant query would be charged to BM25.
+            """
+            _t0 = _perf.monotonic()
+            result = await self.load_pool(agent_id, user_id)
+            return result, int((_perf.monotonic() - _t0) * 1000)
+
+        # Named for what it measures. It was `narrative.retrieve.participant_query`
+        # while wrapping only that query; once the pool read joined it, the old
+        # name would have made a cross-PR comparison of `[TIMED]` history read a
+        # scope change as a performance change — using the very method this
+        # branch demonstrates.
+        with timed("narrative.retrieve.independent_reads"):
             # Coroutines straight into gather — no `create_task` wrapper.
             # gather already schedules them concurrently, and holding our own
-            # Task handles would only add two objects and a second way for one
-            # to outlive a failure of the other.
+            # Task handles would only add two objects for nothing.
             #
             # `return_exceptions` stays at its default False: either read
             # failing means the candidate set is INCOMPLETE, and routing
             # confidently on the remainder would be a wrong answer dressed as
-            # a right one. The caller must see it.
-            participant_narratives, pool = await asyncio.gather(
+            # a right one. The caller must see it. (Note: gather does NOT
+            # cancel the sibling on first exception — the surviving read runs
+            # to completion with nobody to receive it. Harmless here, one
+            # wasted DB round trip.)
+            participant_narratives, (pool, _pool_ms) = await asyncio.gather(
                 self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
-                self.load_pool(agent_id, user_id),
+                _load_pool_timed(),
             )
         has_participant_narratives = len(participant_narratives) > 0
         if has_participant_narratives:
@@ -199,13 +218,16 @@ class NarrativeRetrieval:
             # pool with the exact text that was scored, and BM25's IDF/avgdl
             # are computed over that set, so a top-K slice cannot be replayed.
             # keyword_search stays the public seam for select_fast.
+            _t_rank = _perf.monotonic()
             search_results = self.rank_pool(
                 query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
             )
-        # Covers the pool read AND the ranking — the two halves are only
-        # separable in the log lines, and the question this column answers
-        # ("is BM25 ever the problem?") is about their sum.
-        audit.keyword_ms = int((_perf.monotonic() - _t_keyword) * 1000)
+            _rank_ms = int((_perf.monotonic() - _t_rank) * 1000)
+        # Pool read + ranking, and nothing else — the participant query it now
+        # runs alongside is a different question and must not be charged here.
+        # This column answers "is BM25 ever the problem?"; mixing in an
+        # unrelated read is how it would answer wrongly.
+        audit.keyword_ms = _pool_ms + _rank_ms
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
