@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-04
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
+
+message bus trigger 的并发 turn 上限。这是**我们自己的**资源决策，不是对 agent 运行时长
+的限制（铁律 #14）：池子决定同时能服务几个房间，池子太小在用户那儿的表现就是「群聊死了」
+——恰恰是平台有责任避免的那个失效模式。
+
+写死成 3 让槽位短缺既**看不见**、又**必须改代码**才能修。8 是新的舒适下限：bus turn 几乎
+全是 await（LLM + DB），槽位很便宜，而一个团队房内部接力就能同时占掉好几个。
+
+槽位等待就在 `bus_hop_timing.queue_wait_ms` 里面，所以调这个值再重跑
+`make latency-report` 是**可测量**的改动，不是拍脑袋。
 
 ## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
 

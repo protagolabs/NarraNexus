@@ -136,6 +136,23 @@ class Settings(BaseSettings):
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
 
+    # ===== Message-bus worker pool =====
+    # How many bus turns may run concurrently in the trigger process. This is
+    # OUR resource decision, not a policy on how long an agent may run (binding
+    # rule #14) — the pool caps how many rooms we can serve at once, and a pool
+    # too small shows up to the user as "the group chat is dead", which is the
+    # one failure mode the platform is responsible for avoiding.
+    #
+    # Was hard-coded at 3, which made a slot shortage both invisible and
+    # unfixable without a code change. 8 is the new floor-of-comfort: a bus turn
+    # is almost entirely await (LLM + DB), so slots are cheap, and a single team
+    # room relaying between members can occupy several at once.
+    #
+    # Slot wait is inside the `queue_wait_s` that `[bus-timing]` reports, so
+    # raising this and re-reading `make latency-report` is a measurable change,
+    # not a guess.
+    bus_max_workers: int = 8
+
 
 
     # ===== Turn-context relocation (token optimization phase 3, R4) =====

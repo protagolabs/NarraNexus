@@ -1,8 +1,35 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 转录区认全部「非 idle」状态，不再只认 running
+
+`TypingIndicator` → `LivenessIndicator`，过滤条件从 `status === 'running'` 放宽到
+`status !== 'idle'`。
+
+**为什么这是「群里死寂」的真正修复点**：后端一直知情——`queued` 是团队 GET 直接从
+待处理消息算出来的，消息落库后**一次 3s 轮询内**就为真，完全不等 trigger；而
+`running` 要等轮询间隔 + worker 槽位 + Step 0。所以此前右栏 roster 已经显示「启动中」，
+左边的对话流却什么都没有。本地真机复现过这个窗口。
+
+**没有违反两栏布局那条规则**（见 `TeamChatPanel.roster.test.tsx` 的 docstring）：规则
+是「**跑完的**轮次不在流里留痕，记录在 roster 里一键可达」，不是「只有 running 才能
+显示」。`idle` 仍然什么都不渲染。
+
+**三态的视觉区分是有意的**：只有 `running` 的点会 bounce。queued/stalled 也跳动会读成
+「正在工作」，那正是四态存在要防止的误读；queued 压到 0.72 不透明度，stalled 走 warning
+色调。
+
+**一个 i18n key 都没新增**，直接复用 roster 的
+`chat.team.activity.{queued,stalled,waitingFor,silentFor}`。两个界面对同一状态说同一个
+词本身就是对的，顺带省掉 10 个 locale 文件的改动。`running` 的 aria-label 逐字保持
+`chat.team.typing`——那是这个元素一直以来的可访问名，也是既有测试的抓手。
+
+**测试的坑**：断言时长文案必须 `within(bubble)` 收紧到气泡内部——roster 渲染同一个
+字符串，不收紧的查询只靠 roster 就能通过，也就是说它会在「正好是本文件要抓的那个
+bug」面前变绿。
 ## 2026-08-10 — 巡查行渲染
 
 `msg_type === 'patrol'` 走独立分支:虚线框 + 「Leader 巡查」小标 + Markdown 正文。
