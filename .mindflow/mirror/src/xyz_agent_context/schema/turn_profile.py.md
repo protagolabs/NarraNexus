@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/schema/turn_profile.py
 stub: false
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — 通用工厂 fast_for(working_source)
+
+`fast_for(working_source, *, reasoning_effort="low")` 成为「fast 意味着哪些
+knobs」的**唯一事实源**：BM25 top-1 / nexus_power / FULL prompt / effort=low /
+include_arg_deltas / expression_nudge，`name=f"{source}_fast"`（接收
+WorkingSource 枚举成员或裸字符串，取 `.value` 优先）——timing 日志天然按
+surface 区分，未来 trigger 传 `fast_mode=True` 即自动获得自己的 profile 名。
+`voice_fast()` 收编为 `fast_for("voice")` 的薄别名（knobs 逐字段不变，既有
+锁测试保持绿）。首个新消费方：chat WS 链路（AgentRuntime.run 的
+`fast_mode` 布尔 → `_resolve_turn_profile` → `fast_for`）。
 
 ## 2026-08-13 — voice_fast 增 expression_nudge=True
 

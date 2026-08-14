@@ -53,3 +53,28 @@ def test_json_round_trip():
 def test_invalid_prompt_mode_rejected():
     with pytest.raises(Exception):
         TurnProfile(prompt_mode="tiny")  # type: ignore[arg-type]
+
+
+def test_fast_for_derives_name_from_working_source_enum():
+    from xyz_agent_context.schema.hook_schema import WorkingSource
+
+    p = TurnProfile.fast_for(WorkingSource.CHAT)
+    assert p.name == "chat_fast"
+    assert p.narrative_strategy == "bm25_top1"
+    assert p.framework_override == "nexus_power"
+    assert p.prompt_mode == "full"
+    assert p.reasoning_effort == "low"
+    assert p.include_arg_deltas is True
+    assert p.expression_nudge is True
+    assert p.is_fast is True
+
+
+def test_fast_for_accepts_bare_string_source():
+    assert TurnProfile.fast_for("chat").name == "chat_fast"
+
+
+def test_voice_fast_is_fast_for_voice():
+    assert TurnProfile.voice_fast() == TurnProfile.fast_for("voice")
+    assert TurnProfile.voice_fast(reasoning_effort="minimal") == TurnProfile.fast_for(
+        "voice", reasoning_effort="minimal"
+    )

@@ -38,19 +38,35 @@ class TurnProfile(BaseModel, frozen=True):
     # turn_input.py warns about.
 
     @classmethod
-    def voice_fast(cls, *, reasoning_effort: str = "low") -> "TurnProfile":
-        """The F28 voice-call profile (v1 decisions: FULL prompt, tools kept)."""
+    def fast_for(
+        cls, working_source: object, *, reasoning_effort: str = "low"
+    ) -> "TurnProfile":
+        """Build the fast profile for a trigger surface.
+
+        The single source of truth for what "fast" means. ``working_source``
+        is a ``WorkingSource`` enum member or its bare string value; the
+        profile name derives from it (``"<source>_fast"``) so [turn-timing]
+        logs separate surfaces without per-surface factories. Knobs carry
+        the shared F28 v1 decisions: FULL prompt, tools kept, BM25 top-1
+        narrative, low reasoning effort.
+        """
+        source = getattr(working_source, "value", None) or str(working_source)
         return cls(
-            name="voice_fast",
+            name=f"{source}_fast",
             narrative_strategy="bm25_top1",
             framework_override="nexus_power",
             prompt_mode="full",
             reasoning_effort=reasoning_effort,
             include_arg_deltas=True,
-            # An unanswered voice turn is never the right outcome — a
+            # An unanswered fast turn is never the right outcome — a
             # mute turn gets one steering nudge before it may close.
             expression_nudge=True,
         )
+
+    @classmethod
+    def voice_fast(cls, *, reasoning_effort: str = "low") -> "TurnProfile":
+        """The F28 voice-call profile — ``fast_for("voice")`` by another name."""
+        return cls.fast_for("voice", reasoning_effort=reasoning_effort)
 
     @property
     def is_fast(self) -> bool:
