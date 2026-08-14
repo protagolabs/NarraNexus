@@ -88,11 +88,13 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         raw = payload.get(key)
         if raw is None:
             return None
-        # Tolerate wire fields this executor's dataclass doesn't know: during a
-        # rolling deploy a NEW orchestrator can dispatch to an OLD warm/pooled
-        # executor (broker's lazy stale-executor reuse), and a new field like
-        # identity_token would otherwise raise TypeError and fail the turn.
-        # Drop unknown keys instead of crashing (铁律 #3 lockstep hazard).
+        # Defensive forward-compat: reconstruct only the dataclass's KNOWN fields
+        # so a field one end serializes that the other doesn't define can never
+        # raise TypeError and fail the turn. (The broker already replaces stale-
+        # IMAGE executors on ensure() via _is_stale, so the "new orchestrator →
+        # old warm executor" window is narrow; this is belt-and-suspenders against
+        # any residual skew — e.g. a same-image content change, or local mode.)
+        # Adding identity_token to the three configs was the concrete trigger.
         cls = _CONFIG_TYPES[key]
         known = {f.name for f in dataclasses.fields(cls)}
         unknown = [k for k in raw if k not in known]
