@@ -227,7 +227,10 @@
       "expand": "展开",
       "collapse": "收起",
       "today": "今天",
-      "agentPaused": "该 agent 已暂停（{{reason}}）。原因排除后，用上方横幅里的「恢复」重新启用。"
+      "agentPaused": "该 agent 已暂停（{{reason}}）。原因排除后，用上方横幅里的「恢复」重新启用。",
+      "sendFailed": "没发出去。你写的还在——再试一次。",
+      "uploadFailed": "“{{name}}”没能上传。",
+      "uploadFailedGeneric": "文件没能上传。"
     },
     "execution": {
       "showSteps": "显示执行步骤",

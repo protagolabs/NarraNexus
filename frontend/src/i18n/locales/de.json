@@ -167,7 +167,10 @@
         },
         "turnOff": "Aus",
         "turnOn": "An"
-      }
+      },
+      "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
+      "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",
+      "uploadFailedGeneric": "Upload fehlgeschlagen."
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",

@@ -30,6 +30,7 @@ import { TeamTranscript } from './TeamTranscript';
 import { mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
 import { isNearBottom } from '@/lib/scrollStickiness';
 import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
+import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
@@ -50,6 +51,10 @@ interface TeamChatPanelProps {
 type MentionOption = { kind: 'all' } | { kind: 'agent'; agent: AgentInfo };
 
 const POLL_MS = 3000;
+
+/** Same as the private chat's composer: long enough to coalesce a burst of
+ *  keystrokes, short enough that a crash loses at most a word. */
+const DRAFT_PERSIST_DEBOUNCE_MS = 400;
 
 /**
  * IM-style "someone is typing" bubble — no stats, gone the moment the reply
@@ -124,7 +129,21 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       .filter((a): a is NonNullable<typeof a> => !!a);
   }, [team, agents]);
 
-  const [text, setText] = useState('');
+  // Seeded from the stored draft: the room is a place you leave, so what was
+  // half-typed has to still be here when you come back.
+  const [text, setText] = useState(() => getTeamDraft(teamId));
+  const textRef = useRef(text);
+  textRef.current = text;
+  // What just went wrong in the composer. A failed send used to restore the
+  // text and say nothing, which is indistinguishable from the Enter key not
+  // registering — so the user retypes, or sends twice.
+  const [composerError, setComposerError] = useState<string | null>(null);
+  // IME state. Enter is how a Pinyin/Kana candidate is ACCEPTED; sending on it
+  // makes the composer unusable for the languages this project is written in.
+  // Some IMEs fire compositionend before that final keydown, hence the grace
+  // window as well as the flag — the private chat's Composer learned both.
+  const isComposingRef = useRef(false);
+  const compositionEndTimeRef = useRef(0);
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
   // Read by the poll without making `refresh` depend on the transcript: a
   // changing dependency would tear down and recreate the interval on every
@@ -147,6 +166,44 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     if (!teamId) return;
     markTeamRead(teamId, latestTeamMessageMs(messages));
   }, [teamId, messages]);
+
+  // Which room the text in the composer BELONGS to. `teamId` and `text` update
+  // on different commits — a route change re-renders with the new room and the
+  // old text still in state — so anything that persists the draft has to know
+  // which of the two it is currently holding. Without this the first save after
+  // a room switch files the previous room's words under the new room's name.
+  const draftRoomRef = useRef(teamId);
+
+  // Debounced persistence.
+  //
+  // On the one commit where the room has changed and the text has not yet
+  // caught up, this schedules a write of the OLD text under the NEW room. It
+  // cannot land: the switch effect below sets the text in the same commit, and
+  // the resulting re-render clears the timer first. The single case where React
+  // skips that re-render is when the two strings are already equal — and then
+  // the write is a no-op by definition. A guard stood here until a mutation
+  // showed nothing could observe it.
+  useEffect(() => {
+    const id = window.setTimeout(() => setTeamDraft(teamId, text), DRAFT_PERSIST_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [teamId, text]);
+
+  // Switching rooms: flush what was typed into the room being LEFT (textRef
+  // still holds it here), then load the room being entered.
+  useEffect(() => {
+    const leaving = draftRoomRef.current;
+    if (leaving === teamId) return;
+    setTeamDraft(leaving, textRef.current);
+    draftRoomRef.current = teamId;
+    setText(getTeamDraft(teamId));
+  }, [teamId]);
+
+  // Unmounting: same flush, for navigating away rather than sideways. Text
+  // typed inside the debounce window would otherwise be lost by exactly the
+  // action that makes a draft worth having.
+  useEffect(() => {
+    return () => setTeamDraft(draftRoomRef.current, textRef.current);
+  }, []);
 
   // Workspace data lives HERE, not in the panel: a chip under a message and
   // the panel's own list must agree on what is open, so one component owns the
@@ -373,15 +430,21 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const handlePickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
+    setComposerError(null);
     try {
       for (const file of Array.from(files)) {
         const res = await api.uploadTeamChatAttachment(teamId, file);
         if (res.success && res.attachment) {
           setPending((prev) => [...prev, res.attachment!]);
+        } else {
+          // A refusal is not an exception, and "no chip appeared" looks exactly
+          // like an upload still in flight. Name the file: with several
+          // selected, which one failed is the whole question.
+          setComposerError(t('chat.team.uploadFailed', { name: file.name }));
         }
       }
     } catch {
-      // Silent — a failed upload just doesn't add a chip; the user can retry.
+      setComposerError(t('chat.team.uploadFailedGeneric'));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -399,7 +462,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         );
       }
     } catch {
-      // Silent — the AudioRecorder's own onError surfaces capture failures.
+      // Capture failures are the AudioRecorder's own onError; this is the
+      // UPLOAD failing, which nothing else reports — and a voice memo that
+      // vanishes with no message is the worst version of this bug, because the
+      // recording cannot be retyped.
+      setComposerError(t('chat.team.uploadFailedGeneric'));
     } finally {
       setUploading(false);
     }
@@ -411,16 +478,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     const mentions = resolveMentions(body);
     const attachments = pending;
     setText('');
+    setTeamDraft(teamId, '');
     setPending([]);
     closeMention();
+    // A stale error sitting next to a message that did send is its own lie.
+    setComposerError(null);
     setSending(true);
     try {
       await api.sendTeamChat(teamId, body, mentions, attachments);
       await refresh();
     } catch {
-      // Restore the draft + attachments so nothing is lost on a failed send.
+      // Restore the draft + attachments so nothing is lost — and SAY SO.
+      // Restoring silently is indistinguishable from the Enter key never
+      // having registered, so the user retypes it or sends it twice.
       setText(body);
+      setTeamDraft(teamId, body);
       setPending(attachments);
+      setComposerError(t('chat.team.sendFailed'));
     } finally {
       setSending(false);
     }
@@ -700,6 +774,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               inside it (carbon-soft when there's content, neutral when empty). */}
           <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
             {/* Transcription-unavailable notice (post-record). */}
+            {composerError && (
+              <div
+                data-testid="composer-error"
+                role="alert"
+                className="mb-2 flex items-start gap-2 rounded-md border border-[var(--color-red-500)]/40 bg-[var(--color-red-500)]/10 px-2.5 py-1.5 text-xs text-[var(--nm-ink)]"
+              >
+                <span className="flex-1">{composerError}</span>
+                <button
+                  type="button"
+                  onClick={() => setComposerError(null)}
+                  className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  aria-label={t('common.close')}
+                >
+                  <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+                </button>
+              </div>
+            )}
             {transcriptionNotice && (
               <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
                 <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
@@ -832,9 +923,28 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                     }
                   }
                   if (e.key === 'Enter' && !e.shiftKey) {
+                    // Enter is how an IME candidate is ACCEPTED. Some IMEs fire
+                    // compositionend before that final keydown, so the flag
+                    // alone is not enough — hence the short grace window, the
+                    // same pair the private chat's Composer settled on.
+                    const composing =
+                      e.nativeEvent.isComposing || isComposingRef.current;
+                    if (composing || Date.now() - compositionEndTimeRef.current < 100) return;
                     e.preventDefault();
                     handleSend();
                   }
+                }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionUpdate={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  compositionEndTimeRef.current = Date.now();
+                  setTimeout(() => {
+                    isComposingRef.current = false;
+                  }, 0);
                 }}
                 rows={1}
                 placeholder={t('chat.team.placeholder')}

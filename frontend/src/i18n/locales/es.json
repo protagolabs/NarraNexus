@@ -167,7 +167,10 @@
         },
         "turnOff": "Desactivar",
         "turnOn": "Activar"
-      }
+      },
+      "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
+      "uploadFailed": "No se pudo subir «{{name}}».",
+      "uploadFailedGeneric": "No se pudo subir el archivo."
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",

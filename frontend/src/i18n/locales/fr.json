@@ -167,7 +167,10 @@
         },
         "turnOff": "Désactiver",
         "turnOn": "Activer"
-      }
+      },
+      "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
+      "uploadFailed": "Impossible d’envoyer « {{name}} ».",
+      "uploadFailedGeneric": "Impossible d’envoyer le fichier."
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
