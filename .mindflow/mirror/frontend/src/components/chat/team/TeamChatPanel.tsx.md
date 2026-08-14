@@ -4,6 +4,40 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — 转录区认全部「非 idle」状态，不再只认 running
+
+`TypingIndicator` → `LivenessIndicator`，过滤条件从 `status === 'running'` 放宽到
+`status !== 'idle'`。
+
+**为什么这是「群里死寂」的真正修复点**：后端一直知情——`queued` 是团队 GET 直接从
+待处理消息算出来的，消息落库后**一次 3s 轮询内**就为真，完全不等 trigger；而
+`running` 要等轮询间隔 + worker 槽位 + Step 0。所以此前右栏 roster 已经显示「启动中」，
+左边的对话流却什么都没有。本地真机复现过这个窗口。
+
+**没有违反两栏布局那条规则**（见 `TeamChatPanel.roster.test.tsx` 的 docstring）：规则
+是「**跑完的**轮次不在流里留痕，记录在 roster 里一键可达」，不是「只有 running 才能
+显示」。`idle` 仍然什么都不渲染。
+
+**三态的视觉区分是有意的**：只有 `running` 的点会 bounce。queued/stalled 也跳动会读成
+「正在工作」，那正是四态存在要防止的误读。
+
+**颜色与文案一律取自 `STATUS_TONES`**（`lib/teamActivity.ts`）。这是第四个渲染同一组状态
+的界面，而 `teamActivity.ts` 的存在理由就是「三个界面永远不会对『stalled 长什么样』产生
+分歧」。第一版在这里**硬编码**了调色板，结果是同一成员同一时刻：转录区 stalled 画成
+warning 琥珀、右栏 roster 画成 **error 红**；queued 则是 silicon 对 warning。两种严重度
+暗示，而颜色比文字更先被看到。柔化只允许**叠在语义色之上**（queued 的 0.72 不透明度），
+不允许换成另一个语义色。`TeamChatPanel.liveness.test.tsx` 里有测试断言气泡 style 含
+`STATUS_TONES.stalled.color`。
+
+**一个 i18n key 都没新增**，直接复用 roster 的
+`chat.team.activity.{queued,stalled,waitingFor,silentFor}`。两个界面对同一状态说同一个
+词本身就是对的，顺带省掉 10 个 locale 文件的改动。`running` 的 aria-label 逐字保持
+`chat.team.typing`——那是这个元素一直以来的可访问名，也是既有测试的抓手。
+
+**测试的坑**：断言时长文案必须 `within(bubble)` 收紧到气泡内部——roster 渲染同一个
+字符串，不收紧的查询只靠 roster 就能通过，也就是说它会在「正好是本文件要抓的那个
+bug」面前变绿。
+
 ## 2026-08-14 (二) — memberNameMap：一个被上游打穿的 memo
 
 `memberNames` 此前是在 JSX 里现场 `Object.fromEntries(...)` 出来的，**每次 render 都是新
@@ -83,7 +117,6 @@ keydown，所以还需要 100ms 的宽限窗口。两者都是私聊 [[Composer.
 
 两个 surface 推同一个水位线（另一个是 [[AgentList]]，它只看得到列表响应）。两边
 都是单调的，所以谁更靠前谁生效，谁也无法把对方推回去。
-
 ## 2026-08-10 — 巡查行渲染
 
 `msg_type === 'patrol'` 走独立分支:虚线框 + 「Leader 巡查」小标 + Markdown 正文。

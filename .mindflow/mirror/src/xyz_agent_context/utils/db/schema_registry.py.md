@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
+
+`continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：
+NULL = 这一层没跑。短路的决策跳过 judge，那里存 0 会把"仲裁有多贵"答得远低于真实值，
+而这几列存在的意义就是支持这个对比。纯新增可空列，`auto_migrate()` 幂等加列。
+
+## 2026-08-14 — 曾加过两张延迟观测表（`bus_hop_timing` / `turn_timing`），已撤回
+
+记下来免得有人再走一遍。
+
+**加表时的论据是错的**：当时引「教训 #5：日志会轮转，用 DB」，但那条针对的是
+`docker logs`。本项目早已按服务把日志写文件，`rotation="00:00"` +
+`retention="30 days"`（`utils/logging/_setup.py`）。
+
+**日志实测够用**：一行 `grep + awk` 从日志算出的分位数与表版本报表**逐位一致**。
+`scripts/diag_collector/latency_report.py` 现在直接解析日志，产出相同。
+
+**取舍**：表买到 JOIN 和自解释 SQL，代价是两表 + 两 repository + 两处热路径写入 +
+迁移。为一次延迟排查不划算。真要长期盯，该建的是 `turn_timing`（秒数在 setup 段），
+不是这一整层。
+
+**保留的例外**：`narrative_routing_audit` 的四个 `*_ms` 列留着——那张表本来每次决策
+就写一行，加可空列边际成本为零，而「成本 ↔ 决策」的关联是日志给不了的。
 
 ## 2026-08-13 — ban_audit 新表（账户状态变更审计）
 

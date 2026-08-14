@@ -366,6 +366,21 @@ class RoutingAudit(BaseModel):
     judge_matched_id: Optional[str] = None
     judge_reason: str = ""
 
+    # ── cost ────────────────────────────────────────────────────────────
+    # Milliseconds per tier, joined to the decision that paid for them. The
+    # `[TIMED] narrative.*` lines already measure these, but only into loguru:
+    # they rotate away and cannot be aggregated, so "how long does arbitration
+    # take, compared to a short-circuit" had no answer.
+    #
+    # None means THIS TIER DID NOT RUN — never zero. A short-circuited decision
+    # skips the judge entirely, and storing 0 there would drag every "cost of
+    # arbitration" query toward nothing, destroying the exact comparison these
+    # columns exist to make.
+    continuity_ms: Optional[int] = None   # tier 1 LLM (continuity detect)
+    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k)
+    keyword_ms: Optional[int] = None      # BM25 pool load + rank
+    judge_ms: Optional[int] = None        # tier 3 LLM (unified match)
+
     # ── outcome ─────────────────────────────────────────────────────────
     selection_method: str = ""
     retrieval_method: str = ""

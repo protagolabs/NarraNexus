@@ -39,6 +39,10 @@ import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+// `formatTime` came in with dev's liveness work, which used it in the inline
+// message loop this branch replaced with <TeamTranscript>. The per-message
+// timestamp now lives in TeamMessageFooter, which imports it itself.
+import { STATUS_TONES, elapsedSince } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
 import type { BusAttachment } from '@/types';
@@ -57,21 +61,61 @@ const POLL_MS = 3000;
 const DRAFT_PERSIST_DEBOUNCE_MS = 400;
 
 /**
- * IM-style "someone is typing" bubble — no stats, gone the moment the reply
- * lands. Clicking it opens that member's process detail in the roster (shared
+ * IM-style sign-of-life bubble — no stats, gone the moment the member goes
+ * idle. Clicking it opens that member's process detail in the roster (shared
  * highlight = same accent on both sides), so the transcript stays a transcript
  * and every number lives in exactly one place.
+ *
+ * Renders for three live states, not just `running`:
+ *
+ *   running  animated dots, "is typing" — unchanged
+ *   queued   still dots, dimmed, plus how long it has been waiting
+ *   stalled  plus how long there has been no signal
+ *
+ * Why `queued` belongs here at all: it is derived from pending messages on the
+ * GET, so it is true within one 3s poll of the message landing — it does not
+ * wait for the poll interval, a worker slot and Step 0 the way `running` does.
+ * Showing only `running` is what left the conversation blank while the roster
+ * already knew someone was up, which is the "dead room" the PRD is about.
+ *
+ * `idle` still renders nothing: a FINISHED turn leaves no trace in the flow,
+ * its record lives one click away in the roster. That rule is unchanged — it
+ * was never "only running may show", it was "finished leaves nothing".
+ *
+ * Colour and copy both come from `STATUS_TONES` — this is the FOURTH surface
+ * rendering these states, and `teamActivity.ts` exists precisely so they cannot
+ * disagree about what "stalled" looks like. Hard-coding them here (the first
+ * version did) put `stalled` at warning-amber in the transcript while the
+ * roster drew it error-red for the same member at the same moment: two
+ * different severities, one state. Softening is applied ON TOP of the semantic
+ * colour (see `opacity` below), never by swapping it for another one.
  */
-function TypingIndicator({
+function LivenessIndicator({
   name,
+  status,
+  detail,
   highlighted,
   onClick,
 }: {
   name: string;
+  status: 'running' | 'queued' | 'stalled';
+  detail?: string;
   highlighted: boolean;
   onClick: () => void;
 }) {
   const { t } = useTranslation();
+
+  const tone = STATUS_TONES[status];
+
+  // `running` keeps its exact original label: it is the accessible name the
+  // room has always had for this, and it is what existing tests target.
+  const label =
+    status === 'running'
+      ? t('chat.team.typing', { name })
+      : `${name} · ${t(tone.labelKey)}`;
+
+  const accent = tone.color;
+
   return (
     <div className="flex gap-3">
       <RingAvatar
@@ -85,26 +129,71 @@ function TypingIndicator({
         <button
           type="button"
           onClick={onClick}
-          aria-label={t('chat.team.typing', { name })}
-          className="nm-bubble-ai inline-flex items-center gap-1 rounded-[var(--radius-lg)] px-3.5 py-2.5"
+          aria-label={label}
+          className="nm-bubble-ai inline-flex items-center gap-2 rounded-[var(--radius-lg)] px-3.5 py-2.5"
           style={{
-            background: 'var(--color-silicon-soft)',
+            background:
+              status === 'running'
+                ? 'var(--color-silicon-soft)'
+                : `color-mix(in srgb, ${accent} 8%, transparent)`,
             border: highlighted
-              ? '1px solid var(--color-silicon)'
-              : '1px solid var(--color-silicon-hair)',
+              ? `1px solid ${accent}`
+              : status === 'running'
+                ? '1px solid var(--color-silicon-hair)'
+                : `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
+            // A queued member is not working yet; the bubble should read as
+            // present-but-not-active rather than compete with a live turn.
+            opacity: status === 'queued' ? 0.72 : 1,
           }}
         >
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="h-1.5 w-1.5 animate-bounce rounded-full"
-              style={{ background: 'var(--color-silicon)', animationDelay: `${i * 0.15}s` }}
-            />
-          ))}
+          <span className="inline-flex items-center gap-1">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className={cn(
+                  'h-1.5 w-1.5 rounded-full',
+                  // Only a turn that is actually running animates. A queued or
+                  // stalled member bouncing would say "working" — the exact
+                  // misreading the four states exist to prevent.
+                  status === 'running' && 'animate-bounce',
+                )}
+                style={{
+                  background: accent,
+                  animationDelay: `${i * 0.15}s`,
+                  opacity: status === 'running' ? 1 : 0.55,
+                }}
+              />
+            ))}
+          </span>
+          {detail && (
+            <span className="font-mono text-[10px] text-[var(--text-tertiary)]">{detail}</span>
+          )}
         </button>
       </div>
     </div>
   );
+}
+
+/** The duration line under a liveness bubble, or nothing.
+ *
+ * `elapsedSince` returns '' when the timestamp is missing (its documented
+ * contract), and "waiting " with a blank tail reads like a truncated string
+ * rather than a missing value. No duration => no detail line.
+ */
+function livenessDetail(
+  t: (k: string, v?: Record<string, unknown>) => string,
+  a: TeamMemberActivity,
+  now: number,
+): string | undefined {
+  if (a.status === 'queued') {
+    const d = elapsedSince(a.queued_since, now);
+    return d ? t('chat.team.activity.waitingFor', { duration: d }) : undefined;
+  }
+  if (a.status === 'stalled') {
+    const d = elapsedSince(a.last_signal_at, now);
+    return d ? t('chat.team.activity.silentFor', { duration: d }) : undefined;
+  }
+  return undefined;
 }
 
 export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
@@ -841,16 +930,25 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   )}
                 />
 
-                {/* Someone is working right now — the transcript says only that,
-                    and only while it is true. Everything measurable about the run
-                    (elapsed, phases, tools) belongs to the roster; a finished turn
-                    leaves the flow clean instead of piling up stale traces. */}
+                {/* A sign of life for anyone who is NOT idle — the transcript
+                    says who is up and nothing more. Everything measurable about
+                    the run (elapsed, phases, tools) still belongs to the roster;
+                    a finished turn still leaves the flow clean.
+
+                    Was `status === 'running'`, which is a state a member only
+                    reaches after the poll interval, a worker slot and Step 0.
+                    `queued` is true within one 3s poll of the message landing,
+                    so widening the filter is what closes the window where the
+                    roster knew somebody was up and the conversation looked
+                    dead — the "dead room" the PRD is named after. */}
                 {activity
-                  .filter((a) => a.status === 'running')
+                  .filter((a) => a.status !== 'idle')
                   .map((a) => (
-                    <TypingIndicator
-                      key={`typing-${a.agent_id}`}
+                    <LivenessIndicator
+                      key={`liveness-${a.agent_id}`}
                       name={nameOf(a.agent_id)}
+                      status={a.status as 'running' | 'queued' | 'stalled'}
+                      detail={livenessDetail(t, a, now)}
                       highlighted={rosterExpandedId === a.agent_id}
                       onClick={() => {
                         toggleRoster(a.agent_id);

@@ -66,13 +66,31 @@ from xyz_agent_context.message_bus.system_messages import (
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.timezone import utc_now
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
 
-# Maximum concurrent agent processing workers
-MAX_WORKERS = 3
+# Maximum concurrent agent processing workers. Read from settings so a
+# deployment can raise it without a code change — see `bus_max_workers` there
+# for why the old hard-coded 3 was a problem. Resolved at import time on
+# purpose: the trigger is a long-lived process and a mid-flight change to the
+# semaphore's capacity has no meaning.
+MAX_WORKERS = settings.bus_max_workers
+
+# How long the pool must stay saturated-with-a-queue before it is called
+# starvation. One busy moment is a pool doing its job; a sustained stretch is
+# the pool being the bottleneck.
+#
+# WALL CLOCK, not a cycle count — and that distinction is load-bearing. Poll
+# cycles get RARER exactly during starvation: `_poll_cycle` returns 0 dispatches
+# while candidates queue behind the semaphore, so the adaptive interval backs
+# off 3 -> 6 -> 9 -> 12s. A cycle-counting threshold therefore samples least
+# often when it most needs to. Measured on a live instance (2026-08-14,
+# bus_max_workers=1, two agents): a real 28-second starvation produced only FOUR
+# cycles, and a five-cycle threshold missed it entirely.
+STARVATION_ALERT_AFTER_S = 20.0
 
 # Rate limiting constants
 RATE_LIMIT_MAX = 20
@@ -263,6 +281,9 @@ class MessageBusTrigger:
         self._in_flight: Dict[str, _InFlight] = {}
         # Wakes the poll loop out of its interval sleep on stop().
         self._stop_event = asyncio.Event()
+        # Wakes the poll loop because WORK just landed, not because we are
+        # shutting down. Set by a successful team-room post; see `_wake`.
+        self._wake_event = asyncio.Event()
         # L2/L3 observability. This trigger was the only long-running worker
         # without its own auditor: the supervisor's aggregate liveness only
         # proves the asyncio task object still exists, so when the poll loop
@@ -272,6 +293,11 @@ class MessageBusTrigger:
         # `dispatched_total` alongside a non-zero `candidates` means messages
         # are piling up unserved.
         self.audit = ServiceAuditor("message_bus_trigger")
+        # When the pool first went saturated-with-a-queue (monotonic), and
+        # whether this episode already produced its one alert. None = not
+        # currently starved. See `_check_worker_starvation`.
+        self._starvation_since: Optional[float] = None
+        self._starvation_alerted = False
         self._cycles = 0
         self._dispatched_total = 0
         self._handled_total = 0
@@ -307,16 +333,171 @@ class MessageBusTrigger:
 
             # Throttled inside ServiceAuditor (60s), so this is cheap per cycle.
             await self.audit.heartbeat(self.liveness_snapshot())
-            # Sleep the interval, but wake immediately on stop() — otherwise a
-            # SIGTERM waits out up to POLL_MAX_INTERVAL before the loop notices.
-            try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self._current_interval
-                )
-            except asyncio.TimeoutError:
-                pass
+            # The heartbeat has always CARRIED the starvation signal; this is
+            # what finally reads it.
+            await self._check_worker_starvation()
+            await self._sleep_until_due()
 
         await self.audit.stopped(self.liveness_snapshot())
+
+    async def _post_to_room(
+        self,
+        *,
+        from_agent: str,
+        to_channel: str,
+        content: str,
+        mentions: Optional[List[str]] = None,
+        msg_type: str = "text",
+        event_id: Optional[str] = None,
+    ) -> None:
+        """Put a message in a room and tell the poll loop to look again.
+
+        The ONLY way this process should post to the bus. Not because posting
+        needs abstracting — the call is one line — but because "post" and "wake"
+        must not be separable. They were, and the second of two call sites was
+        already missing the wake: the leader patrol posts under the room's own
+        marker and @-mentions members, so a patrolled teammate became pending
+        and then waited out a full adaptive interval to be noticed. Platform-
+        initiated dead air, which reads worse than an agent being slow.
+
+        A third caller cannot repeat that mistake without going out of its way.
+
+        The wake fires only after `send_message` RETURNS: a post that threw put
+        nothing in the room, so there is nothing new to look at
+        (`test_a_failed_room_post_does_not_wake`). Exceptions propagate — the
+        team-reply site has its own handler for the "reply exists, room will
+        never show it" case, and the patrol site is content to let a failure
+        surface.
+        """
+        # Parameters listed explicitly rather than **kwargs: a passthrough
+        # signature hides a misspelled kwarg from pyright and only surfaces it
+        # as a runtime TypeError — on the patrol path, an unhandled one.
+        await self._bus.send_message(
+            from_agent=from_agent,
+            to_channel=to_channel,
+            content=content,
+            mentions=mentions,
+            msg_type=msg_type,
+            event_id=event_id,
+        )
+        # Unconditional rather than "only when mentions is non-empty": an
+        # owner-addressed reply can also make the room's lead due, and one extra
+        # poll cycle costs a single indexed query.
+        self._wake()
+
+    def _wake(self) -> None:
+        """Ask the poll loop to look again now instead of at the next tick.
+
+        Called when THIS process just put work into the bus — either in-process
+        post: a team-room reply or a leader patrol line, both routed through
+        `_post_to_room`. The relay gap acceptance #5 is about is not inside a
+        turn, it is between turns: A finishes and posts, B is mentioned in that
+        post, and B then waits out a full poll interval (3-12s) to be noticed.
+        Stacked across a three-hop relay that is most of the dead air a person
+        in the room sees.
+
+        Cheap and idempotent: an Event that is already set stays set, and the
+        sleep clears it on the way out.
+
+        **Only covers posts made by this process.** An agent that replies via
+        the `bus_send` MCP tool posts from the MCP server, where an in-process
+        Event cannot reach; that path still waits for the poll. Making it
+        cross-process means a DB signal and a reader for it — worth doing if
+        peer-DM latency ever becomes the complaint, not needed for team relay.
+        """
+        self._wake_event.set()
+
+    async def _sleep_until_due(self) -> None:
+        """Sleep the adaptive interval, cut short by either stop or new work.
+
+        Was a bare `wait_for(self._stop_event.wait(), ...)`. Stop still ends it
+        — a SIGTERM must not wait out POLL_MAX_INTERVAL — but a room post now
+        ends it too, so the room's own delivery schedules the next hop instead
+        of a timer noticing later.
+        """
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        wake_task = asyncio.create_task(self._wake_event.wait())
+        try:
+            await asyncio.wait(
+                {stop_task, wake_task},
+                timeout=self._current_interval,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            # Both are cancelled every cycle, including the winner (already
+            # done, so the cancel is a no-op). Leaving either pending would
+            # leak one waiter per poll cycle onto the Events.
+            stop_task.cancel()
+            wake_task.cancel()
+            # Cleared here rather than at the call site: whoever woke us has
+            # had its effect, and a flag left set would make the NEXT sleep
+            # return instantly and spin the loop.
+            self._wake_event.clear()
+
+    async def _check_worker_starvation(self) -> None:
+        """Alert when the WORKER POOL, not the agents, is the bottleneck.
+
+        `liveness_snapshot()` has reported `running` / `waiting` / `max_workers`
+        since the 2026-07-27 wedge, and its docstring already names the pattern:
+        sustained `running == max_workers` with `waiting > 0` means turns are
+        queued behind slots rather than behind their own work. Until now nobody
+        read it — the numbers went into a heartbeat row and stopped there.
+
+        This matters for latency specifically: slot wait sits INSIDE
+        the `queue_wait_s` the `[bus-timing]` line reports, which is what PRD
+        acceptance #1 is judged on. Without this signal a starved pool is
+        indistinguishable from
+        "everyone's turns got slower".
+
+        Three deliberate properties:
+
+        * **A duration, not an instant.** One saturated moment is a pool being
+          used; `STARVATION_ALERT_AFTER_S` of it is a shortage. Measured in
+          wall clock rather than cycles because cycles get rarer during
+          starvation — see the constant.
+        * **Once per episode.** A pool saturated for an hour is one problem, not
+          sixty rows. An alarm that fires every cycle becomes noise nobody
+          reads (lesson #3).
+        * **Diagnostic only.** Nothing here cancels, force-stops or reprioritises
+          anything — a multi-hour turn is a legitimate workload (binding rule
+          #14). And it does NOT reach the owner's inbox: a slot shortage is a
+          platform problem the owner cannot act on, and putting it there would
+          only train them to ignore the inbox.
+        """
+        snap = self.liveness_snapshot()
+        starved = (
+            snap["running"] >= snap["max_workers"] and snap["waiting"] > 0
+        )
+        now = time.monotonic()
+        if not starved:
+            self._starvation_since = None
+            self._starvation_alerted = False
+            return
+
+        if self._starvation_since is None:
+            self._starvation_since = now
+        starved_for = now - self._starvation_since
+        if starved_for < STARVATION_ALERT_AFTER_S or self._starvation_alerted:
+            return
+
+        self._starvation_alerted = True
+        logger.warning(
+            f"[bus] worker pool saturated for {starved_for:.0f}s: "
+            f"running={snap['running']}/{snap['max_workers']} "
+            f"waiting={snap['waiting']} "
+            f"longest={snap['longest_running_agent']} ({snap['longest_running_s']}s). "
+            f"Raise settings.bus_max_workers if this persists."
+        )
+        await self.audit.error({
+            "stage": "worker_starvation",
+            "starved_for_s": int(starved_for),
+            "running": snap["running"],
+            "waiting": snap["waiting"],
+            "max_workers": snap["max_workers"],
+            # Names who to go look at. Diagnostic only — nothing acts on it.
+            "longest_running_agent": snap["longest_running_agent"],
+            "longest_running_s": snap["longest_running_s"],
+        })
 
     def stop(self) -> None:
         """Signal the polling loop to stop and drop any in-flight dispatches.
@@ -1051,7 +1232,7 @@ class MessageBusTrigger:
                             ]
                             mentions = []
                     try:
-                        await self._bus.send_message(
+                        await self._post_to_room(
                             from_agent=agent_id,
                             to_channel=channel_id,
                             content=turn.text,
@@ -1696,7 +1877,7 @@ class MessageBusTrigger:
         # Posted under the ROOM's marker, not the lead's id: that is what
         # keeps the line out of the agent-hop count, and it reads honestly
         # — this is the platform taking stock, not the lead chatting.
-        await self._bus.send_message(
+        await self._post_to_room(
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             to_channel=channel_id,
             content=text,

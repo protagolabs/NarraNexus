@@ -9,14 +9,16 @@ stub: false
 `_OWN_GATEWAY_HOSTS` 加 `llm-gateway`（原为 `litellm`/127.0.0.1/localhost）。2026-08-07 RCE 整改后
 云端 executor 落 sandbox 网络，到网关唯一入口是 `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），
 `litellm:4000` 云端够不到——漏掉它，依赖 `_is_own_gateway` 的两个头在云端一次都不发。
-- **真实价值在平台身份头**：`api_config` 的**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
-  deploy `staging`（#20）的 prefill_compat `_enforce_identity` 会验签它；漏 `llm-gateway` = 身份头云端不发。
+- **真实价值在平台身份头**：[[api_config]] 的**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
+  deploy `staging`（#20）的 prefill_compat `_enforce_identity` 会验签它（待 `NX_IDENTITY_VERIFY_MODE`
+  开启，**默认 off**，档位见 [[api_config]]）；漏 `llm-gateway` = 身份头云端不发。
   两份名单由 `test_gateway_host_lists_stay_in_sync` 强制一致，改网关拓扑/名字两处必须同改。
 - **`x-nexus-prefill-retry`（opt-out 头）的当前状态见下方 2026-07-31 段的更正**：补 `llm-gateway`
   只让它在云端**发得出去**，是否生效由网关侧是否读它决定（当前 inert）。
 - **⚠ 别据此删 loop.py 的 prefill 自救路径**：`PREFILL_REJECTED` → `_continuation_turn` 修复与
-  `_ends_with_assistant` 二次判定（`loop.py`，以符号名为锚）**与网关是否注入无关**——服务的是直连/BYOK
-  后端真返 400 的场景（网关注入的那句续写客户端根本看不见、无从去重）；即便 opt-out 头哪天生效也不能删。
+  `_ends_with_assistant` 二次判定（`loop.py`，以符号名为锚）**与网关是否注入无关**——直连/BYOK 后端真返
+  400 时靠它自救；即便走自家网关，被 `_has_tool_use` 豁免的尾部（tool_use 尾部网关一个字都不加）同样得不到
+  网关兜底（网关注入的那句续写客户端根本看不见、无从去重）；即便 opt-out 头哪天生效也不能删。
 
 ## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
 
@@ -59,10 +61,10 @@ output_tokens=2000、参数被切成 `{"path": "game.html"`)。信了它就会�
 extra_headers 里恒带 PREFILL_SELF_HANDLED_HEADER。网关 hook 默认给纯文本「以
 assistant 结尾」的对话补一句续写 user 消息以躲开某些后端的 400,代价是对本来能
 接受 prefill 的后端也白付一次重复措辞。本循环能自己重试(见 loop 的
-PREFILL_REJECTED),所以退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
+PREFILL_REJECTED),所以**意图**退出这层保护,只在真撞 400 时才付代价;claude CLI 没有
 重试路径,继续被网关兜着。改名是 deploy 仓 lockstep 改动
-(stacks/narranexus-app/litellm/prefill_compat.py),但两边不同步是**安全的**——
-认不出的 header 只会让 hook 继续改写,即今天的行为。
+(stacks/narranexus-app/litellm/prefill_compat.py)——但**对端今天只存在于未合分支**(见上方横幅),
+所以两边不同步是**安全的**:认不出的 header 只会让 hook 继续改写,即今天的行为。
 
 只发给自家网关(`_is_own_gateway` 按 base_url 主机名判):这是和我们自己 proxy 的私下
 约定,直连 OpenAI/DeepSeek 时带上它零收益,只是把内部词汇泄给外部厂商。
