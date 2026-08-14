@@ -39,6 +39,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 
 
@@ -83,7 +84,13 @@ def _trigger(db, reply: str = "on it"):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        return (reply, "evt_turn")
+        # `TurnResult`, not the old `(text, event_id)` tuple. Production
+        # switched on 2026-08-13 (delivery is a field, not an inference from a
+        # non-empty string); this stub kept returning a tuple and survived only
+        # because nothing on the path these tests take read an attribute off it.
+        # A stub that lies about the return type is a trap armed for whoever
+        # next touches the caller.
+        return TurnResult(text=reply, event_id="evt_turn")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t

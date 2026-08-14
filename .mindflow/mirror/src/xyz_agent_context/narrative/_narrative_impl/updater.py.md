@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-07-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `_async_llm_update` 改走 `spawn`
+
+脱离任务从裸 `asyncio.create_task` 换成 `utils.background_tasks.spawn`，名为
+`narrative_llm_update:{narrative_id}`。和下面 2026-07-07 那条是同一条路径：当时补的
+凭据告警只有在**任务真的跑起来、且失败真的浮出水面**时才有意义，而裸 create_task 这
+两点都不保证。
 # updater.py — Narrative 更新 + LLM 动态摘要生成
 
 ## 为什么存在

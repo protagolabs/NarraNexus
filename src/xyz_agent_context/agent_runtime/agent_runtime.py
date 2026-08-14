@@ -964,7 +964,7 @@ class AgentRuntime:
 
             async def _run_hooks_background():
                 """Run Step 5 hooks + Step 6 callbacks in background."""
-                # This task is detached via ``asyncio.create_task`` and does NOT
+                # This task is detached via ``spawn`` and does NOT
                 # inherit the per-turn helper-LLM config that this run set on its
                 # own ContextVars. Re-inject the agent OWNER's Helper LLM so the
                 # Step-5 LLM hooks (social-network entity summaries, memory
@@ -1054,7 +1054,18 @@ class AgentRuntime:
                 finally:
                     clear_cost_context()
 
-            asyncio.create_task(_run_hooks_background())
+            # `spawn`, not a bare `create_task`: the returned Task had no owner
+            # here, which is both halves of incident lesson #2 — the loop's
+            # reference is weak, and an escaping exception would surface only as
+            # a GC warning. The coroutine's own try/except still owns the
+            # DOMAIN failures (credential alerts, per-module isolation); spawn
+            # only guarantees the task cannot be lost or die quietly.
+            from xyz_agent_context.utils.background_tasks import spawn as _spawn_bg
+
+            _spawn_bg(
+                _run_hooks_background(),
+                name=f"post_turn_hooks:{_agent_id}:{_event_id or '-'}",
+            )
             logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
 
             # Yield a completed Step 5 progress message so the frontend sidebar

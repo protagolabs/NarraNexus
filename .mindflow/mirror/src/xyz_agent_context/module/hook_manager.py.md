@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/hook_manager.py
-last_verified: 2026-05-20
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — 依赖链回调实例改走 `spawn`
+
+`hook_callback_results` 里触发新激活实例的 `asyncio.create_task` 改为
+`utils.background_tasks.spawn`，名为 `callback_instance:{instance_id}`。这个 task
+启动的是**一整个新的 AgentRuntime run**，丢一个就是一条依赖链无声停在半路；而下面
+「fire-and-forget 风险」那条记的兜底（`ModulePoller`）恰恰看不见这个进程内捷径失败了
+——所以至少得让它死有声息。
+
+注意范围：`spawn` 不改变进程退出时任务被取消这一事实，链路的**持久**保证仍然属于
+`ModulePoller`，不属于这里。
 
 ## 2026-05-20 — `hook_persist_turn` runner (synchronous phase)
 

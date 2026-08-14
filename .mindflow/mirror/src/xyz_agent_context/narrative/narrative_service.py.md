@@ -12,6 +12,21 @@ stub: false
 select_fast 文档同步更新：miss 后怎么办是 surface 的事（voice 裸跑、
 durable chat 落到 create_fast），continuity/LLM tier 仍是 full select() 独占。
 
+
+## 2026-08-14 — `continuity_ms` / `retrieve_ms` 落审计行
+
+`[TIMED] narrative.*` 一直在量这些，但只进 loguru：会轮转、没法聚合（教训 #5）。而 `[turn-timing]` 的 `setup_s` 只能说"setup 是一轮里最大的一块"，说不出是里面
+**哪一层**。
+
+四列的价值不在"叙事选择有多慢"，在**把成本和它买到的那个决策连起来**：短路的决策 vs
+叫了 judge 的决策，各自花多少。所以 `None` 表示**这一层没跑**，绝不用 0——短路的决策
+根本没调 judge，存 0 会把"仲裁有多贵"这个查询拽向零，恰好毁掉这几列存在的理由。
+
+实测（本地真机）：`continuity_detect` 均值 3941ms、`llm_unified_match` 4690ms，两者
+串行相加 ≈ 观测到的 setup p50 8.49s。**这两次 LLM 是串行的**——continuity 命中才跳过
+retrieve。要真正压 setup 只有三条路（投机并发跑 retrieve、放宽 gate 阈值少调一次 LLM、
+缓存 confirm），前者会在 continuity 命中时白烧一次用户的 LLM 调用，后两者被 PRD 明确
+划在范围外。此处只记录事实，不擅自决定。
 ## 2026-08-07 — select() 现在落一行路由审计（E1）
 
 `select()` 的决策证据以前只进 `ProgressMessage` 和 loguru，数据库里一个字节都没有
