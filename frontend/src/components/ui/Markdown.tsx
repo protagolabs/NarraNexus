@@ -7,6 +7,7 @@ import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import type { PluggableList } from 'unified';
 import { cn } from '@/lib/utils';
 
 interface MarkdownProps {
@@ -26,7 +27,7 @@ interface MarkdownProps {
    * `memo`'d on shallow equality, and a fresh array each render would re-parse
    * the whole body on every keystroke of a streaming reply.
    */
-  rehypePlugins?: unknown[];
+  rehypePlugins?: PluggableList;
 }
 
 // memo matters here: remark/rehype re-parse the whole string on every
@@ -47,7 +48,7 @@ export const Markdown = memo(function Markdown({
     )}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, ...((rehypePlugins ?? []) as [])]}
+        rehypePlugins={[rehypeRaw, ...(rehypePlugins ?? [])]}
         components={{
           // Custom link handling - open external links in new tab
           a: ({ href, children, ...props }) => {

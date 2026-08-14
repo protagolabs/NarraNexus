@@ -4,6 +4,12 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 (二) — 纯文本那份高亮也走共享的 pattern
+
+用户自己的消息不走 markdown，所以需要一个返回 React 节点的版本，两份实现本身是合理的——
+但**规则**只该有一份。`markMentions` 现在用 [[mentionPattern.ts]] 的 `mentionMatcher()` 和
+`isAddressed()`，和 AST 那份共用同一个字面量。
+
 ## 2026-08-14 — 长消息也要分层；@ 高亮改在 AST 上做
 
 **分层此前对最需要它的消息是关闭的。** 条件写的是 `segments.length && !tooLong`，而

@@ -4,6 +4,21 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 (二) — 一个 team 有多个房间时取最新的那个
+
+`channel_to_team` 是多对一，循环里直接覆盖同一个 `team_id` 意味着"结果集最后一行赢"，而
+不是"最新的赢"。现实中一个 team 一个房间，所以今天不会发生——但它错的方向是**水位线会
+倒退**，表现为"标记怎么清都清不掉"，那会被当成计数的 bug 排查。
+
+同一轮把 `test_the_route_opens_on_the_newest_page` 从读源码改成**真的走一遍 HTTP**
+（`PAGE_SIZE` monkeypatch 成 3，塞 6 条消息，断言拿到的是最后 3 条）。源码断言对这个 bug
+是反的：重命名会红，行为回归会绿。
+
+新增 `tests/backend/test_team_room_activity_mysql.py`（`NARRANEXUS_MYSQL_TEST_URL` 门禁）：
+这是本次唯一一段**方言差异会体现在结果而不是报错**上的 SQL——`created_at` 在 SQLite 是
+TEXT 字典序、在 MySQL 是 `DATETIME(6)`，而查询在 `MAX()` 和自连接里各比较了一次。已对真实
+MySQL 8 跑过。
+
 ## 2026-08-14 — 房间活动一次查完；`is_platform` 由服务端回答
 
 `_team_room_activity` 从"每个房间一次查询"改成 **MAX + 自连接，一次查完**。这个端点被

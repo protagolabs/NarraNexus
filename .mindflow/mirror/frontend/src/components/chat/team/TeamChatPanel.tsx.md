@@ -4,6 +4,23 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 (二) — memberNameMap：一个被上游打穿的 memo
+
+`memberNames` 此前是在 JSX 里现场 `Object.fromEntries(...)` 出来的，**每次 render 都是新
+对象**。于是三层之外的 memo 全部失效：新对象 → 每个气泡的 `nameSet` 重算 → rehype 插件
+数组是新的 → [[Markdown.tsx]] 的浅比较 memo 必然 miss → remark/rehype **重新解析整段正文**。
+
+这个面板**每秒至少 render 一次**（1s ticker 让活动时长走字），打字时每个按键再 render 一
+次。200 条消息的房间等于每秒把 200 段 markdown 重新 parse 一遍。
+
+**这是上一轮修复自己引入的**：@高亮从"改写字符串"搬到"插件数组"之前，`Markdown` 的
+`content` 是按**值**比较的，memo 命中；搬完之后命中条件变成了**引用相等**，而没有人让那
+个引用稳定下来。三处注释（气泡里、Markdown 的 prop 文档、mirror md）都写着"必须传稳定的
+数组"，只是上游没兑现。
+
+现在 map 只算一次，两个调用点共用。`TeamChatPanel.renderCost.test.tsx` 直接钉住**身份**
+（`toBe`），而不是去数解析次数——后者要伸手进 ReactMarkdown 内部。
+
 ## 2026-08-14 — transcript 外面那层 `space-y-5` 不是冗余的
 
 review 读成了"只包着一个子元素"，实际它包着 transcript + 正在输入指示器 + 滚动锚点。

@@ -41,6 +41,7 @@ import { Markdown } from '@/components/ui';
 import { BusAttachmentList } from '../BusAttachmentList';
 import { senderIdentity } from '@/lib/senderIdentity';
 import { rehypeMentions } from './rehypeMentions';
+import { isAddressed, mentionMatcher } from './mentionPattern';
 import { cn } from '@/lib/utils';
 import type { TeamChatMessage } from '@/types/teams';
 
@@ -68,23 +69,22 @@ interface Segment {
 /**
  * Split a body into text and mention runs.
  *
- * Resolves against the member list rather than the regex alone. The CJK range
- * here is the same one the composer uses; widening it is a separate fix that
- * has to move both at once, or the highlight and the send would disagree about
- * who was addressed.
+ * Resolves against the member list rather than the pattern alone. The pattern
+ * and that rule both live in `mentionPattern` — the markdown side needs the
+ * same answer, and the two used to keep a hand-copied regex each, in this
+ * folder, under a comment insisting they must match.
  */
 function markMentions(
   text: string,
   names: Set<string>,
 ): Array<{ text: string; mention?: string }> {
   const out: Array<{ text: string; mention?: string }> = [];
-  const re = /@([\w一-鿿]+)/g;
+  const re = mentionMatcher();
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const word = m[1];
-    const isAll = word.toLowerCase() === 'all' || word.toLowerCase() === 'everyone';
-    if (!isAll && !names.has(word.toLowerCase())) continue;
+    if (!isAddressed(word, names)) continue;
     if (m.index > last) out.push({ text: text.slice(last, m.index) });
     out.push({ text: m[0], mention: word });
     last = m.index + m[0].length;

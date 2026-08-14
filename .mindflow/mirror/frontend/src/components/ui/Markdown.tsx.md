@@ -4,6 +4,14 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 (二) — rehypePlugins 用真类型
+
+`unknown[]` + `as []` 改成 `PluggableList`（来自 `unified`）。`as []` 是转成"空元组"，
+纯粹为了让 tsc 闭嘴——调用方传错东西不会被拦住，而这个 prop 的整个意义就是"把树交给别人
+改"，最需要类型的地方反而没有。
+
+`unified` 同时被声明进 `package.json`，见 [[rehypeMentions.ts]] 那条关于幽灵依赖的记录。
+
 ## 2026-08-14 — 可选的 rehypePlugins
 
 新增 `rehypePlugins` prop（追加在 `rehypeRaw` 之后）。存在的理由是让调用方**改渲染树**而

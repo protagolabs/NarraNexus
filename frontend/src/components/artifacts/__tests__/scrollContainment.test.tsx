@@ -70,6 +70,15 @@ const csvArtifact: Artifact = {
   file_path: 'agent_x_user_y/data/table.csv',
 };
 
+/**
+ * These renders wait on an async artifact load plus a markdown parse, and the
+ * default 1s ceiling is a statement about how fast the machine is, not about
+ * what the component does. It held while this file ran early in a small suite
+ * and started failing intermittently once the suite grew — a flake that teaches
+ * people to re-run rather than to read. The assertions below are unchanged.
+ */
+const RENDER_TIMEOUT = { timeout: 5000 };
+
 describe('ArtifactRenderer scroll ownership', () => {
   test('bounded (default): wrapper is the scroll container hosting the renderer', async () => {
     const { container } = render(<ArtifactRenderer artifact={markdownArtifact} />);
@@ -77,7 +86,7 @@ describe('ArtifactRenderer scroll ownership', () => {
       const el = container.querySelector('.markdown-content');
       if (!el) throw new Error('markdown content not rendered yet');
       return el;
-    });
+    }, RENDER_TIMEOUT);
     const wrapper = container.firstElementChild as Element;
     expect(wrapper.className).toContain('h-full');
     expect(wrapper.className).toContain('w-full');
@@ -94,7 +103,7 @@ describe('ArtifactRenderer scroll ownership', () => {
       const el = container.querySelector('table');
       if (!el) throw new Error('csv table not rendered yet');
       return el;
-    });
+    }, RENDER_TIMEOUT);
     const wrapper = container.firstElementChild as Element;
     expect(wrapper.className).toContain('overflow-auto');
     expect(wrapper.contains(table)).toBe(true);
@@ -106,7 +115,7 @@ describe('ArtifactRenderer scroll ownership', () => {
       const el = container.querySelector('.markdown-content');
       if (!el) throw new Error('markdown content not rendered yet');
       return el;
-    });
+    }, RENDER_TIMEOUT);
     // A bounded renderer root would resolve against the modal's fixed-height
     // layers and clamp to one screen — the wrapper is the only scroll owner.
     expect(content.className).not.toContain('h-full');
@@ -120,7 +129,7 @@ describe('ArtifactRenderer scroll ownership', () => {
       if (!container.querySelector('.markdown-content')) {
         throw new Error('markdown content not rendered yet');
       }
-    });
+    }, RENDER_TIMEOUT);
     expect(container.querySelector('.overscroll-contain')).toBeNull();
     expect(container.querySelector('.overflow-auto')).toBeNull();
   });

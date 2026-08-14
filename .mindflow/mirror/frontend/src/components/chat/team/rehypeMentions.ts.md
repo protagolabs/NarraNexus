@@ -30,3 +30,17 @@ markdown 会转义代码块里的 HTML，所以**不是安全问题**（文件�
 字符集 `/@([\w一-鿿]+)/` 必须和 [[message_bus_trigger.py]] 的 `_extract_team_mentions`
 以及 composer 的自动补全**逐字一致**。高亮了一个实际上不会被唤醒的人（或者漏掉一个会被
 唤醒的人），比不高亮更糟——它教会读者不要相信这个高亮。
+
+## 2026-08-14 (二) — 不下潜到代码里；依赖显式声明；正则收归一处
+
+**跳过代码的方式从"看直接父节点"改成"不下潜"**（`return SKIP`）。两者在中间夹了任何东西
+时就不一样：`rehypeRaw` 是开着的，模型可以吐 `<pre><span>@all</span></pre>`，那时 text 的
+父是 span；任何 token 高亮器也会插一层。不下潜的话，`code`/`pre` 底下无论多深都碰不到。
+
+**`unist-util-visit` / `@types/unist` / `unified` 之前是幽灵依赖**：能解析只是因为 npm 把
+`react-markdown` 的传递依赖提升到了顶层。今天不坏，坏在下一次动依赖的时候——报错会落在一个
+完全没被改过的文件上。现在三个都写进 `package.json`，`package-lock.json` 同一个 commit
+重新生成（两者必须一起落地，否则 `npm ci` 直接失败，比不加更糟）。
+
+正则字面量抽到 [[mentionPattern.ts]]：这个文件的文件头自己写着"必须和 composer、
+`_extract_team_mentions` 逐字一致"，而同一个文件夹里还留着两份手抄的字面量。

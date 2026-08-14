@@ -277,6 +277,16 @@ describe('TeamMessageBubble', () => {
     expect(code?.querySelector('[data-testid="mention-all"]')).toBeNull();
   });
 
+  test('a mention nested inside raw HTML code is left alone', () => {
+    // `rehypeRaw` is on, so a model can emit `<pre><span>@all</span></pre>` —
+    // and then the text node's PARENT is a span, not the pre. Checking only the
+    // immediate parent would highlight it; not descending into the subtree at
+    // all is what actually holds.
+    draw({ content: '<pre><span>make @all</span></pre>' });
+
+    expect(screen.queryByTestId('mention-all')).toBeNull();
+  });
+
   test('a mention beside a code block is still highlighted', () => {
     // The fix must not throw the feature out: prose keeps its highlight.
     draw({ content: '@Bruno try:\n\n```sh\nmake @all\n```' });

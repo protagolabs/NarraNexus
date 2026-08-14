@@ -27,6 +27,7 @@ from __future__ import annotations
 import pytest
 
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 CHANNEL = "ch_page"
 
@@ -156,14 +157,83 @@ async def test_paging_does_not_cross_channels(bus, db_client):
 # ── the route ───────────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_the_route_opens_on_the_newest_page(db_client, monkeypatch):
-    """The seam the bug actually lived at: the bus had `get_recent_messages`
-    the whole time and the route called the other one."""
-    import inspect
+def _client(monkeypatch, db, page_size: int):
+    """The route over HTTP, with auth faked and a small page size.
+
+    Driven for real rather than asserted against `inspect.getsource`: the bug
+    this file exists for was the route calling the wrong bus method, and a
+    source-text assertion for that goes red on a rename and green on a
+    behavioural regression — the wrong way round on both counts.
+    """
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
 
     from backend.routes import teams as mod
 
-    src = inspect.getsource(mod.get_team_chat)
-    assert "get_recent_messages" in src
-    assert "before" in src
+    monkeypatch.setattr(mod, "PAGE_SIZE", page_size)
+
+    async def _get_db():
+        return db
+
+    monkeypatch.setattr(mod, "get_db_client", _get_db)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.user_id = request.headers.get("X-User-Id") or None
+        return await call_next(request)
+
+    app.include_router(mod.router, prefix="/api/teams")
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.mark.asyncio
+async def test_the_route_opens_on_the_newest_page(db_client, bus, monkeypatch):
+    """The bug this file is named for, end to end.
+
+    A room with more history than one page must open on its LAST page. It used
+    to open on its first and stay there forever, because every later poll walked
+    forward from what was already on screen.
+    """
+    await db_client.insert("teams", {
+        "team_id": "t1", "owner_user_id": "usr_1", "name": "Desk",
+    })
+    # The room marker the route looks the channel up by. Getting this wrong
+    # makes `_get_or_create_team_room` create a SECOND, empty channel and the
+    # test reads an empty room rather than failing.
+    await db_client.update(
+        "bus_channels",
+        {"channel_id": CHANNEL},
+        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}t1"},
+    )
+    await _seed(bus, db_client, 6)
+
+    client = _client(monkeypatch, db_client, page_size=3)
+    r = client.get("/api/teams/t1/chat/messages", headers={"X-User-Id": "usr_1"})
+
+    assert r.status_code == 200
+    assert [m["content"] for m in r.json()["messages"]] == ["m3", "m4", "m5"]
+
+
+@pytest.mark.asyncio
+async def test_the_route_pages_backwards_from_there(db_client, bus, monkeypatch):
+    await db_client.insert("teams", {
+        "team_id": "t1", "owner_user_id": "usr_1", "name": "Desk",
+    })
+    # The room marker the route looks the channel up by. Getting this wrong
+    # makes `_get_or_create_team_room` create a SECOND, empty channel and the
+    # test reads an empty room rather than failing.
+    await db_client.update(
+        "bus_channels",
+        {"channel_id": CHANNEL},
+        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}t1"},
+    )
+    await _seed(bus, db_client, 6)
+
+    client = _client(monkeypatch, db_client, page_size=3)
+    r = client.get(
+        f"/api/teams/t1/chat/messages?before={_at(3)}", headers={"X-User-Id": "usr_1"}
+    )
+
+    assert [m["content"] for m in r.json()["messages"]] == ["m0", "m1", "m2"]

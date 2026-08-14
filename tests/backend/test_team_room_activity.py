@@ -244,3 +244,22 @@ async def test_two_messages_at_the_same_instant_report_one_room_once(db_client):
 
     assert list(got) == [TEAM]
     assert got[TEAM]["preview"] in ("one", "two")
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_two_rooms_reports_the_newer_one(db_client):
+    """The channel→team map is many-to-one and nothing enforces otherwise.
+
+    One room per team is true today, so this is about which way the code fails
+    if that stops being true: taking whichever row the result set ended on would
+    move the watermark backwards on some refreshes, and a mark that will not
+    stay cleared reads as a bug in the counting.
+    """
+    old_room = await _room(db_client, TEAM)
+    new_room = await _room(db_client, TEAM)
+    await _say(db_client, old_room, "agent_a", "older")
+    await _say(db_client, new_room, "agent_a", "newer")
+
+    got = await _team_room_activity(db_client, [TEAM], user_sender=USER)
+
+    assert got[TEAM]["preview"] == "newer"

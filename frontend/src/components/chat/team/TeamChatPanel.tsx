@@ -129,6 +129,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       .filter((a): a is NonNullable<typeof a> => !!a);
   }, [team, agents]);
 
+  // agent_id → display name, memoised ONCE and shared by every consumer.
+  //
+  // Built inline in the JSX until 2026-08-14, which quietly defeated a memo
+  // three components down: a fresh object each render → a fresh `nameSet` in
+  // every bubble → a fresh rehype plugin array → `Markdown`'s shallow-equality
+  // memo misses → remark/rehype re-parse the whole body. This panel renders at
+  // least once a second (the 1s ticker for live durations) and once per
+  // keystroke (the composer's text lives here), so a 200-message room was
+  // re-parsing 200 markdown bodies every second, and again on every character
+  // typed. Before mentions moved from a string rewrite into a plugin, the memo
+  // matched on VALUE and held; the move swapped that for reference equality
+  // without anyone making the reference stable.
+  const memberNameMap = useMemo(
+    () => Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id])),
+    [members],
+  );
+
   // Seeded from the stored draft: the room is a place you leave, so what was
   // half-typed has to still be here when you come back.
   const [text, setText] = useState(() => getTeamDraft(teamId));
@@ -812,9 +829,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   messages={messages}
                   userLabel={userLabel}
                   leadAgentId={leadAgentId ?? ''}
-                  memberNames={Object.fromEntries(
-                    members.map((mm) => [mm.agent_id, mm.name || mm.agent_id]),
-                  )}
+                  memberNames={memberNameMap}
                   renderSystem={(m) => <TeamSystemLine key={m.message_id} message={m} />}
                   renderFooter={(m) => (
                     <TeamMessageFooter
@@ -1177,7 +1192,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             bulletin={bulletin}
             loading={bulletinLoading}
             error={bulletinError}
-            memberNames={Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id]))}
+            memberNames={memberNameMap}
             onAdd={(content, tier) =>
               bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
             }

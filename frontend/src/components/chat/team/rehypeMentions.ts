@@ -18,18 +18,22 @@
  * first suspicion would fall on the model rather than on the renderer.
  *
  * A regex cannot know what a code block is. The AST does, so the replacement
- * happens there: walk the text nodes, skip anything under `<code>` or `<pre>`.
+ * happens there — and code is excluded by NOT DESCENDING into it, rather than by
+ * asking each text node who its parent is. The two answers differ as soon as
+ * anything sits in between, which raw HTML (`rehypeRaw` is on) and any token
+ * highlighter both do.
  *
- * The character class is `@` plus word/CJK characters and must stay identical to
- * `message_bus_trigger._extract_team_mentions` and to the composer's autocomplete
- * — highlighting someone who will not actually be woken (or missing someone who
- * will) is worse than not highlighting at all.
+ * The pattern lives in `mentionPattern`, shared with the plain-text renderer for
+ * the user's own messages. It must also stay identical to the server's
+ * `_extract_team_mentions` and the composer's autocomplete — highlighting
+ * someone who will not actually be woken (or missing someone who will) is worse
+ * than not highlighting at all.
  */
 
-import { visit } from 'unist-util-visit';
+import { SKIP, visit } from 'unist-util-visit';
 import type { Node, Parent } from 'unist';
 
-const MENTION = /@([\w一-鿿]+)/g;
+import { isAddressed, mentionMatcher } from './mentionPattern';
 
 interface HastText extends Node {
   type: 'text';
@@ -51,49 +55,49 @@ interface HastElement extends Parent {
  */
 export function rehypeMentions(names: Set<string>) {
   return () => (tree: Node) => {
-    visit(
-      tree,
-      'text',
-      (node: HastText, index: number | undefined, parent: Parent | undefined) => {
-        if (!parent || index === undefined) return;
-        // The whole point: the AST knows what is code and a regex does not.
-        const tag = (parent as HastElement).tagName;
-        if (tag === 'code' || tag === 'pre') return;
+    visit(tree, (node: Node, index: number | undefined, parent: Parent | undefined) => {
+      // Code is skipped by NOT DESCENDING into it, rather than by checking each
+      // text node's immediate parent. The two differ the moment anything sits
+      // between: `<pre><span>@all</span></pre>` from raw HTML (rehypeRaw is on,
+      // so a model can emit it), or a highlighter that wraps tokens. Whatever
+      // the nesting, nothing under a `code`/`pre` is reached at all.
+      if (node.type === 'element') {
+        const tag = (node as HastElement).tagName;
+        if (tag === 'code' || tag === 'pre') return SKIP;
+        return;
+      }
+      if (node.type !== 'text') return;
+      if (!parent || index === undefined) return;
 
-        const value = node.value;
-        MENTION.lastIndex = 0;
-        if (!MENTION.test(value)) return;
-        MENTION.lastIndex = 0;
-
-        const out: Node[] = [];
-        let last = 0;
-        let m: RegExpExecArray | null;
-        while ((m = MENTION.exec(value)) !== null) {
-          const word = m[1];
-          const lower = word.toLowerCase();
-          const isAll = lower === 'all' || lower === 'everyone';
-          if (!isAll && !names.has(lower)) continue;
-          if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) } as HastText);
-          out.push({
-            type: 'element',
-            tagName: 'span',
-            properties: {
-              'data-testid': `mention-${word}`,
-              className:
-                'rounded px-0.5 font-medium text-[var(--color-carbon)] bg-[var(--nm-paper-warm)]',
-            },
-            children: [{ type: 'text', value: m[0] } as HastText],
-          } as HastElement);
-          last = m.index + m[0].length;
-        }
-        if (!out.length) return;
-        if (last < value.length) {
-          out.push({ type: 'text', value: value.slice(last) } as HastText);
-        }
-        parent.children.splice(index, 1, ...out);
-        // Skip the nodes just inserted, so the walk does not re-enter them.
-        return index + out.length;
-      },
-    );
+      const value = (node as HastText).value;
+      const re = mentionMatcher();
+      const out: Node[] = [];
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(value)) !== null) {
+        const word = m[1];
+        if (!isAddressed(word, names)) continue;
+        if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) } as HastText);
+        out.push({
+          type: 'element',
+          tagName: 'span',
+          properties: {
+            'data-testid': `mention-${word}`,
+            className:
+              'rounded px-0.5 font-medium text-[var(--color-carbon)] bg-[var(--nm-paper-warm)]',
+          },
+          children: [{ type: 'text', value: m[0] } as HastText],
+        } as HastElement);
+        last = m.index + m[0].length;
+      }
+      if (!out.length) return;
+      if (last < value.length) {
+        out.push({ type: 'text', value: value.slice(last) } as HastText);
+      }
+      parent.children.splice(index, 1, ...out);
+      // Resume AFTER the nodes just inserted, so the walk does not re-enter the
+      // spans it created and match their contents again.
+      return index + out.length;
+    });
   };
 }

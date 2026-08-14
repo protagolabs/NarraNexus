@@ -710,18 +710,27 @@ async def _team_room_activity(
         team_id = channel_to_team.get(msg["channel_id"])
         if not team_id:
             continue
+        # A team is one room today, but the mapping is many-to-one and nothing
+        # enforces otherwise — so keep the NEWEST across a team's rooms rather
+        # than whichever row the result set happened to end on. An arbitrary
+        # winner would move the watermark backwards on some refreshes, which
+        # reads as a mark that will not stay cleared.
+        #
         # Two messages CAN share the newest instant, and then the join returns
-        # both. No tie-break is applied: the timestamp is the same either way, so
-        # the watermark is identical and only the preview text differs — and
-        # neither of two things said in the same microsecond is the more correct
-        # one to show. A guard that picked the first stood here until a mutation
-        # showed nothing could tell the difference.
+        # both. No tie-break there: the timestamp is identical, so the watermark
+        # is too, and neither of two things said in the same microsecond is the
+        # more correct one to show. A guard that picked the first stood here
+        # until a mutation showed nothing could tell the difference.
+        seen = out.get(team_id)
+        at = format_for_api(msg.get("created_at"))
+        if seen and (seen["last_message_at"] or "") >= (at or ""):
+            continue
         # Flattened and capped like the agent rows' preview right above it in the
         # same sidebar: a row is one line, and this rides in every refresh for
         # every team, so an untrimmed reply would be payload nobody can see.
         flat = " ".join((msg.get("content") or "").split())
         out[team_id] = {
-            "last_message_at": format_for_api(msg.get("created_at")),
+            "last_message_at": at,
             "from_agent": msg.get("from_agent") or "",
             "preview": flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…",
         }
