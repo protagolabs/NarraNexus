@@ -95,6 +95,13 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         # Drop unknown keys instead of crashing (铁律 #3 lockstep hazard).
         cls = _CONFIG_TYPES[key]
         known = {f.name for f in dataclasses.fields(cls)}
+        unknown = [k for k in raw if k not in known]
+        if unknown:
+            # Not silent: a deploy skew this covers should still be visible.
+            logger.warning(
+                f"provider_configs[{key}] dropped unknown field(s) {unknown} — "
+                "orchestrator/executor version skew (expected during a rolling deploy)"
+            )
         return cls(**{k: v for k, v in raw.items() if k in known})
 
     set_user_config(

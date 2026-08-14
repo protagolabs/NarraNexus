@@ -30,6 +30,37 @@ _BYOK = "https://api.anthropic.com"  # a third party
 _HEADER = "X-NarraNexus-Identity-Token"
 
 
+def test_cloud_gateway_llm_gateway_host_is_own_gateway():
+    # Since the 2026-08-07 RCE remediation, cloud executors reach the gateway
+    # ONLY as http://llm-gateway:4000. If this host isn't recognised the identity
+    # header is never emitted in cloud and enforce would 403 every free-tier turn.
+    from xyz_agent_context.agent_framework.api_config import _is_own_gateway_url
+    assert _is_own_gateway_url("http://llm-gateway:4000") is True
+    env = ClaudeConfig(api_key="k", base_url="http://llm-gateway:4000",
+                       identity_token="tok").to_cli_env()
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == f"{_HEADER}: tok"
+
+
+def test_gateway_host_lists_stay_in_sync():
+    # The two copies (api_config + nexus_power model_client) MUST agree, or a
+    # host reachable on one leg silently drops the header on the other.
+    from xyz_agent_context.agent_framework.api_config import _OWN_GATEWAY_HOSTS as A
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
+        _OWN_GATEWAY_HOSTS as B,
+    )
+    assert set(A) == set(B)
+    assert "llm-gateway" in A
+
+
+def test_step3_wires_bind_platform_identity():
+    # Deletion guard: the reviewer noted removing the 6 step_3 lines left every
+    # test green. Pin that step_3 actually invokes the binding.
+    import inspect
+    from xyz_agent_context.agent_runtime._agent_runtime_steps import step_3_agent_loop
+    src = inspect.getsource(step_3_agent_loop)
+    assert "bind_platform_identity(identity_token)" in src
+
+
 # ---- claude_code CLI leg (to_cli_env) -------------------------------------
 
 def test_cli_env_emits_identity_header_to_own_gateway():
@@ -88,6 +119,24 @@ def test_apply_tolerates_unknown_wire_fields():
     }
     apply_provider_configs(payload)  # must not raise
     assert snapshot_user_config()["claude"].api_key == "k"
+
+
+def test_apply_logs_when_dropping_unknown_fields(monkeypatch):
+    # The drop must be observable (not silent) so a real deploy skew is visible.
+    from xyz_agent_context.agent_runtime import executor_protocol as ep
+
+    warnings: list[str] = []
+
+    class _Spy:
+        def warning(self, msg, *a, **k):
+            warnings.append(str(msg))
+
+    monkeypatch.setattr(ep, "logger", _Spy())
+    ep.apply_provider_configs({
+        "claude": {"api_key": "k", "base_url": _GW, "future_field_x": "boom"},
+        "openai": None, "codex": None, "anthropic_helper": None, "cli_helper": None,
+    })
+    assert any("future_field_x" in w for w in warnings)
 
 
 # ---- nexus_power leg (_build_request_payload) -----------------------------

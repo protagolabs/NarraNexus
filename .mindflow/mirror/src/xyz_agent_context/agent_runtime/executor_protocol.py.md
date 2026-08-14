@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — apply_provider_configs 容忍未知字段（wire 契约改变）
+
+`_build(key)` 从 `cls(**raw)` 改为**先按 `dataclasses.fields(cls)` 过滤 raw**，只用已知字段重建。
+**契约变化**：过去「wire 上有未知字段 → `TypeError` → turn 失败」，现在「丢弃未知字段 + `logger.warning`
+可观测」。动因：给三个 provider 配置加 `identity_token`（平台绑定，见 [[api_config]]）后，滚动部署期
+「新 orchestrator（序列化含 identity_token）→ 旧 warm/pooled executor（dataclass 无此字段）」会崩 turn
+（broker 惰性复用旧镜像 executor，铁律 #3 lockstep 隐患）。丢弃而非崩，且打 warning 让 skew 可见。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

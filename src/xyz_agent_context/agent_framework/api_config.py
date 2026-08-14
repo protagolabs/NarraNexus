@@ -45,9 +45,14 @@ from xyz_agent_context.schema.provider_schema import (
 
 # Hosts that ARE our own free-tier gateway. The platform-origin identity header
 # is emitted ONLY when a call targets one of these, so we never leak the token to
-# a BYOK third party (official Anthropic, OpenRouter, ...). Mirrors nexus_power's
-# model_client._is_own_gateway (kept local to avoid an app→nexus_power import).
-_OWN_GATEWAY_HOSTS = ("litellm", "127.0.0.1", "localhost")
+# a BYOK third party (official Anthropic, OpenRouter, ...).
+# MUST include `llm-gateway`: since the 2026-08-07 RCE remediation, cloud
+# executors sit on the sandbox network and reach the gateway ONLY as
+# `http://llm-gateway:4000` (the Caddy allowlist front), never `litellm:4000`
+# (litellm is app-network-only). Miss it and the header is never emitted in
+# cloud → a later enforce flip 403s every free-tier turn. `litellm` + loopback
+# kept for local/dev. Keep in sync with nexus_power model_client._OWN_GATEWAY_HOSTS.
+_OWN_GATEWAY_HOSTS = ("llm-gateway", "litellm", "127.0.0.1", "localhost")
 
 _IDENTITY_HEADER_NAME = "X-NarraNexus-Identity-Token"
 
