@@ -9,9 +9,10 @@ stub: false
 紧接 MCP token stamp 之后，`identity_token` 非空则调 `bind_platform_identity(identity_token)`
 把同一 token 盖到本 turn 的 provider 配置上（同 task context，早于 driver 快照）→ 随
 `provider_configs` 过线到 executor，出站 LLM 调用带 `X-NarraNexus-Identity-Token`（仅自家网关）。
-网关验签在**已部署且开启的地方**（deploy `staging` #20 的 `_enforce_identity`，`dev`/`main` 尚无;
-且需 `NX_IDENTITY_VERIFY_MODE`=audit/enforce,**默认 off**）让被外带的钱包 key 到平台外作废;两条不同时满足
-时该头是无害 no-op。与 MCP 面的 [[identity/tokens]] 复用同一 broker token。
+网关验签在**已部署且开启**的地方（deploy `staging` #20 的 `_enforce_identity`，`dev`/`main` 尚无；
+且需 `NX_IDENTITY_VERIFY_MODE`=audit/enforce，**默认 off**）；其中 `audit` 只验签+记日志、照样放行，
+**唯 `enforce` 才 403**，所以「被外带的钱包 key 到平台外作废」只在 `enforce` 成立。三者不全满足时该头是无害
+no-op。与 MCP 面的 [[identity/tokens]] 复用同一 broker token。
 
 ## 2026-08-10 — dispatch 时 stamp MCP 身份 token（蓝图 P1）
 

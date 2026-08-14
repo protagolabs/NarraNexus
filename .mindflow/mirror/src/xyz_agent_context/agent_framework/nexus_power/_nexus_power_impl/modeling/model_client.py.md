@@ -10,7 +10,8 @@ stub: false
 云端 executor 落 sandbox 网络，到网关唯一入口是 `http://llm-gateway:4000`（Caddy 白名单前置 → litellm），
 `litellm:4000` 云端够不到——漏掉它，依赖 `_is_own_gateway` 的两个头在云端一次都不发。
 - **真实价值在平台身份头**：[[api_config]] 的**同名孪生**名单用于 `X-NarraNexus-Identity-Token`，
-  deploy `staging`（#20）的 prefill_compat `_enforce_identity` 会验签它；漏 `llm-gateway` = 身份头云端不发。
+  deploy `staging`（#20）的 prefill_compat `_enforce_identity` 会验签它（待 `NX_IDENTITY_VERIFY_MODE`
+  开启，**默认 off**，档位见 [[api_config]]）；漏 `llm-gateway` = 身份头云端不发。
   两份名单由 `test_gateway_host_lists_stay_in_sync` 强制一致，改网关拓扑/名字两处必须同改。
 - **`x-nexus-prefill-retry`（opt-out 头）的当前状态见下方 2026-07-31 段的更正**：补 `llm-gateway`
   只让它在云端**发得出去**，是否生效由网关侧是否读它决定（当前 inert）。
