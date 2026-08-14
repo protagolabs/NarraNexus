@@ -8,6 +8,23 @@ stub: false
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，默认 `None`（= 这一层
 没跑），永远不用 0。理由见字段旁注释与 `narrative_routing_audit_repository`。
+
+## 2026-08-12 — `NarrativeSearchResult` 带上匹配证据；`topic_hint` 定性为墓碑
+
+`matched_terms` / `matched_snippet` 两个新字段：BM25 命中的词（按贡献降序）和它们在
+被打分文本里的上下文。填充点是 [[retrieval.py|_narrative_impl/rank_pool]]，消费点是
+LLM 判官。放在这个模型上而不是另造一个载体，是因为它和 `raw_score` 是**同一次
+BM25 计算的三个输出** —— 分数、分数的来源、来源的上下文，分开传就会分开腐烂。
+participant narrative 从不经过 BM25（合成中性分入池），两个字段留空。
+
+`topic_hint` 的注释从"Topic hint/summary"改成它的**真实语义**：创建时由
+`_create_narrative` 写入的被截断的第一句 query，2026-06-09 之后永不更新。同时
+类 docstring 里的 "Routing Index: topic_hint, topic_keywords (BM25)" 是**错的** ——
+BM25 打的是 `searchable_text()`，而它不含 topic_hint，已改。写下这条是因为字段名
+和旧注释合起来会让人以为它是"当前话题摘要"，而 B2 就是这么发生的：判官被喂了三个
+月前的第一句话（见 [[retrieval.py]] 2026-08-12）。它作为**创建时来源**展示是诚实的
+（`backend/routes/me.py` 的 timeline 卡片），作为**当前状态**参与任何决策都不是。
+
 ## 2026-08-07 — `Narrative.searchable_text()`：BM25 文本面的唯一定义
 
 原来有两份拷贝：`retrieval.load_pool`（`" ".join`）和 `crud._index_narrative`
