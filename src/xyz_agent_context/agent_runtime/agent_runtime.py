@@ -77,6 +77,30 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
 INTERRUPT_DRAIN_BUDGET_S = 8.0
 
 
+def _resolve_turn_profile(
+    fast_mode: bool,
+    turn_profile: Optional["TurnProfile"],
+    working_source: Union[WorkingSource, str],
+) -> Optional["TurnProfile"]:
+    """Resolve the trigger-facing ``fast_mode`` boolean into a TurnProfile.
+
+    Policy lives here so triggers only signal intent with one boolean. An
+    explicit profile always wins — paths that build their own (e.g. the
+    voice path's ``TurnProfile.voice_fast()``) are unaffected by the flag.
+    Pure — unit-tested in test_resolve_turn_profile.py.
+    """
+    if turn_profile is not None:
+        if fast_mode:
+            logger.debug(
+                "fast_mode ignored: explicit turn_profile '{}' takes precedence",
+                turn_profile.name,
+            )
+        return turn_profile
+    if fast_mode:
+        return TurnProfile.fast_for(working_source)
+    return None
+
+
 def _turn_timing_line(
     *,
     agent_id: str,
@@ -264,6 +288,7 @@ class AgentRuntime:
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
         silent: bool = False,
+        fast_mode: bool = False,
         turn_profile: Optional["TurnProfile"] = None,
     ) -> AsyncGenerator:
         """
@@ -405,6 +430,10 @@ class AgentRuntime:
             # Use a no-op token if none provided (avoids None checks everywhere)
             if cancellation is None:
                 cancellation = CancellationToken()
+
+            turn_profile = _resolve_turn_profile(
+                fast_mode, turn_profile, working_source
+            )
 
             ctx = RunContext(
                 agent_id=agent_id,

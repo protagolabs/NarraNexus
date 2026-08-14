@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-06
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: run() 增 fast_mode 布尔（策略收敛在 runtime）
+
+run() 新增 `fast_mode: bool = False`。trigger 只表达意图（一个布尔），
+「fast 意味着哪些 knobs」由模块级纯函数 `_resolve_turn_profile(fast_mode,
+turn_profile, working_source)` 统一解析：显式 turn_profile 永远赢（voice
+路径零变化，双传时记 debug 日志）；`fast_mode=True` 且无显式 profile 时用
+`TurnProfile.fast_for(working_source)`（chat → name="chat_fast"）；缺省
+一律 None=今日行为。解析发生在 RunContext 构造前，下游链路零改动。
+锁在 tests/agent_runtime/test_resolve_turn_profile.py。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
