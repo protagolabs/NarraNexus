@@ -29,26 +29,27 @@ import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TeamMessageBubble } from './TeamMessageBubble';
+import { activeLocale } from '@/lib/utils';
 import type { TeamChatMessage } from '@/types/teams';
 
 /**
- * Message kinds the platform writes about itself.
+ * Is this line the platform narrating itself?
  *
- * Mirrors `message_bus/system_messages.PLATFORM_MSG_TYPES` on the server. Two
- * lists rather than one is a real cost, and the honest reason is that the wire
- * carries strings: a type the server starts sending and this set does not know
- * renders as a member speaking, which is the failure this set exists to prevent.
- * Adding one means editing both — the test asserts every known type is here.
+ * The SERVER decides, and sends `is_platform` with each message. This used to be
+ * a `Set` mirroring `message_bus/system_messages.PLATFORM_MSG_TYPES`, with a
+ * comment claiming a test guarded it — the test was a third hand-written copy,
+ * and it was already two types short. The wire carries strings, so a type the
+ * server sends and the client does not know renders as a MEMBER speaking: an
+ * identity colour, an avatar, and a `team_<id>` marker where a name should be.
+ * That list grew from five entries to seven in a single change, so "remember to
+ * update the other copy" was never going to hold.
+ *
+ * `msg_type` still chooses the wording — that is rendering, and it belongs to
+ * whoever renders. What moved is only the yes/no.
  */
-const SYSTEM_MSG_TYPES = new Set([
-  'system_bulletin',
-  'system_cascade',
-  'system_delivery_failed',
-  'system_roster',
-  'system_stop',
-  'system_undelivered',
-  'patrol',
-]);
+function isPlatformLine(m: TeamChatMessage): boolean {
+  return m.is_platform === true;
+}
 
 export interface TeamTranscriptProps {
   messages: TeamChatMessage[];
@@ -72,11 +73,22 @@ function dayKey(iso: string): string | null {
   return new Date(t).toDateString();
 }
 
-function dayLabel(key: string, locale?: string): string {
+/**
+ * The separator's label. `activeLocale()` rather than `i18n.language`: it is the
+ * one guard in the product against a malformed language tag, and `Intl` throws
+ * on those DURING RENDER — a blank timestamp elsewhere, but the whole transcript
+ * to an error boundary here. It also resolves `zh` to `zh-CN` the same way the
+ * message timestamps do, so the two cannot disagree.
+ */
+function dayLabel(key: string): string {
   const d = new Date(key);
   const today = new Date().toDateString();
   if (key === today) return '';
-  return d.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(activeLocale(), {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function TeamTranscript({
@@ -87,7 +99,7 @@ export function TeamTranscript({
   renderSystem,
   renderFooter,
 }: TeamTranscriptProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   let lastDay: string | null = null;
 
   return (
@@ -97,7 +109,7 @@ export function TeamTranscript({
         const opensDay = key !== null && key !== lastDay;
         if (opensDay) lastDay = key;
 
-        const isSystem = SYSTEM_MSG_TYPES.has(m.msg_type || '');
+        const isSystem = isPlatformLine(m);
 
         return (
           <Fragment key={m.message_id}>
@@ -107,7 +119,7 @@ export function TeamTranscript({
                 className="flex items-center gap-3 py-1 text-[10px] font-mono text-[var(--text-tertiary)]"
               >
                 <span className="h-px flex-1 bg-[var(--border-subtle)]" />
-                <span>{dayLabel(key as string, i18n?.language) || t('chat.team.today')}</span>
+                <span>{dayLabel(key as string) || t('chat.team.today')}</span>
                 <span className="h-px flex-1 bg-[var(--border-subtle)]" />
               </div>
             )}

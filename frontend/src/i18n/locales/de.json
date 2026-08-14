@@ -173,7 +173,12 @@
       "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
       "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",
       "uploadFailedGeneric": "Upload fehlgeschlagen.",
-      "loadingOlder": "Ältere Nachrichten werden geladen…"
+      "loadingOlder": "Ältere Nachrichten werden geladen…",
+      "leadBadge": "Lead",
+      "expand": "Mehr anzeigen",
+      "collapse": "Weniger anzeigen",
+      "today": "Heute",
+      "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist."
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -2102,7 +2107,7 @@
     "agent": "Agent",
     "room": "Raum"
   },
-"webAnalyticsNotice": {
+  "webAnalyticsNotice": {
     "body": "Dies ist die Cloud-Webversion von NarraNexus. Sie verwendet Google Tag Manager, einen Analysedienst eines Drittanbieters, um anonyme Seiteninteraktionsdaten (Seitenaufrufe, Klicks, Referrer) zu erfassen. Es werden keine Gesprächsinhalte erfasst. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",
     "settings": "Einstellungen öffnen",
     "dismiss": "Verstanden"

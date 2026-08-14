@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/dashboard/SessionSection.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — AvatarDot 只算一次身份
+
+`senderIdentity(seed).dot` 和 `senderIdentity(seed, display).initials` 是同一个身份算了
+两遍，而且**两次参数还不一样**——第一次没传 display。现在算一次。
 
 # SessionSection — dashboard 的会话区
 

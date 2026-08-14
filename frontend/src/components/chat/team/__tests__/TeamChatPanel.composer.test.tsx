@@ -184,16 +184,30 @@ describe('Enter does not interrupt an IME', () => {
     // The `await` is what makes this test about the WINDOW rather than the
     // flag — without it the flag is still set and the assertion passes for the
     // wrong reason.
-    render(<TeamChatPanel teamId="t1" />);
-    const el = composer();
-    type(el, '你好');
+    // Fake timers, so the grace window is measured against a CLOCK THIS TEST
+    // CONTROLS. With real time, `advance` below has to run the flag's 0ms timer
+    // without also burning 100ms of wall clock — which held on an idle machine
+    // and failed on a loaded one. A test that depends on how busy the CI box is
+    // teaches people to re-run rather than to read.
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      render(<TeamChatPanel teamId="t1" />);
+      const el = composer();
+      type(el, '你好');
 
-    fireEvent.compositionStart(el);
-    fireEvent.compositionEnd(el);
-    await act(async () => {});
-    fireEvent.keyDown(el, { key: 'Enter' });
+      fireEvent.compositionStart(el);
+      fireEvent.compositionEnd(el);
+      // Runs the macrotask that clears the flag, at t+0: past the flag, still
+      // inside the window. Exactly the state only the window covers.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      fireEvent.keyDown(el, { key: 'Enter' });
 
-    expect(sendTeamChat).not.toHaveBeenCalled();
+      expect(sendTeamChat).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('Enter on ordinary typing still sends', async () => {

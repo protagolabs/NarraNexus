@@ -1031,6 +1031,7 @@ class MessageBusTrigger:
                     # piled up since the last human message, stop propagating
                     # @mentions so two agents can't loop forever.
                     capped_mentions: list[str] = []
+                    capped_everyone = False
                     if mentions:
                         depth = await self._team_cascade_depth(channel_id)
                         if depth >= MAX_TEAM_AGENT_HOPS:
@@ -1038,6 +1039,13 @@ class MessageBusTrigger:
                                 f"Team cascade depth {depth} >= {MAX_TEAM_AGENT_HOPS} "
                                 f"in {channel_id}; dropping @mentions to break the loop"
                             )
+                            # `_extract_team_mentions` returns EITHER
+                            # ["@everyone"] OR a list of ids, never a mix — so
+                            # an @all that hits the cap leaves the named list
+                            # empty. Carried as its own flag rather than dropped
+                            # on the floor: @all is the commonest way a room
+                            # reaches the cap, and it was the silent one.
+                            capped_everyone = "@everyone" in mentions
                             capped_mentions = [
                                 member_map.get(m, m) for m in mentions if m != "@everyone"
                             ]
@@ -1069,7 +1077,7 @@ class MessageBusTrigger:
                         await self._announce_failed_room_post(
                             agent_id, channel_id, trigger_message, turn, post_err
                         )
-                    if posted and capped_mentions:
+                    if posted and (capped_mentions or capped_everyone):
                         # Posted after the reply, so the room reads in the order
                         # things happened: the agent speaks, then the platform
                         # explains what it declined to do. A log line left the
@@ -1088,6 +1096,7 @@ class MessageBusTrigger:
                             team_id=team_id,
                             channel_id=channel_id,
                             dropped=capped_mentions,
+                            dropped_everyone=capped_everyone,
                             depth=MAX_TEAM_AGENT_HOPS,
                         )
                 else:

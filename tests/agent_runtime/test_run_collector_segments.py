@@ -176,3 +176,23 @@ async def test_whitespace_only_output_produces_no_segments():
     out = await _collect([_response("   ")], include_monologue=True)
 
     assert out.segments == []
+
+
+@pytest.mark.asyncio
+async def test_segments_hand_back_text_not_the_accumulator():
+    """The contract is `{kind, text}`.
+
+    Internally a segment accumulates a list of parts — joined once at the end,
+    like `text_parts` beside it — because `segments[-1]["text"] += delta` copies
+    the whole segment on every delta and cannot use CPython's in-place
+    optimisation while the dict still holds a reference. That made a long reply
+    quadratic in its own length, on a path that runs for EVERY agent turn.
+
+    This asserts the accumulation stays inside: a caller that saw `parts` would
+    start depending on it, and the DB column, the API and the frontend type all
+    say `text`.
+    """
+    out = await _collect([_response("a"), _response("b")], include_monologue=False)
+
+    assert [set(s) for s in out.segments] == [{"kind", "text"}]
+    assert out.segments[0]["text"] == "ab"

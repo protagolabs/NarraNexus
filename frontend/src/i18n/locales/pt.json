@@ -173,7 +173,12 @@
       "sendFailed": "Não foi possível enviar. Seu texto continua aqui — tente de novo.",
       "uploadFailed": "Não foi possível enviar “{{name}}”.",
       "uploadFailedGeneric": "Não foi possível enviar o arquivo.",
-      "loadingOlder": "Carregando mensagens anteriores…"
+      "loadingOlder": "Carregando mensagens anteriores…",
+      "leadBadge": "líder",
+      "expand": "Ver mais",
+      "collapse": "Ver menos",
+      "today": "Hoje",
+      "agentPaused": "Este agente está pausado ({{reason}}). Use «Retomar» no aviso acima assim que a causa for resolvida."
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -2102,7 +2107,7 @@
     "agent": "Agente",
     "room": "Sala"
   },
-"webAnalyticsNotice": {
+  "webAnalyticsNotice": {
     "body": "Esta é a versão web na nuvem do NarraNexus. Utiliza o Google Tag Manager, um serviço de análise de terceiros, para recolher dados anónimos de interação com a página (visualizações, cliques, referenciador). Nenhum conteúdo de conversa é recolhido. Pode desativar isto a qualquer momento em Definições → Privacidade.",
     "settings": "Abrir definições",
     "dismiss": "Entendido"

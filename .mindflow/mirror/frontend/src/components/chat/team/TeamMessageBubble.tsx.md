@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMessageBubble.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 长消息也要分层；@ 高亮改在 AST 上做
+
+**分层此前对最需要它的消息是关闭的。** 条件写的是 `segments.length && !tooLong`，而
+`tooLong` 是 content 的属性、**不随展开变化**——所以超过 500 字的消息折叠时看不到分层，
+点了展开还是看不到。而团队 turn 是**唯一**开 `include_monologue` 的路径，带 segments 的
+消息就是"思考 + 回答"拼起来的，天然就长。整条后端链路（run_collector → TurnResult →
+bus_messages.segments → route → 前端类型）铺出来的收益，被这一个渲染条件吃掉了；能看到
+分层的只剩那些本来也不需要分层的短消息。
+
+现在折叠预算**跨 segment 花**：按段累计长度截断，切到一半的那段后面整段丢掉——把回答直接
+接在半句思考后面，读起来像 agent 从那半句里得出了结论，是另一条（错的）消息。**不能**用
+`shown` 的长度去切 segments 数组：`body` 是整体 trim 的，每个 `s.text` 又各自 trim，两个
+字符串没有共享的下标。
+
+**@ 高亮从改写 markdown 源码改成改 AST**（见 [[rehypeMentions.ts]]）。字符串替换不知道
+什么是代码块，于是任何包含 `@all` 的代码里会被塞进一段字面量 `<span data-testid=…>`。
+markdown 会转义它，所以不是安全问题；是更平庸的那种坏：**用户复制出去的代码是坏的**，
+而第一嫌疑人会是模型而不是渲染层。团队房间的主要产出正是代码和命令。
 
 # TeamMessageBubble — 让六方对话读得下去的一条消息
 

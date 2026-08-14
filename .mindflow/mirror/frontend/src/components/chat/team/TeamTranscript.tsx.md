@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/chat/team/TeamTranscript.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 平台行由服务端判定；日期分隔线走 activeLocale
+
+`SYSTEM_MSG_TYPES` 这个 Set 删掉了，改读服务端下发的 `is_platform`（见 [[teams.py]]）。
+它原本是 `PLATFORM_MSG_TYPES` 的第二份拷贝，注释声称"有测试守住"——那个测试是第三份手写
+拷贝，而且已经落后两项。线上传的是字符串，服务端发一种前端不认识的类型，平台通知就会被
+渲染成成员发言。`msg_type` 仍然决定**怎么写**那行字（那是渲染，归渲染的人管），移走的只是
+"是不是平台行"这个是非题。
+
+`dayLabel` 改用 [[utils.ts]] 导出的 `activeLocale()`，不再直接吃 `i18n.language`。那个
+函数存在的理由就是"Intl 遇到畸形 tag 会抛"，而这里是在**渲染期**抛——不是一个空白时间戳，
+是整个 transcript 掉进 error boundary、房间白屏。它同时把 `zh` 解析成 `zh-CN`，和气泡里的
+时间用同一个 locale。
 
 # TeamTranscript — 消息流，以及它欠读者的那一样东西
 

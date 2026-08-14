@@ -4,6 +4,12 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — transcript 外面那层 `space-y-5` 不是冗余的
+
+review 读成了"只包着一个子元素"，实际它包着 transcript + 正在输入指示器 + 滚动锚点。
+[[TeamTranscript.tsx]] 自己那层 `space-y-5` 间隔的是**消息之间**，外面这层间隔的是
+**transcript 和它下面那些东西之间**。换成 Fragment 会把这个间距关掉。留了注释说明。
+
 ## 2026-08-14 — 往上翻历史，以及一个跨房间的游标 bug
 
 房间现在打开在**最新**一页（服务端改动见 [[teams.py]]），滚到顶部请求上一页

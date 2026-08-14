@@ -39,6 +39,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 
 
@@ -83,7 +84,13 @@ def _trigger(db, reply: str = "on it"):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        return (reply, "evt_turn", [])
+        # A REAL TurnResult, not a tuple. While this returned a tuple, every
+        # consumer below (`if turn.text:`) raised AttributeError, the batch
+        # handler swallowed it, and these tests were quietly asserting "the
+        # cursor advances before the crash" — the cursor is acked a few lines
+        # earlier — rather than "a normal turn advances the cursor". Nothing
+        # after `turn.text` ran at all.
+        return TurnResult(text=reply, event_id="evt_turn", segments=[])
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t

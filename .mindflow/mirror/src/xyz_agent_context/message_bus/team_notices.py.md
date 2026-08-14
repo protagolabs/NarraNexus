@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_notices.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `@all` 被拦时也要说话
+
+`post_cascade_capped` 增加 `dropped_everyone`。
+
+`_extract_team_mentions` 的返回是**二选一**：要么 `["@everyone"]`，要么一串 agent_id，
+不会混。所以 agent 说 `@all` 又撞上 hop cap 时，`dropped` 恰好是空列表，函数直接 return，
+房间一个字都没说——而这正是这个文件开头描述的那个场景（"用户要求把人拉进来，平台拒绝了，
+没人说一声"），只不过换成了六人房间**最常用**的那种叫法，也是最容易把 hop 深度推到上限的
+那一种。
+
+**不能**把 `@everyone` 原样塞进 `dropped`：文案会渲染成 "@everyone was not pulled in"，
+那是一句关于不存在的人的话。所以它是自己的一个 bool，文案说的是"团队里其余的人没有被拉
+进来"。
+
+顺带修掉复数：`", ".join(dropped)` 加上 "was" 在两个人以上时是 "Ana, Bruno was not
+pulled in"。这行字存在的意义就是给人读、然后据此行动的。
 
 # team_notices — 平台对团队房间做过、却从没说出口的事
 

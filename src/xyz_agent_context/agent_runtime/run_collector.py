@@ -64,11 +64,19 @@ def _add_segment(segments: list[dict], kind: str, text: str) -> None:
 
     Deltas arrive in fragments, so without merging one thought would render as
     six bubbles — the rhythm this exists to show would be noise instead.
+
+    Accumulates into a list of PARTS, joined once at the end, exactly like
+    ``text_parts`` beside it. The first version did ``segments[-1]["text"] +=
+    text``, and CPython's in-place concatenation optimisation cannot fire on a
+    string the dict still references — so every delta copied the whole segment
+    so far, making a long reply quadratic in its own length. This path runs on
+    EVERY agent turn, and iron rule #14 makes runs of tens of thousands of
+    deltas a first-class case, not an outlier.
     """
     if segments and segments[-1]["kind"] == kind:
-        segments[-1]["text"] += text
+        segments[-1]["parts"].append(text)
     else:
-        segments.append({"kind": kind, "text": text})
+        segments.append({"kind": kind, "parts": [text]})
 
 
 @dataclass
@@ -93,8 +101,13 @@ class RunCollection:
     message does. A frontend heuristic could only guess, and guessing wrong
     renders thinking as conclusion or the reverse.
 
-    Empty unless ``include_monologue`` — and empty for a silent or
-    whitespace-only turn, so a caller cannot render a blank bubble from it.
+    Present on every run, not only ``include_monologue`` ones: a turn with no
+    monologue is simply one ``reply`` segment. Only the MONOLOGUE segments
+    depend on the opt-in — so a non-empty ``segments`` says nothing about
+    whether this was a team turn, and code that needs to know must ask.
+
+    Empty for a silent or whitespace-only turn, so a caller cannot render a
+    blank bubble from it.
     ``"".join(s["text"] for s in segments) == output_text`` always holds."""
 
     tool_calls: list[str] = field(default_factory=list)
@@ -294,9 +307,15 @@ async def collect_run(
     if not "".join(text_parts).strip():
         segments = []
 
+    # Parts are an accumulation detail; the contract is `{kind, text}`. Joined
+    # here, once, so no caller ever sees the intermediate shape.
+    joined_segments = [
+        {"kind": s["kind"], "text": "".join(s["parts"])} for s in segments
+    ]
+
     return RunCollection(
         output_text="".join(text_parts),
-        segments=segments,
+        segments=joined_segments,
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,

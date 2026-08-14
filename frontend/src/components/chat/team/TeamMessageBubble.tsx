@@ -40,6 +40,7 @@ import { useTranslation } from 'react-i18next';
 import { Markdown } from '@/components/ui';
 import { BusAttachmentList } from '../BusAttachmentList';
 import { senderIdentity } from '@/lib/senderIdentity';
+import { rehypeMentions } from './rehypeMentions';
 import { cn } from '@/lib/utils';
 import type { TeamChatMessage } from '@/types/teams';
 
@@ -92,28 +93,6 @@ function markMentions(
   return out;
 }
 
-/**
- * The same highlight for markdown bodies.
- *
- * Agent replies render through `Markdown`, so the highlight has to survive the
- * markdown pass — and an agent @mentioning a teammate is the handoff itself,
- * which is exactly when the addressee most needs to see it. `rehypeRaw` is
- * already enabled, so inline HTML renders; this changes no security posture
- * (model output has always been able to emit HTML there).
- *
- * The insertion is safe by construction rather than by escaping: the matched
- * run is `@` followed by word/CJK characters only, so nothing HTML-special can
- * reach the attribute or the body.
- */
-function highlightMentionsInMarkdown(md: string, names: Set<string>): string {
-  return md.replace(/@([\w一-鿿]+)/g, (whole, word: string) => {
-    const lower = word.toLowerCase();
-    const isAll = lower === 'all' || lower === 'everyone';
-    if (!isAll && !names.has(lower)) return whole;
-    return `<span data-testid="mention-${word}" class="rounded px-0.5 font-medium text-[var(--color-carbon)] bg-[var(--nm-paper-warm)]">${whole}</span>`;
-  });
-}
-
 function MentionText({ text, names }: { text: string; names: Set<string> }) {
   const parts = useMemo(() => markMentions(text, names), [text, names]);
   return (
@@ -153,6 +132,9 @@ export function TeamMessageBubble({
     () => new Set(Object.values(memberNames).map((n) => (n || '').toLowerCase())),
     [memberNames],
   );
+  // Memoised because `Markdown` is memo'd on shallow equality: a fresh array
+  // every render would re-parse the whole body on every streaming delta.
+  const mentionPlugins = useMemo(() => [rehypeMentions(nameSet)], [nameSet]);
 
   const body = (m.content || '').trim();
   const segments: Segment[] = Array.isArray(m.segments) && m.segments.length
@@ -160,6 +142,40 @@ export function TeamMessageBubble({
     : [];
   const tooLong = body.length > COLLAPSE_CHARS;
   const shown = tooLong && !expanded ? `${body.slice(0, COLLAPSE_CHARS)}…` : body;
+
+  // Collapsing must not cost the LAYOUT. A team turn is the only path that
+  // records a monologue/reply boundary, so a message that has one is
+  // "deliberation + answer" concatenated — which is precisely the kind that runs
+  // past the threshold. Gating the layered rendering on `!tooLong` therefore
+  // turned the feature off for nearly every message that had it, and left it on
+  // only for short ones that did not need it. Expanding did not bring it back
+  // either: `tooLong` is a property of the content, not of the toggle.
+  //
+  // So the budget is spent ACROSS the segments instead. Cut by cumulative
+  // segment length rather than by slicing `shown`: `body` is trimmed as a whole
+  // and each segment's text is trimmed on its own, so the two strings do not
+  // share an index.
+  const visibleSegments = useMemo(() => {
+    if (!segments.length) return segments;
+    if (!tooLong || expanded) return segments;
+    const out: Segment[] = [];
+    let budget = COLLAPSE_CHARS;
+    for (const s of segments) {
+      const text = s.text.trim();
+      if (budget <= 0) break;
+      if (text.length <= budget) {
+        out.push({ ...s, text });
+        budget -= text.length;
+        continue;
+      }
+      out.push({ ...s, text: `${text.slice(0, budget)}…` });
+      // Everything after a cut segment is dropped rather than shown: rendering
+      // the reply straight after half a sentence of thinking reads as though the
+      // agent concluded from it, which is a different (and wrong) message.
+      budget = 0;
+    }
+    return out;
+  }, [segments, tooLong, expanded]);
 
   return (
     <div className={cn('flex gap-3', mine && 'flex-row-reverse')}>
@@ -205,8 +221,8 @@ export function TeamMessageBubble({
               <span className="whitespace-pre-wrap">
                 <MentionText text={shown} names={nameSet} />
               </span>
-            ) : segments.length && !tooLong ? (
-              segments.map((s, i) => (
+            ) : visibleSegments.length ? (
+              visibleSegments.map((s, i) => (
                 <div
                   key={i}
                   data-testid={`segment-${s.kind}-${i}`}
@@ -216,11 +232,11 @@ export function TeamMessageBubble({
                       : ''
                   }
                 >
-                  <Markdown content={highlightMentionsInMarkdown(s.text.trim(), nameSet)} />
+                  <Markdown content={s.text.trim()} rehypePlugins={mentionPlugins} />
                 </div>
               ))
             ) : (
-              <Markdown content={highlightMentionsInMarkdown(shown, nameSet)} />
+              <Markdown content={shown} rehypePlugins={mentionPlugins} />
             )}
           </div>
 

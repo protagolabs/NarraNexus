@@ -160,6 +160,72 @@ describe('TeamMessageBubble', () => {
     expect(screen.getByTestId('bubble-m1').textContent).toContain('one blob');
   });
 
+  test('a LONG segmented message still shows its layers', () => {
+    // The case that matters, and the one that was broken. A team turn is the
+    // only path that records a boundary at all, and a message that carries one
+    // is "thinking + answer" concatenated — which is exactly the kind that runs
+    // past the collapse threshold. Gating the layout on "not too long" meant the
+    // feature was off for almost every message that had it, and on only for
+    // short ones that did not need it.
+    const long = 'x'.repeat(COLLAPSE_CHARS);
+    draw({
+      content: `${long}answer`,
+      segments: [
+        { kind: 'monologue', text: long },
+        { kind: 'reply', text: 'answer' },
+      ],
+    });
+
+    expect(screen.getByTestId('segment-monologue-0')).toBeTruthy();
+  });
+
+  test('expanding a long segmented message shows every layer in full', () => {
+    const long = 'y'.repeat(COLLAPSE_CHARS);
+    draw({
+      content: `${long}the answer`,
+      segments: [
+        { kind: 'monologue', text: long },
+        { kind: 'reply', text: 'the answer' },
+      ],
+    });
+
+    fireEvent.click(screen.getByTestId('expand-m1'));
+
+    expect(screen.getByTestId('segment-monologue-0').textContent).toContain(long);
+    expect(screen.getByTestId('segment-reply-1').textContent).toContain('the answer');
+  });
+
+  test('collapsed, a long segmented message is actually shortened', () => {
+    // Otherwise "collapse" would only be hiding the button, and a report would
+    // still eat the screen — the other half of the reason this control exists.
+    const long = 'z'.repeat(COLLAPSE_CHARS * 2);
+    draw({
+      content: `${long}tail`,
+      segments: [
+        { kind: 'monologue', text: long },
+        { kind: 'reply', text: 'tail' },
+      ],
+    });
+
+    const shown = screen.getByTestId('bubble-m1').textContent || '';
+    expect(shown.length).toBeLessThan(COLLAPSE_CHARS * 2);
+  });
+
+  test('a later segment is dropped entirely when the budget is already spent', () => {
+    // Cutting mid-segment and then rendering the NEXT one would read as though
+    // the agent's answer followed straight on from a half-sentence of thinking.
+    const long = 'q'.repeat(COLLAPSE_CHARS * 2);
+    draw({
+      content: `${long}the conclusion`,
+      segments: [
+        { kind: 'monologue', text: long },
+        { kind: 'reply', text: 'the conclusion' },
+      ],
+    });
+
+    expect(screen.queryByTestId('segment-reply-1')).toBeNull();
+  });
+
   test('monologue is visually subordinate to the reply', () => {
     // The answer is what the room is for; the thinking is context. Rendering
     // them identically would make every agent look twice as loud.
@@ -187,6 +253,35 @@ describe('TeamMessageBubble', () => {
     // decorations, and teach the reader to ignore the highlight.
     draw({ content: 'mail me at bin@example.com' });
     expect(screen.queryByTestId('mention-example')).toBeNull();
+  });
+
+  test('a mention inside a code block is left alone', () => {
+    // A team room's main output is code and commands, and `@all` is a real
+    // target in shell, Makefiles and other IMs' mention syntax. Rewriting the
+    // markdown SOURCE put a literal `<span data-testid=…>` inside the fence, so
+    // what the user copied out was broken — and the first suspicion would fall
+    // on the model, not on the renderer.
+    draw({ content: 'run it:\n\n```sh\nmake @all\n```' });
+
+    const code = document.querySelector('code');
+    expect(code?.textContent).toContain('make @all');
+    expect(code?.textContent).not.toContain('data-testid');
+    expect(code?.querySelector('[data-testid="mention-all"]')).toBeNull();
+  });
+
+  test('a mention in inline code is left alone too', () => {
+    draw({ content: 'the target is `@all` in the Makefile' });
+
+    const code = document.querySelector('code');
+    expect(code?.textContent).toBe('@all');
+    expect(code?.querySelector('[data-testid="mention-all"]')).toBeNull();
+  });
+
+  test('a mention beside a code block is still highlighted', () => {
+    // The fix must not throw the feature out: prose keeps its highlight.
+    draw({ content: '@Bruno try:\n\n```sh\nmake @all\n```' });
+
+    expect(screen.getByTestId('mention-Bruno')).toBeTruthy();
   });
 
   test('@all is highlighted', () => {

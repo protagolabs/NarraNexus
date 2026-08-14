@@ -50,6 +50,12 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** True when this line is the PLATFORM narrating itself rather than a member
+   *  speaking. Decided server-side from `PLATFORM_MSG_TYPES`, so the client does
+   *  not keep a second copy of a list that grows — one it did not know about
+   *  would render with an identity colour, an avatar, and a `team_<id>` marker
+   *  for a name. `msg_type` still says WHICH kind, for choosing the wording. */
+  is_platform?: boolean;
   /** 'text' | 'multimodal' for ordinary messages. Everything else is the
    *  PLATFORM narrating itself, rendered as a room-level line rather than as
    *  a member speaking: 'system_stop' (owner stopped a run), 'patrol' (the

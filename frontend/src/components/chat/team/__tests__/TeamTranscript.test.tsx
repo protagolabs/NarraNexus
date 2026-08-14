@@ -99,40 +99,53 @@ describe('TeamTranscript', () => {
   test('system lines are not given bubbles', () => {
     // The room speaking is not a member speaking; the panel renders those as
     // centred notices and they must not acquire an identity colour here.
-    draw([msg('s', '2026-08-12T09:00:00Z', { msg_type: 'system_bulletin' })]);
+    draw([msg('s', '2026-08-12T09:00:00Z', { msg_type: 'system_bulletin', is_platform: true })]);
     expect(screen.queryByTestId('bubble-s')).toBeNull();
   });
 
   test('a system line still gets its day separator', () => {
     // Otherwise a day whose only event was a stop or a bulletin change appears
     // to belong to the previous day.
-    draw([msg('s', '2026-08-12T09:00:00Z', { msg_type: 'system_stop' })]);
+    draw([msg('s', '2026-08-12T09:00:00Z', { msg_type: 'system_stop', is_platform: true })]);
     expect(screen.getAllByTestId(/^day-sep-/)).toHaveLength(1);
   });
 });
 
 describe('platform lines the server can send', () => {
-  // The wire carries strings, so a type the server sends and the client does not
-  // know renders as a member speaking — with an identity colour and a bubble,
-  // exactly the failure this set exists to prevent. These are the types
-  // `message_bus/system_messages.PLATFORM_MSG_TYPES` currently registers.
-  for (const t of [
-    'system_bulletin',
-    'system_cascade',
-    'system_roster',
-    'system_stop',
-    'patrol',
-  ]) {
-    test(`${t} is not given a bubble`, () => {
-      render(
-        <TeamTranscript
-          messages={[msg('s', '2026-08-12T09:00:00Z', { msg_type: t })] as never}
-          userLabel="Bin"
-          leadAgentId=""
-          memberNames={{ agent_a: 'Ana' }}
-        />,
-      );
-      expect(screen.queryByTestId('bubble-s')).toBeNull();
-    });
+  // This used to loop over a hand-written list of msg_types — a THIRD copy of
+  // the server's registry, next to the component's own Set, and already two
+  // types short of both. The client no longer decides: the server sends
+  // `is_platform`, so what is worth testing is that the flag is obeyed, whatever
+  // the type string happens to be.
+  function drawOne(over: Record<string, unknown>) {
+    render(
+      <TeamTranscript
+        messages={[msg('s', '2026-08-12T09:00:00Z', over)] as never}
+        userLabel="Bin"
+        leadAgentId=""
+        memberNames={{ agent_a: 'Ana' }}
+      />,
+    );
   }
+
+  test('a flagged line gets no bubble, whatever its type is called', () => {
+    // Including a type this client has never heard of — the case the old
+    // mirrored list got wrong by construction.
+    drawOne({ msg_type: 'system_something_new', is_platform: true });
+    expect(screen.queryByTestId('bubble-s')).toBeNull();
+  });
+
+  test('an ordinary message still gets one', () => {
+    drawOne({ msg_type: 'text', is_platform: false });
+    expect(screen.getByTestId('bubble-s')).toBeTruthy();
+  });
+
+  test('a message with no flag at all is treated as a member speaking', () => {
+    // The honest default for a field the server did not send: a real reply
+    // rendered as a system line loses its author and its bubble, while a system
+    // line rendered as a reply is merely ugly. Neither is good; this one is
+    // recoverable by looking at the room.
+    drawOne({ msg_type: 'text' });
+    expect(screen.getByTestId('bubble-s')).toBeTruthy();
+  });
 });

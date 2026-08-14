@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/ui/Markdown.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 可选的 rehypePlugins
+
+新增 `rehypePlugins` prop（追加在 `rehypeRaw` 之后）。存在的理由是让调用方**改渲染树**而
+不是**改 markdown 源码**：团队房间用正则在源码上高亮 @mention，结果把字面量 `<span>`
+塞进了每一个提到 `@all` 的代码块——正则不知道什么是代码块，AST 知道。
+
+传进来的数组必须**稳定**（模块常量或 `useMemo`）：这个组件按浅比较 memo，每次渲染新建一个
+数组会让流式回复的每一个 delta 重新解析整段正文。
 
 ## 2026-07-30 — React.memo
 

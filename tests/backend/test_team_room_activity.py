@@ -190,3 +190,57 @@ async def test_no_teams_is_no_queries_worth_of_work(db_client):
     """The empty case has to be explicit: an `IN ()` with no values is a syntax
     error in both dialects, so an empty list must not reach the query."""
     assert await _team_room_activity(db_client, [], user_sender=USER) == {}
+
+
+@pytest.mark.asyncio
+async def test_the_cost_does_not_grow_with_the_number_of_rooms(db_client):
+    """One query for every room, not one per room.
+
+    This endpoint is polled every 30s by each open tab, so a per-room query
+    multiplies by teams AND by tabs — and it sits on top of an existing
+    per-team member query, which is the shape not to add to.
+    """
+    calls: list[str] = []
+    real = db_client.execute
+
+    async def _counting(sql, *a, **kw):
+        calls.append(sql)
+        return await real(sql, *a, **kw)
+
+    db_client.execute = _counting  # type: ignore[method-assign]
+    try:
+        for i in range(5):
+            channel = await _room(db_client, f"team_{i}")
+            await _say(db_client, channel, "agent_a", f"hello {i}")
+        calls.clear()
+
+        got = await _team_room_activity(
+            db_client, [f"team_{i}" for i in range(5)], user_sender=USER
+        )
+    finally:
+        db_client.execute = real  # type: ignore[method-assign]
+
+    assert len(got) == 5
+    assert len(calls) == 2, f"expected channels + messages, got {len(calls)}: {calls}"
+
+
+@pytest.mark.asyncio
+async def test_two_messages_at_the_same_instant_report_one_room_once(db_client):
+    """The MAX + self-join returns BOTH rows when two share the newest instant.
+
+    What must hold is that the room is reported ONCE and with a usable preview.
+    Which of the two wins is deliberately unspecified: the timestamp is the same
+    either way, so the watermark is identical, and neither of two things said in
+    the same microsecond is the more correct one to show.
+    """
+    channel = await _room(db_client, TEAM)
+    first = await _say(db_client, channel, "agent_a", "one")
+    second = await _say(db_client, channel, "agent_a", "two")
+    same = "2026-08-14T10:00:00+00:00"
+    for mid in (first, second):
+        await db_client.update("bus_messages", {"message_id": mid}, {"created_at": same})
+
+    got = await _team_room_activity(db_client, [TEAM], user_sender=USER)
+
+    assert list(got) == [TEAM]
+    assert got[TEAM]["preview"] in ("one", "two")

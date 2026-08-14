@@ -803,6 +803,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 accent={accent}
               />
             ) : (
+              /* Not redundant with TeamTranscript's own `space-y-5`: that one
+                 spaces MESSAGES, this one spaces the transcript from the typing
+                 indicators and the scroll anchor below it. Collapsing them into
+                 a fragment closes that gap. */
               <div className="space-y-5">
                 <TeamTranscript
                   messages={messages}

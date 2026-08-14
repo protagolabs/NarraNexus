@@ -498,6 +498,15 @@ async def get_team_chat(
                 # stop notice, which the frontend renders as a system line (from an
                 # i18n key) rather than as this agent speaking.
                 "msg_type": m.msg_type,
+                # Whether this line is the PLATFORM narrating itself. Answered
+                # here rather than by the client keeping its own copy of
+                # PLATFORM_MSG_TYPES: the wire carries strings, and a type the
+                # server starts sending that a client-side list does not know
+                # renders as a member speaking — with an identity colour, an
+                # avatar and a `team_<id>` marker for a name. That list has grown
+                # from 5 to 7 in this change alone, so "remember to update the
+                # other copy" is not a mechanism.
+                "is_platform": (m.msg_type or "") in PLATFORM_MSG_TYPES,
                 # Null for legacy messages and for any path without a monologue;
                 # the panel renders those as one block.
                 "segments": m.segments,
@@ -648,33 +657,65 @@ async def _team_room_activity(
         fetch=True,
     )
 
+    channel_to_team = {
+        r["channel_id"]: team_by_marker[r["created_by"]]
+        for r in channel_rows or []
+        if r.get("created_by") in team_by_marker
+    }
+    if not channel_to_team:
+        return {}
+
+    # ONE query for every room, not one per room. This endpoint is polled every
+    # 30s by each open tab, so a per-room query multiplies by teams AND by tabs.
+    #
+    # The newest QUALIFYING message per channel, filtered in SQL rather than by
+    # reading a window and skipping rows: a room whose tail is all platform lines
+    # would otherwise report silence while a real reply sits just behind them.
+    #
+    # The filter names the platform's types rather than admitting known-good
+    # ones. An ordinary type added later shows up correctly under an exclusion
+    # list and would be INVISIBLE under an allowlist — a talking room reading as
+    # silent. `msg_type IS NULL` cannot happen (the column is NOT NULL) but is
+    # kept so this filter is word-for-word the one in `message_bus_trigger`,
+    # which is what `system_messages` exists to hold together.
+    #
+    # A MAX + self-join rather than a window function: `ROW_NUMBER() OVER` needs
+    # MySQL 8, and nothing else in this codebase requires it.
+    chan_ph = ", ".join(["%s"] * len(channel_to_team))
+
+    def _where(alias: str) -> str:
+        # Qualified with the alias: the outer query joins bus_messages to a
+        # subquery over bus_messages, so an unqualified `channel_id` is
+        # ambiguous — and SQLite says so while MySQL might not.
+        return (
+            f"{alias}.channel_id IN ({chan_ph}) AND {alias}.from_agent != %s "
+            f"AND ({alias}.msg_type IS NULL OR "
+            f"{alias}.msg_type NOT IN ({_platform_placeholders()}))"
+        )
+
+    params = (*channel_to_team, user_sender, *PLATFORM_MSG_TYPES)
+    rows = await db.execute(
+        f"SELECT m.channel_id, m.from_agent, m.content, m.created_at "
+        f"FROM bus_messages m JOIN ("
+        f"  SELECT b.channel_id AS channel_id, MAX(b.created_at) AS newest "
+        f"  FROM bus_messages b WHERE {_where('b')} GROUP BY b.channel_id"
+        f") t ON t.channel_id = m.channel_id AND t.newest = m.created_at "
+        f"WHERE {_where('m')}",
+        (*params, *params),
+        fetch=True,
+    )
+
     out: dict[str, dict] = {}
-    for row in channel_rows or []:
-        team_id = team_by_marker.get(row.get("created_by") or "")
+    for msg in rows or []:
+        team_id = channel_to_team.get(msg["channel_id"])
         if not team_id:
             continue
-        # The newest QUALIFYING message, filtered in SQL rather than by reading a
-        # window and skipping rows: a room whose tail is all platform lines would
-        # otherwise report silence while a real reply sits just behind them.
-        #
-        # The filter names the platform's types rather than admitting known-good
-        # ones. An ordinary type added later shows up correctly under an
-        # exclusion list and would be INVISIBLE under an allowlist — a talking
-        # room reading as silent. `msg_type IS NULL` cannot happen (the column is
-        # NOT NULL) but is kept so this filter is word-for-word the one in
-        # `message_bus_trigger`, which is what `system_messages` exists to hold
-        # together.
-        msg_rows = await db.execute(
-            "SELECT from_agent, content, created_at FROM bus_messages "
-            "WHERE channel_id = %s AND from_agent != %s "
-            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders()})) "
-            "ORDER BY created_at DESC LIMIT 1",
-            (row["channel_id"], user_sender, *PLATFORM_MSG_TYPES),
-            fetch=True,
-        )
-        if not msg_rows:
-            continue
-        msg = msg_rows[0]
+        # Two messages CAN share the newest instant, and then the join returns
+        # both. No tie-break is applied: the timestamp is the same either way, so
+        # the watermark is identical and only the preview text differs — and
+        # neither of two things said in the same microsecond is the more correct
+        # one to show. A guard that picked the first stood here until a mutation
+        # showed nothing could tell the difference.
         # Flattened and capped like the agent rows' preview right above it in the
         # same sidebar: a row is one line, and this rides in every refresh for
         # every team, so an untrimmed reply would be payload nobody can see.

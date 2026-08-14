@@ -18,13 +18,14 @@ interface Props {
 }
 
 function AvatarDot({ seed, display }: { seed: string; display: string }) {
+  const identity = senderIdentity(seed, display);
   return (
     <span
       title={display}
       data-testid={`session-avatar-${seed}`}
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ${senderIdentity(seed).dot}`}
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ${identity.dot}`}
     >
-      {senderIdentity(seed, display).initials}
+      {identity.initials}
     </span>
   );
 }

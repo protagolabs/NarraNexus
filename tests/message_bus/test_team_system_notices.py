@@ -174,40 +174,81 @@ async def test_roster_notices_wake_nobody_either(bus, db_client):
 # would silently do nothing, and on this branch that has already happened once:
 # a `getattr` read a name that did not exist in scope and swallowed the failure
 # into a permanent None, feature dead with every test green.
+#
+# Three source-text assertions used to live here — that the cap site mentions
+# `post_cascade_capped`, that it comes after the send, that `@everyone` is
+# filtered out. They were the honest choice while nothing behavioural could
+# reach this path (the only test that drove it returned a tuple where production
+# reads `turn.text`, so everything past that line raised and was swallowed).
+# With that fixed they are replaced by `test_team_cascade_notice_e2e.py`, which
+# runs the real handler — and the third of them was pinning the bug: filtering
+# `@everyone` out is exactly what made an `@all` hit the cap in silence.
 
 
-def test_the_cap_site_announces_what_it_dropped():
-    """The guard and the notice must be the same event: the names collected at
-    the cap are the names the room is told about."""
-    import inspect
+@pytest.mark.asyncio
+async def test_a_capped_at_all_is_announced_too(bus, db_client):
+    """The most common way to hit the cap, and it used to be the silent one.
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    `_extract_team_mentions` returns EITHER ``["@everyone"]`` OR a list of agent
+    ids, never a mix. So when an agent says `@all` and the hop cap fires, the
+    list of named teammates is empty — and the notice returned early, saying
+    nothing. That is precisely the scenario this notice exists for ("the user
+    asked for people to be pulled in, the platform declined, nobody said so"),
+    reached through the phrasing a six-member room uses most.
+    """
+    from xyz_agent_context.message_bus.team_notices import post_cascade_capped
 
-    src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert "capped_mentions" in src
-    assert "post_cascade_capped(" in src
-    # Display names, not raw ids: "agent_b was not pulled in" is not a sentence
-    # the user can act on.
-    assert "member_map.get(m, m)" in src
+    await post_cascade_capped(
+        db_client, team_id=TEAM, channel_id=CHANNEL,
+        dropped=[], dropped_everyone=True, depth=4,
+    )
 
-
-def test_the_notice_comes_after_the_reply():
-    """Order is the readable part. Announcing the cap before the reply would put
-    the platform's caveat above the thing it is a caveat about."""
-    import inspect
-
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
-
-    src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert src.index("await self._bus.send_message(") < src.index("post_cascade_capped(")
+    notices = await _notices(db_client, "system_cascade")
+    assert len(notices) == 1
+    assert "4" in notices[0]["content"]
 
 
-def test_a_dropped_everyone_is_not_reported_as_a_member():
-    """`@everyone` is not a teammate; naming it as one in "X was not pulled in"
-    would be a sentence about a person who does not exist."""
-    import inspect
+@pytest.mark.asyncio
+async def test_a_capped_at_all_is_not_reported_as_a_person(bus, db_client):
+    """"@everyone was not pulled in" is a sentence about someone who does not
+    exist. The rest of the TEAM was not pulled in — that is who to name."""
+    from xyz_agent_context.message_bus.team_notices import post_cascade_capped
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    await post_cascade_capped(
+        db_client, team_id=TEAM, channel_id=CHANNEL,
+        dropped=[], dropped_everyone=True, depth=4,
+    )
 
-    src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert 'm != "@everyone"' in src
+    content = (await _notices(db_client, "system_cascade"))[0]["content"]
+    assert "@everyone" not in content
+    assert "@all" not in content
+
+
+@pytest.mark.asyncio
+async def test_nothing_dropped_still_says_nothing(bus, db_client):
+    """Announcing a cap that did not fire trains the reader to ignore the line."""
+    from xyz_agent_context.message_bus.team_notices import post_cascade_capped
+
+    await post_cascade_capped(
+        db_client, team_id=TEAM, channel_id=CHANNEL,
+        dropped=[], dropped_everyone=False, depth=4,
+    )
+
+    assert await _notices(db_client, "system_cascade") == []
+
+
+@pytest.mark.asyncio
+async def test_several_dropped_teammates_read_as_a_sentence(bus, db_client):
+    """"Ana, Bruno was not pulled in" is not English. The line exists to be read
+    by a person who then has to act on it."""
+    from xyz_agent_context.message_bus.team_notices import post_cascade_capped
+
+    await post_cascade_capped(
+        db_client, team_id=TEAM, channel_id=CHANNEL,
+        dropped=["Ana", "Bruno"], depth=4,
+    )
+
+    content = (await _notices(db_client, "system_cascade"))[0]["content"]
+    assert "Ana, Bruno were not pulled in" in content
+
+

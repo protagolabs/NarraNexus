@@ -173,7 +173,12 @@
       "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
       "uploadFailed": "「{{name}}」をアップロードできませんでした。",
       "uploadFailedGeneric": "ファイルをアップロードできませんでした。",
-      "loadingOlder": "過去のメッセージを読み込み中…"
+      "loadingOlder": "過去のメッセージを読み込み中…",
+      "leadBadge": "リード",
+      "expand": "もっと見る",
+      "collapse": "折りたたむ",
+      "today": "今日",
+      "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -2101,7 +2106,7 @@
     "agent": "エージェント",
     "room": "ルーム"
   },
-"webAnalyticsNotice": {
+  "webAnalyticsNotice": {
     "body": "これは NarraNexus のクラウドウェブ版です。第三者の分析サービスである Google Tag Manager を使用して、匿名のページ操作データ（ページビュー、クリック、リファラー）を収集します。会話内容は収集されません。設定 → プライバシー でいつでもオフにできます。",
     "settings": "設定を開く",
     "dismiss": "了解"

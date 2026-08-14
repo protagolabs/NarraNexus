@@ -2550,7 +2550,7 @@
     "agent": "Agent",
     "room": "Room"
   },
-"webAnalyticsNotice": {
+  "webAnalyticsNotice": {
     "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",
     "settings": "Open settings",
     "dismiss": "Got it"

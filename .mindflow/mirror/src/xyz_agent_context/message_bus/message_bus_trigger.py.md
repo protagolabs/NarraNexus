@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — cap 住 `@all` 的那一路要带着标记走
+
+cap 触发时除了收集被拦下的**具名**队友，还要记住"被拦下的是 @all"（`capped_everyone`），
+并传给 [[team_notices.py]] 的 `post_cascade_capped`。少了它，房间里最常见的那种被拦
+（`@all`）是完全静默的。
+
+这条路径此前**没有任何行为测试能到达**：唯一驱动它的测试把 `_invoke_runtime` 假成了
+tuple，而生产代码读 `turn.text`，于是 `AttributeError` 被批处理的 `except` 吞掉，
+`turn.text` 之后的所有逻辑一行都没跑过（游标在更早几行就已经 ack 了，所以断言照样绿）。
+修好那个假对象之后，`tests/message_bus/test_team_cascade_notice_e2e.py` 真跑
+`_handle_channel_batch`，三条读源码字符串的断言随之删掉——其中一条
+（`assert 'm != "@everyone"' in src`）正好把这个 bug 钉成了验收标准。
 
 ## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
 

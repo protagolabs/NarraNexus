@@ -4,6 +4,12 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — TeamChatMessage.is_platform
+
+"这一行是平台在自述吗"，由服务端回答（见 [[teams.py]]）。前端不再维护
+`PLATFORM_MSG_TYPES` 的第二份拷贝：线上传的是字符串，一个前端不认识的类型会被渲染成成员
+发言——带身份色、头像，名字位置是 `team_<id>`。`msg_type` 仍然说的是**哪一种**，用来选文案。
+
 ## 2026-08-14 — TeamWithMembers 带上房间活动
 
 `last_message_at` / `last_message_preview` / `last_message_author`：房间上一次说了

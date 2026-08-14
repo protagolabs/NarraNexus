@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — segment 累积改成 parts，docstring 改成实话
+
+`_add_segment` 原本是 `segments[-1]["text"] += text`。那个字符串同时被 dict 引用着，
+CPython 的原地拼接优化用不上，于是**每个 delta 都要复制一遍已积累的全文**——一条长回复
+在自己的长度上是二次的。旁边的 `text_parts.append(delta)` + 最后 `"".join(...)` 才是这个
+项目已有的正确写法，现在 segments 也走同一条：内部存 `parts` 列表，返回前 join 一次。
+
+这条路径在**每一次** agent run 上，不是团队房间专属；铁律 #14 把几万个 delta 的长跑当成
+一等场景，那正是最不该有二次拷贝的地方。
+
+同时把 docstring 的假话改掉：它写着 "Empty unless ``include_monologue``"，而
+`AGENT_RESPONSE` 分支根本不看这个开关——每一次私聊、job、Lark 回复都会有一个 `reply` 段。
+真话是：**只有 monologue 段**依赖那个开关，所以"`segments` 非空"**不能**用来推断"这是
+团队消息"。下一个人会照 docstring 写出一个只在测试里成立的分支。
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/senderIdentity.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 注释里那句"没有人的颜色会变"是假的
+
+hash 确实和被替换的两份实现逐字节一致——但**调色板不是**：两份拷贝在 5–7 槽已经漂移
+（`AgentInboxPanel` 是 teal/indigo/fuchsia，`SessionSection` 是 fuchsia/teal/indigo）。
+收敛必然要选一方，选的是 inbox 那一份，所以 dashboard 上哈希落在这三槽的 seed **颜色会变
+一次**。这是"曾经有两份拷贝"的代价，没有哪种排序能让两边都不动。注释改成说这件事。
 
 # senderIdentity — 一个 agent，一种颜色，在每个显示它的界面上
 

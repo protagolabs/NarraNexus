@@ -51,9 +51,17 @@ function parseUTCTimestamp(timestamp: number | string): Date {
  *
  * A malformed or empty tag falls back to the browser's own locale rather than
  * throwing: Intl rejects bad tags, and one stale preference in storage should
- * not blank every timestamp in the product.
+ * not blank every timestamp in the product. Exported so every date formatter in
+ * the product goes through the same guard — the team transcript reached for
+ * `i18n.language` directly and got neither the fallback (a RangeError thrown
+ * during render takes the whole transcript to an error boundary, not just one
+ * blank timestamp) nor `resolvedLanguage` (so a `zh` that resolves to `zh-CN`
+ * formatted the day separators and the message times differently).
+ *
+ * Call it; do not memoise it. See the note about the runtime language switcher
+ * above.
  */
-function activeLocale(): string | undefined {
+export function activeLocale(): string | undefined {
   try {
     const tag = i18n.resolvedLanguage || i18n.language || '';
     if (!tag) return undefined;

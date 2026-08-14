@@ -80,6 +80,7 @@ async def post_cascade_capped(
     channel_id: str,
     dropped: List[str],
     depth: int,
+    dropped_everyone: bool = False,
 ) -> None:
     """Say that @mentions were not delivered because the hop cap was reached.
 
@@ -87,18 +88,36 @@ async def post_cascade_capped(
     not pulled in" tells the user exactly who to @ themselves, which is the
     entire point of telling them at all.
 
-    Silent when nothing was dropped — announcing a cap that did not fire trains
-    the reader to ignore the line.
+    ``dropped_everyone`` is a separate flag rather than ``"@everyone"`` sitting
+    in ``dropped``, because the two are different KINDS of fact.
+    ``_extract_team_mentions`` returns either ``["@everyone"]`` or a list of
+    agent ids and never a mix, so an `@all` that hits the cap leaves ``dropped``
+    empty — which used to return early and say nothing at all, in the single
+    most common way a six-member room reaches the cap. And "@everyone was not
+    pulled in" would be a sentence about a person who does not exist; what was
+    not pulled in is the rest of the team.
+
+    Silent only when nothing was dropped in either sense — announcing a cap that
+    did not fire trains the reader to ignore the line.
     """
-    if not dropped:
+    if not dropped and not dropped_everyone:
         return
-    names = ", ".join(dropped)
+    limit = (
+        f"Reached the {depth}-hop limit for agent-to-agent mentions; "
+    )
+    if dropped_everyone:
+        body = "the rest of the team was not pulled in."
+    else:
+        # "Ana, Bruno was not pulled in" is not a sentence, and this line exists
+        # to be read by a person who then has to act on it.
+        names = ", ".join(dropped)
+        verb = "were" if len(dropped) > 1 else "was"
+        body = f"{names} {verb} not pulled in."
     await _post(
         db,
         team_id,
         channel_id,
-        f"Reached the {depth}-hop limit for agent-to-agent mentions; "
-        f"{names} was not pulled in. @mention them yourself to continue.",
+        f"{limit}{body} @mention them yourself to continue.",
         CASCADE_MSG_TYPE,
     )
 

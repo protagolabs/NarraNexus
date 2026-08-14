@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/utils.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `activeLocale` 导出
+
+从模块私有改为导出，这样产品里每一个日期格式化都走同一道保护。团队 transcript 的日期分隔线
+此前直接用 `i18n.language`：既没有那个 try/catch（Intl 对畸形 tag 抛 RangeError，而分隔线
+是在渲染期算的——整块 transcript 掉进 error boundary，不是一个空白时间戳），也没有
+`resolvedLanguage`（`zh` 回落到 `zh-CN` 时，分隔线和气泡里的时间会用两种格式）。
+
+**调用它，不要缓存它**：语言切换器是运行时改的，缓存会让格式停在上一个语言直到刷新。
 
 ## 2026-05-27 — formatChatTimestamp for IM-style sidebar rows
 

@@ -52,8 +52,15 @@ export const PALETTE: ReadonlyArray<{ dot: string; accent: string }> = [
   { dot: 'bg-fuchsia-500', accent: 'border-l-fuchsia-500' },
 ];
 
-/** djb2-ish; kept byte-identical to the two implementations it replaces so no
- *  agent's existing colour moves on the surfaces that already had one. */
+/** djb2-ish, byte-identical to both implementations this replaces — the hash was
+ *  never where they differed.
+ *
+ *  The PALETTE was: the two copies had drifted apart at slots 5–7
+ *  (`AgentInboxPanel` had teal/indigo/fuchsia where `SessionSection` had
+ *  fuchsia/teal/indigo). Converging means picking one, and the inbox's order
+ *  won, so a dashboard seed that lands in those three slots DOES change colour
+ *  once. That is the cost of having had two copies; there is no ordering that
+ *  leaves both surfaces untouched. */
 function hash(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) {

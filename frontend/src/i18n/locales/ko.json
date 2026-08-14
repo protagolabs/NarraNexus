@@ -173,7 +173,12 @@
       "sendFailed": "보내지 못했습니다. 입력한 내용은 그대로 있습니다 — 다시 시도하세요.",
       "uploadFailed": "'{{name}}'을(를) 업로드하지 못했습니다.",
       "uploadFailedGeneric": "파일을 업로드하지 못했습니다.",
-      "loadingOlder": "이전 메시지를 불러오는 중…"
+      "loadingOlder": "이전 메시지를 불러오는 중…",
+      "leadBadge": "리드",
+      "expand": "더 보기",
+      "collapse": "접기",
+      "today": "오늘",
+      "agentPaused": "이 에이전트는 일시 중지 상태입니다({{reason}}). 원인을 해결한 뒤 위 배너의 '재개'를 사용하세요."
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -2101,7 +2106,7 @@
     "agent": "에이전트",
     "room": "룸"
   },
-"webAnalyticsNotice": {
+  "webAnalyticsNotice": {
     "body": "이것은 NarraNexus의 클라우드 웹 버전입니다. 제3자 분석 서비스인 Google Tag Manager를 사용하여 익명의 페이지 상호작용 데이터(페이지뷰, 클릭, 리퍼러)를 수집합니다. 대화 내용은 수집되지 않습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",
     "settings": "설정 열기",
     "dismiss": "확인"
