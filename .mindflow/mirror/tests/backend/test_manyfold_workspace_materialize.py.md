@@ -36,13 +36,27 @@ the settings singleton, so both module-level and lazy readers see it.
   per-user root and neither is inside the other. Nesting them would leak one
   agent's files into the other's `files/list`; the test writes a file into the
   first and asserts the second is still empty rather than just comparing paths.
+- **real concurrent creates** — `asyncio.gather` overlaps two agents for one
+  user and two calls for one agent. The tests assert both HTTP calls succeed,
+  the unique rows exist exactly once, both authoritative workspaces exist, and
+  same-agent flags split into one creator plus one replay. These cases failed
+  red on the old read-then-insert code with SQLite `IntegrityError`; they are
+  not sequential idempotency tests wearing a concurrency label.
+- **owner collision** — sequential and concurrent requests cannot reassign an
+  existing global `agent_id`. Exactly one concurrent owner wins, the other gets
+  409, no losing-owner workspace appears, and a populated original workspace
+  remains authoritative.
 - **replay repair / replay keeps contents** — the update leg materializes too
   (a deleted workspace comes back), and a populated one is left untouched.
   Together they pin "idempotent" as *repair*, not *recreate*.
 - **unmaterializable base** — 500, not a false success. Uses a real
   filesystem failure (a regular file where a parent directory is needed →
   `NotADirectoryError`) rather than mocking `mkdir`, so it would still catch
-  the failure if the implementation stopped going through the helper.
+  the failure if the implementation stopped going through the helper. The
+  response must omit the exception type and absolute path; the retained DB
+  claim is then replayed against a healthy base to prove partial-state repair.
 - **unsafe agent_id** — the id becomes a path segment here, so `../escapee`
   is rejected with 400 AND leaves no rows behind (validation runs before the
   writes, not just before the mkdir).
+- **empty normalized user id** — normalization `ValueError` is a 400 with no
+  rows or directory, matching the segment-validation failure boundary.

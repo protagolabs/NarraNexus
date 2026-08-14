@@ -37,6 +37,30 @@ Three semantics worth keeping:
   agent that **already existed** (on the update leg those rows are usually not
   ours to remove).
 
+Review found that filesystem idempotence alone was insufficient: the route's
+user and agent paths were both read-then-insert sequences. Two overlapping
+creates could therefore both observe a missing row and let one request crash
+on the unique index. The create seam now treats the database constraint as the
+arbiter: try the insert, classify only backend-specific duplicate-key errors,
+then re-read the winning row. This keeps two same-agent creates and two agents
+for one user idempotent without relying on a process-local lock (which would
+not cover multiple workers).
+
+`agent_id` is also an immutable ownership claim at this seam. A replay may
+update name/description only when the stored `created_by` matches the
+normalized caller; another user gets 409 without owner disclosure. The check
+runs once before user creation for the sequential case and again after an
+insert collision for the race. This prevents a colliding request from moving
+the DB row to another user and materializing a new empty workspace that hides
+the original owner's populated directory. Provider cloning happens only after
+the claim succeeds, so a losing cross-owner request cannot copy provider state
+before returning 409.
+
+Workspace `OSError` details remain in server logs, but the HTTP 500 is generic.
+The raw exception includes absolute deployment paths and must not cross the
+gateway boundary. User-id normalization and workspace-segment `ValueError`s
+are both translated to 400 before any row or directory is created.
+
 Two supporting changes:
 
 - **Id validation moved ahead of the writes**: `agent_id` arrives verbatim in
@@ -58,8 +82,9 @@ irreversible and asymmetrically riskier than creating them, so it stays a
 separate decision; the leftover-orphan-dir behaviour is unchanged by this fix.
 
 Tests: tests/backend/test_manyfold_workspace_materialize.py (first create /
-second same-user agent isolation / replay repair / failure is not a false
-success / unsafe id / create→roots round trip).
+concurrent same-agent and same-user creates / cross-owner conflict / second
+same-user agent isolation / replay repair / non-leaking failure without false
+success / unsafe ids / create→roots round trip).
 
 ## 2026-07-23 — 收口第 4 条 agents 写路径的长度上限(review #2)
 
