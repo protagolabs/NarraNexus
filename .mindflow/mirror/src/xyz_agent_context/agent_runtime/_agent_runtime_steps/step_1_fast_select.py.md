@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_fast_select.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — durable 模式：miss 建 narrative + session 锚定（预审 C1/I4）
+
+签名增可选 `session_service=None`；「结构上不可能写 session」的旧契约改为
+**行为契约**（ephemeral profile 零 session 触碰，测试锁死）。
+`profile.narrative_persistence == "durable"` 且 `_is_user_chat` 时：
+miss → `narrative_service.create_fast`（纯 CRUD，retrieval_method=
+"bm25_fast_created"）；hit/created → 镜像 full select() 的四个 session 写
+（last_query / current_narrative_id / query_count / last_query_time）并
+save——否则下一个非 fast turn 的 continuity 会拿到半新不旧的锚
+（step_4 只动 last_response）。voice 行为逐字节不变。
 
 ## Why it exists
 

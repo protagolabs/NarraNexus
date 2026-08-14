@@ -3,43 +3,87 @@
 @date: 2026-08-06
 @description: Fast-mode replacement for step_1 — BM25 top-1 direct narrative pick.
 
-Voice fast mode (F28) must reach the agent loop without paying step_1's
-synchronous LLM round trip (ContinuityDetector + the retrieval LLM tier).
-This step keeps the narrative "cheaply present" instead of bypassing it:
-one BM25 keyword query, top-1, load, done. No LLM, no narrative creation,
-and — deliberately — NO session writes: the function does not even take a
-session_service, so a normal follow-up message continuity-checks exactly
-as if the voice turn never happened.
+Fast mode must reach the agent loop without paying step_1's synchronous
+LLM round trip (ContinuityDetector + the retrieval LLM tier). This step
+keeps the narrative "cheaply present" instead of bypassing it: one BM25
+keyword query, top-1, load, done. No LLM ever runs here.
 
-What it still MUST do: ensure the user's ChatModule instance on the hit
-narrative (chat history assembly and turn persistence both hang off that
-instance — skipping it would silently break memory for voice turns).
+What happens on a miss is the surface's call, carried by
+``TurnProfile.narrative_persistence``:
+
+* ``"ephemeral"`` (voice, F28): the turn runs bare — no creation, no
+  session writes — so a normal follow-up message continuity-checks
+  exactly as if the voice turn never happened.
+* ``"durable"`` (persisted chat surfaces): a miss falls through to a
+  CRUD-only narrative creation, and the session continuity anchor
+  (last_query / current_narrative_id) is kept consistent on hit and
+  create alike. A fast chat turn must never vanish from history — both
+  history endpoints are narrative-scoped, and step_4 persists nothing
+  for a bare turn.
+
+What it still MUST do on every hit: ensure the user's ChatModule
+instance on the narrative (chat history assembly and turn persistence
+both hang off that instance — skipping it would silently break memory).
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING, AsyncGenerator, Optional
 
 from loguru import logger
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 
-from .step_1_select_narrative import _ensure_user_chat_instance
+from .step_1_select_narrative import _ensure_user_chat_instance, _is_user_chat
 
 if TYPE_CHECKING:
-    from xyz_agent_context.narrative import NarrativeService
+    from xyz_agent_context.narrative import NarrativeService, SessionService
 
     from .context import RunContext
+
+
+def _is_durable(ctx: "RunContext") -> bool:
+    profile = ctx.turn_profile
+    return (
+        profile is not None
+        and getattr(profile, "narrative_persistence", "ephemeral") == "durable"
+    )
+
+
+async def _anchor_session(
+    ctx: "RunContext",
+    session_service: Optional["SessionService"],
+    narrative_id: str,
+    query: str,
+) -> None:
+    """Keep the chat continuity anchor consistent for durable fast turns.
+
+    Mirrors the four writes the full select() performs for user-chat
+    runs. Without this, the next non-fast turn would judge continuity
+    against a half-stale anchor (last_response moved by step_4 while
+    current_narrative_id still points at the previous thread).
+    """
+    if session_service is None or ctx.session is None or not _is_user_chat(ctx):
+        return
+    from datetime import datetime, timezone
+
+    ctx.session.last_query = query
+    ctx.session.current_narrative_id = narrative_id
+    ctx.session.query_count += 1
+    ctx.session.last_query_time = datetime.now(timezone.utc)
+    await session_service.save_session(ctx.session)
+    logger.debug(f"[step_1_fast] session anchored to narrative={narrative_id}")
 
 
 async def step_1_fast_select(
     ctx: "RunContext",
     narrative_service: "NarrativeService",
+    session_service: Optional["SessionService"] = None,
 ) -> AsyncGenerator[ProgressMessage, None]:
     """Pick the background narrative for a fast turn (BM25 top-1, no LLM).
 
-    Fills ``ctx.narrative_list`` ([narrative] or []) and
-    ``ctx.user_chat_instances`` (only on a hit). A miss runs the turn
-    bare — nothing is created.
+    Fills ``ctx.narrative_list`` and ``ctx.user_chat_instances``. On a
+    miss, ephemeral profiles run the turn bare; durable profiles create
+    the narrative (CRUD only) so the turn persists.
     """
     yield ProgressMessage(
         step="1",
@@ -58,21 +102,31 @@ async def step_1_fast_select(
     query = anchor if anchor and str(anchor).strip() else ctx.input_content
 
     narrative = await narrative_service.select_fast(ctx.agent_id, ctx.user_id, query)
+    retrieval_method = "bm25_fast"
 
     if narrative is None:
-        ctx.narrative_list = []
-        logger.info("[step_1_fast] no BM25 candidate — running bare")
-        yield ProgressMessage(
-            step="1",
-            title="📚 Narrative Selection (fast)",
-            description="No matching narrative — running without background",
-            status=ProgressStatus.COMPLETED,
-            details={"retrieval_method": "bm25_fast", "hit": False},
-        )
-        return
+        if _is_durable(ctx) and _is_user_chat(ctx):
+            narrative = await narrative_service.create_fast(
+                ctx.agent_id, ctx.user_id, query
+            )
+            retrieval_method = "bm25_fast_created"
+            logger.info(f"[step_1_fast] miss — created narrative={narrative.id}")
+        else:
+            ctx.narrative_list = []
+            logger.info("[step_1_fast] no BM25 candidate — running bare")
+            yield ProgressMessage(
+                step="1",
+                title="📚 Narrative Selection (fast)",
+                description="No matching narrative — running without background",
+                status=ProgressStatus.COMPLETED,
+                details={"retrieval_method": "bm25_fast", "hit": False},
+            )
+            return
 
     ctx.narrative_list = [narrative]
-    ctx.substeps_1.append(f"[1.1] ✓ {narrative.narrative_info.name} (bm25_fast)")
+    ctx.substeps_1.append(
+        f"[1.1] ✓ {narrative.narrative_info.name} ({retrieval_method})"
+    )
 
     # History and persistence hang off the user's ChatModule instance in
     # the selected narrative — the fast path must keep that invariant.
@@ -84,11 +138,14 @@ async def step_1_fast_select(
     except Exception as e:  # noqa: BLE001 — degraded turn beats a dead turn
         logger.warning(f"[step_1_fast] chat-instance ensure failed: {e}")
 
-    logger.info(f"[step_1_fast] narrative={narrative.id} method=bm25_fast")
+    if _is_durable(ctx):
+        await _anchor_session(ctx, session_service, narrative.id, query)
+
+    logger.info(f"[step_1_fast] narrative={narrative.id} method={retrieval_method}")
     yield ProgressMessage(
         step="1",
         title="📚 Narrative Selection (fast)",
         description=f"Background: {narrative.narrative_info.name}",
         status=ProgressStatus.COMPLETED,
-        details={"retrieval_method": "bm25_fast", "hit": True},
+        details={"retrieval_method": retrieval_method, "hit": True},
     )

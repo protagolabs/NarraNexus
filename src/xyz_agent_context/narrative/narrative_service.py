@@ -128,9 +128,10 @@ class NarrativeService:
 
         Zero LLM, zero creation, zero session writes: one keyword search
         (top_k=1) plus a CRUD load. None when nothing scores or the row
-        vanished between search and load; the caller runs the turn bare.
-        The full select() below stays the only path that may create
-        narratives or consult the continuity/LLM tiers.
+        vanished between search and load. What the caller does on a miss
+        is the surface's call: voice runs the turn bare, durable chat
+        surfaces fall through to ``create_fast`` below. The continuity /
+        LLM tiers remain exclusive to the full select().
         """
         from .config import config
 
@@ -143,6 +144,23 @@ class NarrativeService:
         if not results or results[0].raw_score < config.NARRATIVE_MATCH_RAW_FLOOR:
             return None
         return await self._crud.load_by_id(results[0].narrative_id)
+
+    async def create_fast(
+        self, agent_id: str, user_id: str, query: str
+    ) -> Narrative:
+        """CRUD-only narrative creation for the fast path (no LLM tier).
+
+        Delegates to the retrieval impl's query-based creator so the new
+        narrative carries the same BM25 routing surface (title, keywords,
+        topic hint) as one created by the full select() flow — the next
+        turn's retrieval sees no difference in how it was born.
+        """
+        return await self._retrieval.create_from_query(
+            query=query,
+            user_id=user_id,
+            agent_id=agent_id,
+            narrative_type=NarrativeType.CHAT,
+        )
 
     async def select(
         self,

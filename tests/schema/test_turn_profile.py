@@ -78,3 +78,16 @@ def test_voice_fast_is_fast_for_voice():
     assert TurnProfile.voice_fast(reasoning_effort="minimal") == TurnProfile.fast_for(
         "voice", reasoning_effort="minimal"
     )
+
+
+def test_narrative_persistence_default_is_ephemeral():
+    assert TurnProfile().narrative_persistence == "ephemeral"
+
+
+def test_fast_for_chat_is_durable_voice_is_ephemeral():
+    # Chat is a persisted surface: a fast turn must never vanish from
+    # history (BM25 miss creates instead of running bare). Voice keeps
+    # the F28 ephemeral contract.
+    assert TurnProfile.fast_for("chat").narrative_persistence == "durable"
+    assert TurnProfile.fast_for("voice").narrative_persistence == "ephemeral"
+    assert TurnProfile.voice_fast().narrative_persistence == "ephemeral"

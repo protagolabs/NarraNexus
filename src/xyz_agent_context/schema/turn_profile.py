@@ -31,6 +31,12 @@ class TurnProfile(BaseModel, frozen=True):
     reasoning_effort: Optional[str] = None            # -> llm_extra["reasoning_effort"]
     include_arg_deltas: Optional[bool] = None         # None = TurnOptions default
     expression_nudge: Optional[bool] = None           # None = TurnOptions default
+    # Consulted only by the bm25_top1 fast path. "ephemeral" is the F28
+    # voice contract: a miss runs the turn bare, no creation, no session
+    # writes. "durable" is for persisted chat surfaces: a miss creates the
+    # narrative (CRUD, no LLM) and the session continuity anchor is kept
+    # consistent — a fast turn must never vanish from history.
+    narrative_persistence: Literal["ephemeral", "durable"] = "ephemeral"
     # NOTE deliberately absent: a reply_tool field. The reply surface is
     # declared by modules (get_expressive_tools orders speak first on
     # voice turns via extra_data) — a profile field nothing consumes
@@ -53,6 +59,10 @@ class TurnProfile(BaseModel, frozen=True):
         source = getattr(working_source, "value", None) or str(working_source)
         return cls(
             name=f"{source}_fast",
+            # The one per-surface knob: voice is a live ephemeral surface
+            # (miss = bare turn); every persisted chat surface is durable
+            # (miss = create, continuity anchor kept consistent).
+            narrative_persistence="ephemeral" if source == "voice" else "durable",
             narrative_strategy="bm25_top1",
             framework_override="nexus_power",
             prompt_mode="full",

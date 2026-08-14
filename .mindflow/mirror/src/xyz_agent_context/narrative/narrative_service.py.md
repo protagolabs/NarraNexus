@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — create_fast：快路径的 CRUD-only 创建
+
+`create_fast(agent_id, user_id, query)` 委托 retrieval impl 的
+`create_from_query`（原私有 `_create_narrative` 公开更名），新 narrative
+带与 full select() 创建完全相同的 BM25 路由面（title/keywords/topic_hint）。
+select_fast 文档同步更新：miss 后怎么办是 surface 的事（voice 裸跑、
+durable chat 落到 create_fast），continuity/LLM tier 仍是 full select() 独占。
+
 ## 2026-08-07 — select() 现在落一行路由审计（E1）
 
 `select()` 的决策证据以前只进 `ProgressMessage` 和 loguru，数据库里一个字节都没有

@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-08-14
 ---
 
+## 2026-08-14 — narrative_persistence：miss 语义按 surface 分化（预审 C1/I4）
+
+新字段 `narrative_persistence: Literal["ephemeral","durable"] = "ephemeral"`，
+只被 bm25_top1 快路径消费。voice 保持 F28 ephemeral 契约（miss 裸跑、零
+session 写）；`fast_for` 对非 voice surface 一律置 "durable"——聊天是持久
+面，miss 必须 CRUD 建 narrative 且锚定 session，否则整 turn 从历史消失
+（两个 history 端点都按 narrative 检索）。工厂内 `source == "voice"` 判断
+即是这条 per-surface 策略的唯一落点。
+
 ## 2026-08-14 — 通用工厂 fast_for(working_source)
 
 `fast_for(working_source, *, reasoning_effort="low")` 成为「fast 意味着哪些

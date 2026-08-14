@@ -593,8 +593,10 @@ class AgentRuntime:
             #   - ctx.main_narrative: Narrative (the primary one)
             # =============================================================================
             # Fast mode (F28): the profile may swap step_1 for the BM25
-            # top-1 direct pick — no continuity LLM, no creation, no
-            # session writes. Step 1.5 still runs but skips the history
+            # top-1 direct pick — no continuity LLM. Miss/anchor behavior
+            # follows profile.narrative_persistence (voice: bare turn, no
+            # session writes; durable chat: CRUD create + anchored
+            # session). Step 1.5 still runs but skips the history
             # read (that output only feeds the instance-decision LLM,
             # which settings.skip_module_decision_llm already bypasses);
             # its other two outputs — the previous_instances trajectory
@@ -605,7 +607,9 @@ class AgentRuntime:
                 and ctx.turn_profile.narrative_strategy == "bm25_top1"
             )
             if use_fast_narrative:
-                async for msg in step_1_fast_select(ctx, self.narrative_service):
+                async for msg in step_1_fast_select(
+                    ctx, self.narrative_service, self.session_service
+                ):
                     yield msg
             else:
                 async for msg in step_1_select_narrative(
