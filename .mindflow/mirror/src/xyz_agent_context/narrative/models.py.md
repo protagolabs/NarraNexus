@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `RoutingAudit` 新增四个耗时字段
+
+`continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，默认 `None`（= 这一层
+没跑），永远不用 0。理由见字段旁注释与 `narrative_routing_audit_repository`。
 ## 2026-08-07 — `Narrative.searchable_text()`：BM25 文本面的唯一定义
 
 原来有两份拷贝：`retrieval.load_pool`（`" ".join`）和 `crud._index_narrative`

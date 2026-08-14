@@ -198,9 +198,16 @@ class NarrativeUpdater:
 
             if update_interval > 0 and event_count % update_interval == 0:
                 logger.info(f"Triggering Narrative LLM update: {narrative.id} (event_count={event_count})")
-                # Async execution, non-blocking main flow.
-                asyncio.create_task(
-                    self._async_llm_update(narrative, event)
+                # Async execution, non-blocking main flow. Tracked via `spawn`
+                # (incident lesson #2) — this is the same detached path whose
+                # 401s went unnoticed for ~2 weeks in 2026-07; the credential
+                # alerting added then only fires if the task actually runs and
+                # its failure actually surfaces.
+                from xyz_agent_context.utils.background_tasks import spawn
+
+                spawn(
+                    self._async_llm_update(narrative, event),
+                    name=f"narrative_llm_update:{narrative.id}",
                 )
         else:
             # Auxiliary Narrative: Only record basic info, skip LLM update

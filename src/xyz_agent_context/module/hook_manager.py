@@ -328,13 +328,21 @@ class HookManager:
                     f"Triggering background execution for: {activated_instance_id}"
                 )
 
-                # Execute newly activated instance in background (non-blocking main flow)
-                asyncio.create_task(
+                # Execute newly activated instance in background (non-blocking main flow).
+                # `spawn` keeps a strong reference and logs a death: this task
+                # starts a whole new AgentRuntime run, so a lost one is a
+                # dependency chain that silently stops advancing — and the
+                # durable guarantee for those chains lives in ModulePoller, which
+                # cannot see that this in-process shortcut failed.
+                from xyz_agent_context.utils.background_tasks import spawn
+
+                spawn(
                     execute_callback_instance(
                         narrative_id=narrative.id,
                         instance_id=activated_instance_id,
                         trigger_data=callback.output_data
-                    )
+                    ),
+                    name=f"callback_instance:{activated_instance_id}",
                 )
 
                 logger.info(f"      ✓ Background task created for {activated_instance_id}")
