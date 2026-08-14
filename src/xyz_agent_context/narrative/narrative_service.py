@@ -16,6 +16,7 @@ Features:
 
 from __future__ import annotations
 
+import time as _perf
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
@@ -199,6 +200,10 @@ class NarrativeService:
         continuity_reason = ""
         continuity_ran = False
         continuity_confidence: Optional[float] = None
+        # None until the tier actually runs. See RoutingAudit.continuity_ms for
+        # why this must never default to 0.
+        _continuity_ms: Optional[int] = None
+        _retrieve_ms: Optional[int] = None
         # Run continuity against the last *user-visible* exchange — that is
         # either the user's previous query OR the agent's last reply the user
         # is now responding to (a proactive job/heartbeat message anchors only
@@ -213,6 +218,7 @@ class NarrativeService:
                     if session.current_narrative_id:
                         current_narrative = await self._crud.load_by_id(session.current_narrative_id)
 
+                    _t_continuity = _perf.monotonic()
                     with timed("narrative.continuity_detect") as t:
                         result = await detector.detect(
                             current_query=query_text,
@@ -230,6 +236,7 @@ class NarrativeService:
                         info = get_last_llm_call_info()
                         if info:
                             t.tag(**info)
+                    _continuity_ms = int((_perf.monotonic() - _t_continuity) * 1000)
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
                     continuity_reason = result.reason
@@ -265,6 +272,7 @@ class NarrativeService:
 
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
+            _t_retrieve = _perf.monotonic()
             with timed("narrative.retrieve_top_k"):
                 retrieval_result = await self._retrieval.retrieve_top_k(
                     query=query_text,
@@ -272,12 +280,15 @@ class NarrativeService:
                     agent_id=agent_id,
                     top_k=max_narratives
                 )
+            _retrieve_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
             narratives = retrieval_result.narratives
             selection_reason = retrieval_result.selection_reason
             selection_method = retrieval_result.selection_method
             retrieval_method = retrieval_result.retrieval_method
             audit = retrieval_result.audit
             audit_snapshots = retrieval_result.audit_snapshots
+            if audit is not None:
+                audit.retrieve_ms = _retrieve_ms
         else:
             # Continuity short-circuited the retrieval tier, so there is no
             # pool and no gate — but this is the path that most needs a trail:
@@ -314,6 +325,10 @@ class NarrativeService:
             audit.continuity_is_continuous = is_continuous if continuity_ran else None
             audit.continuity_confidence = continuity_confidence
             audit.continuity_reason = continuity_reason
+            # Stays None when continuity never ran (no session anchor to judge
+            # against) — a 0 there would read as "the tier is free", which is
+            # the opposite of true: it is a full helper-LLM round trip.
+            audit.continuity_ms = _continuity_ms
             await self._write_audit(audit, audit_snapshots)
 
         return NarrativeSelectionResult(

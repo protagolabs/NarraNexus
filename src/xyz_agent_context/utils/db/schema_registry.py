@@ -2509,6 +2509,15 @@ _register(
             Column("retrieval_method", "TEXT", "VARCHAR(32)"),
             Column("chosen_narrative_id", "TEXT", "VARCHAR(128)"),
             Column("is_new", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # cost, per tier — joined to the decision that paid for it.
+            # NULLABLE ON PURPOSE: NULL = this tier did not run. A
+            # short-circuited decision skips the judge, and a 0 there would
+            # make "how expensive is arbitration" answer far too low, which is
+            # precisely the comparison these columns exist to support.
+            Column("continuity_ms", "INTEGER", "INT"),
+            Column("retrieve_ms", "INTEGER", "INT"),
+            Column("keyword_ms", "INTEGER", "INT"),
+            Column("judge_ms", "INTEGER", "INT"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

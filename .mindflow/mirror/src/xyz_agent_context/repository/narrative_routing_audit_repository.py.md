@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.py
-last_verified: 2026-08-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 四列 per-tier 耗时
+
+`continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，原样透传含 NULL。
+
+`None` 表示**这一层没跑**，不是"跑了 0 毫秒"。短路的决策根本不调 judge；把它压成 0
+会让"仲裁有多贵"的查询答得远低于真实值——而把成本和决策连起来正是这几列的全部意义。
 ## 2026-08-07 — 存在性检查失败 ≠ 一条都不存在
 
 `_known_hashes` 失败时返回 `None`（哨兵），不是空集合。把两者混为一谈，写入方会

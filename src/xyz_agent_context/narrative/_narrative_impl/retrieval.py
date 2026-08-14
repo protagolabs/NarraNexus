@@ -9,6 +9,8 @@ Narrative retrieval implementation
 
 from __future__ import annotations
 
+import asyncio
+import time as _perf
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
@@ -146,16 +148,40 @@ class NarrativeRetrieval:
         """
         logger.info(f"Retrieving Top-{top_k} Narratives: query='{query[:50]}...'")
 
-        # Step 0: Ensure default Narratives exist
+        # Step 0: Ensure default Narratives exist.
+        # Must stay AHEAD of the pool load below and cannot join the gather:
+        # it CREATES default narratives when they are missing, and a pool read
+        # racing that creation would silently omit them from the BM25 candidate
+        # set — a wrong answer, not a slow one.
         with timed("narrative.retrieve.ensure_defaults"):
             await self._ensure_default_narratives(agent_id, user_id)
 
-        # Step 0.5 (P0-4): Query Narratives where user is a PARTICIPANT
-        # Replaces the previous _get_narratives_by_entity_jobs(), queries directly via actors
+        # Step 0.5 (P0-4): Narratives where the user is a PARTICIPANT, and
+        # Step 1's candidate pool. Two independent reads — neither feeds the
+        # other — so they overlap.
+        #
+        # Honest accounting: measured on a live instance these are ~3ms and
+        # ~5ms, against a setup phase whose p50 is 8.5 SECONDS. This saves
+        # single-digit milliseconds and is emphatically NOT the fix for
+        # narrative-selection latency. The cost is the two helper-LLM round
+        # trips either side of it (continuity ~3.9s, unified judge ~4.7s), and
+        # anyone arriving here to make selection faster should go there — see
+        # the `continuity_ms` / `judge_ms` columns on narrative_routing_audit,
+        # which exist to make that obvious without re-deriving it.
+        _t_keyword = _perf.monotonic()
         with timed("narrative.retrieve.participant_query"):
-            participant_narratives = await self._get_participant_narratives(
-                user_id=user_id,
-                agent_id=agent_id
+            # Coroutines straight into gather — no `create_task` wrapper.
+            # gather already schedules them concurrently, and holding our own
+            # Task handles would only add two objects and a second way for one
+            # to outlive a failure of the other.
+            #
+            # `return_exceptions` stays at its default False: either read
+            # failing means the candidate set is INCOMPLETE, and routing
+            # confidently on the remainder would be a wrong answer dressed as
+            # a right one. The caller must see it.
+            participant_narratives, pool = await asyncio.gather(
+                self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
+                self.load_pool(agent_id, user_id),
             )
         has_participant_narratives = len(participant_narratives) > 0
         if has_participant_narratives:
@@ -168,14 +194,18 @@ class NarrativeRetrieval:
         # MemoryEngine uses, so narrative routing and memory recall share one
         # ranking implementation. Zero vectors.
         with timed("narrative.retrieve.keyword_search"):
-            # load_pool + rank_pool rather than keyword_search: the audit needs
-            # the WHOLE pool with the exact text that was scored, and BM25's
-            # IDF/avgdl are computed over that set, so a top-K slice cannot be
-            # replayed. keyword_search stays the public seam for select_fast.
-            pool = await self.load_pool(agent_id, user_id)
+            # `pool` was loaded above, alongside the participant query.
+            # rank_pool rather than keyword_search: the audit needs the WHOLE
+            # pool with the exact text that was scored, and BM25's IDF/avgdl
+            # are computed over that set, so a top-K slice cannot be replayed.
+            # keyword_search stays the public seam for select_fast.
             search_results = self.rank_pool(
                 query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
             )
+        # Covers the pool read AND the ranking — the two halves are only
+        # separable in the log lines, and the question this column answers
+        # ("is BM25 ever the problem?") is about their sum.
+        audit.keyword_ms = int((_perf.monotonic() - _t_keyword) * 1000)
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
@@ -261,6 +291,7 @@ class NarrativeRetrieval:
             # This is the slow path — wrap in timed() so the dual cost
             # (LLM call + extra DB loads inside _llm_unified_match) is
             # visible separately from the BM25 keyword search above.
+            _t_judge = _perf.monotonic()
             with timed("narrative.retrieve.llm_unified_match") as t:
                 result = await self._llm_unified_match(
                     query=query,
@@ -283,6 +314,10 @@ class NarrativeRetrieval:
                 info = get_last_llm_call_info()
                 if info:
                     t.tag(**info)
+                # Set before returning, not after: this is the only exit from
+                # the judged path, and `retrieve_top_k` stamps the outcome onto
+                # the same audit object afterwards.
+                audit.judge_ms = int((_perf.monotonic() - _t_judge) * 1000)
                 return result
 
         # LLM not enabled - Create new Narrative directly
