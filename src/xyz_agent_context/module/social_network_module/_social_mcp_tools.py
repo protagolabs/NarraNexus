@@ -15,41 +15,25 @@ Tools:
 
 from typing import Optional, Any
 
-from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.repository import InstanceRepository
-from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context
 
-
-def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) -> FastMCP:
+def create_social_network_mcp_server(port: int) -> FastMCP:
     """
     Create a SocialNetworkModule MCP Server instance
 
     Args:
         port: MCP Server port
-        get_db_client_fn: Async function to get database connection
-        module_class: SocialNetworkModule class reference (avoids circular imports)
 
     Returns:
         FastMCP instance with all tools configured
+
+    Note: every tool now routes its data access through the AgentDataStore seam
+    (module/data_access) — none reaches the db directly — so the old
+    ``get_db_client_fn`` and ``module_class`` parameters are both gone.
     """
     mcp = FastMCP("social_network_module")
     mcp.settings.port = port
-
-    async def _get_instance_and_module(agent_id: str):
-        """Common helper: get db, instance_id and create temp module"""
-        db = await get_db_client_fn()
-        instance_repo = InstanceRepository(db)
-        instances = await instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="SocialNetworkModule"
-        )
-        if not instances:
-            return None, None, f"Error: No SocialNetworkModule instance found for agent_id={agent_id}"
-        instance_id = instances[0].instance_id
-        temp_module = module_class(agent_id=agent_id, database_client=db, instance_id=instance_id)
-        return temp_module, instance_id, None
 
     @mcp.tool()
     async def extract_entity_info(
@@ -153,16 +137,17 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 "entity_id": entity_id
             }
 
-        await setup_mcp_llm_context(agent_id)
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        # The write routes through the AgentDataStore seam: DirectStore locally
+        # (same instance-resolve + module call as before), HttpStore in cloud
+        # (no db creds). The old setup_mcp_llm_context call is gone:
+        # extract_and_update_entity_info is pure repository (no LLM), and that
+        # setup read the `agents` table (an extra mcp db dependency the seam is
+        # meant to shed) and could raise LLMConfigNotConfigured — both broke the
+        # seam's "in-band dict, no db in cloud" promise for this path.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.extract_and_update_entity_info(
-            entity_id=entity_id,
-            instance_id=instance_id,
-            updates=updates,
-            update_mode=update_mode
+        return await get_agent_data_store().extract_entity_info(
+            agent_id, entity_id, updates, update_mode
         )
 
     @mcp.tool()
@@ -230,16 +215,13 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 top_k=5
             )
         """
-        await setup_mcp_llm_context(agent_id)
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error, "results": []}
+        # Routes through the AgentDataStore seam. setup_mcp_llm_context is gone:
+        # search_network is pure repository (semantic search was removed
+        # 2026-05-27), so the call only added a db read + a raise path.
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return await temp_module.search_network(
-            search_keyword=search_keyword,
-            instance_id=instance_id,
-            search_type=search_type,
-            top_k=top_k
+        return await get_agent_data_store().search_social_network(
+            agent_id, search_keyword, search_type, top_k
         )
 
     @mcp.tool()
@@ -260,22 +242,9 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Contact information including chat_channel, email, preferred_method, etc.
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        result = await temp_module.recall_entity_info(entity_id, instance_id)
-
-        if result["success"]:
-            entity = result["entity"]
-            return {
-                "success": True,
-                "entity_id": entity_id,
-                "entity_name": entity.get("entity_name"),
-                "contact_info": entity.get("contact_info", {})
-            }
-        else:
-            return {"success": False, "message": result["message"]}
+        return await get_agent_data_store().get_contact_info(agent_id, entity_id)
 
     @mcp.tool()
     async def get_agent_social_stats(
@@ -328,28 +297,17 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 filter_tags="expert:前端"
             )
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error, "results": []}
-
-        # Parse filter_tags
+        # Parse filter_tags here (tool-layer input normalization), then route
+        # the data read through the seam. The store takes the parsed list.
         filter_tags_list = None
         if filter_tags and filter_tags.strip():
             filter_tags_list = [tag.strip() for tag in filter_tags.split(",")]
 
-        results = await temp_module._get_agent_stats(
-            instance_id=instance_id,
-            sort_by=sort_by,
-            top_k=top_k,
-            filter_tags=filter_tags_list
-        )
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        return {
-            "success": True,
-            "sort_by": sort_by,
-            "count": len(results),
-            "results": results
-        }
+        return await get_agent_data_store().get_agent_social_stats(
+            agent_id, sort_by, top_k, filter_tags_list
+        )
 
     @mcp.tool()
     async def merge_entities(
@@ -381,91 +339,11 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 target_entity_id="user_alice_123"
             )
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        try:
-            from xyz_agent_context.repository import SocialNetworkRepository
-            db = await get_db_client_fn()
-            repo = SocialNetworkRepository(db)
-
-            source = await repo.get_entity(source_entity_id, instance_id)
-            target = await repo.get_entity(target_entity_id, instance_id)
-
-            if not source:
-                return {"success": False, "message": f"Source entity not found: {source_entity_id}"}
-            if not target:
-                return {"success": False, "message": f"Target entity not found: {target_entity_id}"}
-
-            # Merge keywords (case-insensitive dedup, capped at 10)
-            merged_tags = list(target.keywords or [])
-            existing_lower = {t.lower() for t in merged_tags}
-            for t in (source.keywords or []):
-                if t.lower() not in existing_lower:
-                    merged_tags.append(t)
-                    existing_lower.add(t.lower())
-            if len(merged_tags) > 10:
-                merged_tags = merged_tags[:10]
-
-            # Merge identity_info (target takes precedence; source fills in missing keys)
-            merged_identity = {**(source.identity_info or {}), **(target.identity_info or {})}
-
-            # Merge contact_info (deep merge + normalize)
-            from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
-            merged_contact = merge_contact_info(source.contact_info or {}, target.contact_info or {})
-
-            # Merge related_job_ids (union)
-            merged_jobs = list(set(target.related_job_ids or []) | set(source.related_job_ids or []))
-
-            # Append descriptions
-            merged_desc = target.entity_description or ""
-            if source.entity_description:
-                if merged_desc:
-                    merged_desc += f"\n(Merged from {source_entity_id}): {source.entity_description}"
-                else:
-                    merged_desc = source.entity_description
-
-            # Sum interaction counts
-            merged_count = (target.interaction_count or 0) + (source.interaction_count or 0)
-
-            # Determine name
-            merged_name = target.entity_name if keep_target_name else (source.entity_name or target.entity_name)
-
-            # Update target
-            updates = {
-                "entity_name": merged_name,
-                "entity_description": merged_desc,
-                "identity_info": merged_identity,
-                "contact_info": merged_contact,
-                "tags": merged_tags,
-                "related_job_ids": merged_jobs,
-                "interaction_count": merged_count,
-            }
-            # Keep the most recent interaction time
-            if source.last_interaction_time and target.last_interaction_time:
-                updates["last_interaction_time"] = max(
-                    source.last_interaction_time, target.last_interaction_time
-                )
-            elif source.last_interaction_time:
-                updates["last_interaction_time"] = source.last_interaction_time
-
-            await repo.update_entity_info(target_entity_id, instance_id, updates)
-
-            # Delete source
-            await repo.delete_entity(source_entity_id, instance_id)
-
-            logger.info(f"Merged entity {source_entity_id} into {target_entity_id}")
-            return {
-                "success": True,
-                "message": f"Merged '{source_entity_id}' into '{target_entity_id}'",
-                "target_entity_id": target_entity_id,
-                "merged_tags": merged_tags,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error merging entities: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        return await get_agent_data_store().merge_entities(
+            agent_id, source_entity_id, target_entity_id, keep_target_name
+        )
 
     @mcp.tool()
     async def delete_entity(
@@ -495,32 +373,9 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Operation result with success status.
         """
-        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
-        if error:
-            return {"success": False, "message": error}
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-        try:
-            from xyz_agent_context.repository import SocialNetworkRepository
-            db = await get_db_client_fn()
-            repo = SocialNetworkRepository(db)
-
-            # Verify entity exists
-            entity = await repo.get_entity(entity_id, instance_id)
-            if not entity:
-                return {"success": False, "message": f"Entity not found: {entity_id}"}
-
-            entity_name = entity.entity_name or entity_id
-            await repo.delete_entity(entity_id, instance_id)
-
-            logger.info(f"Deleted entity '{entity_name}' ({entity_id}) from instance {instance_id}")
-            return {
-                "success": True,
-                "message": f"Entity '{entity_name}' ({entity_id}) has been permanently deleted.",
-            }
-
-        except Exception as e:
-            logger.exception(f"Error deleting entity: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        return await get_agent_data_store().delete_entity(agent_id, entity_id)
 
     @mcp.tool()
     async def create_agent(
@@ -553,81 +408,18 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Operation result with the new agent's ID.
         """
-        try:
-            from uuid import uuid4
-            import os
+        # Mint the new agent's id HERE (the single entry) and thread it through
+        # the seam, so DirectStore (local) and HttpStore→route (cloud) provision
+        # the SAME id and return byte-identical output. Owner resolution +
+        # provisioning happen inside the store (DirectStore / the create-agent
+        # route). See module/data_access.
+        from uuid import uuid4
 
-            db = await get_db_client_fn()
+        from xyz_agent_context.module.data_access import get_agent_data_store
 
-            # Resolve the creator's user_id (the owner of the calling agent)
-            from xyz_agent_context.repository import AgentRepository
-            agent_repo = AgentRepository(db)
-            caller = await agent_repo.get_agent(agent_id)
-            if not caller or not caller.created_by:
-                return {"success": False, "message": "Cannot determine your owner (created_by). Aborting."}
-
-            owner_user_id = caller.created_by
-            new_agent_id = f"agent_{uuid4().hex[:12]}"
-
-            # 1. Create agent record in DB
-            await agent_repo.add_agent(
-                agent_id=new_agent_id,
-                agent_name=agent_name,
-                created_by=owner_user_id,
-                agent_description=agent_description or f"Agent created by {caller.agent_name or agent_id}",
-                agent_type="chat",
-            )
-            logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {owner_user_id}")
-
-            # 2. Create workspace directory + Bootstrap.md
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-            workspace_path = str(
-                agent_workspace_path(new_agent_id, owner_user_id, base=settings.base_working_path)
-            )
-            os.makedirs(workspace_path, exist_ok=True)
-
-            try:
-                from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
-                bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
-                with open(bootstrap_file, "w", encoding="utf-8") as f:
-                    f.write(BOOTSTRAP_MD_TEMPLATE)
-            except Exception as e:
-                logger.warning(f"Failed to write Bootstrap.md for {new_agent_id}: {e}")
-
-            # 3. Create awareness instance and set awareness text
-            instance_repo = InstanceRepository(db)
-            from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
-            awareness_instance_id = f"aware_{uuid4().hex[:8]}"
-            new_instance = ModuleInstanceRecord(
-                instance_id=awareness_instance_id,
-                module_class="AwarenessModule",
-                agent_id=new_agent_id,
-                is_public=True,
-                status=InstanceStatus.ACTIVE,
-                description="Agent self-awareness module instance",
-            )
-            await instance_repo.create_instance(new_instance)
-
-            from xyz_agent_context.repository import InstanceAwarenessRepository
-            awareness_repo = InstanceAwarenessRepository(db)
-            await awareness_repo.upsert(awareness_instance_id, awareness)
-            logger.info(f"Set awareness for {new_agent_id}: {len(awareness)} chars")
-
-            return {
-                "success": True,
-                "message": (
-                    f"Agent '{agent_name}' created successfully (ID: {new_agent_id}). "
-                    f"The user can now switch to this agent in the frontend. "
-                    f"If further configuration is needed (skills, jobs, etc.), "
-                    f"tell the user to interact with the new agent directly."
-                ),
-                "new_agent_id": new_agent_id,
-                "agent_name": agent_name,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error creating agent: {e}")
-            return {"success": False, "message": f"Error: {str(e)}"}
+        new_agent_id = f"agent_{uuid4().hex[:12]}"
+        return await get_agent_data_store().create_agent(
+            agent_id, new_agent_id, agent_name, awareness, agent_description
+        )
 
     return mcp

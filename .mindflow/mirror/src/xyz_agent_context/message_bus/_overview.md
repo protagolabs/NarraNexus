@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/message_bus/
-last_verified: 2026-04-10
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -21,6 +21,7 @@ stub: false
 | `local_bus.py` | SQLite/MySQL 后端实现，cursor-based 投递模型 |
 | `cloud_bus.py` | 云端实现占位（全部 NotImplementedError） |
 | `message_bus_trigger.py` | 后台轮询引擎：检测待投递消息并触发 AgentRuntime 处理 |
+| `agent_discovery_sync.py` | 同伴发现行（`bus_agent_registry`）的**唯一**写入策略：description 取 agent 自己写的、capabilities 由技能+活跃模块机械推导。创建/改名/配置/装技能/每轮 hook 都调它（2026-08-05 从 `services/` 搬入——它是同步策略，不是后台 worker） |
 
 ## 和外部目录的协作
 

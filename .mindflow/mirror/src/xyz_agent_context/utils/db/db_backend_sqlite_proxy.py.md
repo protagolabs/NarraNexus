@@ -39,3 +39,12 @@ The token lives in a module-level `contextvars.ContextVar` (`_current_txn`), NOT
 **Proxy must start before other services.** If `sqlite_proxy_server.py` is not running, `initialize()` waits ~40 seconds in total (15 attempts with exponential backoff) before raising `ConnectionError`. The startup orchestrator (`run.sh` and the Tauri sidecar) must launch the proxy first.
 
 **New-contributor trap.** The `dialect` property returns `"sqlite"` even though this backend communicates over HTTP. This surprises people who expect a network-transport backend to have a different dialect. The dialect is `"sqlite"` because the proxy server runs SQLite and expects SQLite-syntax SQL; the transport layer is irrelevant to the dialect.
+
+## 2026-08-07 — `get_by_ids` 支持 `fields`，且必须放进 POST body
+
+只补形参能止住 TypeError，但投影会在 HTTP 边界被丢掉，桌面 / `run.sh` 静默退回
+`SELECT *`——想省的带宽一分没省，而且**恰恰是在没人会去查的那条路上**。所以
+`fields` 要进 body，`sqlite_proxy_server.GetByIdsRequest` 那边也要接住。
+
+`tests/utils/db/test_sqlite_proxy_get_by_ids.py` 用两条测试钉住这一对：一条测崩溃
+（签名不匹配），一条测静默降级（参数被吞）。两条必须成对存在。

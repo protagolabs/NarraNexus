@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10(review 修)— env 委托 + 全败还原批次
+
+`_webhook_env` 改为委托 integrations/manyfold_outbound 的
+`manyfold_runtime_env()`(身份对唯一解析点),并**自带**
+`webhook_url` 非空这道 notify 腿专属的门(净行为不变:仍三者齐全
+才发);`_flush_pending` 全败
+后 `_pending_kinds.update(kinds)` 还原整批——否则重试窗口(~31s)内
+被并批吸收的 kinds 随注定失败的批次一起消失,比无重试时代更糟
+(那时它们会留在 _pending_kinds 等下一个 task)。notify 是"pull
+everything"语义,晚到重发无害。
+
+## 2026-08-10 — A1 `agent_managed_reply` 显式下发 + A3 notify 退避重试
+
+channels inventory 每行 `config` 后处理注入
+`agent_managed_reply`(bool,事实源 = integrations/manyfold_outbound
+的 env 声明)。**显式 false 是关键**:平台 mapper 对缺失键按 managed-ON
+兜底(#504),缺键 = 渠道在某次不可预测的 pull 后突然翻托管;一个
+post-pass 循环保证未来第七个 provider 不可能漏键。
+
+`_flush_pending` 加退避重试(`_NOTIFY_RETRY_BACKOFF_S` = 1s/5s/25s):
+bind 完丢 notify 是最疼的场景(用户直接去 IM 等,turn-final 扳机
+永不触发,平台周期 reconcile 只扫醒着的沙盒)。重试间隙到达的
+kinds 并入当前批(flush task 单飞,没人会另行捡起它们);全败后仍
+raise 给 done-callback 记 warning——never-raise 面向调用方不变。
 
 ## 2026-08-04 — 契约值归一化 + lark enabled 收敛(review)
 

@@ -283,6 +283,22 @@ async def resolve_and_set_provider_for_user(
     )
 
 
+async def inject_user_helper_credentials(user_id: str, db) -> None:
+    """Clear, then put THIS user's effective LLM config onto the task's
+    ContextVars. The user-keyed twin of `inject_owner_helper_credentials`.
+
+    Exists so the clear-first step has ONE implementation. It is a cross-tenant
+    invariant, not a tidiness rule: a detached task that walks several tenants in
+    sequence (the team-summary worker does) would, without the reset, hand a
+    tenant whose config cannot be resolved the previous tenant's credentials.
+    Two copies of that sequence means someone eventually fixes one of them.
+    """
+    clear_user_config()
+    if not user_id:
+        return
+    await resolve_and_set_provider_for_user(user_id, db)
+
+
 async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
     """Put the agent OWNER's effective LLM config onto this task's ContextVars.
 

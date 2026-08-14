@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/_discord_mcp_tools.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (PR-H) — 写侧(bind/unbind/status)迁入 seam
+
+bind/status/unbind 不再本地 `_get_manager`（已删）——bind→`seam.bind`（经各自 do_bind + owner-gated `/api/<ch>/bind` 路由）、unbind→`seam.unbind`、status 的 live-check→`seam.test_connection`（POST /test）。**tool 文件 get_mcp_db_client == 0，写路径不再需本地 db**。
+
+
+## 2026-08-11 (PR-A) — 读凭据改走 ChannelCredentialStore seam
+
+`_get_credential` 不再 `get_mcp_db_client()`+manager 直连库，改 `get_channel_credential_store().get_credential("discord", …)`
+→ `_cred_from_raw` 重建 dataclass，send/reply/read_history 里的 `cred.bot_token` 用法零变化；本地 DirectStore、
+云端 HttpStore 打 owner-gated 端点。`_get_agent_name` 同理走 seam。**已知留尾**：bind/status/unbind 是写/生命周期，
+读-only Protocol 未覆盖，`_get_manager` 暂用 `ChannelDirectStore().get_manager("discord")`（本地专用、无 HttpStore 对应），
+故云端写工具仍需本地 db——写路径迁移前 mcp 摘不掉 DB_PASSWORD（见 [[channel_store]] 已知缺口）。
 
 ## 2026-07-24 — setup residency (B++): zero-arg `discord_bind` returns the guide
 

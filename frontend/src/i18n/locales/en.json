@@ -173,10 +173,58 @@
         "neverRan": "no runs yet",
         "loading": "Loading process…",
         "workingCount": "{{count}} working",
-        "process": "process"
+        "process": "process",
+        "stop": "Stop",
+        "stopping": "Stopping…",
+        "stopped": "Stopped by owner",
+        "stopFailed": "Could not stop this run",
+        "stopHint": "Stop this run"
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
-      "leadTitle": "{{name}} · answers when no one is @mentioned"
+      "leadTitle": "{{name}} · answers when no one is @mentioned",
+      "stoppedNotice": "{{name}}'s task was stopped by the owner",
+      "patrolNotice": "Leader patrol",
+      "undeliveredNotice": "{{name}} ended this turn without replying",
+      "deliveryFailedNotice": "{{name}}'s reply could not be posted",
+      "board": {
+        "title": "Work board",
+        "unclaimed": "unclaimed",
+        "resume": "Resume this task",
+        "patrolOff": "Patrol off",
+        "patrolPending": "Not patrolled yet",
+        "patrolledJustNow": "Patrolled just now",
+        "patrolledAgo": "Patrolled {{ago}} ago",
+        "status": {
+          "open": "open",
+          "in_progress": "in progress",
+          "stalled": "stalled",
+          "paused": "paused"
+        },
+        "turnOff": "Turn off",
+        "turnOn": "Turn on"
+      },
+      "bulletin": {
+        "title": "Bulletin",
+        "intro": "Standing rules for this team. Every member loads them at the start of every turn — no matter how long ago you wrote them, or when they joined.",
+        "empty": "No rules yet. Add one and the whole team follows it from their next reply.",
+        "longTerm": "Standing",
+        "currentTask": "Current task",
+        "clearCurrentTask": "Clear current task",
+        "progress": "Team progress",
+        "progressHint": "Summarised automatically from the room. It may lag behind what just happened.",
+        "placeholder": "e.g. Always reply in English. Reports go in the shared folder.",
+        "fullPlaceholder": "The bulletin is full — remove a rule to add another.",
+        "newEntry": "New rule",
+        "editLabel": "Edit rule",
+        "editEntry": "Edit this rule",
+        "deleteEntry": "Delete this rule",
+        "tierLabel": "How long this rule applies",
+        "add": "Add",
+        "addedBy": "added by {{name}}",
+        "usage": "{{entries}}/{{maxEntries}} rules · {{chars}}/{{maxChars}} chars",
+        "updatedNotice": "Bulletin updated",
+        "clearedNotice": "Bulletin cleared"
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -962,7 +1010,7 @@
       "privacyHeading": "Privacy",
       "privacyIntro": "Control what data NarraNexus collects to improve the product.",
       "analyticsTitle": "Product analytics",
-      "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected.",
+      "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. On the cloud web version, anonymous page-interaction data is also sent to Google Tag Manager, a third-party analytics service; turning this off stops it. Conversation content is never collected.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
       "lockedUseTitle": "Locked Use — keep the computer awake",
@@ -1225,10 +1273,12 @@
       "optChat": "Group chat history",
       "optChatDesc": "Delete all messages in this team's chat room.",
       "optFiles": "Shared files",
-      "optFilesDesc": "Delete files shared into this team (via bus_share_to_team).",
+      "optFilesDesc": "Delete files shared into this team, AND the team's artifacts — team artifacts live in this folder, so their content goes with it.",
       "keepNote": "The team, members, and each agent's own data are preserved.",
       "cancel": "Cancel",
-      "confirm": "Clear"
+      "confirm": "Clear",
+      "optBulletin": "Bulletin",
+      "optBulletinDesc": "Delete the team's standing rules and its progress summary. The team will need to be told them again."
     },
     "alert": {
       "createFailed": "Create team failed: {{error}}",
@@ -1446,8 +1496,6 @@
       "recommended": "Recommended",
       "localDesc": "Log in with a username you pick. Everything stays on your machine, unrestricted. You bring your own LLM provider (API key) to run models.",
       "powerDesc": "NetMind (Power) account: your data still stays entirely on your machine — private and safe. Sign in to run a wide range of models through Power right away — free credits on sign-up, zero API-key setup. Top up anytime for member discounts with no platform fee.",
-      "migrationNoticeHeading": "We've reorganized our account system.",
-      "migrationNoticeBody": "Your data has been migrated to the account under the email you used to receive your invite code. To sign in, please reset your password for that email first (use “Forgot password?” below). For any other questions, contact our team at",
       "emailLabel": "Email",
       "passwordLabel": "Password",
       "forgotPassword": "Forgot password?",
@@ -1462,7 +1510,12 @@
       "accessTerminal": "Access Terminal",
       "createNewUser": "Create New User",
       "loginFailed": "Login failed",
+      "invalidCredentials": "Invalid email or password",
       "enterUserId": "Please enter your User ID",
+      "resetCodeInvalid": "The code is invalid or has expired. Request a new one.",
+      "forgotResetIntro": "We'll email a verification code to your NetMind account.",
+      "forgotCodeSentHint": "If an account exists for that email, we've sent a verification code.",
+      "useDifferentEmail": "Use a different email",
       "connectionFailed": "Connection failed. Please try again."
     },
     "modeSelect": {
@@ -1514,7 +1567,8 @@
         "bundle": "Bundle",
         "artifacts": "Artifacts",
         "manageAgents": "Manage agents",
-        "updates": "App updates"
+        "updates": "App updates",
+        "privacy": "Privacy"
       },
       "providers": {
         "label": "LLM Providers"
@@ -1602,6 +1656,19 @@
         "installingDetail": "Installing {{version}} — almost done…",
         "readyDetail": "downloaded — restart to finish.",
         "failed": "Update {{stage}} failed."
+      },
+      "privacy": {
+        "label": "Privacy",
+        "hint": "What leaves this machine, and your switches for it.",
+        "analyticsTitle": "Product analytics",
+        "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. On the cloud web version, anonymous page-interaction data is also sent to Google Tag Manager, a third-party analytics service; turning this off stops it. Conversation content is never collected.",
+        "telemetryTitle": "Diagnostic telemetry",
+        "telemetryDesc": "Send this install's service logs to NarraNexus's own collector so crashes and failures can be debugged. At the default level this means structured events, warnings and errors — no message content. Deployments that run the \"full\" level (managed sandboxes, debug setups) ship whole log lines, which can include message content that services log. Nothing goes to any third party.",
+        "telemetryTiming": "Turning it off takes effect within seconds. If telemetry was already off when the app started, turning it on takes effect at the next launch.",
+        "telemetryManaged": "Managed by your deployment (environment setting) — the switch is not available here.",
+        "telemetryManagedCloud": "Your administrator controls diagnostic telemetry for this install.",
+        "telemetryUnavailable": "Telemetry state could not be loaded — the switch is hidden rather than guessed. Reload to retry.",
+        "telemetryError": "The change could not be saved. The switch shows the actual current state."
       }
     },
     "system": {
@@ -2436,6 +2503,7 @@
     "desktopHint": "Open NarraNexus in a browser to see the live document preview.",
     "loading": "Opening live preview…",
     "loadError": "Could not open the live preview.",
+    "retry": "Retry",
     "livePreview": "Live preview"
   },
   "marketplace": {
@@ -2464,5 +2532,16 @@
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done"
+  },
+  "webAnalyticsNotice": {
+    "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",
+    "settings": "Open settings",
+    "dismiss": "Got it"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus now sends diagnostic service logs from this install to its own collector, to help debug crashes and integration failures. On installs running the \"full\" level, log lines can include message content. You can turn this off anytime in Settings → Privacy.",
+    "settings": "Open settings",
+    "dismiss": "Got it",
+    "bodyManaged": "This install sends diagnostic service logs to NarraNexus's own collector, as configured by your administrator. On installs running the \"full\" level, log lines can include message content."
   }
 }

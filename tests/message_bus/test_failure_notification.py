@@ -267,22 +267,18 @@ async def test_cooldown_not_armed_when_inbox_write_fails(db_client, monkeypatch)
 
     monkeypatch.setattr(InboxRepository, "create_message", _flaky_create_message)
 
-    msg1 = BusMessage(message_id="m9", channel_id="ch1", from_agent="peer", content="hi")
     await trigger._notify_permanent_failure(
         agent_id="agent_a",
         channel_id="ch1",
-        trigger_message=msg1,
         error="OpenAI API key invalid (401 Unauthorized)",
     )
     # First attempt's write raised → nothing persisted.
     rows = await db_client.get("inbox_table", {"user_id": "user_x"})
     assert rows == []
 
-    msg2 = BusMessage(message_id="m10", channel_id="ch1", from_agent="peer", content="hi")
     await trigger._notify_permanent_failure(
         agent_id="agent_a",
         channel_id="ch1",
-        trigger_message=msg2,
         error="OpenAI API key invalid (401 Unauthorized)",
     )
     # Second attempt (same category) must NOT be suppressed by a cooldown

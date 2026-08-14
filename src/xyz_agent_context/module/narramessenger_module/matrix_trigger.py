@@ -57,7 +57,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
 
 import aiohttp
@@ -90,6 +91,9 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelHistoryConfig,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+)
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -98,6 +102,7 @@ from xyz_agent_context.schema.parsed_message import (
     ParsedMessage,
 )
 from xyz_agent_context.schema.runtime_message import MessageType
+from xyz_agent_context.schema.turn_profile import TurnProfile
 
 from ._matrix_send import (
     MatrixSendError,
@@ -107,10 +112,156 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
+from ._rtc_voice import (
+    extract_common_voice_instructions,
+    parse_rtc_voice_input,
+    split_narra_system_prompt,
+)
+from ._voice_delivery import VoiceDeliveryBridge
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
+def _detect_voice_turn(body: str, source: Any) -> Optional[tuple[str, dict]]:
+    """Two-level detection shared by parse_event and the late upgrade.
+
+    Level 1 — strict v1 metadata parses: full voice turn with the four
+    binding IDs (correlation, per-call serialization, [voice-timing]).
+    Level 2 — metadata failed but the common trigger holds (non-blank
+    backend-controlled voice_instructions inside the metadata object):
+    DEGRADED voice turn — voice behavior applies, binding IDs stay empty
+    and MUST NOT feed correlation or security decisions (handoff §3.4);
+    serialization falls back to the per-room key downstream.
+    Neither level => None (plain text; voice_instructions absent/blank).
+    The transcript may be empty — callers decide to drop or skip.
+    """
+    if not isinstance(source, dict):
+        return None
+    rtc = parse_rtc_voice_input(source)
+    if rtc is not None:
+        envelope, transcript = split_narra_system_prompt(body)
+        return transcript, {
+            "rtc_session_id": rtc.rtc_session_id,
+            "turn_id": rtc.turn_id,
+            "invocation_id": rtc.invocation_id,
+            "agent_profile_id": rtc.agent_profile_id,
+            "voice_instructions": rtc.voice_instructions or envelope,
+            "degraded": False,
+        }
+    instructions = extract_common_voice_instructions(source)
+    if instructions is None:
+        return None
+    envelope, transcript = split_narra_system_prompt(body)
+    return transcript, {
+        "rtc_session_id": "",
+        "turn_id": "",
+        "invocation_id": "",
+        "agent_profile_id": "",
+        "voice_instructions": instructions,
+        "degraded": True,
+    }
+
+
+def _is_voice_reply_tool(tool_name: str) -> bool:
+    """Reply tools whose delivery THIS trigger owns (marker tools).
+
+    Only these may claim the voice bridge: their text never reaches the
+    room unless the trigger sends it, so bridging is delivery — not a
+    duplicate. ``narra_send`` is excluded on purpose (it performs its own
+    ``room_send``). Exact bare-name or exact ``__``-suffix match,
+    mirroring the managed-ingress filter: a future ``narra_reply_*``
+    sibling is never collaterally claimed.
+    """
+    return tool_name in ("speak", "narra_reply") or tool_name.endswith(
+        ("__speak", "__narra_reply")
+    )
+
+
+def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
+    """Map RTC voice detection to the one-shot fast profile.
+
+    The profile exists ONLY for the turn whose event carried valid
+    metadata (parse_event stamps ``raw["rtc_voice"]``) — nothing is
+    persisted, so the next plain message runs the normal path untouched
+    (handoff: the override must never be written to any session store).
+    """
+    if (message.raw or {}).get("rtc_voice"):
+        return TurnProfile.voice_fast()
+    return None
+
+
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+def _format_voice_timing(
+    *,
+    agent_id: str,
+    room_id: str,
+    rtc_session_id: str,
+    received_at: float,
+    applied_at: float,
+    request_started_at: float,
+    first_delta_at: Optional[float],
+    first_sent_at: Optional[float],
+    finalized_at: Optional[float],
+) -> str:
+    """The [voice-timing] log line — handoff section 9's six timestamps as
+    durations from matrix_voice_input_received. Grep-stable pure function
+    (same treatment as [turn-timing]); missing stamps emit -1.00. Carries
+    only non-sensitive correlation IDs — never transcript content."""
+
+    def _d(stamp: Optional[float]) -> float:
+        return (stamp - received_at) if stamp is not None else -1.0
+
+    return (
+        "[voice-timing] agent={} room={} rtc_session={} "
+        "applied_s={:.2f} request_s={:.2f} first_token_s={:.2f} "
+        "first_live_s={:.2f} finalized_s={:.2f}".format(
+            agent_id,
+            room_id,
+            rtc_session_id,
+            _d(applied_at),
+            _d(request_started_at),
+            _d(first_delta_at),
+            _d(first_sent_at),
+            _d(finalized_at),
+        )
+    )
+
+
+@dataclass
+class _VoiceCallState:
+    """Per-call serialization state (F28): one drain loop at a time."""
+
+    running: bool = False
+    pending: list = field(default_factory=list)  # (message, sender_name, attachments)
+
+
+def _merge_voice_batch(batch: list) -> tuple:
+    """Merge buffered utterances of one call into a single turn.
+
+    The caller kept talking while the agent worked — the queued
+    transcripts concatenate in arrival order into ONE message. The last
+    utterance's metadata (event id, rtc ids, timestamps) is the base:
+    correlation follows the newest turn_id, matching Hybrid's view that
+    earlier turns were superseded. When a batch mixes strict and degraded
+    turns this means the newest utterance's metadata wins outright — a
+    degraded tail drops the earlier turns' correlation IDs and the
+    [voice-timing] line stamps "degraded". Deliberate trade-off:
+    correlation follows the newest turn, never a stitched-together one.
+    """
+    if len(batch) == 1:
+        return batch[0]
+    messages = [b[0] for b in batch]
+    _, last_sender, _ = batch[-1]
+    merged_content = "\n".join(
+        m.content for m in messages if (m.content or "").strip()
+    )
+    merged_message = replace(messages[-1], content=merged_content)
+    merged_attachments: list = []
+    for _, _, atts in batch:
+        if atts:
+            merged_attachments.extend(atts)
+    return merged_message, last_sender, (merged_attachments or None)
 
 
 @dataclass
@@ -129,10 +280,27 @@ class _StreamReplyState:
       Python exception. Signals finalize to surface ``STREAM_ERROR_MARKER``.
     - ``last_error_message`` — short excerpt for the log line only;
       never rendered in the room (which just gets the generic marker).
+    - ``platform_reply_text`` — a reply the PLATFORM wrote and ALREADY
+      delivered (step_3's 1:1 DM no-reply fallback, which sends through
+      ``ChannelSenderRegistry`` itself). Deliberately a separate field from
+      ``narra_reply_text``: finalize fresh-sends the latter to the room, so
+      reusing it would deliver the same message twice. This one is only
+      used as the return value, so the inbox records what was said instead
+      of an empty string.
     """
     narra_reply_text: str = ""
     error_seen: bool = False
     last_error_message: str = ""
+    platform_reply_text: str = ""
+    # F28 voice turn only: the live-delivery bridge. None on text turns —
+    # every legacy branch below checks nothing and behaves exactly as
+    # before (the guard is "bridge is None", not a mode flag).
+    voice_bridge: Optional["VoiceDeliveryBridge"] = None
+    # Leaf name of the reply tool that claimed the live voice DELTA
+    # stream (first speak/narra_reply deltas win; completed texts are not
+    # gated). Keeps two tools' delta streams from interleaving into one
+    # segment view.
+    voice_stream_tool: str = ""
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -390,6 +558,13 @@ class MatrixTrigger(ChannelTriggerBase):
         # Per-key lock — flush is async and buffer mutation must not race
         # a concurrent enqueue that arrives while we're draining.
         self._silent_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+        # ── F28 voice-call serialization ─────────────────────────────────
+        # Keyed by agent_id:room_id — room ≡ call under the 1:1 gate, so
+        # strict and degraded turns of one call share the key. One worker
+        # holds a call's drain loop; overlapping utterances buffer and
+        # merge into one follow-up turn. Entries die when the call idles.
+        self._voice_calls: dict[str, _VoiceCallState] = {}
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -1269,6 +1444,21 @@ class MatrixTrigger(ChannelTriggerBase):
             f"mentioned={mentioned})"
         )
 
+        if target == "dm":
+            # Cold-roster fallback (review #17): parse_event gates voice
+            # mode on the cached member count, which reads GROUP for an
+            # unseen room — degrading the FIRST turn of a real call.
+            # _classify just did the authoritative lookup; re-run the same
+            # pure detection so a cold cache only costs time, not
+            # correctness. Group rooms never reach this branch, so the
+            # 1:1-only injection boundary is unchanged. None = valid
+            # metadata with an envelope-only body → drop the turn, same
+            # rule as parse_event (review #21).
+            upgraded = self._late_voice_upgrade(message, authoritative_dm=True)
+            if upgraded is None:
+                return
+            message = upgraded
+
         # Silent path: memory-only, no reply / tool / model. Owner
         # policy override — do not call authorize-event. See
         # SILENT_BYPASS_AUTHORIZE docstring for the full rationale.
@@ -1334,6 +1524,31 @@ class MatrixTrigger(ChannelTriggerBase):
         the runtime completes. Both paths still let the base's
         ``_process_message`` write to the inbox on the returned string.
         """
+        # F28 voice turns serialize per call BEFORE dispatch: the trigger's
+        # worker pool runs same-room messages concurrently (by design for
+        # text), but two overlapping voice runs would interleave two TTS
+        # streams on one call. Modeled on the group_silent per-(agent, room)
+        # buffer; the call key is agent_id:room_id (room ≡ call under the
+        # 1:1 gate).
+        if (getattr(message, "raw", None) or {}).get("rtc_voice"):
+            if not self.STREAMING_ENABLED:
+                # The streaming kill switch governs voice too: live
+                # delivery IS streaming, so degrade the whole turn to a
+                # plain text turn (no voice register, no speak surface,
+                # no serialization) instead of half-activating voice on
+                # the atomic path.
+                message = replace(
+                    message,
+                    raw={
+                        k: v
+                        for k, v in (message.raw or {}).items()
+                        if k != "rtc_voice"
+                    },
+                )
+            else:
+                return await self._run_voice_serialized(
+                    credential, message, sender_name, attachments=attachments
+                )
         if self.STREAMING_ENABLED:
             return await self._build_and_run_agent_streaming(
                 credential, message, sender_name, attachments=attachments
@@ -1341,6 +1556,94 @@ class MatrixTrigger(ChannelTriggerBase):
         return await self._build_and_run_agent_atomic(
             credential, message, sender_name, attachments=attachments
         )
+
+    def _late_voice_upgrade(
+        self, message: ParsedMessage, *, authoritative_dm: bool
+    ) -> Optional[ParsedMessage]:
+        """Re-run voice detection after _classify confirmed a 1:1 room.
+
+        parse_event's PRIVATE gate is conservative on a cold roster cache
+        (unknown member count parses as GROUP); this recovers the voice
+        register for authoritative DMs. Inert on plain messages and
+        idempotent on already-stamped ones.
+
+        ``authoritative_dm`` must be the CALLER'S declaration that
+        _classify returned "dm" — the 1:1 injection boundary is asserted
+        here, not by call-site position alone (review #23). Returns None
+        for a metadata-valid but envelope-only body: the turn is DROPPED,
+        same rule as parse_event — the envelope must never run the agent
+        as user content (review #21).
+        """
+        raw = message.raw or {}
+        if not authoritative_dm or raw.get("rtc_voice"):
+            return message
+        detected = _detect_voice_turn(
+            message.content, getattr(raw.get("_nio_event"), "source", None)
+        )
+        if detected is None:
+            return message
+        transcript, rtc_voice = detected
+        if not transcript.strip():
+            logger.info(
+                f"[matrix:{getattr(message, 'chat_id', '?')}] late voice "
+                f"turn with empty transcript dropped"
+            )
+            return None
+        upgraded_raw = dict(raw)
+        upgraded_raw["rtc_voice"] = rtc_voice
+        logger.info(
+            f"[matrix:{getattr(message, 'chat_id', '?')}] voice turn "
+            f"late-upgraded after authoritative dm classify"
+        )
+        return replace(message, content=transcript, raw=upgraded_raw)
+
+    async def _run_voice_serialized(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Serialize voice turns per room ≡ per call under the 1:1 gate.
+
+        One worker holds a call's drain loop; messages arriving while a
+        run is active are buffered and merged into ONE follow-up turn
+        (consecutive utterances concatenate — the caller kept talking).
+        Different rooms (hence different calls) stay fully parallel.
+        State is per-trigger-instance and dies with the call going idle.
+        """
+        # One live RTC call per room is guaranteed by the PRIVATE 1:1 gate, so the
+        # room is the call: keying on it serializes strict and degraded turns of the
+        # SAME call together (a per-session key would split-brain the moment one
+        # utterance's metadata fails validation — two concurrent TTS streams).
+        key = f"{getattr(credential, 'agent_id', '?')}:{message.chat_id}"
+        call = self._voice_calls.setdefault(key, _VoiceCallState())
+        call.pending.append((message, sender_name, attachments))
+        if call.running:
+            # The draining worker will pick this up; nothing to return for
+            # the buffered message itself (its content is merged).
+            return ""
+        call.running = True
+        last_text = ""
+        try:
+            while call.pending:
+                batch = call.pending
+                call.pending = []
+                merged_message, merged_sender, merged_attachments = (
+                    _merge_voice_batch(batch)
+                )
+                last_text = await self._build_and_run_agent_streaming(
+                    credential,
+                    merged_message,
+                    merged_sender,
+                    attachments=merged_attachments,
+                )
+        finally:
+            call.running = False
+            if not call.pending:
+                self._voice_calls.pop(key, None)
+        return last_text
 
     async def _build_and_run_agent_atomic(
         self,
@@ -1422,21 +1725,55 @@ class MatrixTrigger(ChannelTriggerBase):
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": anchor,
-            "trigger_id": (
+        # Through the base builder. This streaming path is the DEFAULT
+        # (STREAMING_ENABLED), and hand-rolling the dict here is how
+        # NarraMessenger missed the 2026-08-06 turn envelope: DMs read as
+        # group rooms, so the 1:1 no-reply fallback never ran — and this
+        # path's terminal case for "no reply + no error" is precisely the
+        # NO-OP silence that fallback exists to remove.
+        extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=anchor,
+            trigger_id=(
                 f"{self.channel_name}_{message.message_id}"
                 if message.message_id
                 else f"{self.channel_name}_unknown"
             ),
-        }
-        if attachments:
-            extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            builder=builder,
+            attachments=attachments,
+        )
+
+        # F28 voice turn: the one-shot fast profile rides this run only;
+        # rtc_voice reaches modules via extra_data (expressive surface
+        # ordering) without any session write.
+        _t_voice_received = time.monotonic()
+        turn_profile = _voice_profile_for(message)
+        _t_voice_applied = time.monotonic()
+        rtc_voice = (message.raw or {}).get("rtc_voice")
+        if rtc_voice:
+            extra_data["rtc_voice"] = rtc_voice
 
         state = _StreamReplyState()
+
+        if rtc_voice:
+            # The bridge owns the live m.text / m.replace lifecycle for
+            # this turn; its sender is a closure over this credential so
+            # the pure lifecycle logic stays homeserver-free (testable).
+            room_id_for_send = message.chat_id
+
+            async def _voice_send(content: dict) -> str:
+                return await matrix_room_send(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id_for_send,
+                    content=content,
+                )
+
+            state.voice_bridge = VoiceDeliveryBridge(send=_voice_send)
+
+        run_kwargs: dict[str, Any] = {}
+        if turn_profile is not None:
+            run_kwargs["turn_profile"] = turn_profile
 
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
@@ -1444,7 +1781,9 @@ class MatrixTrigger(ChannelTriggerBase):
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,
+            **run_kwargs,
         )
+        _t_voice_request = time.monotonic()
 
         try:
             async for event in client_stream:
@@ -1465,6 +1804,51 @@ class MatrixTrigger(ChannelTriggerBase):
             )
 
         # Finalize.
+        if state.voice_bridge is not None:
+            spoken, finalized_ok = await state.voice_bridge.close()
+            logger.info(_format_voice_timing(
+                agent_id=agent_id,
+                room_id=message.chat_id,
+                rtc_session_id=str(
+                    (rtc_voice or {}).get("rtc_session_id")
+                    or ("degraded" if (rtc_voice or {}).get("degraded") else "")
+                ),
+                received_at=_t_voice_received,
+                applied_at=_t_voice_applied,
+                request_started_at=_t_voice_request,
+                first_delta_at=state.voice_bridge.first_delta_at,
+                first_sent_at=state.voice_bridge.first_sent_at,
+                finalized_at=(
+                    state.voice_bridge.finalized_at if finalized_ok else None
+                ),
+            ))
+            if spoken:
+                if not finalized_ok:
+                    # Live lifecycle broke (base or final edit failed) —
+                    # handoff 6.3: never leave the answer undelivered; the
+                    # plain retry-aware sender is the fallback path.
+                    logger.warning(
+                        f"[matrix:{credential.agent_id}] voice live "
+                        f"delivery failed; falling back to plain send "
+                        f"(room={message.chat_id})"
+                    )
+                    await self._send_matrix_reply(
+                        credential, message.chat_id, spoken
+                    )
+                # Deliberately NOTHING else once the bridge delivered: on
+                # a live call the plain sender is a DELIVERY channel (the
+                # smoke report's plain-fallback turns were heard by the
+                # caller), so any supplement here would be a second
+                # playback that reads URLs/code aloud — bypassing the
+                # sanitizer's structural guarantee. Known cost: a link the
+                # model put in narra_reply does not reach the chat record;
+                # tracked in reference/self_notebook/todo/ pending a
+                # written worker-consumption contract from Hybrid.
+                return spoken
+            # Nothing spoken: fall through to the legacy finalize so a
+            # narra_reply answer, an error marker, or a silent turn all
+            # behave exactly as on a text turn.
+
         final_text = (state.narra_reply_text or "").strip()
         if final_text:
             # No placeholder to edit — fresh-send via the retry-aware
@@ -1472,11 +1856,24 @@ class MatrixTrigger(ChannelTriggerBase):
             await self._send_matrix_reply(
                 credential, message.chat_id, final_text
             )
-        else:
-            await self._finalize_stream_silent(
-                credential, message.chat_id, state
+            return final_text
+
+        platform_text = (state.platform_reply_text or "").strip()
+        if platform_text:
+            # Already in the room: step_3's fallback delivered it through
+            # ChannelSenderRegistry before this stream ended. Return it so
+            # the base writes the real text to the inbox, and touch the room
+            # NOT AT ALL — sending here would double-message the person.
+            logger.info(
+                f"[matrix:{credential.agent_id}] stream ended with a "
+                f"platform-delivered reply; recording it without a room write"
             )
-        return final_text
+            return platform_text
+
+        await self._finalize_stream_silent(
+            credential, message.chat_id, state
+        )
+        return ""
 
     async def _handle_stream_event(
         self,
@@ -1516,6 +1913,31 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"the error marker"
             )
             return
+        # F28 voice turn: a reply tool's streamed text argument rides
+        # AGENT_REPLY_DELTA (the expressive reply stream). The first
+        # trigger-owned reply tool (speak OR narra_reply) to produce
+        # output claims the live stream and feeds TTS — models routinely
+        # answer voice turns via narra_reply despite the spoken-register
+        # instructions (2026-08-13 call: 12/14 turns), and gating on
+        # speak alone left those turns waiting for finalize. narra_send
+        # stays out: it delivers itself via room_send, so bridging its
+        # deltas would double-deliver.
+        if state.voice_bridge is not None and mt == MessageType.AGENT_REPLY_DELTA:
+            tool = getattr(event, "tool_name", "") or ""
+            # The claim key is the LEAF name: deltas carry the qualified
+            # spelling while PROGRESS may carry either, and a spelling
+            # mismatch would let a completed PROGRESS block that same
+            # tool's later deltas (pipeline review Minor #6).
+            leaf = tool.rsplit("__", 1)[-1]
+            if _is_voice_reply_tool(tool) and (
+                not state.voice_stream_tool or state.voice_stream_tool == leaf
+            ):
+                state.voice_stream_tool = leaf
+                await state.voice_bridge.on_reply_delta(
+                    call_id=getattr(event, "call_id", "") or "",
+                    delta=getattr(event, "delta", "") or "",
+                )
+            return
         if mt != MessageType.PROGRESS:
             return
         details = getattr(event, "details", None)
@@ -1532,11 +1954,83 @@ class MatrixTrigger(ChannelTriggerBase):
                 return
         if not isinstance(arguments, dict):
             return
+
+        # A reply the platform wrote AND already delivered (step_3's 1:1 DM
+        # no-reply fallback sends through ChannelSenderRegistry). Recognised
+        # here because this streaming path is the DEFAULT one and never
+        # reaches `resolve_agent_response` — it returns the text captured
+        # mid-stream instead, so without this the turn finalises as silent
+        # and the inbox records "" for a message the person did receive.
+        # Captured into its OWN field: finalize fresh-sends
+        # `narra_reply_text` to the room, so reusing it would deliver the
+        # same message a second time.
+        platform_text = arguments.get(PLATFORM_REPLY_TEXT_KEY)
+        if isinstance(platform_text, str) and platform_text.strip():
+            state.platform_reply_text = platform_text
+            logger.info(
+                f"[matrix:{credential.agent_id}] streaming captured a "
+                f"platform-delivered reply (len={len(platform_text)}, "
+                f"room={room_id}); no room write from this trigger"
+            )
+            return
+
         text = arguments.get("text")
         if not (isinstance(text, str) and text.strip()):
             return
 
-        if "narra_reply" in tool_name:
+        is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+        is_narra_reply = (
+            tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+        )
+
+        if state.voice_bridge is not None and _is_voice_reply_tool(tool_name):
+            # Every completed reply text enters the bridge — the claim
+            # gates DELTA streams only. The VOICE prompt teaches a
+            # preannounce-then-answer two-call pattern; when the model
+            # splits it across tools the answer must be spoken, not
+            # dropped. The identical-text dual-call shape is neutralized
+            # by the bridge's exact-equality segment dedup, and same-call
+            # correction rides the raw-prefix judge as before.
+            if not state.voice_stream_tool:
+                # Leaf name — same normalization as the delta claim.
+                state.voice_stream_tool = tool_name.rsplit("__", 1)[-1]
+            state.voice_bridge.on_segment_text(
+                call_id=str(details.get("call_id") or ""), text=text
+            )
+            # ALSO keep the legacy capture: finalize returns early on any
+            # non-empty spoken text, so this cannot double-deliver — but
+            # it is the only delivery path left when the spoken form
+            # sanitizes to nothing (emoji-only ack, URL-only reply).
+            state.narra_reply_text = (
+                f"{state.narra_reply_text} {text}".strip()
+                if is_speak and state.narra_reply_text
+                else text
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] reply text via "
+                f"{tool_name.rsplit('__', 1)[-1]} bridged for voice "
+                f"(len={len(text)}, room={room_id})"
+            )
+            return
+
+        if is_speak:
+            # Text turn: no bridge consumes speak, so without this capture
+            # the call would be a dead tool — ok:true returned, nothing
+            # delivered, a fully silent round. Deliver via the legacy
+            # finalize path instead; segments concatenate (speak is a
+            # multi-call tool).
+            state.narra_reply_text = (
+                f"{state.narra_reply_text} {text}".strip()
+                if state.narra_reply_text
+                else text
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] speak on a text turn "
+                f"captured for plain delivery (room={room_id})"
+            )
+            return
+
+        if is_narra_reply:
             # LAST-writer wins if the agent calls it twice (rare). The
             # captured text is fresh-sent to the room at finalize.
             state.narra_reply_text = text
@@ -1561,9 +2055,15 @@ class MatrixTrigger(ChannelTriggerBase):
           was. No dot marker, no redact, no "message deleted" indicator.
         """
         if not state.error_seen:
+            # Reached only when nothing was said by ANYONE this turn — the
+            # caller returns before this when the platform's own fallback
+            # already delivered a reply. Saying "no reply" in that case
+            # would send a debugger looking for a silent turn that was in
+            # fact answered.
             logger.info(
-                f"[matrix:{credential.agent_id}] silent stream — no reply, "
-                f"no error, staying quiet (room={room_id})"
+                f"[matrix:{credential.agent_id}] silent stream — no reply "
+                f"from the agent, none written by the platform, no error; "
+                f"staying quiet (room={room_id})"
             )
             return
 
@@ -1616,13 +2116,26 @@ class MatrixTrigger(ChannelTriggerBase):
         as "nothing sent" (the 2026-07-03 bug this replaced).
         """
         raw_items = getattr(result, "raw_items", None) or []
+        # Ordered fold mirroring the STREAMING capture semantics exactly
+        # (review #22): narra_reply REPLACES the accumulator (last-writer,
+        # like state.narra_reply_text = text), speak APPENDS a segment
+        # (review #16 — no bridge runs on the atomic path, so joining the
+        # segments into the plain delivery is what keeps speak from being
+        # a dead ok:true tool when the STREAMING_ENABLED switch is off).
+        # Same call sequence must yield the same answer on both paths.
+        accumulated = ""
         for raw in raw_items:
             if not isinstance(raw, dict):
                 continue
             item = raw.get("item")
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
-            if "narra_reply" not in str(item.get("tool_name") or ""):
+            tool_name = str(item.get("tool_name") or "")
+            is_reply = (
+                tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+            )
+            is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+            if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}
             if isinstance(args, str):
@@ -1630,10 +2143,17 @@ class MatrixTrigger(ChannelTriggerBase):
                     args = json.loads(args)
                 except Exception:  # noqa: BLE001
                     args = {}
-            if isinstance(args, dict):
-                text = args.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text
+            if not isinstance(args, dict):
+                continue
+            text = args.get("text")
+            if not (isinstance(text, str) and text.strip()):
+                continue
+            if is_reply:
+                accumulated = text
+            else:
+                accumulated = f"{accumulated} {text}".strip() if accumulated else text
+        if accumulated:
+            return accumulated
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""
@@ -2104,6 +2624,55 @@ class MatrixTrigger(ChannelTriggerBase):
             body = raw.get("body") or ""
             if not body.strip():
                 return None
+            # ── F28 RTC voice turn detection (two-level, handoff §3.4) ──
+            # Hybrid sends final STT as a normal m.text plus the
+            # ai.netmind.rtc.voice_input v1 metadata on the same event.
+            # Level 1: the strict v1 block parses -> full voice turn with
+            # the four binding IDs. Level 2: strict parse failed but the
+            # metadata object still carries a non-blank backend-controlled
+            # voice_instructions string -> DEGRADED voice turn: voice
+            # behavior applies, binding IDs stay empty and never feed
+            # correlation, per-call serialization keys, or security
+            # decisions. Only when NEITHER level fires does the event stay
+            # a plain text message (contract: bad metadata must never
+            # break the normal reply path). Metadata is a presentation
+            # hint, NOT authorization — classify/authorize gates run
+            # unchanged.
+            #
+            # 1:1 rooms ONLY: the metadata has no source binding (format
+            # is validated, provenance is not — and the handoff forbids a
+            # sync backend round trip for the fast-mode decision), so a
+            # group member could otherwise inject voice_instructions into
+            # the reply register. On a DEGRADED turn the metadata was
+            # never trustworthy to begin with, so this PRIVATE gate
+            # carries the WHOLE injection argument for BOTH levels — do
+            # not weaken it on the theory that level 1 "validated" the
+            # block. F13 RTC calls are Agent-Human 1:1 by product shape,
+            # so gating on PRIVATE loses nothing. A cold roster cache
+            # (unknown member count) parses as GROUP and is conservatively
+            # refused HERE; _process_message recovers it after _classify's
+            # authoritative dm verdict — see _late_voice_upgrade. The
+            # argument chain closes there.
+            detected = (
+                _detect_voice_turn(
+                    body, getattr(raw.get("_nio_event"), "source", None)
+                )
+                if chat_type == ChatType.PRIVATE
+                else None
+            )
+            if detected is not None:
+                transcript, rtc_voice = detected
+                if not transcript.strip():
+                    # Envelope-only body: nothing to answer. Drop the turn
+                    # rather than running the agent on empty input.
+                    logger.info(
+                        f"[matrix:{raw.get('_agent_id', '?')}] voice turn "
+                        f"with empty transcript dropped (event={event_id})"
+                    )
+                    return None
+                body = transcript
+                raw = dict(raw)
+                raw["rtc_voice"] = rtc_voice
             return ParsedMessage(
                 message_id=event_id,
                 chat_id=room_id,

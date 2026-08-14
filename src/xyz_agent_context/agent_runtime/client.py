@@ -119,7 +119,23 @@ class _RecordedRuntime:
             yield event
 
 
-async def _new_recorder() -> "Optional[RunRecorder]":
+def _inherited_root_run_id(extra_kwargs: dict) -> Optional[str]:
+    """The trigger tree this run continues, as declared by its trigger.
+
+    Absent for a run that starts a tree (a user's message in a room, a job
+    firing) — the recorder then labels the run with its own id. Present when a
+    trigger knows it is waking a run on somebody else's behalf, which today
+    means a bus message stamped by the sending agent's tools.
+    """
+    extra = extra_kwargs.get("trigger_extra_data") or {}
+    if not isinstance(extra, dict):
+        return None
+    return str(extra.get("root_run_id") or "") or None
+
+
+async def _new_recorder(
+    inherited_root_run_id: Optional[str] = None,
+) -> "Optional[RunRecorder]":
     """Build a recorder for one trigger run, or None when recording is
     off (kill switch) or the DB client cannot be obtained — a run must
     start regardless of observability."""
@@ -132,7 +148,10 @@ async def _new_recorder() -> "Optional[RunRecorder]":
         return None
     try:
         from xyz_agent_context.utils.db.db_factory import get_db_client
-        return RunRecorder(db=await get_db_client())
+        return RunRecorder(
+            db=await get_db_client(),
+            inherited_root_run_id=inherited_root_run_id,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[RunRecorder] unavailable for this run: {e}")
         return None
@@ -191,7 +210,7 @@ class InProcessAgentRuntimeClient:
             TERMINAL_STATES,
         )
 
-        recorder = await _new_recorder()
+        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
         runtime: Any = AgentRuntime()
         if recorder is not None:
             runtime = _RecordedRuntime(runtime, recorder)
@@ -264,7 +283,7 @@ class InProcessAgentRuntimeClient:
         if working_source is not None:
             extra_kwargs["working_source"] = working_source
 
-        recorder = await _new_recorder()
+        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
         # Set when a terminal handler already scheduled a DEFERRED finalize
         # (a task, not awaited) — the recorder's state is still non-terminal
         # at that instant, so the finally-net below must not double-spawn a

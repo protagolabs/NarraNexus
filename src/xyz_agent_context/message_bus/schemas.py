@@ -34,6 +34,11 @@ class BusMessage(BaseModel):
     content: str
     msg_type: str = "text"
     mentions: Optional[List[str]] = None  # list of agent_ids or ["@everyone"]
+    # Provenance of `mentions`: None when the sender wrote them, or
+    # "default_responder" when a team room's route supplied one because the
+    # user named nobody. The prompt needs the difference to avoid telling an
+    # agent it was singled out when it was merely the fallback.
+    routed_by: Optional[str] = None
     # Bus-attachment dicts (file_id/original_name/mime_type/size_bytes/category/
     # rel_path). Populated when the sender attaches files; None for text-only.
     # The trigger renders these into Read-tool markers at delivery time.
@@ -47,6 +52,10 @@ class BusMessage(BaseModel):
     # MessageBusTrigger selects the recipient's directive from it. None on
     # legacy rows and on adapters that cannot forward the injected header.
     sender_turn_source: Optional[str] = None
+    # The trigger TREE the sending run belonged to (events.root_run_id). The run
+    # this message wakes up inherits it, which is how a cascade stop reaches
+    # past an agent→agent hop. None for user messages and legacy rows.
+    root_run_id: Optional[str] = None
     created_at: Any = None
 
 

@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — `executor_healthy` 转公开（去重健康探测）
+
+`_executor_healthy` 升为公开 `executor_healthy(executor_url, *,
+timeout=5.0)`：吃 executor **base URL**、自己拼 `/health`，永不 raise。
+动机：prewarm 路由（`backend/routes/channels/narramessenger.py`）此前
+私有不可导而复刻了一份同逻辑——现在全仓只有这一个探针。`timeout` 参数
+化是给热路径用的（prewarm 双端点传 1.0，铃响中不能被卡死容器拖满默认
+5s）；`wait_until_ready` 内部改调它（默认 timeout），测试的 monkeypatch
+seam 名字随之是 `executor_healthy`。
+
+## 2026-08-10 — ensure 响应透传 identity_token（MCP caller auth）
+
+`ExecutorEnsureResult` 新增 `identity_token`(默认 None):broker 用私钥签的
+per-user Ed25519 token,**每次 ensure 都新鲜**(暖复用也返新 token,这正是选
+「ensure 响应」而不是「executor env 注入」的原因——容器跨 run 长活,env 只在
+创建时注入,短 TTL 会过期)。旧 broker 响应缺字段 → None,dispatch 侧不 stamp,
+无 lockstep 硬依赖。消费方:[[step_3_agent_loop.py]] `_dispatch_identity_token`。
 
 ## 2026-07-31 — executor_seam_active():「本进程不跑 CLI」的单一判据
 
@@ -28,8 +46,8 @@ AGENT_EXECUTOR_URL,而部署仓从不设它,守卫在云上是死代码。
 it does NOT wait for uvicorn on :8020. So a cold start (`cold_started=True`)
 returns a not-yet-ready URL; connecting immediately races the boot and the run
 wrongly drops into the fallback path. New `wait_until_ready(executor_url)`
-polls the executor's `/health` (via `_executor_healthy`, a monkeypatch seam for
-tests) until 200 — condition-based, not a fixed sleep, and NOT an agent-loop
+polls the executor's `/health` (via `executor_healthy` — public since
+2026-08-11, still the monkeypatch seam for tests) until 200 — condition-based, not a fixed sleep, and NOT an agent-loop
 cap (rule #14); it only waits for infra. step_3 calls it on cold start, right
 after emitting the `executor.warming` UX event and before driving the loop.
 Raises if the container never comes up within the timeout (genuinely broken).

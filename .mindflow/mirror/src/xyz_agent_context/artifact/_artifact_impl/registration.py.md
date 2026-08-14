@@ -1,8 +1,104 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-07-23
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B 的后果修正) — 团队根也是「容器根」
+
+`_resolve_entry` 现在返回 `(abs_entry, artifact_root, team_root)`，体量核算把
+`artifact_root in (workspace, team_root)` 一并当作**单文件模式**。
+
+**为什么必须改**：把团队 artifact 要求进团队目录之后，最常见的落点让 `artifact_root` **就是团队
+根**，于是 `_dir_size` 会按「该团队分享过的一切」计费——一旦越过 `MAX_ARTIFACT_BYTES`，**团队里
+谁都再也注册不了任何东西**。这是方案 B 引入的，不是既有问题。
+
+`team_root` 由这里返回而非调用方重算：同一个事实算两遍，迟早会有一处漏改
+（[[raw_access.py]] 有同源的第二处，见那份 md）。
+
+顺带把 `team_shared_dir` 的 import 提到模块级——上一轮声称「0 残留」时漏了这一处。
+
+## 2026-08-10 (review 修正) — 仓储 import 提到模块级
+
+纯位置调整：`team_workspace_repository` 的 import 从函数体移到模块顶部。这里没有循环依赖要躲
+（仓储层只 import `repository.base.parse_dt`），同一行写在多个函数里是纯噪音。
+
+## 2026-08-10 (方案 B) — 团队 artifact **必须**住在团队目录
+
+此前是「workspace **或** 团队目录都允许」。现在按归属分岔：私有 → 自己 workspace；
+**团队 → 只能是那个 team 的共享目录**。
+
+**理由是可达性，不是整洁。**队友的回合只被授予三个根（[[workspace_paths.py]] 的
+`turn_accessible_roots`）：自己的 workspace、bus 附件目录、本回合 team 的目录。留在**生产者
+workspace** 里的文件三者皆不在——NexusPower 直接 DENY，而 claude/codex 无此层却能读。这正是
+本功能要消灭的「三框架两种行为」，并且会**静默**击穿验收 #3（队友接力）。
+
+指针语义未变：仍然不复制不移动。只是 entry 必须**已经**在团队读得到的地方，而 agent 有权写
+那里（授予覆盖写），所以错误信息点名目录、一次移动即可重试成功。
+
+配套：工具描述与 team prompt 都改成「团队里要写进共享目录」，否则 agent 按旧习惯写自己
+workspace 会直接撞上这条拒绝。
+
+## 2026-08-10 (review 修正) — target 分支补归属校验（含一个既有漏洞）
+
+`target_artifact_id` 分支此前 `get_by_id` 之后**只校验 kind**，不校验 agent / user / team。
+两个后果，一个是既有漏洞、一个是 team 功能引入的：
+
+- **既有**：任何 agent 猜到一个 `art_` id 就能把别人的 artifact 指针改到自己的文件上。
+  id 是 8 位 hex——猜从来不是难点，是**根本没人在查**。
+- **本 PR 引入**：这条路径完全丢弃了服务端的 team 事实，于是团队回合里对私有 artifact
+  传 target 会「成功」，但它永远不出现在团队面板里，agent 拿不到任何信号。
+
+现在校验的是**可达性**，规则与读侧三界面完全一致：
+- **团队 artifact** 属于团队 → 该团队的**任何**回合都可更新（接力是共享工作台的全部意义，
+  agent 身份**刻意不是**判据）
+- **私有 artifact** 属于产出者 → 只有它自己能更新
+
+因此团队回合够不到私有 artifact，私有回合也够不到团队的——否则 `scope="private"`
+（本应只能**收窄**）就成了把 artifact 从所属团队里**拽出来**的手段。
+
+拒绝一律用 `ArtifactNotFound`（404 形状），与 HTTP 路由一致：单独的 "forbidden" 会向探测者
+确认哪些 id 存在。
+
+## 2026-08-07 (三次) — 归因行写入 turn 句柄
+
+`_record_history` 落 `event_id`。此前该列恒为 NULL（schema 阶段有意推迟）。
+
+**为什么不靠时间戳推断**：同一轮产出两个 artifact、或同房间并发回合，按时间近邻匹配都会错。
+turn 是平台**持有的事实**，传进来即可，不必猜。
+
+## 2026-08-07 (二次) — scope 必须进去重键
+
+agent-scoped 去重（`session_id is None` 分支）原本按 `{agent_id, file_path}` 匹配。加了 team
+维度后这条键**不再唯一标识一个 artifact**：同一个文件在私聊和团队各注册一次是很普通的用法
+（先给自己看，后来想给团队看），而旧键会让第二次静默返回第一次的行、**丢弃本次请求的 scope**。
+两个方向都会串——私聊调用拿回团队 artifact，或团队注册被折叠进私有的、团队里没人看得见。
+
+**scope 是身份的一部分，不是它的细节。**匹配条件补上 `existing.team_id == team_id`。
+
+发现方式值得记：**单元测试全绿也没抓到**——每个用例用独立 DB、不同文件名，碰撞根本不会发生。
+是端到端探针（真实 MCP 传输，连续四次调用同一个文件）暴露的。教训是同类「按业务键去重」的
+逻辑，测试必须显式构造**同键不同维度**的碰撞，而不是依赖用例天然隔离。
+
+去重本身存在的理由（2026-06-30 重复 Welcome tab 事故）未受影响，同 scope 内仍然合并，有
+`test_dedup_still_works_within_one_scope` 守着。
+
+## 2026-08-07 — team 归属、共享目录可注册（缺口 T6）、归因历史
+
+**归属**：`register_artifact` 增加 `team_id`（None = 私有）。它来自服务端身份 header，
+**不是**模型参数——见 [[artifact_tool.py]]。
+
+**放开路径（缺口 T6）**：`_resolve_entry` 此前把 entry 硬限制在 agent 自己 workspace 内，
+而共享目录按设计是每个 agent workspace 的 **sibling**（谁都不拥有它）→ 放进共享目录的文件
+**永远无法注册成 artifact**。「共享目录里的东西不能变成团队可见产出」，那这个共享目录只是
+半个功能。现在额外允许**本回合所属那个 team** 的目录：兄弟 team 的目录仍然越界；且**相对
+路径依旧只相对自己 workspace 解析**，团队目录只能用绝对路径抵达，不会把相对路径悄悄重定基
+到 agent 没有指名的根上。
+
+**归因历史**：三条写入路径（新建 / target 重注册 / 同 entry 去重）各追加一行
+`instance_artifact_history`。`_record_history` **永不抛异常**——此刻 artifact 本身已经正确，
+让一条日志失败去毁掉一次成功注册，是拿 agent 的真实工作换记账；缺行只是历史降级，抛异常
+才是功能降级。
 
 ## 2026-07-23 — agent-scoped re-register dedup
 

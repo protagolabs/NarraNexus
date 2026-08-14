@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -221,3 +221,16 @@ Owns `clearTeamTarget` / `clearTeamBusy` + `doClearTeamData` (calls `api.clearTe
 `DELETE /api/teams/{id}/data`, then requestHistoryRefresh on chat scope) and renders
 [[ClearTeamDataDialog]] — the exact pattern as the agent [[ClearAgentDataDialog]] path.
 TeamChatRow's `onClearData` opens it. Backend: [[teams]] `_wipe_team_data`.
+
+## 2026-08-10 — clearing a team's files also refreshes the workspace panel
+
+`doClearTeamData` already bumped `requestHistoryRefresh()` for the chat scope;
+the files scope had no equivalent, so an open team workspace kept listing the
+artifacts and files it had just deleted. Now calls
+`requestWorkspaceRefresh()` ([[chatStore.ts]]) on that scope.
+
+## 2026-08-11 — 清团队数据的第三个 scope
+
+`doClearTeamData` 的 scopes 增加 `bulletin`；`files || bulletin` 时都触发
+`requestWorkspaceRefresh()`，公告栏面板挂在同一个 tick 上，
+所以清空后不会留在屏上列已被服务端删掉的规则。

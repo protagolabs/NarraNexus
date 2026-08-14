@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/resolver.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-08-11
 ---
 
 ## 2026-07-28 — 免费额度分支整条拆除，决策树从五态收敛到三态
@@ -298,3 +298,9 @@ updater、Step-5 hooks、memory worker）在自身 ContextVar 上放 agent OWNER
 协程处理别的租户时继承上一租户凭据。无 owner → 返回 None（保持清空，严格全局兜底）；
 配额/无 provider → 抛 `ProviderResolverError`（调用方隔离并发告警，绝不落平台 key）。
 `memory_consolidation_worker._inject_owner_credentials` 现委托此函数（去重）。
+
+## 2026-08-11 — `inject_user_helper_credentials`
+
+user-keyed 的孪生体，让 **clear-first 只有一份实现**。这是跨租户不变量而非整洁癖好：
+一个在同一个 task 里顺序遍历多个租户的脱离任务（team 总结 worker 就是），不先 reset
+就会把上一个租户的凭据交给一个配置解析失败的租户。两份实现意味着将来有人只修其中一份。

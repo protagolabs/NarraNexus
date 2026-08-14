@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/crud.py
-last_verified: 2026-06-08
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — `_index_narrative` 不再自己拼文本
+
+改调 `Narrative.searchable_text()`。此前它自己列了同样四个字段但用 `"\n".join`，
+而路由侧用 `" ".join`——当前分词器下等价，属于典型的「两份拷贝迟早漂移」。现在是
+同一个函数，不是碰巧列了同样字段的第二份实现。详见 [[models.py]]。
+
 
 # crud.py — Narrative CRUD (+ search-index projection)
 

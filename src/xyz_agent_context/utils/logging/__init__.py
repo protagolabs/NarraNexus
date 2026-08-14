@@ -20,4 +20,22 @@ __all__ = [
     "bind_event",
     "timed",
     "redact",
+    "telemetry_consent",
+    "set_telemetry_optout",
 ]
+
+
+def telemetry_consent() -> dict:
+    """Telemetry consent state for the settings surface — see _ship.
+    Lazy import: _ship pulls in httpx, and an import-time failure there
+    must break shipping only, never the logging package."""
+    from ._ship import telemetry_consent as _impl
+
+    return _impl()
+
+
+def set_telemetry_optout(opted_out: bool) -> None:
+    """Write/remove the per-machine telemetry opt-out marker — see _ship."""
+    from ._ship import set_telemetry_optout as _impl
+
+    _impl(opted_out)

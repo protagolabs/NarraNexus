@@ -36,8 +36,13 @@ from typing import Any, AsyncGenerator
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.api_config import claude_config, codex_config
+from xyz_agent_context.agent_framework.api_config import (
+    _is_own_gateway_url,
+    claude_config,
+    codex_config,
+)
 from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
+from xyz_agent_context.schema.turn_profile import TurnProfile
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     TYPE_RAW_RESPONSE_EVENT,
@@ -236,10 +241,40 @@ class NexusAgent:
             # Anthropic-protocol gateways expecting Authorization: Bearer
             # (litellm's anthropic route sends x-api-key; add the header).
             llm_extra["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
+        # Platform-origin binding: forward the broker identity token so our
+        # gateway can prove the call originates on-platform. ONLY to our own
+        # gateway (never a BYOK third party). The token lives on the config the
+        # resolver picked (claude for anthropic, codex for openai).
+        _identity_token = (
+            claude_config.identity_token if protocol == "anthropic"
+            else codex_config.identity_token
+        )
+        if _identity_token and _is_own_gateway_url(base_url):
+            _headers = dict(llm_extra.get("extra_headers") or {})
+            _headers["X-NarraNexus-Identity-Token"] = _identity_token
+            llm_extra["extra_headers"] = _headers
+        # Per-turn fast-mode profile. Arrives as the in-process model or as
+        # its model_dump() dict off the executor wire — normalize once here.
+        # Absent profile MUST leave the payload semantically identical to
+        # the pre-TurnProfile build (defaults below match the old hardwired
+        # values; see tests/agent_framework/test_nexus_turn_profile.py).
+        profile = kwargs.get("turn_profile")
+        if isinstance(profile, dict):
+            profile = TurnProfile(**profile)
+        prompt_mode = profile.prompt_mode if profile is not None else "full"
+        if profile is not None and profile.reasoning_effort:
+            # litellm passthrough: rides ModelParams.extra straight into
+            # acompletion kwargs — the gateway's reasoning knob.
+            llm_extra["reasoning_effort"] = profile.reasoning_effort
         options: dict[str, Any] = {
             "cwd": self.working_path,
             "agent_id": str(kwargs.get("agent_id") or "agent"),
             "env": dict(extra_env or {}),
+            # Collaborative areas (e.g. the team shared folder) sit outside
+            # this agent's workspace by design; the caller decides which
+            # roots this turn may additionally read. Absent → unchanged
+            # workspace-only confinement.
+            "extra_accessible_roots": tuple(kwargs.get("extra_accessible_roots") or ()),
             "model": model,
             "provider": protocol,
             "api_key": api_key,
@@ -253,7 +288,12 @@ class NexusAgent:
             "expandables": tuple(kwargs.get("expandables") or ()),
             "initial_expansions": sorted(kwargs.get("initial_expansions") or ()),
             "output_mode": "legacy_dict",
+            "prompt_mode": prompt_mode,
         }
+        if profile is not None and profile.include_arg_deltas is not None:
+            options["include_arg_deltas"] = profile.include_arg_deltas
+        if profile is not None and profile.expression_nudge is not None:
+            options["expression_nudge"] = profile.expression_nudge
         return {
             "thread_id": f"turn_{uuid.uuid4().hex[:12]}",
             "messages": messages,

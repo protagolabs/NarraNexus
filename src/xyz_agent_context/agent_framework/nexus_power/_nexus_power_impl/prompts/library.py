@@ -125,11 +125,38 @@ class NexusPowerPrompts:
         """The dynamic-tail delivery reminder, rendered fresh each step
         from the expression contract's CURRENT tool list (expansion may
         grow it mid-turn — the tail is the one placement where that is
-        cache-free). Empty list = mute turn = no reminder."""
+        cache-free). Empty list = mute turn = no reminder.
+
+        The declared order is contract (the first name is the turn's
+        default reply tool — ExpressionContract) and the reminder SAYS
+        so instead of flattening the list: 2026-08-13 voice call showed
+        models following a flat list over the per-message instruction on
+        12/14 turns."""
         if not reply_tools:
             return ""
-        names = ", ".join(f"`{name}`" for name in reply_tools)
-        return _load("reply_reminder.md").replace("{{REPLY_TOOLS}}", names)
+        default = f"`{reply_tools[0]}`"
+        others = ", ".join(f"`{name}`" for name in reply_tools[1:])
+        clause = f" (other reply tools, only when the situation clearly calls for them: {others})" if others else ""
+        return (
+            _load("reply_reminder.md")
+            .replace("{{DEFAULT_REPLY_TOOL}}", default)
+            .replace("{{OTHER_REPLY_TOOLS_CLAUSE}}", clause)
+        )
+
+    @classmethod
+    def expression_nudge(cls, reply_tools: tuple[str, ...]) -> str:
+        """The one-shot mute-turn repair message (loop STOP_CHECK,
+        opt-in via ``expression_nudge``). Names the turn's default reply
+        tool so the model's next step has exactly one obvious move."""
+        default = f"`{reply_tools[0]}`" if reply_tools else "a reply tool"
+        return (
+            "You are ending this turn WITHOUT having called any reply "
+            "tool — the user will receive nothing but silence. That is "
+            "never the right outcome for a direct conversation. Call "
+            f"{default} now with your reply; if the incoming message was "
+            "unclear or garbled, reply with ONE short clarifying "
+            "question instead."
+        )
 
     # ---- section rosters (order is contract: reordering breaks every
     # user's cache prefix and requires explicit review) ----------------

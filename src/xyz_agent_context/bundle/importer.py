@@ -27,12 +27,19 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
+from xyz_agent_context.bundle.team_bulletin_transfer import (
+    write_imported_bulletin,
+)
+
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
@@ -144,6 +151,13 @@ async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]
         for t in agent_tables:
             await _del(t, "agent_id", aid)
     for tid in new_team_ids:
+        await _del("team_work_items", "team_id", tid)
+        # The bulletin too. The agent_tables sweep above only covers tables with
+        # an agent_id column, and team_bulletin_entries has team_id/author_id —
+        # so rows written by write_imported_bulletin survived a rollback keyed on
+        # a team_id deleted on the next line: unreachable by every query path,
+        # which is exactly the orphan `_wipe_team_data` argues against.
+        await _del("team_bulletin_entries", "team_id", tid)
         await _del("team_members", "team_id", tid)
         await _del("teams", "team_id", tid)
     for cid in new_channel_ids:
@@ -689,6 +703,41 @@ async def _confirm_inner(
             "source": "bundle",
             "intro_md": intro,
         })
+        # The rules land under the NEW team id, with the ceilings re-applied:
+        # a bundle is untrusted input and may have been hand-edited.
+        written_summary["bulletin_entries"] = await write_imported_bulletin(
+            db, new_tid, team.get("bulletin") or []
+        )
+        # The board comes back with the team. Ids are remapped here rather than
+        # in the bundle: `assignee_id` is a SOURCE agent id, and one that fell
+        # outside the export closure has no counterpart here — it becomes
+        # unclaimed work, which is true and actionable, instead of a dangling
+        # reference nobody can chase.
+        #
+        # `root_run_id` is left NULL on purpose (the exporter drops it): it
+        # named a run in the source environment, and honouring it would let a
+        # cascade stop here match items it never produced.
+        board = team.get("work_items") or []
+        for item in board:
+            old_assignee = item.get("assignee_id") or ""
+            await _ins("team_work_items", {
+                "item_id": gen_new_id("wi"),
+                "team_id": new_tid,
+                # Backfilled after the bus channels are restored (the team row
+                # is written before them). Left empty when the bundle carried
+                # no chat: the board is still fully usable in the UI (that view
+                # keys on team_id), only patrol waits — and patrol needs a room
+                # to speak into anyway.
+                "channel_id": "",
+                "title": item.get("title") or "",
+                "assignee_id": id_map.get(old_assignee) if old_assignee else None,
+                "status": item.get("status") or "open",
+                "created_by": id_map.get(item.get("created_by") or "", "") or "",
+                "root_run_id": None,
+            })
+        if board:
+            written_summary["work_items"] = len(board)
+
         new_team_id = new_tid
         written_summary["team_created"] = True
         written_summary["team_id"] = new_tid
@@ -1164,6 +1213,23 @@ async def _confirm_inner(
                     written_summary["bus_channels_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channels insert failed: {e}")
+            # The work board was written with the team, before this block, so
+            # its room reference is filled in now that the room exists.
+            if new_team_id:
+                try:
+                    room = await db.get_one(
+                        "bus_channels",
+                        {"created_by": f"team_{new_team_id}", "channel_type": "group"},
+                    )
+                    if room:
+                        await db.update(
+                            "team_work_items",
+                            {"team_id": new_team_id},
+                            {"channel_id": room["channel_id"]},
+                        )
+                except Exception as e:  # noqa: BLE001 — board keeps its UI value
+                    logger.warning(f"work-board channel backfill failed: {e}")
+
             for m in (bus.get("members") or []):
                 new_m = rewrite_row("bus_channel_members", m)
                 try:
@@ -1487,6 +1553,26 @@ async def _confirm_inner(
             if not new_row.get("agent_id"):
                 logger.warning(
                     f"bundle_import.mcp.skip reason=agent_id_missing mcp_id={new_row.get('mcp_id')}"
+                )
+                continue
+            # SSRF: a bundle is attacker-supplied and this write bypasses the
+            # create/update route's screen. Don't let it plant an internal MCP
+            # URL that the agent would later fetch (cloud only — the same
+            # DNS-free screen the route applies; local/desktop keeps localhost).
+            # `is_obviously_non_public_url` is parse-safe: a malformed/garbage
+            # URL is screened out, NOT thrown — a raw urlparse here would raise
+            # (bad IPv6 / non-string) and roll the whole import back.
+            if is_cloud_mode() and is_obviously_non_public_url(new_row.get("url")):
+                try:
+                    _host = urlparse(new_row.get("url") or "").hostname or "(none)"
+                except Exception:  # noqa: BLE001
+                    _host = "(unparseable)"
+                logger.warning(
+                    f"bundle_import.mcp.skip reason=non_public_url mcp_id={new_row.get('mcp_id')}"
+                )
+                written_summary["warnings"].append(
+                    f"MCP {new_row.get('name') or new_row.get('mcp_id')}: "
+                    f"host {_host!r} is not a public endpoint — skipped"
                 )
                 continue
             try:

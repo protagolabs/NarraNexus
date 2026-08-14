@@ -83,8 +83,7 @@ class HomeAssistantModule(XYZBaseModule):
                 {"count": N, "entities": [{entity_id, name, state}, ...]} or an
                 actionable message if Home Assistant isn't connected.
             """
-            db = await HomeAssistantModule.get_mcp_db_client()
-            client, err = await resolve_client(db, agent_id)
+            client, err = await resolve_client(agent_id)
             if client is None:
                 return err
             try:
@@ -103,8 +102,7 @@ class HomeAssistantModule(XYZBaseModule):
                 agent_id: The calling agent's id.
                 entity_id: e.g. "light.living_room".
             """
-            db = await HomeAssistantModule.get_mcp_db_client()
-            client, err = await resolve_client(db, agent_id)
+            client, err = await resolve_client(agent_id)
             if client is None:
                 return err
             try:
@@ -120,8 +118,7 @@ class HomeAssistantModule(XYZBaseModule):
                 agent_id: The calling agent's id.
                 domain: Optional filter, e.g. "light". Omit to list all domains.
             """
-            db = await HomeAssistantModule.get_mcp_db_client()
-            client, err = await resolve_client(db, agent_id)
+            client, err = await resolve_client(agent_id)
             if client is None:
                 return err
             try:
@@ -155,8 +152,7 @@ class HomeAssistantModule(XYZBaseModule):
                 entity_id: Target entity (optional if the service is area/global).
                 data: Extra service data, e.g. {"temperature": 22, "brightness": 200}.
             """
-            db = await HomeAssistantModule.get_mcp_db_client()
-            client, err = await resolve_client(db, agent_id)
+            client, err = await resolve_client(agent_id)
             if client is None:
                 return err
             try:

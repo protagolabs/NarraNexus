@@ -1,7 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
+
+新增模块函数 `configured_env_var_names(env_config)`——「一个 var 算不算已配置」的**单一真相**(存在且可解密;吃 dict 不吃 name,故对 enabled/disabled skill 一致)。此前该规则以 `bool(env_config.get(v))` 散在 6 处、3 种语义(密文非空即算已配置)。`_parse_skill_md` 两处 env_configured 改用它→源头即诚实,hook 表格与 install_pipeline 的 config_required 只读 env_configured 故自动跟对。删掉上一版的 `get_configured_env_var_names`(按 name 解析、只认 enabled 目录,会把禁用 skill 全判未配置)。
+
+## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
+
+`get_all_skill_env_vars` 吃 3 元组:failed 的 var **跳过不注入**(skill 因缺 var 干净失败,而非拿密文跑)+ 每 skill error 日志点名需重录的 var。惰性迁移(needs_rewrite 重写 meta)在**有任何 failed 时跳过**——否则会覆盖坏值那份还能用旧 key 恢复的密文。新增 `get_configured_env_var_names(skill_name)`:只返回「存在且可解密」的 var,驱动 env_configured(见 [[skills.py]]),坏凭据不再算「已配置」。
 
 ## 2026-07-28 — R4d：所有目录遍历改为按名排序（等长重排型缓存断点）
 
@@ -116,6 +124,12 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 **`_dir_is_builtin` 委托（2026-07-14）**：原本这里自带一份判定，和 `bundle/skill_backup.py` 逐字重复。现改为薄委托到 [[skill_secrets.py]] 的 `dir_is_builtin`，三处同源、`builtin` 语义不再漂移。
 
 **install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
+
+**凭证 fail-closed + 单一真源（2026-08-13，round 3/4 收口）**：三个模块级函数分工——`configured_env_var_names(env_config)` 是「某 env 是否已配置」的**唯一真源**（present ∧ 可解密 ∧ **解出来非空**），**解密委托给 [[secret_box]] 的 total `decrypt_env_config`**（状态查询与注入两条路共用同一个解密器），再在状态侧过滤空明文：`{name for name, value in plain.items() if value}`。**为什么要这层真值过滤**：`encrypt("")` 是合法 Fernet token、`decrypt` 成功返回 `""`——scrubbed-bundle 还原 + legacy 迁移会留下这种形状，「可解密」≠「可用」，空凭据必须读作未配置（否则卡片绿、运行期注入空 key、opaque 失败，8/1 事故的空串版本）。真值过滤**只放状态侧**：注入路径的 `plain` 要拿去做 legacy 回写 `encrypt_env_config(plain)`，从 plain 删 key 等于迁移时静默删字段；空明文也**不能计入 `failed`**（会翻转 `if not failed` 卡住真正需要迁移的 legacy 值）。函数入口保留一层 `isinstance(env_config, dict)` 快速返回（省掉对垃圾输入调 `get_secret_box()`），解密净化仍单点在 `decrypt_env_config`。`get_secret_box()` 失败降 `logger.debug`（进程级事实、不 per-skill 刷屏），唯一带上下文的 ERROR 留给注入路径。历史上这个判定散落六处（list/detail/MCP/hook/install/enrich）导致只改一处修不干净；现全部改调它。
+`env_config_status(requires_env, env_config)` 是 `_parse_skill_md` **两个 return** 的单一来源，一次算出 `(env_configured, env_platform_assumed)`：前者=必填 var 全部「自存可解密 ∨ 属 `PLATFORM_RESOLVED_ENV`」；后者=其中「属平台且**非自存**」的子集，随 `SkillInfo` 带给 API 层做 DB 校验（见 [[skills.py]] 的 enrich 反向假阴性修复）。自存的平台 var 被排除出 assumed，永不被误降。
+`get_all_skill_env_vars`：`get_secret_box()` 现包 try——key 配错时 fail-closed 返回 `{}`（注入空、不抛出 hook_data_gathering、不拖垮整个 agent 的 skills 贡献），并发 ops ERROR。其余用 `decrypt_env_config` 三元组 `(plain, needs_rewrite, failed)`——解不开或损坏（非 str）的值**永不注入**、`failed` 里点名重录；任一 failed 时**跳过 legacy 迁移**（避免覆写还能用旧钥恢复的密文）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)`。
+
+**meta 读取统一走 `_load_meta_dict`（2026-08-13 round 4，🟢5）**：`.skill_meta.json` 是 agent 可写文件，可能缺失、非 JSON、或是合法 JSON 但**非 object**（数组/字符串/数字）——后者 `json.loads` 成功但随后的 `.get()` 抛 `AttributeError`。`_parse_skill_md` 的一串 `.get()` 在 frontmatter `try` **之外**，会一路抛穿 `_scan_skills` → `list_skills` → 列表 500 / hook 整份贡献丢失（正是「malformed meta 不得 crash」契约要挡的 blast radius）。新增静态 `_load_meta_dict(meta_file)` 把三处读点（`_parse_skill_md`、`_read_skill_meta`、`_scan_skills` 里无 SKILL.md 的分支）统一成「读→非 dict 一律 `{}` + 点名 warning」。非 dict 的坏 meta 本就无可恢复字段，`{}` 兜底不丢信息、且留 breadcrumb；不是静默降级。
 
 ## Gotcha / 边界情况
 

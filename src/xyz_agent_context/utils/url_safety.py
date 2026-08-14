@@ -85,6 +85,24 @@ def is_obviously_non_public_host(host: str) -> bool:
     return "." not in host  # single-label name is never publicly resolvable
 
 
+def is_obviously_non_public_url(url: object) -> bool:
+    """`is_obviously_non_public_host` for a whole URL — parse-safe.
+
+    Extracts the host and applies the same DNS-free screen, but ALSO treats an
+    unparseable or non-string URL as non-public (returns True). A screen over
+    attacker-supplied input must never crash the caller (a malformed
+    ``http://[::1`` raises ValueError; a non-string like ``123`` raises
+    AttributeError) — "can't parse it" is decided as "not safe", same posture
+    as the connect-time gate's fail-closed. Use this at store sites (route
+    create/update, bundle import) so a garbage URL is screened out, not thrown.
+    """
+    try:
+        host = urlparse(url or "").hostname or ""
+    except Exception:  # noqa: BLE001 — unparseable/garbage input → treat as non-public
+        return True
+    return is_obviously_non_public_host(host)
+
+
 async def _default_resolver(host: str, port: int) -> List[str]:
     loop = asyncio.get_event_loop()
     infos = await loop.getaddrinfo(host, port, proto=0)

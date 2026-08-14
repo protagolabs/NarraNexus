@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/heal.py
-last_verified: 2026-07-21
+last_verified: 2026-08-10
 stub: false
 ---
 
@@ -25,9 +25,11 @@ body.
 2. **Caller-picked path** (`entry_path` given, the "user picked from the
    modal" flow) — re-register onto the same artifact_id. Rejections propagate
    as `ArtifactError` so the caller sees the cause.
-3. **Workspace scan by kind** (`_KIND_EXTENSIONS`, mtime desc, capped at
+3. **Scan by kind** (`_KIND_EXTENSIONS`, mtime desc, capped at
    `_HEAL_MAX_CANDIDATES`=10): unique match → auto-register; 0 / >1 →
    `recovered=False` + candidates for the modal.
+
+All three steps read one root, `search_root` — see the 2026-08-10 entry.
 
 All re-registrations go through [[registration.py]] with
 `target_artifact_id` set, so kind whitelist / path confinement / size cap stay
@@ -42,3 +44,32 @@ identical to every other registration path.
   rejected at register time (realpath confinement).
 - `application/vnd.officecli-live` maps to (.pptx, .docx, .xlsx) so heal works
   for office artifacts too (2026-07-13 behavior, carried over).
+
+## 2026-08-10 — the root is the artifact's, not always the agent's
+
+Every step above was written when an artifact could only live in the producing
+agent's workspace, and all three broke silently once [[registration.py]] began
+REQUIRING a team artifact to live in `_shared/teams/{id}`:
+
+- step 1 compared an intact team pointer against the workspace root, so a
+  perfectly healthy artifact was declared broken and the flow continued;
+- step 3 walked that same workspace, so the modal offered the agent's unrelated
+  private files as replacements for a team artifact;
+- both re-registrations omitted `team_id`, so they failed the reachability
+  check added alongside it and surfaced as "artifact not found".
+
+Nothing here reported an error — it reported the WRONG ANSWER at each step,
+ending in a failure whose message named the wrong cause. The three now derive
+one `search_root` (team folder when `art.team_id`, workspace otherwise) and
+pass `team_id` through.
+
+`_absolutise` exists because candidates are reported relative to the scan root
+while `_resolve_entry` deliberately resolves a relative `entry_path` against
+the agent's own workspace — it refuses to re-base one onto a root the agent did
+not name. That rule is right for the tool surface, so heal names the root
+explicitly rather than weakening it.
+
+This was cited in [[teams]] as a reason `clear_files` must cascade to
+artifacts. The cascade is still right, but for the other reason given there:
+heal only ever RECONNECTS a pointer to a file that still exists, and a wipe
+deletes the files.

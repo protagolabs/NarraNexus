@@ -1,8 +1,55 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — reply_language
+
+新增 `getReplyLanguage`/`setReplyLanguage`(GET/PUT settings/reply-language;'' 清除)。读半边供 [[replyLanguageSync.ts]] boot 对账回填。
+
+## 2026-08-12 — `AuthFunnelStage` 编译期契约（复审三轮 Important）
+
+`reportAuthFunnel(stage: AuthFunnelStage, …)` 的 stage 从自由 `string` 收成**闭合联合类型**,镜像后端 `_FUNNEL_STAGES`([[auth]])白名单。端点对白名单外 stage 返 400、而 `reportAuthFunnel` fire-and-forget `.catch` 吞掉——自由字符串等于「加了上报点但报进黑洞」。联合类型让加新 stage 不先改这里就 `tsc` 不过,逼作者同时去后端白名单。与后端硬编码列表测试互补(前端加/后端删各兜一头)。
+
+## 2026-08-11 — telemetry consent 客户端方法
+
+`getTelemetryConsent` / `setTelemetryOptOut`(+ 导出
+`TelemetryConsentState` 类型)。与 analytics 对相邻;极性约定沿用:
+线上契约说 `opted_out`(否定),UI 持 `enabled`(肯定),翻转发生在
+组件边界。
+## 2026-08-10 — 工作板三个方法
+
+`getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
+`paused`**(agent 侧的列表刻意不含),因为要不要恢复是用户的决定 —— 隐藏它会
+让被停的任务看起来像被删了。
+
+## 2026-08-10 (review 修正) — `mintTeamArtifactViewToken` 客户端方法已移除
+
+上面 2026-08-07 那条介绍的**三个**方法里，第三个已删。它没有调用方：面板内联渲染走
+[[ArtifactRenderer.tsx]]，后者按 `artifact.agent_id`（**产出者**）走 agent 侧 view-token，
+而那条路由校验的是「JWT 用户是否拥有该 agent」——团队成员本就都是同一 owner 的 agent，
+所以队友的 artifact 用既有路由就能取到。
+
+**服务端路由 `POST /teams/{id}/artifacts/{id}/view-token` 保留**（Owner 决定）：它表达的
+「按 team 归属授权」语义更贴切，不依赖「团队皆同 owner」这个隐含前提。客户端这个空方法则是
+纯死代码，故删。
+
+（这条 md 的存在本身是个教训：删除也会让 intent 段落作废，而 CI 的 mirror 检查是
+`--diff-filter=AM` + 非阻塞的，删除方向它根本不报。）
+
+## 2026-08-07 — 团队工作台三个端点
+
+`listTeamArtifacts` / `listTeamFiles` / `mintTeamArtifactViewToken`。最后一个与 agent 侧的 mint
+分开，表达的是「按 team 归属授权」这一更贴切的语义（见 [[teams.py]]）；功能上与 agent 路由
+重叠——后者校验的是「JWT 用户是否拥有该 agent」，而团队成员本就都是同一 owner 的 agent。
+
+## 2026-08-07 — cancelRun(runId)
+
+`POST /api/runs/{run_id}/cancel` 的调用点。**resolve 不代表 run 停了** ——
+端点只记录意图就返回,真正的中断发生在另一个进程(见后端
+[[cancel_watcher]])。调用方应据 resolve 立刻渲染「正在停止」,终态从该
+run 的观察流里等。唯一消费者:[[TeamMemberPanel]] 的停止按钮。
 
 ## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
 
@@ -199,21 +246,11 @@ origination from the Arena SSO flow.
 
 PR #24 review hardening, matching the backend change in `routes/auth.py`:
 `getAnalyticsOptOut()` / `setAnalyticsOptOut(optedOut)` no longer take a
-`userId` parameter (no query param, no body field) and `trackFunnelEvent(event)`
-no longer accepts `properties`. The server derives the user from the auth
-header and stamps event properties (surface etc.) itself.
+`userId` parameter (no query param, no body field). The server derives the user
+from the auth header and stamps event properties (surface etc.) itself.
 
-## 2026-06-09 — trackFunnelEvent (setup page UI actions)
-
-Added `trackFunnelEvent(event)` — POSTs `{event}` to
-`POST /api/auth/funnel`. Called fire-and-forget by `SetupPage` (callers
-`.catch(() => {})` to suppress errors). Identity travels in the auth header
-(X-User-Id / JWT) set by `getAuthHeaders`, not in the body — consistent with
-every other `ApiClient` method.
-
-This is the only `ApiClient` method that targets the `/api/auth/funnel`
-endpoint. It is intentionally not typed beyond `{ success: boolean }` because
-the funnel endpoint is write-only from the frontend's perspective.
+Setup actions no longer live in `ApiClient`; `productAnalytics.ts` owns the
+single browser event ingestion contract.
 
 ## 2026-06-08 — getAnalyticsOptOut / setAnalyticsOptOut
 
@@ -295,7 +332,7 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
 
-**Side effect on 401 (stale JWT).** Before throwing, `request<T>` dispatches a global `CustomEvent` for one status: `narranexus:auth-expired` on 401, when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). The guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via an event to avoid a circular import on `@/stores/configStore`.
+**Side effect on 401 (session death only).** Before throwing, `request<T>` inspects the 401 body's `code`. Only the session-death codes ([[authFailure.ts]]) go any further, and even those are handed to [[sessionGuard.ts]], which confirms against `GET /api/auth/session` before dispatching `narranexus:auth-expired` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). Every other 401 — stale NetMind token, gateway token, an unclassified 401 from an old backend — just throws `ApiError` for the caller to handle. Still decoupled via an event to avoid a circular import on `@/stores/configStore`.
 
 402 has **no** special side effect any more — it takes the generic throw path like any other non-2xx. It used to dispatch `narranexus:quota-exceeded`; see the 2026-07-30 entry above for why that went away.
 
@@ -343,3 +380,8 @@ Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].
 void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正看着的真实
 错误。detail 客户端先截 300（服务端同样有硬上限）。调用方：useNetmindAuth
 的 emailLogin / handleAuthCallback 失败分支。
+
+## 2026-08-11 — 公告栏 5 个方法 + `clearTeamData` 增加 bulletin scope
+
+`getTeamBulletin` 返回 entries **加** usage/limits：面板要在用户打字**之前**就能禁用
+「添加」，而不是写完才被拒。

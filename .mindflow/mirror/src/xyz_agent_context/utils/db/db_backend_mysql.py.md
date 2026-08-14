@@ -39,3 +39,8 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 **`_validate_identifier` rejects legitimate names with hyphens.** Column or table names containing hyphens (e.g., from external systems) will raise `ValueError` from `_validate_identifier`. This is intentional for SQL-injection prevention but can be surprising if you expect the validator to be lenient.
 
 **New-contributor trap.** `aiomysql` cursors return tuples by default. `MySQLBackend` sets `cursorclass=aiomysql.DictCursor` to get dict rows. If you bypass the backend and use the raw pool directly, you will get tuples unless you explicitly pass the cursor class.
+
+## 2026-08-07 — `get_by_ids` 支持 `fields`
+
+沿用本文件 `get` 里已有的 `_validate_identifier` + backtick 写法；`id_field` 强制
+并入投影，保证保序 map 可建。见 [[database.py]]。

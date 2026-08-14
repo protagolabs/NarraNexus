@@ -27,7 +27,7 @@ import subprocess
 import zipfile
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Set, Tuple
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -211,6 +211,90 @@ BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
 # at run time (see _resolve_platform_env). Declared-but-unconfigured vars in
 # this set do NOT flag a skill as "Needs Config" — they are auto-injected.
 PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
+
+
+def configured_env_var_names(env_config: dict) -> Set[str]:
+    """The single source of truth for "which stored env vars are usable config".
+
+    A var counts only if its stored value is present AND decryptable. A value
+    that is ciphertext this key can no longer open (the SecretBox key rotated
+    or was lost) does NOT count — otherwise every "is this configured?" check
+    (list/detail routes, the skill_list_required_env MCP tool, the agent's
+    skills table, install/upgrade config_required) shows the skill as ready
+    while it fails at run time on a missing/garbage credential (2026-08-01).
+    This rule used to live inline as ``bool(env_config.get(v))`` in six places
+    with drifting semantics; keep it here so a fix lands once.
+
+    Takes a raw env_config DICT (not a skill name), so it is agnostic to
+    whether the skill is enabled or disabled — the caller reads the meta from
+    the skill's own directory. Platform-resolved vars are a SEPARATE concern
+    handled by each caller (they may be satisfied without a stored value).
+
+    TOTAL by contract: this runs inside ``_parse_skill_md`` (once a pure
+    filesystem path) and behind ``GET /api/skills`` and the agent's per-turn
+    hook. A malformed meta (agent-writable file) or a key-load failure must
+    NOT crash the panel or drop the whole agent's credential injection — every
+    unreadable value degrades to "not configured" (fail-CLOSED), never to a
+    returned ciphertext (fail-open). Decryption itself is delegated to the
+    (total) ``decrypt_env_config`` so this and the injection path share ONE
+    decryptor; the ``plain`` it returns already excludes undecryptable, corrupt,
+    and blank-stored values. We ALSO drop values that decrypt to an empty string
+    (e.g. ``encrypt("")`` — a real token a scrubbed bundle restore can leave
+    behind): "decryptable" is not "usable", and an empty credential reads as NOT
+    configured so the UI prompts a re-enter instead of showing a green card that
+    injects an empty key at run time.
+    """
+    if not isinstance(env_config, dict):
+        # Fast return: skip get_secret_box() entirely for a malformed meta.
+        # decrypt_env_config is itself total on non-dict; this is an entry guard,
+        # not a second sanitization layer.
+        return set()
+    from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
+        get_secret_box,
+    )
+
+    try:
+        box = get_secret_box()
+    except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
+        # A process-level fact (misconfigured key), not per-skill; log at debug
+        # so it doesn't repeat per skill × per scan. The one loud, contextful
+        # ERROR is emitted by the injection path (get_all_skill_env_vars).
+        logger.debug(f"SecretBox unavailable; treating all creds as unconfigured: {e}")
+        return set()
+
+    plain, _, _ = box.decrypt_env_config(env_config)
+    return {name for name, value in plain.items() if value}
+
+
+def env_config_status(
+    requires_env: Optional[List[str]], env_config: dict
+) -> Tuple[Optional[bool], Optional[List[str]]]:
+    """Parse-time config status for a skill: (env_configured, platform_assumed).
+
+    Single source for the optimistic, filesystem-only status computed in both
+    ``_parse_skill_md`` return paths. A required var is satisfied when it is
+    self-stored + decryptable (``configured_env_var_names``) OR it is
+    platform-resolvable (``PLATFORM_RESOLVED_ENV``, auto-injected at run time).
+
+    ``platform_assumed`` lists exactly the vars that count as configured ONLY
+    because of the platform assumption AND are NOT self-stored — the API layer
+    later validates just these against the user's provider config and downgrades
+    the ones the platform can't actually satisfy, WITHOUT re-reading meta. A
+    self-stored platform var is left OUT of this list so it is never wrongly
+    downgraded (the 🟡1 reverse false-negative: a user who manually entered
+    NETMIND_API_KEY in the Skill tab must stay "configured").
+    """
+    if not requires_env:
+        return None, None
+    configured = configured_env_var_names(env_config)
+    env_configured = all(
+        v in configured or v in PLATFORM_RESOLVED_ENV for v in requires_env
+    )
+    platform_assumed = [
+        v for v in requires_env
+        if v in PLATFORM_RESOLVED_ENV and v not in configured
+    ] or None
+    return env_configured, platform_assumed
 
 
 async def platform_env_available(db, user_id: Optional[str]) -> set:
@@ -486,13 +570,7 @@ class SkillModule(XYZBaseModule):
                 else:
                     # Directory without SKILL.md (may be a skill auto-created by agent)
                     # Still list it, using directory name as the name
-                    meta_file = skill_path / ".skill_meta.json"
-                    meta_data = {}
-                    if meta_file.exists():
-                        try:
-                            meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-                        except Exception:
-                            pass
+                    meta_data = self._load_meta_dict(skill_path / ".skill_meta.json")
 
                     info = SkillInfo(
                         name=skill_path.name,
@@ -562,14 +640,10 @@ class SkillModule(XYZBaseModule):
         source_url = None
         installed_at = None
 
-        # Read .skill_meta.json (if exists)
-        meta_file = skill_dir / ".skill_meta.json"
-        meta_data = {}
-        if meta_file.exists():
-            try:
-                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"Failed to read .skill_meta.json: {e}")
+        # Read .skill_meta.json (if exists). Coerced to a dict so a malformed,
+        # agent-writable meta cannot crash the .get() chain below (which runs
+        # OUTSIDE the frontmatter try) and take down _scan_skills with it.
+        meta_data = self._load_meta_dict(skill_dir / ".skill_meta.json")
 
         # Extract fields from meta_data
         source_url = meta_data.get("source_url")
@@ -631,13 +705,16 @@ class SkillModule(XYZBaseModule):
                         requires_env = sorted(set(fm_requires_env + body_env + meta_requires_env)) or None
                         requires_bins = sorted(set(fm_requires_bins + meta_requires_bins)) or None
 
-                        # Check if all required env vars are configured
-                        env_configured = None
-                        if requires_env:
-                            env_configured = all(
-                                env_config.get(v) or v in PLATFORM_RESOLVED_ENV
-                                for v in requires_env
-                            )
+                        # Check if all required env vars are configured — a
+                        # required var counts only if its stored value decrypts
+                        # (or is platform-resolved), so a credential under a
+                        # lost key reads as NOT configured (2026-08-01).
+                        # platform_assumed carries the platform-only half down
+                        # so the API layer can DB-validate it without re-reading
+                        # meta (see env_config_status / _enrich_platform_env_status).
+                        env_configured, env_platform_assumed = env_config_status(
+                            requires_env, env_config
+                        )
 
                         return SkillInfo(
                             name=meta.get("name", skill_dir.name),
@@ -652,6 +729,7 @@ class SkillModule(XYZBaseModule):
                             requires_env=requires_env,
                             requires_bins=requires_bins,
                             env_configured=env_configured,
+                            env_platform_assumed=env_platform_assumed,
                             **study_fields,
                         )
         except Exception as e:
@@ -660,11 +738,9 @@ class SkillModule(XYZBaseModule):
         # Fallback: use directory name as the name
         requires_env = sorted(set(meta_requires_env)) or None
         requires_bins = sorted(set(meta_requires_bins)) or None
-        env_configured = None
-        if requires_env:
-            env_configured = all(
-                env_config.get(v) or v in PLATFORM_RESOLVED_ENV for v in requires_env
-            )
+        env_configured, env_platform_assumed = env_config_status(
+            requires_env, env_config
+        )
 
         return SkillInfo(
             name=skill_dir.name,
@@ -677,6 +753,7 @@ class SkillModule(XYZBaseModule):
             requires_env=requires_env,
             requires_bins=requires_bins,
             env_configured=env_configured,
+            env_platform_assumed=env_platform_assumed,
             **study_fields,
         )
 
@@ -821,18 +898,36 @@ class SkillModule(XYZBaseModule):
                         pass
         return None
 
+    @staticmethod
+    def _load_meta_dict(meta_file: Path) -> dict:
+        """Read a .skill_meta.json into a dict, coercing away malformed shapes.
+
+        The file is agent-writable, so it may be absent, non-JSON, or valid JSON
+        that is not an object (an array / string / number). Every one of those
+        yields ``{}`` — a malformed meta must never crash ``_parse_skill_md`` /
+        ``_scan_skills`` / the credential-injection path (the "malformed meta
+        must not crash the panel or drop the agent's skills" contract). The
+        non-object case is logged (with the path) rather than swallowed, so a
+        corrupt file leaves a breadcrumb instead of silently reading as empty.
+        """
+        if not meta_file.exists():
+            return {}
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001 — corrupt/non-JSON agent-written file
+            logger.warning(f"Failed to read {meta_file}: {e}")
+            return {}
+        if isinstance(data, dict):
+            return data
+        logger.warning(f".skill_meta.json is not a JSON object, ignoring: {meta_file}")
+        return {}
+
     def _read_skill_meta(self, skill_name: str) -> dict:
         """Read .skill_meta.json for a skill, returns empty dict if not found"""
         skill_dir = self._resolve_skill_dir(skill_name)
         if not skill_dir:
             return {}
-        meta_file = skill_dir / ".skill_meta.json"
-        if meta_file.exists():
-            try:
-                return json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"Failed to read .skill_meta.json for '{skill_name}': {e}")
-        return {}
+        return self._load_meta_dict(skill_dir / ".skill_meta.json")
 
     def _write_skill_meta(self, skill_name: str, meta_data: dict) -> None:
         """Write .skill_meta.json for a skill"""
@@ -942,10 +1037,24 @@ class SkillModule(XYZBaseModule):
 
         Legacy plain-base64 values (pre-Fernet format) are decrypted
         transparently and re-persisted encrypted on first read.
+
+        A value that is ciphertext this key cannot decrypt (the SecretBox key
+        rotated or was lost) is SKIPPED, never injected as ciphertext — the
+        skill fails cleanly for a missing var instead of running with garbage
+        (2026-08-01). Legacy re-persist is skipped whenever any value in the
+        same skill failed, so we don't overwrite the still-recoverable
+        ciphertext of the failed one.
         """
         from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import get_secret_box
 
-        box = get_secret_box()
+        try:
+            box = get_secret_box()
+        except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
+            # A process-level key failure must not raise out of hook_data_gathering
+            # (it would drop this agent's whole skills contribution). Fail CLOSED:
+            # inject nothing, and emit the single loud ops signal here.
+            logger.error(f"SecretBox unavailable; skipping ALL skill credential injection: {e}")
+            return {}
         all_env = {}
         skills = self._scan_skills()
         for skill in skills:
@@ -953,11 +1062,26 @@ class SkillModule(XYZBaseModule):
             env_config = meta_data.get("env_config", {})
             if not env_config:
                 continue
-            plain, needs_rewrite = box.decrypt_env_config(env_config)
+            plain, needs_rewrite, failed = box.decrypt_env_config(env_config)
+            if failed:
+                # Undecryptable creds (key rotated/lost) are SKIPPED, never
+                # injected as ciphertext — the skill fails cleanly for a
+                # missing var instead of running with garbage (2026-08-01).
+                # env_configured turns False for these (see backend/routes/
+                # skills.py) so the UI prompts the user to re-enter them.
+                logger.error(
+                    f"Skill '{skill.name}': {len(failed)} credential(s) cannot "
+                    f"be decrypted and were skipped — re-enter {failed}"
+                )
             if needs_rewrite:
-                meta_data["env_config"] = box.encrypt_env_config(plain)
-                self._write_skill_meta(skill.name, meta_data)
-                logger.info(f"Migrated legacy env config to encrypted form for skill '{skill.name}'")
+                # Re-persist ONLY the decryptable values (legacy-migration);
+                # never overwrite the meta while some values failed to decrypt,
+                # or we'd destroy the still-encrypted (recoverable-with-the-old-
+                # key) ciphertext of the failed ones.
+                if not failed:
+                    meta_data["env_config"] = box.encrypt_env_config(plain)
+                    self._write_skill_meta(skill.name, meta_data)
+                    logger.info(f"Migrated legacy env config to encrypted form for skill '{skill.name}'")
             for key, value in plain.items():
                 if key in all_env and all_env[key] != value:
                     logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")

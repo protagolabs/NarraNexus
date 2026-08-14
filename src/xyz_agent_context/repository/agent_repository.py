@@ -44,9 +44,9 @@ class AgentRepository(BaseRepository[Agent]):
         logger.debug(f"    → AgentRepository.get_agent({agent_id})")
         return await self.find_one({"agent_id": agent_id})
 
-    async def resolve_owner(self, agent_id: str) -> str:
-        """The agent's owner (``agents.created_by``); empty string when
-        the agent is unknown or the lookup fails.
+    async def resolve_owner(self, agent_id: str) -> Optional[str]:
+        """The agent's owner (``agents.created_by``); ``""`` when the agent
+        is unknown, ``None`` when the LOOKUP ITSELF failed.
 
         The ONE answer to "who owns this agent". Visibility checks (the
         run observe endpoint), channel triggers and the OpenAI-compat
@@ -55,15 +55,23 @@ class AgentRepository(BaseRepository[Agent]):
         drift apart. NOTE this is deliberately NOT ``events.user_id``:
         that column stores the run's TRIGGERING key (a team run stores
         the sender, ``usr_<uid>`` or a relaying agent_id), not ownership.
+
+        The ""/None split exists because callers make SECURITY decisions on
+        this value (PR #258 review #4): "agent does not exist" and "the
+        database hiccuped" must not collapse into one answer, or a db outage
+        presents as a batch of users' agents vanishing with only a warning
+        log to show for it. Callers that only gate on truthiness are
+        unaffected (both are falsy); authorization callers map None to a
+        5xx, never to "not found".
         """
         if not agent_id:
             return ""
         try:
             row = await self._db.get_one(self.table_name, {"agent_id": agent_id})
             return (row or {}).get("created_by", "") or ""
-        except Exception as e:  # noqa: BLE001 — resolution failure = no owner
+        except Exception as e:  # noqa: BLE001 — surfaced as None, callers decide
             logger.warning(f"AgentRepository.resolve_owner({agent_id}) failed: {e}")
-            return ""
+            return None
 
     async def add_agent(
         self,

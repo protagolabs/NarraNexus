@@ -23,6 +23,8 @@ export function LanguageToggle() {
     ) ?? SUPPORTED_LANGUAGES[0];
 
   const select = (code: string) => {
+    // Persistence rides i18n's languageChanged event (replyLanguageSync),
+    // so every language-change path writes through, not just this toggle.
     void i18n.changeLanguage(code);
     setOpen(false);
   };

@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
+
+工具改为 `get_agent_data_store().get_chat_history(agent_id, instance_id, limit)`，实现下沉到
+[[_chat_reads]] `fetch_chat_history`（DirectStore/孪生路由同源）。**三处随迁变化**：
+1) 工具签名加 `agent_id`（LLM 传，同 send_message_to_user_directly），闭掉旧的「任意 instance_id
+   读别人会话」IDOR；prompts 示例同步加 agent_id。
+2) 旧的 `information_schema` MySQL 专用存在性检查 + 裸 SQL 删除（de-raw，双方言安全）——下方
+   2026-04-10 Gotcha 里「SQLite 会报错」「直接查表是技术债」两条**已解决**，留作历史。
+3) `create_chat_mcp_server` 去掉 `get_db_client_fn` 参数（get_chat_history 走 seam 自解析 db、
+   send_message 不碰 db，该参数已死）；调用方 [[chat_module]] create_mcp_server 同步改。
+
 
 # _chat_mcp_tools.py — ChatModule MCP 工具定义
 
@@ -11,12 +23,12 @@ last_verified: 2026-04-10
 
 提供两个工具：
 - `send_message_to_user_directly`：Agent 向用户说话的**唯一通道**，没有 DB 操作，只返回确认
-- `get_chat_history`：直接查询 `instance_json_format_memory_chat` 表返回历史消息
+- `get_chat_history`：经 AgentDataStore seam 取会话历史（实现见 [[_chat_reads]]；2026-08-10 前是直查裸表，见 dated section）
 
 ## 上下游关系
 
-- **被谁用**：`ChatModule.create_mcp_server()` 调用 `create_chat_mcp_server(port, ChatModule.get_mcp_db_client)` 创建 FastMCP 实例；`ModuleRunner` 把返回的 mcp 对象部署为服务器
-- **依赖谁**：`get_db_client_fn` 注入（`ChatModule.get_mcp_db_client` 类方法）；直接查询表 `instance_json_format_memory_chat`（没有通过 Repository 层，原因见下）
+- **被谁用**：`ChatModule.create_mcp_server()` 调用 `create_chat_mcp_server(port)` 创建 FastMCP 实例；`ModuleRunner` 把返回的 mcp 对象部署为服务器
+- **依赖谁**：get_chat_history 走 [[store]] AgentDataStore seam（DirectStore 自解析 db）；实现在 [[_chat_reads]]（`db.get_one`，已 de-raw，不再直查裸表）
 
 ## `agent_id` 如何传入
 
@@ -26,9 +38,9 @@ last_verified: 2026-04-10
 
 **`send_message_to_user_directly` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
 
-**`get_chat_history` 直接查表而不走 Repository**：历史记录存储在 `instance_json_format_memory_chat` 这个动态命名的表里（表名含模块名后缀），`EventMemoryModule` 的 Repository 层设计没有把这个动态表名暴露为稳定接口。直接查询是权宜之计，表名硬编码是技术债。
+**~~`get_chat_history` 直接查表而不走 Repository~~（2026-08-10 已改）**：曾经直查动态命名表 `instance_json_format_memory_chat` 是权宜之计+技术债。现已迁 [[_chat_reads]]，用 `db.get_one`（双方言安全），表名仍是该模块常量但不再有裸 SQL。
 
-**工厂函数模式**：`create_chat_mcp_server(port, get_db_client_fn)` 是工厂函数而非类方法，接受 db client 获取函数作为参数。这是为了在不实例化 `ChatModule` 的情况下创建 MCP 服务器（MCP 进程不持有 Module 实例），同时避免循环引用。
+**工厂函数模式**：`create_chat_mcp_server(port)` 是工厂函数而非类方法（2026-08-10 去掉了已死的 `get_db_client_fn` 参数）。这是为了在不实例化 `ChatModule` 的情况下创建 MCP 服务器（MCP 进程不持有 Module 实例），同时避免循环引用。
 
 ## Gotcha / 边界情况
 

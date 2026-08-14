@@ -64,6 +64,10 @@ class Artifact(BaseModel):
     kind: ArtifactKind
     description: Optional[str] = Field(default=None, max_length=2000)
     pinned: bool = False
+    # Owning team, or None for a private artifact. None is also every row
+    # that predates the team workspace, so "no team" and "private" are the
+    # same state by construction — no backfill, no migration flag.
+    team_id: Optional[str] = None
     file_path: str  # entry file, relative to settings.base_working_path
     size_bytes: int = 0  # recursive size of the artifact root directory
     created_at: datetime

@@ -33,7 +33,9 @@ from .job_repository import JobRepository
 from .inbox_repository import InboxRepository
 from .mcp_repository import MCPRepository
 from .user_repository import UserRepository
+from .ban_audit_repository import BanAuditRepository
 from .agent_repository import AgentRepository
+from .agent_registry_repository import AgentRegistryRepository
 from .agent_message_repository import AgentMessageRepository
 from .agent_circuit_breaker_repository import AgentCircuitBreakerRepository
 from .event_memory_repository import EventMemoryRepository
@@ -47,6 +49,7 @@ from .home_assistant_repository import HomeAssistantBindingRepository, HABinding
 
 # Subproject 1: Team Membership
 from .team_repository import TeamRepository, TeamMemberRepository
+from .team_bulletin_repository import TeamBulletinRepository
 
 # Subproject 2: Skill Archive
 from .skill_archive_repository import SkillArchiveRepository
@@ -87,10 +90,12 @@ __all__ = [
     "MCPUrl",
     # User
     "UserRepository",
+    "BanAuditRepository",
     "User",
     "UserStatus",
     # Agent
     "AgentRepository",
+    "AgentRegistryRepository",
     "Agent",
     # Instance (ModuleInstance decoupled)
     "InstanceRepository",
@@ -103,6 +108,7 @@ __all__ = [
         # Team
     "TeamRepository",
     "TeamMemberRepository",
+    "TeamBulletinRepository",
     # Skill Archive
     "SkillArchiveRepository",
     # CLI Session

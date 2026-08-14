@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_catalog.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — effective_card_models：卡片运行时模型列的唯一口径
+
+新增 `effective_card_models(source, stored)`：claude_oauth → 别名表、
+codex_oauth → curated 表、其余 → 存量列。动机（Base recvqEiNbacKWa
+「本地CC模型name不自动更新」收口）：读时覆盖此前只活在
+`get_user_config` 内联分支里，resolver 路径经 `ProviderCard.from_row`
+拿裸列 → self-heal 的成员测试对裸列跑，钉在旧全 id 的槽位判「健康」
+永不自愈。两条加载路径（user_service / self_heal）现在共用本函数，
+口径不可能再分叉。同批新增 `claude_family_alias(model_id)`：
+`claude-sonnet-4-6`→`sonnet`（self-heal 家族保持用）；带聚合商前缀
+（`anthropic/claude-*`）返回 None——那是 API-proxy 卡，全 id 是对的。
 
 ## 2026-07-31 — codex curated 列表迁入 _DEFAULT_MODELS(单一事实源)
 

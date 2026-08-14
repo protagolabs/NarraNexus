@@ -40,6 +40,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_ECHO,
+    EVENT_INGRESS_DROPPED_EMPTY,
     EVENT_INGRESS_DROPPED_HISTORIC,
     EVENT_INGRESS_DROPPED_NOT_MENTIONED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
@@ -435,7 +436,9 @@ class LarkTrigger(ChannelTriggerBase):
         on ``message_type``:
 
           - ``text``   → ``{"text": "..."}``                   — extract ``text``
-          - ``post``   → ``{"<lang>": {"title", "content"}}``  — walk segments
+          - ``post``   → ``{"<lang>": {"title", "content"}}`` (Lark clients)
+            or unwrapped ``{"title", "content"}`` (API / lark-cli
+            senders)                                           — walk segments
           - ``file`` / ``image`` / ``audio`` / ``media`` /
             ``sticker``                                        — payload carries
             file/image metadata only, NO user-visible text. ``content`` MUST
@@ -635,17 +638,27 @@ class LarkTrigger(ChannelTriggerBase):
     def _extract_post_text(payload: dict) -> str:
         """Flatten a Lark ``post``-type payload to a single text string.
 
-        Lark post payloads are multi-language:
+        Two wire shapes carry the same post body:
             {"zh_cn": {"title": "...", "content": [[seg, seg], [seg]]}}
+            {"title": "...", "content": [[seg, seg], [seg]]}
+        Lark clients emit the first (multi-language wrapper); API and
+        lark-cli senders emit the second — the payload IS the block (live
+        incident 2026-08-06: the unwrapped shape flattened to "" and the
+        message was dropped as empty, silently). The shapes cannot
+        collide: wrapper keys are language codes whose values are dicts,
+        while an unwrapped payload has a string ``title`` / list
+        ``content`` at top level.
+
         Each line is a list of segments, each segment is a dict possibly
-        carrying a ``text`` field. We return the first non-empty language
+        carrying a ``text`` field. We return the first non-empty
         block's title + concatenated segment texts. Mirrors the walker in
         ``_preview_message_content`` (kept separate so the preview helper
         can stay frozen — refactoring it risks regressing the audit log).
         """
-        for lang_block in payload.values():
-            if not isinstance(lang_block, dict):
-                continue
+        blocks = [b for b in payload.values() if isinstance(b, dict)]
+        if "title" in payload or "content" in payload:
+            blocks.insert(0, payload)
+        for lang_block in blocks:
             title = lang_block.get("title", "") or ""
             body_bits: list[str] = []
             for line in lang_block.get("content", []) or []:
@@ -1758,6 +1771,22 @@ class LarkTrigger(ChannelTriggerBase):
         # ``a00adbd fix(channel): allow caption-less file uploads``.
         has_refs = bool((message.raw or {}).get("attachment_refs"))
         if (not message.content or not message.content.strip()) and not has_refs:
+            # Audited, not silent: a payload shape the extractor didn't
+            # recognise lands here looking identical to a genuinely empty
+            # message (live incident 2026-08-06: unwrapped post body), and
+            # "why didn't the bot reply?" must stay answerable from the
+            # trace (lessons #3/#5).
+            await self._audit(
+                EVENT_INGRESS_DROPPED_EMPTY,
+                message_id=message.message_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={
+                    "message_type": (message.raw or {}).get("message_type", ""),
+                },
+            )
             return
 
         # Resolve sender name + sanitize
@@ -1907,25 +1936,26 @@ class LarkTrigger(ChannelTriggerBase):
         except Exception as e:  # noqa: BLE001
             logger.warning(f"build_retrieval_anchor failed; using input fallback: {e}")
             _anchor = None
-        trigger_extra_data: dict[str, Any] = {
-            "channel_tag": channel_tag.to_dict(),
-            "retrieval_anchor": _anchor,
-            "trigger_id": (
+        # Through the base builder — this method overrides
+        # ``_build_and_run_agent`` wholesale, and hand-rolling the dict here
+        # is exactly how Lark missed the 2026-08-06 turn envelope (p2p DMs
+        # read as group rooms, so the 1:1 no-reply fallback never ran).
+        # Attachments are handled by the builder (base/Slack/WS parity for
+        # ChatModule's ``extra_data.get("attachments")`` check).
+        trigger_extra_data = self.build_trigger_extra_data(
+            channel_tag=channel_tag,
+            retrieval_anchor=_anchor,
+            trigger_id=(
                 f"lark_{message.message_id}"
                 if message.message_id
                 else "lark_unknown"
             ),
+            builder=builder,
+            attachments=attachments,
             # Inbound message id, surfaced per-turn so get_instructions can tell
             # the agent which message to react to (react_to_user_message).
-            "source_message_id": message.message_id or "",
-        }
-        # Phase 1c T9d: only attach when non-empty — matches base/Slack/WS
-        # patterns so ChatModule's ``ctx_data.extra_data.get("attachments")``
-        # check behaves identically across all upload sources.
-        if attachments:
-            trigger_extra_data["attachments"] = [
-                a.model_dump(mode="json") for a in attachments
-            ]
+            source_message_id=message.message_id or "",
+        )
         # Through the client seam like every other trigger — admission
         # gating + run recording (observability) come with it.
         from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
@@ -1947,16 +1977,18 @@ class LarkTrigger(ChannelTriggerBase):
             # Route through the shared error-fallback so Lark also skips the
             # channel send when the agent already replied before failing
             # (no double-message), consistent with every other channel.
-            sent = self.extract_output(result, message, cred)
+            sent = self.resolve_agent_response(result, message, cred)
             already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
             await self._send_error_fallback(
                 cred, message, friendly, already_replied=already_replied
             )
             return friendly
 
-        # Happy path: scrape the text the agent itself sent via
-        # `lark_cli im +messages-send` from the tool_call raw payloads.
-        return self.extract_output(result, message, cred)
+        # Happy path: a platform-written fallback reply wins (see
+        # ChannelTriggerBase.platform_written_reply); otherwise scrape the
+        # text the agent itself sent via `lark_cli im +messages-send` from
+        # the tool_call raw payloads.
+        return self.resolve_agent_response(result, message, cred)
 
     async def send_channel_reply(
         self, credential: LarkCredential, message: ParsedMessage, text: str

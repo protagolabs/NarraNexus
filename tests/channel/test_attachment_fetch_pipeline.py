@@ -553,3 +553,35 @@ async def test_caption_less_file_upload_still_processed(
     workspace = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     pdfs = list(workspace.rglob("att_*.pdf"))
     assert len(pdfs) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_content_no_refs_drop_is_audited(db_client):
+    """The inverse of the caption-less case: NEITHER text NOR
+    attachment_refs → the guard drops the message, and the drop must be
+    AUDITED. The guard used to be a bare ``return`` with zero trace —
+    the same audit blind spot class as ``ingress_dropped_unparsed``
+    (lessons #3/#5). Live incident 2026-08-06 on the Lark override."""
+    from xyz_agent_context.channel.channel_audit_events import (
+        EVENT_INGRESS_DROPPED_EMPTY,
+    )
+    from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        ChannelTriggerAuditRepository,
+    )
+
+    cred = _FakeCredential()
+    trigger = _FakeAttachmentTrigger([], cred, {})
+    trigger._audit_repo = ChannelTriggerAuditRepository("fake", db_client)
+    trigger._subscriber_creds[cred.app_id] = cred
+
+    message = trigger.parse_event(
+        {"id": "m_empty", "from": "u_alice", "content": "", "ts_ms": 1}
+    )
+    await trigger._process_message(cred, message)
+
+    rows = await db_client.get(
+        "channel_trigger_audit",
+        {"channel": "fake", "event_type": EVENT_INGRESS_DROPPED_EMPTY},
+    )
+    assert len(rows) == 1
+    assert rows[0]["message_id"] == "m_empty"

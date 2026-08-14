@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 自我描述缺失时注入**指令**，不注入假状态
+
+`ctx_data.agent_description` 的兜底从 `"No description"` 改成
+`UNSET_AGENT_DESCRIPTION_NOTICE`（"(not recorded yet — ask your creator … save it
+with update_agent_profile …)"），判定走 [[entity_schema]] 的
+`is_agent_description_unset`（同时认空和 legacy 占位符）。
+
+原因（P1 段02）：这个字段**直接进系统提示**（prompts.py 的
+`**Description**: {agent_description}`）。过去创建写的占位符原样落到这里，于是
+agent 读到的自我描述就是"我是一个待配置的新 agent"——同伴问它配置好没有，它就
+照着答「还没配置完成」。`"No description"` 同样是个邀请它下这个结论的标签。
+改成指令后，缺失状态**指向修复动作**（[[awareness_module]] 的
+`update_agent_profile`），agent 当轮就能自救。
+
+两个硬失败兜底（agent 查不到 / 异常）也用同一句，不再说 "No description"。
 
 ## 2026-07-28 — R4b：get_instructions 按 relocation flag 选模板 + get_turn_context
 

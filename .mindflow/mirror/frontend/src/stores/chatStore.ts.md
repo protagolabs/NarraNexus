@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 — rendered reply as value outcome
+
+On `complete`, the store verifies a nonblank user-facing reply, commits the
+assistant message, then records `reply_rendered` with run/agent IDs. Error-only
+and no-response turns never count as value DAU.
 
 ## 2026-08-04 — 回复提取过滤空白部分；删除死方法 getUserVisibleResponse
 
@@ -79,6 +85,21 @@ data wipe ([[wipe_service.py]] / [[AgentList.tsx]]) it kept showing stale
 messages. Bumping the tick makes ChatPanel re-fetch (now-empty) history
 immediately. Deliberately a single global counter (not per-agent): a wipe is
 rare and only the mounted panel reacts, so the extra generality isn't worth it.
+
+## 2026-08-10 — workspaceRefreshTick / requestWorkspaceRefresh
+
+The same idea one layer over, for [[TeamChatPanel.tsx]]'s workspace panel.
+
+A SEPARATE counter rather than a reuse of `historyRefreshTick`, because the two
+wipes are independently selectable. Clearing only a team's files empties the
+workspace (and its artifacts — they live in that folder) while leaving the
+transcript byte-identical, and the workspace loader keys on message count, so
+nothing about the chat changes to tell it the rows are gone. Firing the history
+tick for a file-only wipe would ALSO make every mounted ChatPanel refetch
+history it already knows is current — one signal covering two unrelated wipes
+is how a refresh turns into a stampede.
+
+Producer: [[AgentList.tsx]]'s clear-team-data flow, on the `files` scope.
 
 ## 2026-06-10 — run_started 帧驱动 bookmarkStore.onRunStart
 

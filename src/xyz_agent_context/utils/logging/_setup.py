@@ -258,6 +258,46 @@ def setup_logging(
 
     install_intercept_handler()
 
+    # Network ship sink (observability push half) — registered last so a
+    # broken collector config can never cost the stderr/file sinks. Own
+    # queue via enqueue=True: a slow collector backs up its own worker,
+    # never the emitting coroutine and never the file sink.
+    try:
+        # Import INSIDE the guard: "_shipping is optional, logging is
+        # not" must hold for import-time failures too — a broken optional
+        # dependency in _ship must never take setup_logging down.
+        from ._ship import ShipSink, ship_config, ship_sink_level
+
+        config = ship_config()
+    except Exception as e:  # noqa: BLE001 — shipping is optional, logging is not
+        logger.warning(
+            f"diag ship unavailable ({type(e).__name__}: {e}); "
+            f"continuing without ship"
+        )
+        config = None
+    if config is not None:
+        try:
+            sink = ShipSink(service_name, config)
+            logger.add(
+                sink,
+                level=ship_sink_level(config["mode"], resolved_level),
+                enqueue=True,
+                backtrace=False,
+                diagnose=False,
+            )
+            if file_logging_ok:
+                from datetime import date as _date
+
+                sink.backfill_async(
+                    resolved_dir
+                    / f"{service_name}_{_date.today():%Y%m%d}.log"
+                )
+        except Exception as e:  # noqa: BLE001 — shipping is optional, logging is not
+            logger.warning(
+                f"diag ship sink registration failed "
+                f"({type(e).__name__}: {e}); continuing without ship"
+            )
+
     _INITIALIZED[service_name] = resolved_dir
     logger.info(
         "logging.setup service={s} fmt={f} level={l} dir={d}",

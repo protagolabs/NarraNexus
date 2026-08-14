@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-06
 ---
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+定位说明（review #12）：语音轮表达面保留 narra_reply 是刻意的——它是 trigger 唯一的兜底投递工具（bridge 无产出时 legacy finalize 靠它），「ONLY way = speak」的绝对断言只针对 plain prose；改这段的人不要顺手把 narra_reply 从语音轮表达面摘掉。
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+get_expressive_tools：extra_data.rtc_voice 存在时 speak 全限定名置于首位（首位=默认回复工具）；speak 不进 reply_tool_names——普通 turn 无 voice bridge，列出即声明死工具。all_tool_names 增 speak（drift guard 同步）。
 
 ## 2026-08-04 — 过滤精确化 + `_is_nm_turn` 去重(review)
 
@@ -159,7 +167,7 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
   `is_owner_interacting`. Same model as Slack/Telegram/Lark.
 - **`owner_matrix_user_id` is populated by the trigger, not this module**
   (2026-07-02, X2/X3 fix). This module only reads it; it never writes it.
-  `do_bind` can't learn the binder's identity (see `_narramessenger_service.md`),
+  `do_bind` can't learn the binder's identity (see `_narramessenger_service.py.md`),
   so `NarramessengerTrigger._maybe_claim_owner` claims the first sender in
   the bind room as owner on the first inbound message and persists it via
   `NarramessengerCredentialManager.update_owner`. Before this fix

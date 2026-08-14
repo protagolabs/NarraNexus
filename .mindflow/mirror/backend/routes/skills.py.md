@@ -1,8 +1,20 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-07-21
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
+
+删除上一版的 `_downgrade_undecryptable_env_status` enrich pass(它按 name 解析 meta、命中不了 .disabled/ → 凭据完好的禁用 skill 全变红)。GET/PUT `/{name}/env` 两处统一调 [[skill_module]].configured_env_var_names。`_enrich_platform_env_status` **只降级「仅靠平台假设成立」的那半边**:读 `SkillInfo.env_platform_assumed`(由 [[skill_module]].env_config_status 在 parse 时算好、随对象带下来,内容=「必填 ∧ 属 PLATFORM_RESOLVED_ENV ∧ 非自存」的 var 名),把其中 DB 查不到 provider 的降为 False;`affected` 也从「requires_env 含平台 var」收窄成「env_platform_assumed 非空」。**关键修正(review round 3)**:上一版直接看 `requires_env` 里的平台 var,会把用户在 Skill tab **手填**了 `NETMIND_API_KEY` 的 skill 也降级(自存值走 parse 的 `v in configured` 支路,但 enrich 拿不到那半信息)——`netmind-vision`/`netmind-transcribe` 两个内置 skill 的 SKILL.md 正是指引用户手填这条路,会产生反向假阴性。现在自存平台 var 在 parse 时被排除出 `env_platform_assumed`,enrich 绝不碰它。enrich 的 `skill_module` 形参**刻意不用**(不得回查 stored meta),`tests/backend/test_skills_env_enrich.py` 的 `_FakeModule` 钉死这一点。**详情端点 `GET /{skill_name}` 也复用同一个 enrich pass**(`_enrich_platform_env_status(skill_module, [skill], user_id)`),否则它会给出比列表更乐观的 `env_configured`——新增 `env_platform_assumed` 后详情曾是唯一还给「平台假设」乐观答案的 HTTP 出口(2026-08-13 round 4,🟢4)。
+
+## 2026-08-13 — 解密失败 fail-closed(2026-08-01 事故)
+
+新增 enrich pass `_downgrade_undecryptable_env_status`(list 端点,继 `_enrich_platform_env_status` 之后):`_parse_skill_md` 纯文件系统、把任何非空存值当「已配置」,导致坏凭据的 skill UI 显绿而运行时失败;此 pass 用 [[skill_module]].get_configured_env_var_names 把「必填 var 存值但解不开」的 skill env_configured 降为 False → UI 提示重录。fail-open,enrich 出错不 500 列表。
+
+## 2026-08-11 — MCP egress SSRF 过滤（安全审计 P0-3）
+
+构造 `mcp_servers` 后调 `backend.routes._mcp_egress.filter_public_mcp_servers`（cloud only）：丢弃解析到内网地址的 MCP，防运行时把内网响应带进模型上下文。local 模式透传（localhost MCP 合法）。
 
 ## 2026-07-21 — 平台共享凭证的真实配置状态
 

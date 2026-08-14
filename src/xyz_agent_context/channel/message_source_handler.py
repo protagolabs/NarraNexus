@@ -125,6 +125,18 @@ their own extractor; everyone else uses the default substring + `content`
 arg fallback."""
 
 
+PLATFORM_REPLY_TEXT_KEY = "_platform_reply_text"
+"""Argument key carrying reply text the PLATFORM wrote and delivered.
+
+Set by ``step_3``'s IM DM no-reply fallback, which sends through
+``ChannelSenderRegistry`` instead of the model calling the channel's tool.
+The resulting synthetic frame therefore doesn't match the tool's real
+argument shape, and every channel-specific extractor would mis-read it —
+so ``extract_reply_text`` honours this key before anything else. Leading
+underscore because it is ours, not part of any channel's tool schema.
+"""
+
+
 class _SafeFormatDict(dict):
     """A dict that returns an empty string for missing keys instead of
     raising KeyError, so a row that's missing channel_tag fields still
@@ -256,7 +268,19 @@ class MessageSourceHandler:
         / telegram / job). See the module-level helper docstring for
         why we strip rather than resolve.
         """
-        if self.extract_reply_fn is not None:
+        # Platform-written frames first. A no-reply fallback reply is
+        # delivered by the platform through ChannelSenderRegistry, not by
+        # the model calling the channel's tool, so the frame we synthesise
+        # is NOT shaped like a real tool call — and every channel-specific
+        # extractor would mis-read it: wechat's reads `arguments["text"]`
+        # and would fall back to its "(sent via wechat_send)" placeholder,
+        # lark's parses a `command` string and would return None (making a
+        # delivered reply look like silence). The text is authoritative
+        # here precisely because we wrote it.
+        platform_text = (arguments or {}).get(PLATFORM_REPLY_TEXT_KEY)
+        if platform_text is not None:
+            text = platform_text
+        elif self.extract_reply_fn is not None:
             text = self.extract_reply_fn(tool_name, arguments or {})
             if text is None:
                 return None

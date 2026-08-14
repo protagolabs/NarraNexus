@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 列底部挂工作板
+
+新增 `teamId` prop,列表下方渲染 [[TeamWorkBoard]]。放在成员行**之下**而不是
+之中:roster 讲「谁此刻忙」,板子讲「团队欠什么」,后者活得比前者的每一轮都久。
+挂在这里而不是 TeamChatPanel,是因为桌面列与窄屏 drawer 是同一个组件的两个渲染
+点,挂内部两处自动都有。
 
 ## 2026-07-31 — v2 质感重做（Owner 反馈「廉价、没有质感」）
 

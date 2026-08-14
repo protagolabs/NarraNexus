@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/teams/ClearTeamDataDialog.tsx
-last_verified: 2026-07-22
+last_verified: 2026-08-11
 stub: false
 ---
 
@@ -19,6 +19,27 @@ confirm, disabled until a scope is picked.
 - Rendered by [[AgentList]] (opened from the team row's [[TeamRowMenu]] ⋮ → "Clear data",
   mirroring how the agent clear-data dialog is opened from the agent row menu). AgentList
   owns the open/busy state (`clearTeamTarget` / `clearTeamBusy`).
-- Backend: [[teams]] `_wipe_team_data` — keeps team, members, bus channel; deletes only the
+- Backend: [[teams]] `_wipe_team_data` — keeps team, members, bus channel; deletes the
   room's `bus_messages` and/or the shared-files dir.
+
+## 2026-08-10 — the files checkbox also takes the team's artifacts
+
+Team artifacts are REQUIRED to live in `_shared/teams/{id}`, so deleting that
+folder destroys their content and the backend cascades to their rows. The two
+checkboxes are unchanged; what changed is what the second one MEANS.
+
+This dialog is the only place a user is told, before pressing an irreversible
+button, what it will do — so its copy (and the matching `optFilesDesc` strings)
+is part of the behavior, not decoration around it. It had drifted: the cascade
+was removed once and the copy updated to match, then re-introduced without the
+copy being restored, leaving the dialog promising artifacts would be kept while
+the server deleted them.
 - i18n under `teams.clearData.*` (en+zh).
+
+## 2026-08-11 — 第三个 scope：公告栏
+
+新增一个**独立**勾选项，默认关。绝不并入 chat：公告栏之所以存在恰恰因为它不是聊天，
+清 transcript 顺手删掉全部规则，会把用户送回复读循环。
+
+文案明说「之后这些事需要重新告诉团队一次」。这一屏是用户按下不可撤销按钮前
+唯一被告知的地方——上一轮的教训是文案与行为不一致，且那是自己的回归。

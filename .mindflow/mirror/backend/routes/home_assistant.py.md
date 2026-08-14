@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/home_assistant.py
-last_verified: 2026-07-17
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-11 (PR-G) — /verify 的 resolve_client 去 db 参数
+
+`resolve_client(db, agent_id)` → `resolve_client(agent_id)`（[[binding]] 现自取 seam；backend 进程内 seam=DirectStore→本地 db）。db 仍用于 _require_agent_owner。
+
 
 # home_assistant.py — HA 绑定的后端路由(配置页用)
 
@@ -24,7 +28,7 @@ stub: false
 ## 关键点
 
 - **鉴权 ≠ 授权**:`resolve_current_user_id` 只解决"你是谁";`agent_id` 是调用方给的,所以带 agent_id 的
-  端点(GET/PUT binding、`/verify`)必须再过 `_require_agent_owner`(仿 `lark.py::_verify_agent_ownership`,
+  端点(GET/PUT binding、`/verify`)必须再过 `assert_owned`(canonical helper `backend/routes/_ownership.py`,
   查 `agents.created_by == 当前 user_id`),否则云端任意登录用户可读/改他人 agent 绑定、用受害者 token
   打对方家里(跨租户 IDOR)。本地模式(无 JWT)不强制。`/test` 无 agent_id,靠 ha_client 的云端 SSRF 护栏。
 - 绑定键在 `agent_id` 上(照 Lark 凭据模型),不依赖 module instance——配置面板在 agent 尚未跑过

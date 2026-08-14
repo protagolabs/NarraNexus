@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-03
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-10 — 导出 `JobUpdateFields`
+
+[[job_schema]] 新增的 job_update 可变字段集合进公共导出面——两个 backend 路由
+body（前端 `JobUpdateBody` 加 agent_id、seam `JobUpdateSeamBody` 加
+`extra="forbid"`）都从 `xyz_agent_context.schema` 顶层引，字段清单只声明一份。纯转发。
+
+## 2026-08-04 — 导出 `is_agent_description_unset` / `LEGACY_AGENT_DESCRIPTION_PLACEHOLDER`
+
+[[entity_schema]] 新增的"描述算不算没设置"判断进公共导出面——三个消费面
+（[[message_bus_module]] 渲染、[[basic_info_module]] 自述、[[agent_discovery_sync]]
+名录写入）都从 `xyz_agent_context.schema` 引，判据只有一份。纯转发。
 
 ## 2026-08-03 — 导出 `BUS_ERRAND_TURN_SOURCE`
 
@@ -85,3 +97,7 @@ fallback。但若把常量留在 `response_processor` 里定义，就会闭合�
 `MigrationSource/Agent/Skill/Memory/McpServer/Custom/Turn/Session`、`FrameworkDetection`、
 `MIGRATION_SCHEMA_VERSION`、`AWARENESS_IMPORT_CHAR_LIMIT`,并列进 `__all__`。纯导出,
 无 schema 形状变化。见 [[migration_schema]]。
+
+## 2026-08-13 — 新增 `NON_TRANSACTING_USER_STATUSES` 再导出
+
+从 [[entity_schema.py]] 再导出 `NON_TRANSACTING_USER_STATUSES`（`{banned, blocked, deleted}` frozenset，账户停用闸门的单一真相源），供 backend 三处停用面（auth middleware / 登录闸门 / suspend 路由）与未来 agent 包侧共用同一常量，避免规则在多处漂移。

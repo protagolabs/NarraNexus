@@ -47,7 +47,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -65,6 +65,7 @@ from xyz_agent_context.channel.message_source_handler import (
 )
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from backend.auth_errors import API_KEY_INVALID, AuthError
 
 
 router = APIRouter()
@@ -115,9 +116,9 @@ class ChatCompletionsRequest(BaseModel):
 
 def _require_manyfold_auth(request: Request, model_echo: str = "") -> None:
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail=_openai_error(
+        raise AuthError(
+            API_KEY_INVALID,
+            _openai_error(
                 "missing or invalid MANYFOLD_GATEWAY_TOKEN",
                 etype="invalid_request_error",
                 model_echo=model_echo,
@@ -527,6 +528,15 @@ def _receipt_completion(
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _managed_audit_details(managed_t0: float) -> dict:
+    """Turn facts for the managed_ingress_processed audit row — one
+    derivation for both the stream and non-stream finally blocks."""
+    return {
+        "route": "normal",
+        "duration_ms": int((time.monotonic() - managed_t0) * 1000),
+    }
+
+
 def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
     """Fire-and-forget the post-run bookkeeping with a done-callback
     (engineering lesson #2: no unobserved task exceptions)."""
@@ -622,6 +632,10 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
         managed_ingress = get_managed_channel_ingress()
+        # Wall-clock anchor for the managed_ingress_processed audit row —
+        # covers gate + conversion + the full run, i.e. the platform-side
+        # view of "how long did this inbound take end to end".
+        managed_t0 = time.monotonic()
         allowed, receipt = await managed_ingress.before_run(
             working_source=working_source,
             agent_id=agent_id,
@@ -909,6 +923,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         db=db,
                         reply_text="\n".join(reply_parts),
                         error_text=last_error_msg or "",
+                        audit_details=_managed_audit_details(managed_t0),
                     )
 
         return StreamingResponse(
@@ -983,6 +998,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 db=db,
                 reply_text="\n".join(parts),
                 error_text=error_msg or "",
+                audit_details=_managed_audit_details(managed_t0),
             )
 
     if error_msg:

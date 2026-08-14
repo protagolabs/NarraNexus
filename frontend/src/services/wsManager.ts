@@ -9,7 +9,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
-import { dispatchAuthExpired, isAuthErrorMessage } from './wsAuthError';
+import { isAuthErrorMessage, reportWsAuthFailure } from './wsAuthError';
 import {
   circuitOpenReason,
   dispatchAgentCircuitOpen,
@@ -127,13 +127,14 @@ class WebSocketManager {
 
         // Symmetric with REST 401: a cloud JWT can expire mid-session
         // or land stale after a dmg upgrade. Backend closes the socket
-        // with a {type:'error', error_type:'AuthError', ...} frame —
-        // surface that as the app-wide auth-expired event so App.tsx
-        // can logout + show the "session expired" banner instead of
-        // letting the user see only a red "Token expired" chat bubble
-        // with no path to re-login.
+        // with a {type:'error', error_type:'AuthError', error_code:...}
+        // frame — hand it to the session guard, which confirms against
+        // GET /api/auth/session before anything is torn down. Confirmed
+        // death ends in App.tsx's logout + "session expired" banner;
+        // a frame that turns out NOT to be about the session just fails
+        // this run instead of ending the user's session.
         if (isAuthErrorMessage(message)) {
-          dispatchAuthExpired();
+          reportWsAuthFailure(message);
           return;
         }
 
@@ -330,11 +331,11 @@ class WebSocketManager {
 
         if (raw.type === 'heartbeat') return;
 
-        // Same auth-expired bridge as the run() path — JWT can also
-        // be stale at reconnect time (user reopened the tab a week
+        // Same guarded bridge as the run() path — JWT can also be
+        // stale at reconnect time (user reopened the tab a week
         // later). See wsAuthError.ts for the rationale.
         if (isAuthErrorMessage(raw)) {
-          dispatchAuthExpired();
+          reportWsAuthFailure(raw);
           return;
         }
 

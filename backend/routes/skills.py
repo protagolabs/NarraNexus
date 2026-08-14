@@ -28,6 +28,7 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
+from backend.routes._mcp_egress import filter_public_mcp_servers
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
@@ -133,16 +134,19 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     _parse_skill_md is filesystem-only and optimistically counts
     PLATFORM_RESOLVED_ENV vars as configured. Here (async, DB in reach) we
     check whether the user actually has the backing provider (e.g. a NetMind
-    row for NETMIND_API_KEY) and downgrade env_configured when not."""
+    row for NETMIND_API_KEY) and downgrade env_configured when not.
+
+    ``skill_module`` is intentionally UNUSED: this pass must NOT re-read stored
+    meta (that missed .disabled/ dirs and false-flagged disabled skills). It
+    downgrades ONLY the ``env_platform_assumed`` subset — the vars that count
+    as configured purely on the platform assumption and are not self-stored, so
+    a user who manually entered the key in the Skill tab is never downgraded.
+    """
     from xyz_agent_context.module.skill_module.skill_module import (
-        PLATFORM_RESOLVED_ENV,
         platform_env_available,
     )
 
-    affected = [
-        s for s in skills
-        if s.requires_env and any(v in PLATFORM_RESOLVED_ENV for v in s.requires_env)
-    ]
+    affected = [s for s in skills if s.env_platform_assumed]
     if not affected:
         return
     try:
@@ -152,12 +156,15 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     except Exception as e:
         logger.warning(f"platform env status enrich skipped: {e}")
         return
+    # ONLY downgrade the platform-ASSUMED half: _parse_skill_md already computed
+    # the self-stored half honestly (decrypt-aware, from the skill's own dir),
+    # and env_platform_assumed excludes any self-stored platform var, so this
+    # touches exactly the vars whose "configured" rested on the assumption.
     for skill in affected:
-        env_config = skill_module.get_skill_env_config(skill.name)
-        skill.env_configured = all(
-            bool(env_config.get(v)) or (v in PLATFORM_RESOLVED_ENV and v in available)
-            for v in (skill.requires_env or [])
-        )
+        if skill.env_configured is False:
+            continue
+        if any(v not in available for v in (skill.env_platform_assumed or [])):
+            skill.env_configured = False
 
 
 # =========================================================================
@@ -237,6 +244,8 @@ async def _run_skill_study(
                 if mcp.headers:
                     spec["headers"] = mcp.headers
                 mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only) — see backend/routes/_mcp_egress.py.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
         except Exception as e:
             logger.warning(f"Failed to load MCP servers for skill study: {e}")
 
@@ -580,6 +589,7 @@ async def get_skill_env(
         # when the user's provider config can back them at run time.
         from xyz_agent_context.module.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
             platform_env_available,
         )
         from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -587,8 +597,9 @@ async def get_skill_env(
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
             available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(env_config)
         env_configured = {
-            v: bool(env_config.get(v)) or v in available for v in requires_env
+            v: (v in configured) or v in available for v in requires_env
         }
 
         return SkillEnvConfigResponse(
@@ -632,6 +643,7 @@ async def set_skill_env(
 
         from xyz_agent_context.module.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
             platform_env_available,
         )
         from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -639,8 +651,9 @@ async def set_skill_env(
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
             available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(updated_config)
         env_configured = {
-            v: bool(updated_config.get(v)) or v in available for v in requires_env
+            v: (v in configured) or v in available for v in requires_env
         }
 
         return SkillEnvConfigResponse(
@@ -672,6 +685,11 @@ async def get_skill(
 
         if not skill:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        # Same platform-assumed downgrade the list endpoint applies, so detail
+        # never gives a more optimistic env_configured than the list (enrich is
+        # a no-op unless the skill has an unmet platform assumption).
+        await _enrich_platform_env_status(skill_module, [skill], user_id)
 
         return SkillOperationResponse(success=True, skill=skill)
 

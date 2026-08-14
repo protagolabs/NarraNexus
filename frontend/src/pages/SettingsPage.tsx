@@ -11,9 +11,10 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal, Shield } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
+import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
@@ -282,6 +283,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'bundle', labelKey: 'pages.settings.nav.bundle', icon: Package },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
   { id: 'agents', labelKey: 'pages.settings.nav.manageAgents', icon: Users },
+  { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
   { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
@@ -370,6 +372,15 @@ export default function SettingsPage() {
             {active === 'bundle' && <BundleContent />}
             {active === 'artifacts' && <ArtifactsContent />}
             {active === 'agents' && <ManageAgentsContent />}
+            {active === 'privacy' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.privacy.label')}
+                  hint={t('pages.settings.privacy.hint')}
+                />
+                <PrivacySettings />
+              </section>
+            )}
             {active === 'updates' && isTauri() && <UpdatesSection />}
           </div>
         </ScrollArea>

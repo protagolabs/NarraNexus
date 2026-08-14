@@ -66,40 +66,57 @@ def test_validate_base_url_local_allows_lan(monkeypatch):
 def test_require_agent_owner_enforced(monkeypatch):
     # Cross-tenant guard: authenticated ≠ authorized. A user may only touch an
     # agent they own; otherwise 403 (IDOR fix). Local mode (no user_id) is open.
+    # The route delegates to the canonical helper (backend/routes/_ownership),
+    # so this stubs the helper's own seams the same way test_ownership.py does.
     import asyncio
 
     from fastapi import HTTPException
 
+    import backend.routes._ownership as own
     import backend.routes.home_assistant as r
 
     class _Req:
         def __init__(self, uid):
             self.state = type("S", (), {"user_id": uid})()
 
-    class _DB:
-        def __init__(self, created_by):
-            self._cb = created_by
+    async def _db():
+        return object()
 
-        async def get_one(self, table, filt):
-            return {"agent_id": filt["agent_id"], "created_by": self._cb} if self._cb else None
+    monkeypatch.setattr(own, "get_db_client", _db)
+
+    owners = {}
+
+    async def _resolve(self, agent_id):
+        return owners.get(agent_id, "")
+
+    monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
 
     async def run():
+        owners["agent_x"] = "u1"
         # Owner matches → no raise.
-        await r._require_agent_owner(_Req("u1"), _DB("u1"), "agent_x")
+        await r.assert_owned(_Req("u1"), "agent_x")
         # Different owner → 403.
         try:
-            await r._require_agent_owner(_Req("u2"), _DB("u1"), "agent_x")
+            await r.assert_owned(_Req("u2"), "agent_x")
             raise AssertionError("expected 403")
         except HTTPException as e:
             assert e.status_code == 403
         # Agent missing → 404.
         try:
-            await r._require_agent_owner(_Req("u1"), _DB(None), "ghost")
+            await r.assert_owned(_Req("u1"), "ghost")
             raise AssertionError("expected 404")
         except HTTPException as e:
             assert e.status_code == 404
+        # Ownership LOOKUP failure → 503 (infrastructure fault, not "not found").
+        owners["agent_x"] = None
+        try:
+            await r.assert_owned(_Req("u1"), "agent_x")
+            raise AssertionError("expected 503")
+        except HTTPException as e:
+            assert e.status_code == 503
+        owners["agent_x"] = "u1"
         # Local mode (no user_id) → not enforced.
-        await r._require_agent_owner(_Req(None), _DB("someone"), "agent_x")
+        await r.assert_owned(_Req(None), "agent_x")
 
     asyncio.run(run())
 
@@ -135,8 +152,14 @@ def test_resolve_client_unconfigured(monkeypatch):
 
     monkeypatch.setattr(b, "HomeAssistantBindingRepository", _StubBindingRepo)
 
+    # resolve_client no longer takes a db — it reads through the
+    # ChannelCredentialStore seam. Env unset -> DirectStore -> the
+    # (monkeypatched) HomeAssistantBindingRepository, so the stub still drives
+    # the "no binding row" scenario.
+    monkeypatch.delenv("NARRANEXUS_BACKEND_URL", raising=False)
+
     async def run():
-        client, msg = await resolve_client(db=object(), agent_id="a1")
+        client, msg = await resolve_client(agent_id="a1")
         assert client is None
         assert msg == NOT_CONFIGURED
 

@@ -48,6 +48,7 @@ from xyz_agent_context.agent_framework.api_config import (
     LLMConfigNotConfigured,
     OpenAIConfig,
     RuntimeLLMConfigs,
+    set_provider_card_sources,
 )
 from xyz_agent_context.agent_framework.providers.driver.base import (
     ProviderCard,
@@ -246,6 +247,7 @@ async def resolve_user_runtime_llm_configs(
     # For each slot: card lookup → visibility check → self-heal → Driver
     # dispatch → build_*_config.
     cfgs: dict[str, object] = {}
+    provider_card_sources: dict[str, str] = {}
     for slot_name in _REQUIRED_SLOTS:
         slot = by_slot_name[slot_name]
 
@@ -263,6 +265,7 @@ async def resolve_user_runtime_llm_configs(
             )
 
         card = ProviderCard.from_row(row)
+        provider_card_sources[slot_name] = card.source
 
         if not _is_visible(card, user_id):
             raise LLMConfigNotConfigured(
@@ -355,6 +358,7 @@ async def resolve_user_runtime_llm_configs(
 
         cfgs[cfgs_key] = cfg
 
+    set_provider_card_sources(provider_card_sources)
     return RuntimeLLMConfigs(
         # A codex agent leaves ``agent`` (claude) unset → empty default;
         # an anthropic helper leaves ``helper_llm`` (openai) unset →

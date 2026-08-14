@@ -34,11 +34,31 @@ from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
-from backend.auth import _is_cloud_mode, decode_token
+from backend.auth import _account_state, _is_cloud_mode, decode_token
+from backend.routes._mcp_egress import filter_public_mcp_servers
+from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
+    IDENTITY_MISSING,
+    IDENTITY_UNRESOLVED,
+    TOKEN_EXPIRED,
+    TOKEN_INVALID,
+    TOKEN_MISSING,
+)
+
+from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from xyz_agent_context.analytics import track
+from xyz_agent_context.analytics.events import (
+    EVENT_MESSAGE_ACCEPTED,
+    EVENT_RUN_STARTED,
+    PROP_AGENT_ID,
+    PROP_RUN_ID,
+    PROP_SESSION_ID,
+    PROP_TRIGGER_SOURCE,
+)
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.repository import MCPRepository
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -48,6 +68,38 @@ router = APIRouter()
 
 # WebSocket close codes (RFC 6455 + application-specific)
 WS_CLOSE_POLICY_VIOLATION = 1008  # auth failure / policy violation
+
+
+async def _record_message_accepted(
+    *, user_id: str, agent_id: str, trigger_source: str, session_id: str
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_MESSAGE_ACCEPTED,
+        event_id=f"message_accepted:{session_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
+
+
+async def _record_run_started(
+    *, user_id: str, agent_id: str, run_id: str,
+    trigger_source: str, session_id: str,
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_RUN_STARTED,
+        event_id=f"run_started:{run_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_RUN_ID: run_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
 
 
 class AgentRunRequest(BaseModel):
@@ -188,8 +240,9 @@ async def _handle_reconnect(
             return
 
     # Extract the user's original input + the canonical timestamp that
-    # ChatModule will later use when persisting this turn into
-    # agent_messages.user_ts (= event.created_at). Frontend uses these
+    # ChatModule will later stamp on this turn's persisted USER row
+    # (`meta_data.timestamp` in instance_json_format_memory_chat, set to
+    # event.created_at — see ChatModule.hook_persist_turn). Frontend uses these
     # to inject the user bubble that triggered this run; the timestamp
     # match guarantees ChatPanel's role:content + 60s dedup collapses
     # the reconnect-injected bubble with the eventual history row,
@@ -225,10 +278,10 @@ async def _handle_reconnect(
             # Phase C dedup: input_content + input_timestamp let the
             # client paint the user-side bubble while replaying.
             # input_timestamp is events.created_at — the same value
-            # ChatModule.hook_after_event_execution will write as
-            # agent_messages.user_ts after the run finishes, so the
-            # frontend's existing role:content + 60s dedup matches them
-            # by exact millisecond rather than by approximation.
+            # ChatModule.hook_persist_turn stamps on the persisted user row
+            # once the run finishes, so the frontend's existing role:content
+            # + 60s dedup matches them by exact millisecond rather than by
+            # approximation.
             "input_content": input_content_str,
             "input_timestamp": _format_dt(events_row.get("created_at")),
         })
@@ -623,6 +676,7 @@ async def websocket_agent_run(websocket: WebSocket):
                         "must include ?x_user_id=<user_id> on the WS URL."
                     ),
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -635,6 +689,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "user_id mismatch between URL and payload",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -646,6 +701,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Authentication required",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -657,6 +713,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Token expired",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_EXPIRED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -666,6 +723,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -677,6 +735,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token claims",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -690,11 +749,35 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "User ID does not match token",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
 
             logger.info(f"WS auth OK: user_id={token_user_id}, role={payload.get('role')}")
+
+            # ---- Account-state gate (cloud) ----
+            # The JWT is valid, but a suspended account must not be able to
+            # start (or reconnect to) a run on its still-valid token. The HTTP
+            # auth middleware enforces this for /api/* and exempts /ws/*, so the
+            # gate has to be repeated here — WS is the product's MAIN run path.
+            # Uses the SAME shared non-transacting set and the SAME _account_state
+            # reader (TTL-cached, fail-OPEN) as the HTTP gate, so the two never
+            # drift. A JSONResponse (auth_error_response) is unsendable over a
+            # WebSocket, so we use the error-frame + close form already used for
+            # every other WS auth failure above.
+            if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:
+                logger.warning(
+                    f"WS auth failed: account suspended user_id={token_user_id}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Account is not available",
+                    "error_type": "AuthError",
+                    "error_code": ACCOUNT_SUSPENDED,
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
 
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to
@@ -735,6 +818,16 @@ async def websocket_agent_run(websocket: WebSocket):
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)
 
+        import uuid as _uuid
+        _session_id = str(_uuid.uuid4())
+
+        await _record_message_accepted(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            trigger_source=request.working_source,
+            session_id=_session_id,
+        )
+
         logger.info(f"Starting agent runtime: agent_id={request.agent_id}, user_id={request.user_id}")
 
         # ---- Dashboard v2 (TDR-2): register active session AFTER auth passes, ----
@@ -742,11 +835,9 @@ async def websocket_agent_run(websocket: WebSocket):
         # ---- below guarantees removal on every exit path.
         # ---- NOTE: logging discipline — never print SessionInfo fields user_id /
         # ---- user_display / channel (PII). Only session_id + agent_id are log-safe.
-        import uuid as _uuid
         from datetime import datetime as _datetime, timezone as _timezone
         from backend.state.active_sessions import get_session_registry as _get_registry, SessionInfo as _SessionInfo
 
-        _session_id = str(_uuid.uuid4())
         _channel = request.working_source or "web"
         _registry = _get_registry()
         await _registry.add(
@@ -777,6 +868,10 @@ async def websocket_agent_run(websocket: WebSocket):
                 if mcp.headers:
                     spec["headers"] = mcp.headers
                 mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only): the agent fetches these URLs at
+            # runtime and their responses enter the model's context, so drop any
+            # that resolve to an internal address before the run sees them.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
             if mcp_servers:
                 logger.info(f"Loaded {len(mcp_servers)} MCP servers: {list(mcp_servers.keys())}")
         except Exception as e:
@@ -886,6 +981,13 @@ async def websocket_agent_run(websocket: WebSocket):
                         "type": "run_started",
                         "run_id": bg.run_id,
                     })
+                await _record_run_started(
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    run_id=bg.run_id,
+                    trigger_source=request.working_source,
+                    session_id=_session_id,
+                )
 
             # Subscribe this WS to the broadcaster.
             subscriber = bg.broadcaster.subscribe(_session_id)
@@ -930,14 +1032,25 @@ async def websocket_agent_run(websocket: WebSocket):
 
     except Exception as e:
         logger.exception(f"WebSocket error: {e}")
-        logger.exception(traceback.format_exc())
         try:
-            await websocket.send_json({
-                "type": "error",
-                "error_message": str(e),
-                "error_type": type(e).__name__,
-                "traceback": traceback.format_exc(),
-            })
+            if _is_cloud_mode():
+                # Cloud: never leak internals to the client. A traceback (or raw
+                # exception text) exposes server paths, dependency versions and
+                # internal state; the full detail is in the server log above.
+                payload = {
+                    "type": "error",
+                    "error_message": "Internal server error.",
+                    "error_type": "InternalError",
+                }
+            else:
+                # Local / dev: full detail aids debugging.
+                payload = {
+                    "type": "error",
+                    "error_message": str(e),
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc(),
+                }
+            await websocket.send_json(payload)
         except Exception:
             pass
 

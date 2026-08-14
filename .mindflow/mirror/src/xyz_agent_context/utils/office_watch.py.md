@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/utils/office_watch.py
-last_verified: 2026-07-21
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+**(review 轮加固 ×3)** adopt 防 wrong-content 靠**跨平台进程身份**,不再是 Linux 专属:① **单射**——绝不 adopt 已被 _assignments 里另一文件占用的端口;② **身份=cmdline**——`_proc_cmdline`(Linux /proc/<pid>/cmdline;其它平台绝对路径 `ps -p` 0.5s 超时)确认该 pid 确实是我们那个 `officecli … --port <port>` 进程(`_cmdline_is_our_watch` token 级匹配:含 `officecli` + 相邻 `--port <port>`),回收的 pid 号几乎不可能命中;**拿不到 cmdline → 拒绝 adopt**(退回响的双 spawn:前端 could not open + Retry,远好过静默串文档)。**argv 单源**:`WATCH_PORT_FLAG` 常量被 `_watch_argv`(spawn)与 `_cmdline_is_our_watch`(匹配)共享,`test_identity_recognizes_the_real_spawn_argv` 捕获真实 Popen argv 焊死两端——改 argv 形状会立刻在 CI 红。**`ps -ww`**(review 轮 4):BSD/macOS 的 `ps -o command=` 在管道(非 tty)下把命令列截断到 79 列,而身份 token `--port <port>` 恰在 argv 末尾——装在长路径/子目录里就被切掉 → desktop adopt 静默失效、DMG 重启后头号 bug 回归;`-ww` 输出完整 argv 消除截断,`test_proc_cmdline_*` 覆盖真实 /proc 与 ps 两条路径的尾 token。start-time 判据 review 轮 3 删除(cmdline 非 None 即 return,死路径,铁律 #2);旧 sidecar 里残留的 `start` 键**不再被读取**(reconcile 只取 file/pid/port),老文件仍能正常解析(两个 fixture 保留该键作向后兼容覆盖)。**为什么必须跨平台**:reconcile 只在重启后 `_assignments` 空时跑,单射兜底此刻也为空——两 guard 失效窗口重合,不能靠单射兜身份(review 轮 2 抓出的 desktop no-op 洞)。残留假设:身份证明「该 pid 是这样起的 watch」,非「在听该端口的就是它」——单射 guard 补这个缺口,两者都得留。③ **reap 只由 pid 死亡驱动**——「pid 活 + 端口未监听」是启动窗口不误删(reap 有意不接身份判据:adopt 端已用 cmdline 拒绝陈旧 meta,reap 再接会在 cmdline 瞬时读失败时误杀健康 watch)。冲突一律放弃 adopt(绝不 release-then-grab)。
+
+**磁盘为真 + reconcile**:spawn 时写 `.officecli_watch_<port>.meta`(file+pid+port);`ensure_watch` 内存无记录时先 `_reconcile_from_disk` 扫盘——同文件已有存活 watch(`_pid_alive` + `_port_listening`)则 adopt 复用,死 watch 的 sidecar 顺手 unlink 释放端口。**根治**:backend/executor 重启后内存 map 清空,旧 detached watch 仍在听,旧逻辑会给同文件另起第二个 watch(officecli 同文件单 watch→起不来→前端 4 次重试全败 'could not open'),正是「删相邻 artifact→docx 首挂载打不开」的服务端真身。**慢启动杀孤儿**:6s 没起来时 `_terminate_group(pid)`(start_new_session→杀进程组)+ 删 sidecar 再释放端口,不再留孤儿占「已被视为空闲」的端口。
 
 # office_watch.py — 实时 Office 预览的共享内核
 

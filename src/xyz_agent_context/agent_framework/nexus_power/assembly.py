@@ -76,6 +76,11 @@ class LoopAssembly:
     retry: RetryPolicy = field(default=None)  # type: ignore[assignment]
     hooks: Any = None
     include_arg_deltas: bool = True
+    # Opt-in (voice turns): a turn about to close with zero expressive
+    # calls while expressive tools exist gets ONE steering nudge and one
+    # more step. Off by default — group rooms and bus turns keep their
+    # legal silence.
+    expression_nudge: bool = False
     # Side-event queue: channels that produce ui events during tool
     # execution (today update_plan; tomorrow subagent announcements)
     # append here and the loop drains it at the dispatch boundary — so a
@@ -200,7 +205,12 @@ async def run_turn_events(
         )
 
     workspace = str(Path(opts.cwd).resolve())
-    ctx = ToolContext(agent_id=opts.agent_id, workspace=workspace, extra_env=dict(opts.env))
+    ctx = ToolContext(
+        agent_id=opts.agent_id,
+        workspace=workspace,
+        extra_env=dict(opts.env),
+        extra_accessible_roots=tuple(opts.extra_accessible_roots),
+    )
     ledger = TurnLedger(request.thread_id)
     profile = resolve_profile(opts.model, opts.provider)
     params = ModelParams(
@@ -286,6 +296,10 @@ async def run_turn_events(
         disallowed_tools=frozenset(opts.disallowed_tools),
         allowed_tools=frozenset(opts.allowed_tools),
         marker_tools=frozenset(opts.marker_tools),
+        # Live adjudicator, not a snapshot: the expressive list grows
+        # mid-turn (capability expansion), and tool_search's reserved
+        # reply seats must see tools granted moments earlier.
+        is_expressive=expression.is_expressive,
     )
 
     try:
@@ -307,7 +321,7 @@ async def run_turn_events(
                 # above, so a reply tool granted by them counts too.
                 default_reply_tool=next(iter(expression.names()), ""),
             ),
-            PromptMode.FULL,
+            PromptMode(opts.prompt_mode),
         )
         base_messages = _insert_harness(request.messages, prompt.messages())
 
@@ -332,6 +346,7 @@ async def run_turn_events(
             compaction=ToolResultPruner(),
             params=params,
             include_arg_deltas=opts.include_arg_deltas,
+            expression_nudge=opts.expression_nudge,
             side_events=side_events,
         )
         async for event in NexusPowerLoop(assembly, ledger).run_turn():

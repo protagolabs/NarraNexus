@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-07-29
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
+
+`_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。
+详见 [[models.py]]：这个定义必须和 `crud._index_narrative` 严格同一份，否则路由
+和 `remember` 会不一致。
+
+## 2026-08-07 — 池子拆出 `load_pool` / `rank_pool`，为的是审计能精确重放
+
+`keyword_search` 内部原来一口气做完「读 narrative → 拼文本 → BM25」。现在拆成
+`load_pool`（读 + 拼，返回 `(id, text, is_default)`）和 `rank_pool`（纯函数打分），
+`keyword_search` 保持签名不变——它是 `select_fast` 依赖的公开接缝。
+
+拆的原因不是整洁，是**审计必须存下被打分的那份文本和完整池子**：`bm25_rank` 的
+IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组数。2026-08-07 实测 452
+条真实本地 query，仅仅移除 8 条 default narrative 就让 top-1 翻转 9.7%、闸门决策
+翻转 5.8%——那 8 条语义上毫不相关，却真实地改变了排序。
+
+`retrieve_top_k` 变成薄包装，内层是 `_retrieve_top_k`。这么做是因为决策出口有 7 个
+（本方法 + `_llm_unified_match`），在每个出口分别拼装审计是必然会腐烂的记账——将来
+加一个分支就静默失去可观测性，而这正是这张表要终结的失败模式。外层只在**一个地方**
+盖上结局章。
+
+判官的 `reason` 原文也存下来了：它是流水线里唯一的语义检查，而它的推理过程以前只
+活在一个进 loguru 的 f-string 里。
+
+
+## 2026-08-06 — `_keyword_search` 转正为公开 `keyword_search`
+
+F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
 
 ## 为什么存在
@@ -13,7 +42,7 @@ stub: false
 
 ## 三层结构
 
-1. **候选召回**：`_keyword_search` 用 [[retrieval.py|memory 的 bm25_rank]] 对
+1. **候选召回**：`keyword_search` 用 [[retrieval.py|memory 的 bm25_rank]] 对
    每条 narrative 的 `name + current_summary + description + topic_keywords`
    打分；`_get_participant_narratives` 另外捞出"用户是参与者"的会话线（关键词
    搜不到它们），以合成中性分 0.5 入池。

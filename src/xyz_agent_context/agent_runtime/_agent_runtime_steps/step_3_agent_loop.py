@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
 
 from loguru import logger
@@ -29,6 +30,21 @@ from xyz_agent_context.schema import (
     EXECUTOR_INFRA_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
+
+# Top-level on purpose. These three channel modules depend on stdlib +
+# loguru only and never import agent_runtime, so there is no cycle to dodge
+# (channel_trigger_base depends on this layer, not the other way round, and
+# it already uses a lazy import for that direction). They were function-local
+# in six places, including inside the step generator body where the import
+# ran once per turn.
+from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
+from xyz_agent_context.channel.channel_sender_registry import (
+    ChannelSenderRegistry,
+)
+from xyz_agent_context.channel.message_source_handler import (
+    PLATFORM_REPLY_TEXT_KEY,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
 from xyz_agent_context.agent_framework.llm.failure import (
@@ -52,6 +68,72 @@ _DEFAULT_MAX_PER_ENTRY = 4096
 _DEFAULT_MAX_TOTAL = 32768
 _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
+
+
+def _dispatch_identity_token(ensured, user_id) -> str | None:
+    """The identity token to stamp into this turn's MCP headers, or None.
+
+    Blueprint P1: cloud = the broker minted one at ensure() time (fresh per
+    run, ExecutorEnsureResult.identity_token); local = this process
+    self-signs — but ONLY when NX_MCP_AUTH_MODE != off, so a default local
+    run performs no keygen and no filesystem writes (iron rule #7).
+
+    In cloud the broker is the ONLY signer — a broker without a signing key
+    (or predating the field) means NOTHING is stamped, never a local
+    self-sign: the mcp verifier holds the deploy-mounted public key, so a
+    process-local ephemeral signature could not verify anyway, and stamping
+    one would pollute the audit window's central measurement ("which callers
+    are still tokenless?") with `invalid` noise — and under enforce it would
+    401 every tool call (PR #260 review, Important #1).
+    """
+    if ensured is not None and ensured.identity_token:
+        return ensured.identity_token
+    if not user_id:
+        return None
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+    if ensured is not None or is_cloud_mode():
+        return None
+    from xyz_agent_context.module.identity.mcp_auth import auth_mode
+
+    if auth_mode() == "off":
+        return None
+    from xyz_agent_context.module.identity.tokens import get_local_issuer
+
+    return get_local_issuer().token_for(user_id)
+
+
+def _framework_override_viable(
+    framework: str, *, claude: Any = None, codex: Any = None
+) -> bool:
+    """Can THIS turn's provider config actually serve the override?
+
+    Mirrors NexusAgent._build_request_payload's two hard-fail conditions
+    (OAuth subscription credentials; no model on either protocol slot)
+    so a fast-mode override never bricks a turn that would have worked
+    on the slot framework (review finding: no-fallback override). Other
+    framework names pass through — this is a viability check, not
+    policy (binding rule #15).
+
+    ``claude``/``codex`` default to the ambient per-task configs; tests
+    inject fakes instead of mutating the shared proxies.
+    """
+    if framework != "nexus_power":
+        return True
+    if claude is None or codex is None:
+        from xyz_agent_context.agent_framework.api_config import (
+            claude_config,
+            codex_config,
+        )
+
+        claude = claude if claude is not None else claude_config
+        codex = codex if codex is not None else codex_config
+    # Mirror _resolve_provider's claude-FIRST short circuit, not just its
+    # conditions: a non-empty claude.model means codex is never consulted,
+    # so an oauth claude slot is non-viable even if codex carries a model.
+    if claude.model:
+        return (claude.auth_type or "api_key") not in ("oauth", "oauth_token")
+    return bool(codex.model)
 
 
 async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
@@ -222,19 +304,75 @@ def _serialize_agent_loop_for_prompt(
     return body
 
 
-def _has_organic_reply(agent_loop_response: list) -> bool:
-    """True if the agent already sent a real user reply this turn via
-    ``send_message_to_user_directly`` (a ProgressMessage tagged with that tool
-    name). Used to decide severity when a LATER failure hits: a turn that
-    already spoke must not be re-surfaced as a hard "retry" fatal — the user
-    got their answer, so it's a warning that the turn didn't finish all planned
-    work (severity=recovered_after_reply)."""
+def _channel_turn_envelope(ctx) -> dict:
+    """Read the channel turn envelope the trigger forwarded, if any.
+
+    Shape (all optional, see ``ChannelContextBuilderBase.turn_envelope``
+    and ``ChannelTriggerBase``): ``channel_room_type``,
+    ``channel_reply_kwargs``, ``channel_tag``.
+
+    Returns ``{}`` for every non-channel turn (chat / job / bus), which is
+    what makes "no envelope → no DM fallback" the default. Never raises:
+    a malformed envelope must not break the turn's recovery phase.
+    """
+    ctx_data = getattr(ctx, "ctx_data", None)
+    extra = getattr(ctx_data, "extra_data", None) if ctx_data else None
+    if not isinstance(extra, dict):
+        return {}
+    return {
+        "channel_room_type": extra.get("channel_room_type", ""),
+        "channel_reply_kwargs": extra.get("channel_reply_kwargs") or {},
+        "channel_tag": extra.get("channel_tag") or {},
+    }
+
+
+# Working sources that never get a platform-written fallback reply, even
+# in a 1:1 conversation. `message_bus` must not answer peer agents (that
+# is the agent-to-agent loop the bus deliberately avoids); `job` has no
+# channel recipient waiting on the other end.
+_NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
+
+
+def _has_organic_reply(
+    agent_loop_response: list,
+    working_source: str,
+) -> bool:
+    """True if the agent already sent a real user reply this turn.
+
+    "A reply" is per-channel: on chat that means
+    ``send_message_to_user_directly``, on an IM turn it also means the
+    channel's own send tool (``wechat_send``, ``lark_cli +messages-send``,
+    …). The authority is ``MessageSourceRegistry``, the same registry
+    ``chat_module._delivered_to_origin`` consults — so "did this turn
+    speak?" cannot drift between the two layers.
+
+    Two consumers:
+
+    - severity when a LATER failure hits: a turn that already spoke must
+      not be re-surfaced as a hard "retry" fatal (the user got their
+      answer), so it becomes ``recovered_after_reply``.
+    - **the IM DM fallback's double-send guard.** This used to match
+      ``send_message_to_user_directly`` only, which meant a WeChat turn
+      that correctly called ``wechat_send`` read as "no reply" — turning
+      the fallback below into a second, helper-written message on every
+      successful turn.
+
+    ``working_source`` is REQUIRED — there is deliberately no default. A
+    ``"chat"`` default silently reintroduced the drift this function
+    exists to remove: the severity call site below kept it, so an IM turn
+    that had already replied via ``wechat_send`` / ``lark_cli`` and then
+    hit an executor-infra failure read as "never spoke" and was recorded
+    as a hard ``fatal`` (had_fatal_error) instead of
+    ``recovered_after_reply`` — a delivered conversation filed as a failed
+    turn, with a "retry" badge in front of the user.
+    """
+    handler = MessageSourceRegistry.get(working_source)
     for r in agent_loop_response:
         if not isinstance(r, ProgressMessage) or not r.details:
             continue
         details = r.details if isinstance(r.details, dict) else {}
         tool_name = details.get("tool_name") or ""
-        if "send_message_to_user_directly" in tool_name:
+        if handler.is_user_reply_tool(tool_name):
             return True
     return False
 
@@ -243,6 +381,7 @@ def _should_run_helper_llm_fallback(
     working_source: str,
     agent_loop_response: list,
     cancellation,
+    is_direct_message: bool = False,
 ) -> tuple[str | None, str]:
     """Decide what the chat fallback path should do this turn.
 
@@ -262,20 +401,60 @@ def _should_run_helper_llm_fallback(
       (the user already heard from the agent), but surface the
       truncated execution via severity=``recovered_after_reply`` so
       the badge tells the user the turn didn't finish all planned work.
+    - ``("no_reply_im_dm", "")``: a **1:1 IM DM** finished cleanly and
+      the agent never called the channel's reply tool. helper_llm writes
+      the reply and the platform delivers it through the channel's
+      registered sender (see ``_deliver_im_fallback_reply``). Added
+      2026-08-06 for the 0802 WeChat report.
+
     - ``(None, reason)``: nothing to do. Reasons:
-        * ``"non_chat_trigger"``: out of scope — message_bus
-          deliberately stays quiet, job/lark have their own reply
-          tooling.
+        * ``"non_chat_trigger"``: out of scope — ``message_bus``
+          deliberately stays quiet (agent-to-agent loops) and ``job``
+          has no human waiting on a channel.
+        * ``"group_room_may_stay_silent"``: an IM group room. Silence is
+          the designed behaviour there — see the group Communication
+          Protocol.
         * ``"cancellation_requested"``: user pressed stop; honour it.
           Don't burn helper_llm tokens recovering from rejected work.
         * ``"already_replied_via_tool"``: agent did its job — clean
           loop + organic reply, nothing to recover.
+        * ``"fatal_no_invented_reply"``: an IM DM turn that died
+          mid-stream. Chat can afford ``after_error`` recovery because
+          the frontend also shows the error badge next to it; an IM
+          recipient would get a confident-sounding message with no error
+          surface at all, so we stay silent rather than deliver a reply
+          synthesised from half a thought.
+
+    **Why IM DMs are in scope now.** The original gate (2026-05-12) was
+    ``working_source != "chat" → out of scope``, reasoned as "job/lark
+    have their own reply tooling". That conflated *having* a reply tool
+    with the reply *happening*: when the model emits plain text and never
+    calls the tool, the text is dropped, the turn persists as an activity
+    row, and the person on the other end gets nothing. ``message_bus``
+    stays excluded — that half of the 2026-05-12 reasoning is still true.
 
     Pulled out of the generator body so each case is exercisable by
     pure unit tests without spinning up the full async generator.
     """
-    if working_source != "chat":
-        return None, "non_chat_trigger"
+    is_chat = working_source == "chat"
+    is_im_dm = False
+    if not is_chat:
+        # "Is this an IM channel at all?" is the handler's
+        # `dedicated_trigger` flag — the same signal MessageBusTrigger
+        # uses to know which sources run their own AgentRuntime. It
+        # separates a real channel (lark / wechat / telegram …) from
+        # `callback` / `a2a` / `skill_study`, which have no room and no
+        # human recipient, so "group room" would be a nonsense reason.
+        handler = MessageSourceRegistry.get(working_source)
+        is_channel = (
+            bool(getattr(handler, "dedicated_trigger", False))
+            and working_source not in _NO_FALLBACK_WORKING_SOURCES
+        )
+        if not is_channel:
+            return None, "non_chat_trigger"
+        if not is_direct_message:
+            return None, "group_room_may_stay_silent"
+        is_im_dm = True
 
     if cancellation is not None and getattr(cancellation, "is_cancelled", False):
         return None, "cancellation_requested"
@@ -284,7 +463,14 @@ def _should_run_helper_llm_fallback(
         isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
         for r in agent_loop_response
     )
-    has_reply = _has_organic_reply(agent_loop_response)
+    has_reply = _has_organic_reply(agent_loop_response, working_source)
+
+    if is_im_dm:
+        if has_reply:
+            return None, "already_replied_via_tool"
+        if has_fatal:
+            return None, "fatal_no_invented_reply"
+        return "no_reply_im_dm", ""
 
     if has_fatal and has_reply:
         return "partial_reply_then_error", ""
@@ -343,15 +529,40 @@ def _fallback_skip_decision(
     return None, None, None
 
 
+NO_REPLY_NEEDED_SENTINEL = "<<<NO_REPLY_NEEDED>>>"
+"""What the helper emits when the turn genuinely warranted silence.
+
+Only the IM DM fallback honours it (see `_FALLBACK_IM_DM_EXTRA`). The DM
+Communication Protocol keeps one narrow carve-out — the incoming message is
+pure acknowledgment ("好的" / "谢谢" / "got it" / "👍") with nothing to add —
+and without an exit the platform would answer every one of those anyway,
+making the protocol's own exemption unreachable in production: the decision
+to run this fallback looks only at whether a reply tool was called, and a
+model that correctly stayed silent called none. Prompt and behaviour have to
+agree.
+"""
+
+
+_FALLBACK_IM_DM_EXTRA = (
+    "\n\nThis is a 1:1 IM conversation, so one more rule overrides the "
+    "others when it applies: if the person's latest message is PURE "
+    "ACKNOWLEDGMENT with nothing left to act on — \"好的\", \"谢谢\", "
+    "\"收到\", \"got it\", \"thanks\", \"👍\" — and there is genuinely "
+    f"nothing to add, reply with exactly {NO_REPLY_NEEDED_SENTINEL} and "
+    "nothing else. That is the ONLY case for it. A greeting, a question, a "
+    "request, or small talk all still get a real answer."
+)
+
+
 _FALLBACK_NO_REPLY_INSTRUCTIONS = (
-    "You are the agent's voice. The agent finished thinking but didn't "
-    "call send_message_to_user_directly, so its reasoning was never "
-    "spoken to the user. Produce the single message it should have sent."
+    "You are the agent's voice. The agent finished thinking but never "
+    "called its reply tool, so its reasoning was never spoken to the "
+    "user. Produce the single message it should have sent."
     "\n\nRules:\n"
     "- Reply in the user's language (match `<current_user_message>`).\n"
     "- Address the user directly, in first person as the agent.\n"
-    "- Do NOT mention tools, send_message_to_user_directly, helper_llm, "
-    "this fallback path, or any internal state.\n"
+    "- Do NOT mention tools, reply tools, helper_llm, this fallback path, "
+    "or any internal state.\n"
     # The 2026-07-29 report: the agent's reasoning was pure intent ("let me
     # try the image again"), the fallback voiced it, and the user was left
     # waiting for a document nothing was producing. The turn ENDS when this
@@ -401,11 +612,12 @@ def _fallback_instructions_for_mode(mode: str) -> str:
     (no promises about work that isn't happening — see the no_reply rules) is
     worth pinning in tests without constructing a stream.
     """
-    return (
-        _FALLBACK_AFTER_ERROR_INSTRUCTIONS
-        if mode == "after_error"
-        else _FALLBACK_NO_REPLY_INSTRUCTIONS
-    )
+    if mode == "after_error":
+        return _FALLBACK_AFTER_ERROR_INSTRUCTIONS
+    if mode == "no_reply_im_dm":
+        # Same no-reply text, plus the one exit the DM protocol promises.
+        return _FALLBACK_NO_REPLY_INSTRUCTIONS + _FALLBACK_IM_DM_EXTRA
+    return _FALLBACK_NO_REPLY_INSTRUCTIONS
 
 
 def _build_helper_user_input(
@@ -579,6 +791,9 @@ async def _stream_fallback_recovery(
     cancellation,
     db,
     agent_id: str,
+    working_source: str = "chat",
+    channel_tag: dict | None = None,
+    reply_kwargs: dict | None = None,
 ):
     """Drive the post-agent-loop recovery phase, yielding the messages
     the frontend should see in causal order.
@@ -610,7 +825,123 @@ async def _stream_fallback_recovery(
     """
     fallback_full = ""
 
-    if fallback_mode in ("no_reply", "after_error"):
+    if fallback_mode == "no_reply_im_dm":
+        # 1:1 IM DM: the agent produced no channel reply, so the platform
+        # writes one and DELIVERS it. Two deliberate differences from the
+        # chat path above:
+        #
+        # - **no AgentTextDelta frames.** Those render in the OWNER's chat
+        #   panel; this reply is addressed to the IM sender, and painting
+        #   it into the owner's conversation would fake a message the
+        #   agent never sent them.
+        # - **the synthetic frame is tagged with the CHANNEL's send tool**,
+        #   not send_message_to_user_directly, so
+        #   `_split_user_visible_response` files it as an IM reply and
+        #   `_delivered_to_origin` reports the turn as delivered.
+        #
+        # The frame is emitted ONLY after the channel confirms the send.
+        # Recording "replied" for a message that never left the process is
+        # the same class of lie as the discarded plain text we are fixing.
+        text = ""
+        try:
+            chunks: list[str] = []
+            async for delta_text in _generate_fallback_reply_stream(
+                mode=fallback_mode,
+                context_messages=context_messages,
+                agent_loop_response=agent_loop_response,
+                final_output=final_output,
+                user_input=user_input,
+                error_info=None,
+                db=db,
+                agent_id=agent_id,
+            ):
+                if (
+                    cancellation is not None
+                    and getattr(cancellation, "is_cancelled", False)
+                ):
+                    logger.info(
+                        "[FALLBACK-IM] cancellation requested mid-stream; "
+                        "aborting helper_llm."
+                    )
+                    chunks = []
+                    break
+                chunks.append(delta_text)
+            text = "".join(chunks).strip()
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"[FALLBACK-IM] helper_llm stream failed: {e}")
+
+        # The DM protocol's one silence carve-out, honoured. Without this
+        # exit the platform would answer even a bare "谢谢", because the
+        # decision to get here only asks whether a reply tool was called —
+        # and a model that correctly stayed silent called none.
+        #
+        # STRIPPED OUT rather than compared for equality. The helper runs on
+        # whichever provider the user configured (binding rule #15 — we do
+        # not police that choice), so quoting the sentinel, adding a full
+        # stop, or prefacing it with a sentence are all within range. An
+        # equality test misses every one of those and delivers the literal
+        # `<<<NO_REPLY_NEEDED>>>` into someone's IM thread — a worse look
+        # than the extra message this carve-out exists to avoid. Removing it
+        # unconditionally means the marker can never reach a person, whether
+        # it arrived alone or embedded in prose; if real text remains, that
+        # text is delivered and the sentinel is simply gone.
+        if NO_REPLY_NEEDED_SENTINEL in text:
+            text = text.replace(NO_REPLY_NEEDED_SENTINEL, "").strip()
+            # What is left after removing the marker may be punctuation the
+            # model wrapped it in — `"…"`, a trailing `。` — which is not a
+            # reply, just residue. Delivering that is barely better than
+            # delivering the marker. `\w` treats CJK as word characters, so
+            # this asks "is there any actual content here" rather than
+            # enumerating quote and punctuation forms.
+            if not re.search(r"\w", text):
+                text = ""
+            if text:
+                logger.warning(
+                    "[FALLBACK-IM] helper mixed the no-reply marker into a "
+                    "real reply; stripped the marker and delivering the rest"
+                )
+            else:
+                logger.info(
+                    "[FALLBACK-IM] helper judged the turn needs no reply "
+                    "(pure acknowledgment); staying silent"
+                )
+
+        if not text:
+            logger.warning(
+                "[FALLBACK-IM] no content recovered; leaving the turn silent "
+                f"(working_source={working_source})"
+            )
+        else:
+            delivered = await _deliver_im_fallback_reply(
+                working_source, channel_tag or {}, reply_kwargs or {}, text
+            )
+            if delivered:
+                fallback_full = text
+                yield ProgressMessage(
+                    step="3.4.fallback",
+                    title="Reply (helper_llm no_reply_im_dm)",
+                    description=(
+                        "helper_llm wrote the reply the agent never sent, and "
+                        "the platform delivered it on the channel."
+                    ),
+                    status=ProgressStatus.COMPLETED,
+                    details={
+                        "tool_name": _im_reply_tool_name(working_source),
+                        # `content` for the generic reader; PLATFORM_REPLY_TEXT_KEY
+                        # so every channel-specific extractor reads the real
+                        # text instead of mis-parsing a frame that was never
+                        # shaped like its tool call (wechat's would fall back
+                        # to a "(sent via …)" placeholder, lark's would see
+                        # no `command` and report silence).
+                        "arguments": {
+                            "content": text,
+                            PLATFORM_REPLY_TEXT_KEY: text,
+                        },
+                        "reply_via": "helper_llm_no_reply_im_dm",
+                    },
+                )
+
+    elif fallback_mode in ("no_reply", "after_error"):
         chunks: list[str] = []
         fallback_error: Exception | None = None
         try:
@@ -686,6 +1017,85 @@ async def _stream_fallback_recovery(
             error_type=captured_error.get("error_type", "Exception"),
             severity=severity,
         )
+
+
+def _im_reply_tool_name(working_source: str) -> str:
+    """The channel's own send tool, for tagging a platform-delivered reply.
+
+    Deliberately NOT ``send_message_to_user_directly``: that tool means
+    "tell the owner", and tagging an IM reply with it would surface the
+    message in the owner's chat panel as if the agent had addressed them
+    (``chat_module._split_user_visible_response`` routes on exactly this
+    distinction). Falls back to a synthetic name so the frame is still
+    self-describing if a channel ever registers only the owner tool.
+    """
+    handler = MessageSourceRegistry.get(working_source)
+    for name in handler.user_reply_tool_names:  # noqa: SIM110 — first non-owner wins
+        if "send_message_to_user_directly" not in name:
+            return name
+    return f"{working_source}_send"
+
+
+async def _deliver_im_fallback_reply(
+    working_source: str,
+    channel_tag: dict,
+    reply_kwargs: dict,
+    text: str,
+) -> bool:
+    """Send a platform-written fallback reply to the IM sender.
+
+    The chat path needs no equivalent: streaming the deltas to the
+    frontend IS delivery there. An IM recipient has no such stream — if
+    nobody calls the channel's send API, the reply exists only in our
+    database, which is exactly the 0802 failure.
+
+    Routes through ``ChannelSenderRegistry``, which every
+    ``ChannelModuleBase`` subclass populates at init, so this stays
+    channel-agnostic (iron rule #3 — no channel-module import here).
+
+    Returns True only when the channel reported success. Never raises: a
+    send failure must leave the turn's own record intact, and the caller
+    logs + skips the synthetic frame so we never persist "replied" for a
+    message that never left the building.
+    """
+    channel = (channel_tag or {}).get("channel", "") or working_source
+    target_id = (channel_tag or {}).get("room_id", "") or ""
+    if not target_id:
+        logger.warning(
+            f"[FALLBACK-IM] no target id for channel={channel}; cannot deliver"
+        )
+        return False
+
+    sender = ChannelSenderRegistry.get_sender(channel)
+    if sender is None:
+        logger.warning(
+            f"[FALLBACK-IM] no sender registered for channel={channel}; "
+            f"available={ChannelSenderRegistry.available_channels()}"
+        )
+        return False
+
+    agent_id = (channel_tag or {}).get("agent_id", "") or ""
+    try:
+        result = await sender(agent_id, target_id, text, **(reply_kwargs or {}))
+    except Exception as e:  # noqa: BLE001 — delivery must not kill the turn
+        logger.exception(
+            f"[FALLBACK-IM] send raised for channel={channel} "
+            f"target={target_id}: {type(e).__name__}: {e}"
+        )
+        return False
+
+    ok = bool((result or {}).get("success"))
+    if ok:
+        logger.warning(
+            f"[FALLBACK-IM] delivered platform-written reply channel={channel} "
+            f"target={target_id} len={len(text)}"
+        )
+    else:
+        logger.warning(
+            f"[FALLBACK-IM] channel refused the send channel={channel} "
+            f"target={target_id} error={(result or {}).get('error')!r}"
+        )
+    return ok
 
 
 async def _record_executor_infra_event(
@@ -786,7 +1196,12 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.1: Initialize ContextRuntime -------------
-    context_runtime = ContextRuntime(ctx.agent_id, ctx.user_id, db_client)
+    context_runtime = ContextRuntime(
+        ctx.agent_id, ctx.user_id, db_client,
+        # Step 0 already created the event row; passing it here is what
+        # lets tools stamp attribution with the turn that called them.
+        event_id=getattr(ctx.event, "id", None),
+    )
     substeps.append("[3.1] ✓ ContextRuntime initialization complete")
     logger.debug("ContextRuntime initialized")
 
@@ -862,6 +1277,24 @@ async def step_3_agent_loop(
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
+    # What this turn may reach outside its own workspace: the bus attachment
+    # dir (user-wide by design — the bus stages one copy per owner and every
+    # same-user recipient reads that path) plus the shared folder of the ONE
+    # team this turn belongs to.
+    #
+    # Narrowed after review: the first version granted the whole per-user
+    # `_shared` tree on every turn, which handed every team the owner has to
+    # every turn, including one-to-one chats belonging to no team. That is the
+    # owner-vs-membership mistake the rest of this feature deliberately avoids
+    # (see `_resolve_entry` and `list_for_agent_context`), and it is not
+    # read-only: the confinement layers inspect `file_path` and shell paths,
+    # so the grant covers Write, Edit and rm.
+    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+    _turn_extra = ctx.trigger_extra_data or {}
+    extra_accessible_roots = turn_accessible_roots(
+        ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path
+    )
+
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}
     if context.ctx_data and context.ctx_data.extra_data:
@@ -881,6 +1314,21 @@ async def step_3_agent_loop(
     # short aliases (claude / codex), so any value we read here that
     # the system supports will resolve.
     framework_name = await _resolve_agent_framework_name(ctx.agent_id, db_client)
+    # Fast-mode profiles may pin the framework (voice needs NexusPower's
+    # streaming/expressive seams). None/empty override = slot resolution
+    # stands untouched. The override is refused when the provider config
+    # cannot serve the pinned framework — a turn that worked on the slot
+    # framework must never be bricked by fast mode; the voice bridge then
+    # simply sees no deltas and the legacy finalize chain delivers.
+    if ctx.turn_profile is not None and ctx.turn_profile.framework_override:
+        _override = ctx.turn_profile.framework_override
+        if _framework_override_viable(_override):
+            framework_name = _override
+        else:
+            logger.warning(
+                f"[step_3] framework_override {_override!r} not viable for "
+                f"this provider config; keeping {framework_name!r}"
+            )
     logger.info(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
@@ -909,6 +1357,8 @@ async def step_3_agent_loop(
             # (context 3.2). NexusPower's monologue contract routes every
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
+            turn_profile=ctx.turn_profile,
+            extra_accessible_roots=extra_accessible_roots,
         )
         # Per-user executor routing (cloud): ask the broker to ensure this
         # user's Executor container and use its URL. Returns None when no
@@ -937,6 +1387,32 @@ async def step_3_agent_loop(
             # otherwise the first connection races the cold start, fails, and
             # the run drops into the fallback path instead of running the agent.
             await wait_until_ready(executor_url)
+        # Identity token (blueprint P1): stamped at dispatch time because the
+        # cloud token only exists once ensure() has answered. Mutates the same
+        # mcp_servers dict TurnInput already references — the documented
+        # pass-by-reference contract (turn_input.py: "step_3 merges into
+        # mcp_servers before the call and drivers must see the merged dict").
+        identity_token = _dispatch_identity_token(ensured, ctx.user_id)
+        if identity_token and ctx.mcp_servers:
+            from xyz_agent_context.module import stamp_identity_token
+
+            stamp_identity_token(ctx.mcp_servers, identity_token)
+        # Platform-origin binding: stamp the same token onto this turn's provider
+        # configs (in THIS task context, before the driver snapshots them) so it
+        # rides provider_configs to the executor and is emitted as the
+        # X-NarraNexus-Identity-Token header on our-gateway LLM calls. Where the
+        # deploy-side check is live (litellm/prefill_compat._enforce_identity —
+        # deploy `staging` PR #20; not `dev`/`main` yet): `audit` verifies + logs
+        # but ALLOWS, only `enforce` rejects — so an exfiltrated wallet key is
+        # useless off-platform only under `enforce` (NX_IDENTITY_VERIFY_MODE,
+        # DEFAULT off; audit is the observe-only rollout step). Until it is both
+        # deployed and enforcing, the header is a harmless no-op.
+        if identity_token:
+            from xyz_agent_context.agent_framework.api_config import (
+                bind_platform_identity,
+            )
+
+            bind_platform_identity(identity_token)
         driver = get_agent_loop_driver(
             framework=framework_name,
             executor_url=executor_url,
@@ -1103,7 +1579,7 @@ async def step_3_agent_loop(
         # agent runs, so this is virtually always "fatal" for them.)
         severity = (
             "recovered_after_reply"
-            if _has_organic_reply(agent_loop_response)
+            if _has_organic_reply(agent_loop_response, ctx.working_source or "")
             else "fatal"
         )
         err = ErrorMessage(
@@ -1115,10 +1591,40 @@ async def step_3_agent_loop(
         agent_loop_response.append(err)
         yield err
     else:
+        # The channel trigger forwards the room type and this channel's
+        # delivery kwargs in the generic turn envelope (see
+        # ChannelContextBuilderBase.turn_envelope). Absent envelope =
+        # not an IM turn = no DM fallback, which is the safe default for
+        # chat / job / bus.
+        # NOTE: `context` (the ContextRuntime OUTPUT), not `ctx`. ContextData
+        # is built fresh inside this step and hangs off the output — `ctx`
+        # has no `ctx_data` attribute, so passing it here silently produced
+        # an empty envelope and made the whole IM DM fallback dead code
+        # (caught in live Telegram testing 2026-08-06: the prompt carried
+        # the DM protocol while the decision logged group_room).
+        channel_envelope = _channel_turn_envelope(context)
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,
             cancellation=getattr(ctx, "cancellation", None),
+            is_direct_message=(
+                channel_envelope.get("channel_room_type") == ROOM_TYPE_DIRECT
+            ),
+        )
+        # One unconditional line per turn recording what the recovery slot
+        # decided AND the room type it decided on. The prompt and this
+        # decision read the SAME room_type, so "prompt said Direct Message,
+        # decision said group_room" is the exact signature of a broken
+        # envelope — and it was invisible before, because the
+        # already_replied case logs nothing and the wrong branch looked
+        # like a legitimate skip. That blind spot cost one dead-code
+        # release of this fallback (caught only by reading the DB during
+        # live Telegram testing, 2026-08-06).
+        logger.info(
+            f"[FALLBACK] decision: mode={fallback_mode!r} skip_reason={skip_reason!r} "
+            f"working_source={ctx.working_source!r} "
+            f"room_type={channel_envelope.get('channel_room_type', '')!r} "
+            f"has_reply_kwargs={bool(channel_envelope.get('channel_reply_kwargs'))}"
         )
         if fallback_mode is None and skip_reason != "already_replied_via_tool":
             logger.info(
@@ -1142,6 +1648,12 @@ async def step_3_agent_loop(
             cancellation=getattr(ctx, "cancellation", None),
             db=db_client,
             agent_id=ctx.agent_id,
+            working_source=ctx.working_source or "",
+            channel_tag={
+                **(channel_envelope.get("channel_tag") or {}),
+                "agent_id": ctx.agent_id,
+            },
+            reply_kwargs=channel_envelope.get("channel_reply_kwargs") or {},
         ):
             agent_loop_response.append(msg)
             yield msg

@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-07-31
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13（五审）— is_expressive 接入 ToolDispatcher
+
+dispatcher 的 expressive 保底席判据来源：`is_expressive=expression.is_expressive`
+与 marker_tools 并列传入——expression 在 build 段更早处构造，顺序安全；传活对象
+（不是 frozenset 快照），expansion 轮内 add_tools 的授予才可见。
+**测试覆盖缺口（诚实标注）**：run_turn_events 无测试入口（全仓 tests 不驱动它），本行接线的正确性目前靠人工逐跳核对（六审已验通：get_expressive_tools → mcp_tool_name → is_expressive 三处拼写一致）；smoke 补法记 reference/self_notebook/todo/。
+
+## 2026-08-13 — expression_nudge 接线
+
+LoopAssembly 新增 `expression_nudge: bool = False`；`run_turn_events` 把
+`opts.expression_nudge` 接进 assembly——这是 TurnOptions→loop 的唯一接线点
+（同 2026-08-07 确权链路教训：缺这一行前面三处都不生效）。机制见 loop.py.md 同日条目。
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — `extra_readable_roots` 接到 ToolContext 上
+
+`TurnOptions.extra_readable_roots` → `ToolContext`，供两个 confinement layer 消费
+（见 [[policy.py]]）。**这里是整条确权放开链路的唯一接线点**：契约在
+[[options.py]] / [[tooling.py]]，判定在 [[policy.py]]，而把值真正交到 ToolContext 手上的
+是本文件。改动只有一行，但缺了它前面三处都不生效。
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+PromptAssembler 的模式来源从硬编码 PromptMode.FULL 改为 PromptMode(opts.prompt_mode)——默认值不变，快速模式可按 turn 降面。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

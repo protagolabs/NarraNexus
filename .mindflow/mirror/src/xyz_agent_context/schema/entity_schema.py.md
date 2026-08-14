@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-07-23
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — `UserStatus.BANNED` + `NON_TRANSACTING_USER_STATUSES`（账户停用）
+
+`UserStatus` 枚举新增 `BANNED = "banned"`。它是一个由运维设置的、独立的账户状态，
+刻意与 `BLOCKED` / `DELETED` 分开，让账户停用机制（[[suspend.py]]）有自己的专属
+值：`reinstate` 只需把行恢复成 `ACTIVE`，而 DB 里已存在的 `banned` 行也能正常
+被枚举加载（不会在 enum 强制转换时报错）。
+
+紧随枚举新增模块级常量 `NON_TRANSACTING_USER_STATUSES: frozenset[str] =
+{BANNED, BLOCKED, DELETED}`——「不可交易」状态的**单一真相源**。所有 gate 面共享
+它，绝不各自 copy-paste 而漂移：HTTP auth middleware（[[auth]]）、WebSocket 跑
+run 闸门（[[websocket.py]]）、netmind 登录闸门（[[auth 路由|auth.py]]），以及
+suspend 路由的幂等集（`_SUSPENDED_STATES` 直接指向它）。`INACTIVE` **刻意不在**
+集合里——它是良性生命周期状态（从未登录 / 休眠），不是停用。已从 `schema/__init__`
+导出并进 `__all__`。
+
+## 2026-08-04 — `is_agent_description_unset` + legacy 占位符常量
+
+`LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"`
+是创建流程**过去**写进 `agent_description` 的填充串。现在创建写空串
+（见 [[auth]]），但 prod 有约 488 行带着它，所以"没设置"必须同时认空和认这个
+legacy 形态——`is_agent_description_unset()` 大小写与空白都不敏感。
+
+它从来不是无害填充：bus 名录快照它，于是 `bus_get_agent_profile` 把配置好的
+agent 报成"待配置"，询问方据此拒绝发消息（P1 段02，prod evt_feb1f6ae）；
+[[basic_info_module]] 又把同一个字段当作 agent **自己的**自我描述注入系统提示，
+所以被问的 agent 也这么认识自己。
+
+**消费方的义务**：判定为 unset 时**什么都不要说**，绝不要把这句话打印出来——
+对同伴复述"这是个待配置的新 agent"比留空更糟，它是在断言对方不可用。
+三个消费面：[[message_bus_module]] 的 Known Agents 渲染、[[basic_info_module]] 的
+自述、[[agent_discovery_sync]] 的名录写入。
 
 ## 2026-07-23 — AGENT_TEXT_MAX_LENGTH 常量
 

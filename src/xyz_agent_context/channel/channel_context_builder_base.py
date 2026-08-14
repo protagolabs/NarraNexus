@@ -31,6 +31,7 @@ from .channel_prompts import (
     SENDER_PROFILE_UNKNOWN_TEMPLATE,
     CONVERSATION_HISTORY_TEMPLATE,
     ROOM_MEMBERS_TEMPLATE,
+    communication_protocol_for,
 )
 
 # Upper bound on the user message body interpolated into the prompt.
@@ -202,6 +203,11 @@ class ChannelContextBuilderBase(ABC):
         """
         # Step 1: Message metadata
         info = await self.get_message_info()
+        # Cache it: the trigger layer needs `room_type` (to tell step_3
+        # whether this turn is a 1:1 DM) and the channel's reply kwargs,
+        # and get_message_info() may hit the platform API — calling it a
+        # second time per turn is not free. See `turn_envelope()`.
+        self._message_info_cache = info
 
         # Cap the user-supplied message body before any further section
         # building. Body is the only field in ``info`` that originates
@@ -235,12 +241,52 @@ class ChannelContextBuilderBase(ABC):
         # use the clean anchor from build_retrieval_anchor() (sender_display_name
         # + message_body). The old _extract_core_content template-stripping (and
         # its [ts] @sender: regex coupling) was removed. See 2026-06-01 design.
+        # The Communication Protocol is chosen by room type, not shared.
+        # A 1:1 DM gets "replying is the default"; a group room keeps the
+        # tuned silence discipline. Sending group rules into a DM is what
+        # made the agent answer nothing on WeChat (0802 report).
         return CHANNEL_MESSAGE_EXECUTION_TEMPLATE.format(
             **info,
             sender_profile_section=sender_profile_section,
             conversation_history_section=conversation_history_section,
             room_members_section=room_members_section,
+            communication_protocol=communication_protocol_for(info.get("room_type")),
         )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Turn envelope — what the trigger layer forwards to the runtime
+    # ────────────────────────────────────────────────────────────────────
+
+    def reply_kwargs(self) -> Dict[str, Any]:
+        """Extra kwargs this channel's registered sender needs to address
+        the conversation, beyond ``(agent_id, target_id, message)``.
+
+        Default empty — most channels address a conversation by id alone.
+        WeChat (iLink) needs the inbound ``context_token``, so its builder
+        overrides this. Read by ``ChannelTriggerBase`` into the turn
+        envelope so the platform-side no-reply fallback can deliver
+        without going through the LLM's tool call.
+        """
+        return {}
+
+    def turn_envelope(self) -> Dict[str, Any]:
+        """Generic per-turn facts the runtime needs, derived from the info
+        this builder already produced.
+
+        Kept channel-agnostic on purpose: ``step_3`` reads these keys and
+        the ``ChannelSenderRegistry`` to deliver a fallback reply, so it
+        never imports a channel module (iron rule #3).
+
+        Returns ``{}`` when ``build_prompt`` has not run — callers treat a
+        missing envelope as "not a DM", i.e. no fallback.
+        """
+        info = getattr(self, "_message_info_cache", None)
+        if not info:
+            return {}
+        return {
+            "channel_room_type": info.get("room_type", ""),
+            "channel_reply_kwargs": self.reply_kwargs(),
+        }
 
     async def build_retrieval_anchor(self) -> str:
         """Clean anchor for narrative retrieval — only the

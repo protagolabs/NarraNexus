@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 ---
+
+## 2026-08-07 — 不再手搓 trigger_extra_data；回复记录走共享收口
+
+本文件 `_build_and_run_agent` **完整覆盖**基类方法，因此也自己手搓了
+`trigger_extra_data`。代价：2026-08-06 加的轮次信封（`channel_room_type`）没进这条
+链路，**Lark p2p 私聊在 `step_3` 里恒被判成群聊，1:1 无回复兜底一次都不会跑**。
+改为调 `ChannelTriggerBase.build_trigger_extra_data(...)`（attachments 也由它统一
+处理），差异项 `source_message_id` 经 `**extra` 传入。
+
+两处 `extract_output(...)` 调用点改为 `resolve_agent_response(...)`：平台代写并投递
+成功的回复要先被认出来，否则 Lark 的抽取器（要求 `command` 含 `+messages-send`）读不到
+它，inbox 会把一条真发出去的回复记成 `(stayed silent)`。`extract_output` 本身没动。
+
+两条都属于同一个教训：**覆盖基类方法的子类会静默错过基类新增的契约**。理由与守卫
+（含 grep 级）记在 `channel_trigger_base.py.md` 2026-08-07 两条条目。
+
+## 2026-08-06 — post 双形状提取 + 空内容丢弃补审计
+
+prod 事故：lark-cli / API 发出的 `post` 消息事件里 payload 是**无语言
+包裹**的 `{"title","content"}`（客户端发的才是 `{"zh_cn":{...}}`）。
+`_extract_post_text` 只认包裹形状 → 提取成空串 → 空内容守卫裸
+`return` → 消息零痕迹消失（audit 只有 ingress_processed，无 event 无
+run）。两处修复：① `_extract_post_text` 把 payload 自身视为候选块
+（顶层有 `title`/`content` 键即无包裹；两种形状键型不同不会撞）；②
+空内容守卫先写 `EVENT_INGRESS_DROPPED_EMPTY`（带 message_type detail）
+再返回，与基类同批修。`_preview_message_content` 仍保持冻结不动——
+**已知分叉**：preview 的 post walker 不认无包裹形状，靠
+`if not text: text = raw_content` 兜底，所以无包裹 post 的
+`ingress_processed.content_preview` 是裁到 160 字的原始 JSON。痕迹
+不丢但不好读；对着 preview 里的 JSON 排查时这是预期行为，别当新 bug。
 
 ## 2026-08-04 — secret 为空的凭据不再启动订阅器
 

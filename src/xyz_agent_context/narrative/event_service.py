@@ -157,13 +157,12 @@ class EventService:
             module_instances=module_instances,
         )
 
-    async def duplicate_event_for_narrative(
-        self,
-        original_event: Event,
-        narrative_id: str
-    ) -> Event:
-        """Duplicate an Event for associating with a different Narrative"""
-        return await self._crud.duplicate(original_event, narrative_id)
+    # NOTE (2026-08-05): `duplicate_event_for_narrative` is gone. Associating
+    # one turn with several Narratives is done by appending the SAME event id
+    # to each `narratives.event_ids` (see step_4 §4.4) — never by copying the
+    # row. The copy produced a phantom `events` row per auxiliary narrative
+    # (completed / started_at NULL / 0 tool calls / empty event_log) that
+    # replay surfaces rendered as a repeat of the exchange.
 
     # =========================================================================
     # Load Event

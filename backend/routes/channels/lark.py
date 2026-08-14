@@ -32,6 +32,12 @@ from xyz_agent_context.module.lark_module._lark_service import (
 )
 from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
 
+
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
+
 router = APIRouter()
 _cli = LarkCLIClient()
 
@@ -77,24 +83,6 @@ async def _get_db():
     return await get_db_client()
 
 
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Verify that the caller owns the agent. Returns error message or None.
-
-    In local mode (no JWT), ownership is not enforced.
-    In cloud mode, the agent's created_by must match the JWT user_id.
-    """
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None  # Local mode — no auth enforcement
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
-
-
 # =========================================================================
 # Endpoints
 # =========================================================================
@@ -117,7 +105,9 @@ async def bind_lark_bot(request: Request, body: BindRequest) -> dict[str, Any]:
     mgr = LarkCredentialManager(db)
 
     # Core bind logic (shared with MCP tool via _lark_service)
-    bind_result = await do_bind(mgr, body.agent_id, body.app_id, body.app_secret, body.brand)
+    bind_result = await do_bind(
+        mgr, body.agent_id, body.app_id, body.app_secret, body.brand, body.owner_email
+    )
     if not bind_result["success"]:
         return bind_result
 
@@ -259,17 +249,14 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
 
     db = await _get_db()
     mgr = LarkCredentialManager(db)
-    result = await do_unbind(mgr, body.agent_id, db)
-    if not result.get("success"):
-        # Surface the message field (or the raw error code) to keep the
-        # legacy "No Lark bot bound to this agent." UX intact.
-        return {
-            "success": False,
-            "error": result.get("message") or result.get("error", "unknown"),
-        }
-    # Legacy response shape: ``{"success": True}`` — kept so frontend
-    # LarkConfig.tsx doesn't need to change.
-    return {"success": True}
+    # Return do_unbind's envelope VERBATIM. The data-access seam's
+    # DirectStore.unbind("lark") returns this exact dict, so the HttpStore twin
+    # (which POSTs here) must too, or local and cloud diverge — the byte-parity
+    # the seam exists to guarantee. This matches every sibling channel /unbind
+    # route (wechat/slack/discord/telegram return do_unbind / mgr.unbind verbatim
+    # too). LarkConfig.tsx reads only `success` on the happy path; the
+    # `no_credential` failure is a near-unreachable double-unbind race.
+    return await do_unbind(mgr, body.agent_id, db)
 
 
 @router.post("/set-active")

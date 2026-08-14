@@ -157,6 +157,7 @@ tool outputs.
 
 ```
 mcp__chat_module__get_chat_history(
+    agent_id="agent_xxx",    # Your agent ID — the instance must belong to you
     instance_id="chat_xxx",  # Chat Instance ID for the specific user
     limit=20                 # Number of recent messages to retrieve, -1 for all
 )

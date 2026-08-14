@@ -37,6 +37,15 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** 'text' | 'multimodal' for ordinary messages. Everything else is the
+   *  PLATFORM narrating itself, rendered as a room-level line rather than as
+   *  a member speaking: 'system_stop' (owner stopped a run), 'patrol' (the
+   *  Leader's sweep), 'system_bulletin' (house rules changed),
+   *  'system_undelivered' (a turn ended without delivering anything) and
+   *  'system_delivery_failed' (the reply existed; posting it failed).
+   *  The last two exist so an empty room can no longer be mistaken for an
+   *  agent ignoring you — see message_bus/delivery_notice.py. */
+  msg_type?: string | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */
   event_id?: string | null;
@@ -85,6 +94,26 @@ export interface TeamMemberActivity {
   /** `events` row id of the member's current/last turn — fetch the full
    *  event_log detail through the existing event-log endpoint. */
   event_id?: string | null;
+}
+
+/** One task on the team's work board. */
+export interface TeamWorkItem {
+  item_id: string;
+  title: string;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
+  /** open | in_progress | stalled | done | paused | cancelled.
+   *  The user's view only ever receives the first three plus `paused`. */
+  status: string;
+  created_at?: string | null;
+}
+
+export interface TeamWorkBoardResponse {
+  success: boolean;
+  items: TeamWorkItem[];
+  /** When the lead last swept the board. Null = never patrolled yet. */
+  last_patrol_at?: string | null;
+  patrol_enabled: boolean;
 }
 
 export interface TeamChatHistoryResponse {
@@ -266,4 +295,26 @@ export interface SkillArchiveRecord {
   archive_path?: string | null;
   sha256: string;
   created_at?: string | null;
+}
+
+/** One line on a team's bulletin — the standing rules every member loads on
+ *  every team turn. `source` drives permissions and rendering; `author_id`
+ *  only drives the "added by" label and is null for the auto-summary. */
+export interface BulletinEntry {
+  entry_id: string;
+  team_id: string;
+  content: string;
+  source: 'user' | 'agent' | 'auto_summary';
+  author_id?: string | null;
+  tier: 'long_term' | 'current_task';
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** The bulletin plus the numbers the panel needs to disable "add" BEFORE the
+ *  user types, rather than rejecting what they wrote. */
+export interface TeamBulletin {
+  entries: BulletinEntry[];
+  usage: { entry_count: number; total_chars: number };
+  limits: { max_entries: number; max_entry_chars: number; max_total_chars: number };
 }

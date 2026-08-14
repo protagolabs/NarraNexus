@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-07-21
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 (review 修正) — 新增 `turn_accessible_roots`
+
+一个回合在**自己 workspace 之外**能碰到的根，收口到一处。两项性质不同：
+
+- `bus_files` — **按 user 授予是设计如此**：bus 把附件 stage **一份**到 owner 的共享区，
+  同 user 的每个接收方读的就是那一个路径。按 team 收窄会直接打断消息投递（验收 #6 明确
+  包含 bus 附件路径）。
+- `teams/{team_id}` — **只给本回合所属的那一个 team**。
+
+**父目录 `_shared` 永不返回**：给了它等于用一个入口把该 owner 的每个 team 又放回来。
+
+初版就是那样：每个回合都授予整棵 `_shared`，包括压根不属于任何 team 的一对一私聊回合。
+这与本功能其余部分自相矛盾——[[registration.py]] 的 `_resolve_entry` 只放行本回合那一个
+team，[[artifact_repository.py]] 的 `list_for_agent_context` 特意 join `team_members` 而非
+按 owner，注释还写明按 owner 取就是 cross-team leak。确权层当时用的正是 owner 口径。
+
+**「accessible」不是「readable」**：消费它的 confinement 层检查 `file_path` 与 shell 路径，
+所以同一份授予同时管 Write / Edit / rm。
 
 ## 2026-07-20 — per-user shared-area helpers
 

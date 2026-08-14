@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/admin/runtime.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13 — admin-secret 校验改用共享 helper
+
+原内联的 `_require_admin_secret` 已抽到共享私有模块 [[_admin_secret.py]]
+（`require_admin_secret`），与 migration / suspend 同用一份。**503（未配置）/
+403（缺失或错误）状态码语义严格不变**——部署侧告警 watcher 依赖 503 == 「功能关闭」。
+比较改为 `hmac.compare_digest`（常量时间）。本文件不再直接 import `settings`
+（仅为测试经 `mod.settings` 覆盖 secret 而再导出一份 `# noqa: F401`；helper 读同一
+settings 单例）。
 
 ## 2026-07-22 — added GET /api/admin/runtime/workers (Workers card liveness)
 

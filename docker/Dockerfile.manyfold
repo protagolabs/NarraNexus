@@ -56,9 +56,12 @@ ENV PYTHONUNBUFFERED=1 \
 #   nodejs/npm:           backend spawns the Claude Code CLI subprocess
 #   tini:                 PID 1 for clean signal handling
 #   bash:                 run.sh requires it (alpine wouldn't suffice)
+#   libmagic1:            content-based MIME sniffing (utils/mime_sniff.py tier
+#                         1, via the python-magic dep) — without the native lib
+#                         the sniffer degrades to the spoofable file extension
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git tini nodejs npm gosu ffmpeg \
+        bash ca-certificates curl git tini nodejs npm gosu ffmpeg libmagic1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI — hard dependency (claude-agent-sdk spawns it every turn).

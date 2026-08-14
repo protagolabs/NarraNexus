@@ -140,10 +140,36 @@
         "neverRan": "아직 실행한 적 없음",
         "loading": "처리 과정 불러오는 중…",
         "workingCount": "{{count}}개 작업 중",
-        "process": "프로세스"
+        "process": "프로세스",
+        "stop": "중지",
+        "stopping": "중지 중…",
+        "stopped": "소유자가 중지함",
+        "stopFailed": "이 실행을 중지할 수 없습니다",
+        "stopHint": "이 실행 중지"
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
-      "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리"
+      "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
+      "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다",
+      "patrolNotice": "리더 점검",
+      "undeliveredNotice": "{{name}}이(가) 이번 턴에 답하지 않았습니다",
+      "deliveryFailedNotice": "{{name}}의 답변을 게시하지 못했습니다",
+      "board": {
+        "title": "작업 보드",
+        "unclaimed": "미할당",
+        "resume": "이 작업 재개",
+        "patrolOff": "점검 꺼짐",
+        "patrolPending": "아직 점검 안 함",
+        "patrolledJustNow": "방금 점검함",
+        "patrolledAgo": "{{ago}} 전 점검",
+        "status": {
+          "open": "대기",
+          "in_progress": "진행 중",
+          "stalled": "정체됨",
+          "paused": "일시중지"
+        },
+        "turnOff": "끄기",
+        "turnOn": "켜기"
+      }
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -778,7 +804,7 @@
       "privacyHeading": "개인정보",
       "privacyIntro": "제품 개선을 위해 NarraNexus가 수집하는 데이터를 제어하세요.",
       "analyticsTitle": "제품 분석",
-      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다.",
+      "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 클라우드 웹 버전에서는 익명의 페이지 상호작용 데이터가 제3자 분석 서비스인 Google Tag Manager로도 전송됩니다. 이 옵션을 끄면 전송이 중지됩니다. 대화 내용은 수집되지 않습니다.",
       "desktopHeading": "데스크톱",
       "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
       "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",
@@ -1153,8 +1179,6 @@
       "localAccess": "로컬 · 접속",
       "cloudMode": "클라우드 모드",
       "signInWithNetmind": "NetMind.AI 계정으로 로그인",
-      "migrationNoticeHeading": "계정 시스템을 개편했습니다.",
-      "migrationNoticeBody": "초대 코드를 받은 이메일 계정으로 데이터가 이전되었습니다. 로그인하려면 먼저 해당 이메일의 비밀번호를 재설정하세요(아래 “비밀번호를 잊으셨나요?” 사용). 기타 문의는 다음으로 연락해 주세요",
       "emailLabel": "이메일",
       "passwordLabel": "비밀번호",
       "forgotPassword": "비밀번호를 잊으셨나요?",
@@ -1169,7 +1193,12 @@
       "accessTerminal": "터미널 접속",
       "createNewUser": "새 사용자 만들기",
       "loginFailed": "로그인 실패",
+      "invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다",
       "enterUserId": "사용자 ID를 입력하세요",
+      "resetCodeInvalid": "코드가 유효하지 않거나 만료되었습니다. 새 코드를 요청하세요.",
+      "forgotResetIntro": "NetMind 계정 이메일로 인증 코드를 보내드립니다.",
+      "forgotCodeSentHint": "해당 이메일의 계정이 있으면 인증 코드를 보냈습니다.",
+      "useDifferentEmail": "다른 이메일 사용",
       "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요."
     },
     "modeSelect": {
@@ -1211,6 +1240,9 @@
     "settings": {
       "title": "설정",
       "headerSections": "제공자 · 번들 · 아티팩트 · 에이전트",
+      "nav": {
+        "privacy": "개인정보 보호"
+      },
       "providers": {
         "label": "LLM 제공자"
       },
@@ -1250,6 +1282,19 @@
         "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
         "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
+      },
+      "privacy": {
+        "label": "개인정보 보호",
+        "hint": "이 기기에서 외부로 전송되는 데이터와 이를 제어하는 스위치입니다.",
+        "analyticsTitle": "제품 분석",
+        "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 클라우드 웹 버전에서는 익명의 페이지 상호작용 데이터가 제3자 분석 서비스인 Google Tag Manager로도 전송됩니다. 이 옵션을 끄면 전송이 중지됩니다. 대화 내용은 수집되지 않습니다.",
+        "telemetryTitle": "진단 원격 측정",
+        "telemetryDesc": "이 설치본의 서비스 로그를 NarraNexus 자체 수집 서버로 전송하여 충돌과 장애를 디버깅할 수 있게 합니다. 기본 수준에서는 구조화된 이벤트, 경고, 오류만 전송되며 메시지 내용은 포함되지 않습니다. \"full\" 수준으로 실행되는 배포(관리형 샌드박스, 디버그 환경)는 로그 줄 전체를 전송하므로, 서비스가 기록한 메시지 내용이 포함될 수 있습니다. 제3자에게는 아무것도 전송되지 않습니다.",
+        "telemetryTiming": "끄면 몇 초 안에 적용됩니다. 앱이 시작될 때 원격 측정이 이미 꺼져 있었다면, 켜는 것은 다음 실행 시부터 적용됩니다.",
+        "telemetryManaged": "배포 환경(환경 설정)에서 관리되므로 여기에서는 스위치를 사용할 수 없습니다.",
+        "telemetryManagedCloud": "이 설치본의 진단 원격 측정은 관리자가 제어합니다.",
+        "telemetryUnavailable": "원격 측정 상태를 불러오지 못했습니다. 추측해서 표시하는 대신 스위치를 숨겼습니다. 새로고침하여 다시 시도하세요.",
+        "telemetryError": "변경 사항을 저장하지 못했습니다. 스위치는 실제 현재 상태를 표시합니다."
       }
     },
     "system": {
@@ -2031,6 +2076,7 @@
     "desktopHint": "브라우저에서 NarraNexus를 열면 실시간 문서 미리보기를 볼 수 있습니다.",
     "loading": "실시간 미리보기를 여는 중…",
     "loadError": "실시간 미리보기를 열 수 없습니다.",
+    "retry": "다시 시도",
     "livePreview": "실시간 미리보기"
   },
   "common": {
@@ -2042,5 +2088,16 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료"
+  },
+  "webAnalyticsNotice": {
+    "body": "이것은 NarraNexus의 클라우드 웹 버전입니다. 제3자 분석 서비스인 Google Tag Manager를 사용하여 익명의 페이지 상호작용 데이터(페이지뷰, 클릭, 리퍼러)를 수집합니다. 대화 내용은 수집되지 않습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",
+    "settings": "설정 열기",
+    "dismiss": "확인"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus는 이제 충돌과 연동 장애를 디버깅하기 위해 이 설치본의 진단 서비스 로그를 자체 수집 서버로 전송합니다. \"full\" 수준으로 실행되는 설치본에서는 로그 줄에 메시지 내용이 포함될 수 있습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",
+    "settings": "설정 열기",
+    "dismiss": "확인",
+    "bodyManaged": "이 설치본은 관리자가 구성한 대로 진단 서비스 로그(오류 및 진단 이벤트)를 NarraNexus 자체 수집 서버로 전송합니다. \"full\" 수준으로 실행되는 설치본에서는 로그 줄에 메시지 내용이 포함될 수 있습니다."
   }
 }

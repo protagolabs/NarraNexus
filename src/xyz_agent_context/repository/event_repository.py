@@ -248,3 +248,49 @@ class EventRepository(BaseRepository[Event]):
                 return default
 
         return value
+
+    # ------------------------------------------------------------------
+    # Diagnostics projections (manyfold pull channel)
+    # ------------------------------------------------------------------
+
+    # Lifecycle-only columns for run summaries. The projection is load-
+    # bearing, not cosmetic: the un-projected row set of a long-lived
+    # agent carries every MEDIUMTEXT event_log it ever produced (multi-
+    # hour runs are first-class, rule #14 — those logs reach tens of MB
+    # each), and a diagnostic read must never OOM the process it is
+    # diagnosing.
+    DIAG_SUMMARY_FIELDS = [
+        "event_id",
+        "trigger",
+        "trigger_source",
+        "state",
+        "started_at",
+        "finished_at",
+        "tool_call_count",
+        "current_stage",
+        "error_message",
+        "narrative_id",
+    ]
+
+    async def diagnostic_summaries(
+        self, agent_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Raw projected rows, newest first — dicts on purpose (the
+        Event entity would deserialize the heavy JSON columns this
+        projection exists to exclude)."""
+        return await self._db.get(
+            self.table_name,
+            {"agent_id": agent_id},
+            limit=limit,
+            order_by="started_at DESC",
+            fields=self.DIAG_SUMMARY_FIELDS,
+        )
+
+    async def diagnostic_full(
+        self, agent_id: str, event_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """One full raw row, scoped WHERE agent_id AND event_id — a
+        foreign agent's event reads as missing (no existence oracle)."""
+        return await self._db.get_one(
+            self.table_name, {"agent_id": agent_id, "event_id": event_id}
+        )

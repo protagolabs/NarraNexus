@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/raw_access.py
-last_verified: 2026-07-21
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (方案 B 的后果修正) — 团队根纳入单文件守卫
+
+单文件守卫原本只认 workspace 根：entry 直接坐在根上时拒绝子路径请求，**正是为了防止一个 token
+顺着走该 agent 的其他文件**。团队 artifact 被要求住进团队目录后，entry 出现在一个该守卫不认识
+的根上——于是一个团队 artifact 的 view-token 会把**团队目录里的任何文件**都提供出去，而这条路由
+是**刻意绕过 JWT** 的（token 本身就是凭据）。
+
+现在 `container_roots = {workspace_root} ∪ {team_shared_dir}`（team 从 artifact 行上取）。
 
 # raw_access.py — resolve an artifact + sub-path to the file it serves
 

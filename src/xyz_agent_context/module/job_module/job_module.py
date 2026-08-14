@@ -666,7 +666,7 @@ class JobModule(XYZBaseModule):
 
         Tool definitions have been extracted to _job_mcp_tools.py.
         """
-        return create_job_mcp_server(self.port, JobModule.get_mcp_db_client)
+        return create_job_mcp_server(self.port)
 
 
     # =========================================================================

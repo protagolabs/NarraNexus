@@ -42,6 +42,13 @@ class SkillInfo(BaseModel):
     env_configured: Optional[bool] = Field(
         default=None, description="Whether all required env vars have values configured"
     )
+    env_platform_assumed: Optional[list[str]] = Field(
+        default=None,
+        description="Required env vars counted as configured ONLY because they are "
+        "platform-resolvable and are not self-stored. The API layer DB-validates "
+        "just these and downgrades env_configured for any the platform can't "
+        "satisfy. Var NAMES only, never values. None = no platform assumption.",
+    )
     # Study status related fields
     study_status: Optional[str] = Field(default=None, description="Study status: idle/studying/completed/failed")
     study_result: Optional[str] = Field(default=None, description="Study result (Agent's natural language summary)")

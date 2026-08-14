@@ -107,13 +107,19 @@ def test_owner_relay_prompt_injects_marker():
 
 def test_team_prompt_injects_marker_and_shared_folder():
     trig = MessageBusTrigger(bus=None)
-    member_map = {"agent_a": "Alice", "agent_b": "Bob"}
+    # The builder takes a roster now; these tests are about attachments and
+    # the trigger pointer, so the rows carry nothing else.
+    member_map = [
+        {"agent_id": "agent_a", "name": "Alice"},
+        {"agent_id": "agent_b", "name": "Bob"},
+    ]
     prompt = trig._build_team_prompt(
         "agent_b",
         [_msg()],
         member_map,
         owner_user_id="user_a",
         team_id="team_42",
+        bulletin=None,
     )
     assert "use Read tool" in prompt  # attachment marker
     assert "Team shared folder" in prompt  # collaboration hint
@@ -125,13 +131,19 @@ def test_team_prompt_shows_history_from_others_and_points_at_trigger():
     # @mention it), so it can Read + discuss without a manual relay; and it's
     # pointed at the message it must answer.
     trig = MessageBusTrigger(bus=None)
-    member_map = {"agent_a": "Alice", "agent_b": "Bob"}
+    # The builder takes a roster now; these tests are about attachments and
+    # the trigger pointer, so the rows carry nothing else.
+    member_map = [
+        {"agent_id": "agent_a", "name": "Alice"},
+        {"agent_id": "agent_b", "name": "Bob"},
+    ]
     user_img = _msg(from_agent="usr_yzhou", content="whose place is this?", mentions=None)
     ask = _msg(from_agent="agent_a", content="@Bob take a look", msg_type="text",
                attachments=None, mentions=["agent_b"])
     prompt = trig._build_team_prompt(
         "agent_b", [user_img, ask], member_map,
         owner_user_id="user_a", team_id="team_42", trigger_messages=[ask],
+        bulletin=None,
     )
     # The image (from the user, NOT @Bob) is visible to Bob in the scrollback.
     assert "use Read tool" in prompt
@@ -149,7 +161,11 @@ def test_team_prompt_allows_action_tools_forbids_reply_delivery():
         prompt = trig._build_team_prompt(
             "agent_b",
             [_msg(attachments=atts, msg_type=mtype, content="see the path")],
-            {"agent_a": "Alice", "agent_b": "Bob"},
+            [
+                {"agent_id": "agent_a", "name": "Alice"},
+                {"agent_id": "agent_b", "name": "Bob"},
+            ],
+            bulletin=None,
         )
         assert "Do NOT use any tools" not in prompt          # no blanket ban
         assert "built-in Read tool" in prompt                # Read allowed

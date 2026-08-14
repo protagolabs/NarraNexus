@@ -8,6 +8,10 @@ import type { BusAttachment } from './messages';
 export interface ApiResponse {
   success: boolean;
   error?: string;
+  // Some backend envelopes carry a human-readable message alongside a machine
+  // error code (e.g. lark unbind: error="no_credential", message="No Lark bot
+  // bound to this agent."). Prefer `message` for display when present.
+  message?: string;
 }
 
 // Job types
@@ -153,6 +157,18 @@ export interface AwarenessResponse extends ApiResponse {
   awareness?: string;
   create_time?: string;
   update_time?: string;
+}
+
+/** Response of POST /api/runs/{run_id}/cancel. */
+export interface CancelRunResponse extends ApiResponse {
+  run_id: string;
+  /** The run's state at the moment the request was recorded. */
+  state: string;
+  /** True when the run had already finished — nothing was flagged. */
+  already_settled: boolean;
+  /** How many runs the stop was applied to, this one included. >1 means the
+   *  run had caused others and the whole trigger tree was stopped. */
+  cascaded?: number;
 }
 
 // Clear history types
@@ -431,6 +447,15 @@ export interface CreateUserResponse extends ApiResponse {
 export interface AgentListResponse extends ApiResponse {
   agents: AgentInfo[];
   count: number;
+}
+
+/** GET /api/auth/session — "is my session still alive, and until when?".
+ *  `expires_at` / `issued_at` are epoch SECONDS, null in local mode where
+ *  identity is a header and there is nothing to expire. */
+export interface SessionResponse {
+  user_id: string;
+  expires_at: number | null;
+  issued_at: number | null;
 }
 
 export interface UpdateTimezoneResponse extends ApiResponse {

@@ -42,11 +42,14 @@ from xyz_agent_context.schema.attachment_schema import Attachment
 # Utils
 from xyz_agent_context.utils import DatabaseClient, utc_now
 
-# Repository
-from xyz_agent_context.repository import AgentMessageRepository
-
-# Schema
-from xyz_agent_context.schema.agent_message_schema import MessageSourceType
+# NOTE (2026-08-05): ChatModule does NOT write the `agent_messages` table.
+# Its two imports from that family (`AgentMessageRepository`,
+# `MessageSourceType`) were dead and are gone. The chat transcript lives in
+# `instance_json_format_memory_chat`, keyed by chat instance_id — that is what
+# `hook_persist_turn` below writes and what `/simple-chat-history` replays.
+# `agent_messages` has no writer left anywhere and is 0 rows in every
+# deployment; it stays as a tombstone table (铁律 #6). Believing otherwise
+# already cost one misdiagnosis (0802 ordering report).
 
 # Prompts
 from xyz_agent_context.module.chat_module.prompts import CHAT_MODULE_INSTRUCTIONS
@@ -291,7 +294,7 @@ class ChatModule(XYZBaseModule):
         Delegates tool registration to _chat_mcp_tools module.
         """
         from xyz_agent_context.module.chat_module._chat_mcp_tools import create_chat_mcp_server
-        return create_chat_mcp_server(self.port, ChatModule.get_mcp_db_client)
+        return create_chat_mcp_server(self.port)
 
 
     # ============================================================================= Private Helper Methods

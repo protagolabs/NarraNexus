@@ -22,6 +22,7 @@ from loguru import logger
 
 from backend.auth import reject_cross_origin, resolve_current_user_id
 from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
+from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 router = APIRouter()
 
@@ -36,7 +37,7 @@ def _require_publisher(request: Request) -> None:
         return
     role = getattr(request.state, "role", None)
     if not getattr(request.state, "user_id", None):
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     if role != "staff":
         raise HTTPException(status_code=403, detail="staff role required")
 

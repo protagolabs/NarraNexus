@@ -396,6 +396,14 @@ class InstallPipeline:
                 )
                 if not marked:
                     logger.debug(f"No audit row to mark for '{skill_id}' ({status})")
+
+            # A skill is a capability, and capabilities are what peers search
+            # on: keep the agent's discovery row in step with what it can now
+            # do, instead of waiting for its next turn (P1 section 02, target 1).
+            from xyz_agent_context.message_bus.agent_discovery_sync import (
+                sync_agent_discovery,
+            )
+            await sync_agent_discovery(await self._get_db(), self.agent_id)
         except Exception as exc:
             # Disk is the source of truth — an audit failure must never fail
             # or roll back the filesystem operation. The reconciler heals it.

@@ -35,6 +35,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
@@ -52,6 +53,8 @@ import {
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
+import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
+import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
@@ -487,6 +490,14 @@ export function MainLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, userId]);
 
+  // Reply-language sync: languageChanged subscription + one-time backfill.
+  // Mounted HERE (MainLayout, like TelemetryNotice/FeedbackButton), NOT in
+  // ChatView: a team-first user or a settings deep-link never renders
+  // ChatView, and a sync only chat users get is not a sync (PR #284 r2).
+  useEffect(() => {
+    initReplyLanguageSync(userId);
+  }, [userId]);
+
   return (
     // h-dvh-safe (not h-screen): 100vh on mobile includes the space behind
     // the browser's retractable UI, pushing the layout's bottom edge under
@@ -519,6 +530,17 @@ export function MainLayout() {
           the chat view. Mobile keeps its entry in the sidebar drawer footer:
           the corner belongs to the composer there. */}
       {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
+      {/* One-time privacy disclosures. Mounted HERE (MainLayout, like
+          FeedbackButton) and not inside ChatView: a team-first user or a
+          settings deep-link never renders ChatView, and a disclosure that only
+          chat users receive is not a disclosure. Both self-gate (render nothing
+          once seen / when their data flow is off), so this shared stacking slot
+          sizes itself and the two never overlap — pointer-events-none on the
+          slot so it never blocks the composer when both are hidden. */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md flex flex-col gap-3 pointer-events-none">
+        <WebAnalyticsNotice />
+        <TelemetryNotice />
+      </div>
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (

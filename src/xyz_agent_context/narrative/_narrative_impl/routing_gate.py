@@ -11,7 +11,7 @@ DB loads and candidate assembly.
 
 WHY THE OLD RULE FAILED (prod 2026-07-29, agent_dd505db5ff12)
 
-`_keyword_search` squashes raw BM25 through ``s / (s + 1)`` and the gate
+`keyword_search` squashes raw BM25 through ``s / (s + 1)`` and the gate
 compared that to 0.70. That is algebraically ``raw >= 2.33`` — and under the
 per-character CJK tokenizer (Chinese has no spaces, so `tokenize` emits
 unigrams) a handful of incidental character collisions clears it. `工业` and

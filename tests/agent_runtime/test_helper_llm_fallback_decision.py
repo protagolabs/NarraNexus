@@ -169,8 +169,15 @@ def test_fatal_after_organic_reply_returns_partial_reply_then_error():
 # ---------- skip: non-chat trigger ------------------------------------
 
 
-@pytest.mark.parametrize("ws", ["message_bus", "job", "lark", "callback", "a2a"])
+@pytest.mark.parametrize("ws", ["message_bus", "job", "callback", "a2a"])
 def test_non_chat_trigger_skips(ws):
+    """Sources with no human waiting in a room.
+
+    ``message_bus`` and ``job`` are excluded by policy (peer-agent loops /
+    no channel recipient); ``callback`` and ``a2a`` have no room at all.
+    ``lark`` left this list on 2026-08-06 — it IS an IM channel, so its
+    skip reason now depends on room type (see below).
+    """
     mode, reason = _should_run_helper_llm_fallback(
         working_source=ws,
         agent_loop_response=[_non_reply_progress()],
@@ -178,6 +185,21 @@ def test_non_chat_trigger_skips(ws):
     )
     assert mode is None
     assert reason == "non_chat_trigger"
+
+
+@pytest.mark.parametrize("ws", ["lark", "wechat", "telegram", "slack", "discord"])
+def test_im_group_room_skips_with_its_own_reason(ws):
+    """An IM group room still stays silent — but for the room-type reason,
+    not "out of scope". The 1:1 DM case of the same channels runs the
+    fallback (tests/agent_runtime/test_im_dm_no_reply_fallback.py)."""
+    mode, reason = _should_run_helper_llm_fallback(
+        working_source=ws,
+        agent_loop_response=[_non_reply_progress()],
+        cancellation=None,
+        is_direct_message=False,
+    )
+    assert mode is None
+    assert reason == "group_room_may_stay_silent"
 
 
 def test_non_chat_trigger_with_fatal_still_skips():
