@@ -611,7 +611,8 @@ process your message right now (error_type). error_message"` string so
 the sender agent sees the failure inline instead of receiving an empty
 reply.
 
-> **2026-08-13 更新**:返回值现在是三元组,第三个元素就是"这是错误串"。
+> **2026-08-14 更新**(取代 08-13 那条,它描述的三元组从未合入):返回值是
+> `TurnResult`,`fatal` 字段说明"这是错误串而不是 agent 的话"。
 > DM lane 的行为不变;team lane 的投递已搬进 turn,所以那条 ⚠️ 由 team 分支
 > **以房间身份**单独贴出(详见同日条目),而不再经由这里的返回值被当成回复贴进房间。
 
@@ -1029,7 +1030,7 @@ deliverer —— 桩不模拟真实时序,测的就不是真实链路。
 **刻意**在 loop 失败时不投递的(免得半截明文读起来像答案)。两头一夹,fatal 的 team
 turn 变成"房间完全沉默"或"没标记的半截话"。
 
-`_invoke_runtime` 因此返回三元组,team 分支在 `run_failed` 时**以房间身份**
+`_invoke_runtime` 因此在 `TurnResult` 上多带一个 `fatal`,team 分支在 `turn.fatal` 时**以房间身份**
 (`from_agent=channel_owner`,即 `team_<id>` 标记)贴出通知。**刻意不走
 `_post_to_room`**:那条路会解析 @mention(把队友拖进一次故障)、盖 run id、并被记成
 agent 的一次回复 —— 在一个专门消除假账的改动里再造一笔假账。
@@ -1072,3 +1073,22 @@ recoverable 抖动 → 房间收到**正确答案 + 一条假的 ⚠️**;没抛
 替换掉**,真实签名从未被执行。守门测试因此改用本仓已有的正确范式:桩
 `run_and_collect`,让真实函数留在路径上(`test_bus_run_cancellation.py` 里那条转发
 `cancellation` 的用例就是这么写的),并实测过删掉形参会红。
+
+## 2026-08-14 (补) — `room_post_failed`:跨 turn 边界把一次异常递出来
+
+代发搬进 turn 之后,失败的异常发生在**回调里**(turn 内),而处理它的地方
+(`_announce_failed_room_post` —— 贴 `system_delivery_failed` 行、并把回复原文保进
+owner 的 inbox)在 turn **之后**。两者之间只隔着 `run()` 的返回,但回调的返回值只能
+是 bool,没地方带异常。
+
+`room_post_failed` 是一个单元素 list,充当那条边界上的信箱:回调把异常放进去并返回
+False(于是 step_3 不发帧 —— 那一轮确实没触达房间),turn 结束后 team 分支据此调
+dev 的公告方法。
+
+**为什么不在回调里直接公告**:那会在 turn 内往房间再写一条消息,而此刻 `run()` 尚未
+返回、`ack_processed` 也还没跑,失败公告会先于"这一轮已处理"落库;更重要的是,公告
+必须以**房间身份**发,而回调是以 **agent 身份**代发的那条路径,混在一起会让公告被记成
+agent 自己的一次发言。
+
+**为什么不用异常穿透**:回调是被 `step_3` await 的,抛出去会打断投递阶段并落进
+runtime 的通用错误处理,把"一条消息没贴成"升级成"这一轮失败"。

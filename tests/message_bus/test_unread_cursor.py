@@ -39,6 +39,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 
 
@@ -302,7 +303,7 @@ async def test_the_team_reply_is_posted_exactly_once(db_client):
         assert cb is not None, "the team lane must hand the runtime a deliverer"
         assert await cb("on it") is True
         delivered.append("on it")
-        return ("on it", "evt_turn")
+        return TurnResult(text="on it", event_id="evt_turn")
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
@@ -373,7 +374,7 @@ async def test_a_peer_dm_gets_no_deliverer(db_client):
 
     async def _invoke(**kwargs):
         seen["cb"] = kwargs.get("on_plain_text_delivery")
-        return ("pong", "evt_turn")
+        return TurnResult(text="pong", event_id="evt_turn")
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 

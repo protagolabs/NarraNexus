@@ -236,9 +236,8 @@ async def test_invoke_runtime_forwards_the_team_deliverer(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(
-            is_error=False, is_fatal=False, output_text="ok", event_id="evt_1",
-            error=None, tool_calls=[],
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
         )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
@@ -269,9 +268,8 @@ async def test_invoke_runtime_works_without_a_deliverer(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(
-            is_error=False, is_fatal=False, output_text="ok", event_id="evt_1",
-            error=None, tool_calls=[],
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
         )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))

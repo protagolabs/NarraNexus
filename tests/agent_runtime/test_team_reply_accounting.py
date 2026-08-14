@@ -5,7 +5,7 @@
 @description: A team reply is a delivery, and the turn's books must say so.
 
 Everywhere else a reply leaves the process through a tool call, which is what
-`_delivered_to_origin` looks for. A team room does not work that way: the
+the accounting looks for. A team room does not work that way: the
 agent's plain text IS the reply and the platform posts it. The reply surface is
 emptied outright for those turns, so no tool frame is even reachable — the
 accounting was not merely missing it, it was structurally incapable of seeing
@@ -20,7 +20,7 @@ that never left the process is the same class of lie. So the delivery moves
 INTO the turn as a callback, and the frame follows its result.
 
 Pinned here:
-  * a delivered team reply produces a frame `_delivered_to_origin` accepts
+  * a delivered team reply produces a frame the origin extractor accepts
   * a REFUSED delivery produces none — the books stay honest when the post fails
   * a silent turn stays silent
   * the frame never counts as owner-visible: that would re-anchor the owner's
@@ -460,3 +460,62 @@ def test_only_fatal_and_unlabelled_count_as_fatal():
             error=RunError("e", "m", severity=sev),
         )
         assert c.is_fatal is expected, f"severity={sev!r}"
+
+
+# ── severity survives the collector, not just the dataclass ─────────────────
+#
+# The three tests above build a `RunCollection` by hand, which is exactly why
+# they could not see that `collect_run`'s own sticky-fatal step was rewriting
+# `recovered` back to `"fatal"` on the way out — undoing the distinction they
+# assert. These drive the collector.
+
+async def _collect(frames):
+    from xyz_agent_context.agent_runtime.run_collector import collect_run
+
+    class _Runtime:
+        def run(self, **_kw):
+            async def _gen():
+                for f in frames:
+                    yield f
+            return _gen()
+
+    return await collect_run(
+        _Runtime(), agent_id="a", user_id="u", input_content="hi",
+        working_source="message_bus",
+    )
+
+
+def _err(severity: str):
+    from xyz_agent_context.schema import ErrorMessage
+
+    return ErrorMessage(
+        error_message="boom", error_type="api_error", severity=severity,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_run_survives_the_collector_as_non_fatal():
+    """`recovered` only ever follows a fatal — that is its precondition, not a
+    contradiction. The sticky rule exists for a LESS informed frame arriving
+    late; this one is more informed, and overruling it discards the reply the
+    fallback produced."""
+    c = await _collect([_err("fatal"), _err("recovered")])
+
+    assert c.is_error is True
+    assert c.is_fatal is False
+
+
+@pytest.mark.asyncio
+async def test_a_turn_that_spoke_before_dying_survives_the_collector():
+    c = await _collect([_err("fatal"), _err("recovered_after_reply")])
+
+    assert c.is_fatal is False
+
+
+@pytest.mark.asyncio
+async def test_a_recoverable_frame_after_a_fatal_does_not_rescue_the_run():
+    """The case the sticky rule is FOR: the late frame knows less, so the
+    fatal stands."""
+    c = await _collect([_err("fatal"), _err("recoverable")])
+
+    assert c.is_fatal is True

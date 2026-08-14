@@ -327,7 +327,7 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
 async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
     """The claim this whole change rests on, tested end to end at last.
 
-    The earlier tests in this file checked `_delivered_to_origin` and the
+    The earlier tests in this file checked the origin extractor and the
     summary wording in isolation and passed, which is how "the row shape
     follows delivery" went unverified. It does not: the branch selector reads
     `is_no_response`, which comes from the OWNER-visible extractor, and that one

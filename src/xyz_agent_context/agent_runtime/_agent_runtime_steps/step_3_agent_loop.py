@@ -343,7 +343,7 @@ def _has_organic_reply(
     ``send_message_to_user_directly``, on an IM turn it also means the
     channel's own send tool (``wechat_send``, ``lark_cli +messages-send``,
     …). The authority is ``MessageSourceRegistry``, the same registry
-    ``chat_module._delivered_to_origin`` consults — so "did this turn
+    ``chat_module._origin_delivered_text`` consults — so "did this turn
     speak?" cannot drift between the two layers.
 
     Two consumers:
@@ -834,7 +834,7 @@ async def _stream_fallback_recovery(
         # - **the synthetic frame is tagged with the CHANNEL's send tool**,
         #   not send_message_to_user_directly, so
         #   `_split_user_visible_response` files it as an IM reply and
-        #   `_delivered_to_origin` reports the turn as delivered.
+        #   `_origin_delivered_text` recovers the turn's reply text.
         #
         # The frame is emitted ONLY after the channel confirms the send.
         # Recording "replied" for a message that never left the process is
@@ -1163,7 +1163,7 @@ async def _post_team_room_reply(*, final_output: str, deliver) -> bool:
     Team rooms are the one surface whose contract is "your text IS the message"
     — the reply surface is emptied for those turns, so the agent cannot call a
     delivery tool even if it wanted to. Nothing in the turn's trace therefore
-    said a reply happened, and `_delivered_to_origin` correctly concluded none
+    said a reply happened, and the origin extractor correctly found none
     had: every team turn filed as "no reply sent", into an `activity` row that
     the next turn's history loader drops. That is why a team room started every
     turn cold.

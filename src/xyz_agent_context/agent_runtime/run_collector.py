@@ -305,8 +305,21 @@ async def collect_run(
                     except Exception:  # noqa: BLE001 — status must never break the run
                         logger.opt(exception=True).warning("on_event_id callback failed")
 
-    # A fatal seen anywhere in the run outranks whatever the last frame said.
-    if error is not None and saw_fatal and error.severity != "fatal":
+    # A fatal seen anywhere in the run outranks a LESS informed last frame —
+    # but not a MORE informed one. `recovered` and `recovered_after_reply` are
+    # only ever emitted BECAUSE a fatal happened; they are the verdict on that
+    # fatal ("the fallback answered anyway", "the agent had already spoken"),
+    # not a competing claim about it. Upgrading them here would undo the only
+    # thing they exist to say, and the turn's real reply would be replaced by a
+    # failure notice.
+    #
+    # What the rule is actually for: a `recoverable` (or unlabelled) frame
+    # arriving after a fatal, where the later frame knows less, not more.
+    if (
+        error is not None
+        and saw_fatal
+        and error.severity not in ("fatal", "recovered", "recovered_after_reply")
+    ):
         error = RunError(
             error_type=error.error_type,
             error_message=error.error_message,
