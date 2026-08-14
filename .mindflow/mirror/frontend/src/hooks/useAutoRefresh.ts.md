@@ -26,6 +26,23 @@ Behind the visibility guard like everything else, so a hidden tab still issues
 zero requests; and on re-focus `tickMid` fires immediately, which is exactly
 when the user wants to know what happened while they were away.
 
+After each teams refresh, `notifyWokenRooms` raises a toast for any room that
+went from caught-up to talking. Three decisions are load-bearing:
+
+- **Edge, not level.** A toast per new message in a room where six agents answer
+  at once is a notification people turn off — and a feature users turn off is
+  worse than one that was never built. A room that is already unread stays
+  unread until they open it and says nothing more in the meantime.
+- **"Never observed" is distinct from "was caught up".** A team created, joined,
+  or seen for the first time this session has no prior observation; treating
+  that as caught-up would announce a whole backlog the user just gained access
+  to, and would make every unread room shout on app start.
+- **No route knowledge.** "Is the user reading it right now" is answered by the
+  watermark: the open room advances its own every 3s (see [[TeamChatPanel.tsx]]),
+  so by the time this 30s tick sees the message it is already read. Same
+  question the sidebar dot asks, answered from the same place — one rule, not
+  two that can disagree.
+
 ## 2026-05-14 — Artifacts join refreshAll (but NOT the timers)
 
 `refreshAll` now also calls `artifactStore.loadPinned(aid)`. Before this,

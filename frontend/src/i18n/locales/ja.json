@@ -2067,5 +2067,12 @@
     "savedTo": "{{path}} に保存しました",
     "downloadFailed": "ダウンロードに失敗しました: {{error}}",
     "doneTitle": "完了"
+  },
+  "toast": {
+    "view": "表示",
+    "completed": "完了",
+    "roomSpoke": "ルームに新しい動き",
+    "agent": "エージェント",
+    "room": "ルーム"
   }
 }

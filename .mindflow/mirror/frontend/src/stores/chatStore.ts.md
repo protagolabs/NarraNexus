@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — ToastItem 成为可辨识联合
+
+`ToastItem` 从 `{agentId, agentName, timestamp}` 改成
+`{kind:'agent',…} | {kind:'team',…}`，`dismissToast` 从按 agentId 改成按
+`toastKey(item)`（`agent:<id>` / `team:<id>`）。
+
+原因见 [[AgentCompletionToast.tsx]]：团队房间的 toast 既没有可切换的 agent，也没有
+可以当键的 agent id。**键按 kind 限定**，是因为无法从代码确认 team id 和 agent id
+是否可能相等——不能确认的事就让它不可能发生，而不是依赖它。
+
+这个改动的价值在改的过程中就兑现了：tsc 立刻指出 [[useAutoRefresh.ts]] 里还有一处
+没带 `kind` 的入队。联合类型让"少写一个字段"从运行时的怪现象变成编译错误。
 
 ## 2026-08-10 — rendered reply as value outcome
 

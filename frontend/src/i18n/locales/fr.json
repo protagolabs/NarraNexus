@@ -2068,5 +2068,12 @@
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
     "doneTitle": "Terminé"
+  },
+  "toast": {
+    "view": "Voir",
+    "completed": "Terminé",
+    "roomSpoke": "Nouvelle activité dans le salon",
+    "agent": "Agent",
+    "room": "Salon"
   }
 }

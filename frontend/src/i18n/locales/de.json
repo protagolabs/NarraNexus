@@ -2068,5 +2068,12 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig"
+  },
+  "toast": {
+    "view": "Ansehen",
+    "completed": "Fertig",
+    "roomSpoke": "Neue Aktivität im Raum",
+    "agent": "Agent",
+    "room": "Raum"
   }
 }

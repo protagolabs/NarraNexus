@@ -2076,5 +2076,12 @@
     "savedTo": "تم الحفظ في {{path}}",
     "downloadFailed": "فشل التنزيل: {{error}}",
     "doneTitle": "تم"
+  },
+  "toast": {
+    "view": "عرض",
+    "completed": "اكتمل",
+    "roomSpoke": "نشاط جديد في الغرفة",
+    "agent": "وكيل",
+    "room": "غرفة"
   }
 }

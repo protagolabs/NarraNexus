@@ -2518,5 +2518,12 @@
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done"
+  },
+  "toast": {
+    "view": "View",
+    "completed": "Completed",
+    "roomSpoke": "New activity in the room",
+    "agent": "Agent",
+    "room": "Room"
   }
 }

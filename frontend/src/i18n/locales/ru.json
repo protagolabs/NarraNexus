@@ -2072,5 +2072,12 @@
     "savedTo": "Сохранено в {{path}}",
     "downloadFailed": "Не удалось скачать: {{error}}",
     "doneTitle": "Готово"
+  },
+  "toast": {
+    "view": "Открыть",
+    "completed": "Готово",
+    "roomSpoke": "Новая активность в комнате",
+    "agent": "Агент",
+    "room": "Комната"
   }
 }

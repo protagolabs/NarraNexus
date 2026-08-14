@@ -17,11 +17,15 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-const teamsRefresh = vi.fn();
+// Async, like the store's own `refresh(): Promise<void>` — a sync mock would
+// make the hook's `.then` throw and pin a contract the store does not have.
+const teamsRefresh = vi.fn(async () => {});
 const refreshAgents = vi.fn();
 
 vi.mock('@/stores', () => ({
-  useTeamsStore: { getState: () => ({ refresh: teamsRefresh }) },
+  // `teams` is part of the store's shape, so the mock carries it — the woken-room
+  // check reads it right after every refresh.
+  useTeamsStore: { getState: () => ({ refresh: teamsRefresh, teams: [] }) },
   useConfigStore: { getState: () => ({ refreshAgents, agents: [] }) },
   useChatStore: { getState: () => ({ isAgentStreaming: () => false }) },
   useArtifactStore: (select: (s: unknown) => unknown) => select({ loadPinned: vi.fn() }),

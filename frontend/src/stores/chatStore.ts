@@ -64,11 +64,27 @@ export interface AgentChatState {
   currentRunId: string | null;
 }
 
-/** Toast notification for background-completed agents */
-export interface ToastItem {
-  agentId: string;
-  agentName: string;
-  timestamp: number;
+/**
+ * Toast notification for something that finished while the user was elsewhere.
+ *
+ * A discriminated union rather than an agent item with an optional team id: a
+ * team toast has no agent to switch to and no agent id to be keyed by, and one
+ * field carrying two meanings is the shape that makes the eventual bug
+ * invisible. The kind decides both the wording and where "View" goes.
+ */
+export type ToastItem =
+  | { kind: 'agent'; agentId: string; agentName: string; timestamp: number }
+  | { kind: 'team'; teamId: string; teamName: string; timestamp: number };
+
+/**
+ * The queue key for a toast — `agent:<id>` / `team:<id>`.
+ *
+ * Kind-qualified so a team and an agent that happen to share an id cannot
+ * dismiss one another. Whether that can happen could not be established from
+ * the code, which is the reason to make it impossible rather than to rely on it.
+ */
+export function toastKey(t: ToastItem): string {
+  return t.kind === 'agent' ? `agent:${t.agentId}` : `team:${t.teamId}`;
 }
 
 /** Shared frozen default — avoids creating new objects on every access for non-existent sessions */
@@ -160,7 +176,8 @@ interface ChatState {
   requestWorkspaceRefresh: () => void;
 
   // Notification actions
-  dismissToast: (agentId: string) => void;
+  /** Remove one toast by its `toastKey` (`agent:<id>` / `team:<id>`). */
+  dismissToast: (key: string) => void;
   clearCompletedNotification: (agentId: string) => void;
 
   // Query helpers
@@ -421,7 +438,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
           ? [...prevState.completedAgentIds, agentId]
           : prevState.completedAgentIds;
         const newToastQueue = isBackgroundAgent
-          ? [...prevState.toastQueue, { agentId, agentName: agentName || agentId, timestamp: Date.now() }]
+          ? [...prevState.toastQueue, { kind: 'agent' as const, agentId, agentName: agentName || agentId, timestamp: Date.now() }]
           : prevState.toastQueue;
 
         return {
@@ -931,9 +948,9 @@ export const useChatStore = create<ChatState>((_set, get) => {
     },
 
     // Notification actions
-    dismissToast: (agentId: string) => {
+    dismissToast: (key: string) => {
       set((state) => ({
-        toastQueue: state.toastQueue.filter((t) => t.agentId !== agentId),
+        toastQueue: state.toastQueue.filter((t) => toastKey(t) !== key),
       }));
     },
 

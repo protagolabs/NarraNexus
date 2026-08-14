@@ -2518,5 +2518,12 @@
     "savedTo": "已保存到 {{path}}",
     "downloadFailed": "下载失败：{{error}}",
     "doneTitle": "已完成"
+  },
+  "toast": {
+    "view": "查看",
+    "completed": "已完成",
+    "roomSpoke": "房间里有新动静",
+    "agent": "智能体",
+    "room": "房间"
   }
 }

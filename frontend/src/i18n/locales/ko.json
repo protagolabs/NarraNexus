@@ -2067,5 +2067,12 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료"
+  },
+  "toast": {
+    "view": "보기",
+    "completed": "완료",
+    "roomSpoke": "룸에 새 활동",
+    "agent": "에이전트",
+    "room": "룸"
   }
 }
