@@ -257,6 +257,40 @@ def test_post_message_empty_payload_produces_empty_content() -> None:
     assert parsed.content == ""
 
 
+def test_post_message_unwrapped_payload_extracts_text() -> None:
+    """API / lark-cli senders emit the post payload WITHOUT the language
+    wrapper: ``{"title", "content"}`` at top level instead of
+    ``{"zh_cn": {...}}``. Live incident 2026-08-06: such a DM parsed to
+    empty content and was silently dropped by the empty-content guard —
+    the bot never replied and left no trace."""
+    payload = {
+        "title": "",
+        "content": [
+            [{"tag": "text", "text": "请把晨报用完整 Markdown 重发一次"}],
+            [{"tag": "text", "text": "以后群发也恢复用 markdown"}],
+        ],
+    }
+    parsed = _make_trigger().parse_event(
+        _raw(message_type="post", content_payload=payload)
+    )
+    assert parsed is not None
+    assert "请把晨报用完整 Markdown 重发一次" in parsed.content
+    assert "以后群发也恢复用 markdown" in parsed.content
+
+
+def test_post_message_unwrapped_payload_with_title_extracts_both() -> None:
+    payload = {
+        "title": "重发请求",
+        "content": [[{"tag": "text", "text": "正文内容"}]],
+    }
+    parsed = _make_trigger().parse_event(
+        _raw(message_type="post", content_payload=payload)
+    )
+    assert parsed is not None
+    assert "重发请求" in parsed.content
+    assert "正文内容" in parsed.content
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Edge cases that exercised the OLD `text = content_str` fallback
 # ─────────────────────────────────────────────────────────────────────

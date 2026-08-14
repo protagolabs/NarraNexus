@@ -212,6 +212,33 @@ class Narrative(BaseModel):
     # ===== Special Markers =====
     is_special: str = "other"  # Special marker field, default value is "other"
 
+    def searchable_text(self) -> str:
+        """The text that represents this narrative to search — the ONE definition.
+
+        Two callers must agree on it or the system contradicts itself about what
+        a narrative is about:
+          - `_narrative_impl/retrieval.load_pool` — the per-turn BM25 routing pool
+          - `_narrative_impl/crud._index_narrative` — the projection into the
+            unified memory index that `remember` searches
+        Both rank with the same `bm25_rank`, so a drift between them would make
+        recall and routing disagree while every test still passed. They had
+        already drifted in form (`" ".join` vs `"\\n".join`) before this was
+        pulled up here — equivalent only because the tokenizer splits on
+        whitespace, i.e. one tokenizer change away from being a real bug.
+
+        It lives on the model because retrieval imports crud; a shared helper in
+        either of them would be a circular import.
+        """
+        info = self.narrative_info
+        return " ".join(
+            p for p in (
+                getattr(info, "name", "") or "",
+                getattr(info, "current_summary", "") or "",
+                getattr(info, "description", "") or "",
+                " ".join(self.topic_keywords or []),
+            ) if p
+        )
+
 
 # =============================================================================
 # Session Related Models
@@ -288,6 +315,64 @@ class NarrativeSearchResult(BaseModel):
     raw_score: float = 0.0
 
 
+class RoutingCandidate(BaseModel):
+    """One narrative as it appeared in the BM25 candidate pool at decision time.
+
+    ``text_hash`` points at the exact searchable text this narrative carried
+    when it was scored — NOT what it carries now. The async LLM updater
+    rewrites ``narrative_info.name`` / ``current_summary`` / ``topic_keywords``
+    wholesale on (almost) every turn and keeps no history, so re-reading the
+    `narratives` table later reconstructs a pool that never existed.
+    """
+    narrative_id: str
+    text_hash: str          # sha256 of the scored text; resolves via narrative_text_snapshots
+    raw_score: float        # un-squashed BM25 — the number the gate reads
+    is_default: bool = False        # is_special == "default"
+    is_participant: bool = False    # entered the pool via the P0-4 participant query
+
+
+class RoutingAudit(BaseModel):
+    """Everything needed to explain — and exactly replay — one routing decision.
+
+    Deliberately carries the FULL candidate pool, not top-K: ``bm25_rank``
+    computes IDF and avgdl over the set it is handed, so a partial pool
+    reproduces different scores. See tests/narrative/test_routing_audit.py,
+    which fails if this is ever trimmed.
+    """
+    # ── inputs ──────────────────────────────────────────────────────────
+    agent_id: str
+    user_id: str
+    query_text: str                 # the retrieval anchor actually matched on
+    trigger: str = ""               # events.trigger — message_bus was 30% of dev turns
+    is_user_chat: bool = True       # False ⇒ this run must not move the session anchor
+
+    # ── tier 1: continuity ──────────────────────────────────────────────
+    continuity_ran: bool = False
+    continuity_is_continuous: Optional[bool] = None
+    continuity_confidence: Optional[float] = None   # computed today, then discarded
+    continuity_reason: str = ""
+
+    # ── tier 2: BM25 + gate ─────────────────────────────────────────────
+    candidates: List[RoutingCandidate] = []
+    gate_short_circuit: Optional[bool] = None
+    gate_reason: str = ""
+    gate_top1_raw: Optional[float] = None
+    gate_top2_raw: Optional[float] = None
+    gate_margin: Optional[float] = None
+
+    # ── tier 3: LLM arbitration ─────────────────────────────────────────
+    judge_ran: bool = False
+    judge_category: str = ""        # participant | default | search | none
+    judge_matched_id: Optional[str] = None
+    judge_reason: str = ""
+
+    # ── outcome ─────────────────────────────────────────────────────────
+    selection_method: str = ""
+    retrieval_method: str = ""
+    chosen_narrative_id: Optional[str] = None
+    is_new: bool = False
+
+
 class NarrativeSelectionResult(BaseModel):
     """
     Narrative Selection Result
@@ -302,3 +387,10 @@ class NarrativeSelectionResult(BaseModel):
     best_score: Optional[float] = None  # Best match score (if any)
     scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
     retrieval_method: str = ""  # Retrieval method: "session" (continuity) | "keyword" (BM25)
+
+    # ===== Routing audit (E1) — transient, never persisted on this object =====
+    # The retrieval tier fills the BM25/gate/judge half; NarrativeService.select
+    # adds the continuity half and the outcome, then writes one row. Carried
+    # here rather than returned separately so no call site can forget it.
+    audit: Optional["RoutingAudit"] = None
+    audit_snapshots: Dict[str, str] = {}  # text_hash -> scored text, for the snapshot store

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-07-29
+last_verified: 2026-08-13
 stub: false
 ---
+## 2026-08-13 — 导出 `BanAuditRepository`
+
+账户状态变更审计（`ban_audit` 表）的数据访问进公共导出面（import + `__all__`）。
+纯转发改动，无行为变化。见 [[ban_audit_repository]]。
+
+## 2026-08-05 — 导出 `AgentRegistryRepository`
+
+`bus_agent_registry`（同伴发现名录）的数据访问进公共导出面。该表原先由三处
+内联代码各写各的（bus 模块每轮钩子、`bus_register_agent` 工具、
+`InstanceFactory._register_agent_in_bus`），现在收敛成
+[[agent_registry_repository]] + [[agent_discovery_sync]] 单点策略，调用方从包门面
+import 即可。纯转发改动。
+
 ## 2026-07-29 — 移除 `CliSessionRepository` 导出
 
 `cli_session_repository.py` 随 T7 删除:它 CRUD 的 `agent_cli_sessions` 表已摘掉
@@ -30,3 +43,7 @@ Inbox / Agent / AgentMessage / MCP / User / Instance / Team / SkillArchive 等,�
 新增 re-export `AgentCircuitBreakerRepository`（实时层 Agent 熔断器状态的数据访问,表
 `instance_agent_circuit_breaker`）。纯导出改动,无行为变化。见
 [`agent_circuit_breaker_repository.py`](agent_circuit_breaker_repository.py.md)。
+
+## 2026-08-11 — 导出 `TeamBulletinRepository`
+
+见 [[team_bulletin_repository]]。

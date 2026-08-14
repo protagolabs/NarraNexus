@@ -67,3 +67,36 @@ async def test_raises_when_broker_returns_no_url(monkeypatch):
     )
     with pytest.raises(RuntimeError):
         await bc.ensure_executor("alice")
+
+
+@pytest.mark.asyncio
+async def test_identity_token_passes_through(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={
+            "status": "reused",
+            "executor_url": "http://nx-exec-a:8020",
+            "identity_token": "tok.signed",
+        })
+    )
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 != "transport"})
+    )
+    result = await bc.ensure_executor("a")
+    assert result.identity_token == "tok.signed"
+
+
+@pytest.mark.asyncio
+async def test_missing_identity_token_reads_none(monkeypatch):
+    """An older broker's response simply lacks the field — no lockstep."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={"status": "reused", "executor_url": "http://nx-exec-a:8020"})
+    )
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 != "transport"})
+    )
+    result = await bc.ensure_executor("a")
+    assert result.identity_token is None

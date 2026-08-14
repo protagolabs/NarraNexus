@@ -61,6 +61,7 @@ from .runtime_message import (
 from .job_schema import (
     JobType,
     JobStatus,
+    JobUpdateFields,
     JobModel,
     TriggerConfig,
 )
@@ -119,6 +120,11 @@ from .decision_schema import (
 from .entity_schema import (
     # Enums
     UserStatus,
+    # Shared account-state gate set (auth middleware / WS gate / login gate)
+    NON_TRANSACTING_USER_STATUSES,
+    # Agent description "unset" judgement (legacy placeholder recognition)
+    LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
+    is_agent_description_unset,
     # Entities
     SocialNetworkEntity,
     User,
@@ -342,6 +348,7 @@ __all__ = [
     # Job Schema
     "JobType",
     "JobStatus",
+    "JobUpdateFields",
     "JobModel",
     "TriggerConfig",
 
@@ -387,6 +394,9 @@ __all__ = [
 
     # Entity Schema (Data Entity Models)
     "UserStatus",
+    "NON_TRANSACTING_USER_STATUSES",
+    "LEGACY_AGENT_DESCRIPTION_PLACEHOLDER",
+    "is_agent_description_unset",
     "SocialNetworkEntity",
     "User",
     "Agent",

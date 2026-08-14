@@ -1,8 +1,94 @@
 ---
 code_file: src/xyz_agent_context/module/_mcp_identity.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — bearer 追加 identity_token(第 9 段;可验证身份,蓝图 P1)
+
+此前各段全是**自声明**事实(fail-open 便利);这一段是**证明**:平台签的
+Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自签),
+绑 `sub=user_id`。签/验/策略都在 [[identity/tokens]] / [[identity/mcp_auth]],
+本模块只负责运载与解析 —— 分工:这里回答"调用者**说**自己是谁",identity/
+包回答"能不能**证明**"。
+
+- 上 bearer 是必然:codex 只转发 Authorization;JWT 字符集无 `~`,field-safe
+  (有测试钉住)。显式头 `X-NarraNexus-Identity-Token` 照旧双发。
+- 新增 `stamp_identity_token(mcp_servers, token)`:在 **dispatch 时**(step_3,
+  ensure 之后)往已建好的 headers 里补 token —— context_runtime 盖章时云 token
+  还不存在(broker 是签发方)。重发走 `agent_id_headers` 这唯一构造器,
+  绝不手搓第二个 bearer;非 nx-agent 的真 bearer 原样不动。
+- 契约测试:parametrize 扩到 9、逐位钉 `BEARER_FIELDS[8]`(与 #255 的
+  team_id/event_id 撞位后按「先到 dev 者得位」第三次裁决,让到第 9),新增
+  stamp 往返与"外来 bearer 不重写"用例;stamp 重建**透传全部既有字段**,
+  漏一个=codex 通道静默丢该事实(round-6 review #2)。
+- bearer 记录既已是跨进程契约,解析器升公开面:`parse_bearer_identity()`
+  (同一实现的公开名)与 `BEARER_AGENT_PREFIX` 经 `module/__init__` 导出,
+  包外消费方(backend/auth、identity/verify)不再伸进私有名(review #4)。
+- `_wrap_fn` 的 **async** 分支在占位符守卫之后接 OwnerScopedPolicy
+  (`identity/mcp_auth.check_agent_ownership`,lazy import 避循环):验签身份
+  不拥有 resolved agent_id → enforce 下返回工具自身 shape 的错误值(复用
+  `returns_dict` 判形),audit 下放行只记账;policy 自身异常一律放行
+  (identity is never flow control)。**只包 async**:93/93 个声明 agent_id
+  的工具全是 coroutine,且有测试
+  (`test_every_agent_id_tool_is_async`)钉死该不变式 —— 新增 sync 工具声明
+  agent_id 会直接红。
+
+## 2026-08-07 (二次) — root_run_id 落在第 6 位,不是第 5 位
+
+`user_id`(dev)与 `root_run_id`(级联停止)是并行写的,**两者都曾落在
+第 5 位**。rebase 时按「先到先得」定序:`user_id` 已经在 dev 上、已经在线,
+它的位置不可动;`root_run_id` 追加到第 6。
+
+这次撞车暴露了守卫的一个缺口:原来的契约测试只断言**元数**,冲突时把 5 改
+成 6、两个字段各自保留就绿了 —— 但如果顺序拍反,`root_run_id` 会被解成
+`user_id`,**没有任何测试会红**,而下游是 job 归属与级联停止两条真实链路。
+现在 `test_every_field_count_parses` 逐位断言(参数化扩到 count=6),并额外
+钉死 `BEARER_FIELDS[4] == "user_id"` / `[5] == "root_run_id"`。
+
+## 2026-08-07 — bearer 追加第 5 段 root_run_id(级联停止)
+
+`BEARER_FIELDS` 变为 5 段,新增 `ROOT_RUN_ID_HEADER` + `caller_root_run_id()`。
+**追加是这里加事实的唯一合法方式**:老读者按自己的字段数截断,读不到新段
+(而不是读错),这正是 2026-08-03 那条契约要的降级方向。`_parse_bearer` 和
+`BearerIdentity` 靠 `BEARER_FIELDS` 长度自适应,只加了一个 NamedTuple 字段。
+
+**为什么这个事实必须存在**:agent 在这一轮里发出的消息,会成为**别人 run 的
+触发源**。那个 run 除了消息行之外没有任何途径知道自己延续的是哪棵触发树 ——
+血缘链断在这一跳,级联停止就会漏掉整条分支。消费者是
+[[_message_bus_mcp_tools]] 的两个发送工具。
+
+`tests/module/test_mcp_caller_identity.py` 里 `len(BEARER_FIELDS) == 4` 的守卫
+断言(带"arity changed"注释)如约失败,已更新为 5,参数化扩到 count=5,并新增
+两条:bearer-only 往返(codex 只转发 bearer,header-only 的事实就是个洞)、
+空 errand 段不把 root 左移(team 轮永远有 root、永远没有 errand scope)。
+
+## 2026-08-07 (二次) — 追加 event_id（BEARER_FIELDS 6 → 7）
+
+归因要回答「**哪一次 turn** 改的」。这个事实不能问模型——问了就是让它猜。所以 turn 句柄
+（events 行 id，同 [[bus_messages]] 的语义）走和 agent_id/team_id 同一条服务端通道。
+
+**时序可行**：event 行在 **Step 0** 创建（[[step_0_initialize.py]]），而 MCP spec 在 **Step 3**
+才构建（[[context_runtime.py]]）——写这条时先核过顺序，否则整条链路是空的。
+
+缺席不是错误：多数调用方没有 event 在作用域内。缺席只让记录降级，**绝不让注册失败**——
+为保住一行日志而丢掉 agent 的实际工作是错误的取舍。
+
+## 2026-08-07 — 追加 team_id 字段（BEARER_FIELDS 5 → 6）
+
+工具无法从**模型**得知「我在不在 team」——`agent_id` 本身就是模型填的参数，私聊回合完全
+可以谎称自己在某个 team 并写进那个 team 的工作台。所以 team 走和 agent_id 同一条服务端
+通道：新增 `X-NarraNexus-Team-Id` + bearer **追加**第 6 位（契约明写「APPENDED，绝不
+中插」——中插会让未同步的读者把后续每个位置都解析成错误的事实）。
+
+**为什么不复用 `errand_channel`**：它只在 turn 延续 agent 自己的 errand 时才被 stamp
+（[[message_bus_trigger]] 条件写入），绝大多数 team turn 是空的，复用会读成「不在 team」
+——失败还是静默且间歇的。
+
+`caller_team_id_from_request()` **故意没有 resolve_* 对应物**（不接受模型兜底）：None 即
+私有，证明不了 team 的回合就是私有——安全方向，反之等于凭模型一句话写进团队空间。
+
+`tests/module/test_mcp_caller_identity.py` 里的 arity 触发器（前人留的「arity changed —
+update _parse_bearer + this test」）按设计触发并已同步到 6。
 
 ## 2026-08-04 — user_id 上线同一 seam（W1），纪律刻意弱于 agent_id
 

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-05
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：fast 分支不再整跳 step_1_5，改为 read_history=False 调用（保住轨迹快照与 md 初始化）。
+
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+[turn-timing] 行新增可选尾部 profile=<name>（仅 fast turn 携带；基础形状逐字不变，既有 grep 契约不破——pin 测试同批扩展）。
+
+## 2026-08-06 — voice fast mode: narrative 快路径（BM25 直取）
+
+run() 在 turn_profile.narrative_strategy=="bm25_top1" 时以 step_1_fast_select 替换 step_1 并跳过 step_1_5；普通路径代码原样在 else 分支内，一行未改。
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+run() 新增 turn_profile 参数（None=原行为），透传进 RunContext；fast 分支的编排改动在后续批次。
 
 ## 2026-07-30 — 打断连续性:先持久化、再让位(interrupt continuity)
 

@@ -42,6 +42,8 @@ class CloudMessageBus(MessageBusService):
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -55,7 +57,9 @@ class CloudMessageBus(MessageBusService):
     ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
-    async def get_unread(self, agent_id: str) -> List[BusMessage]:
+    async def get_unread(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def mark_read(self, agent_id: str, message_ids: List[str]) -> None:
@@ -69,6 +73,7 @@ class CloudMessageBus(MessageBusService):
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -102,6 +107,17 @@ class CloudMessageBus(MessageBusService):
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def ack_processed(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def count_unread(self, agent_id: str) -> int:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def ack_read(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def record_failure(self, message_id: str, agent_id: str, error: str) -> None:

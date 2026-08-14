@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/
-last_verified: 2026-04-10
+last_verified: 2026-08-06
 stub: false
 ---
 # _agent_runtime_steps/ — 流水线各步骤实现
@@ -16,6 +16,7 @@ stub: false
 - **`context.py`**：`RunContext` dataclass 定义，所有步骤共享的状态容器
 - **`step_0_initialize.py`**：初始化阶段（agent 配置、Event、Session、Awareness）
 - **`step_1_select_narrative.py`**：Narrative 选择，含取消信号包装和 ChatModule instance 确保
+- **`step_1_fast_select.py`**：F28 快速模式的 step_1 替身——BM25 top-1 直取（零 LLM/零新建/零 session 写），保 ChatModule instance 不变量
 - **`step_1_5_init_markdown.py`**：Markdown 历史初始化（无 ProgressMessage，静默执行）
 - **`step_2_load_modules.py`**：Module 决策，产出 `ModuleLoadResult`
 - **`step_2_5_sync_instances.py`**：Instance-数据库同步 + Job 记录创建（包含原 step_2_6）

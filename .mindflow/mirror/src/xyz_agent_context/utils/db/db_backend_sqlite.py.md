@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/db/db_backend_sqlite.py
-last_verified: 2026-05-22
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — `get_by_ids` 支持 `fields`
+
+与 MySQL 后端同形，标识符用双引号。见 [[database.py]]。
+
+顺带记一个已经咬过人的行为（本次没改，只是写明）：`get_by_ids` 为了**保持输入
+顺序**，会给查不到的 id **补 `None` 占位**（`result_map.get(id_val)`）。调用方直接
+对返回行下标就会 `TypeError`，而如果调用方外面套了 advisory except，整批会被静默
+吞掉。
+
 
 ## 2026-05-22 — initialize() guards the parent dir (clear error, not cryptic)
 

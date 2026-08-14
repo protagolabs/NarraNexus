@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-11
 ---
+
+## 2026-08-11 — create_mcp_server 去掉 db 工厂
+
+`create_mcp_server` 从 `create_job_mcp_server(self.port, JobModule.get_mcp_db_client)`
+改为 `create_job_mcp_server(self.port)`——job 工具全走 [[store]] AgentDataStore seam 取数据，
+不再把 db 工厂线穿进 MCP 层。`JobModule.get_mcp_db_client`（继承自 base）本身保留，仅不再
+被工具工厂消费。
 
 ## 2026-08-04 — instructions 教的 job_type 以 enum 为唯一真相
 

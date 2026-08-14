@@ -1,8 +1,42 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-03
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — admin_suspend_router 注册
+
+新增 `from backend.routes.admin.suspend import router as admin_suspend_router` 和
+`app.include_router(admin_suspend_router, tags=["AdminSuspend"])`。router 自带
+prefix `/api/admin`（`include_router` 不再传 prefix），挂载账户停用机制的三条端点
+（`POST /api/admin/suspend`、`POST /api/admin/reinstate`、`GET
+/api/admin/account-state/{user_id}`）。与 `admin_migration_router` /
+`admin_quota_router` 同 pattern。见 [[suspend.py]]。
+
+## 2026-08-11 — cloud 关 API docs + JWT 启动 fail-fast（安全审计 P2-1/P0-2）
+
+两处安全接线：(1) `FastAPI(...)` 在 cloud 模式传 `docs_url=None, redoc_url=None,
+openapi_url=None`（`_docs_kwargs` 按 `_is_cloud_mode()` 组装、import 期求值）——不再
+把完整 API schema/Swagger 暴露给攻击者；开发者在 local/dev 仍有 docs。(2) lifespan 启动
+早段（建库前）调 `assert_jwt_secret_safe()`——cloud 模式 `JWT_SECRET` 未设/为默认值即
+`raise` 拒绝启动。**上线次序**：上 prod 前须先确认 prod `.env` 的 JWT_SECRET 是真值，
+否则守卫会自伤把服务拦在启动外。
+
+## 2026-08-10 — product analytics ingestion router
+
+Registers authenticated `/api/analytics/events`. Startup schema migration runs
+before traffic, so capture sites can safely write the additive fact table.
+
+## 2026-08-10 — external telemetry removed
+
+The backend no longer registers a vendor analytics sink and shutdown no longer
+flushes a network queue. Product events go only through the first-party
+database writer. This makes local/desktop privacy independent of environment
+variables or release-build secrets.
+
+## 2026-08-07 — 挂载 runs_router(/api/runs)
+
+run 级控制面,目前只有 owner 的停止请求。见 [[runs]]。
 
 ## 2026-08-03 — lifespan 预热价目表（把 1.5s 同步 import 挪出 event loop）
 
@@ -55,19 +89,6 @@ router 和 middleware 都不注册，中间件栈长度不变。见
 运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
 报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
 `[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
-
-## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
-
-`register_posthog_sink()`（backend/analytics）在 **import 期**、`app = FastAPI(...)`
-之前调用——不是 lifespan。原因：track() 在任意 route 的请求路径上都可能触发，
-而 kernel 的 sink 是 lru_cache 单例；若装配放 lifespan，理论上存在「首个请求
-先于 lifespan 完成」的窗口拿到 NullSink 并被缓存（register_sink_factory 里的
-cache_clear 兜底了这个竞态，但 import 期装配让它根本不发生）。装配本身只存一个
-callable：不发网络、不碰 DB、不读 key（key 在 factory 被 kernel 调用时才读），
-对 /health 启动时序零影响。未注册该 seam 的进程（workers / mcp / model-sync）
-拿到 NullSink 是**预期行为**——它们从不调用 track()，此前也从未有过 vendor sink。
-（shutdown 侧见 2026-06-08 条目——两侧现在对称了。）
-
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
@@ -138,13 +159,6 @@ ledger (migrations/ [[__init__]]). Wrapped defensively (best-effort): a migratio
 error is logged and never blocks startup. This is what carries the
 unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
 deploy-side step.
-
-## 2026-06-08 — analytics shutdown wired into lifespan
-
-`lifespan` teardown now calls `await shutdown_analytics()` (from
-`xyz_agent_context.analytics`) just before `close_db_client`. This drains the
-PostHog background-thread buffer so no buffered funnel events are lost on
-process exit.
 
 ## 2026-05-15 — invite_router 改为 server-to-server
 
@@ -316,3 +330,17 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 ## 2026-07-30 — Agent Migration 路由
 
 注册了 `migrate_router`(挂 `/api/migrate`,tags=["Migration"]):`/detect` `/scan` `/apply`,导入其他框架的 agent(Claude Code/Codex/OpenClaw/Hermes)进 NarraNexus。**local/desktop only** —— 三个端点都经 `_require_local_or_raise()` 在 cloud 返回 503(cloud 无用户文件系统)。见 `backend/routes/migrate.py.md`。
+
+## 2026-08-11 — 挂载 `TeamSummaryWorker`
+
+与 memory worker 同一份契约：机会性、逐 team 隔离、失败保留旧总结、任何东西都不等它（铁律 #14）。
+
+**关停顺序有讲究**：在 `close_db_client()` **之前** stop。它的轮询循环持有那个 client，
+一次落在拆解中途的 pass 会在每一次干净关机时打出一条令人困惑的连接错误。有测试钉住这个次序。
+
+## 2026-08-11 — `/health` 暴露总结 worker 的上一轮
+
+`last_pass` 记了却没人读，等于没记：它要关的那个盲区（「全都很安静」和「全都在失败」
+看起来都像 worker 好好活着）在计数不出进程的情况下原样存在。
+
+**只报告，不判定**：单个团队的 provider key 坏掉不该让容器探针失败，所以 `status` 不依赖 `failed`。

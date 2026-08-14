@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/logging/_setup.py
-last_verified: 2026-05-22
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-10 — 末位注册网络 ship sink(观测性 push)
+
+`ship_config()` 解析到部署方 env 才注册([[_ship.py]]),注册失败仅
+warning——**外发是可选的,日志本身不是**。放在 stderr/file sink 之后
+是刻意的:坏掉的收集器配置永远不能连累本地 sink。meta 档通过注册
+level=25 在分发层过滤。
 
 # _setup.py — single per-process logging entry point
 

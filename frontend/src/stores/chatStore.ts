@@ -26,6 +26,7 @@ import { generateId } from '@/lib/utils';
 import { isBlankText } from '@/lib/isBlankText';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
+import { captureProductEvent } from '@/lib/productAnalytics';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -112,6 +113,15 @@ interface ChatState {
   // and would otherwise keep showing stale messages until an agent switch).
   historyRefreshTick: number;
 
+  // The same idea for the team workspace panel. It is a SEPARATE tick rather
+  // than a reuse of the one above because the two wipes are independently
+  // selectable: clearing only a team's files leaves the transcript untouched,
+  // and the workspace loader keys on message count, so nothing about the chat
+  // changes to tell it the files are gone. Firing the history tick for a
+  // file-only wipe would also make every ChatPanel refetch history it knows is
+  // current.
+  workspaceRefreshTick: number;
+
   // Notification state
   completedAgentIds: string[];
   toastQueue: ToastItem[];
@@ -146,6 +156,8 @@ interface ChatState {
   clearAll: () => void;
   /** Force any mounted ChatPanel to reload its server history. */
   requestHistoryRefresh: () => void;
+  /** Force any mounted team workspace panel to reload artifacts and files. */
+  requestWorkspaceRefresh: () => void;
 
   // Notification actions
   dismissToast: (agentId: string) => void;
@@ -212,6 +224,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
     agentSessions: {},
     activeAgentId: '',
     historyRefreshTick: 0,
+    workspaceRefreshTick: 0,
     completedAgentIds: [],
     toastQueue: [],
 
@@ -862,7 +875,20 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'complete': {
+          const session = getSession(get().agentSessions, agentId);
+          const hasReply = session.currentToolCalls.some(
+            (tool) =>
+              tool.tool_name.endsWith('send_message_to_user_directly') &&
+              !isBlankText(tool.tool_input?.content as string),
+          );
           get().stopStreaming(agentId);
+          if (hasReply) {
+            captureProductEvent('reply_rendered', {
+              agent_id: agentId,
+              run_id: session.currentRunId ?? undefined,
+              trigger_source: 'chat',
+            });
+          }
           break;
         }
 
@@ -897,6 +923,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
     // Force mounted ChatPanel(s) to reload server history (post-wipe refresh).
     requestHistoryRefresh: () => {
       set((state) => ({ historyRefreshTick: state.historyRefreshTick + 1 }));
+    },
+
+    // Same, for the team workspace panel (post-wipe refresh of files/artifacts).
+    requestWorkspaceRefresh: () => {
+      set((state) => ({ workspaceRefreshTick: state.workspaceRefreshTick + 1 }));
     },
 
     // Notification actions

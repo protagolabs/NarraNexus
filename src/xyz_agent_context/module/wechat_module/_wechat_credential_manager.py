@@ -64,6 +64,29 @@ class WeChatCredential:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    def to_raw_dict(self) -> dict[str, Any]:
+        """RAW view INCLUDING the decoded bot_token — distinct from to_public_dict.
+        Only handed to the ChannelCredentialStore seam's owner-gated endpoint and
+        the MCP send tools; never logged, never returned from a panel route."""
+        return {**self.to_public_dict(), "bot_token": self.bot_token}
+
+
+def _cred_from_raw(raw: dict[str, Any]) -> WeChatCredential:
+    """Inverse of to_raw_dict — rebuild the dataclass from the seam's raw dict so
+    an HttpStore-backed lookup reconstructs the SAME object DirectStore does."""
+    return WeChatCredential(
+        agent_id=raw.get("agent_id", "") or "",
+        bot_token=raw.get("bot_token", "") or "",
+        base_url=raw.get("base_url", "") or "",
+        bot_wx_id=raw.get("bot_wx_id", "") or "",
+        owner_wx_id=raw.get("owner_wx_id", "") or "",
+        owner_user_id=raw.get("owner_user_id", "") or "",
+        owner_name=raw.get("owner_name", "") or "",
+        enabled=bool(raw.get("enabled", True)),
+        created_at=WeChatCredentialManager._parse_dt(raw.get("created_at")),
+        updated_at=WeChatCredentialManager._parse_dt(raw.get("updated_at")),
+    )
+
 
 class WeChatCredentialManager:
     """Manages per-agent WeChat credentials in `channel_wechat_credentials`."""

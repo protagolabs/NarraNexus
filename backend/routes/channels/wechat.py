@@ -32,6 +32,12 @@ from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
     poll_qrcode_status,
 )
 
+
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
+
 router = APIRouter()
 
 _SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
@@ -65,25 +71,15 @@ async def _get_db():
     return await get_db_client()
 
 
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Mirror of telegram.py — local mode (no auth middleware) leaves
-    request.state.user_id unset and every route is effectively unauthenticated."""
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
-
-
 async def _agent_owner_user_id(agent_id: str) -> str:
+    """The agent's owner via the canonical resolver (never a hand-rolled
+    ``get_one("agents", ...)`` — that's the drift #258 exists to end). A
+    failed lookup (None) degrades to "" here: this value labels the binding
+    row, it is not an authorization decision."""
+    from xyz_agent_context.repository import AgentRepository
+
     db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    return (agent or {}).get("created_by", "") or ""
+    return (await AgentRepository(db).resolve_owner(agent_id)) or ""
 
 
 @router.post("/qrcode/start")

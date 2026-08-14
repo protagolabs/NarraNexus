@@ -218,6 +218,7 @@ class NarramessengerModule(ChannelModuleBase):
         "narra_bind",
         "narra_cli",
         "narra_guide",
+        "speak",
     )
     setup_tool_names = frozenset({"narra_bind"})
     reply_tool_names = ("narra_reply", "narra_send")
@@ -383,6 +384,12 @@ class NarramessengerModule(ChannelModuleBase):
             # Exact-name filter: fully-qualified tools end in "__<name>", so
             # a future narra_reply_* sibling is never collaterally dropped.
             return [t for t in tools if not t.endswith("__narra_reply")]
+        if extra.get("rtc_voice"):
+            # F28 voice-call turn: speak leads the surface (the first
+            # expressive entry is the turn's default reply tool). speak is
+            # NOT in reply_tool_names — on a normal turn the trigger has no
+            # voice bridge, so listing it would declare a dead tool.
+            return [f"mcp__{self.mcp_server_name}__speak", *tools]
         return tools
 
     @staticmethod

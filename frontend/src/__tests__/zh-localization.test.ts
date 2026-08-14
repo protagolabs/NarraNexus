@@ -22,6 +22,14 @@ describe('Chinese localization completeness', () => {
     );
   });
 
+  it('defines Chinese copy for the privacy pane and telemetry disclosure', () => {
+    expect(zh.pages.settings.nav.privacy).not.toBe(en.pages.settings.nav.privacy);
+    expect(zh.pages.settings.privacy.telemetryDesc).not.toBe(
+      en.pages.settings.privacy.telemetryDesc,
+    );
+    expect(zh.telemetryNotice.body).not.toBe(en.telemetryNotice.body);
+  });
+
   it('routes the affected frontend surfaces through i18n', () => {
     const agentConfig = source('../components/chat/AgentLlmConfigPanel.tsx');
     const modelDefaults = source('../components/settings/ModelDefaultsSettings.tsx');
@@ -37,6 +45,12 @@ describe('Chinese localization completeness', () => {
     expect(settingsPage).toContain("t('pages.settings.title')");
     expect(settingsPage).toContain("t(item.labelKey)");
     expect(settingsPage).not.toContain('>Settings<');
+    const privacySettings = source('../components/settings/PrivacySettings.tsx');
+    expect(privacySettings).toContain("t('pages.settings.privacy.telemetryTitle')");
+    expect(privacySettings).not.toContain('>Diagnostic telemetry<');
+    const telemetryNotice = source('../components/telemetry/TelemetryNotice.tsx');
+    expect(telemetryNotice).toContain("t('telemetryNotice.body')");
+    expect(telemetryNotice).not.toContain('>Got it<');
     expect(settingsPage).not.toContain("label: 'Model Defaults'");
     expect(oneKeyOnboard).toContain("t('settings.provider.oneKeyTitle')");
     expect(oneKeyOnboard).not.toContain('>One key to start<');

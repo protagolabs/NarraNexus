@@ -19,6 +19,9 @@ from typing import Any, Dict, List
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_prompts import (
+    ROOM_TYPE_DIRECT,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -57,7 +60,7 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
             "channel_key": "wechat",
             "room_name": "",
             "room_id": to_user_id,
-            "room_type": "Direct Message",  # v1: personal-account DM only
+            "room_type": ROOM_TYPE_DIRECT,  # v1: personal-account DM only
             "sender_display_name": self._message.sender_name or self._message.sender_id,
             "sender_id": self._message.sender_id,
             "timestamp": str(self._message.timestamp_ms),
@@ -66,6 +69,18 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
             "send_tool_name": "wechat_send",
             "reply_instruction": reply_instruction,
         }
+
+    def reply_kwargs(self) -> Dict[str, Any]:
+        """iLink addresses a conversation by ``to_user_id`` + a per-inbound
+        ``context_token``; the registered sender needs the token as a kwarg.
+
+        Surfaced so the platform-side no-reply fallback can deliver this
+        turn's reply without a tool call from the model (see
+        ``step_3_agent_loop`` IM DM fallback). Empty token = no fallback
+        delivery, which is the honest degradation: iLink would reject the
+        send anyway.
+        """
+        return {"context_token": (self._message.raw or {}).get("context_token", "") or ""}
 
     async def get_conversation_history(self, limit: int) -> List[Dict[str, Any]]:
         """Read recent turns from local ``bus_messages`` (no iLink history API)."""

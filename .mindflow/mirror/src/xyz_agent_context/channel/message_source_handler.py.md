@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-08-04
+last_verified: 2026-08-07
 stub: false
 ---
+
+## 2026-08-07 — `PLATFORM_REPLY_TEXT_KEY`：平台自己写的回复优先于渠道抽取器
+
+`extract_reply_text` 现在**最先**看 `arguments["_platform_reply_text"]`，命中就直接用，
+不再走 `extract_reply_fn` / `content`。
+
+为什么需要它：`step_3` 的 1:1 私聊兜底（`no_reply_im_dm`）是**平台经
+`ChannelSenderRegistry` 把回复发出去**的，不是模型调渠道工具。于是它合成的那一帧
+**不符合任何渠道真实工具的参数形状**，而每个渠道的抽取器都只认自己那一套：
+
+- 微信读 `arguments["text"]` → 读不到就退回它的 `"(sent via wechat_send)"` 占位符，
+  于是**聊天记忆里存的是占位符**，下一轮上下文丢掉这条回复；
+- 飞书解析 `lark_cli` 的 `command` 字符串 → 返回 `None`，于是**一条已经投递成功的
+  回复被记成沉默**。
+
+两个渠道、两种相反的失败模式，所以修在这一层修一次，而不是让编排层去认每个渠道的
+参数名（那会把渠道知识倒灌进 `step_3`，违反铁律 #3 的方向）。这段文本的权威来源正是
+我们自己——它是平台写的。
+
+键名带前导下划线是刻意的：它是我们的内部标记，不属于任何渠道的工具 schema。
+
+发现过程：`tests/agent_runtime/test_im_dm_fallback_delivery_e2e.py` 的跨层断言
+（step_3 发帧 → chat_module 独立判定）在第一次运行时就抓到了占位符，人工三轮真机
+Telegram 测试完全碰不到这条路径。
 
 ## 2026-08-04 — extract_reply_text 空白复判 + 三态返回契约（空气泡根因）
 

@@ -208,27 +208,125 @@ class ArtifactRepository(BaseRepository[Artifact]):
             agent_id: Agent scope.
             session_id: Session scope.
 
+        `team_id IS NULL` keeps this the PRIVATE surface: an artifact produced
+        in a team turn belongs to the team room, and surfacing it in a
+        one-to-one chat would move a team's work into a conversation it was
+        never part of.
+
         Returns:
             List of non-pinned Artifact objects belonging to the session.
         """
         sql = """
         SELECT * FROM instance_artifacts
         WHERE agent_id = %s AND session_id = %s AND pinned = 0
+          AND team_id IS NULL
         """
         rows = await self._db.execute(sql, params=(agent_id, session_id), fetch=True)
         return [self._row_to_entity(row) for row in rows]
 
-    async def list_pinned(self, agent_id: str) -> List[Artifact]:
+    async def list_pinned(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[Artifact]:
         """
-        Return pinned artifacts for a given agent.
+        Return pinned artifacts for a given agent, freshest first.
+
+        Ordered by `updated_at DESC` so callers that only want the working
+        set can take the head. Re-registering an artifact refreshes that
+        timestamp, so "freshest" tracks what the agent is actually iterating
+        on rather than what it happened to create first.
 
         Args:
             agent_id: Agent scope.
+            limit: Cap the result at this many rows. None (default) returns
+                every pinned artifact — bootstrap's duplicate check relies on
+                an exhaustive scan, so truncation must stay opt-in.
+
+        `team_id IS NULL` keeps this the PRIVATE surface (see list_by_session).
+        For what the AGENT should have in context — its own work plus every
+        team it belongs to — use `list_for_agent_context`.
 
         Returns:
-            List of pinned Artifact objects.
+            List of pinned Artifact objects, most recently updated first.
         """
-        return await self.find({"agent_id": agent_id, "pinned": 1})
+        sql = """
+        SELECT * FROM instance_artifacts
+        WHERE agent_id = %s AND pinned = 1 AND team_id IS NULL
+        ORDER BY updated_at DESC
+        """
+        params: tuple = (agent_id,)
+        if limit is not None:
+            sql += " LIMIT %s"
+            params = (agent_id, int(limit))
+        rows = await self._db.execute(sql, params=params, fetch=True)
+        return [self._row_to_entity(row) for row in rows]
+
+    async def list_by_team(
+        self, team_id: str, limit: Optional[int] = None
+    ) -> List[Artifact]:
+        """
+        Return a team's artifacts, freshest first — the team workspace panel.
+
+        Deliberately NOT filtered by agent: the panel shows the TEAM's output,
+        whichever member produced it. `agent_id` still rides on every row, so
+        "who made this" survives the move to team ownership.
+
+        Args:
+            team_id: Team scope.
+            limit: Cap the result; None (default) returns all.
+
+        Returns:
+            Artifacts owned by the team, most recently updated first.
+        """
+        sql = """
+        SELECT * FROM instance_artifacts
+        WHERE team_id = %s
+        ORDER BY updated_at DESC
+        """
+        params: tuple = (team_id,)
+        if limit is not None:
+            sql += " LIMIT %s"
+            params = (team_id, int(limit))
+        rows = await self._db.execute(sql, params=params, fetch=True)
+        return [self._row_to_entity(row) for row in rows]
+
+    async def list_for_agent_context(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[Artifact]:
+        """
+        Return what this agent should be aware of: its own pinned artifacts
+        UNION the artifacts of every team it belongs to, freshest first.
+
+        This is the widest of the three surfaces and the one whose failure is
+        easiest to miss. An over-narrow result does not raise or look wrong —
+        the agent simply never learns a teammate's artifact exists, so it
+        cannot pick the work up, and collaboration quietly degrades to what it
+        was before the team workspace existed.
+
+        Membership comes from `team_members`, NOT from the owning user. One
+        user owns many teams; keying on the user would hand every team's
+        artifacts to every agent that user owns, which is the cross-team leak.
+        The subquery lives here rather than in the caller so no caller can
+        supply the wrong team list.
+
+        Args:
+            agent_id: The agent whose context is being built.
+            limit: Cap the result; None (default) returns all.
+
+        Returns:
+            Private-pinned ∪ team artifacts, most recently updated first.
+        """
+        sql = """
+        SELECT * FROM instance_artifacts
+        WHERE (agent_id = %s AND pinned = 1 AND team_id IS NULL)
+           OR team_id IN (SELECT team_id FROM team_members WHERE agent_id = %s)
+        ORDER BY updated_at DESC
+        """
+        params: tuple = (agent_id, agent_id)
+        if limit is not None:
+            sql += " LIMIT %s"
+            params = (agent_id, agent_id, int(limit))
+        rows = await self._db.execute(sql, params=params, fetch=True)
+        return [self._row_to_entity(row) for row in rows]
 
     async def list_by_user(self, user_id: str) -> List[Artifact]:
         """
@@ -264,6 +362,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             kind=row["kind"],
             description=row.get("description"),
             pinned=_parse_bool(row.get("pinned", 0)),
+            team_id=row.get("team_id"),
             file_path=row.get("file_path") or "",
             size_bytes=int(row.get("size_bytes") or 0),
             created_at=parse_dt(row["created_at"]),
@@ -281,6 +380,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             "kind": entity.kind,
             "description": entity.description,
             "pinned": 1 if entity.pinned else 0,
+            "team_id": entity.team_id,
             "file_path": entity.file_path,
             "size_bytes": entity.size_bytes,
             "created_at": entity.created_at.isoformat(),

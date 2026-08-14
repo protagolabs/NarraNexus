@@ -115,6 +115,11 @@ class RemoteAgentLoopDriver:
         import aiohttp
 
         _cancel_view = CancellationView(cancellation)
+        # turn_profile arrives as the in-process pydantic model; the wire
+        # wants its dict form (JSON body).
+        _profile = kwargs.get("turn_profile")
+        if _profile is not None and hasattr(_profile, "model_dump"):
+            _profile = _profile.model_dump()
         body = build_agent_loop_request(
             framework=self.framework,
             working_path=self.working_path,
@@ -125,6 +130,8 @@ class RemoteAgentLoopDriver:
             disallowed_tools=kwargs.get("disallowed_tools"),
             agent_id=str(kwargs.get("agent_id") or "agent"),
             expressive_tools=kwargs.get("expressive_tools"),
+            turn_profile=_profile,
+            extra_accessible_roots=kwargs.get("extra_accessible_roots"),
         )
 
         # No total timeout: agent loops can run for hours (binding rule

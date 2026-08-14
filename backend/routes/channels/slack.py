@@ -26,6 +26,10 @@ from xyz_agent_context.module.slack_module._slack_service import (
     do_test_connection,
 )
 
+# One canonical owner check (backend/routes/_ownership.py); module-level
+# alias keeps the historical local name at its ~per-route call sites. No
+# import cycle: this subpackage never gets imported back from _ownership.
+from backend.routes._ownership import check_owned as _verify_agent_ownership
 
 router = APIRouter()
 
@@ -63,35 +67,6 @@ class SetActiveRequest(BaseModel):
 async def _get_db():
     from xyz_agent_context.utils.db.db_factory import get_db_client
     return await get_db_client()
-
-
-async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
-    """Returns error message string when caller doesn't own the agent.
-
-    Local mode (no JWT) skips enforcement; cloud mode requires the
-    agent's ``created_by`` match the JWT user_id.
-
-    Security posture note: when this process runs without the auth
-    middleware that populates ``request.state.user_id`` (the local-mode
-    case), every Slack route is effectively unauthenticated — any HTTP
-    caller that can reach the backend port can bind / unbind / test any
-    bot. This is the intentional trade-off for developer ergonomics:
-    no real Docker bind exposes 8000 to the network by default. Do NOT
-    add sensitive operations behind this helper assuming auth — they
-    won't have any in local mode. The Telegram, Lark, and (future)
-    other IM-channel routes mirror this exact contract; keep them in
-    lockstep when changing.
-    """
-    if not hasattr(request.state, "user_id") or not request.state.user_id:
-        return None
-    user_id = request.state.user_id
-    db = await _get_db()
-    agent = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent:
-        return f"Agent {agent_id} not found."
-    if agent.get("created_by") != user_id:
-        return "Permission denied: you do not own this agent."
-    return None
 
 
 # =========================================================================

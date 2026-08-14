@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-05-29
+last_verified: 2026-08-07
 stub: false
 ---
+## 2026-08-07 — 向 select() 传 trigger（E1 审计维度）
+
+新增 `_trigger_label(ctx)`，把 `ctx.working_source` 转成字符串传给
+`narrative_service.select(trigger=...)`。
+
+为什么要单独记这一维：dev 实测（2026-08-07）chat 占 69% 的轮次、message_bus 占 30%，
+而只有面向人的来源会移动 session 锚点（见本文件的 `_is_user_chat`）。两种来源走的是
+不同的锚点语义，混在一起统计会把两种行为平均成一个无意义的比率。
+
 
 ## 2026-05-19 — 新 `_is_user_chat(ctx)` helper
 

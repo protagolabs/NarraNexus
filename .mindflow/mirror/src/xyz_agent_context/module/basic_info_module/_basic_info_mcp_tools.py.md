@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/_basic_info_mcp_tools.py
-last_verified: 2026-07-10
+last_verified: 2026-08-10
 stub: false
 ---
+
+## 2026-08-10 (PR-7) — view_narrative/view_event/switch_narrative 迁走 seam
+
+三个读工具改为 `get_agent_data_store().view_narrative/view_event/switch_narrative`，
+数据访问下沉到 [[_narrative_reads]]（方言安全，DirectStore/backend 路由共用）。
+本文件的**裸 MySQL 全删**（`SELECT \`trigger\``、`SELECT 1 FROM narratives`、
+`_narrative_chat_history` 的手写 SQL），连同 `_parse_info`/`_narrative_chat_history`
+两个 helper 及 `get_db_client`/`json`/`Any,Dict,List` import 一并清掉（死代码）。
+**行为变化**：结果加 `success` 键（switch 旧 `ok`→`success`）、narrative 带
+`truncated`、且**按 agent 归属过滤**（旧裸 SQL 能读别人的 narrative/event，跨租户）。
+`create_narrative` 是纯信号（无 db），不迁。
 
 ## 2026-07-10 — submit_feedback 工具（Feedback 机制一期）
 
@@ -26,19 +37,21 @@ let the agent inspect threads/events and correct the routing.
 ## 上下游关系
 - **被谁用**: the agent (LLM), via [[basic_info_module.py]]'s MCP server
   (`create_mcp_server` → `create_basic_info_mcp_server(port=7808)`).
-- **依赖谁**: `get_db_client` (reads narratives / instance_narrative_links /
-  instance_json_format_memory_chat / events); `NarrativeCRUD` is NOT used here
-  anymore (create moved to the runtime — see below).
+- **依赖谁**: the read/validate data access now goes through the AgentDataStore
+  seam (`get_agent_data_store()` → [[_narrative_reads]]); this file no longer
+  imports `get_db_client` or writes raw SQL. `create_narrative` needs no db.
 
 ## 设计决策
 
 **Two read tools, two signal tools.**
-- `view_narrative(narrative_id)` / `view_event(event_id)` are pure reads: query
-  the DB and return full thread history / full event detail (the timeline only
-  shows a trimmed slice + the sent message).
-- `switch_narrative(narrative_id)` / `create_narrative(title, description)` are
-  SIGNALS — they validate/echo and return, but do NOT mutate attribution
-  themselves. The MCP tool process and the agent_runtime are different
+- `view_narrative(narrative_id)` / `view_event(event_id)` are reads that now
+  route through the seam (DirectStore local / HttpStore cloud, via
+  [[_narrative_reads]]); they return full thread history / full event detail
+  (the timeline only shows a trimmed slice + the sent message). PR-7 replaced
+  the old raw MySQL with dialect-safe, agent-scoped reads.
+- `switch_narrative(narrative_id)` also routes through the seam (an
+  existence+ownership validation). `create_narrative(title, description)` is a
+  SIGNAL — validate/echo and return, no db, no migration. The MCP tool process and the agent_runtime are different
   processes; the runtime detects the tool CALL (args) in
   `_detect_narrative_routing_signal` and does the re-attribution in
   [[step_4_persist_results.py]] 4.0. `create_narrative` deliberately does NOT

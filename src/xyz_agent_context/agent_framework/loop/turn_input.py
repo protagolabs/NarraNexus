@@ -53,6 +53,16 @@ class TurnInput:
     # Reserved reference layer (design §8.2): serializable IDs/results
     # for drivers that project their own context. Always None today.
     refs: dict[str, Any] | None = None
+    # Per-turn fast-mode knobs (schema.turn_profile.TurnProfile). None =
+    # today's behavior everywhere; drivers that never heard of it ignore
+    # the kwarg via **kwargs.
+    turn_profile: Any | None = None
+    # Absolute roots this turn may read IN ADDITION to the agent workspace
+    # (e.g. the team shared folder, which is a sibling of every agent
+    # workspace so that no single agent owns it). Only drivers that enforce
+    # workspace confinement act on it — NexusPower; the CLI drivers run no
+    # such layer and ignore the kwarg via **kwargs. Empty = today's behavior.
+    extra_accessible_roots: tuple[str, ...] = ()
 
     def driver_kwargs(self) -> dict[str, Any]:
         """Kwargs for ``AgentLoopDriver.agent_loop`` — legacy-identical.
@@ -73,4 +83,10 @@ class TurnInput:
         }
         if self.expressive_tools:
             kwargs["expressive_tools"] = list(self.expressive_tools)
+        if self.turn_profile is not None:
+            kwargs["turn_profile"] = self.turn_profile
+        if self.extra_accessible_roots:
+            # Emitted only when non-empty, like expressive_tools above: a
+            # turn that grants nothing must produce the exact legacy kwargs.
+            kwargs["extra_accessible_roots"] = list(self.extra_accessible_roots)
         return kwargs

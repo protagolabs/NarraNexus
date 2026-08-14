@@ -33,6 +33,10 @@ from xyz_agent_context.schema.instance_schema import (
     InstanceStatus,
 )
 from xyz_agent_context.repository import InstanceRepository, InstanceNarrativeLinkRepository
+# Peer-discovery policy lives with the table's own package. Module level is
+# safe here (message_bus is a package, not a Module — iron rule #3 is about
+# Modules importing each other) and both import orders were verified.
+from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 
 
 def generate_instance_id(prefix: str) -> str:
@@ -309,34 +313,21 @@ class InstanceFactory:
         return instance
 
     async def _register_agent_in_bus(self, agent_id: str) -> None:
-        """Register agent in MessageBus agent registry for discovery by other agents."""
-        try:
-            # Get agent info
-            agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
-            if not agent_row:
-                return
+        """Make the agent discoverable by its peers, from creation onward.
 
-            owner = agent_row.get("created_by", "")
-            name = agent_row.get("agent_name", "")
-            desc = agent_row.get("agent_description", "")
-            is_public = agent_row.get("is_public", 0)
+        Delegates to the one place that decides what a discovery row says. This
+        used to be a hand-rolled upsert against ``bus_agent_registry`` with
+        ``capabilities=json.dumps([])`` and its own copy of the description
+        rule — the same defect that killed A2A discovery in production, in a
+        third file (review 2026-08-05).
 
-            # Upsert into bus_agent_registry
-            import json
-            from datetime import datetime, timezone as dt_tz
-            now = datetime.now(dt_tz.utc).isoformat()
-            await self._db.upsert("bus_agent_registry", {
-                "agent_id": agent_id,
-                "owner_user_id": owner,
-                "capabilities": json.dumps([]),
-                "description": f"{name}: {desc}" if desc else name,
-                "visibility": "public" if is_public else "private",
-                "registered_at": now,
-                "last_seen_at": now,
-            }, "agent_id")
-            logger.info(f"Registered agent {agent_id} ({name}) in MessageBus registry")
-        except Exception as e:
-            logger.warning(f"Failed to register agent {agent_id} in MessageBus: {e}")
+        It matters at all four provisioning paths, and two of them had no other
+        sync behind them: bundle/migration import (``migration/applier.py``) and
+        arena provisioning both left a row with empty capabilities until
+        something unrelated happened to refresh it. Routing through the seam
+        fixes them without either caller changing.
+        """
+        await sync_agent_discovery(self._db, agent_id)
 
     async def get_agent_level_instances(self, agent_id: str) -> List[ModuleInstanceRecord]:
         """

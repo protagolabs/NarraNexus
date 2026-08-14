@@ -87,6 +87,10 @@ export default function OfficeWatchViewer({ artifact }: Props) {
   // prefix (via the backend-injected <base>).
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Manual retry: an open() failure used to be a permanent dead end until the
+  // user switched tabs. Bumping this re-runs the open effect, so a transient
+  // watch failure (still coming up, mid-restart) is user-recoverable.
+  const [retryNonce, setRetryNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Wall-clock of the last CONTENT frame the shim reported over SSE, and the
   // last file mtime we've reflected — the two inputs to the fallback decision.
@@ -173,15 +177,27 @@ export default function OfficeWatchViewer({ artifact }: Props) {
       if (interval) clearInterval(interval);
       window.removeEventListener('message', onMessage);
     };
-  }, [artifact.artifact_id, artifact.updated_at]);
+  }, [artifact.artifact_id, artifact.updated_at, retryNonce]);
 
   return (
     // h-full fills the artifact content area (a flex-1 block); the iframe then
     // takes flex-1 within this column so it reaches the bottom.
     <div className="flex h-full flex-col min-h-0">
       {error ? (
-        <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-[var(--color-error)]">
-          {t('officeWatch.loadError', { defaultValue: 'Could not open the live preview.' })}
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-[var(--color-error)]">
+          <span>
+            {t('officeWatch.loadError', { defaultValue: 'Could not open the live preview.' })}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setRetryNonce((n) => n + 1);
+            }}
+            className="rounded-md border border-[var(--border-default)] px-3 py-1 text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)]"
+          >
+            {t('officeWatch.retry', { defaultValue: 'Retry' })}
+          </button>
         </div>
       ) : !src ? (
         <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-[var(--text-tertiary)]">

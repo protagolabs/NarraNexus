@@ -207,12 +207,20 @@ class SQLiteProxyBackend(DatabaseBackend):
         table: str,
         id_field: str,
         ids: List[str],
+        fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
-        """Batch-fetch rows by IDs via the proxy."""
+        """Batch-fetch rows by IDs via the proxy.
+
+        `fields` must travel in the POST body, not just be accepted here:
+        swallowing it locally would stop the TypeError but silently downgrade
+        the desktop/`run.sh` path back to `SELECT *`, so the projection saves
+        nothing exactly where nobody would look for it.
+        """
         return await self._post("/get_by_ids", {
             "table": table,
             "id_field": id_field,
             "ids": ids,
+            "fields": fields,
         })
 
     async def insert(

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/stores/configStore.ts
-last_verified: 2026-06-11
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — `login()` 重置 session guard
+
+`login()` 首行调 `resetSessionGuard()`（[[sessionGuard.ts]]）。该模块用一个
+`confirmed` 闩锁保证一批并发 401 只登出一次；不在拿到新凭证时清掉它，新
+会话就永远不会再被探测了。
+
+另外记一笔（本次核对确认，无需改代码）：`logout()` **不**清聊天草稿。草稿
+存在 `narra-nexus-chat-drafts` 这个独立 key 里，Composer 在卸载时 flush，
+所以强制登出后半句话还在。`chatDrafts.logout.test.ts` 把这个性质钉住了，
+防止将来某次"登出时清干净"的清理顺手带走它。
 
 ## 2026-06-11 — NetMind dual-token + display profile fields
 
@@ -70,7 +81,7 @@ Depends on `api.ts` (`getAgents`, `getAwareness`) and `@/types` for `AgentInfo`.
 
 **Awareness update tracking uses a split strategy.** `awarenessUpdatedAgents` (which agents have unseen updates) lives in Zustand (in-memory). The "last seen" timestamp lives in `localStorage` under per-agent keys `lastSeenAwarenessTime:<agentId>`. On `checkAwarenessUpdate`, if the server's `update_time` is newer than the stored timestamp, the agent is added to the set. On `clearAwarenessUpdate`, the timestamp is written and the agent is removed from the set.
 
-**No token refresh.** The JWT is stored as-is. If it expires, `ProtectedRoute` catches the `401` from `api.getAgents` and calls `logout()`. There is no refresh token flow.
+**No token refresh.** The JWT is stored as-is and there is no refresh flow — expiry means re-login. Expiry is now detected two ways: proactively, by reading `exp` client-side for the pre-expiry banner ([[tokenExpiry.ts]]), and reactively, when a session-death 401 survives the [[sessionGuard.ts]] probe. (Until 2026-08-06 it was "any 401 logs you out", which is how one stale NetMind token could end a valid session.)
 
 **`persist` stores everything.** The `partialize` option is not used, so `agents`, `awarenessUpdatedAgents`, and even empty strings persist. On logout, the store is reset to initial values, which overwrites the persisted entry.
 

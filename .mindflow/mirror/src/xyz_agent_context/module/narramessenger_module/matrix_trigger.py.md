@@ -1,8 +1,155 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 ---
+
+## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
+
+①二审 Critical 实锤：`_send_matrix_reply` 的平文消息在通话上**会被 Hybrid worker
+念给通话方**（冒烟报告里平文兜底轮有「首段延迟」=被听到；not-ok 兜底发的也是净化文
+本，正因平文进语音管线）。因此一审建议的「原文补发」= 二次播报 + URL/代码逐字进
+TTS，绕过 sanitize_for_tts 的结构层硬保证——**补发已整体摘除**。现契约：桥交付后
+finalize 不再写房间（test_s1c 锁 `plain == []`）。已知代价：语音轮 narra_reply 里的
+链接不落聊天记录，记 reference/self_notebook/todo/（等 Hybrid 给出 worker 消费面的
+书面契约后再选载体：m.notice / rtc.* 键 / 仅 inbox）。`narra_reply_text` 的语义就此
+定死为**净化后为空时的平文兜底捕获**，不是原文记录（二审 M#8 的字段两义已消）。
+②认领键归一为叶子名（`rsplit('__',1)[-1]`）——delta 与 PROGRESS 两个事件源拼写可能
+不同，裸串相等会让完成 PROGRESS 挡掉同一工具后续 delta（一审 Minor#6）。
+
+## 2026-08-13 — 语音流认领制：narra_reply 也可驱动 live 交付
+
+8/13 通话实锤：voice prompt 指令再硬（"ONLY way…speak"），模型仍 12/14 轮
+用 narra_reply 回复——首字被钉死在 finalize（25–90s），而裸上游首字仅 ~3s。
+Owner 约束：fast mode 是通用能力，不接受按 channel 遮蔽工具。修法改为
+**认领制（8/13 Opus 预审后收窄为只管 delta）**：首个 trigger 托管回复工具
+（`speak`/`narra_reply`，精确裸名或 `__` 后缀，见 `_is_voice_reply_tool`）产出
+delta 即认领（`voice_stream_tool`），**只有认领者的 AGENT_REPLY_DELTA 喂桥**——
+防两工具 delta 交错。**完成文本（PROGRESS）则全部进桥**：VOICE prompt 教的
+预告→答案两连调可能跨工具，答案必须播出（review Important #3）；同文双调由桥的
+等值段去重消化。**legacy capture 同时全保留**（narra_reply_text）：finalize 在
+spoken 非空时提前返回不会双投，而净化后为空的回复（纯 emoji/纯 URL）只有这条
+平文兜底路（review Critical #2——认领版曾把它丢了）。narra_send 永不进桥（自带
+room_send，桥接=双投）。行为差异（有意）：narra_reply 走桥后其文本以 **TTS 净化形态**
+落房间（URL/代码被剥）——语音轮链接的正路是 narra_send（自投递、不净化），
+与 VOICE 模板「链接发到聊天里」的指引一致。裸名工具形态（`narra_reply`）是
+既有事件形态（test_matrix_streaming_reply 112/117 行明确双形态钉住），谓词
+接受精确裸名或精确 `__` 后缀，atomic extract_output 同谓词。NexusPower 侧零改动：expressive 面本就
+含 narra_reply，其 arg delta 一直在到达，此前只是被 `__speak` 后缀滤掉。
+测试：test_voice_stream_wiring（认领矩阵+真桥双场景）、
+test_l1_scenarios::test_s1b（全链路：RTC→voice_fast→narra_reply 流→live）。
+
+## 2026-08-11 — 通话级串行 key 统一为 per-room（review Important #2）
+
+`_run_voice_serialized` 的 key 从「`rtc_session_id`、缺省回落
+`agent_id:room`」改为**无条件 `agent_id:room`**。理由：1:1 PRIVATE 门保证
+一个房间同时只有一路 RTC 通话，房间即通话；而两级检测下同一通话的严格
+turn（keyed on session）和 degraded turn（keyed on room）若走不同 key，
+一次 metadata 校验失败就会裂成两条并发 drain loop → 两路 TTS 流交错。
+per-room key 让同一通话的两级 turn 共用一条串行队列；不同房间（≠同一
+通话）仍完全并行。2026-08-06 条目里的「per-rtc_session」描述自此过时。
+连带后果（故意的取舍）：`_merge_voice_batch` 合并跨级 batch 时最新一条
+的 metadata 整体胜出——degraded 尾巴会丢掉更早 strict turn 的
+correlation ID、`[voice-timing]` 打成 `degraded`。correlation 永远跟
+最新 turn，不做拼接。
+
+## 2026-08-11 — voice 检测升级为两级（common trigger + degraded 打戳）
+
+`_detect_voice_turn` 从「严格 v1 全对才算 voice」改为 handoff §3.4 的两级
+契约：Level 1 = 严格 metadata 解析成功 → 完整 voice turn（四 correlation
+ID + `degraded: False`）；Level 2 = 严格解析失败但 metadata 对象里仍有非
+空白的后端控制 `voice_instructions` 字符串（`_rtc_voice.
+extract_common_voice_instructions`）→ **DEGRADED voice turn**：语音行为
+照常（剥 envelope、fast profile、voice bridge），但四个绑定 ID 一律置空
+串且 `degraded: True`——空 ID **绝不能**喂给 correlation、通话级串行 key
+或任何安全判断。两级都不中 → 普通文字消息（信封保留、正文不动）。
+
+承重不变量：
+- **1:1 PRIVATE 门现在对两级承担全部注入论证。** degraded turn 的
+  metadata 本来就不可信，所以「level 1 校验过格式」从来不是放宽房型门的
+  理由——parse_event 的注释块已改写成这个论证，别回退。
+- 下游零改动即继承：`_run_voice_serialized` 统一按
+  `f"{agent_id}:{chat_id}"` per-room key 串行（见上一条——两级 turn 共用
+  一条队列）；`_voice_profile_for` / `_late_voice_upgrade` 只看
+  `raw["rtc_voice"]` 真值/复用 `_detect_voice_turn`，自动两级。
+- `[voice-timing]` 行在 degraded turn 上把 rtc_session 打成字面量
+  `degraded`（原来是空串），让延迟样本能按级分桶。
+- 空 transcript 丢 turn、streaming kill-switch 剥 rtc_voice 整轮降级两条
+  规则对两级同样生效，未动。
+
+测试：`test_voice_turn_detection.py` 翻转原「invalid → plain text」用例为
+degraded 断言（degraded=True、四 ID 空串、envelope 剥离），新增「invalid
+且 instructions 缺失/空白/类型错 → 纯文本、信封保留」钉子；valid 路径加
+`degraded is False` 钉子。voice_sim 的 S5（钉旧降级行为）本改动后必红，
+翻转归下一任务，不在本 commit 处理。
+
+## 2026-08-07 (二次) — 流式路径也认平台代投递的回复（review 收口）
+
+`resolve_agent_response` 那层收口**到不了这条路径**：`_build_and_run_agent_streaming`
+不走 `extract_output`，它返回流中捕获的 `state.narra_reply_text`，而该字段只从
+`arguments["text"]` 取——step_3 兜底那帧的参数是
+`{"content": …, PLATFORM_REPLY_TEXT_KEY: …}`，没有 `text` 键，于是被
+`_handle_stream_event` 的空值守卫直接丢掉。后果：消息真的进了房间（
+`ChannelSenderRegistry` 发的），但 `final_text == ""` → 走
+`_finalize_stream_silent` → NO-OP，且基类按 `agent_response=""` 写 `bus_messages`
+——**又一次「已投递却记成沉默」，偏偏发生在本改动自称「最尖锐的一例」的路径上。**
+
+- `_StreamReplyState` 新增 **独立字段** `platform_reply_text`。**不复用
+  `narra_reply_text`**：finalize 会把后者 fresh-send 进房间，复用就等于把已经投递过的
+  消息**再发一次**。
+- `_handle_stream_event` 在取 `text` 之前先认 `PLATFORM_REPLY_TEXT_KEY`，命中即记录
+  并 return（不碰房间）。
+- finalize 顺序：`narra_reply_text` → 发房间并返回；否则 `platform_reply_text` →
+  **只返回、零房间写操作**（inbox 因此记到真实文本）；都空才走
+  `_finalize_stream_silent`。
+- `_finalize_stream_silent` 那行「no reply, no error」日志改成「agent 没回、平台也没代写」
+  ——原措辞在平台已代投递时是**假的**，会把排障的人引向一个其实已被回答的轮次。
+
+爆炸半径（诚实标注）：本渠道 `get_conversation_history` 返回 `[]`（历史由 homeserver
+提供），所以**不会**出现微信那种「下一轮上下文里 bot 说了 (stayed silent)」的污染。
+受影响的是 `bus_messages` 记录本身（Inbox / 历史展示及以该表为准的下游）与那行误导日志。
+
+测试：`tests/channel/test_platform_reply_reaches_the_inbox.py` 的
+`TestStreamingPathCapturesPlatformReply` 驱动真的 `_handle_stream_event`，断言
+平台帧进 `platform_reply_text`、`narra_reply_text` **保持为空**（防双发的结构性钉子）、
+organic `narra_reply` 不受影响、空白平台文本被忽略。
+
+## 2026-08-07 — 流式路径不再手搓 trigger_extra_data
+
+`_build_and_run_agent_streaming`（`STREAMING_ENABLED` 是**默认路径**）自己组
+`extra_data`，于是错过了 2026-08-06 加的轮次信封：`channel_room_type` 恒为空 →
+`step_3` 把 NarraMessenger 私聊全判成群聊 → **1:1 无回复兜底在本渠道是死代码**。
+尤其讽刺的是，这条路径「无回复 + 无错误」的终局逻辑正是 NO-OP（房间不动），也就是
+那个兜底存在的全部理由。
+
+改为调 `ChannelTriggerBase.build_trigger_extra_data(..., builder=builder,
+attachments=attachments)`；`rtc_voice` 仍在其后按原逻辑附加（它依赖本方法算出的
+`turn_profile`，不属于公共键）。教训与 grep 级守卫见
+`channel_trigger_base.py.md` 2026-08-07 条目。
+
+## 2026-08-06 — voice 检测双入口 + atomic speak 投递（第三轮 review 收口）
+
+**voice 检测现在有两个入口，这是本文件最新的承重结构**：①parse_event（热 roster 缓存、chat_type==PRIVATE 才检测）；②`_late_voice_upgrade`（`_process_message` 在 `_classify` 返回权威 dm 之后调用，专为冷 roster 缓存兜底——真实通话第一轮不再降级）。两入口共用纯函数 `_detect_voice_turn`，判据永不分叉。边界是函数自证的：`authoritative_dm` 形参强制调用方声明权威房型（不是靠调用点位置），接线由 test_late_upgrade_wired_only_on_dm_classify 钉住——把调用挪出 dm 分支测试必红。envelope-only 正文在两条路径上同规则**丢 turn**（late 路径返回 None，调用方 return——envelope 永远不能以用户输入身份跑 agent）。atomic 路径的 speak：extract_output 改为与 streaming 语义同构的有序折叠（speak 追加、narra_reply 置换），同一调用序列两条路径同一答案；「never silent ok:true」承诺自此对两条路径都成立。
+
+## 2026-08-06 — auto review 收口（PR #247 两轮意见）
+
+review 收口：①voice 检测限 1:1 房间（metadata 只验格式不验来源，群内成员可注入 voice_instructions；F13 本就是 1:1 通话；冷 roster 缓存在 parse 期保守拒绝、由 _process_message 的 late upgrade 补齐（见 08-06 第三轮条目））；②speak 在文字轮不再是 ok:true 的死工具——streaming 由 PROGRESS 捕获进 narra_reply_text，atomic 由 extract_output 有序折叠（两路径同答案，见 08-06 第三轮条目）；③speak 匹配谓词统一 endswith("__speak")；④STREAMING_ENABLED 同样约束语音——开关关闭时剥 rtc_voice 整轮降级普通文本，不半激活。
+
+## 2026-08-06 — voice fast mode: 观测（voice-timing + profile 标记）
+
+观测：[voice-timing] 纯函数行（handoff §9 六 timestamp 映射为自 received 起的时长，缺失戳 -1.00，只带非敏感 correlation ID 绝不带 transcript），finalize 处发射；戳位 = streaming 入口(received/applied)、run_stream 创建后(request)、bridge 的 first_delta/first_sent/finalized。
+
+## 2026-08-06 — voice fast mode: 通话级串行（per-rtc_session）
+
+_build_and_run_agent 在 rtc_voice 消息上先过 _run_voice_serialized：按 rtc_session_id（缺省 agent_id:room）一条 drain loop 串行；run 期间到达的语句缓冲并 _merge_voice_batch 合并成一次后续 turn（transcript 按序拼接、以最后一条的 rtc 元数据为基准——correlation 跟最新 turn_id）。不同通话完全并行；通话闲置即清 state。设计蓝本是 group_silent 的 per-(agent,room) 缓冲。非语音消息 dispatch 逐字不变（getattr 守卫，替身消息也安全）。
+
+## 2026-08-06 — voice fast mode: VoiceDeliveryBridge 接线
+
+_StreamReplyState 增 voice_bridge（None=文字 turn，所有 legacy 分支以 bridge is None 为守卫，行为逐字不变）。_handle_stream_event：speak 的 AGENT_REPLY_DELTA 喂桥、speak PROGRESS 作权威全文修正且不落 narra_reply_text、narra_reply 捕获在语音 turn 上照旧。finalize：bridge.close() 成功即完；finalized_ok=False 时 _send_matrix_reply 平文兜底；无 spoken 文本则回落 legacy finalize（narra_reply/错误标记/静默三态不变）。
+
+## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
+
+parse_event 的 text 分支做 RTC v1 检测（_rtc_voice 严格校验，任一失败=普通消息）：剥 envelope、正文=transcript、raw["rtc_voice"] 带四 ID + 有效 voice_instructions（metadata 优先、envelope 兜底）；空 transcript 丢 turn。_voice_profile_for 把 rtc_voice 映射为一次性 TurnProfile.voice_fast()（不落 session）。streaming 路径把 profile 传 run_stream、rtc_voice 进 extra_data。
 
 ## 2026-08-04 — `matrix_since_token` 排除出熔断指纹
 

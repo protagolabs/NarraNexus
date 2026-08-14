@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-04
+last_verified: 2026-08-12
 stub: false
 ---
+## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
+
+初版是 `LEFT JOIN events ON m.root_run_id = e.event_id` + 判断**那一行**的
+`cancel_requested_at` —— 即只看**根**有没有被盖旗标。而端点只给 running 的
+行盖旗标(终态行绝不盖,否则会成为下一个 run 的陷阱)。
+
+失效场景恰好是委派的**主流形态**:agent 把活交给同伴后自己这一轮就结束
+(「发出去、结束本轮、对方稍后回」)。owner 在 roster 上看到同伴在跑、点
+停止时,根那一行早已 `completed` 且永远不会被盖旗标 → 谓词读成「没人被
+停」→ 排队消息照常投递 → 正是本功能要消灭的打地鼠。
+
+改为相关子查询 `NOT EXISTS (SELECT 1 FROM events e WHERE e.root_run_id =
+m.root_run_id AND e.cancel_requested_at IS NOT NULL)`:问的是**整棵树**有没有
+任何一个 run 被请求停止,与哪一行是根、根是什么状态都无关。
+
+初版的测试全部只覆盖「根仍 running」,所以这个洞不会红 ——
+`test_a_stopped_tree_whose_root_already_finished_still_suppresses` 补上了这
+一支。这条 SQL 走 RAW backend(**无 `%s→?` 翻译**),是本次方言风险最高的
+一句,已在真 MySQL 上验证(`tests/message_bus/test_cascade_stop_mysql.py`)。
+
+## 2026-08-07 — 被停止的树,排队消息不再唤起 run
+
+`get_pending_messages` 增加 `LEFT JOIN events ON m.root_run_id = e.event_id`
++ `AND (m.root_run_id IS NULL OR e.cancel_requested_at IS NULL)`。
+
+停掉正在跑的轮次**不够**:它们排队中的后续消息会在下一次轮询启动新 run,
+用户按了停之后眼看着新活冒出来(设计文档里的"打地鼠")。
+
+- **写成 SQL 谓词而不是逐行判断**:poison 过滤已经是每行一次查询,再加一次
+  就是第二个 N+1。
+- **NULL root 永不被压制**:用户消息和所有前置列的老行都是 NULL,若 NULL 被
+  当成"同一棵树",一次停止会让整张表哑掉。测试专门钉了这条。
+
+`send_message` / `send_to_agent` / `_row_to_message` 同步接受并透出
+`root_run_id`。
 
 ## 2026-08-04 — send_message/send_to_agent 记录发送方 turn 的种类
 
@@ -128,3 +163,55 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 ## 新人易踩的坑
 
 所有 SQL 里用的是 `%s` 占位符（不是 `?`），这依赖 `DatabaseBackend.execute()` 的参数处理层把 `%s` 自动转成目标数据库的占位符格式。不要改成 `?` 或 f-string 直接拼接。
+
+## 2026-08-11 — 未读的三个契约:`ack_read` / `get_unread(limit)` / `count_unread`
+
+`get_unread` 此前**没有契约**,三个缺陷叠在一起:
+
+1. **不排除自己发的帖。** `get_pending_messages` 从写下来就有 `from_agent != me`,
+   这条一直没有。于是 agent 在活跃房间里把自己说的话当成别人的待回消息读回来。
+2. **返回最旧 N 条。** `ORDER BY created_at ASC` + 无 SQL LIMIT + 调用方 Python 切片。
+   `get_recent_messages` 早就把正确形状(DESC + `reversed()`)连同理由写在 docstring 里
+   了,这里没采纳。配上永不推进的读游标,每一轮拿到的是**同一批最古老的消息**,却被
+   当作"房间现在的动静"呈现。
+3. **无 LIMIT**,整个积压过一趟网络再被切掉。
+
+现在 `limit` 选**最新的 N 条**、仍按阅读顺序返回;`limit=None` 保留全量模式,
+**这不是可选项**:模块的 turn 后钩子要拿全量来判断"这一轮的回复覆盖了哪些消息"。
+给它一个窗口,一个安静频道就可能被繁忙频道整个挤出窗口 —— agent 回了那个频道,
+游标却一动不动,它刚回答过的消息永远留在未读里,下一轮再被要求回答一次。
+`test_get_unread_contract.py` 里有一条专门的看门狗钉这个形状。
+
+`count_unread` 是新的:渲染是 `N unread (showing M)`,查询一旦加了 LIMIT,N 就不能
+再从结果 `len()` 来 —— 那样 N 恒等于 M,读者永远不知道自己看的是个窗口。
+
+`ack_read` 是 `ack_processed` 在另一根游标上的孪生。两根游标语义不同、不能合并
+(`inbox.py` 合并过一次,后果见那份 mirror)。时间戳归一化直接委托给 `ack_processed`
+的同一段逻辑而不是重写一遍 —— 那个 `'T'(0x54) > ' '(0x20)` 的坑值不得踩第二次。
+它**只前进**:`ack_processed` 能不带这个保护是因为它的调用方总是传批次自己的水位线,
+而 `ack_read` 有多个调用点,一个能被往回拨的游标会让已读消息重新冒出来。
+
+## 2026-08-11 (补) — `canonical_ts`:那个坑只留一个落点
+
+两个 ack 各自抄了一遍 `isoformat()` 归一化,而 `ack_read` 的 docstring 却写着它
+"delegated" 给了 `ack_processed` —— 注释和代码不一致,偏偏这是个踩过的坑
+(`'T'(0x54) > ' '(0x20)`,空格格式的游标沉到所有 `created_at` 之下,消息永远显示
+未处理)。抽成模块级 `canonical_ts`,两个 ack 和 trigger 的缺口判定共用一份。
+
+## 2026-08-12 — `send_message` 接受 `routed_by`
+
+纯透传到新列并在 `_row_to_message` 里读回。语义见 [[schemas]]。
+
+## 2026-08-12 — `has_unread_before`:存在性问题用存在性查询回答
+
+`_ack_room_seen` 要判断的是「本轮渲染窗口有没有够到这个 agent 还欠着的底」——
+一个布尔。初版做法是无 limit 的 `get_unread` 拉该 agent **所有频道**的全部未读、
+为每一行构造 `BusMessage`(含 attachments 的 JSON 解析),再在 Python 里筛。
+
+那正是同一批改动刚从 `get_unread` 里移除的形状(整个积压过一趟网络再被切掉),
+而且它在成功路径和被取消路径上各调一次;同一轮里 `hook_after_event_execution` 还会
+再全量捞一次。
+
+现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到
+SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于把一条已经咬过人的规则实现
+两遍。

@@ -29,6 +29,28 @@ class UserStatus(str, Enum):
     INACTIVE = "inactive"
     BLOCKED = "blocked"
     DELETED = "deleted"
+    # A distinct, administratively-set account state. Kept separate from
+    # BLOCKED/DELETED so the account-suspension mechanism has its own value
+    # (a reinstate returns the row to ACTIVE, and an existing "banned" row in
+    # the DB stays loadable rather than raising on enum coercion).
+    BANNED = "banned"
+
+
+# The account states that must not transact. A single shared source of truth
+# for every surface that gates on account state (the HTTP auth middleware, the
+# WebSocket run gate, and the netmind-login gate) so the set can never drift
+# between them. Purely a set of ``users.status`` values — this constant holds no
+# policy about how an account reaches one of them. INACTIVE is deliberately NOT
+# here: it is a benign lifecycle state (never logged in / dormant), not a
+# suspension. ``banned`` is what the suspension mechanism sets; ``blocked`` /
+# ``deleted`` are pre-existing terminal states that equally must not transact.
+NON_TRANSACTING_USER_STATUSES: frozenset[str] = frozenset(
+    {
+        UserStatus.BANNED.value,
+        UserStatus.BLOCKED.value,
+        UserStatus.DELETED.value,
+    }
+)
 
 
 # ===== Social Network Entity =====
@@ -179,6 +201,37 @@ class Agent(BaseModel):
     agent_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
     agent_create_time: Optional[datetime] = Field(default=None, description="Creation time")
     agent_update_time: Optional[datetime] = Field(default=None, description="Update time")
+
+
+# The string agent creation used to stamp into ``agent_description`` when the
+# caller supplied none. Creation no longer writes it (an unset description is
+# now empty), but ~488 production rows carry it, so every reader must still
+# recognise it as "not set" rather than prose.
+#
+# It was never harmless filler: the bus registry snapshotted it, so
+# ``bus_get_agent_profile`` reported a fully configured agent as "a new agent
+# ready for configuration", and the ASKING agent concluded the peer was not
+# ready and refused to send anything (P1 section 02, prod evt_feb1f6ae). BasicInfo
+# injects the same field as the agent's own self-description, so the asked
+# agent read it about itself too.
+LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"
+
+
+def is_agent_description_unset(description: Optional[str]) -> bool:
+    """True when an agent has no real self-description yet.
+
+    Covers empty/None (agents created after the fix) and the legacy
+    placeholder above, case- and padding-insensitively — a row written by a
+    tool that trimmed or lower-cased it must not read as real prose.
+
+    Callers must degrade by SAYING NOTHING about the description rather than
+    printing it: repeating "a new agent ready for configuration" to a peer is
+    worse than silence, because it asserts the peer is unconfigured.
+    """
+    text = (description or "").strip()
+    if not text:
+        return True
+    return text.lower() == LEGACY_AGENT_DESCRIPTION_PLACEHOLDER.lower()
 
 
 # ===== MCP URL Entity =====

@@ -88,7 +88,23 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         raw = payload.get(key)
         if raw is None:
             return None
-        return _CONFIG_TYPES[key](**raw)
+        # Defensive forward-compat: reconstruct only the dataclass's KNOWN fields
+        # so a field one end serializes that the other doesn't define can never
+        # raise TypeError and fail the turn. (The broker already replaces stale-
+        # IMAGE executors on ensure() via _is_stale, so the "new orchestrator →
+        # old warm executor" window is narrow; this is belt-and-suspenders against
+        # any residual skew — e.g. a same-image content change, or local mode.)
+        # Adding identity_token to the three configs was the concrete trigger.
+        cls = _CONFIG_TYPES[key]
+        known = {f.name for f in dataclasses.fields(cls)}
+        unknown = [k for k in raw if k not in known]
+        if unknown:
+            # Not silent: a deploy skew this covers should still be visible.
+            logger.warning(
+                f"provider_configs[{key}] dropped unknown field(s) {unknown} — "
+                "orchestrator/executor version skew (expected during a rolling deploy)"
+            )
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
     set_user_config(
         claude=_build("claude") or ClaudeConfig(),
@@ -110,6 +126,8 @@ def build_agent_loop_request(
     disallowed_tools: Optional[list[str]] = None,
     agent_id: str = "agent",
     expressive_tools: Optional[list[str]] = None,
+    turn_profile: Optional[dict[str, Any]] = None,
+    extra_accessible_roots: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -134,6 +152,17 @@ def build_agent_loop_request(
         # monologue contract with the right tools.
         "agent_id": agent_id,
         "expressive_tools": expressive_tools or [],
+        # Per-turn fast-mode knobs — per-run state like the messages. The
+        # whitelist body means a missing key is a silent cloud-side drop,
+        # so the key is always present (None when no profile).
+        "turn_profile": turn_profile or None,
+        # Extra readable roots (the per-user `_shared` area) — per-run state
+        # like the messages, and subject to the same silent-drop hazard noted
+        # above, so the key is always present. Paths are orchestrator-side
+        # absolutes; this is safe for the same reason `working_path` is: the
+        # per-user Executor bind-mounts that same user subtree, so both sides
+        # name it identically.
+        "extra_accessible_roots": extra_accessible_roots or [],
         "provider_configs": serialize_provider_configs(),
     }
     return body

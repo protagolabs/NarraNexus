@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/repository/team_repository.py
-last_verified: 2026-07-22
+last_verified: 2026-08-10
 stub: false
 ---
+## 2026-08-10 — 读出巡查两列
+
+`_row_to_entity` 增加 `patrol_enabled` / `last_patrol_at`;写侧刻意不动
+(理由见 [[team_schema]])。
 
 # team_repository.py — Team & TeamMember CRUD (subproject 1)
 

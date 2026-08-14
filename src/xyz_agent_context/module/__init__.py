@@ -39,7 +39,14 @@ from ._mcp_identity import (
     USER_ID_HEADER,
     ERRAND_PEER_HEADER,
     ERRAND_CHANNEL_HEADER,
+    ROOT_RUN_ID_HEADER,
+    TEAM_ID_HEADER,
+    EVENT_ID_HEADER,
+    IDENTITY_TOKEN_HEADER,
+    BEARER_AGENT_PREFIX,
     agent_id_headers,
+    parse_bearer_identity,
+    stamp_identity_token,
 )
 
 # =============================================================================
@@ -134,7 +141,14 @@ __all__ = [
     "USER_ID_HEADER",
     "ERRAND_PEER_HEADER",
     "ERRAND_CHANNEL_HEADER",
+    "ROOT_RUN_ID_HEADER",
+    "TEAM_ID_HEADER",
+    "EVENT_ID_HEADER",
+    "IDENTITY_TOKEN_HEADER",
+    "BEARER_AGENT_PREFIX",
     "agent_id_headers",
+    "parse_bearer_identity",
+    "stamp_identity_token",
     # ===== Base class =====
     "XYZBaseModule",
 

@@ -171,6 +171,25 @@ def test_funnel_report_rejects_unknown_stages(client):
     assert r.status_code == 400
 
 
+def test_all_known_funnel_stages_are_accepted(client, log_lines):
+    """Reverse guard: every currently-used stage must be accepted (200) AND
+    actually logged. This catches the backend dropping/renaming a stage the
+    frontend still emits. The forward guard (frontend adds a stage the backend
+    lacks) is the `AuthFunnelStage` union in frontend/src/lib/api.ts + tsc —
+    the two are complementary, neither replaces the other."""
+    for stage in (
+        "netmind_email_login_failed",
+        "netmind_oauth_failed",
+        "signup_send_code_failed",
+        "netmind_reset_code_failed",
+        "netmind_reset_password_failed",
+    ):
+        r = client.post("/api/auth/funnel-report",
+                        json={"stage": stage, "email": "a@b.com", "detail": "x"})
+        assert r.status_code == 200, f"stage {stage} was rejected"
+        assert f"[login-funnel] client stage={stage}" in "\n".join(log_lines)
+
+
 def test_funnel_report_is_404_in_local_mode(client, monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: False)
     r = client.post("/api/auth/funnel-report",

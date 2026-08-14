@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/awareness/LarkConfig.tsx
-last_verified: 2026-07-13
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — unbind 失败优先显示 message
+
+`/api/lark/unbind` 现原样返回 do_unbind 信封：失败时 `error` 是机器码
+（`no_credential`），`message` 才是人话（"No Lark bot bound…"）。unbind 错误显示
+改 `res.message || res.error || t(errUnbind)`（[[api]] ApiResponse 加了可选 `message`）。
 
 ## 2026-07-13 — activation toggle + parent-list sync
 

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/client.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-07
 ---
+## 2026-08-07 — 把触发树交给 recorder
+
+新增 `_inherited_root_run_id(extra_kwargs)`:从 `trigger_extra_data` 读出
+trigger 声明的树,传给 `RunRecorder`。两个 recorder 创建点都改了。
+
+`""` 与缺失都归一为 None —— 开启一棵树的 run(用户在房间里发言、job 到点)
+传空值,绝不能被读成"一棵叫空字符串的树"。这个 seam 一旦两侧改名,每个被
+引发的 run 都会静默变成孤儿而没有任何测试会红,所以单独钉了测试。
 
 ## 2026-07-31 (二次) — run_stream 补 finally 兜底网（review Minor #3）
 

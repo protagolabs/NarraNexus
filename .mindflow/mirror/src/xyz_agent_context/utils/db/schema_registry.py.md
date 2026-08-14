@@ -1,8 +1,149 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — ban_audit 新表（账户状态变更审计）
+
+注册 `ban_audit`：账户状态变更的追加式审计表，一次 suspend / reinstate 一行。
+列：`id`(BIGINT UNSIGNED 自增主键)、`user_id`(VARCHAR(64) NOT NULL)、
+`action`(VARCHAR(32) NOT NULL)、`reason`(MEDIUMTEXT)、`evidence_ref`(MEDIUMTEXT)、
+`actor`(VARCHAR(128))、`prev_status`(VARCHAR(32))、`created_at`(DATETIME(6)
+NOT NULL，sqlite 侧 `(datetime('now'))`)。索引 `idx_ban_audit_user_id(user_id)`，
+按 user_id 查询。
+
+**`prev_status`（2026-08-13 追加列）**：记录该行动作发生**前**账户的状态（不透明，
+就是一个 `users.status` 值）。additive 列——`auto_migrate` 在既有部署上增量补列，
+无破坏性迁移、不触铁律 #6。suspend 写它替换掉的状态、reinstate（含被 409 拒绝的
+那次）写它试图恢复前的状态，让「reinstate 从什么状态翻回来 / suspend 覆盖了什么」
+可追溯，而审计表仍不携带任何策略词汇。
+
+`reason` / `evidence_ref` 是调用方提供的**不透明自由文本**（绝非 enum），本表因此
+不携带自己的策略词汇；`actor` 记录是谁做的变更。追加式、只增不改。写入方是
+[[ban_audit_repository]]（best-effort，advisory），真相源是 `users.status`。
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+`user_settings` 新增 `reply_language`(VARCHAR(16),NULL=从未设置=模型自由)。auto_migrate 增量加列,无危险变更。
+
+## 2026-08-11 — channel_narramessenger_credentials gains idx_nm_cred_profile
+
+Added a non-unique `Index("idx_nm_cred_profile", ["nexus_profile_id"])`
+(named to match the table's `idx_nm_cred_*` siblings; renamed pre-release
+from the initial `idx_narramessenger_profile` — never shipped, so no
+migration concern)
+to back the credential manager's new `get_by_profile_id` reverse lookup (the
+prewarm endpoint resolves an agent by the platform's `agent_profile_id`).
+Non-unique on purpose: the column existed since inception but `do_bind` never
+wrote it until this same change, so every pre-existing row has
+`nexus_profile_id == ""` — a unique index would reject the second empty-string
+row on insert. See the credential manager's mirror doc for the back-fill gap
+this leaves (old rows need a rebind to become resolvable by profile id).
+
+## 2026-08-10 — product facts + exact provider source
+
+Added append-only `product_analytics_events`, indexed by event/user/run/failure
+time. No external telemetry history is migrated. `cost_records` gained
+`provider_card_source`; the older resolver branch is always `user` now and
+cannot distinguish `netmind_free` from another user-owned provider. The new
+column deliberately reuses the existing `created_at` range index instead of
+building a composite index during startup; this avoids an unbounded full-table
+index build delaying `/health` on the high-volume cost ledger.
+
+The product fact hot-retention contract is 400 days, covering the data API's
+maximum 365-day analysis window plus operational margin. Enforcement belongs
+to deployment-managed archival/cleanup, never `auto_migrate`: schema startup
+must not perform destructive or duration-unbounded maintenance.
+
+## 2026-08-07 — team_work_items 新表 + teams 的巡查列
+
+工作板:产品里第一个**任务级**对象(此前持久化的一切都是对话)。语义与状态机
+见 [[team_work_schema]]。`channel_id` 从 team_id 反范式化是为巡查:候选查询每轮
+都要「把 lead 唤到哪个房间」,逐项 join 太贵。索引 `(team_id, status)` 是巡查
+唯一热路径,`(root_run_id)` 服务停止→暂停。
+
+`teams` 加四列:`patrol_enabled`(NULL = 未定,对**有 lead** 的 team 读作开 ——
+设 lead 这个动作本身就是在说「这个负责」)、`last_patrol_at`,以及
+`patrol_spoke_at/count`。
+
+**后两列刻意落盘**:bus 已有 per (agent,channel) 限流,但它活在
+`MessageBusTrigger._rate_counters` —— 内存 dict + `time.monotonic()`,workers
+一重启就清零。对它原本的用途(压制话痨 agent)没问题;对巡查**不行**:巡查
+消息被豁免了级联深度上限(拍板口径 a),这个计数器是仅剩的兜底,而一重启就
+消失的兜底不是兜底。
+
+## 2026-08-07 — 审计两表的保留期：待定，不是「不需要」
+
+`narrative_routing_audit` 每轮一行、带 ~15KB 的 `candidates_json`；
+`narrative_text_snapshots` 按内容寻址增长（去重让它长得慢，但**没有上界**）。
+
+项目里 `service_audit` / `instance_executor_audit` 同样没有清理策略，所以这不是本
+次引入的新问题——但这两张表的单行体量比它们大一到两个数量级。**保留期尚未决定**，
+需要 Owner 定策略（清理 worker？按天分区？只留最近 N 轮？）。在那之前它们无限增长，
+先写明，免得半年后靠磁盘告警才发现。
+
+## 2026-08-07 — narrative_routing_audit + narrative_text_snapshots（E1）
+
+narrative 路由的决策轨迹。`candidates_json` 存**整个** BM25 候选池而非 top-K，每条
+指向一份内容寻址的文本快照——这不是保险起见：`bm25_rank` 的 IDF/avgdl 在候选集自身
+上算，裁过的池子重放不出原来的分数；而被打分的文本本身又被异步 LLM 更新几乎每轮
+覆写且不留历史。两条约束叠加，"只存 id 和分数"的审计等于不能重放。
+
+`narrative_text_snapshots` 按 sha256 内容寻址去重：相邻两轮通常只有主 narrative 的
+摘要变了，所以 100 条候选的池子每轮只新增约 1 行。详见
+[[narrative_routing_audit_repository.py]]。
+
+## 2026-08-07 — events.root_run_id / bus_messages.root_run_id + 索引
+
+触发树标签。**从根继承的扁平标签,刻意不是父子指针**:这里唯一被问到的问题
+是"哪些 run 属于用户要停的这棵树",标签一条索引查询就能答,任意深度;父子边
+额外提供的是"遍历树"的能力,级联停止不需要(协作拓扑图才需要,那是另一个
+需求)。
+
+- `events.root_run_id`:根 run 存自己的 event_id,被引发的 run 继承同一个值。
+  由 [[run_recorder]] 在 late-bind 时与 running 翻转同一条 UPDATE 写入。
+- `bus_messages.root_run_id`:发送方那一轮的树,把血缘带过唯一会丢的那一跳
+  (agent 问同伴,写的是一条新消息)。
+- `Index("idx_events_root_state", ["root_run_id", "state"])`:级联唯一的热
+  路径("这棵树里还在跑的 run"),复合是因为写旗标必定同时过滤这两列。
+
+## 2026-08-07 — events 增加 cancel_requested_at 列
+
+可空 DATETIME(6),owner 请求停止这个 run 的时刻。纯新增列,
+`auto_migrate` 下次启动自动加上,不改任何既有列语义(铁律 #6)。
+
+**为什么是时间戳而不是布尔**:这个旗标要回答三个问题,只有时间戳能全部
+回答 —— 是否有待处理的停止(非空)、重复点击是否无副作用(幂等写)、
+这次请求是否属于**当前**这个 run(`started_at` 早于请求时间)。第三点是
+关键:旗标活在长寿的 events 行上,布尔值无法区分"给这一轮的"和"上一轮
+遗留的",后者会杀掉无辜的后继 run。
+
+写者:`backend/routes/runs.py`。读者两个:[[cancel_watcher]](持有 token,
+据此触发)和 [[run_recorder]] 的 `sweep_stale_runs`(据此把停止中的 run
+落成 cancelled 而非 failed)。
+
+## 2026-08-07 — team shared working-space：一列 + 两张新表（全部 additive）
+
+**`instance_artifacts.team_id`（可空）**：artifact 此前只有 agent/user 两个维度，这正是
+「team turn 里注册的产出只能落进某个 agent 私有列表」的机制原因。NULL = 私有，涵盖所有
+存量行与非团队回合，故私聊语义按构造不变、无需回填（铁律 #6）。`agent_id` 保留不动——
+归属迁到 team 之后，「谁产出的」仍要答得出。配套 `idx_artifact_team_updated`，否则团队面板
+与 agent prompt 的团队半边是全表扫描。
+
+**新表 `team_files`**：共享目录（`_shared/teams/{id}`）此前磁盘有文件、库里无行，落地用的是
+生成的 file_id 当磁盘名，`original_name` 只活在内存 dict 里 → 无法列举，只能靠 agent 在群里
+念路径。`content_hash`(sha256) 是去重能成立的前提：**同名不等于同一个文件**。同名同 hash =
+真重复，复用既有行；同名不同 hash = 不同文件，**两份都留**（静默覆盖属破坏性写）。唯一索引
+带上 hash 正是为了让后者仍可插入，同时让去重在并发下也成立。选 sha256 而非 md5：日后 CAS
+复用同一哈希，且成本相同。另有 `idx_team_files_prefilter`——hash 要读全文件，写路径只在
+(team,name,size) 撞车时才算，那次查找必须有索引否则「廉价前置」本身就是全表扫描。
+
+**新表 `instance_artifact_history`**：只记 who/when/where-it-pointed，**不存内容**，与
+2026-07-21 因成本退役的 `instance_artifact_versions` 不是一回事（测试 `test_retired_versions_table_stays_retired`
+专门守这条）。一行几十字节，故常开且不依赖 agent 配合——归因必须在模型不配合时也正确。
+`event_id` 沿用本项目既有的 turn 句柄语义（同 [[bus_messages]]），可空：MCP 注册路径目前
+拿不到它。
 
 ## 2026-08-04 — bus_messages 增加 sender_turn_source 列
 
@@ -536,3 +677,25 @@ is pinned, so that `set_pinned(False)` can restore it instead of leaving the
 artifact orphaned with `session_id=NULL`. Purely additive — existing rows get
 `NULL` (no session to restore; the route layer surfaces a warning per review
 Important #1).
+
+## 2026-08-11 — `team_bulletin_entries`
+
+纯新增一张表（铁律 #6），`auto_migrate` 幂等建它，不动任何既有行。
+
+两个列形状是有意的，并有测试钉住：
+
+- **`source` 与 `author_id` 分开**。`source` 决定**规则**（谁能删、是否占预算、怎么渲染），
+  `author_id` 决定**显示**。合成一列，权限判断就得去解析字符串前缀。
+- **`author_id` 可空**，因为自动总结有 source 没 author。设成 NOT NULL 就得造一个
+  `"system"` 哨兵，然后每个「谁写的」路径都要用字符串比较把它排除掉。
+- **`watermark_at` 是专用列**，只在总结行有值。第一版把它塞进 `author_id`——
+  那正是上面那条自己批评的一列两义，提交前改掉。
+
+## 2026-08-12 — `bus_messages.routed_by`(可空,additive)
+
+记录一条消息的 `mentions` 是谁写的。语义见 [[schemas]]。
+
+**为什么不复用 `msg_type`**:`send_message` 会把带附件的消息自动改写成
+`"multimodal"`,而"无人被 @"是**正交**的另一个事实,两者塞进同一列会互相覆盖。
+`multimodal` 目前没有消费方,但重载一个字段表达两件事迟早出事。加一个可空列是本项目
+的常规机制,`auto_migrate` 幂等处理,不触发铁律 #6(它禁的是收窄类型和破坏性迁移)。

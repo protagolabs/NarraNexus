@@ -278,6 +278,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             matrix_user_id=matrix_user_id,
             matrix_access_token=matrix_access_token,
             nexus_principal_id=principal_id,
+            nexus_profile_id=rdata.get("profileId", "") or "",
             bind_room_id=bind_room_id,
             connection_mode="matrix",
             enabled=True,

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — managed 面 + manyfold files 写入的事件常量
+
+`managed_ingress_denied` / `managed_ingress_silent` /
+`managed_attachments_converted` / `manyfold_files_write`。动机 = 教训
+#5:托管消息"没结果"必须和原生一样可从 DB 回答;`managed_ingress_processed`
+(run 完结行)早于本批,由 `managed_after_run` 写。files_write 行的
+channel 列固定 "manyfold"(它不是渠道,是平台 ingest 腿)。
+
+## 2026-08-06 — ingress_dropped_empty
+
+新增 `EVENT_INGRESS_DROPPED_EMPTY`：`_process_message` 的空内容守卫
+（无正文且无 attachment_refs → 丢弃）此前是裸 `return`，与
+`ingress_dropped_unparsed` 同属审计盲区。8/6 事故：无语言包裹的 post
+payload 被提取成空串后从这里消失，零痕迹。base 与 Lark 覆写两处守卫
+现在都写这条审计。
 
 ## 2026-08-04 — subscriber isolation events
 

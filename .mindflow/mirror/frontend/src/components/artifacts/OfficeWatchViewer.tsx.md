@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/OfficeWatchViewer.tsx
-last_verified: 2026-07-13
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+open() 失败不再是死路:新增 `retryNonce` + 错误块的 Retry 按钮(bump nonce→重跑 open effect),瞬时 watch 失败(还在起/重启中)用户可自愈。i18n `officeWatch.retry` 补齐 10 语言。
 
 # OfficeWatchViewer.tsx — office artifact 的实时渲染器
 

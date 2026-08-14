@@ -3,6 +3,11 @@ code_file: src/xyz_agent_context/module/chat_module/prompts.py
 last_verified: 2026-05-21
 ---
 
+## 2026-08-10 (PR-10) — get_chat_history 示例加 agent_id
+
+工具迁 seam 后签名加 `agent_id`（闭 IDOR），prompts 的调用示例同步加 `agent_id="agent_xxx"`。见 [[_chat_reads]]。
+
+
 ## 2026-05-21 — 复杂信息优先 HTML artifact（含可见性边界）
 
 Guidelines 段新增一条："复杂 / 结构化 / 长的 owner-facing 回复 → 优先做成

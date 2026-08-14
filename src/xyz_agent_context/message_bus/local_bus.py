@@ -30,6 +30,19 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
+def canonical_ts(value) -> str:
+    """A cursor-comparable ISO-8601 string.
+
+    Both cursors are TEXT and compared lexicographically, while the sqlite
+    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
+    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
+    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
+    every real ``created_at``, making every message look unprocessed forever.
+    That cost us a re-trigger loop once; it gets exactly one home.
+    """
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 def _now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
@@ -92,6 +105,8 @@ class LocalMessageBus(MessageBusService):
             attachments=attachments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
+            routed_by=row.get("routed_by"),
+            root_run_id=row.get("root_run_id"),
             created_at=row.get("created_at"),
         )
 
@@ -107,6 +122,8 @@ class LocalMessageBus(MessageBusService):
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
+        routed_by: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -116,6 +133,17 @@ class LocalMessageBus(MessageBusService):
         answering a peer, so this is a reply). MessageBusTrigger reads it to
         decide whether the recipient should answer the peer or relay to its
         owner — see the column comment in schema_registry.
+
+        ``routed_by`` records WHY ``mentions`` holds what it does: ``None`` when
+        the sender wrote them, ``"default_responder"`` when a team room had none
+        and the route picked the fallback agent. Downstream cannot reconstruct
+        this — a single mention naming the lead is exactly what a user
+        deliberately naming the lead looks like.
+
+        ``root_run_id`` records WHICH TRIGGER TREE the sending run belonged to,
+        so the run this message wakes up inherits it. Without it the lineage
+        breaks at every agent→agent hop and a cascade stop leaves the branch
+        beyond the hop running.
         """
         msg_id = _generate_id("msg")
         # A message carrying files is tagged "multimodal" so UI / search can
@@ -132,6 +160,8 @@ class LocalMessageBus(MessageBusService):
             "attachments": json.dumps(attachments) if attachments else None,
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
+            "root_run_id": root_run_id,
+            "routed_by": routed_by,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -191,18 +221,92 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
-    async def get_unread(self, agent_id: str) -> List[BusMessage]:
-        """Get all unread messages for an agent across all channels."""
-        ph = self._db.placeholder
-        rows = await self._db.execute(
-            f"SELECT m.* FROM bus_messages m "
+    def _unread_where(self, ph: str) -> str:
+        """The unread predicate, shared by the fetch and the count.
+
+        ``from_agent != agent`` matches ``get_pending_messages``, which has
+        always had it. Its absence here meant an agent read its own posts back
+        as unanswered items — loudest exactly where it hurts, a room the agent
+        talks in a lot.
+        """
+        return (
+            f"FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
             f"WHERE cm.agent_id = {ph} "
-            f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01') "
-            f"ORDER BY m.created_at ASC",
-            (agent_id,),
+            f"AND m.from_agent != {ph} "
+            f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
         )
-        return [self._row_to_message(row) for row in rows]
+
+    async def get_unread(
+        self, agent_id: str, limit: Optional[int] = None
+    ) -> List[BusMessage]:
+        """Unread messages across all channels, oldest first.
+
+        ``limit`` selects the NEWEST ``limit`` messages and returns them in
+        reading order — the same DESC-then-reverse shape ``get_recent_messages``
+        documents, and for the same reason: ``ORDER BY created_at ASC`` with a
+        cap hands back the OLDEST rows, which is the opposite of what every
+        caller wants. This query feeds the per-turn "what is going on" block, so
+        an ancient window is worse than none: it reads as current.
+
+        ``limit=None`` returns the whole backlog, and one caller depends on
+        that. The module's post-turn hook asks for the full set to work out
+        which messages a reply covers; cap it and every older answered message
+        stays unread forever.
+        """
+        ph = self._db.placeholder
+        where = self._unread_where(ph)
+        if limit is None:
+            rows = await self._db.execute(
+                f"SELECT m.* {where} ORDER BY m.created_at ASC",
+                (agent_id, agent_id),
+            )
+            return [self._row_to_message(row) for row in rows]
+        rows = await self._db.execute(
+            f"SELECT m.* {where} ORDER BY m.created_at DESC LIMIT {int(limit)}",
+            (agent_id, agent_id),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
+    async def has_unread_before(
+        self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        """Is anything in this channel still unread and older than ``before``?
+
+        A boolean, answered by the database. The caller wants to know whether a
+        turn's rendered window reached the bottom of what the agent still owes,
+        and doing that by pulling every unread message across every channel and
+        filtering in Python is the exact shape this module's unread work just
+        removed: the whole backlog crossing the wire to be thrown away.
+
+        Comparing in SQL also keeps one ordering authority. The Python version
+        had to re-derive the cursor's lexicographic comparison by hand, which is
+        a second implementation of a rule that has already bitten this codebase
+        once.
+        """
+        if not agent_id or not channel_id or not before:
+            return False
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT 1 AS hit {self._unread_where(ph)} "
+            f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
+            (agent_id, agent_id, channel_id, canonical_ts(before)),
+        )
+        return bool(rows)
+
+    async def count_unread(self, agent_id: str) -> int:
+        """How many unread messages exist, independent of any window.
+
+        The prompt renders "N unread (showing M)". Once the fetch is capped, N
+        can no longer be ``len()`` of the result — it would always equal M and
+        the reader would never learn there was a backlog at all.
+        """
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
+            (agent_id, agent_id),
+        )
+        return int(rows[0].get("n") or 0) if rows else 0
 
     async def mark_read(self, agent_id: str, message_ids: List[str]) -> None:
         """Mark messages as read by advancing the read cursor per channel."""
@@ -238,6 +342,7 @@ class LocalMessageBus(MessageBusService):
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
+        root_run_id: Optional[str] = None,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -275,6 +380,7 @@ class LocalMessageBus(MessageBusService):
         return await self.send_message(
             from_agent, channel_id, content, msg_type, attachments=attachments,
             sender_turn_source=sender_turn_source,
+            root_run_id=root_run_id,
         )
 
     # ===== Channel Management =====
@@ -435,8 +541,16 @@ class LocalMessageBus(MessageBusService):
         """
         Get messages that have not been processed by the agent.
 
-        Uses the cursor model and filters out self-sent messages
-        and poison messages (failure_count >= 3).
+        Uses the cursor model and filters out self-sent messages,
+        poison messages (failure_count >= 3), and messages belonging to a
+        trigger tree whose owner asked to stop.
+
+        The stopped-tree filter is what makes a cascade stop actually stick:
+        stopping the running turns is not enough while their queued follow-ups
+        are still waiting, because the next poll would start those and the owner
+        would watch new work appear right after pressing stop. It is a SQL
+        predicate rather than a per-row check on purpose — the poison filter
+        below already costs one query per row, and this must not add a second.
         """
         ph = self._db.placeholder
         rows = await self._db.execute(
@@ -445,6 +559,20 @@ class LocalMessageBus(MessageBusService):
             f"WHERE cm.agent_id = {ph} "
             f"AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
             f"AND m.from_agent != {ph} "
+            # "Was ANYONE in this tree stopped" — deliberately not "was the
+            # ROOT stopped". The root row is often already `completed` when the
+            # owner presses stop (an agent that delegates typically ends its own
+            # turn right after sending), and settled rows are never flagged, so
+            # keying off the root alone reads as "nothing was stopped" in the
+            # most common delegating shape and keeps waking new runs.
+            #
+            # NULL root = not part of any tree (user messages, legacy rows):
+            # never suppressed, otherwise one stop would mute the whole table.
+            f"AND (m.root_run_id IS NULL OR NOT EXISTS ("
+            f"  SELECT 1 FROM events e"
+            f"  WHERE e.root_run_id = m.root_run_id"
+            f"    AND e.cancel_requested_at IS NOT NULL"
+            f")) "
             f"ORDER BY m.created_at ASC "
             f"LIMIT {int(limit)}",
             (agent_id, agent_id),
@@ -571,12 +699,43 @@ class LocalMessageBus(MessageBusService):
         message look unprocessed → the agent is re-triggered forever (capped
         only by the rate limiter). Canonicalise to ISO-8601 so both sides match.
         """
-        if hasattr(up_to_timestamp, "isoformat"):
-            up_to_timestamp = up_to_timestamp.isoformat()
+        up_to_timestamp = canonical_ts(up_to_timestamp)
         await self._db.update(
             "bus_channel_members",
             {"agent_id": agent_id, "channel_id": channel_id},
             {"last_processed_at": up_to_timestamp},
+        )
+
+    async def ack_read(
+        self,
+        agent_id: str,
+        channel_id: str,
+        up_to_timestamp: str,
+    ) -> None:
+        """Mark everything up to a timestamp as SEEN by this agent.
+
+        The twin of ``ack_processed``, on the other cursor. ``last_processed_at``
+        says the trigger drove this agent past a point; ``last_read_at`` says the
+        agent was actually shown what was there. Only the second one gates the
+        unread list that rides every turn's context, which is why they cannot be
+        merged (``inbox.py`` merged them once and the result was a room that
+        showed 0 unread while accumulating hundreds).
+
+        Timestamp canonicalisation goes through ``canonical_ts``, which both
+        cursors share — see its docstring for the hazard it exists to close.
+
+        Only ever moves forward. ``ack_processed`` can get away without that
+        guard because its caller always passes the batch's own high-water mark;
+        this one is called from more than one site, and a cursor that can be
+        pulled backwards would resurface messages the agent has already read.
+        """
+        up_to_timestamp = canonical_ts(up_to_timestamp)
+        ph = self._db.placeholder
+        await self._db.execute_write(
+            f"UPDATE bus_channel_members SET last_read_at = {ph} "
+            f"WHERE agent_id = {ph} AND channel_id = {ph} "
+            f"AND (last_read_at IS NULL OR last_read_at < {ph})",
+            (up_to_timestamp, agent_id, channel_id, up_to_timestamp),
         )
 
     async def record_failure(

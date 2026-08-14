@@ -61,6 +61,9 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.co
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
+    NexusPowerPrompts,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
@@ -85,6 +88,8 @@ class NexusPowerLoop:
         self._ledger = ledger
         self._closed = False
         self._continuation_turn = False  # prefill repair, armed at most once
+        self._turn_expressed = False     # any expressive call seen this turn
+        self._expression_nudged = False  # mute-turn nudge, armed at most once
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
@@ -232,6 +237,23 @@ class NexusPowerLoop:
                     while a.side_events:
                         yield await self._log(a.side_events.pop(0))
 
+                # Expression accounting rides the contract's own
+                # adjudicator, on parse-VALID calls only: a reply call
+                # whose argument JSON was truncated is answered, not
+                # executed — nothing was delivered, so it must not mark
+                # the turn as expressed (pipeline review 2026-08-13
+                # Important #1). Hook-denied calls DO count as attempted:
+                # nudging a policy-denied tool would push the model to
+                # retry a forbidden call. Sits BEFORE the steering drain
+                # so a steering `continue` cannot drop a step's calls
+                # from the account.
+                self._turn_expressed = (
+                    self._turn_expressed
+                    or a.expression.turn_had_expression(
+                        [c for c in step_calls if c.parse_error is None]
+                    )
+                )
+
                 # ---- DRAIN_STEERING ---------------------------------------
                 injected = await a.steering.drain()
                 if injected:
@@ -240,6 +262,26 @@ class NexusPowerLoop:
 
                 # ---- STOP_CHECK -------------------------------------------
                 if await a.stop.should_stop(step_calls, ledger):
+                    # Opt-in mute-turn repair (voice turns): about to close
+                    # with ZERO expressive calls while expressive tools
+                    # exist -> ONE steering nudge, one more step. Armed at
+                    # most once — a model that stays silent after the
+                    # nudge closes normally (never a spin loop, and never
+                    # a force-stop: this only ADDS a step).
+                    if (
+                        a.expression_nudge
+                        and not self._expression_nudged
+                        and not self._turn_expressed
+                        and a.expression.names()
+                    ):
+                        self._expression_nudged = True
+                        ledger.record_steering([{
+                            "role": "user",
+                            "content": NexusPowerPrompts.expression_nudge(
+                                a.expression.names()
+                            ),
+                        }])
+                        continue
                     await a.hooks.fire(HookEvent.STOP, {"steps": ledger.num_steps()})
                     yield await self._close(EndReason.NO_MORE_ACTIONS)
                     return

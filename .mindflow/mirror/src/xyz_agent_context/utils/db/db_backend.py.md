@@ -31,3 +31,16 @@ When SQLite support was added for the Tauri desktop migration, the team faced a 
 **`execute` returns rows, `execute_write` returns affected count.** These are two separate abstract methods with different return types. A backend that makes `execute` return an affected count for writes will cause callers that expect `List[Dict]` to blow up unpredictably.
 
 **New-contributor trap.** If you add a new method to `DatabaseBackend` without making it abstract (`@abstractmethod`), all three concrete backends silently inherit the default (which raises `NotImplementedError` at runtime). Make every new method `@abstractmethod` so the missing implementation is caught at class-definition time.
+
+## 2026-08-07 — `get_by_ids` 的 `fields` 必须声明在 ABC 上
+
+不是为了好看，是契约的**强制点**。`AsyncDatabaseClient` 把参数原样转发给
+`db_factory` 选中的那个后端，所以一个只加在部分实现上的参数，等于对其余实现的
+**每一次调用**都 TypeError——`fields=None` 也一样会作为关键字传过去，默认值救不了。
+
+这个已经发生过一次：`fields` 加到了 MySQL 后端、SQLite 后端和 client 的转发上，唯独
+漏了 proxy 后端。云端走 MySQL 一路绿，而 `run.sh` 和桌面 DMG（两者都设
+`SQLITE_PROXY_URL`，因此走 proxy）的**每一次** `get_by_ids` 全炸——也就是所有
+`BaseRepository` 批量取、收件箱、团队页、聊天上下文装载。铁律 #7 的字面场景。
+
+下一个要给这里加参数的人：三个实现 + ABC + proxy 的 HTTP 两端，一个都不能少。

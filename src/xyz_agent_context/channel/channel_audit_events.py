@@ -18,6 +18,22 @@ Naming versus Lark's pre-existing `lark_trigger_audit_repository.py`:
 """
 from __future__ import annotations
 
+# ─── Managed ingress (Manyfold-hosted turns) ─────────────────────────────
+# The managed surface's lifecycle in the same table as native ingress:
+# a managed message that produced nothing must be as answerable as a
+# native one (lesson #5 — "the N expected events are all missing" is
+# itself evidence). `managed_ingress_processed` (the run-completed row,
+# written by ChannelTriggerBase.managed_after_run) predates the rest.
+EVENT_MANAGED_INGRESS_PROCESSED = "managed_ingress_processed"
+EVENT_MANAGED_INGRESS_DENIED = "managed_ingress_denied"
+EVENT_MANAGED_INGRESS_SILENT = "managed_ingress_silent"
+EVENT_MANAGED_ATTACHMENTS = "managed_attachments_converted"
+# Manyfold's files/write ingest leg (backend/routes/manyfold/files.py):
+# channel column carries "manyfold". Every write attempt gets a row —
+# the 2026-08-05 staging diagnosis had to infer write outcomes from the
+# PLATFORM's side because our own gateway kept no account.
+EVENT_MANYFOLD_FILES_WRITE = "manyfold_files_write"
+
 # ─── Ingress ─────────────────────────────────────────────────────────────
 EVENT_INGRESS_PROCESSED = "ingress_processed"
 EVENT_INGRESS_DROPPED_DEDUP = "ingress_dropped_dedup"
@@ -28,6 +44,12 @@ EVENT_INGRESS_DROPPED_UNBOUND = "ingress_dropped_unbound"
 # voice on a text-only channel). Was a bare `continue` with zero trace —
 # unanswerable "why didn't the bot reply?" tickets (lessons #3/#5).
 EVENT_INGRESS_DROPPED_UNPARSED = "ingress_dropped_unparsed"
+# parse_event succeeded but yielded NEITHER text NOR attachment refs, so
+# the pipeline has nothing to run the agent on. Same audit-blind-spot
+# class as `unparsed` above: the guard was a bare `return`, and a payload
+# shape the extractor didn't recognise (live incident 2026-08-06: a post
+# body without the language wrapper) vanished without a trace.
+EVENT_INGRESS_DROPPED_EMPTY = "ingress_dropped_empty"
 # A group-room message that did not @-mention this bot. Once a bot holds a
 # read-all-group-messages scope EVERY group message reaches the subscriber,
 # and replying to all of them is the single most visible misbehaviour a

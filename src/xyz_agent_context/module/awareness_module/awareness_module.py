@@ -242,58 +242,60 @@ class AwarenessModule(XYZBaseModule):
             Returns:
                 Success or error message
             """
-            # Use MCP-dedicated database connection
-            db = await AwarenessModule.get_mcp_db_client()
-
-            # Find instance_id through agent_id + module_class
-            from xyz_agent_context.repository import InstanceRepository, InstanceAwarenessRepository
-            instance_repo = InstanceRepository(db)
-            instances = await instance_repo.get_by_agent(
-                agent_id=agent_id,
-                module_class="AwarenessModule"
-            )
-
-            if not instances:
-                return f"Error: No AwarenessModule instance found for agent_id={agent_id}"
-
-            instance_id = instances[0].instance_id
-
-            # Use InstanceAwarenessRepository to update awareness
-            awareness_repo = InstanceAwarenessRepository(db)
-            await awareness_repo.upsert(instance_id, new_awareness)
-            return "Awareness updated successfully"
+            # Route through the AgentDataStore seam: DirectStore (local, unchanged
+            # DB access) or HttpStore (cloud, backend API — no db creds in mcp),
+            # chosen by NARRANEXUS_BACKEND_URL. Blueprint P0 (behaviour-preserving).
+            from xyz_agent_context.module.data_access import get_agent_data_store
+            return await get_agent_data_store().update_awareness(agent_id, new_awareness)
 
         @mcp.tool()
-        async def update_agent_name(agent_id: str, new_name: str) -> str:
+        async def update_agent_profile(
+            agent_id: str,
+            new_name: Optional[str] = None,
+            new_description: Optional[str] = None,
+        ) -> str:
             """
-            Update the agent's display name.
-            Call this when your creator tells you what your name should be during bootstrap setup.
+            Record who you are: your display name and/or your one-line description.
+
+            Call this during bootstrap once your creator has told you what you
+            are for — and again whenever that changes.
+
+            **Your description is read by OTHER AGENTS, not by humans.** It is
+            how a peer decides whether to route a question to you ("who can
+            review a lesson plan?"). Write one plain line saying what you do and
+            what to ask you for. Do not write marketing copy, and do not leave
+            it empty: an agent with no description cannot be found by the peers
+            who need it, and its owner's requests to "go ask X" fail.
+
+            Renaming also files a dated correction into your Awareness profile,
+            because your memories of being called something else do not update
+            themselves — and the old name may now belong to a different agent.
 
             Args:
                 agent_id: Agent's unique identifier
-                new_name: The new display name chosen by the creator
+                new_name: New display name (omit to leave the name unchanged)
+                new_description: New one-line description for peers (omit to
+                    leave the description unchanged)
 
             Returns:
-                Success or error message
+                Success or error message. Read it: it also tells you when the
+                name you chose is already in use by another of your owner's
+                agents.
             """
-            db = await AwarenessModule.get_mcp_db_client()
-
-            from xyz_agent_context.repository import AgentRepository
-            repo = AgentRepository(db)
-
-            agent = await repo.get_agent(agent_id)
-            if not agent:
-                return f"Error: Agent {agent_id} not found"
-
-            affected = await repo.update_agent(agent_id, {"agent_name": new_name})
-            if affected > 0:
-                return f"Agent name updated to '{new_name}' successfully"
-            else:
-                return "Error: No changes made — agent name may already be set to this value"
+            # Route through the AgentDataStore seam: DirectStore (local, the
+            # unchanged rename transaction) or HttpStore (cloud, backend API —
+            # no db creds in mcp), chosen by NARRANEXUS_BACKEND_URL. The whole
+            # rename transaction (name/description, identity-note correction,
+            # same-owner clash note, discovery refresh) lives in the shared
+            # update_agent_profile_from_args (_awareness_writes) so this path
+            # and the backend twin route stay byte-identical.
+            from xyz_agent_context.module.data_access import get_agent_data_store
+            return await get_agent_data_store().update_agent_profile(
+                agent_id, new_name, new_description
+            )
 
         return mcp
-            
-    
+
     # ============================================================================= Database
 
     async def init_database_tables(self):

@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-08-04
+last_verified: 2026-08-10
 ---
+## 2026-08-10 — 导出 IDENTITY_TOKEN_HEADER / stamp_identity_token / BEARER_AGENT_PREFIX / parse_bearer_identity
+
+MCP caller auth(蓝图 P1):包外消费方是 [[step_3_agent_loop.py]](dispatch 时
+stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 记录
+是跨进程契约,解析走公开名 `parse_bearer_identity`,review #4),沿用
+「注入面走公开面」的规矩。
+
+## 2026-08-07 — 导出 `TEAM_ID_HEADER` / `EVENT_ID_HEADER`
+
+随 [[_mcp_identity.py]] 新增的两个身份 header 常量一并导出。
+
+## 2026-08-07 — 导出 ROOT_RUN_ID_HEADER
+
+注入面继续走公开面(2026-08-04 定的规矩:私有模块不跨包被 import),
+服务端解析仍留在 `_mcp_identity`。
 
 ## 2026-08-04 — 导出调用者身份的注入面
 

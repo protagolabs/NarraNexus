@@ -46,11 +46,11 @@ from xyz_agent_context.schema.parsed_message import (
 
 from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManager
 from .wechat_context_builder import WeChatContextBuilder
+from .wechat_outbound import send_wechat_text
 from .wechat_sdk_client import (
     WeChatSDKClient,
     WeChatSDKError,
     extract_text,
-    send_text_once,
 )
 
 
@@ -293,18 +293,28 @@ class WeChatTrigger(ChannelTriggerBase):
         logger.info(f"WeChatTrigger [{credential.agent_id}] agent responded: {output[:200]}")
         return output
 
+    def managed_reply_kwargs(self, trigger_extra_data: dict) -> dict:
+        """iLink addresses a conversation by peer id + per-inbound token;
+        the wire carries the token as ``reply_token``. Empty is passed
+        through as-is: the managed send route (channel-send) doesn't need
+        it, and the direct route fails iLink-side exactly like the native
+        empty-token degradation."""
+        return {
+            "context_token": str(trigger_extra_data.get("reply_token", "") or "")
+        }
+
     async def send_channel_reply(
         self, credential: WeChatCredential, message: ParsedMessage, text: str
     ) -> None:
         """Error-fallback send: a WeChat DM addressed by the inbound message's
         sender + context_token — the same routing ``wechat_send`` uses."""
         context_token = (message.raw or {}).get("context_token", "") or ""
-        await send_text_once(
-            credential.bot_token,
-            credential.base_url,
-            message.sender_id,
-            context_token,
-            text,
+        await send_wechat_text(
+            agent_id=credential.agent_id,
+            credential=credential,
+            to_user_id=message.sender_id,
+            context_token=context_token,
+            text=text,
         )
 
     @staticmethod

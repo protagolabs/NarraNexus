@@ -17,8 +17,11 @@ No embeddings anywhere.
 """
 from __future__ import annotations
 
+import asyncio
+import functools
 import hashlib
-from typing import Any, Dict, List, Optional, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -37,6 +40,18 @@ _QUEUE_TABLE = "memory_consolidation_queue"
 # ranking, so a high-volume kind (10k-row event log) never scans the whole
 # table in the agent loop. Recency is the prefilter; grep covers exact lookups.
 _CANDIDATE_CAP = 300
+
+# Dedicated, BOUNDED thread pool for the regex grep offload — deliberately NOT
+# the default `run_in_executor(None, ...)` pool. grep runs an untrusted
+# (agent/LLM-supplied) pattern, and `regex` releases the GIL while matching, so
+# without a cap N concurrent grep=regex requests (a low bar — any logged-in user
+# can hit their own agent) would run GIL-free on every core and saturate the box,
+# AND squat the process-wide default pool other code shares (e.g.
+# office_watch.ensure_watch). Capping at 2 workers hard-limits grep's CPU to a
+# couple of cores; excess requests queue on the await (no memory pileup), so the
+# worst case is "grep gets slower" — the thing we WANT degraded — not a
+# box-wide slowdown. Do NOT change this back to None.
+_GREP_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mem-grep")
 
 
 class _DedupTieBreak(BaseModel):
@@ -195,13 +210,32 @@ class MemoryEngine:
         self, kind: str, pattern: str, *,
         scope_type: Optional[str] = None, scope_id: Optional[str] = None,
         regex: bool = False, limit: Optional[int] = None,
-    ) -> List[MemoryRecord]:
+        deadline: Optional[float] = None,
+    ) -> Tuple[List[MemoryRecord], bool]:
+        """Grep one kind's candidates. Returns ``(hits, truncated)``; ``deadline``
+        is the shared per-request wall-clock budget for the regex path."""
         candidates = await self.repo(kind).query(
             agent_id=self.agent_id, scope_type=scope_type, scope_id=scope_id, live_only=True,
             candidate_cap=_CANDIDATE_CAP * 4,  # grep scans more (exact lookups reach deeper)
         )
-        hits = _retrieval.grep_filter(candidates, pattern, regex=regex)
-        return hits[:limit] if limit else hits
+        if regex:
+            # Offload the CPU-bound regex scan off the event loop so it can never
+            # block the shared API loop (the `regex` package releases the GIL
+            # while matching, so this is a real offload). Use the BOUNDED
+            # _GREP_EXECUTOR (not the shared default pool) so concurrent grep
+            # requests can't saturate the box or squat the shared pool — see the
+            # constant's note. Substring is cheap — run it inline.
+            loop = asyncio.get_running_loop()
+            hits, truncated = await loop.run_in_executor(
+                _GREP_EXECUTOR,
+                functools.partial(
+                    _retrieval.grep_filter, candidates, pattern, regex=True, deadline=deadline,
+                ),
+            )
+        else:
+            hits, truncated = _retrieval.grep_filter(candidates, pattern, regex=False)
+        hits = hits[:limit] if limit else hits
+        return hits, truncated
 
     # ── async background ─────────────────────────────────────────────────────
     async def consolidate(

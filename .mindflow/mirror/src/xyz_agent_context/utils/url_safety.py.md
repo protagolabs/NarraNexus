@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/utils/url_safety.py
-last_verified: 2026-07-30
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — 加 `is_obviously_non_public_url`（parse-safe 存前筛）
+
+`is_obviously_non_public_host` 的整-URL 版:抽 host 后套同一 DNS-free 判定,但**解析失败/非串输入一律判为不安全**(返回 True 而非抛异常)——`urlparse('http://[::1')` 抛 `ValueError`、`urlparse(123)` 抛 `AttributeError`,存前筛(路由 create/update、bundle 导入)绝不能因垃圾输入炸调用方。与连接时门禁的 fail-closed 同一姿态。两个存前调用点(`mcps._blocks_internal_url`、`importer` 写 mcp_urls 前)都改用它,各减一行、语义统一。
 
 ## 2026-07-30 — 新增 `is_obviously_non_public_host`（同步、不做 DNS）
 

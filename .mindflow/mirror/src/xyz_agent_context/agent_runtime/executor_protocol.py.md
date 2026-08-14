@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-14
 ---
+
+## 2026-08-13 — apply_provider_configs 容忍未知字段（wire 契约变化，防御性向前兼容）
+
+`_build(key)` 从 `cls(**raw)` 改为**先按 `dataclasses.fields(cls)` 过滤 raw**，只用已知字段重建。
+**契约变化**：过去「wire 上有未知字段 → `TypeError` → turn 失败」，现在「丢弃未知字段 + `logger.warning`
+（只打 key 名不打 value）可观测」。触发点：给三个 provider 配置加 `identity_token`（平台绑定，见
+[[api_config]]）。
+**定位是防御，不是补 broker 漏洞**（2026-08-14 review 修正）：deploy 仓 `broker/broker.py` 的
+`_is_stale()` 在每次 `ensure()` 比对容器镜像 ID 与 `EXECUTOR_IMAGE`，不一致就 stop+重建——「部署换镜像后
+热容器仍跑旧代码」这一整类窗口基本是关着的（它就是为根除 2026-07 `mcp_servers` 改名事故而建）。所以「新
+orchestrator → 旧 warm executor」在 broker 形态下窗口很窄；这里的过滤是 belt-and-suspenders，兜住任何残余
+skew（同镜像内容变更、local 模式等），代价只是过滤 dict 键。
+
+## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
+
+纯改名，语义不变：这份授予同时管写与删（confinement 层检查 `file_path` 与 shell 路径），
+旧名名不副实。详见 [[policy.py]]。
+
+## 2026-08-07 — body 新增 extra_readable_roots（恒在场）
+
+白名单 body 新增 `extra_readable_roots`（恒在场，空则 `[]`）。**必须显式过边界**：该 body
+是白名单，漏键即云端静默丢失——本文件既有注释已就 turn_profile 记过这一条。缺了它会出现
+「本地能读团队共享目录、云端读不到」的两模式分裂（铁律 #7）。
+路径是编排侧绝对路径，安全性同 `working_path`：per-user Executor 挂载的正是该 user 子树，
+两侧命名一致。
+
+
+## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
+
+build_agent_loop_request 白名单新增 turn_profile 键（恒在场，无 profile 时 None）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

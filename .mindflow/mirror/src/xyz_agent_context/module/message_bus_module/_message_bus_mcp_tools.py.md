@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-03
+last_verified: 2026-08-11
 stub: false
 ---
+## 2026-08-07 — 两个发送工具盖上 root_run_id
+
+`bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
+`bus_messages.root_run_id`。这是血缘链**唯一的断点**:工具跑在共享的 MCP
+进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
+run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
+
+## 2026-08-07 — 新增 bus_list_team_files
+
+共享目录终于可被枚举。工具本身是薄封装，规则在 [[team_files.py]]：授权按 **成员关系**
+而非 owner（一个 user 多个 team，按 owner 判会让该 owner 的任意 agent 读到全部 team）。
+
+配套：team prompt（[[message_bus_trigger.py]]）从「用 Read 打开这个目录」改为**明确指向本工具**
+——此前 agent 只能猜路径或让别人复述，发现文件靠模型之间的社交协议。
+
+## 2026-08-05 — 删掉 `bus_register_agent`：名录不能有第二个写入者
+
+`bus_agent_registry` 现在是 A2A 发现的权威行，而这个工具是它的**第二个写入
+者**，且写 `owner_user_id=""`（源码原注释是 "Will be filled in by the caller
+context"，但没有人填）。`LocalMessageBus.search_agents` 的 where 带
+`AND owner_user_id = ?` —— agent 只要调一次，它立刻从**同 owner 的搜索结果里
+消失**，直到下一轮 hook 把行修回来；顺带还重置 `registered_at`。它声明的
+capabilities 也会被每轮的机械推导无声覆盖，即工具承诺的事它做不到。
+
+按铁律 #2 直接删（不留薄壳）：描述归 [[awareness_module]] 的
+`update_agent_profile`，capabilities 从技能+模块推导。
+[[message_bus_module]] 指令里那句「除非要更新 profile 否则不要调
+bus_register_agent」同批改写成指向 `update_agent_profile` —— 原文恰好在
+「想修 profile 的时候」把模型送去调这个会破坏行的工具。有两条测试分别钉住
+源码里不再出现该工具、以及指令不再提它。
 
 ## 2026-08-03 — `_send_turn_source`:章按「这一条发给谁」定,不按整轮定
 
@@ -58,7 +88,7 @@ from the LLM.
 
 工具函数签名遵循系统约定的提取模式（`standalone function taking (port, get_db_client_fn)`）——这是为了避免与 `MessageBusModule` 类的循环导入问题，也让工具函数可以在没有 Module 实例的环境里（比如测试）独立运行。
 
-工具覆盖了 MessageBus 的完整操作面：发消息（`send_message`、`send_to_agent`）、查询（`get_unread`、`get_messages`）、频道管理（`create_channel`、`join_channel`、`leave_channel`）、Agent 发现（`search_agents`、`register_agent`、`get_agent_profile`）。
+工具覆盖了 MessageBus 的完整操作面：发消息（`send_message`、`send_to_agent`）、查询（`get_unread`、`get_messages`）、频道管理（`create_channel`、`join_channel`、`leave_channel`）、Agent 发现（`search_agents`、`get_agent_profile`）。**注册不在这一面上**——名录行由 [[agent_discovery_sync]] 单点重算，见上方 2026-08-05 条。
 
 ## Gotcha / 边界情况
 
@@ -69,3 +99,10 @@ from the LLM.
 ## 新人易踩的坑
 
 工具函数名（如 `"send_message"`）就是 LLM 调用时使用的工具名，必须和 MCP 服务器注册时的名称一致。如果修改函数名，需要同时更新 `MessageBusModule.get_mcp_config()` 里注册工具时使用的名称字符串，否则 LLM 调用会报"工具不存在"。
+
+## 2026-08-11 — `bus_pin_team_rule` / `bus_unpin_team_rule`
+
+薄包装，规则在 [[team_bulletin]]。**没有 `team_id` 参数**：来自
+`caller_team_id_from_request()` 的服务端身份头。这比隔壁 `bus_share_to_team`
+（模型传 team_id + 三段校验）更强——agent 无法指认自己当前不在的团队，
+于是跨团队写入不是要防的攻击，而是**不可表达的状态**。有测试断言签名里没有 `team_id`。

@@ -2,6 +2,14 @@
 
 `AsyncDatabaseClient` — the single database client every layer of the codebase talks through, plus the MySQL-to-SQLite dialect translator.
 
+## 2026-08-10 — facade `get()` 补 `fields` 透传
+
+三个后端(sqlite/mysql/proxy)与抽象基类的 `get` 都早已支持列投影,
+唯独 facade 签名漏了它——所有调用方被迫 `SELECT *`,在含 MEDIUMTEXT
+的表(events 的 event_log 可达数十 MB/行)上是隐性的整表物化风险。
+补参数并在 legacy 内联路径同样实现(backtick + validate_identifier)。
+首个受益方:manyfold 诊断端点的 events 摘要查询。
+
 ## Why it exists
 
 `database.py` is the project's central database client. Every piece of code that needs to read or write data — repositories, modules, background services, MCP tools — communicates through `AsyncDatabaseClient`. A second critical responsibility lives here: `_mysql_to_sqlite_sql()` rewrites MySQL-flavored queries (backticks, `%s`, `ON DUPLICATE KEY UPDATE`, `NOW()`, etc.) before they reach a SQLite backend, letting all callers write MySQL syntax regardless of deployment environment. Keeping the translator here rather than inside the SQLite backend is intentional: `sqlite_proxy_server.py` also imports it directly to apply the same translation to HTTP-proxied raw SQL.
@@ -33,3 +41,11 @@
 **Event-loop change after in-process restart.** `_ensure_pool` delegates to the factory singleton for SQLite URLs. Any `AsyncDatabaseClient` instance that has already cached `self._backend` holds a reference to the old event loop's backend. After a loop change those instances raise `aiosqlite` "Event loop is closed" errors. Always obtain the client via `await get_db_client()` rather than storing it as a long-lived instance attribute.
 
 **New-contributor trap.** Calling `AsyncDatabaseClient()` — no `await` — looks like it returns a ready client, and in many cases it works fine due to lazy init. But if the first call made on it fails (e.g., missing `DATABASE_URL`), the error surfaces as a cryptic connection failure at the first awaited operation, not at construction time.
+
+## 2026-08-07 — `get_by_ids` 支持 `fields` 投影
+
+契约与 `get` 一致。动机是存在性检查：对着带宽列（MEDIUMTEXT）的表问「这些 id 在不
+在」时，`SELECT *` 会把 payload 拖过网络再丢掉。第一个用例是
+[[narrative_routing_audit_repository.py]] 的快照去重——它在 `select()` 的同步路径
+上，每条用户消息都要付。`id_field` 始终被强制并入投影，否则保序用的 result_map 建
+不起来。两个后端同步实现。

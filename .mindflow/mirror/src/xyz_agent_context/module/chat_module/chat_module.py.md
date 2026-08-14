@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 ---
+
+## 2026-08-10 (PR-10) — create_mcp_server 调用简化
+
+`create_mcp_server` 改调 `create_chat_mcp_server(self.port)`（去掉 `ChatModule.get_mcp_db_client` 实参）——get_chat_history 迁 seam 后工厂不再需要 db-client 函数。见 [[_chat_mcp_tools]]。
+
+
+## 2026-08-05 — 删掉两个死的 `agent_messages` 家族 import
+
+`AgentMessageRepository` 和 `MessageSourceType` 在本文件里从未被使用，删除。
+它们是一条误导性的线索：`agent_messages` 表**没有写入者、恒为 0 行**（墓碑表，
+见 [[agent_message_repository]] 2026-08-05），ChatModule 从来没往那里写过。
+本模块的聊天正文一直写在 `instance_json_format_memory_chat`（`hook_persist_turn`
+→ `event_memory_module.add_instance_json_format_memory`，按 chat instance_id
+分片），也正是 `/simple-chat-history` 回放的那份。0802【对话时序错乱】的分析
+被这条线索带偏过一次，故在 import 处留了一段注释钉住事实。
 
 ## 2026-08-04 — assistant_content 守卫 strip 化 + NO-REPLY 日志字段更名
 

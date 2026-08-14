@@ -163,3 +163,4 @@ tauri/src-tauri/resources/lark-skills/
 
 # NexusPower per-turn event logs (written next to the agent CWD)
 .nexus_power/
+tauri/src-tauri/Cargo.lock

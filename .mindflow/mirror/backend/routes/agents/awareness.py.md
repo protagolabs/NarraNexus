@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/agents/awareness.py
-last_verified: 2026-04-10
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — owner-only + GET 不再自动建实例（安全审计 IDOR/P0-1）
+
+两个端点原本**无任何 ownership 校验**、只凭 URL 里的 `agent_id` 操作：任何登录
+用户可读/改任意 agent 的自我认知（PUT 尤甚——覆写人设影响后续所有对话）。
+修复:GET/PUT 均先 `await assert_owned(request, agent_id)`（`backend/routes/_ownership.py`），
+**放在 try 之前**——否则 assert_owned 抛的 403/404 会被 except 吞成 200。
+cloud 模式强制 owner；local 模式 no-op（无 per-request 身份，单可信用户）。
+
+同时**GET 不再自动建实例**:改用 `_find_awareness_instance`，无实例直接返回
+not-found，不再 `_ensure_awareness_instance`。读变回无副作用,也堵掉"对任意
+id 探测即凭空造实例"。PUT 仍保留 `create_missing` 默认自动建（前端契约不变）。
+
+## 2026-08-10 — PUT 增加 `create_missing` 开关（MCP 数据访问 seam 的 parity 半边）
+
+自动建实例是**前端**契约(默认不变);MCP seam 的 HttpStore 传
+`create_missing=false`:agent_id 是 LLM 自由填写的工具参数,直连路径下未知
+id 是报错,Http 化后不能反而变成"给任意 id 凭空造实例"。关不建时按本路由
+的失败形状返回 200+success:false,error 文案与 DirectStore 的
+no-instance 消息逐字对齐(parity 测试钉住)。`_ensure_awareness_instance`
+拆出 `_find_awareness_instance` 供只查不建。
 
 # agents/awareness.py — Agent Awareness 读写路由
 
@@ -20,11 +41,9 @@ Awareness 是 Agent 的自我认知配置——它知道自己是谁、有什么
 
 ## 设计决策
 
-**自动创建实例的 `_ensure_awareness_instance`**
+**自动创建实例的 `_ensure_awareness_instance`（仅 PUT）**
 
-这个路由的一个关键设计是：如果 Agent 还没有 `AwarenessModule` 实例，GET 和 PUT 请求都会自动创建一个，而不是返回 404。理由是 Awareness 对每个 Agent 来说是必要的，在 Agent 创建时就应该存在，自动补齐比强迫调用者先创建实例更好用。
-
-这个决策的代价是：GET 请求在极端情况下会有写副作用（创建实例），打破了 HTTP 语义中 GET 应该是幂等无副作用的约定。但实际上第一次 GET 之后实例就存在了，后续 GET 不会再写，所以问题有限。
+如果 Agent 还没有 `AwarenessModule` 实例，**PUT** 默认会自动创建一个（`create_missing=true`，前端契约），而不是返回错误；理由是 Awareness 对每个 Agent 必要，自动补齐比强迫调用者先建实例更好用。**GET 不再自动建实例**（2026-08-11 改，见顶部）：读用 `_find_awareness_instance`，无实例返回 not-found——GET 恢复无副作用，避免对任意 id 探测即造实例。
 
 **分开 Repository 和直接 DB 查询**
 
@@ -37,4 +56,4 @@ Awareness 是 Agent 的自我认知配置——它知道自己是谁、有什么
 
 ## 新人易踩的坑
 
-`instance_awareness` 表的主键是 `instance_id`，而不是 `agent_id`。必须先通过 `_ensure_awareness_instance` 拿到实例 ID，再用实例 ID 查询，不能用 agent_id 直接查 `instance_awareness`。
+`instance_awareness` 表的主键是 `instance_id`，而不是 `agent_id`。必须先拿到实例 ID（GET 用 `_find_awareness_instance` 只查不建、PUT 用 `_ensure_awareness_instance` 查不到则建），再用实例 ID 查询，不能用 agent_id 直接查 `instance_awareness`。

@@ -230,7 +230,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         setCredential(null);
         onBindStateChange?.();
       } else {
-        setError(res.error || t('awareness.lark.errUnbind'));
+        // The unbind route returns do_unbind's envelope verbatim: a failure
+        // carries a machine code in `error` (e.g. "no_credential") and the
+        // human text in `message` — prefer the latter for display.
+        setError(res.message || res.error || t('awareness.lark.errUnbind'));
       }
     } catch (e: unknown) {
       if (mountedRef.current) setError(e instanceof Error ? e.message : t('awareness.lark.errUnbind'));

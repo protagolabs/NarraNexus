@@ -168,7 +168,7 @@ async def list_workspace_files(
         )
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error listing workspace tree: {e}")
-        return FileListResponse(success=False, error=str(e))
+        return FileListResponse(success=False, error="Failed to list workspace files.")
 
 
 @router.get("/{agent_id}/files/raw")
@@ -232,7 +232,7 @@ async def upload_file(
         return FileUploadResponse(success=False, error=str(e))
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error uploading file: {e}")
-        return FileUploadResponse(success=False, error=str(e))
+        return FileUploadResponse(success=False, error="Failed to upload file.")
 
 
 @router.delete("/{agent_id}/files/{path:path}", response_model=FileDeleteResponse)
@@ -265,7 +265,8 @@ async def delete_file(
     except HTTPException:
         raise
     except OSError as e:
-        return FileDeleteResponse(success=False, error=str(e))
+        logger.exception(f"OS error deleting workspace path: {e}")
+        return FileDeleteResponse(success=False, error="Failed to delete the file.")
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error deleting workspace path: {e}")
-        return FileDeleteResponse(success=False, error=str(e))
+        return FileDeleteResponse(success=False, error="Failed to delete the file.")

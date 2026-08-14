@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/prompts.py
-last_verified: 2026-06-18
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 新增 §5「Your Own Identity Card」（名字 + 一句话描述）
+
+原来的提示词**一个字都没提过** `update_agent_name`/`update_agent_profile`：工具
+在 schema 里，但没有任何指令要求 agent 去设置名字，更没有描述。结果 prod 上
+16/16 本地、prod 全量 agent 的 `agent_description` 都停在创建占位符
+（P1 段02）。这一节就是那个缺失的指令。
+
+要点：① bootstrap 阶段 creator 说清用途后**同一次调用**把名字和描述都写掉，不
+等人问；② 职责变化时再写；③ 明确写清**描述的读者是别的 agent，不是人**——它是
+同伴决定要不要把问题路由过来的依据，空着就没人能选到你，对方 owner 的请求会
+失败而双方都不知道为什么；④ 读到自己描述缺失（[[basic_info_module]] 注入的那句
+指令）就当作 setup 未完成，去问 creator。
+
+原 §5 Confidentiality 顺延为 §6，Awareness Profile 段顺延为 §7；尾注补一句
+`update_awareness` **不**碰这两个平台字段。
 
 ## 2026-06-18 — 通用保密边界（Section 5 Confidentiality）
 

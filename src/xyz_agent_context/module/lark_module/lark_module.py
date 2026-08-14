@@ -22,7 +22,6 @@ from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
 )
-from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.schema import (
     ModuleConfig,
     ContextData,
@@ -573,10 +572,10 @@ class LarkModule(ChannelModuleBase):
     ) -> dict:
         """Send a Lark message on behalf of the agent. Used by other modules
         (via ChannelSenderRegistry) to deliver content through the Lark channel."""
-        db = await XYZBaseModule.get_mcp_db_client()
-        mgr = LarkCredentialManager(db)
-        cred = await mgr.get_credential(agent_id)
-        if not cred:
+        from xyz_agent_context.module.data_access import get_channel_credential_store
+
+        raw = await get_channel_credential_store().get_credential("lark", agent_id)
+        if not raw:
             return {"success": False, "error": "No Lark bot bound to this agent."}
         return await _cli.send_message(agent_id, user_id=target_id, text=message)
 

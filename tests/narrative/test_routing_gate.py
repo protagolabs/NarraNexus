@@ -6,7 +6,7 @@ strength, not a squashed absolute score.
 
 Prod 2026-07-29 (agent_dd505db5ff12, user lustig.zhang@gmail.com): a kendo-armour
 question was routed into a Suzhou-industrial-site narrative and the agent
-answered the wrong topic for several turns. Cause: `_keyword_search` normalises
+answered the wrong topic for several turns. Cause: `keyword_search` normalises
 BM25 with ``s / (s + 1)`` and the gate compares that to 0.70 — algebraically
 ``raw >= 2.33``, which a handful of incidental CJK character collisions clears.
 Measured against the real prod narratives, 5 of 5 test queries cleared the gate

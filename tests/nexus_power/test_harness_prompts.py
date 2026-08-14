@@ -169,6 +169,34 @@ def test_reply_reminder_lists_tools_and_defers_to_message_instructions():
     assert NexusPowerPrompts.reply_reminder(()) == ""
 
 
+def test_reply_reminder_names_the_declared_default_first():
+    """Declaration order is contract (ExpressionContract: the first name
+    is the turn's default reply tool) — the reminder must SAY so, not
+    flatten the list. 2026-08-13 voice call: with the hierarchy flattened
+    the model followed the list over the buried per-message instruction
+    on 12/14 turns."""
+    reminder = NexusPowerPrompts.reply_reminder(
+        (
+            "mcp__narramessenger_module__speak",
+            "mcp__narramessenger_module__narra_reply",
+        )
+    )
+    # The first tool is called out as THIS turn's default...
+    assert "default reply tool" in reminder
+    head = reminder.split("mcp__narramessenger_module__narra_reply")[0]
+    assert "mcp__narramessenger_module__speak" in head
+    # Anti-repeat without contradicting the VOICE register's
+    # multi-segment speak contract (pipeline review Important #2):
+    # consecutive continuation calls stay legal, repeats do not.
+    assert "never repeat" in reminder
+    assert "consecutive reply calls" in reminder
+    assert "ONE reply tool" not in reminder.split("ONLY what you pass")[1]
+    # ...and a single tool renders without a dangling "others" clause.
+    solo = NexusPowerPrompts.reply_reminder(("mcp__chat__reply",))
+    assert "mcp__chat__reply" in solo
+    assert "other reply tools" not in solo
+
+
 def test_prompt_pack_subclass_overrides_one_section():
     class Pack(NexusPowerPrompts):
         @classmethod

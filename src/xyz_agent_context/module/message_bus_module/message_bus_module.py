@@ -36,6 +36,7 @@ from xyz_agent_context.schema import (
     ContextData,
     HookAfterExecutionParams,
     WorkingSource,
+    is_agent_description_unset,
 )
 from xyz_agent_context.settings import settings
 
@@ -102,6 +103,13 @@ class MessageBusModule(XYZBaseModule):
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools
             register_message_bus_mcp_tools(mcp, get_message_bus_fn=_get_default_bus_async)
+            # The team work board rides the same MCP server: its items are
+            # scoped to a team ROOM, which is a bus channel, so an agent that
+            # can talk in the room is exactly the agent that can maintain its
+            # board. Separate file, separate state machine — see
+            # _work_board_mcp_tools for the platform/model write boundary.
+            from ._work_board_mcp_tools import register_work_board_mcp_tools
+            register_work_board_mcp_tools(mcp)
 
             logger.info(f"MessageBusModule MCP server created on port {MESSAGE_BUS_MCP_PORT}")
             return mcp
@@ -237,8 +245,27 @@ class MessageBusModule(XYZBaseModule):
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
             "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",
-            "- **Ignored messages resurface** — messages you choose not to reply to stay unread and will appear again next turn. This is intentional: you can defer without forgetting.",
-            "- In group channels, you only see messages that @mention you — reply to those with intent (or decline via silence if a reply would just be filler).",
+            # Scoped to direct messages on purpose. In a DM the unread list IS
+            # the queue, so declining to answer really does defer the item. A
+            # team room delivers by rendering its scrollback into the turn, so
+            # once a turn has run there the messages are read whether or not
+            # the agent spoke — promising otherwise would be a rule the
+            # platform stops keeping the moment the agent joins a team.
+            "- **Ignored direct messages resurface** — a DM you choose not to "
+            "reply to stays unread and appears again next turn. This is "
+            "intentional: you can defer without forgetting.",
+            # Says only what holds in EVERY room this block reaches. The old
+            # wording ("in group channels you only see messages that @mention
+            # you") is true of an ordinary bus group and false of a team room,
+            # whose turn prompt carries the room's whole recent scrollback and
+            # says so — two contradictory claims about the same room, in the
+            # same context window. Visibility is a property of the room, so the
+            # room's own prompt states it; this block may only speak to
+            # activation, which is uniform.
+            "- **An @mention decides who WAKES UP, not who can see.** What you "
+            "can read in a given room is stated by that room's own prompt. "
+            "Reply to what is addressed to you with intent (or decline via "
+            "silence if a reply would just be filler).",
             "",
             "### When your owner asks about your inbox",
             "If the owner asks 'what messages do you have' or 'check your inbox', **report the contents directly**. Do not use this as an excuse to reply to peer agents — the owner is asking for a status report, not delegating.",
@@ -265,7 +292,8 @@ class MessageBusModule(XYZBaseModule):
             "",
             "### When NOT to Call Tools",
             "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",
-            "- **Do NOT call `bus_register_agent`** unless your profile needs updating. You are auto-registered on every turn.",
+            "- **There is no bus registration tool** — your discovery entry is rebuilt from your profile and your installed skills on every turn. "
+            "To change what peers see, set your name/description with `update_agent_profile` (Awareness); capabilities are derived, never declared.",
             "- **Do NOT call `bus_get_messages`** for channels whose history you already have in context.",
         ]
 
@@ -288,8 +316,19 @@ class MessageBusModule(XYZBaseModule):
                 desc = a.get("agent_description") or a.get("description", "")
                 aid = a.get("agent_id", "")
                 line = f"- `{aid}` — {name}"
-                if desc:
+                # An unset description is rendered as NOTHING, never as the
+                # creation placeholder: printing "a new agent ready for
+                # configuration" next to every peer is what left "ask the
+                # teaching expert" with nothing to aim at, and made this list
+                # read as "none of these agents are usable" (P1 section 02).
+                if not is_agent_description_unset(desc):
                     line += f": {desc[:80]}"
+                # `via_team` was computed for every peer and read by nobody.
+                # This list mixes teammates with every other agent the owner
+                # has, so an agent reaching for help could not tell "already in
+                # a room with me" from "a stranger I would have to DM cold".
+                if a.get("via_team"):
+                    line += " (teammate)"
                 parts.append(line)
 
         # Channels (capped)
@@ -306,11 +345,23 @@ class MessageBusModule(XYZBaseModule):
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
-            total = len(unread)
-            shown = min(total, MAX_UNREAD_IN_CONTEXT)
+            # The window is what we render; the total is what the reader needs
+            # in order to know a window is what it is looking at. They stopped
+            # being the same number when the cap moved into the query.
+            shown = len(unread)
+            total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
             parts.append("")
             parts.append(f"### Unread Messages: {total} (showing {shown})")
-            parts.append("> Remember: apply Reply Discipline. Ignored messages stay unread.")
+            # Same scoping as the static rule above, for the same reason —
+            # and it matters more here, because this header sits directly on a
+            # list that MIXES team-room messages in. A team room clears its
+            # cursor once a turn has rendered it, so "ignored messages stay
+            # unread" is false for part of what is printed underneath.
+            parts.append(
+                "> Remember: apply Reply Discipline. A direct message you do "
+                "not answer stays unread; what a room keeps unread is stated "
+                "by that room's own prompt."
+            )
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
                 from_agent = m.get("from_agent", "unknown")
                 channel = m.get("channel_id", "")
@@ -359,25 +410,25 @@ class MessageBusModule(XYZBaseModule):
             if bus is None:
                 return ctx_data
 
-            # --- 1. Auto-register this agent in bus_agent_registry ---
+            # --- 1. Keep this agent's peer-discovery row true ---
+            #
+            # Was an inline write with `capabilities=[]` hardcoded and the raw
+            # `agent_description` (i.e. the creation placeholder) republished —
+            # which is what made `bus_search_agents` answer nothing for every
+            # query and told askers that a configured peer was "a new agent
+            # ready for configuration" (P1 section 02, all 488 prod rows). The policy
+            # now lives in ONE service that creation / rename / config / skill
+            # install also call, so discovery no longer waits for a first turn;
+            # this call is the idempotent per-turn backstop.
             try:
                 db = await _get_shared_db()
                 if db:
-                    agent_row = await db.get_one("agents", {"agent_id": self.agent_id})
-                    if agent_row:
-                        owner = agent_row.get("created_by", "")
-                        name = agent_row.get("agent_name", "")
-                        desc = agent_row.get("agent_description", "")
-                        is_public = agent_row.get("is_public", 0)
-                        await bus.register_agent(
-                            agent_id=self.agent_id,
-                            owner_user_id=owner,
-                            capabilities=[],
-                            description=f"{name}: {desc}" if desc else name,
-                            visibility="public" if is_public else "private",
-                        )
+                    from xyz_agent_context.message_bus.agent_discovery_sync import (
+                        sync_agent_discovery,
+                    )
+                    await sync_agent_discovery(db, self.agent_id)
             except Exception as e:
-                logger.debug(f"Failed to auto-register agent in bus: {e}")
+                logger.debug(f"Failed to sync agent discovery row: {e}")
 
             # --- 2. Fetch known agents ---
             #
@@ -436,8 +487,8 @@ class MessageBusModule(XYZBaseModule):
                             "agent_description": a.get("agent_description", ""),
                             "is_public": a.get("is_public", 0),
                             "created_by": a.get("created_by", ""),
-                            # Tag whether this agent shares a team with us.
-                            # Useful for prompt rendering / debugging.
+                            # Whether this agent shares a team with us —
+                            # rendered as "(teammate)" in the list below.
                             "via_team": aid in teammate_ids,
                         })
                         if len(known_agents) >= MAX_KNOWN_AGENTS_IN_CONTEXT:
@@ -448,14 +499,27 @@ class MessageBusModule(XYZBaseModule):
                 logger.debug(f"Failed to fetch known agents: {e}")
 
             # --- 3. Fetch unread messages (capped) ---
+            # The cap is pushed into the query, and it selects the NEWEST ones.
+            # Slicing an oldest-first list in Python (what this used to do) kept
+            # handing the model the most ancient messages in the backlog — and
+            # since the read cursor never advanced in team rooms, that window
+            # was frozen: the same 20 lines, turn after turn, described as if
+            # they were the room's current state.
             unread_models = []
             try:
-                unread = await bus.get_unread(self.agent_id)
+                unread = await bus.get_unread(
+                    self.agent_id, limit=MAX_UNREAD_IN_CONTEXT
+                )
                 if unread:
-                    unread_models = unread[:MAX_UNREAD_IN_CONTEXT]
+                    unread_models = unread
                     ctx_data.extra_data["bus_unread_messages"] = [
                         msg.model_dump() for msg in unread_models
                     ]
+                    # The total is a separate question once the fetch is capped:
+                    # len() of a window always equals the window.
+                    ctx_data.extra_data["bus_unread_total"] = await bus.count_unread(
+                        self.agent_id
+                    )
             except Exception as e:
                 logger.debug(f"Failed to fetch unread messages: {e}")
 
@@ -481,8 +545,10 @@ class MessageBusModule(XYZBaseModule):
             try:
                 working_source = ctx_data.extra_data.get("working_source")
                 if working_source == WorkingSource.MESSAGE_BUS and unread_models:
-                    # Use the first unread message as the source (most recent trigger)
-                    trigger = unread_models[0]
+                    # The LAST one: the list is oldest-first, so [0] is the
+                    # oldest message in the backlog — this said "most recent
+                    # trigger" and reached for the opposite end.
+                    trigger = unread_models[-1]
                     from_agent = trigger.from_agent if hasattr(trigger, 'from_agent') else ""
                     channel_id = trigger.channel_id if hasattr(trigger, 'channel_id') else ""
                     tag = f"[MessageBus · {from_agent} · {channel_id}]"

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/_wechat_mcp_tools.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-08-11
 ---
+## 2026-08-11 (PR-H) — unbind 迁入 seam
+
+wechat_unbind→`seam.unbind("wechat")`，删本地 `_get_manager`。无 bind 工具(扫码后端专属)。tool 文件 get_mcp_db_client==0。
+
+## 2026-08-11 (PR-B..D) — 读凭据改走 ChannelCredentialStore seam
+
+`_get_credential` 不再 `get_mcp_db_client()`+manager 直连库，改 `get_channel_credential_store().get_credential("wechat", …)` → `_cred_from_raw` 重建 dataclass，工具里 cred.bot_token / cred.to_public_dict() 用法零变化；本地 DirectStore、云端 HttpStore 打 owner-gated 端点。**写留尾**：bind/status/unbind 经 `_get_manager`→`ChannelDirectStore().get_manager("wechat")`（本地专用、无 HttpStore 对应），故云端写工具仍需本地 db——写路径迁移前 mcp 摘不掉 DB_PASSWORD（见 [[channel_store]] 已知缺口）。
+
+
+## 2026-08-10 — wechat_send 改走 wechat_outbound 路由
+
+发送后端从 `send_text_once` 换成 [[wechat_outbound.py]] 的
+`send_wechat_text`。**工具签名/描述一字未动**(`to_user_id` /
+`context_token` 参数保留)——managed 路由下 token 被忽略(平台按
+room 解析收件人),direct 路由语义不变;prompt 面零变化是平台
+第二轮回复对切换方式的明确要求(改造面收敛在工具后端一处)。
 
 ## 2026-07-10 — react_to_user_message tool (uniform, but unsupported)
 

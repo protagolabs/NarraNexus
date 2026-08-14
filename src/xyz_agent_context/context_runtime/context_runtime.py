@@ -37,12 +37,38 @@ from xyz_agent_context.context_runtime.prompts import (
     AUXILIARY_NARRATIVES_HEADER,
     MODULE_INSTRUCTIONS_HEADER,
     RECENT_ACTIONS_HEADER,
+    REPLY_LANGUAGE_SECTION,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
     SECURITY_IRON_RULES,
     TURN_CONTEXT_HEADER,
     USER_MESSAGE_SEPARATOR,
 )
+
+
+# Reply-language directive (fix: UI language never reached the model).
+# Code -> English display name for the directive line; unknown codes fall
+# back to the bare code. Kept tiny on purpose — the code itself is what
+# the model needs.
+_REPLY_LANGUAGE_NAMES = {
+    "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
+    "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese",
+    "ru": "Russian", "ar": "Arabic", "it": "Italian", "nl": "Dutch",
+}
+
+
+def build_reply_language_section(language: str | None) -> str:
+    """One byte-stable system-prompt section, empty when unset.
+
+    Stable per user (changes only when the user flips the toggle), so it
+    is safe in the cacheable prompt region — R4 discipline. "unless the
+    user explicitly asks otherwise" keeps per-message override natural.
+    """
+    code = (language or "").strip()
+    if not code:
+        return ""
+    name = _REPLY_LANGUAGE_NAMES.get(code.lower().split("-")[0], code)
+    return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
 
 
 class ContextRuntime:
@@ -69,7 +95,12 @@ class ContextRuntime:
         self,
         agent_id: str,
         user_id: Optional[str] = None,
-        database_client: Optional[DatabaseClient] = None
+        database_client: Optional[DatabaseClient] = None,
+        # APPENDED, never inserted: existing callers pass database_client
+        # positionally, so a new parameter ahead of it would silently rebind
+        # their third argument. Same rule the bearer-identity record follows,
+        # and for the same reason.
+        event_id: Optional[str] = None,
     ):
         """
         Initialize ContextRuntime
@@ -78,10 +109,17 @@ class ContextRuntime:
             agent_id: Agent ID
             user_id: User ID (if applicable)
             database_client: Database client (used for reading data)
+            event_id: This turn's events-row id, forwarded to MCP tools so
+                artifact attribution can name the turn that made a change.
         """
         logger.debug(f"    → ContextRuntime.__init__() called with agent_id={agent_id}, user_id={user_id}")
         self.agent_id = agent_id
         self.user_id = user_id
+        # This turn's events-row id, for the MCP identity headers. Created in
+        # Step 0, so Step 3 (which builds this) already has it — which is what
+        # lets artifact attribution record WHICH turn made a change instead of
+        # inferring one from timestamps.
+        self.event_id = event_id
         self.db = database_client or get_db_client_sync()
         self.hook_manager = HookManager()
         logger.debug("    ContextRuntime initialized")
@@ -913,6 +951,28 @@ class ContextRuntime:
             enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
+        # Reply language: the user's persisted preference reaches the model
+        # here (it used to live only in frontend i18n — the "UI set to
+        # Chinese, replies stay English" bug). Byte-stable per user, so the
+        # cacheable region is safe; fail-open — a settings read must never
+        # break a turn.
+        reply_language_chars = 0
+        if self.user_id:
+            try:
+                from xyz_agent_context.repository.user_settings_repository import (
+                    UserSettingsRepository,
+                )
+
+                reply_lang = await UserSettingsRepository(self.db).get_reply_language(
+                    self.user_id
+                )
+                section = build_reply_language_section(reply_lang)
+                if section:
+                    enhanced_system_prompt += "\n\n" + section
+                    reply_language_chars = len(section)
+            except Exception as e:  # noqa: BLE001 — preference is enrichment
+                logger.warning(f"[ReplyLanguage] lookup failed, skipping: {e}")
+
         final_messages = [
             {"role": "system", "content": enhanced_system_prompt}
         ]
@@ -1048,6 +1108,8 @@ class ContextRuntime:
             ctx_sha256 = hashlib.sha256(enhanced_system_prompt.encode("utf-8")).hexdigest()[:12]
             part_sizes = dict(getattr(self, "_last_part_sizes", {}) or {})
             part_sizes["turn_context"] = turn_context_chars
+            if reply_language_chars:
+                part_sizes["reply_language"] = reply_language_chars
             self._log_system_prompt_breakdown(
                 self.agent_id,
                 len(enhanced_system_prompt),
@@ -1080,6 +1142,24 @@ class ContextRuntime:
         turn_extra = ctx_data.extra_data or {}
         errand_peer = str(turn_extra.get("bus_errand_peer") or "")
         errand_channel = str(turn_extra.get("bus_errand_channel") or "")
+        # Which trigger TREE this turn belongs to. A message the agent sends
+        # this turn becomes the trigger for someone else's run, and the tree
+        # would otherwise be lost at that hop — so the bus send tools stamp it
+        # onto the message. Empty when unknown; the cascade reads that as "not
+        # part of the tree being stopped".
+        root_run_id = str(turn_extra.get("root_run_id") or "")
+        # The turn's team, when it has one. Server-side on purpose: tools take
+        # agent_id as a model-filled parameter, so "am I in a team" can never
+        # be answered from tool arguments without letting a private turn claim
+        # a team it is not in.
+        team_id = str(turn_extra.get("bus_team_id") or "")
+        # This turn's events-row id. Created in Step 0, so it is already known
+        # by the time Step 3 builds this spec — which is what lets attribution
+        # record WHICH turn changed an artifact instead of guessing.
+        # getattr, not self.event_id: several tests build this object with
+        # ``ContextRuntime.__new__`` and set only the attributes they exercise,
+        # so a bare read would make an optional field break unrelated suites.
+        event_id = str(getattr(self, "event_id", None) or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
@@ -1131,6 +1211,9 @@ class ContextRuntime:
                             # triggers) — the builder then omits the header
                             # and tools fall back to the model's parameter.
                             user_id=self.user_id,
+                            root_run_id=root_run_id,
+                            team_id=team_id,
+                            event_id=event_id,
                         ),
                     }
                     collected_count += 1

@@ -74,6 +74,8 @@ class TeamRepository(BaseRepository[Team]):
             source=row.get("source") or "user",
             intro_md=row.get("intro_md"),
             lead_agent_id=row.get("lead_agent_id"),
+            patrol_enabled=row.get("patrol_enabled"),
+            last_patrol_at=row.get("last_patrol_at"),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
         )

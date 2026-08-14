@@ -1,0 +1,78 @@
+---
+code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.py
+last_verified: 2026-08-07
+stub: false
+---
+## 2026-08-07 — 存在性检查失败 ≠ 一条都不存在
+
+`_known_hashes` 失败时返回 `None`（哨兵），不是空集合。把两者混为一谈，写入方会
+以为库里什么都没有，于是对整池 ~100 条逐条 insert，每条撞 `text_hash` 唯一索引失
+败，再被下一层的 per-row except 以 debug 级别吞掉——净效果是一次 warning + 100 次
+注定失败的写，落在 `select()` 的**同步路径**上，每个非连续轮次付一遍。
+
+现在 `_store_snapshots` 见到 `None` 直接整段跳过：少一轮快照，重放时少一条文本；
+比每轮 100 次废写便宜得多。日志措辞也改成实际发生的事（"skipping this turn's
+snapshot writes"）。
+
+这正是 [[db_backend_sqlite.py]] 那条注记的翻版——advisory except 会把整批静默吞掉。
+
+## 2026-08-07 — review 收口：存在性检查不再把全池正文拉回来
+
+三处，全部来自 PR #256 的 review：
+
+- **`_known_hashes` 取代 `load_snapshots(...).keys()`**。写路径只要「哪些 hash 已
+  存在」，而 `load_snapshots` 走 `get_by_ids` = `SELECT *`，于是每个非连续轮次都
+  把整池的 `text`（MEDIUMTEXT）拉回来再全部丢掉——而且是在 `select()` 的**同步
+  路径**上，每条用户消息都要付，内容还正是同一轮里 `load_pool` 刚从 `narratives`
+  读过的那份。100 条池子 + 长摘要 = 单轮几百 KB。为此给 `get_by_ids` 加了 `fields`
+  参数（client + 两个后端一起，全项目共享），没有手写 `IN (...)` 原始 SQL。
+  `load_snapshots` 保留给重放读路径专用。
+- **`recent()` 把 limit / order_by 下推到 SQL**。原来照抄 `service_audit` 的写法：
+  全表读回来再在 Python 里排序切片。那张表的 `detail` 是小字段；这张每行带
+  `candidates_json`（~100 候选 × id+sha256+分数）且只增不删，几万轮的 agent 会为了
+  50 行把几百 MB 拉进内存。趁还没有下游调用点定型。
+- **删掉 `snapshot_count()`**。它只服务测试，却是本文件唯一一条手写 SQL——会把这个
+  仓库卷进「手写 SQL 必须有 MySQL 覆盖」的强制区，为的还是一条生产永不执行的查询。
+  计数搬进测试，生产访问全部走 `insert` / `get` / `get_by_ids` 这些双方言安全的
+  client helper。
+
+# narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
+
+## 为什么存在
+
+在这之前，narrative 选择的全部证据只进 `ProgressMessage` 和 loguru：
+`selection_method`、闸门的分数依据、两个 LLM tier 的判断理由，一个字节都没到
+数据库。docker 日志会轮转，grep 只找得到你想到要搜的词（事故教训 #5）。后果是
+「路由准确率提升了 X%」没有分母，而 [[continuity.py]] 这一层——一次误判就能靠
+`session.current_narrative_id` 连锁锁住若干轮——**完全不留痕迹**，真实误判率至今
+未知。
+
+## 非显然的设计约束：只存 ID 和分数是重放不出来的
+
+两条独立原因，缺一条这张表就白建：
+
+1. **BM25 的 IDF 和 avgdl 是在候选集自身上算的**（见 [[retrieval.py|memory 的
+   bm25_rank]]）。某个候选的分数依赖池子里**每一个**其他文档，所以存 top-K 重放
+   出来是另一组数。2026-08-07 实测：452 条真实本地 query，仅仅移除 8 条 default
+   narrative 就让 top-1 翻转 9.7%、闸门决策翻转 5.8%。
+2. **被打分的文本本身留不住**。`name + current_summary + description +
+   topic_keywords` 被 [[updater.py]] 的异步 LLM 更新几乎每轮全量重写且不留历史，
+   所以事后回读 `narratives` 表重建出的池子**是一个从未存在过的池子**——在它上面
+   重放会得到自信但错误的数字。
+
+所以审计存**整个池子**，每条指向一份内容寻址的文本快照。去重让代价可接受：相邻
+两轮通常只有主 narrative 的摘要变了，100 条候选的池子每轮只新增约 1 行快照。
+
+`tests/narrative/test_routing_audit.py::test_audit_replays_bm25_exactly` 钉住重放
+性质——谁把池子裁成 top-K 或只存 ID，它就红。
+
+## 坑
+
+- **`record` 永不抛异常**：观察者不能弄坏被观察者。丢一行审计 ≠ 弄挂用户一轮对话。
+- **`load_snapshots` 必须跳过 `None`**：`db.get_by_ids` 为了保持**输入顺序**会给
+  查不到的 id **补 `None` 占位**（`db_backend_sqlite.get_by_ids` 的
+  `result_map.get(id_val)`），而首次写入时每个 hash 都是 miss。第一版直接
+  `r["text_hash"]` 下标，整批被 `record` 的 advisory except 吞掉 → **审计静默不写**
+  ——正是这张表最不该有的失败模式。开发时就踩到了，测试钉住。
+- 快照 hash 用 sha256 全长而非短摘要：这个 key 是审计行和它要精确复现的文本之间的
+  唯一连接，碰撞会**静默污染重放**而不是让它失败。

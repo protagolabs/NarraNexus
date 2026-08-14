@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/self_heal.py
-last_verified: 2026-07-09
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 成员测试改用 effective 口径 + Claude 家族保持
+
+`is_slot_broken` 的比对列表从 `card.models`（裸存量列）换成
+`effective_card_models(card.source, card.models)`。此前 claude_oauth
+老卡存量列里躺着旧全 id，钉在 `claude-sonnet-4-6` 的槽位对裸列是成员
+→ 永不判 broken → CLI 永远钉旧模型（「本地CC模型name不自动更新」，
+user_service.md 2026-07-30 条目声称的「override 会让 self-heal 修掉」
+在本路径不成立——它比对的从来不是 get_user_config 的覆盖列表）。
+修复默认值也带家族保持：`claude_family_alias(slot_model)` 命中且在
+effective 列表内 → sonnet 用户修回 `sonnet`，而不是无脑取表头 opus；
+识别不出家族才落回 `pick_default_model`（现传 effective 列表）。
 
 ## 2026-07-09 — table-aware writeback (agent_slots vs user_slots)
 

@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/loop.py
-last_verified: 2026-07-31
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13（管线审后）— expressed 记账走契约裁决器、只数 parse-valid
+
+置位从 DISPATCH 首行移除：截断参数的回复调用是「回答不执行」，零投递却标已表达，
+nudge 在它最高概率的触发场景（长 speak 参数撞 output 上限）失效（管线审 I#1）。
+现在 STOP_CHECK 前用 `expression.turn_had_expression([c for c in step_calls if
+c.parse_error is None])` 一次性算——语义回归 ExpressionContract 唯一裁决器；
+hook-denied 仍算已尝试（nudge 不该怂恿重试被禁工具）；记账在 steering drain 之前，
+steering continue 不丢账。突变锁 test_expression_nudge_fires_when_the_only_reply_call_failed_to_parse。
+
+## 2026-08-13 — mute-turn nudge（opt-in，语音轮）
+
+STOP_CHECK 关轮前：若 `assembly.expression_nudge` 开且本轮零 expressive 调用而
+表达面非空，注入一条 steering 提醒（prompts.expression_nudge，点名默认回复工具）
+再给一步；至多一次（`_expression_nudged`），nudge 后仍沉默则正常收轮——只加步、
+不锁死、不 force-stop（铁律 #14）。默认关：群聊/bus 的合法静默不受影响。动机：
+8/13 对抗实测 1/22 语音轮对乱码 STT 输入闷声（'纳指鸡'），语音轮无回复=坏结局。
+expressive 见闻在 DISPATCH 处累计（`_turn_expressed`）。
 
 ## 2026-07-31 — 截断措辞不再被 stop_reason 一票否决
 

@@ -43,6 +43,7 @@ DEFAULT_INTERVAL_SECONDS = 1800
 
 class SkillSyncService:
     def __init__(self, db_client):
+        self._db = db_client
         self.repo = SkillInstallationRepository(db_client)
 
     # -- single workspace ----------------------------------------------------
@@ -106,6 +107,15 @@ class SkillSyncService:
                     agent_id, user_id, name, status="external_removed", last_event="reconcile"
                 )
                 stats["external_removed"] += 1
+
+        # Reconcile changed what this agent can do (skills added on disk,
+        # others removed behind our back), and capabilities are what peers
+        # search on — so the discovery row is stale until it is recomputed.
+        if any(stats.values()):
+            from xyz_agent_context.message_bus.agent_discovery_sync import (
+                sync_agent_discovery,
+            )
+            await sync_agent_discovery(self._db, agent_id)
 
         return stats
 

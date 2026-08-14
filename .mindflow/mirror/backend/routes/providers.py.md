@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-31
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — NetMind token 的 401 不再等于"会话死了"
+
+`_get_user_id` 的 401 → `AuthError(IDENTITY_UNRESOLVED)`；两处 NetMind
+凭证 401（缺 `X-Netmind-Token` / `KeyAuthError`）→
+`AuthError(NETMIND_TOKEN_INVALID)`。
+
+这条路径是 2026-08-02 事故的实锤之一：8/2 16-17 点的 401 里就有
+`/api/providers`。用户的 NarraNexus 会话完全有效，只是 NetMind 令牌过期，
+但前端的旧豁免清单只写了 `/api/billing/`，于是把人踢回了登录页。分类表见
+[[auth_errors]]。
 
 ## 2026-07-31 — `POST /agent-framework` 响应新增 `slot_cleared`
 

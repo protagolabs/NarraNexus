@@ -25,6 +25,8 @@ from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 # it, and both tools write the same table — so both must record it.
 from xyz_agent_context.module._mcp_identity import (
     caller_errand_scope,
+    caller_root_run_id,
+    caller_team_id_from_request,
     caller_turn_source,
 )
 
@@ -177,6 +179,12 @@ def register_message_bus_mcp_tools(
                 mentions=mentions,
                 attachments=attachments or None,
                 sender_turn_source=_send_turn_source(channel_id=channel_id),
+                # Carry this turn's trigger tree onto the message. The run this
+                # message wakes up has no other way to learn which tree it
+                # continues, so this is the one hop where the lineage would
+                # break — and a broken lineage means a cascade stop silently
+                # leaves that branch running.
+                root_run_id=caller_root_run_id(),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:
@@ -345,6 +353,9 @@ def register_message_bus_mcp_tools(
                 content=content,
                 attachments=attachments or None,
                 sender_turn_source=_send_turn_source(to_agent=to_agent_id),
+                # Same lineage hop as bus_send_message — this is the ask that
+                # spawns a peer's run, i.e. exactly how a tree grows.
+                root_run_id=caller_root_run_id(),
             )
             return {
                 "success": True,
@@ -415,49 +426,110 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_register_agent(
+    async def bus_pin_team_rule(
         agent_id: str,
-        capabilities: str,
-        description: str,
+        content: str,
+        tier: str = "long_term",
     ) -> dict:
         """
-        Register (or re-register) this agent in the MessageBus discovery registry.
+        Pin a standing rule onto the team bulletin, so it is never said twice.
 
-        AVOID calling this tool in most cases. You are automatically registered
-        on every turn with your agent profile from the database. Calling this
-        manually is redundant.
+        Every teammate loads the bulletin at the start of EVERY team turn, no
+        matter how long ago it was written and no matter when they joined. That
+        is what makes it different from saying something in the chat, which
+        scrolls out of view after about twenty messages and is invisible to
+        anyone who joins later.
 
-        Only call this when:
-        - Your owner explicitly asks you to update your capabilities or description
-        - You want to advertise a new capability that changes how others should
-          discover you (e.g., you just learned a new skill)
+        Pin something only when it should govern FUTURE replies: a convention
+        the team settled on, an output format, a place files must go. Do not
+        pin conversation, findings, status, or anything you would not want
+        prepended to every teammate's next twenty turns. Space is small and
+        shared with the user's own rules — if it is a fact rather than a rule,
+        say it in the chat instead.
 
-        Do NOT call this as a "handshake" or "initialization" step — it happens
-        automatically.
+        You can remove a rule YOU pinned with bus_unpin_team_rule. You cannot
+        remove the user's rules; ask them.
 
         Args:
             agent_id: Your agent ID
-            capabilities: Comma-separated capability tags (e.g. "research,data_analysis")
-            description: Human-readable description of what you do
+            content: The rule, in one sentence
+            tier: "long_term" for a standing rule, "current_task" for one that
+                stops applying when this task is done
 
         Returns:
-            Result dict indicating success or failure
+            Result dict with entry_id on success, or error details
         """
-        bus = await get_message_bus_fn()
-        if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
-
         try:
-            cap_list = [c.strip() for c in capabilities.split(",") if c.strip()]
-            await bus.register_agent(
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.message_bus.team_bulletin import post_team_bulletin
+
+            # The turn's team, from the server-side identity headers — never a
+            # tool argument. An agent cannot name a team it is not currently
+            # working in, so cross-team writes are not expressible rather than
+            # merely forbidden.
+            return await post_team_bulletin(
+                db=await get_db_client(),
                 agent_id=agent_id,
-                owner_user_id="",  # Will be filled in by the caller context
-                capabilities=cap_list,
-                description=description,
+                team_id=caller_team_id_from_request() or "",
+                content=content,
+                tier=tier,
             )
-            return {"success": True, "message": "Agent registered successfully"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_unpin_team_rule(agent_id: str, entry_id: str) -> dict:
+        """
+        Remove a bulletin rule that YOU pinned earlier.
+
+        Use this when a rule you added no longer holds — a superseded format, a
+        finished task's setup. You can only remove your own; the user's rules
+        and your teammates' are not yours to retract, and neither is the
+        auto-generated team progress summary. Ask the user instead.
+
+        Args:
+            agent_id: Your agent ID
+            entry_id: The bulletin entry id returned when you pinned it
+
+        Returns:
+            Result dict, or error details explaining why it was refused
+        """
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.message_bus.team_bulletin import remove_team_bulletin
+
+            return await remove_team_bulletin(
+                db=await get_db_client(),
+                agent_id=agent_id,
+                team_id=caller_team_id_from_request() or "",
+                entry_id=entry_id,
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_list_team_files(agent_id: str, team_id: str) -> dict:
+        """List the files shared into a team's folder — what the team has, not
+        what someone happened to mention.
+
+        Use this instead of guessing paths or asking a teammate to repeat one.
+        Each entry gives the file's name, the absolute path you can open with
+        Read, its size, and who shared it.
+
+        You must be a member of the team. An empty list means nothing has been
+        shared yet — that is an answer, not an error.
+
+        Args:
+            agent_id: Your own agent id.
+            team_id: The team whose folder to list.
+        """
+        from xyz_agent_context.message_bus.team_files import list_team_files
+        from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+
+        db = await get_db_client()
+        return await list_team_files(
+            db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
+        )
 
     @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:

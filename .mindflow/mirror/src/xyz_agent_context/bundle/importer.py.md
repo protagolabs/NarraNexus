@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-07-23
+last_verified: 2026-08-11
 stub: false
 ---
+
+## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
+
+`mcp_urls` 写入路径（hint→`_ins`）此前**不做任何 URL 校验**，绕过了 create/update 路由的
+`_blocks_internal_url`——一个普通用户上传含内网 MCP URL 的 `.nxbundle` 就能把
+`http://169.254.169.254/...` 之类种进库，随后被 agent 运行时 fetch。现在写库前跑同一道
+**cloud-only** DNS-free 筛（`is_obviously_non_public_url`，**parse-safe**：畸形/非串 URL 判为不安全而非抛异常——裸 `urlparse` 会因坏 IPv6/非串炸出去、经 `_rollback_partial_import` 把整份 import 回滚）：命中即 skip 该行、warning 带 host、
+其余 import 照常。local/桌面不筛（localhost MCP 合法）。
+
+## 2026-08-10 — 工作板还原、id 重映射与回滚
+
+board 随 team 行一起写入,三处 id 各有各的处理:
+
+- `assignee_id` 经 `id_map` 重映射;**落在导出闭包之外的 assignee 变成未认领**
+  —— 这是真的、且可行动的状态,好过一个没人能追的悬空引用。
+- `root_run_id` 恒为 NULL(导出侧已丢弃,理由见 [[builder]])。
+- `channel_id` **在 bus channel 还原之后回填**:team 行写在 channel 之前。
+  bundle 没带聊天时保持为空 —— 板子在 UI 上照样完整可用(那个视图按 team_id
+  查),只有巡查要等房间建起来,而巡查本来也需要一个房间才能说话。
+
+回滚清单同步加了 `team_work_items`,否则失败的导入会留下一块孤儿板子。
 
 ## 2026-07-23 — 导入修剪超长 agent_name / agent_description(#71)
 
@@ -182,3 +203,16 @@ pre-collect 阶段扫每个 `agents/<aid>/artifacts.json` 把 `artifact_id` 加�
 - 重启后 confirm 报 "preflight working dir missing" = 用户中间发版了，让用户重传。
 - ID rewrite 在自由文本里**有概率误命中**普通 hex 串（极低，可接受）。
 - 整个 confirm 是非事务的（一个 insert 一个 insert），失败时 staging dir 清掉但已经入库的 row 不会回滚。这是 v1 简化，spec 阶段需要包 transaction。
+
+## 2026-08-11 — 导入公告栏到**新** team id
+
+走 [[team_bulletin_transfer]] 的 `write_imported_bulletin`，落在 id map 铸出的新 team id 上。
+bundle 是不可信输入：上限重新施加，且无论 payload 声称什么都不写自动总结。
+
+## 2026-08-11 (review) — 回滚也要扫公告栏表
+
+导入失败的回滚里，通用的 agent 表清扫只覆盖**带 `agent_id` 列**的表，
+而 `team_bulletin_entries` 只有 `team_id` / `author_id`，两边都不命中。
+于是 `write_imported_bulletin` 写进去的行会留在一个下一行就被删掉的 `team_id` 上——
+**任何查询路径都读不到**，正是 `_wipe_team_data` 自己论证过的那种孤儿行。
+#259 在紧挨着的一行把 `team_work_items` 加了进去，对比之下这个缺口才显出来。
