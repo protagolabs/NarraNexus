@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 ---
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
@@ -457,3 +457,13 @@ assistant 行。**那是错的。** 分支选择器读的是 `is_no_response`,�
 `not turn_interrupted` 那个守卫也是冗余的:被打断的一轮兜底文案是
 "(Interrupted by user)",不是 no-response 标记,两个条件互斥。留着会让下一个人去找
 一个不存在的情形。
+
+## 2026-08-14 — 删掉零调用方的 `_delivered_to_origin` 与不可达的摘要分支
+
+文本恢复那块落地之后,`_delivered_to_origin` 在生产**没有任何调用方**,
+`_build_activity_summary` 的 `delivered_to_origin` 形参与它的 `"Replied to X"` 分支也
+永远走不到(能让它为真的输入必然让 `_origin_delivered_text` 非空,于是那一轮走的是
+assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_delivered_text`。
+
+留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
+做投递分类。

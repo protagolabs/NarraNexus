@@ -2601,6 +2601,7 @@ class MessageBusTrigger:
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
+        on_plain_text_delivery=None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -2660,6 +2661,12 @@ class MessageBusTrigger:
             # this was always the runtime's own no-op token, which is why a
             # bus run could not be stopped from anywhere.
             cancellation=cancellation,
+            # Same seam. A team room's reply has to be POSTED inside the turn:
+            # the chat rows are written by hook_persist_turn before run()
+            # returns, so a post that lands after it cannot be recorded as a
+            # reply — which is why every team turn used to file as "no reply
+            # sent" and start the next one cold.
+            on_plain_text_delivery=on_plain_text_delivery,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,

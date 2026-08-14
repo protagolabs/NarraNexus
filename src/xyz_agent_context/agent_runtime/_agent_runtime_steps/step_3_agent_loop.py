@@ -459,10 +459,7 @@ def _should_run_helper_llm_fallback(
     if cancellation is not None and getattr(cancellation, "is_cancelled", False):
         return None, "cancellation_requested"
 
-    has_fatal = any(
-        isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
-        for r in agent_loop_response
-    )
+    has_fatal = _has_fatal_error_frame(agent_loop_response)
     has_reply = _has_organic_reply(agent_loop_response, working_source)
 
     if is_im_dm:
@@ -1055,13 +1052,27 @@ def _turn_hit_a_fatal(
     collapses into a failed row, reused rather than re-derived so the platform
     cannot hold two opinions about whether a turn worked.
     """
-    if captured_error is not None:
-        return True
-    from xyz_agent_context.module.chat_module.chat_module import (
-        _detect_fatal_error_in_agent_loop,
-    )
+    return captured_error is not None or _has_fatal_error_frame(agent_loop_response)
 
-    return _detect_fatal_error_in_agent_loop(agent_loop_response or []) is not None
+
+def _has_fatal_error_frame(agent_loop_response: list) -> bool:
+    """A frame in this turn marked the failure fatal.
+
+    One definition for the whole step. There were two identical scans here (the
+    helper-LLM fallback's and the team-room gate's) and a third reached for by
+    importing ChatModule's private copy from inside a function — a runtime step
+    depending on a module's internals, upward through the layering, to answer a
+    question it can answer itself. Three copies of one predicate is three places
+    for "what counts as fatal" to drift.
+
+    Default `"fatal"` matches ErrorMessage's own default: an unlabelled error is
+    the worse case, and treating a possibly-broken turn as working is the more
+    harmful mistake.
+    """
+    return any(
+        isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
+        for r in agent_loop_response or []
+    )
 
 
 async def _team_room_delivery_phase(
@@ -1070,7 +1081,7 @@ async def _team_room_delivery_phase(
     final_output: str,
     agent_loop_response: list,
     captured_error: dict | None,
-):
+) -> Optional[ProgressMessage]:
     """The team-room delivery phase, whole, so its WIRING can be tested.
 
     The gate and the poster are each independently testable, and that was not
@@ -1079,8 +1090,11 @@ async def _team_room_delivery_phase(
     left every test in this area green — the same "the predicate is covered, its
     use is not" gap that has already been found here more than once.
 
-    Appends the frame to ``agent_loop_response`` as well as yielding it, because
-    downstream hooks read that list rather than the stream.
+    Returns the frame (already appended to ``agent_loop_response``, which is
+    what downstream hooks read) or None. NOT an async generator: one that a
+    caller forgets to iterate does nothing at all, silently, and this is the
+    single path deciding whether a turn is remembered — the one place where a
+    no-op that looks like a call is least affordable.
     """
     team_deliver = getattr(ctx, "on_plain_text_delivery", None)
     deliver_ok, skip_reason = _should_deliver_team_reply(
@@ -1095,17 +1109,17 @@ async def _team_room_delivery_phase(
         # refusals are worth a line.
         if skip_reason != "not_a_team_room":
             logger.info(f"[team-room] not posting this turn: {skip_reason}")
-        return
+        return None
     if not await _post_team_room_reply(
         final_output=final_output, deliver=team_deliver
     ):
-        return
+        return None
     frame = _team_room_reply_frame(
         (final_output or "").strip(),
         str((getattr(ctx, "trigger_extra_data", None) or {}).get("bus_channel_id") or ""),
     )
     agent_loop_response.append(frame)
-    yield frame
+    return frame
 
 
 def _should_deliver_team_reply(
@@ -1681,13 +1695,14 @@ async def step_3_agent_loop(
     #     parses @mentions, so a turn the user killed could wake teammates into
     #     full runs of their own. Both helper-LLM fallbacks in this file gate on
     #     the same flag; this lane just did not.
-    async for _frame in _team_room_delivery_phase(
+    _team_frame = await _team_room_delivery_phase(
         ctx=ctx,
         final_output=state.final_output,
         agent_loop_response=agent_loop_response,
         captured_error=captured_error,
-    ):
-        yield _frame
+    )
+    if _team_frame is not None:
+        yield _team_frame
 
     # ------------- 3.4.X: Post-loop recovery phase -------------
     # Three modes cover the recovery slot:

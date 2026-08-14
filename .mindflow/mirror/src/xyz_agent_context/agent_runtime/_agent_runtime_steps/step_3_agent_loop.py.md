@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
 
@@ -716,3 +716,14 @@ async generator**什么都不做,而且是静默的**,这对"决定一轮会不�
 覆盖**它们怎么被接在一起**。把门的结果换成 `team_deliver is not None`、或把
 `captured_error` 误传 None,这一片的测试**全部保持绿色** —— 本次会话已经栽过同一类
 坑三次。现在阶段整体有 6 条测试,并且实测过"把门换成裸判断会让 3 条变红"。
+
+## 2026-08-14 — 一个 fatal 谓词,以及 phase 不再是 generator
+
+**`_has_fatal_error_frame`。** 这个判定此前在本文件里有两份逐字相同的实现(helper-LLM
+fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatModule 的私有函数**
+—— 一个 runtime step 向上穿透依赖某个模块的内部,来回答一个它自己就能回答的问题。
+三份副本就是三个"什么算 fatal"各自漂移的地方。
+
+**`_team_room_delivery_phase` 改成返回 `Optional[frame]`。** async generator 的问题是
+**没人迭代它就什么都不做,而且是静默的** —— 对"决定这一轮记不记得住"的唯一路径,这是
+最不能接受的失败形状。

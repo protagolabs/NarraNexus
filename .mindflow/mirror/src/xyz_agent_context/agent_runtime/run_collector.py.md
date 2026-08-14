@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
 
@@ -147,3 +147,14 @@ existing trigger); the team bus path uses it to mirror a live activity status
 **fatal 是粘性的**:收集时 `error` 是"last error wins",对 fatal 不适用 —— 先 fatal
 后 recoverable 的一轮仍然没有可用输出,让后来的帧覆盖掉结论会把坏掉的轮次呈现成好的。
 所以全程扫到过 fatal 就在收尾时压住 severity。
+
+## 2026-08-14 — `is_fatal` 之前把两种"其实答了"的情形误判成 fatal
+
+`severity` 有**四种**取值,不是两种:除 `fatal` / `recoverable` 外还有 `recovered`
+(fatal 级故障被 helper-LLM fallback 用一条真实回复盖住)和 `recovered_after_reply`
+(agent 已经先答过了,故障发生在之后)。初版写的 `!= "recoverable"` 把后两种也算成
+fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**,判成 fatal 就是把那条回复
+换成一句 ⚠️。
+
+现在只有 `fatal` 与未标注算 fatal(未标注取更坏的一侧:把可能为空的一轮当成成功,
+是两个方向里更有害的那个)。

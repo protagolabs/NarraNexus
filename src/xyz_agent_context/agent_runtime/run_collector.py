@@ -107,18 +107,27 @@ class RunCollection:
         """
         return self.error is not None
 
+    #: Severities that still leave the turn with something worth showing.
+    #: ``recoverable`` — absorbed mid-loop, the agent answered anyway.
+    #: ``recovered`` — a fatal-class failure the helper-LLM fallback papered
+    #: over with a real reply. ``recovered_after_reply`` — the agent had
+    #: already spoken before the failure landed. Treating any of these as
+    #: fatal discards a reply the user is entitled to see.
+    _NON_FATAL_SEVERITIES = ("recoverable", "recovered", "recovered_after_reply")
+
     @property
     def is_fatal(self) -> bool:
         """The turn has no usable output.
 
-        True when the runtime marked a failure ``fatal``, or when it gave no
-        severity at all — an unlabelled error is treated as the worse case,
-        since presenting a possibly-empty turn as a success is the more harmful
-        direction.
+        Not simply "an error happened": three of the four severities describe a
+        turn that produced a reply anyway, and only ``fatal`` (plus an
+        unlabelled error, treated as the worse case since presenting a
+        possibly-empty turn as a success is the more harmful direction) means
+        there is nothing to show.
         """
         if self.error is None:
             return False
-        return self.error.severity != "recoverable"
+        return self.error.severity not in self._NON_FATAL_SEVERITIES
 
 
 async def collect_run(

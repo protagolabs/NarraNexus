@@ -58,29 +58,34 @@ def test_non_delivery_bus_tools_do_not_count():
 
 
 def test_bus_delivery_is_recognized_at_the_persistence_split():
-    delivered = ChatModule._delivered_to_origin(
+    delivered = bool(ChatModule._origin_delivered_text(
         "message_bus",
         [_tool_progress("mcp__message_bus_module__bus_send_message", "peer reply")],
-    )
+    ))
     assert delivered is True
 
 
 def test_silent_bus_turn_is_not_delivered():
-    delivered = ChatModule._delivered_to_origin(
+    delivered = bool(ChatModule._origin_delivered_text(
         "message_bus",
         [_tool_progress("mcp__message_bus_module__bus_get_messages", "")],
-    )
+    ))
     assert delivered is False
 
 
-def test_activity_summary_is_honest_about_delivery():
+def test_the_activity_summary_only_describes_silence_now():
+    """This summary is reached only by turns that said nothing to anyone.
+
+    It used to carry a "Replied to X" arm as well, chosen by a
+    `delivered_to_origin` flag. That arm became unreachable once a delivered
+    turn started recovering its text and being written as a real assistant row
+    — and a branch that cannot run is a claim about the code that is no longer
+    true. What has to hold now is that the silent wording never overstates.
+    """
     meta = {"channel_tag": {"sender_name": "Maestro"}}
-    delivered = ChatModule._build_activity_summary(
-        "message_bus", meta, delivered_to_origin=True
-    )
-    silent = ChatModule._build_activity_summary(
-        "message_bus", meta, delivered_to_origin=False
-    )
-    assert "Replied" in delivered
-    assert "Replied" not in silent  # the old unconditional "Replied to X" lied
-    assert "no reply" in silent.lower()
+
+    summary = ChatModule._build_activity_summary("message_bus", meta)
+
+    assert "Replied" not in summary  # the old unconditional "Replied to X" lied
+    assert "no reply" in summary.lower()
+    assert "Maestro" in summary  # who it read, when the tag says

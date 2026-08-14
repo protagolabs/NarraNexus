@@ -332,6 +332,7 @@ async def test_invoke_runtime_forwards_the_errand_scope(monkeypatch):
     answers unrelated peers, and marking their answers as questions is how the
     P1 reappeared one seat over (2026-08-03 review)."""
     from types import SimpleNamespace
+    from xyz_agent_context.agent_runtime.run_collector import RunCollection
 
     from xyz_agent_context.agent_runtime import client as rt_client
 
@@ -340,8 +341,8 @@ async def test_invoke_runtime_forwards_the_errand_scope(monkeypatch):
     class _FakeClient:
         async def run_and_collect(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(
-                is_error=False, is_fatal=False, output_text="ok", event_id="evt_1", tool_calls=[]
+            return RunCollection(
+                output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
             )
 
     monkeypatch.setattr(rt_client, "get_agent_runtime_client", lambda: _FakeClient())

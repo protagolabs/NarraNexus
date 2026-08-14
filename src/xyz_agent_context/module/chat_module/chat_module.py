@@ -418,7 +418,7 @@ class ChatModule(XYZBaseModule):
     def _origin_delivered_text(working_source: str, agent_loop_response: list) -> str:
         """What this turn actually said to whoever contacted it, or "".
 
-        The twin of `_delivered_to_origin`: same extractor, same full
+        The origin-delivery question: same extractor, same full
         `user_reply_tool_names` list, but it returns the TEXT rather than a
         verdict, because a turn that replied has to be able to record what it
         replied WITH.
@@ -453,25 +453,9 @@ class ChatModule(XYZBaseModule):
             logger.warning(f"_origin_delivered_text extraction failed: {e}")
             return ""
 
-    @classmethod
-    def _delivered_to_origin(cls, working_source: str, agent_loop_response: list) -> bool:
-        """Did ANY reply tool deliver to whoever contacted the agent?
-
-        The origin-delivery question, distinct from owner visibility: a bus turn
-        that answered its peer via ``bus_send_message`` delivered fine even
-        though the owner saw nothing.
-
-        Expressed in terms of `_origin_delivered_text` rather than repeating the
-        scan. The two were line-for-line copies of one extraction, and their
-        agreeing is exactly what makes the row-shape logic below correct — a
-        divergence (say, one of them learning to skip a tool) would be silent
-        and would show up as rows filed the wrong way.
-        """
-        return bool(cls._origin_delivered_text(working_source, agent_loop_response))
-
     @staticmethod
     def _build_activity_summary(
-        working_source: str, meta: dict, delivered_to_origin: bool = False
+        working_source: str, meta: dict
     ) -> str:
         """
         Build a human-readable activity summary for background turns that
@@ -480,10 +464,6 @@ class ChatModule(XYZBaseModule):
         Args:
             working_source: Execution source ("job", "message_bus", etc.)
             meta: Shared meta_data dict (may contain channel_tag)
-            delivered_to_origin: whether a reply tool delivered to the
-                turn's origin (peer agent / channel) — the summary must
-                say so honestly. The old unconditional "Replied to X" for
-                bus turns claimed a reply that often never happened.
 
         Returns:
             Short activity description string
@@ -498,8 +478,10 @@ class ChatModule(XYZBaseModule):
         if working_source == "job":
             return "Ran a scheduled job"
         if working_source in ("message_bus", "a2a"):
-            if delivered_to_origin:
-                return f"Replied to {who}" if who else "Replied to a peer agent"
+            # No "Replied to X" arm: a turn that delivered anything recovers its
+            # text upstream and is written as a real assistant row, so it never
+            # reaches this summary. Keeping a branch that cannot run would leave
+            # the next reader thinking activity rows still classify delivery.
             return (
                 f"Read messages from {who} (no reply sent)"
                 if who

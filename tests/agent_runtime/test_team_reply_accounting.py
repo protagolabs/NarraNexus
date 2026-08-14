@@ -308,13 +308,11 @@ async def _run_phase(ctx, *, final_output, captured_error=None, response=None):
     )
 
     trace = [] if response is None else response
-    frames = [
-        f async for f in _team_room_delivery_phase(
-            ctx=ctx, final_output=final_output,
-            agent_loop_response=trace, captured_error=captured_error,
-        )
-    ]
-    return frames, trace
+    frame = await _team_room_delivery_phase(
+        ctx=ctx, final_output=final_output,
+        agent_loop_response=trace, captured_error=captured_error,
+    )
+    return ([] if frame is None else [frame]), trace
 
 
 @pytest.mark.asyncio
@@ -417,3 +415,48 @@ async def test_a_refused_post_records_nothing():
     )
 
     assert frames == [] and trace == []
+
+
+def test_a_recovered_turn_is_not_fatal():
+    """`recovered` means a fatal-class failure was papered over by the
+    helper-LLM fallback, which produced a real reply. Calling it fatal throws
+    that reply away and puts a failure notice in its place — the user is
+    entitled to the answer that was produced for them."""
+    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+
+    c = RunCollection(
+        output_text="the fallback answer", tool_calls=[], raw_items=[],
+        error=RunError("api_error", "sdk crashed", severity="recovered"),
+    )
+
+    assert c.is_error is True
+    assert c.is_fatal is False
+
+
+def test_a_turn_that_already_spoke_is_not_fatal():
+    """`recovered_after_reply`: the agent replied, THEN something broke. The
+    reply happened; the badge is for the unfinished remainder."""
+    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+
+    c = RunCollection(
+        output_text="here you go", tool_calls=[], raw_items=[],
+        error=RunError("api_error", "died after replying",
+                       severity="recovered_after_reply"),
+    )
+
+    assert c.is_fatal is False
+
+
+def test_only_fatal_and_unlabelled_count_as_fatal():
+    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+
+    for sev, expected in [
+        ("fatal", True), ("", True),
+        ("recoverable", False), ("recovered", False),
+        ("recovered_after_reply", False),
+    ]:
+        c = RunCollection(
+            output_text="", tool_calls=[], raw_items=[],
+            error=RunError("e", "m", severity=sev),
+        )
+        assert c.is_fatal is expected, f"severity={sev!r}"

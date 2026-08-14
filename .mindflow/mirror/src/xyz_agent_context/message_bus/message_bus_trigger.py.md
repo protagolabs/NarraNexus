@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
 ## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
@@ -1060,3 +1060,15 @@ recoverable 抖动 → 房间收到**正确答案 + 一条假的 ⚠️**;没抛
 到,还是跑到了但发不出去。异常仍然吞(通知是 best-effort,不该拖挂 turn;而且这段在
 `ack_processed` 之后,抛出去会触发 `record_failure` 把这条消息推向 poison 阈值 ——
 把"通知没发出"升级成"这条消息永远投不出去"),但必须留一条 warning。
+
+## 2026-08-14 — 重建时把自己的接线删掉了
+
+按 dev 的 `TurnResult` 重建这条 lane 时,`_invoke_runtime` 的
+`on_plain_text_delivery` 形参**和**它往 `run_and_collect` 的转发被一起删掉,而调用点
+仍在无条件传它(DM 传 `None`,同样是这个关键字)。后果是**每一条 bus 消息 TypeError**
+—— team 房间与 peer DM 全线停摆,消息几轮内到达 poison 阈值,owner 收到永久失败通知。
+
+**全量 5945 条测试一条都没照出来**,因为这一片的测试**全都把 `_invoke_runtime` 整个
+替换掉**,真实签名从未被执行。守门测试因此改用本仓已有的正确范式:桩
+`run_and_collect`,让真实函数留在路径上(`test_bus_run_cancellation.py` 里那条转发
+`cancellation` 的用例就是这么写的),并实测过删掉形参会红。
