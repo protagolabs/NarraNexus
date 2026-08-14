@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
 ## 2026-08-07 — 签名跟随抽象契约增加 root_run_id
@@ -61,3 +61,8 @@ TypeError), defeating its placeholder purpose.
 ## 2026-08-12 — `has_unread_before` 占位
 
 随协议加入,仍是 NotImplementedError。
+
+## 2026-08-14 — 跟进 `has_message_from_turn`
+
+随协议新增一个 `NotImplementedError` 占位,与本文件其余方法同形。这份实现始终是
+"协议长什么样"的镜子,不是可用后端。

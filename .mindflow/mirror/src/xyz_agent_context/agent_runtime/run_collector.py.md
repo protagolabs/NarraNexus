@@ -162,7 +162,7 @@ fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**
 
 **粘性 fatal 同批让路,判据是"谁更知情"。** 只改 `is_fatal` 不够:收集器出口的粘性
 步骤会把最后一条 error 的 severity 压回 `"fatal"`,而 `recovered` / `recovered_after_reply`
-的**前置条件就是先发生过一次 fatal` —— 粘性必然触发,于是修好的 `is_fatal` 收到的输入
+的**前置条件就是先发生过一次 fatal** —— 粘性必然触发,于是修好的 `is_fatal` 收到的输入
 已经被改写成 `"fatal"`,整个修复是空转的。
 
 分界不是"哪些 severity 比较轻",而是**这一帧在说什么**:
@@ -177,10 +177,13 @@ fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**
 只认字面 `"fatal"`),而漂移的表现就是上面这个 bug 本身。现已收成模块级
 `VERDICT_ON_FATAL_SEVERITIES`,三处都从它派生。
 
-`saw_fatal` 的置位同批改成"不在 `_NON_FATAL_SEVERITIES` 里就置位":此前它只认字面
-`"fatal"`,于是"先未标注、后 recoverable"的一轮不触发粘性,最后一条 `recoverable` 赢,
-`is_fatal` 变 False —— 与它自己 docstring 承诺的"未标注按更坏的一侧处理"相矛盾,是第三
-套口径。
+`saw_fatal` 的置位同批改成"不在 `_NON_FATAL_SEVERITIES` 里就置位",与 `is_fatal` 用同
+一份名单;此前它只认字面 `"fatal"`,是同一判据的第三种写法。
+
+**未标注(`""`)在今天的生产路径上不可达**,别照着它设计分支:`ErrorMessage.severity` 是
+四值 `Literal` 且默认 `"fatal"`,所以经 `runtime.run()` 流出的 ERROR 帧给不出空串;`""`
+只来自手工构造的 `RunError`(`severity` 的默认值,即测试,以及将来某个不走 schema 的
+生产者)。上面两处对它的处理是**防御性**的,一律取更坏的一侧。
 
 收尾改写则**豁免 `""`**,理由与豁免裁决帧不同:未标注本来就被读成 fatal,改写它唯一的
 效果是抹掉空串携带的那一个信息 —— runtime 没说。

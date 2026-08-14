@@ -142,6 +142,35 @@ async def test_a_turn_the_runtime_would_not_deliver_closes_no_hop(
 
 
 @pytest.mark.asyncio
+async def test_a_turn_that_reached_nobody_closes_no_hop(
+    db_client, monkeypatch, log_lines
+):
+    """Same invariant, the other branch: the only thing in the room is the
+    platform's own "it said nothing" line, and a notice is not a delivery."""
+    _patch_db_factory(monkeypatch, db_client)
+    await db_client.insert(
+        "agents", {"agent_id": "agent_a", "agent_name": "A", "created_by": "user_x"}
+    )
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+
+    async def _silent(*_a, **_k):
+        return TurnResult(text="", event_id="evt_t1", delivered=False)
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _silent)
+    msg = BusMessage(
+        message_id="m_rn", channel_id=ROOM, from_agent="usr_user_x",
+        content="@A hello",
+        created_at=datetime.now(timezone.utc),
+    )
+    await trigger._handle_channel_batch(
+        "agent_a", ROOM, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
+    )
+
+    assert _timing_hits(log_lines) == []
+
+
+@pytest.mark.asyncio
 async def test_dm_hop_with_iso_string_created_at(db_client, monkeypatch, log_lines):
     """SQLite hands created_at back as an ISO string — must parse, not crash."""
     trigger = await _trigger_with_fake_runtime(db_client, monkeypatch)

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
@@ -215,3 +215,17 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到
 SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于把一条已经咬过人的规则实现
 两遍。
+
+## 2026-08-14 — `has_message_from_turn`:用 turn id 问"这个房间听见它说话了吗"
+
+团队房的失败公告要回答一个此前没人问过的问题:**这一轮有没有任何东西以本 agent 的身份
+落进本房间**。问它的场合很窄(平台代发没发生、但这一轮又不算 fatal),答错的代价却是
+在房间里贴一条假的投递失败 —— 而房间里同时还摆着 agent 自己发的那句话。
+
+判据用 **turn id**,不是时间窗:两条投递路径(平台在 turn 内代发、agent 自己调
+`bus_send_message`)现在都往 `bus_messages.event_id` 上盖同一个 id,所以一次
+`SELECT 1 ... LIMIT 1` 就同时覆盖两者。时间窗只能回答"差不多那会儿",而且要再写一遍
+本模块刚清理掉的那套时间戳比较 —— 这个仓库为它付过一次学费(见 08-12 那节的
+`canonical_ts`)。身份是精确的。
+
+只问存在性:调用方在决定"要不要公告",消息正文与这个决定无关。

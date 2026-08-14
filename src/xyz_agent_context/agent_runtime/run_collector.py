@@ -82,6 +82,10 @@ class RunError:
             is why the sticky-fatal rule at collection time exempts them.
             Empty when the runtime did not say — read as fatal, because
             calling a possibly-empty turn a success is the worse mistake.
+            Not reachable from ``runtime.run()`` today (``ErrorMessage``
+            declares the four as a ``Literal`` and defaults to ``"fatal"``):
+            an empty value means a hand-built ``RunError``, so treating it
+            defensively costs nothing and assumes nothing.
     """
 
     error_type: str

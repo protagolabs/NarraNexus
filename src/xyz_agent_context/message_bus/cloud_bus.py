@@ -114,6 +114,11 @@ class CloudMessageBus(MessageBusService):
     ) -> bool:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
+    ) -> bool:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
     async def count_unread(self, agent_id: str) -> int:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

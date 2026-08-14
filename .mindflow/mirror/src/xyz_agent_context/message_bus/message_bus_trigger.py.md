@@ -1118,3 +1118,39 @@ None 所以不走失败公告,而 `posted` 停在初值 `True`,`[bus-timing]` �
   原文进 owner 的 inbox;是"发失败了"还是"压根没发"属于公告内容,不该是两条代码路径。
 
 **不要从"没记到错"推断"投递成功了"** —— 这是本 lane 反复付过学费的同一类错误。
+
+## 2026-08-14 (三补) — 公告之前先问房间;以及「平台没投递」不止一条臂
+
+上一节把信箱改成三态,解决了「记账」;但 `not_attempted` 那条臂**公告**得太早。
+
+让它可达的那条链自己带着答案:`turn.fatal` 为 False 唯一的来路是收尾帧为
+`recovered_after_reply`,而这个 severity 的置位条件**就是** `_has_organic_reply` ——
+agent 这一轮确实调过一次投递工具。三个工具打三个地方:
+
+| 打给谁 | 房间听见了什么 | 该不该公告 |
+|---|---|---|
+| `bus_send_message` → 本房间 | agent 的话 | **不该** |
+| `bus_send_to_agent` → 队友私聊 | 什么都没有 | 该 |
+| `send_message_to_user_directly` → 只给 owner | 什么都没有 | 该 |
+
+团队 prompt 禁用投递工具只是**文字规则**,MCP server 在团队 turn 里照常挂着(清空的是
+expressive declaration,不是工具面),按铁律 #15 平台不管模型听不听话 —— 所以第一行不是
+边角情形,而是不听话的 agent 在团队房里「发一句话」最顺手的写法。
+
+于是这条臂改成先问 `has_message_from_turn(channel_id, agent_id, turn.event_id)`,听见了
+就只记账不公告。**不能用 `turn.delivered` 当门**:它认的名单含
+`send_message_to_user_directly`,用它会把上表第三行那条**正确**的公告一起吞掉,房间又回
+到静默。为让这个问题可回答,MCP 侧的 `bus_send_message` 同批补盖了 `event_id`(见
+[[_message_bus_mcp_tools]])。
+
+记账与公告是两个问题:即使房间听见了 agent 自己那句,**平台代发**这件事确实没发生,
+`posted` 保持 False 是对的。
+
+同批补上 `reached_nobody` 那条臂的 `posted = False` —— 它的定义就是「没文本、也没有任何
+工具触达任何人」,房间只收到一行平台通知,而**通知不是投递**。上一节在有文本那一支立的
+判据,这一支漏了。
+
+`_post_to_room` 的 mentions 解析与 cascade 深度读取也一并纳入 `try`:它们在 try 之外时
+抛出去会被 step_3 接住返回 False,而信箱停在 `not_attempted` —— 于是 `_team_cascade_depth`
+的一次 DB 故障会被写成「runtime 拒绝投递」,把排查引到另一道门上。**调用过就失败,一律记
+`failed`**。

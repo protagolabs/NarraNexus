@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
 ## 2026-08-07 — send_message / send_to_agent 增加 root_run_id
@@ -89,3 +89,9 @@ raises NotImplementedError. Files are references, not bytes — see
 ## 2026-08-12 — 协议新增 `has_unread_before`
 
 存在性判断,实现方不得为此把积压物化。语义见 [[local_bus]]。
+
+## 2026-08-14 — 新增 `has_message_from_turn`
+
+一个存在性问题:某 agent 在某轮里有没有往某频道发过东西。键是 turn id,因为平台代发与
+agent 自己调工具发**都**盖这个 id,一个方法覆盖两条投递路径。实现方不得为此把消息全量
+拉回内存 —— 调用点在一轮已经降级的 turn 收尾处,那里最不该再加一次全表搬运。

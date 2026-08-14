@@ -152,6 +152,27 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
+    ) -> bool:
+        """
+        Whether this agent put any message into this channel during a turn.
+
+        An existence question keyed on the turn id that both delivery paths
+        stamp, so it covers a reply the platform posted and one the agent sent
+        through a tool alike.
+
+        Args:
+            channel_id: The channel to look in.
+            from_agent: The sender whose messages count.
+            event_id: The turn id stamped on messages produced by that run.
+
+        Returns:
+            True when at least one such message exists.
+        """
+        ...
+
+    @abstractmethod
     async def count_unread(self, agent_id: str) -> int:
         """
         How many unread messages exist, independent of any window.

@@ -25,6 +25,7 @@ from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 # it, and both tools write the same table — so both must record it.
 from xyz_agent_context.module._mcp_identity import (
     caller_errand_scope,
+    caller_event_id_from_request,
     caller_root_run_id,
     caller_team_id_from_request,
     caller_turn_source,
@@ -185,6 +186,14 @@ def register_message_bus_mcp_tools(
                 # break — and a broken lineage means a cascade stop silently
                 # leaves that branch running.
                 root_run_id=caller_root_run_id(),
+                # WHICH turn produced this message. The platform's own team-room
+                # post already stamps it; without the same stamp here, "did this
+                # agent put anything in this room during that turn?" has no
+                # answer for the half the agent sent itself — and the trigger
+                # has to guess, which is how a room that DID hear the agent gets
+                # told delivery failed. Same attribution the artifact tool
+                # records (`_mcp_identity` header, not a model parameter).
+                event_id=caller_event_id_from_request(),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:

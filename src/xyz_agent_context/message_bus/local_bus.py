@@ -294,6 +294,30 @@ class LocalMessageBus(MessageBusService):
         )
         return bool(rows)
 
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
+    ) -> bool:
+        """Did this agent put anything into this channel during that turn?
+
+        The turn's own id is the join: both the platform's team-room post and
+        the agent's own ``bus_send_message`` stamp ``event_id``, so one query
+        covers a reply however it was sent. A timestamp window would answer a
+        near-enough question with a comparison this codebase has already been
+        bitten by once; an identity is exact.
+
+        Existence only — the caller is deciding whether to announce a delivery
+        failure, and the message body has no bearing on that.
+        """
+        if not channel_id or not from_agent or not event_id:
+            return False
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT 1 AS hit FROM bus_messages WHERE channel_id = {ph} "
+            f"AND from_agent = {ph} AND event_id = {ph} LIMIT 1",
+            (channel_id, from_agent, event_id),
+        )
+        return bool(rows)
+
     async def count_unread(self, agent_id: str) -> int:
         """How many unread messages exist, independent of any window.
 
