@@ -4,6 +4,16 @@ last_verified: 2026-08-15
 stub: false
 ---
 
+## 2026-08-15 (二) — `TurnResult.segments` 删掉：一条只有写、没有读的通道
+
+发帖搬进 turn 内之后，边界改从 `segments_sink` 读（见 [[run_collector.py]]），
+`turn.segments` 的最后一个读者就消失了——只剩 `_invoke_runtime` 里那一行写入，和一条用
+源码文本把这行写入钉住的测试。
+
+留着的代价不是那几个字节：下一个人会看到一个"看起来是数据来源"的字段，据此写出一个永远
+读到 None 的分支；而那条源码断言会让"删掉死代码"这件事红。所以先删通道、再补 sink 的测试，
+顺序反过来的话，新测试会顺手把死字段一起钉进去。
+
 ## 2026-08-15 — 和 #291 的和解：cap 与 segments 搬进 turn 内
 
 #291 把房间回复搬进了 turn 内部（`_deliver_reply`），而 @mention 解析和 hop cap 也跟着搬了

@@ -318,12 +318,9 @@ async def test_the_mark_and_the_transcript_agree_on_precision(db_client, monkeyp
     await db_client.insert("teams", {
         "team_id": TEAM, "owner_user_id": "usr_1", "name": "Desk",
     })
+    # `_room` already stamps the room marker; re-stamping it here would teach
+    # the next test to copy four lines it does not need.
     channel = await _room(db_client, TEAM)
-    await db_client.update(
-        "bus_channels",
-        {"channel_id": channel},
-        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}"},
-    )
     mid = await _say(db_client, channel, "agent_a", "hello")
     await db_client.update(
         "bus_messages", {"message_id": mid}, {"created_at": "2026-08-14T10:00:00.800000+00:00"}

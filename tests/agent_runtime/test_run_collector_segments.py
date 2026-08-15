@@ -28,7 +28,7 @@ from typing import AsyncIterator
 
 import pytest
 
-from xyz_agent_context.agent_runtime.run_collector import collect_run
+from xyz_agent_context.agent_runtime.run_collector import collect_run, joined_segments
 from xyz_agent_context.schema.runtime_message import MessageType
 
 
@@ -196,3 +196,95 @@ async def test_segments_hand_back_text_not_the_accumulator():
 
     assert [set(s) for s in out.segments] == [{"kind", "text"}]
     assert out.segments[0]["text"] == "ab"
+
+
+# ── the live sink ───────────────────────────────────────────────────────────
+#
+# The room post happens INSIDE the turn now, so the deliverer needs the boundary
+# for the text it is posting — and the collection does not exist yet. The sink is
+# how it gets there, and it is the kind of seam that fails by being EMPTY: a post
+# with `segments=None` renders as one block, which is exactly what the feature
+# looked like before it existed. No error, no log, nothing to grep for.
+
+
+@pytest.mark.asyncio
+async def test_a_sink_is_filled_as_the_run_streams():
+    """Not only at the end — a reader mid-run must already see the boundary."""
+    sink: list[dict] = []
+    seen_midway: list[list[dict]] = []
+
+    class _Watching:
+        def run(self, **_kwargs):
+            async def _gen():
+                yield _thinking(monologue="let me check")
+                # This is the deliverer's position: the reply has streamed, the
+                # run has not returned.
+                seen_midway.append([dict(x) for x in sink])
+                yield _response("checked")
+
+            return _gen()
+
+    await collect_run(
+        _Watching(),
+        agent_id="a",
+        user_id="u",
+        input_content="hi",
+        working_source="chat",
+        include_monologue=True,
+        segments_sink=sink,
+    )
+
+    assert seen_midway, "the runtime never yielded"
+    assert seen_midway[0], "the sink was still empty after the monologue arrived"
+    assert seen_midway[0][0]["kind"] == "monologue"
+
+
+@pytest.mark.asyncio
+async def test_the_sink_holds_what_the_collection_returns():
+    """One accumulator, two readers — the in-flight one and the final one cannot
+    disagree about the boundary."""
+    sink: list[dict] = []
+    out = await collect_run(
+        _FakeRuntime([_thinking(monologue="thinking"), _response("answering")]),
+        agent_id="a",
+        user_id="u",
+        input_content="hi",
+        working_source="chat",
+        include_monologue=True,
+        segments_sink=sink,
+    )
+
+    assert joined_segments(sink) == out.segments
+
+
+@pytest.mark.asyncio
+async def test_the_sink_carries_the_accumulator_form_not_the_contract_form():
+    """`{kind, parts}` in flight, `{kind, text}` on the way out.
+
+    Worth stating because the deliverer reads the sink directly: it MUST go
+    through `joined_segments`. A reader that assumed `text` would post `None`
+    for every segment — silently, since the column is nullable and the renderer
+    treats a missing boundary as one block.
+    """
+    sink: list[dict] = []
+    await collect_run(
+        _FakeRuntime([_response("ab")]),
+        agent_id="a",
+        user_id="u",
+        input_content="hi",
+        working_source="chat",
+        segments_sink=sink,
+    )
+
+    assert set(sink[0]) == {"kind", "parts"}
+    assert joined_segments(sink) == [{"kind": "reply", "text": "ab"}]
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_a_sink_still_returns_its_segments():
+    """The sink is opt-in: every non-team turn passes none."""
+    out = await _collect(
+        [_thinking(monologue="a"), _response("b")], include_monologue=True
+    )
+
+    assert [s["kind"] for s in out.segments] == ["monologue", "reply"]

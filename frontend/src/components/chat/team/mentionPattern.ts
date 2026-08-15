@@ -50,12 +50,55 @@ export function mentionTokens(text: string): Set<string> {
 }
 
 /**
+ * Which member display names these tokens address.
+ *
+ * The ONE rule, mirroring the server's `_extract_team_mentions` line for line:
+ * exact name, first word, or any token of two characters or more that the name
+ * starts with. Loose on purpose — someone typing `@ana` for "Ana Silva" means
+ * her, and waking nobody is a worse answer than waking her.
+ *
+ * It has to be one rule because highlighting and waking are answers to the same
+ * question asked by two different surfaces. They were separate, and the gap was
+ * reachable through the product's own autocomplete: it inserts `@Ana Silva`, the
+ * token pattern stops at the space, so the token is `ana` — the server woke Ana
+ * and the room rendered her name as ordinary text. The person being addressed
+ * could not see that they had been addressed, which is the exact failure every
+ * comment in this folder calls worse than no highlight at all.
+ *
+ * `@all` / `@everyone` are not here: they address the room rather than a member,
+ * and the two callers do different things with that (the composer sends
+ * `"@all"`, the renderers highlight the word). `isAddressed` folds them in.
+ */
+export function matchMembers(tokens: Set<string>, names: Iterable<string>): string[] {
+  const out: string[] = [];
+  for (const raw of names) {
+    const nm = (raw || '').toLowerCase();
+    if (!nm) continue;
+    const first = nm.split(/\s+/)[0] || nm;
+    if (
+      tokens.has(nm) ||
+      tokens.has(first) ||
+      [...tokens].some((t) => t.length >= 2 && nm.startsWith(t))
+    ) {
+      out.push(raw);
+    }
+  }
+  return out;
+}
+
+/**
  * Does this word address someone who will actually be reached?
  *
- * `@all` / `@everyone` always do. Anything else has to be a real member —
- * otherwise an email address and a decorative `@` light up too.
+ * Derived from `matchMembers` rather than agreeing with it by convention: the
+ * highlight must light up exactly the people the send path wakes, and "these two
+ * are kept in sync" is a promise that has already been broken once here.
+ *
+ * Stays a `(word, names) => boolean` shape deliberately — it runs per text node
+ * per message, and anything heavier would give back the render cost that
+ * memoising the member map just bought.
  */
 export function isAddressed(word: string, names: Set<string>): boolean {
   const lower = word.toLowerCase();
-  return lower === 'all' || lower === 'everyone' || names.has(lower);
+  if (lower === 'all' || lower === 'everyone') return true;
+  return matchMembers(new Set([lower]), names).length > 0;
 }

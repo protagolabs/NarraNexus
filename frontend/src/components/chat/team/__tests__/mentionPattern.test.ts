@@ -12,15 +12,27 @@
  * answer cannot tell which half is wrong, and neither can the person debugging
  * it. So the tokens come from one place.
  *
- * What deliberately does NOT come from one place is what happens next: the
- * renderers ask "is this word a member" strictly (or an email address lights
- * up), and the send path resolves loosely (first names, prefixes — someone
- * typing `@ana` for "Ana Silva" means her). Those are different questions about
- * the same tokens, and the tests below pin the difference rather than erase it.
+ * The rule for WHO a token addresses is shared too, and it was not always: the
+ * renderers matched exact names while the send path (and the server) matched
+ * first names and prefixes. That gap was reachable through the product's own
+ * autocomplete — it inserts `@Ana Silva`, the pattern stops at the space, the
+ * token is `ana` — so Ana was woken and her name rendered as ordinary text. The
+ * person being addressed could not see that she had been, which every comment
+ * in this folder calls worse than no highlight at all.
+ *
+ * An earlier version of this file asserted that divergence as intended, on the
+ * grounds that a loose highlight would light up email addresses. It would not:
+ * the loose rule is a PREFIX match, and `example` is not a prefix of any member.
+ * The justification was false and the test was pinning the bug.
  */
 import { describe, expect, test } from 'vitest';
 
-import { isAddressed, mentionMatcher, mentionTokens } from '../mentionPattern';
+import {
+  isAddressed,
+  matchMembers,
+  mentionMatcher,
+  mentionTokens,
+} from '../mentionPattern';
 
 describe('mentionTokens', () => {
   test('picks out the @words, lowercased', () => {
@@ -64,23 +76,57 @@ describe('the matcher is not shared state', () => {
   });
 });
 
-describe('the two questions asked of a token', () => {
-  const members = new Set(['ana silva', 'bruno']);
+describe('one rule for who is addressed', () => {
+  const members = ['Ana Silva', 'Bruno'];
+  const names = new Set(members.map((n) => n.toLowerCase()));
 
-  test('@all and @everyone always address someone', () => {
-    expect(isAddressed('all', members)).toBe(true);
-    expect(isAddressed('everyone', members)).toBe(true);
+  test('@all and @everyone address the room', () => {
+    expect(isAddressed('all', names)).toBe(true);
+    expect(isAddressed('everyone', names)).toBe(true);
   });
 
-  test('the render side is strict — an email domain is not a member', () => {
-    expect(isAddressed('example', members)).toBe(false);
+  test('an email domain addresses nobody', () => {
+    expect(isAddressed('example', names)).toBe(false);
+    expect(matchMembers(new Set(['example']), members)).toEqual([]);
   });
 
-  test('the render side does not match on a first name', () => {
-    // And this is the DIFFERENCE, stated on purpose: the composer resolves
-    // `@ana` to Ana Silva because refusing to wake her is the worse answer,
-    // while highlighting a partial match would light up words that address
-    // nobody. Same token, two answers, both correct for their side.
-    expect(isAddressed('ana', members)).toBe(false);
+  test('a first name addresses the member who owns it — on BOTH sides', () => {
+    // The case that was broken, and it needed no typo to reach: the composer's
+    // own autocomplete inserts `@Ana Silva`, the token pattern stops at the
+    // space, so the token is `ana`. The send path woke her; the renderer, which
+    // used a stricter rule, drew her name as ordinary text. The person being
+    // addressed could not see that she had been.
+    expect(matchMembers(new Set(['ana']), members)).toEqual(['Ana Silva']);
+    expect(isAddressed('ana', names)).toBe(true);
+  });
+
+  test('a prefix of two characters or more counts, one does not', () => {
+    // Mirrors the server's `_extract_team_mentions`. A single letter would
+    // match half the roster.
+    expect(matchMembers(new Set(['an']), members)).toEqual(['Ana Silva']);
+    expect(matchMembers(new Set(['a']), members)).toEqual([]);
+  });
+
+  test('the full name matches too', () => {
+    expect(matchMembers(new Set(['ana silva']), members)).toEqual(['Ana Silva']);
+  });
+
+  test('an ambiguous first name matches every owner, not a guess', () => {
+    // Two people called Ana: waking both is the honest answer, and the
+    // highlight has to agree with it rather than pick one.
+    const both = ['Ana Silva', 'Ana Turner'];
+    expect(matchMembers(new Set(['ana']), both)).toEqual(both);
+    expect(isAddressed('ana', new Set(both.map((n) => n.toLowerCase())))).toBe(true);
+  });
+
+  test('highlighting and waking cannot drift apart', () => {
+    // The property the shared rule exists for, stated as one assertion: for
+    // every token, "does this light up" and "does this wake someone" are the
+    // same answer.
+    for (const token of ['ana', 'ana silva', 'bruno', 'br', 'example', 'zzz']) {
+      expect(isAddressed(token, names)).toBe(
+        matchMembers(new Set([token]), members).length > 0,
+      );
+    }
   });
 });

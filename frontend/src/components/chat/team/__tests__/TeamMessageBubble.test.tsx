@@ -248,6 +248,19 @@ describe('TeamMessageBubble', () => {
     expect(screen.getByTestId('mention-Bruno')).toBeTruthy();
   });
 
+  test('a multi-word member is highlighted by their first name', () => {
+    // Every member in this file is single-word, so the render/send divergence
+    // that shipped for six rounds could not be seen here: the composer's own
+    // autocomplete inserts `@Ana Silva`, the token pattern stops at the space,
+    // and the server woke Ana while the room drew her name as plain text.
+    draw(
+      { content: 'hey @Ana can you look' },
+      { memberNames: { agent_a: 'Ana Silva', agent_b: 'Bruno' } },
+    );
+
+    expect(screen.getByTestId('mention-Ana')).toBeTruthy();
+  });
+
   test('a word that is not a member is not highlighted', () => {
     // Highlighting anything after an @ would light up email addresses and
     // decorations, and teach the reader to ignore the highlight.

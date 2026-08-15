@@ -69,14 +69,23 @@ _SCOPED = (
 )
 
 
-async def _clean(client):
+async def _clean(client, *, quiet: bool) -> None:
+    """Remove this file's rows.
+
+    `quiet` only for TEARDOWN: a cleanup failure there must not mask the real
+    result. Before the test it is the opposite — swallowing it lets leftovers
+    collide on the primary key mid-test, and that error reads like the dialect
+    bug this file exists to detect, which is precisely the confusion the
+    pre-clean was added to prevent.
+    """
     for table, col in _SCOPED:
         try:
             await client.execute(
                 f"DELETE FROM {table} WHERE {col} LIKE %s", (f"{_PREFIX}%",), fetch=False
             )
-        except Exception:  # noqa: BLE001 — cleanup must not mask a failure
-            pass
+        except Exception:  # noqa: BLE001 — see `quiet`
+            if not quiet:
+                raise
 
 
 @pytest_asyncio.fixture
@@ -85,9 +94,9 @@ async def mysql_client():
     await backend.initialize()
     await auto_migrate(backend)
     client = await AsyncDatabaseClient.create_with_backend(backend)
-    await _clean(client)
+    await _clean(client, quiet=False)
     yield client
-    await _clean(client)
+    await _clean(client, quiet=True)
     await client.close()
 
 

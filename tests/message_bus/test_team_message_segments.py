@@ -184,22 +184,6 @@ def test_the_team_reply_hands_its_segments_to_the_bus():
     assert "getattr(collection" not in src
 
 
-def test_invoke_runtime_returns_the_segments_it_collected():
-    """A FIELD on TurnResult, not a third tuple element.
-
-    It began as one, and the merge with the turn-result refactor is exactly why
-    it should not have been: a tuple that grows rebinds every positional unpack
-    silently, and every caller had to be found by hand. A field with a default
-    is invisible to callers that do not want it.
-    """
-    import inspect
-
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-
-    src = inspect.getsource(MessageBusTrigger._invoke_runtime)
-    assert "segments=collection.segments" in src
-
-
 @pytest.mark.asyncio
 async def test_the_route_passes_segments_to_the_panel(db_client):
     """A column the API does not return is a column the UI cannot render."""
@@ -347,7 +331,9 @@ def test_the_room_funnel_carries_everything_a_room_caller_can_send():
     """
     import inspect
 
+    from xyz_agent_context.message_bus.cloud_bus import CloudMessageBus
     from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.message_bus_service import MessageBusService
     from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
 
     # Not routed through the room funnel, and why:
@@ -361,8 +347,23 @@ def test_the_room_funnel_carries_everything_a_room_caller_can_send():
     #                        funnel's callers compute mentions themselves.
     exempt = {"attachments", "sender_turn_source", "root_run_id", "routed_by"}
 
-    sends = set(inspect.signature(LocalMessageBus.send_message).parameters) - {"self"}
-    funnel = set(inspect.signature(MessageBusTrigger._post_to_room).parameters) - {"self"}
+    # Anchored on the PROTOCOL, not on one implementation: `_post_to_room` calls
+    # `self._bus.send_message`, and the bus in production is whichever one the
+    # deployment wired up. An implementation that gained a parameter the protocol
+    # did not would be invisible to a test that only reads the local one.
+    def _params(fn) -> set:
+        return set(inspect.signature(fn).parameters) - {"self"}
+
+    sends = _params(MessageBusService.send_message)
+    funnel = _params(MessageBusTrigger._post_to_room)
+
+    # And the implementations must not drift from the protocol either — the two
+    # `# Pinned by test_team_message_segments` comments in local_bus and
+    # cloud_bus were, until this line, promises nothing checked.
+    for impl in (LocalMessageBus, CloudMessageBus):
+        assert _params(impl.send_message) == sends, (
+            f"{impl.__name__}.send_message has drifted from MessageBusService"
+        )
 
     missing = sends - funnel - exempt
     assert not missing, (

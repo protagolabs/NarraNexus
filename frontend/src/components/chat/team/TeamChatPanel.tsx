@@ -31,7 +31,7 @@ import { beforeCursor, mergeTeamMessages, sinceCursor } from './mergeTeamMessage
 import { isNearBottom, isNearTop } from '@/lib/scrollStickiness';
 import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
 import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
-import { mentionTokens } from './mentionPattern';
+import { matchMembers, mentionTokens } from './mentionPattern';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
@@ -597,15 +597,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     const tokens = mentionTokens(value);
     if (tokens.size === 0) return [];
     if (tokens.has('all') || tokens.has('everyone')) return ['@all'];
-    const ids: string[] = [];
-    for (const m of members) {
-      const nm = (m.name || m.agent_id).toLowerCase();
-      const first = nm.split(/\s+/)[0];
-      if (tokens.has(nm) || tokens.has(first) || [...tokens].some((t) => t.length >= 2 && nm.startsWith(t))) {
-        ids.push(m.agent_id);
-      }
-    }
-    return ids;
+    // Matched by name through the shared rule, then mapped back to ids. The
+    // matching itself is NOT reimplemented here: this decides who is woken and
+    // `isAddressed` decides who is highlighted, and the two disagreeing is the
+    // failure this folder repeatedly calls worse than no highlight at all.
+    const byName = new Map(members.map((m) => [m.name || m.agent_id, m.agent_id]));
+    return matchMembers(tokens, byName.keys())
+      .map((name) => byName.get(name))
+      .filter((id): id is string => !!id);
   };
 
   const handlePickFiles = async (files: FileList | null) => {

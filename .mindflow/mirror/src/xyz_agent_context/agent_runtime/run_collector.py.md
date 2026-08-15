@@ -4,6 +4,16 @@ last_verified: 2026-08-15
 stub: false
 ---
 
+## 2026-08-15 (二) — sink 接缝有测试了
+
+`segments_sink` 之前**零覆盖**：`collect_run` 的测试一次都没传过 sink，而这正是团队房间
+现在唯一拿到边界的路径。这种接缝的失效方式是**空**——发帖时 `segments=None`，前端退回单块
+渲染，也就是这个特性存在之前的样子：没有报错、没有日志、没有可 grep 的东西。
+
+四条测试分别钉住：run 进行中读得到（deliverer 的位置）、sink 与最终返回不可能分歧、
+sink 里是 `{kind, parts}` 而不是契约的 `{kind, text}`（直接读的人必须过 `joined_segments`，
+否则每段都会 post 成 None）、以及不传 sink 的那条路径照常返回 segments。
+
 ## 2026-08-15 — `segments_sink`：房间要在 run 结束前读到边界
 
 `collect_run` 增加可选的 `segments_sink`：传进来的话，它**就是**累积用的那个列表，所以持有

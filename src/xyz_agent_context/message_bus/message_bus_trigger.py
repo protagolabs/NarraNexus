@@ -178,14 +178,6 @@ class TurnResult:
     #: is a failure notice, not the agent's words, so a consumer that posts
     #: plain text needs to know not to.
     fatal: bool = False
-    # The monologue/reply boundary the collector preserved, when this turn had
-    # one (team rooms only — `include_monologue=is_team`). A FIELD rather than a
-    # third tuple element: a tuple that grows rebinds every positional unpack
-    # silently, which this codebase has already paid for once.
-    #
-    # None means "no boundary was recorded", which is what every message written
-    # before this existed also carries; the reader renders those as one block.
-    segments: Optional[List[dict]] = None
 
     @property
     def reached_nobody(self) -> bool:
@@ -2967,10 +2959,15 @@ class MessageBusTrigger:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
-        Returns a ``TurnResult``. ``segments`` on it is the monologue/reply
-        boundary the collector preserved — a FIELD rather than a third tuple
-        element, because a tuple that grows rebinds every positional unpack
-        silently, and this codebase has paid that tax before.
+        Returns a ``TurnResult``.
+
+        ``segments_sink`` — the caller's list, filled by the collector AS THE RUN
+        STREAMS. The monologue/reply boundary used to ride back on the result,
+        which stopped working the moment the room post moved inside the turn:
+        the deliverer needs the boundary for the text it is posting, and the
+        result does not exist yet. The field on ``TurnResult`` outlived its last
+        reader by one merge and has been removed rather than left as a channel
+        that writes to nobody.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE
@@ -3111,7 +3108,6 @@ class MessageBusTrigger:
             text=collection.output_text,
             event_id=collection.event_id,
             delivered=self._delivered_to_anyone(collection.tool_calls),
-            segments=collection.segments,
         )
 
     @staticmethod
