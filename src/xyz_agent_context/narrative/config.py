@@ -32,6 +32,10 @@ class NarrativeConfig:
     # so the anchor must persist indefinitely. Sessions are one tiny,
     # overwritten-in-place file per (agent, user); they do not grow without
     # bound, so there is nothing to time out. (Was SESSION_TIMEOUT = 600.)
+    # The fast path (step_1_fast_select) honors the same rule: a live
+    # anchor is reused regardless of age. It briefly reintroduced a
+    # 30-minute window (2026-08-14) — removed the same day for exactly
+    # the reason above.
 
     # ==================== Continuity Detection (LLM version) ====================
 
@@ -98,6 +102,36 @@ class NarrativeConfig:
     # deferring. At 2.0 the eval set short-circuits 54.9% of turns.
     NARRATIVE_MATCH_RAW_FLOOR = 3.0
     NARRATIVE_MATCH_MARGIN_RATIO = 2.0
+
+    # Fast-path (TurnProfile bm25_top1) anchor-override floor.
+    # The fast path has no continuity LLM: when the session carries a live
+    # anchor (current_narrative_id), that thread is reused by default and a
+    # BM25 top-1 may steal the turn away from it ONLY above this raw score.
+    # Deliberately high — raw BM25 scales with query length (median top1:
+    # ~5.3 under 40 chars vs 12-15 over, see RAW_FLOOR note above), so short
+    # follow-ups can never clear it and stay in their thread, while a long,
+    # topic-rich message that decisively matches another thread still
+    # switches. Distinct from RAW_FLOOR, which is a noise filter for the
+    # anchorless case. Env override: NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR
+    #
+    # NOTE (2026-08-14, measured): with a live anchor the fast path never
+    # CREATES a narrative. Two "trusted silence ⇒ new topic" gates were
+    # tried and measured against real BM25 distributions: a 40-char gate
+    # never opened for CJK (complete zh sentences are 11-15 chars), and a
+    # script-independent 8-unit gate fragmented one coherent 7-turn zh
+    # conversation into 5 narratives (on-topic zh continuations score
+    # 1.0-3.2 — straddling RAW_FLOOR — and >=8-unit pure ACKs like
+    # "嗯嗯我明白了那就这样吧" probe as silence). BM25 cannot separate
+    # "new topic" from "elliptical continuation" in CJK, and the error
+    # asymmetry decides: a misfiled turn is recoverable (the next
+    # full-path turn re-routes via continuity; switch_narrative exists),
+    # a fragmented thread is not (permanent split + an empty ChatModule
+    # history for the agent mid-conversation). New threads under fast
+    # mode arrive via: no live anchor (first conversation), a strong
+    # override hit onto an existing thread, or the next full-path turn.
+    FAST_ANCHOR_OVERRIDE_FLOOR = float(
+        _env("NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR", "12.0")
+    )
 
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)
     # LLM will determine:

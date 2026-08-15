@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-06
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: 首包可带 fast_mode
+
+`run()` options 增 `fastMode?: boolean`；开启时首包多一个字段
+`fast_mode: true`，关闭/缺省时**省略字段**（wire 上与旧 payload 逐字节
+相同）。仅此一处上 wire——backend `AgentRunRequest.fast_mode` 对应接收，
+纯透传到 AgentRuntime；reconnect 首包不带（profile 不持久化）。
 
 ## 2026-08-06 — 两处 auth 桥接改调 `reportWsAuthFailure(frame)`
 

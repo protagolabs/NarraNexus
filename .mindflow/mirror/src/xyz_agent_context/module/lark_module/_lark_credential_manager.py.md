@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — `update_workspace_path` 删除（死代码）
+
+lark_cli_client 的懒迁移写改走 seam `patch_credential` 后，`update_workspace_path` 全仓零调用者，按铁律 #8/#2 删除。apply_patch docstring 里"不相交列并发写者"的举证同步改为只引 `update_auth_status`（lark_trigger 仍在调、仍是真实的单列写者）——**按列写的设计本身保留**，被删的只是引证。
+
 ## 2026-08-11 (二轮审查) — apply_patch 只写被 patch 的列（收窄丢更新窗口）
 
 原 apply_patch 是**整行** read-modify-write（save_credential 写全部列），会 clobber 并发的单列写者（trigger 的 `update_auth_status(BRAND_MISMATCH)`、懒 `update_workspace_path`）——它们写不相交的列，却被整行回写盖掉。改为：deep_merge 后经 `_cred_to_columns`（新静态方法，列序列化单一来源，save_credential 也复用）算出全列，再按 `_PATCHABLE_COLUMN`（raw-key→列名，app_secret_encoded→app_secret_encrypted）**只 update patch 指名的列**。不相交列不再被盖；同列并发仍需锁（三击 per-key 写罕见重叠）。未知字段→ValueError。守卫测试 [[test_lark_apply_patch]]（只写指名列 + is_active 0/1 + 拒未知字段）。

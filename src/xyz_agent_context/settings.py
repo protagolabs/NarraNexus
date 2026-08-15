@@ -171,6 +171,18 @@ class Settings(BaseSettings):
     # If this ever needs to go higher, get evidence first: a `worker_starvation`
     # row in `service_audit` means the pool really is the bottleneck (see
     # `_check_worker_starvation`); its absence means it is not.
+    #
+    # What changed on 2026-08-14, and why `worker_starvation` is now ambiguous:
+    # a team-room reply is posted from INSIDE the turn, so the next hop of a
+    # relay is dispatched while the previous agent's turn is STILL RUNNING (an
+    # agent may legitimately keep working for a long time after replying —
+    # binding rule #14). A slot is released at the end of the turn, not at the
+    # reply. So one room's D-hop relay now holds up to D slots at once, where
+    # it used to hold 1, and "slots are cheap because a bus turn is mostly
+    # await" is only half true: the waiting is cheap, the HOLDING is not.
+    # A `worker_starvation` row during a busy team relay is therefore an
+    # expected shape, not evidence that someone's agent is wedged — read it
+    # together with how many rooms were relaying at the time.
     bus_max_workers: int = 8
 
 

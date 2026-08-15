@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-08-06
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -49,3 +49,10 @@ RunContext 新增 turn_profile 输入字段（None=普通路径）。
 
 - `ctx.execution_result` 在 Step 3 完成后才有值，Step 4 和 Step 5 读它时如果 Step 3 抛出异常，这个字段是 `None`，`step_4_persist_results` 有 `if not execution_result: return` 的保护。
 - `ctx.module_list` 在 Step 2 中追加了 `MemoryModule`（不通过 Instance 机制管理的 agent 级模块），但 `ctx.active_instances` 里没有 MemoryModule 对应的 instance。两个列表的长度和内容不对应。
+
+## 2026-08-12 — `on_plain_text_delivery`
+
+team 房间把纯文本贴进房间的回调,只有 MessageBusTrigger 的 team 分支会传,其余场景
+为 None。挂在 turn 上而不是放在 `run()` 之后,理由见
+[[step_3_agent_loop]]:会话行在 run 内部就写完了,事后发生的投递没法被记成回复,
+而乐观记账正是要消除的那个谎。

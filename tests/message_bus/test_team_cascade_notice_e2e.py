@@ -75,7 +75,15 @@ def _trigger(db, reply: str):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        return TurnResult(text=reply, event_id="evt_turn", segments=[])
+        # The room post happens INSIDE the turn (2026-08-14): the runtime hands
+        # the plain text to `on_plain_text_delivery`, and that callback is where
+        # mentions are parsed and the hop cap fires. A stub that only returns a
+        # TurnResult never posts at all, so the cap never runs and there is
+        # nothing for this file to assert.
+        cb = kwargs.get("on_plain_text_delivery")
+        if cb is not None and reply.strip():
+            await cb(reply)
+        return TurnResult(text=reply, event_id="evt_turn")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
     return t

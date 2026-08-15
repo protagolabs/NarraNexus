@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 — 和 #291 的和解：cap 与 segments 搬进 turn 内
+
+#291 把房间回复搬进了 turn 内部（`_deliver_reply`），而 @mention 解析和 hop cap 也跟着搬了
+进去——这条分支的两样东西恰好都长在那里。
+
+**segments**：`turn.segments` 在 deliverer 被调用时还不存在。改成从 `segments_sink` 读
+（见 [[run_collector.py]]），deliverer 在发帖那一刻 join 一次。
+
+**cap 通知**：capping 在 turn 内发生，通知必须在 turn **之后**发——房间要读成"agent 先说话，
+然后平台解释它拒绝了什么"，反过来会让平台的注解压在它所注解的那句话上面。所以 cap 的结果
+（具名的人 + 是不是 `@all`）用一个 holder 带出来，和 dev 用 `room_post` 带出投递状态是同一
+个手法。
+
+通知只在 `post_state == POST_OK` 时发：在一条谁也看不见的回复旁边解释"我没把人拉进来"，
+解释的是错误的那个缺席。
 
 ## 2026-08-14 (三) — `_post_to_room` 少了 `segments`，一次合并干掉了所有团队回复
 
@@ -708,6 +724,11 @@ process your message right now (error_type). error_message"` string so
 the sender agent sees the failure inline instead of receiving an empty
 reply.
 
+> **2026-08-14 更新**(取代 08-13 那条,它描述的三元组从未合入):返回值是
+> `TurnResult`,`fatal` 字段说明"这是错误串而不是 agent 的话"。
+> DM lane 的行为不变;team lane 的投递已搬进 turn,所以那条 ⚠️ 由 team 分支
+> **以房间身份**单独贴出(详见同日条目),而不再经由这里的返回值被当成回复贴进房间。
+
 ## 2026-05-12 — IM channel skip extended to telegram_ / slack_
 
 `_process_agent()` already skipped `lark_` channels (written by `ChannelInboxWriter`
@@ -1091,6 +1112,194 @@ Agents 同一条 2026-08-04 的教训。
 顺带:roster 的描述与 capabilities 截断现在会标记(团队卡对 `intro_md` 就是这条规矩,
 一份 prompt 里不该有两套标准);空 roster 不再说「just you」——这个 agent 自己就是
 成员,读回空意味着读失败,不是房间空了。
+
+## 2026-08-12 — 房间投递从"turn 之后"搬进"turn 之内"
+
+`_post_to_room` 闭包取代了原先在 `_invoke_runtime` 返回后才执行的那段代发,并作为
+`on_plain_text_delivery` 交给 runtime。**分层没有倒挂**:回调是数据往下流,而"投递
+意味着什么"仍然全部留在这里 —— @mention 解析(工作交接靠它)、级联封顶(bus 策略)、
+run id 盖章(transcript 靠它打开某一行背后的那一轮)。runtime 只决定这次投递**算不算
+一次回复**。
+
+事后那段必须删掉,不能留着:房间会把每句话说两遍,而"房间重复发言"比它要修的记账问题
+更糟。有测试钉住"恰好贴一次"。
+
+event_id 现在取 `watched_run_id[0]`(`on_event_id` 填的),因为回调跑在
+`_invoke_runtime` 返回之前,那时还没有返回值可用。**这一点连带改了两个测试的桩**:
+它们此前只 `return ("text", "evt")`,现在必须像 runtime 那样先报 run id、再把纯文本交给
+deliverer —— 桩不模拟真实时序,测的就不是真实链路。
+
+`send_message` 失败时回调返回 False,于是 step_3 不发帧:那一轮确实没回复,记忆里也就
+不会出现一条房间从没收到的话。
+
+## 2026-08-13 (review 后) — 三处自我纠正
+
+**① 记账修对了,冷启动一分没修 —— 而我声称修好了。** 详见
+[[chat_module]] 同日条目。此处只记教训:那一批测试全在孤立地验
+`_delivered_to_origin` 和摘要文案,**没有一条走落盘**,于是"行类型跟着投递走"这个
+断言从头到尾没被检验过。文件名承诺了一件事,四条测试一条也没验它。
+
+**② team 房间的错误面被删掉了。** 投递搬进 turn 之后,`collection.is_error` 时
+`_invoke_runtime` 返回的那条 ⚠️ 在 team lane 没有任何消费方 —— 而 turn 内那条路是
+**刻意**在 loop 失败时不投递的(免得半截明文读起来像答案)。两头一夹,fatal 的 team
+turn 变成"房间完全沉默"或"没标记的半截话"。
+
+`_invoke_runtime` 因此在 `TurnResult` 上多带一个 `fatal`,team 分支在 `turn.fatal` 时**以房间身份**
+(`from_agent=channel_owner`,即 `team_<id>` 标记)贴出通知。**刻意不走
+`_post_to_room`**:那条路会解析 @mention(把队友拖进一次故障)、盖 run id、并被记成
+agent 的一次回复 —— 在一个专门消除假账的改动里再造一笔假账。
+
+沉默是这里最坏的结局:@ 了这个 agent 的队友分不清"不感兴趣"和"坏了",交接原地停死。
+这正是 2026-04-20 那条通知存在的理由。
+
+**③ 3.4.T 漏了取消门。** 取消是 Step 4 之后才抛(为了让被打断的 turn 也进历史),
+所以 step_3 一定跑到底。缺这个门的代价不止是多一行:`_post_to_room` 会解析 @mention,
+于是一轮**被用户中止的** turn 能把工作级联给房间里其他 agent,各自跑一整轮。判定抽成
+`_should_deliver_team_reply` 纯函数 —— 和同文件 `_should_run_helper_llm_fallback`
+同一个形状,否则这个门测不了(我第一版测试在测试里重写了一遍条件,生产代码删掉门它
+照样绿)。
+
+## 2026-08-13 (review 后) — 通知只在 fatal 时发,且失败要留痕
+
+**判据统一。** 通知此前看 `collection.is_error`(任何错误帧),而 turn 内投递的门看
+`captured_error`(只有抛异常)—— 两个不相交的判据。差集正好是两条真实路径:
+recoverable 抖动 → 房间收到**正确答案 + 一条假的 ⚠️**;没抛出来的 fatal → 房间收到
+**没标记的半截话 + ⚠️**,而 agent 自己历史里一个字都没有。现在两端都读 `severity`
+(见 [[run_collector]]),`is_fatal` 才发通知。
+
+顺带修掉一个既有行为:一次 provider 抖动会把整轮真实回复替换成 ⚠️。现在 recoverable
+时返回真实输出,DM lane 的 inbox 也跟着受益。
+
+**通知发送失败不再静默。** 原先用 `contextlib.suppress(Exception)` —— 而它保护的正是
+房间**唯一**的故障可见面。失败无痕会让"房间安静了"退化成两个无法区分的原因:代码没跑
+到,还是跑到了但发不出去。异常仍然吞(通知是 best-effort,不该拖挂 turn;而且这段在
+`ack_processed` 之后,抛出去会触发 `record_failure` 把这条消息推向 poison 阈值 ——
+把"通知没发出"升级成"这条消息永远投不出去"),但必须留一条 warning。
+
+## 2026-08-14 — 重建时把自己的接线删掉了
+
+按 dev 的 `TurnResult` 重建这条 lane 时,`_invoke_runtime` 的
+`on_plain_text_delivery` 形参**和**它往 `run_and_collect` 的转发被一起删掉,而调用点
+仍在无条件传它(DM 传 `None`,同样是这个关键字)。后果是**每一条 bus 消息 TypeError**
+—— team 房间与 peer DM 全线停摆,消息几轮内到达 poison 阈值,owner 收到永久失败通知。
+
+**全量 5945 条测试一条都没照出来**,因为这一片的测试**全都把 `_invoke_runtime` 整个
+替换掉**,真实签名从未被执行。守门测试因此改用本仓已有的正确范式:桩
+`run_and_collect`,让真实函数留在路径上(`test_bus_run_cancellation.py` 里那条转发
+`cancellation` 的用例就是这么写的),并实测过删掉形参会红。
+
+## 2026-08-14 (补) — `room_post_failed`:跨 turn 边界把一次异常递出来
+
+代发搬进 turn 之后,失败的异常发生在**回调里**(turn 内),而处理它的地方
+(`_announce_failed_room_post` —— 贴 `system_delivery_failed` 行、并把回复原文保进
+owner 的 inbox)在 turn **之后**。两者之间只隔着 `run()` 的返回,但回调的返回值只能
+是 bool,没地方带异常。
+
+`room_post_failed` 是一个单元素 list,充当那条边界上的信箱:回调把异常放进去并返回
+False(于是 step_3 不发帧 —— 那一轮确实没触达房间),turn 结束后 team 分支据此调
+dev 的公告方法。
+
+**为什么不在回调里直接公告**:那会在 turn 内往房间再写一条消息,而此刻 `run()` 尚未
+返回、`ack_processed` 也还没跑,失败公告会先于"这一轮已处理"落库;更重要的是,公告
+必须以**房间身份**发,而回调是以 **agent 身份**代发的那条路径,混在一起会让公告被记成
+agent 自己的一次发言。
+
+**为什么不用异常穿透**:回调是被 `step_3` await 的,抛出去会打断投递阶段并落进
+runtime 的通用错误处理,把"一条消息没贴成"升级成"这一轮失败"。
+
+## 2026-08-14 (再补) — 这个信箱要三态,两态会把"从没投递"记成一次成功的 hop
+
+上一条描述的 `room_post_failed` 只区分"记到异常"与"没记到异常",于是**回调压根没被
+调用**这第三种情形塌进了后者,被读成"投递成功了"。它不是理论情形:两道 fatal 门问的
+不是同一个问题 ——
+
+* runtime 侧(`step_3` 的 `_turn_hit_a_fatal`):`captured_error is not None` 或存在
+  字面 fatal 帧 → 拒绝在 turn 内代发(半截流出来的文本会被读成一个答案);
+* trigger 侧(`turn.fatal` ← `RunCollection.is_fatal`):看最后一条 error 帧的
+  severity。
+
+agent 已经先答过、随后 loop 抛异常的那一轮,runtime 侧拒发,而收尾帧是
+`recovered_after_reply` —— 按 [[run_collector]] 的裁决语义**不算 fatal**。两边各自都对,
+合起来的结果是:房间一个字都收不到,`turn.fatal` 为 False 所以不贴 ⚠️,`post_err` 为
+None 所以不走失败公告,而 `posted` 停在初值 `True`,`[bus-timing]` 记下一次**什么都没
+投递的成功 hop** —— 而这条序列正是用来判断"投递有没有问题"的那个指标。
+
+现在这个信箱记 `("ok" | "failed" | "not_attempted", exc | None)`:
+
+* `failed` / `not_attempted` 都把 `posted` 置 False —— 房间里没有这一轮,hop 就没完成;
+* `not_attempted` 且非 fatal 时走同一个 `_announce_failed_room_post`(它的 `error` 形参
+  因此放宽到 `Exception | str`):补救是一样的两件事 —— 房间留一行可见的投递失败、回复
+  原文进 owner 的 inbox;是"发失败了"还是"压根没发"属于公告内容,不该是两条代码路径。
+
+**不要从"没记到错"推断"投递成功了"** —— 这是本 lane 反复付过学费的同一类错误。
+
+## 2026-08-14 (三补) — 公告之前先问房间;以及「平台没投递」不止一条臂
+
+上一节把信箱改成三态,解决了「记账」;但 `not_attempted` 那条臂**公告**得太早。
+
+让它可达的那条链自己带着答案:`turn.fatal` 为 False 唯一的来路是收尾帧为
+`recovered_after_reply`,而这个 severity 的置位条件**就是** `_has_organic_reply` ——
+agent 这一轮确实调过一次投递工具。三个工具打三个地方:
+
+| 打给谁 | 房间听见了什么 | 该不该公告 |
+|---|---|---|
+| `bus_send_message` → 本房间 | agent 的话 | **不该** |
+| `bus_send_to_agent` → 队友私聊 | 什么都没有 | 该 |
+| `send_message_to_user_directly` → 只给 owner | 什么都没有 | 该 |
+
+团队 prompt 禁用投递工具只是**文字规则**,MCP server 在团队 turn 里照常挂着(清空的是
+expressive declaration,不是工具面),按铁律 #15 平台不管模型听不听话 —— 所以第一行不是
+边角情形,而是不听话的 agent 在团队房里「发一句话」最顺手的写法。
+
+于是这条臂改成先问 `has_message_from_turn(channel_id, agent_id, turn.event_id)`,听见了
+就只记账不公告。**不能用 `turn.delivered` 当门**:它认的名单含
+`send_message_to_user_directly`,用它会把上表第三行那条**正确**的公告一起吞掉,房间又回
+到静默。为让这个问题可回答,MCP 侧的 `bus_send_message` 同批补盖了 `event_id`(见
+[[_message_bus_mcp_tools]])。
+
+记账与公告是两个问题:即使房间听见了 agent 自己那句,**平台代发**这件事确实没发生,
+`posted` 保持 False 是对的。
+
+同批补上 `reached_nobody` 那条臂的 `posted = False` —— 它的定义就是「没文本、也没有任何
+工具触达任何人」,房间只收到一行平台通知,而**通知不是投递**。上一节在有文本那一支立的
+判据,这一支漏了。
+
+`_post_to_room` 的 mentions 解析与 cascade 深度读取也一并纳入 `try`:它们在 try 之外时
+抛出去会被 step_3 接住返回 False,而信箱停在 `not_attempted` —— 于是 `_team_cascade_depth`
+的一次 DB 故障会被写成「runtime 拒绝投递」,把排查引到另一道门上。**调用过就失败,一律记
+`failed`**。
+
+## 2026-08-14 (合 dev #303) — turn 内代发必须走 `_post_to_room`,而不是 `_bus.send_message`
+
+#303 把「发帖」与「叫醒 poll loop」绑成同一个方法,理由是它们分开过一次:巡查那条路径
+漏了 wake,被 @ 的队友因此白等一个完整的自适应轮询间隔。本 lane 的 turn 内代发是**同一
+类**调用点,而且是更主要的那条 —— 团队回复的下一跳就是队友。合并时闭包直接调
+`self._bus.send_message` 会静默绕开 wake,把刚修掉的死气原样引回主路径。
+
+两件事同批:闭包改名 `_deliver_reply`(dev 的方法就叫 `_post_to_room`,重名会让「唯一入口」
+这条规矩看起来有两个入口),fatal 通知那条 post 也改走同一入口。dev 自带的两条 wake 测试
+原来的桩在 turn **外**代发,对齐生产后它们才真的覆盖这条新路径 —— 实测过绕开入口会红。
+
+### 占用画像同时被改了,而这一点原来没写下来
+
+搬进 turn 内改的不只是记账时点,还有**槽位占用的重叠关系**。旧顺序:A 的 turn 跑完 →
+代发 → B 成为候选 → A 释放槽位 → B 拿到槽位,重叠约等于零。新顺序:A 第 5 秒就把回复
+投进房间 → `_wake()` 立刻叫醒 poll loop → B 立刻被派发,而 **A 的 turn 还在跑** ——
+按铁律 #14,回复之后继续干几十分钟是一等场景,不是异常。于是同一个房间一次 D 跳接力,
+峰值占用从 1 个槽位变成最多 D 个,每个都可能长时间不释放。
+
+这不是 wake 引入的:没有 wake,B 也会在下一个轮询周期(3-12s)被派发,重叠一样存在,
+wake 只是把「最多晚 12 秒」变成「立刻」。但本轮是这两半第一次相遇,也是第一次有了
+`bus_max_workers` 这个旋钮和 `worker_starvation` 告警,所以在这里记下。
+
+worker 池是**进程级、跨用户共享**的,所以后果不局限在这个房间:几个房间同时接力就能
+把 8 个槽位占满,其余用户的团队房与 peer DM 全部堵在信号量后面。`settings.py` 里
+`bus_max_workers` 的注释已同批补上这条,重点是**别把 `worker_starvation` 直接读成
+「有人的 agent 卡住了」**。
+
+**能动的只有平台侧的槽位数量与分配策略。** 给 `agent_loop` 加时间/轮数上限、或「回复
+后强制结束 turn」是铁律 #14/#15 明令禁止的方向,也正是本 PR 通篇在维护的前提。按 channel
+轮转的公平派发是正解,但它是独立的一条,已记进 followup。
 
 ## 2026-08-12 — 把 segments 交给 bus
 

@@ -22,6 +22,9 @@ from xyz_agent_context.module.data_access.channel_store import (
     DirectStore as ChannelDirectStore,
     HttpStore as ChannelHttpStore,
 )
+from xyz_agent_context.module.data_access.workspace_cwd import (
+    resolve_agent_workspace_cwd,
+)
 
 __all__ = [
     "AgentDataStore",
@@ -32,4 +35,5 @@ __all__ = [
     "ChannelDirectStore",
     "ChannelHttpStore",
     "get_channel_credential_store",
+    "resolve_agent_workspace_cwd",
 ]

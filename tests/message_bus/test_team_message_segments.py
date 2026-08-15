@@ -166,14 +166,21 @@ def test_the_bus_signature_appends_rather_than_inserts():
 
 
 def test_the_team_reply_hands_its_segments_to_the_bus():
-    """The trigger must pass what the collector preserved, and it must come from
-    a real return value rather than an attribute lookup that can quietly miss."""
+    """The trigger passes the boundary to the post, from a real value.
+
+    Reads the source because the post moved inside the turn and the deliverer is
+    a closure — but the BEHAVIOUR is covered end to end by
+    `test_a_real_team_turn_stores_its_segments` below, which is the test that
+    actually goes red. What is pinned here is the shape that has bitten twice:
+    a `getattr` fallback, which turns "the name is wrong" into a permanent None
+    with no error and no log.
+    """
     import inspect
 
     from xyz_agent_context.message_bus import message_bus_trigger as mod
 
     src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert "segments=turn.segments" in src
+    assert "segments=joined_segments(live_segments)" in src
     assert "getattr(collection" not in src
 
 
@@ -279,6 +286,19 @@ async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
 
     async def _invoke(**kwargs):
+        # Stands in for `collect_run`: it fills the caller's sink as the run
+        # streams and hands the reply to the deliverer, which is what makes the
+        # boundary available at post time. The post is inside the turn now, so a
+        # stub that only returns a TurnResult posts nothing.
+        sink = kwargs.get("segments_sink")
+        if sink is not None:
+            sink.extend([
+                {"kind": "monologue", "parts": ["thinking"]},
+                {"kind": "reply", "parts": ["answering"]},
+            ])
+        cb = kwargs.get("on_plain_text_delivery")
+        if cb is not None:
+            await cb("thinkinganswering")
         return TurnResult(
             text="thinkinganswering",
             event_id="evt_seam",

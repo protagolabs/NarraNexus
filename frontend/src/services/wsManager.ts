@@ -55,6 +55,7 @@ class WebSocketManager {
       onComplete?: OnCompleteCallback;
       agentName?: string;
       attachments?: Attachment[];
+      fastMode?: boolean;
     },
   ): void {
     // Close existing connection for this agent if any
@@ -115,6 +116,9 @@ class WebSocketManager {
         attachments: options?.attachments && options.attachments.length > 0
           ? options.attachments
           : undefined,
+        // Fast-mode intent for this turn only — the backend maps it to a
+        // TurnProfile and persists nothing. Omitted when off.
+        fast_mode: options?.fastMode ? true : undefined,
       }));
     };
 

@@ -210,7 +210,8 @@ Two serialization fixes for the roster/transcript:
   every finished turn rendered as a confident "ran 0s" while the DB held the
   real value (2026-07-31 issue, Step 3).
 - **each chat message includes `event_id`** (from `BusMessage.event_id`,
-  stamped by the trigger on agent replies) — drives the per-message
+  stamped by whichever path posted it — the trigger's in-turn room post or
+  the agent's own bus send) — drives the per-message
   "view reasoning & tools" disclosure in the transcript. Null for user
   messages and legacy rows.
 

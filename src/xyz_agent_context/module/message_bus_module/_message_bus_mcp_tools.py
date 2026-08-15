@@ -25,6 +25,7 @@ from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 # it, and both tools write the same table — so both must record it.
 from xyz_agent_context.module._mcp_identity import (
     caller_errand_scope,
+    caller_event_id_from_request,
     caller_root_run_id,
     caller_team_id_from_request,
     caller_turn_source,
@@ -185,6 +186,16 @@ def register_message_bus_mcp_tools(
                 # break — and a broken lineage means a cascade stop silently
                 # leaves that branch running.
                 root_run_id=caller_root_run_id(),
+                # WHICH turn produced this message. The platform's own team-room
+                # post already stamps it; without the same stamp here, "did this
+                # agent put anything in this room during that turn?" has no
+                # answer for the half the agent sent itself — and the trigger
+                # has to guess, which is how a room that DID hear the agent gets
+                # told delivery failed. Same attribution the artifact tool
+                # records (`_mcp_identity` header, not a model parameter).
+                # Absent header degrades to None by design; the consumer treats
+                # a missing id as "cannot tell", never as "it happened".
+                event_id=caller_event_id_from_request(),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:
@@ -356,6 +367,9 @@ def register_message_bus_mcp_tools(
                 # Same lineage hop as bus_send_message — this is the ask that
                 # spawns a peer's run, i.e. exactly how a tree grows.
                 root_run_id=caller_root_run_id(),
+                # And the same turn attribution: a column whose meaning depends
+                # on which tool wrote the row is a column nobody can query.
+                event_id=caller_event_id_from_request(),
             )
             return {
                 "success": True,
@@ -523,13 +537,17 @@ def register_message_bus_mcp_tools(
             agent_id: Your own agent id.
             team_id: The team whose folder to list.
         """
-        from xyz_agent_context.message_bus.team_files import list_team_files
-        from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+        try:
+            from xyz_agent_context.message_bus.team_files import list_team_files
+            from xyz_agent_context.module._mcp_identity import resolve_caller_agent_id
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
-        db = await get_db_client()
-        return await list_team_files(
-            db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
-        )
+            db = await get_db_client()
+            return await list_team_files(
+                db=db, agent_id=resolve_caller_agent_id(agent_id), team_id=team_id
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @mcp.tool()
     async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:

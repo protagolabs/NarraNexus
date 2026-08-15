@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 — `segments_sink`：房间要在 run 结束前读到边界
+
+`collect_run` 增加可选的 `segments_sink`：传进来的话，它**就是**累积用的那个列表，所以持有
+同一个引用的调用方能在 run 返回之前看到 segments。
+
+为什么需要：#291 之后团队房间的回复**在 turn 内部发出**（chat 行由 `hook_persist_turn` 在
+`run()` 返回前写，之后再发的帖子不会被记成一次回复）。而 `RunCollection` 那时还不存在，
+`turn.segments` 拿不到。deliverer 被调用时，这一轮回复的 delta 已经全部流过，所以 sink 里
+就是它正在发的那段文字的边界。
+
+`joined_segments()` 导出成公共函数：**在途读取**和**最终返回**共用同一个 join，两者不可能
+对形状产生分歧，而 `parts` 形态也不会从任何一条路径泄漏出去。
 
 ## 2026-08-14 — segment 累积改成 parts，docstring 改成实话
 
@@ -148,6 +161,60 @@ trigger 可以忽略。
 message (kind ∈ thinking|tool|response|error). Opt-in (default None → zero overhead for every
 existing trigger); the team bus path uses it to mirror a live activity status
 ([[_bus_activity]]). Never raises — exceptions are swallowed so status can't break the run.
+
+## 2026-08-13 — `RunError.severity` 与 `is_fatal`:`is_error` 不是"这轮失败了"
+
+`is_error` 由**任何** ERROR 帧置位,包括 `severity="recoverable"` —— 那类帧是 loop
+吸收掉、随后照常产出**正确回复**的抖动(provider 429/5xx)。把它读成"这轮失败了"的
+后果有两种,都真实发生过:bus lane 把整轮真实回复替换成 ⚠️;team 房间因为通知是单独
+贴的,于是**同时**收到正确答案和一条"我处理不了你的消息"。
+
+`is_fatal` 才是"这轮有没有可用输出"的答案。未标注 severity 的错误按 fatal 处理 ——
+把可能为空的一轮当成成功,是两个方向里更有害的那个。
+
+**fatal 是粘性的**:收集时 `error` 是"last error wins",对 fatal 不适用 —— 先 fatal
+后 recoverable 的一轮仍然没有可用输出,让后来的帧覆盖掉结论会把坏掉的轮次呈现成好的。
+所以全程扫到过 fatal,收尾时会把结论压回 fatal —— 但**只压那些知道得更少的后续帧**,
+不是无条件的。豁免哪些、为什么,见下面 08-14 那节(它取代本段末句的早期版本)。
+
+## 2026-08-14 — `is_fatal` 之前把两种"其实答了"的情形误判成 fatal
+
+`severity` 有**四种**取值,不是两种:除 `fatal` / `recoverable` 外还有 `recovered`
+(fatal 级故障被 helper-LLM fallback 用一条真实回复盖住)和 `recovered_after_reply`
+(agent 已经先答过了,故障发生在之后)。初版写的 `!= "recoverable"` 把后两种也算成
+fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**,判成 fatal 就是把那条回复
+换成一句 ⚠️。
+
+现在只有 `fatal` 与未标注算 fatal(未标注取更坏的一侧:把可能为空的一轮当成成功,
+是两个方向里更有害的那个)。
+
+**粘性 fatal 同批让路,判据是"谁更知情"。** 只改 `is_fatal` 不够:收集器出口的粘性
+步骤会把最后一条 error 的 severity 压回 `"fatal"`,而 `recovered` / `recovered_after_reply`
+的**前置条件就是先发生过一次 fatal** —— 粘性必然触发,于是修好的 `is_fatal` 收到的输入
+已经被改写成 `"fatal"`,整个修复是空转的。
+
+分界不是"哪些 severity 比较轻",而是**这一帧在说什么**:
+
+* `recoverable` / 未标注 —— 对这一轮的**竞争性描述**,而且比那条 fatal 帧知道得少
+  (它不知道前面已经崩过)。粘性挡的就是它们。
+* `recovered` / `recovered_after_reply` —— 对那次 fatal 的**裁决**(fallback 答了 /
+  agent 先答过)。它们只会**因为**有 fatal 才被发出,把它们上调回 fatal,等于抹掉它们
+  存在的唯一意义。
+
+这条知识在同一个文件里一度写了三份(`is_fatal` 的名单、粘性步骤的行内 tuple、`saw_fatal`
+只认字面 `"fatal"`),而漂移的表现就是上面这个 bug 本身。现已收成模块级
+`VERDICT_ON_FATAL_SEVERITIES`,三处都从它派生。
+
+`saw_fatal` 的置位同批改成"不在 `_NON_FATAL_SEVERITIES` 里就置位",与 `is_fatal` 用同
+一份名单;此前它只认字面 `"fatal"`,是同一判据的第三种写法。
+
+**未标注(`""`)在今天的生产路径上不可达**,别照着它设计分支:`ErrorMessage.severity` 是
+四值 `Literal` 且默认 `"fatal"`,所以经 `runtime.run()` 流出的 ERROR 帧给不出空串;`""`
+只来自手工构造的 `RunError`(`severity` 的默认值,即测试,以及将来某个不走 schema 的
+生产者)。上面两处对它的处理是**防御性**的,一律取更坏的一侧。
+
+收尾改写则**豁免 `""`**,理由与豁免裁决帧不同:未标注本来就被读成 fatal,改写它唯一的
+效果是抹掉空串携带的那一个信息 —— runtime 没说。
 
 ## 2026-08-12 — `segments`：保住独白与回复的边界
 

@@ -180,6 +180,9 @@ narrative 路由的决策轨迹。`candidates_json` 存**整个** BM25 候选池
 
 The `events` row id of the turn that produced an agent reply, stamped by the
 trigger's team branch at post time. NULL for user messages and legacy rows.
+
+> ⚠️ 「stamped by the trigger's team branch」已于 2026-08-14 失效 —— 见本文件
+> 末尾的 08-14 节。
 Powers the transcript's per-message "view reasoning & tools" disclosure —
 unlike `bus_agent_activity.event_id` (one row per member, latest turn only),
 this one gives every historical message its own handle.
@@ -724,6 +727,13 @@ Important #1).
 `"multimodal"`,而"无人被 @"是**正交**的另一个事实,两者塞进同一列会互相覆盖。
 `multimodal` 目前没有消费方,但重载一个字段表达两件事迟早出事。加一个可空列是本项目
 的常规机制,`auto_migrate` 幂等处理,不触发铁律 #6(它禁的是收窄类型和破坏性迁移)。
+
+## 2026-08-14 — `bus_messages.event_id` 的口径扩了(更正 07-31)
+
+07-31 那节写的「stamped by the trigger's team branch at post time」现在只对一半:
+agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份头),DM 频道的行
+同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
+完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
 
 ## 2026-08-12 — `bus_messages.segments`
 

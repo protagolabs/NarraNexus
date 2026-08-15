@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — bus_list_team_files 补上漏掉的 get_db_client 导入
+
+该工具自 2026-08-07 落地起就引用了未导入的 `get_db_client`（本文件的 db 导入全是**函数内局部**——82/396/463/498 各在别的函数作用域，闭包解析不到），每次调用必炸 `NameError`，而 [[test_list_team_files_tool]] 原有测试只测 impl 不过 wrapper，全绿假象。修复=补函数内导入（与兄弟工具同款，保持模块加载期不引 db_factory 的循环导入规避）+ 按兄弟工具惯例整体包 try/except（review Minor-4：此前它是这批 bus_* 里唯一裸抛的——连接池懒构建失败会把原始异常甩给模型；except 只回 `{"success": False, "error": ...}`，**不补 `files: []`**，拒绝≠空文件夹）。新增走 `register_message_bus_mcp_tools` 注册面的 wrapper 回归测试。教训：MCP 工具的测试必须打到注册的 wrapper，不能只打 impl。
+
 ## 2026-08-07 — 两个发送工具盖上 root_run_id
 
 `bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
@@ -106,3 +110,27 @@ from the LLM.
 `caller_team_id_from_request()` 的服务端身份头。这比隔壁 `bus_share_to_team`
 （模型传 team_id + 三段校验）更强——agent 无法指认自己当前不在的团队，
 于是跨团队写入不是要防的攻击，而是**不可表达的状态**。有测试断言签名里没有 `team_id`。
+
+## 2026-08-14 — `bus_send_message` 补盖 `event_id`:归因缺的那一半
+
+此前只盖 `root_run_id`(触发树的根,用来续 cascade),没有盖**这一轮**的 id。后果不在
+这个文件里显形,而在 trigger:团队房要判断"平台没代发的这一轮,房间到底听没听见这个
+agent 说话",平台自己代发的那条消息盖了 turn id、agent 用本工具发的那条没盖,于是同一个
+问题只有一半能被回答 —— 剩下那一半只能靠猜,而猜错就是在一个**已经听见回复**的房间里
+再贴一条"投递失败"。
+
+`event_id` 从 `_mcp_identity` 的请求头取(`caller_event_id_from_request`),不是模型
+参数;artifact 工具早就是这么记归因的,这里只是把同一条路补齐。
+
+## 2026-08-14 (补) — `bus_send_to_agent` 一并盖章,并补上真入口测试
+
+只给 `bus_send_message` 盖 `event_id` 会让 `bus_messages.event_id` 的含义取决于
+写它的是哪个工具。两处一起盖。
+
+这半条链此前**零测试**:trigger 侧的用例都是桩里自己写一行带 `event_id` 的消息,
+等于把「工具会盖章」当前提写死,而不是验证它。而
+`caller_event_id_from_request()` 设计上就是**头缺失即静默返回 None** —— 头注入链
+(context_runtime 传参 → `agent_id_headers` → adapter 转发 / bearer 第 8 段)任何一环
+断掉都不会有测试变红,症状却是团队房里偶发的假 ⚠️。
+`test_bus_send_event_id_stamp.py` 走注册后的真工具函数 + 伪造 ambient request 头,
+并把「无头 → None」这条降级契约也钉住(实测过去掉盖章四条全红)。

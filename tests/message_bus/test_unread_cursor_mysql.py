@@ -132,3 +132,25 @@ async def test_ack_read_runs_on_mysql_and_only_moves_forward(bus):
     # already read.
     await bus.ack_read(ME, ROOM, "1971-01-01T00:00:00+00:00")
     assert await bus.count_unread(ME) == 0
+
+
+@pytest.mark.asyncio
+async def test_has_message_from_turn_runs_on_mysql(bus):
+    """The three-column existence WHERE added for the team-room notice gate.
+
+    A dialect error here would surface as an EXCEPTION inside the arm that
+    decides whether to announce a delivery failure — i.e. exactly when the run
+    is already degraded — so SQLite-only coverage is not enough.
+    """
+    await bus.send_message(
+        from_agent=ME, to_channel=ROOM, content="mine", event_id="evt_x"
+    )
+    await bus.send_message(
+        from_agent=PEER, to_channel=ROOM, content="theirs", event_id="evt_x"
+    )
+
+    assert await bus.has_message_from_turn(ROOM, ME, "evt_x") is True
+    # Wrong turn, wrong sender, wrong channel: each column has to bite.
+    assert await bus.has_message_from_turn(ROOM, ME, "evt_other") is False
+    assert await bus.has_message_from_turn(ROOM, f"{_PREFIX}_ghost", "evt_x") is False
+    assert await bus.has_message_from_turn("ch_nope", ME, "evt_x") is False

@@ -786,10 +786,16 @@ _register(
             # (P1 2026-08-03 review). NULL on legacy rows / senders that
             # predate this column; the trigger falls back then.
             Column("sender_turn_source", "TEXT", "VARCHAR(32)", nullable=True),
-            # events row id of the turn that produced this message (agent
-            # replies posted by the trigger). NULL for user messages and for
-            # rows written before the column existed. Powers the per-message
-            # "view reasoning & tools" disclosure in the team transcript.
+            # events row id of the turn that produced this message. Stamped by
+            # BOTH paths an agent reply can take: the trigger's own in-turn
+            # room post, and the agent's `bus_send_message` /
+            # `bus_send_to_agent` (from the identity header, 2026-08-14) —
+            # so this is NOT a marker of "the platform posted it". NULL for
+            # user messages, for rows written before the column existed, and
+            # whenever the sender could not tell which turn it was in. Powers
+            # the per-message "view reasoning & tools" disclosure in the team
+            # transcript, and the team room's "did this agent say anything
+            # here during that turn?" check.
             Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
             # The trigger TREE the sending run belonged to (events.root_run_id).
             # Carries the lineage across the one hop where it would otherwise

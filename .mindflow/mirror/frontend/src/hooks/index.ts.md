@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14
+
+Added `useFastMode` export ([[useFastMode]]) — [[ChatPanel]] 经 barrel
+引用（与 useAgentWebSocket 同路径心智）。
 
 # index.ts — Hooks barrel export
 

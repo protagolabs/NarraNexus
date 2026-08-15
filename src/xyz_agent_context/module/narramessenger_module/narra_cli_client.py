@@ -164,37 +164,10 @@ def _narra_cli_home() -> str:
 
 
 # =============================================================================
-# Agent workspace CWD (same P0 fix as lark 2026-05-28)
+# Agent workspace CWD (same P0 fix as lark 2026-05-28) — shared
+# implementation in data_access.
 # =============================================================================
-_agent_user_id_cache: dict[str, str] = {}
-
-
-async def _resolve_agent_workspace_cwd(agent_id: str) -> Optional[Path]:
-    """Return the agent's workspace dir for the subprocess CWD, or None.
-
-    None means "inherit parent CWD" — tolerable for send/query, wrong only for
-    downloads (which then land outside the agent's Read sandbox).
-    """
-    user_id = _agent_user_id_cache.get(agent_id)
-    if user_id is None:
-        try:
-            from xyz_agent_context.module.data_access import get_channel_credential_store
-
-            user_id = await get_channel_credential_store().get_agent_owner(agent_id)
-            if not user_id:
-                return None
-            _agent_user_id_cache[agent_id] = user_id
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[narra-cli] user_id resolve failed for {agent_id}: {e}")
-            return None
-    try:
-        from xyz_agent_context.utils.attachment_storage import get_workspace_path
-        ws = get_workspace_path(agent_id, user_id)
-        ws.mkdir(parents=True, exist_ok=True)
-        return ws
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"[narra-cli] workspace resolve failed for {agent_id}: {e}")
-        return None
+from xyz_agent_context.module.data_access import resolve_agent_workspace_cwd
 
 
 # =============================================================================
@@ -340,6 +313,6 @@ async def run_narra_cli(
         return {"success": False, "error": "no_credential",
                 "message": "no NarraMessenger binding for this agent"}
 
-    cwd = await _resolve_agent_workspace_cwd(agent_id)
+    cwd = await resolve_agent_workspace_cwd(agent_id, log_tag="narra-cli")
     client = NarraCliClient(cred.bearer_token)
     return await client.run(command_args, cwd=cwd, timeout=timeout)
