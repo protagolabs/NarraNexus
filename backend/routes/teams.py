@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository
@@ -706,6 +707,9 @@ async def _team_room_activity(
     )
 
     out: dict[str, dict] = {}
+    # Raw timestamps for the cross-room comparison, function-local by
+    # construction so they cannot reach the caller.
+    newest: dict[str, object] = {}
     for msg in rows or []:
         team_id = channel_to_team.get(msg["channel_id"])
         if not team_id:
@@ -725,24 +729,31 @@ async def _team_room_activity(
         # truncates to whole seconds, so two rooms that spoke in the same second
         # would tie and the first row would win by accident. The formatted value
         # is for the wire only.
+        #
+        # Through `event_time_str`, which is what this repository already means
+        # by "normalise a DATETIME cell before comparing it": sqlite hands back
+        # `datetime` objects and mysql hands back strings, so a bare `str()` is
+        # a fourth hand-rolled copy of a helper that exists precisely because
+        # copies of it drifted. It is not equivalent either — `str(None)` is
+        # `"None"`, which sorts above every real timestamp and would let a NULL
+        # win forever, and a non-UTC offset compares lexicographically as if the
+        # offset were part of the clock.
         raw_at = msg.get("created_at")
-        seen = out.get(team_id)
-        if seen and str(seen["_raw_at"]) >= str(raw_at):
+        # The raw value lives in a PARALLEL map, not inside the response dict:
+        # putting an internal field into the object being returned and stripping
+        # it at the end works only for as long as nobody adds an early return.
+        if team_id in newest and event_time_str(newest[team_id]) >= event_time_str(raw_at):
             continue
+        newest[team_id] = raw_at
         # Flattened and capped like the agent rows' preview right above it in the
         # same sidebar: a row is one line, and this rides in every refresh for
         # every team, so an untrimmed reply would be payload nobody can see.
         flat = " ".join((msg.get("content") or "").split())
         out[team_id] = {
-            # Kept for the comparison above and stripped before the response —
-            # see the pop below.
-            "_raw_at": raw_at,
             "last_message_at": format_for_api(raw_at),
             "from_agent": msg.get("from_agent") or "",
             "preview": flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…",
         }
-    for entry in out.values():
-        entry.pop("_raw_at", None)
     return out
 
 

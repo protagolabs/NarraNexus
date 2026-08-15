@@ -25,8 +25,6 @@ Run with a throwaway MySQL:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import pytest_asyncio
 
@@ -38,31 +36,18 @@ from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 from backend.routes.teams import _team_room_activity
 
-MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
-
-
-def _parse_mysql_url(url: str) -> dict:
-    assert url.startswith("mysql://"), f"expected mysql://..., got {url!r}"
-    body = url[len("mysql://") :]
-    creds, _, host_db = body.partition("@")
-    user, _, password = creds.partition(":")
-    host_port, _, database = host_db.partition("/")
-    host, _, port = host_port.partition(":")
-    return {
-        "host": host,
-        "port": int(port) if port else 3306,
-        "user": user,
-        "password": password,
-        "database": database,
-    }
-
+from tests.mysql_dialect import (
+    mysql_configured,
+    mysql_url,
+    parse_mysql_url,
+    skip_reason,
+)
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get(MYSQL_URL_ENV),
-    reason=(
-        f"{MYSQL_URL_ENV} not set. These tests validate the room-activity "
-        f"MAX + self-join against a real MySQL dialect, where `created_at` is a "
-        f"DATETIME(6) rather than SQLite's lexicographic TEXT."
+    not mysql_configured(),
+    reason=skip_reason(
+        "the room-activity MAX + self-join, whose `created_at` is a DATETIME(6) "
+        "here and a lexicographically-compared TEXT on SQLite"
     ),
 )
 
@@ -72,29 +57,42 @@ OTHER = f"{_PREFIX}_team_2"
 USER = f"usr_{_PREFIX}"
 
 
-@pytest_asyncio.fixture
-async def mysql_client():
-    backend = MySQLBackend(_parse_mysql_url(os.environ[MYSQL_URL_ENV]))
-    await backend.initialize()
-    await auto_migrate(backend)
-    client = await AsyncDatabaseClient.create_with_backend(backend)
-    yield client
-    for table, col in (
-        ("bus_messages", "channel_id"),
-        ("bus_channels", "channel_id"),
-        ("teams", "team_id"),
-    ):
+# Channel ids are deterministic, so a run that died between the inserts and the
+# teardown leaves rows that make the NEXT run collide on the primary key — and
+# that failure reads like a dialect bug, which is the one thing this file exists
+# to detect. Cleaned BEFORE as well as after, following the convention in
+# `tests/message_bus/test_unread_cursor_mysql.py`.
+_SCOPED = (
+    ("bus_messages", "channel_id"),
+    ("bus_channels", "channel_id"),
+    ("teams", "team_id"),
+)
+
+
+async def _clean(client):
+    for table, col in _SCOPED:
         try:
             await client.execute(
                 f"DELETE FROM {table} WHERE {col} LIKE %s", (f"{_PREFIX}%",), fetch=False
             )
-        except Exception:  # noqa: BLE001 — teardown must not mask a failure
+        except Exception:  # noqa: BLE001 — cleanup must not mask a failure
             pass
+
+
+@pytest_asyncio.fixture
+async def mysql_client():
+    backend = MySQLBackend(parse_mysql_url(mysql_url()))
+    await backend.initialize()
+    await auto_migrate(backend)
+    client = await AsyncDatabaseClient.create_with_backend(backend)
+    await _clean(client)
+    yield client
+    await _clean(client)
     await client.close()
 
 
-async def _room(db, team_id: str) -> str:
-    channel_id = f"{_PREFIX}_ch_{team_id}"
+async def _room(db, team_id: str, suffix: str = "") -> str:
+    channel_id = f"{_PREFIX}_ch_{team_id}{suffix}"
     await db.insert(
         "bus_channels",
         {
@@ -174,3 +172,37 @@ async def test_a_silent_room_reports_nothing(mysql_client):
     await _room(mysql_client, TEAM)
 
     assert await _team_room_activity(mysql_client, [TEAM], user_sender=USER) == {}
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_two_rooms_reports_the_newer_one(mysql_client):
+    """The comparison the previous commit rewrote, in the dialect it is most
+    likely to behave differently in.
+
+    This twin covered "newest wins", "the exclusions hold" and "rooms stay
+    apart" — everything except the branch that was actually being changed. The
+    comparison reads the RAW column, whose wire type is exactly what differs
+    between the two backends (`datetime` here, string there), so single-dialect
+    coverage of it is coverage of the half that cannot break.
+
+    Timestamps are given at INSERT rather than patched afterwards: the room's
+    incremental polling rests on bus_messages being append-only, and a test that
+    mutates a row to make its point sits awkwardly next to that.
+    """
+    old_room = await _room(mysql_client, TEAM, "_a")
+    new_room = await _room(mysql_client, TEAM, "_b")
+    await _say(mysql_client, old_room, "agent_a", "older", _ts(1))
+    await _say(mysql_client, new_room, "agent_a", "newer", _ts(6))
+
+    got = await _team_room_activity(mysql_client, [TEAM], user_sender=USER)
+
+    assert got[TEAM]["preview"] == "newer"
+
+
+# A NULL `created_at` is unreachable: the column is NOT NULL in both dialects, so
+# the `str(None) == "None"` failure that motivated using `event_time_str` here
+# cannot be produced by any test. The swap is still right — one helper instead of
+# a fourth hand-rolled copy, and it normalises the datetime/string asymmetry this
+# file exists for — but within ONE backend both operands always share a wire
+# type, so nothing here can observe the difference. Saying so beats writing a
+# test that asserts a state the schema forbids.

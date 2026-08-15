@@ -31,6 +31,7 @@ import { beforeCursor, mergeTeamMessages, sinceCursor } from './mergeTeamMessage
 import { isNearBottom, isNearTop } from '@/lib/scrollStickiness';
 import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
 import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
+import { mentionTokens } from './mentionPattern';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
@@ -38,10 +39,11 @@ import { TeamBulletinPanel } from './TeamBulletinPanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
+// No `formatTime` here on purpose: it arrived with the liveness work, which
+// used it in the inline message loop this file replaced with <TeamTranscript>.
+// The per-message timestamp now lives in TeamMessageFooter, which imports it
+// itself.
 import { cn } from '@/lib/utils';
-// `formatTime` came in with dev's liveness work, which used it in the inline
-// message loop this branch replaced with <TeamTranscript>. The per-message
-// timestamp now lives in TeamMessageFooter, which imports it itself.
 import { STATUS_TONES, elapsedSince } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
@@ -578,11 +580,21 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     inputRef.current?.focus();
   };
 
-  /** Resolve the @tokens in the composed text to agent_ids and/or "@all". */
+  /** Resolve the @tokens in the composed text to agent_ids and/or "@all".
+   *
+   *  Tokenised by the shared `mentionTokens` — the third hand-copied regex in
+   *  this folder lived here, and it is the one that decides who is actually
+   *  WOKEN. Highlighting and waking disagreeing is the worst version of this
+   *  bug: the reader sees three names lit and two teammates answer, with no way
+   *  to tell which half is wrong.
+   *
+   *  The RESOLUTION stays loose on purpose — first names and prefixes count,
+   *  because someone typing `@ana` for "Ana Silva" means her, and waking nobody
+   *  is a worse answer than waking her. The renderers ask a stricter question
+   *  (exact member match) for their own good reason: a loose highlight would
+   *  light up email addresses. Same tokens, different questions. */
   const resolveMentions = (value: string): string[] => {
-    const tokens = new Set(
-      (value.match(/@([\w一-鿿]+)/g) || []).map((s) => s.slice(1).toLowerCase()),
-    );
+    const tokens = mentionTokens(value);
     if (tokens.size === 0) return [];
     if (tokens.has('all') || tokens.has('everyone')) return ['@all'];
     const ids: string[] = [];

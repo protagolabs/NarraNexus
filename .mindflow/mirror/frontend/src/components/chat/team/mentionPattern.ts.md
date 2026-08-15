@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/mentionPattern.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
 
@@ -31,3 +31,16 @@ stub: false
 
 `MENTION_PATTERN` 带 `g` 标志，而 `lastIndex` 是**有状态的**。共享同一个实例会让第二个调用
 方从上一个调用方停下的位置开始匹配。所以对外给的是 `mentionMatcher()`——每次要一个新的。
+
+## 2026-08-15 — 发送侧的第三份手抄也收进来了
+
+`mentionTokens()`：从一段文字里取出小写的 @token。这是**发送路径**的入口，`TeamChatPanel`
+的 `resolveMentions` 原本在这里手抄了第三份正则——而它决定的是**谁真的被唤醒**。
+
+高亮和唤醒不一致是这个 bug 最贵的版本：读者看到三个名字被点亮、两个队友回话，无从判断哪
+一半是错的，排查的人也一样。
+
+**下一步刻意不共享**：渲染侧问的是"这个词是不是成员"（严格匹配，否则邮箱地址会被点亮），
+发送侧解析得松（名、前缀——有人打 `@ana` 指的就是 Ana Silva，谁都不唤醒是更糟的答案）。
+同一批 token，两个不同的问题；把它们合并会让其中一个变错。测试把这个差异**钉住**而不是
+抹平。

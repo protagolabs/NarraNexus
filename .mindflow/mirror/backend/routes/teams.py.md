@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 — 时间比较走 `event_time_str`；跨层不变式改成真问两边
+
+跨房间比较原本手写 `str()`，那是这个仓库里**第四份**手抄——`utils/db/dialect_time.py` 的
+`event_time_str` 就是为这件事存在的（sqlite 驱动给 `datetime`，mysql 给字符串），而且它自己
+的来历就是"被拷进两个审计仓库、又被一个 backend 路由跨包 import 私有名"之后收口的。两者
+也不等价：`str(None)` 是 `"None"`，字典序上高于任何真实时间戳，会让一个 NULL 行永远胜出。
+
+`test_the_mark_and_the_transcript_agree_on_precision` 之前**一次都没碰过 transcript**：
+两边都是测试自己调 `format_for_api`，等于只断言了"activity 这一侧用的是它"。名字里写着
+`agree`，却只问了一方——而它 docstring 里描述得最细的那个失效场景（transcript 那侧换个
+formatter，圆点开始偶发消失）恰恰是它抓不到的。现在真跑一次 chat 路由，拿渲染出来的
+`created_at` 和 `last_message_at` 比。
+
+`_raw_at` 那个"塞进响应字典再摘掉"的形状也换了：原始时间戳现在活在一个函数内的并行 map 里，
+从构造上就到不了调用方——不再需要一条"内部字段没泄漏"的测试来守它。
 
 ## 2026-08-14 (三) — 跨房间比较要用原始时间戳
 

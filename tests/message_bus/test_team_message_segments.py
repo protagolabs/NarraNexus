@@ -326,3 +326,48 @@ async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
         {"kind": "monologue", "text": "thinking"},
         {"kind": "reply", "text": "answering"},
     ]
+
+
+def test_the_room_funnel_carries_everything_a_room_caller_can_send():
+    """`_post_to_room` must not fall behind `send_message`.
+
+    The funnel lists its parameters explicitly, on purpose: `**kwargs` hides a
+    misspelled keyword from the type checker and only surfaces it as a runtime
+    TypeError. The cost of that choice is that the list can fall behind — and it
+    did, for one merge, in the worst possible way: `segments` was added to the
+    reply on one branch while the funnel was introduced on another, git merged
+    both cleanly, and every team turn then raised TypeError inside the poster,
+    was caught by the caller's "the room will never show this" handler, and
+    posted a delivery-failure notice instead of the agent's words.
+
+    So the drift is asserted rather than trusted to a comment. The exemptions
+    are the parameters a ROOM post has no use for, each for its own reason —
+    listing them here is what makes adding a genuinely room-relevant parameter
+    fail this test instead of failing in production.
+    """
+    import inspect
+
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+
+    # Not routed through the room funnel, and why:
+    #   attachments        — the trigger never posts files; the user's uploads
+    #                        come in through the REST route, not from a turn.
+    #   sender_turn_source — describes the SENDER's errand, which a room post
+    #                        does not have: the room is the surface, not a peer.
+    #   root_run_id        — cascade lineage, stamped by the agent's own bus
+    #                        sends; a room reply's lineage rides the trigger.
+    #   routed_by          — records why `mentions` holds what it does, and the
+    #                        funnel's callers compute mentions themselves.
+    exempt = {"attachments", "sender_turn_source", "root_run_id", "routed_by"}
+
+    sends = set(inspect.signature(LocalMessageBus.send_message).parameters) - {"self"}
+    funnel = set(inspect.signature(MessageBusTrigger._post_to_room).parameters) - {"self"}
+
+    missing = sends - funnel - exempt
+    assert not missing, (
+        f"{sorted(missing)} can be sent to a channel but cannot be sent to a ROOM. "
+        f"Either add them to `_post_to_room` or name them in this test's exemption "
+        f"list with the reason — the one time this drifted, every team reply became "
+        f"a delivery-failure notice."
+    )

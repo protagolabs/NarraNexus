@@ -244,9 +244,6 @@ async def test_two_messages_at_the_same_instant_report_one_room_once(db_client):
 
     assert list(got) == [TEAM]
     assert got[TEAM]["preview"] in ("one", "two")
-    # And nothing internal leaks to the caller: the raw timestamp used for the
-    # cross-room comparison is not part of the response.
-    assert "_raw_at" not in got[TEAM]
 
 
 @pytest.mark.asyncio
@@ -277,28 +274,68 @@ async def test_a_team_with_two_rooms_reports_the_newer_one(db_client):
     assert got[TEAM]["preview"] == "newer"
 
 
+def _chat_client(monkeypatch, db):
+    """The team-chat route over HTTP, auth faked. Same shape as the sibling
+    paging tests, because this one has to ask the OTHER side of the invariant."""
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    from backend.routes import teams as mod
+
+    async def _get_db():
+        return db
+
+    monkeypatch.setattr(mod, "get_db_client", _get_db)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.user_id = request.headers.get("X-User-Id") or None
+        return await call_next(request)
+
+    app.include_router(mod.router, prefix="/api/teams")
+    return TestClient(app, raise_server_exceptions=False)
+
+
 @pytest.mark.asyncio
-async def test_the_mark_and_the_transcript_agree_on_precision(db_client):
-    """`last_message_at` and the transcript's `created_at` come from the SAME
-    formatter, so the client's two halves cannot disagree.
+async def test_the_mark_and_the_transcript_agree_on_precision(db_client, monkeypatch):
+    """`last_message_at` and the transcript's `created_at` are the SAME string.
 
     `format_for_api` truncates to whole seconds. The client marks a room read up
     to the newest `created_at` it has RENDERED, and compares that watermark to
     this `last_message_at`. If one side kept sub-second precision and the other
     did not, a reply at :00.800 would compare as :00.000 against a watermark of
-    :00.500 — the dot would not appear, for one message, sometimes. Consistent
-    coarseness is what makes the comparison sound; this asserts they are drawn
-    from one source rather than two that happen to agree today.
+    :00.500 — the dot would not appear, for one message, sometimes, with no
+    error anywhere.
+
+    So this asks BOTH sides. An earlier version called `format_for_api` itself
+    and compared that to the activity value, which only ever asserted "the
+    activity side uses format_for_api" — the transcript could switch formatter
+    and this stayed green while the dot started flickering. The test was named
+    `agree` and interrogated one party.
     """
+    await db_client.insert("teams", {
+        "team_id": TEAM, "owner_user_id": "usr_1", "name": "Desk",
+    })
     channel = await _room(db_client, TEAM)
+    await db_client.update(
+        "bus_channels",
+        {"channel_id": channel},
+        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}"},
+    )
     mid = await _say(db_client, channel, "agent_a", "hello")
     await db_client.update(
         "bus_messages", {"message_id": mid}, {"created_at": "2026-08-14T10:00:00.800000+00:00"}
     )
 
     activity = await _team_room_activity(db_client, [TEAM], user_sender=USER)
-    row = await db_client.get_one("bus_messages", {"message_id": mid})
+    r = _chat_client(monkeypatch, db_client).get(
+        f"/api/teams/{TEAM}/chat/messages", headers={"X-User-Id": "usr_1"}
+    )
 
-    from xyz_agent_context.utils import format_for_api
-
-    assert activity[TEAM]["last_message_at"] == format_for_api(row["created_at"])
+    # Without this, a 500 turns into a KeyError below and the failure says
+    # nothing about what broke.
+    assert r.status_code == 200, r.text
+    rendered = r.json()["messages"][-1]["created_at"]
+    assert activity[TEAM]["last_message_at"] == rendered

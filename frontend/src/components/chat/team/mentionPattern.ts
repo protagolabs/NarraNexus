@@ -26,6 +26,30 @@ export function mentionMatcher(): RegExp {
 }
 
 /**
+ * The lowercased @tokens in a piece of text.
+ *
+ * The SEND path's entry point. It exists here rather than in the composer
+ * because "what counts as an @token" is the one thing the send path and the two
+ * renderers must never disagree about: the highlighted names and the woken
+ * agents come from the same sentence, and a reader who sees three names lit up
+ * and two teammates answer has no way to tell which half is wrong.
+ *
+ * What happens NEXT is deliberately not shared. The renderers ask "is this word
+ * addressed to a member" (exact match, or it would light up an email address);
+ * the send path resolves loosely — first names, prefixes — because a user typing
+ * `@ana` for "Ana Silva" means her, and refusing to wake anyone is a worse
+ * answer than waking her. Those are different questions about the same tokens,
+ * and collapsing them would make one of the two wrong.
+ */
+export function mentionTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  const re = mentionMatcher();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.add(m[1].toLowerCase());
+  return out;
+}
+
+/**
  * Does this word address someone who will actually be reached?
  *
  * `@all` / `@everyone` always do. Anything else has to be a real member —

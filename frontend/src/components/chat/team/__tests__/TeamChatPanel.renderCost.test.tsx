@@ -114,11 +114,17 @@ describe('the member-name map keeps its identity', () => {
       render(<TeamChatPanel teamId="t1" />);
       await waitFor(() => expect(seen.length).toBeGreaterThan(0));
       const first = seen[seen.length - 1];
+      const rendersBefore = seen.length;
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });
 
+      // The ticker must actually have re-rendered, or "the identity did not
+      // change" is true because nothing happened — the test would pass on a
+      // panel that had stopped ticking entirely, which is the opposite of what
+      // it is here to check.
+      expect(seen.length).toBeGreaterThan(rendersBefore);
       expect(seen[seen.length - 1]).toBe(first);
     } finally {
       vi.useRealTimers();

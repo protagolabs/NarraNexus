@@ -236,4 +236,8 @@ async def test_the_route_pages_backwards_from_there(db_client, bus, monkeypatch)
         f"/api/teams/t1/chat/messages?before={_at(3)}", headers={"X-User-Id": "usr_1"}
     )
 
+    # The client is built with `raise_server_exceptions=False`, so a 500 comes
+    # back as `{"detail": …}` and indexing `["messages"]` raises a KeyError that
+    # says nothing about what broke.
+    assert r.status_code == 200, r.text
     assert [m["content"] for m in r.json()["messages"]] == ["m0", "m1", "m2"]
