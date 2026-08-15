@@ -173,7 +173,16 @@
         },
         "turnOff": "Aus",
         "turnOn": "An"
-      }
+      },
+      "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
+      "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",
+      "uploadFailedGeneric": "Upload fehlgeschlagen.",
+      "loadingOlder": "Ältere Nachrichten werden geladen…",
+      "leadBadge": "Lead",
+      "expand": "Mehr anzeigen",
+      "collapse": "Weniger anzeigen",
+      "today": "Heute",
+      "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist."
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -717,7 +726,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — Gruppenchat",
       "agentCount_one": "{{count}} Agent",
-      "agentCount_other": "{{count}} Agents"
+      "agentCount_other": "{{count}} Agents",
+      "unread": "Ungelesene Nachrichten"
     },
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
@@ -2093,6 +2103,13 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig"
+  },
+  "toast": {
+    "view": "Ansehen",
+    "completed": "Fertig",
+    "roomSpoke": "Neue Aktivität im Raum",
+    "agent": "Agent",
+    "room": "Raum"
   },
   "webAnalyticsNotice": {
     "body": "Dies ist die Cloud-Webversion von NarraNexus. Sie verwendet Google Tag Manager, einen Analysedienst eines Drittanbieters, um anonyme Seiteninteraktionsdaten (Seitenaufrufe, Klicks, Referrer) zu erfassen. Es werden keine Gesprächsinhalte erfasst. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",

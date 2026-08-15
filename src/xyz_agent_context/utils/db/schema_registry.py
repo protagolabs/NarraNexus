@@ -767,6 +767,14 @@ _register(
             # and points into the per-user shared area; markers are built from it
             # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
             Column("attachments", "TEXT", "TEXT", nullable=True),
+            # JSON list of {kind: "monologue"|"reply", text} preserving the
+            # boundary between an agent's own thinking and its answer, which
+            # `content` loses by concatenation. NULL for every message written
+            # before this existed and for every path that has no monologue —
+            # the reader renders those as one block, which is what it did
+            # before (iron rule #2: no backfill, no shim). `content` is
+            # unchanged and remains what text consumers read.
+            Column("segments", "TEXT", "MEDIUMTEXT", nullable=True),
             # Which KIND of turn produced this message: an owner-facing turn
             # ("chat", "job", …) means the sender was running an errand for
             # its owner, so this message is a QUESTION; "message_bus" means

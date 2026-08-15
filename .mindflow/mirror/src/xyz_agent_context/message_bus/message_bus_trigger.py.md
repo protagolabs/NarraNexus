@@ -1,8 +1,68 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 (三) — 宽 `except` 会把测试桩的契约偏差吞成"绿"
+
+删掉 `TurnResult.segments` 时漏了一个测试桩，它还在传 `segments=`。frozen dataclass 必然
+抛 `TypeError`——而这个异常落进 `_handle_channel_batch` 的宽 `except`，被记成一次
+`record_failure`，**测试仍然是绿的**。
+
+绿得还很有欺骗性：桩的执行顺序是「填 sink → 调 deliverer（房间行已经落库）→ 才 return」，
+所以断言"行存在且 segments 正确"在崩溃之前就已经满足。`_invoke_runtime` 之后的整段——游标
+推进、`post_state` 三分支、fatal 播报、hop 观测——在那条测试里一步都没走过，而它的 docstring
+还写着自己是"唯一一条会自己变红的测试"。
+
+结构性的教训：**只要一个 turn 被宽 `except` 包着，任何 stub 与真实签名的偏差都会静默降级
+成"这一轮失败了"，而断言可能早就满足了**。所以驱动真 turn 的测试现在都加一条
+`_assert_turn_survived`（这一轮没有被记成失败），断言落在 `_invoke_runtime` **之后**的代码
+上。把这条加回去之后，重新引入那个多余参数会让 5 条测试红。
+
+## 2026-08-15 (二) — `TurnResult.segments` 删掉：一条只有写、没有读的通道
+
+发帖搬进 turn 内之后，边界改从 `segments_sink` 读（见 [[run_collector.py]]），
+`turn.segments` 的最后一个读者就消失了——只剩 `_invoke_runtime` 里那一行写入，和一条用
+源码文本把这行写入钉住的测试。
+
+留着的代价不是那几个字节：下一个人会看到一个"看起来是数据来源"的字段，据此写出一个永远
+读到 None 的分支；而那条源码断言会让"删掉死代码"这件事红。所以先删通道、再补 sink 的测试，
+顺序反过来的话，新测试会顺手把死字段一起钉进去。
+
+## 2026-08-15 — 和 #291 的和解：cap 与 segments 搬进 turn 内
+
+#291 把房间回复搬进了 turn 内部（`_deliver_reply`），而 @mention 解析和 hop cap 也跟着搬了
+进去——这条分支的两样东西恰好都长在那里。
+
+**segments**：`turn.segments` 在 deliverer 被调用时还不存在。改成从 `segments_sink` 读
+（见 [[run_collector.py]]），deliverer 在发帖那一刻 join 一次。
+
+**cap 通知**：capping 在 turn 内发生，通知必须在 turn **之后**发——房间要读成"agent 先说话，
+然后平台解释它拒绝了什么"，反过来会让平台的注解压在它所注解的那句话上面。所以 cap 的结果
+（具名的人 + 是不是 `@all`）用一个 holder 带出来，和 dev 用 `room_post` 带出投递状态是同一
+个手法。
+
+通知只在 `post_state == POST_OK` 时发：在一条谁也看不见的回复旁边解释"我没把人拉进来"，
+解释的是错误的那个缺席。
+
+## 2026-08-14 (三) — `_post_to_room` 少了 `segments`，一次合并干掉了所有团队回复
+
+`_post_to_room`（#303 引入的"本进程唯一的发房间入口"）**显式列出参数**，理由写在它自己的
+注释里：`**kwargs` 会把拼错的关键字藏起来，只在运行时炸成 TypeError。
+
+而 segments 是在另一条分支上加到回复里的。两者并行落地，git 干净地合上了，结果是**每一次
+团队 turn 都在这里抛 TypeError**——被调用方那个"回复存在但房间永远看不到"的处理器接住，
+于是房间收到的是一条投递失败通知，而不是回复本身。生产环境里响亮，测试里隐形：segments 的
+测试要么直接调 `send_message`，要么断言 trigger 的源码，两类都是绿的。
+
+**真正报警的是上一轮加的四个 cascade 端到端测试**，因为它们跑的是真 turn——而它们失败的
+原因和 cascade 毫无关系。
+
+显式参数列表的代价就是它落后时的代价：凡是 `send_message` 接受、且房间调用方会传的东西，
+这里必须同时出现。现在 `tests/message_bus/test_team_message_segments.py` 里有一条**通过
+trigger 发一条团队回复再把行读回来**的测试；把修复的任意一半撤掉它就红，而那个文件里其余
+所有测试都察觉不到。
 
 ## 2026-08-14（二次）— 饥饿判定改用墙钟，因为周期在饥饿时会变稀
 
@@ -68,6 +128,19 @@ owner inbox**（槽位不够是平台侧的事，owner 动不了，塞进去只�
 一度加过「同时写 `bus_hop_timing` 表」，已撤回；理由见
 `mirror/scripts/diag_collector/latency_report.py.md`。本文件因此回到只打日志行，
 `[bus-timing]` 的格式与「失败的 turn 不算一跳」（`_hop_done`）的约定均未变。
+
+## 2026-08-14 — cap 住 `@all` 的那一路要带着标记走
+
+cap 触发时除了收集被拦下的**具名**队友，还要记住"被拦下的是 @all"（`capped_everyone`），
+并传给 [[team_notices.py]] 的 `post_cascade_capped`。少了它，房间里最常见的那种被拦
+（`@all`）是完全静默的。
+
+这条路径此前**没有任何行为测试能到达**：唯一驱动它的测试把 `_invoke_runtime` 假成了
+tuple，而生产代码读 `turn.text`，于是 `AttributeError` 被批处理的 `except` 吞掉，
+`turn.text` 之后的所有逻辑一行都没跑过（游标在更早几行就已经 ack 了，所以断言照样绿）。
+修好那个假对象之后，`tests/message_bus/test_team_cascade_notice_e2e.py` 真跑
+`_handle_channel_batch`，三条读源码字符串的断言随之删掉——其中一条
+（`assert 'm != "@everyone"' in src`）正好把这个 bug 钉成了验收标准。
 
 ## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
 
@@ -798,6 +871,7 @@ inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢�
 同时在 prompt 里点名 `bus_pin_team_rule`（没人告知的工具就是没人用的工具），
 并在同一句里劝阻把公告栏当记事本——预算很小且与用户的规则共享，
 一个往里钉「发现」的 agent 会挤掉它本该遵守的规则。
+
 ## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
 
 **巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
@@ -1253,3 +1327,16 @@ worker 池是**进程级、跨用户共享**的,所以后果不局限在这个�
 后强制结束 turn」是铁律 #14/#15 明令禁止的方向,也正是本 PR 通篇在维护的前提。按 channel
 轮转的公平派发是正解,但它是独立的一条,已记进 followup。
 
+## 2026-08-12 — 把 segments 交给 bus
+
+`_invoke_runtime` 返回值追加第三个元素 `segments`。
+
+**第一版我写的是 `getattr(collection, "segments", None)`——而那个作用域里根本没有 `collection`。**
+`getattr` 的默认值会把这个错误吞成一个永久的 `None`：功能死掉、不报错、不记日志、测试全绿。
+改成真正的返回值后，契约变化立刻炸出 11 个既有测试——那才是它该有的响亮失败。
+
+## 2026-08-12 — 级联封顶落墙
+
+此前只有 `logger.info`。通知发在**回复之后**，让房间按事情发生的顺序读：
+agent 先说话，然后平台解释它没做什么。名字用 `member_map` 解析成显示名——
+「agent_b 没被拉进来」不是用户能行动的句子。

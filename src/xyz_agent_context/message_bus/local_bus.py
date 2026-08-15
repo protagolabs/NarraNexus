@@ -20,6 +20,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from loguru import logger
+
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
 from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
@@ -95,6 +97,19 @@ class LocalMessageBus(MessageBusService):
         mentions = json.loads(mentions_raw) if mentions_raw else None
         attachments_raw = row.get("attachments")
         attachments = json.loads(attachments_raw) if attachments_raw else None
+        # A half-written or hand-edited row must not take the whole transcript
+        # down: losing one message's layout is a degradation, losing the room
+        # is an outage.
+        segments = None
+        segments_raw = row.get("segments")
+        if segments_raw:
+            try:
+                segments = json.loads(segments_raw)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"[bus] message {row.get('message_id')} has unreadable "
+                    f"segments; rendering as one block"
+                )
         return BusMessage(
             message_id=row["message_id"],
             channel_id=row["channel_id"],
@@ -103,6 +118,7 @@ class LocalMessageBus(MessageBusService):
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
             attachments=attachments,
+            segments=segments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
             routed_by=row.get("routed_by"),
@@ -124,6 +140,10 @@ class LocalMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
+        segments: Optional[List[dict]] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -158,6 +178,10 @@ class LocalMessageBus(MessageBusService):
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
+            # Empty list stores as NULL: it carries nothing a reader could act
+            # on, and a value that looks like data invites the reader to trust
+            # it as "this turn genuinely had no segments".
+            "segments": json.dumps(segments) if segments else None,
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
@@ -218,6 +242,47 @@ class LocalMessageBus(MessageBusService):
             f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
             f"ORDER BY created_at DESC LIMIT {int(limit)}",
             (channel_id,),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
+    async def get_messages_before(
+        self, channel_id: str, before: str, limit: int = 50
+    ) -> List[BusMessage]:
+        """The page immediately ABOVE ``before``, returned oldest→newest.
+
+        The mirror image of ``get_messages(since=…)``, and the two directions
+        are deliberately not symmetrical:
+
+          * ``since`` returns the OLDEST after the cursor — catching up must
+            never skip a message, so it walks forward from where the reader is.
+          * ``before`` returns the NEWEST before it — scrolling up wants the
+            page directly above what is on screen, not the start of the room's
+            history.
+
+        Either one implemented in the other direction produces a transcript
+        with a silent hole in it rather than an error.
+
+        EXCLUSIVE on the cursor: the caller passes the timestamp of the oldest
+        message it already has. Inclusive would re-send that message on every
+        page, which the frontend's merge would then dedup away — leaving each
+        page one message shorter than asked for, for no visible reason.
+
+        Args:
+            channel_id: Channel to read.
+            before: ISO timestamp string, as handed out by the API.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            when the top of the history has been reached — which is how a caller
+            knows to stop offering "load more" without inferring it from a short
+            page (a short page also just means a sparse window).
+        """
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+            f"AND created_at < {ph} ORDER BY created_at DESC LIMIT {int(limit)}",
+            (channel_id, before),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 

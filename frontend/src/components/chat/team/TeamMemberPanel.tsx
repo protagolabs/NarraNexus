@@ -23,6 +23,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { dispatchAgentCircuitOpen } from '@/services/wsCircuitOpen';
 import { Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -185,11 +187,40 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     ? (stalled ? 'var(--color-warning)' : 'var(--color-success)')
     : 'var(--nm-ink30)';
 
+  // A paused agent is not a failed fetch. The room used to show
+  // "couldn't load the process" for both, which is untrue for one of them and
+  // leaves the user nothing to do either way.
+  //
+  // The honest surface already exists — App.tsx listens for this event and
+  // renders a banner with a one-click Resume that clears the pause — and the
+  // private chat has fired it for a long time. This panel announces because it
+  // is the piece that knows WHICH agent: the observation hook only has a run id.
+  // Reusing the event rather than building a second banner keeps the breaker's
+  // reason vocabulary in one place.
+  useEffect(() => {
+    const reason = observation.circuitReason;
+    if (!reason) return;
+    dispatchAgentCircuitOpen({ agentId: activity.agent_id, reason });
+    // The dependency array IS the "announce once" mechanism: the roster ticks a
+    // 1s clock, and a render that changes neither the reason nor the agent does
+    // not re-run this. An extra ref guard was tried and removed — it was dead
+    // code against that, and its only real effect would have been to suppress a
+    // legitimate re-announce after a breaker cleared and reopened.
+  }, [observation.circuitReason, activity.agent_id]);
+
   let body: React.ReactNode;
-  if (live && observation.errorMessage && observation.events.length === 0) {
+  if (observation.circuitReason) {
+    // Says what happened, and the app-wide banner carries the Resume.
+    body = (
+      <span data-testid="member-paused" className="text-[var(--text-tertiary)]">
+        {t('chat.team.agentPaused', { reason: observation.circuitReason })}
+      </span>
+    );
+  } else if (live && observation.errorMessage && observation.events.length === 0) {
     // The observe channel answered with a terminal error (e.g. the run
     // is not visible to this client) — say so instead of spinning a
-    // "starting up" promise that can never be kept.
+    // "starting up" promise that can never be kept. Still the honest copy for
+    // the honest case; widening it to cover a pause swapped one lie for another.
     body = <span className="text-[var(--text-tertiary)]">{t('chat.team.detailLoadFailed')}</span>;
   } else if (live) {
     const hasObservation = processEvents.length > 0 || phases.length > 0;

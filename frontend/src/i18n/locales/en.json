@@ -228,7 +228,16 @@
         "usage": "{{entries}}/{{maxEntries}} rules · {{chars}}/{{maxChars}} chars",
         "updatedNotice": "Bulletin updated",
         "clearedNotice": "Bulletin cleared"
-      }
+      },
+      "leadBadge": "lead",
+      "expand": "Show more",
+      "collapse": "Show less",
+      "today": "Today",
+      "agentPaused": "This agent is paused ({{reason}}). Use Resume in the banner above once the cause is cleared.",
+      "sendFailed": "Could not send. Your text is still here — try again.",
+      "uploadFailed": "Could not upload “{{name}}”.",
+      "uploadFailedGeneric": "Could not upload the file.",
+      "loadingOlder": "Loading older messages…"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -809,7 +818,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
       "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents"
+      "agentCount_other": "{{count}} agents",
+      "unread": "Unread messages"
     },
     "teamRowMenu": {
       "options": "Group chat options",
@@ -2536,6 +2546,13 @@
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done"
+  },
+  "toast": {
+    "view": "View",
+    "completed": "Completed",
+    "roomSpoke": "New activity in the room",
+    "agent": "Agent",
+    "room": "Room"
   },
   "webAnalyticsNotice": {
     "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",

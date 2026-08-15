@@ -91,6 +91,13 @@ def _trigger(db, reply: str = "on it"):
         # A stub that lies about the return type is a trap armed for whoever
         # next touches the caller.
         #
+        # What the tuple form cost while it lasted: `if turn.text:` raised
+        # AttributeError, the batch handler swallowed it, and every assertion in
+        # this file passed on the PRE-CRASH state — the cursor is acked a few
+        # lines earlier. Nothing after `turn.text` ran at all, which is why the
+        # room-posting and cascade paths needed a test file of their own once
+        # this was fixed.
+        #
         # The team-room post also happens INSIDE the turn now, so the stub has
         # to hand the text to the deliverer the way the runtime does — these
         # tests are about the read cursor, which only moves on a turn that ran.

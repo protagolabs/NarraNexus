@@ -305,6 +305,7 @@ agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审�
 provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
 错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
 `scripts/data_migrations/backfill_cost_records_user_id.py`。
+
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -734,3 +735,7 @@ agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份�
 同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
 完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
 
+## 2026-08-12 — `bus_messages.segments`
+
+纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
+后者是所有文本消费者读的东西，一个渲染需求不该改写它。

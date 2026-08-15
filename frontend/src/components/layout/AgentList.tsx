@@ -25,7 +25,14 @@ import { useConfigStore, useChatStore, useTeamsStore, useRuntimeStore } from '@/
 import { useCreateAgent, useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
-import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
+import {
+  getLastReadMs,
+  markAgentRead,
+  markTeamRead,
+  countUnread,
+  latestMessageMs,
+  teamHasUnread,
+} from '@/lib/unread';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
@@ -533,6 +540,27 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
   const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
 
+  // Opening a room clears its mark DURABLY: the watermark goes to localStorage,
+  // so it stays cleared after navigating away. Clearing it only while the row is
+  // active is exactly the bug the agent badge had before it got its own marker —
+  // the count snapped back the instant the user looked at something else.
+  //
+  // The panel advances the same watermark as messages arrive while the room is
+  // open (it sees the transcript; this only sees the list response). Both are
+  // monotonic, so whichever is further ahead wins and neither can undo the other.
+  const activeTeamLastMessageAt =
+    teams.find((t) => t.team.team_id === activeTeamChatId)?.last_message_at ?? null;
+  useEffect(() => {
+    if (!activeTeamChatId || !activeTeamLastMessageAt) return;
+    // An unparseable timestamp is NaN, which markTeamRead already refuses.
+    markTeamRead(activeTeamChatId, Date.parse(activeTeamLastMessageAt));
+  }, [activeTeamChatId, activeTeamLastMessageAt]);
+
+  /** Does this room have something the user has not seen? Never the open one —
+   *  a mark on the row you are reading is noise. */
+  const teamUnread = (t: (typeof teams)[number]) =>
+    t.team.team_id !== activeTeamChatId && teamHasUnread(t.last_message_at, t.team.team_id);
+
   // Collapsed mode: avatar rail — EVERY agent across all groups (spec §11.2;
   // the old rail silently capped at 4). The rail's job is fast agent
   // switching: RingAvatar + unread badge, hairline divider between teams,
@@ -603,19 +631,35 @@ export function AgentList({ collapsed }: AgentListProps) {
             .toUpperCase();
           const active = activeTeamChatId === team.team.team_id;
           return (
-            <button
-              key={team.team.team_id}
-              onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
-              className={cn(
-                'p-0.5 rounded-full transition-colors duration-150',
-                active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
+            /* The rail is the whole sidebar on a narrow window, so the mark has
+               to exist here too — one that only shows when expanded is one the
+               user does not see. */
+            <div key={team.team.team_id} className="relative flex justify-center">
+              <button
+                onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
+                className={cn(
+                  'p-0.5 rounded-full transition-colors duration-150',
+                  active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
+                )}
+                title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
+                aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
+                aria-current={active ? 'true' : undefined}
+              >
+                <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
+              </button>
+              {teamUnread(team) && (
+                <span
+                  data-testid={`team-unread-${team.team.team_id}`}
+                  title={t('layout.teamChatRow.unread')}
+                  aria-label={t('layout.teamChatRow.unread')}
+                  className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle"
+                  style={{
+                    background: 'var(--accent-primary)',
+                    border: '2px solid var(--bg-primary)',
+                  }}
+                />
               )}
-              title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
-              aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
-              aria-current={active ? 'true' : undefined}
-            >
-              <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
-            </button>
+            </div>
           );
         })}
 
@@ -801,6 +845,9 @@ export function AgentList({ collapsed }: AgentListProps) {
                         onClearData={(tid) => setClearTeamTarget({ team_id: tid, name: t.team.name })}
                         onAddAgent={handleCreateAgentInTeam}
                         addingAgent={creatingAgent}
+                        unread={teamUnread(t)}
+                        preview={t.last_message_preview}
+                        authorName={t.last_message_author}
                       />
                     ))}
                   </div>

@@ -72,6 +72,11 @@ const UNDELIVERED = {
   is_user: false,
   content: 'This turn ended without delivering a reply.',
   msg_type: 'system_undelivered',
+  // Sent by the server with every message: whether this line is the platform
+  // narrating itself. The transcript used to decide that from its own copy of
+  // PLATFORM_MSG_TYPES — a list that had already fallen two types behind, these
+  // two among them.
+  is_platform: true,
   created_at: '2026-08-13T09:00:10Z',
 };
 
@@ -82,6 +87,7 @@ const DELIVERY_FAILED = {
   is_user: false,
   content: 'The reply could not be posted to this conversation. (DB is down)',
   msg_type: 'system_delivery_failed',
+  is_platform: true,
   created_at: '2026-08-13T09:00:20Z',
 };
 

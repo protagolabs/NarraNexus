@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/useRunObservation.ts
-last_verified: 2026-07-31
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -57,3 +57,18 @@ process 组件渲染它。**只读**：观察绝不启动/停止/引导 run（�
   观察者比 run 主人晚一个段落看到 thinking，契约如此。
 
 测试：hooks/__tests__/useRunObservation.test.ts（reducer 全分支）。
+
+## 2026-08-12 — 熔断是终局，且不再无限重连
+
+`agent_circuit_open` 此前落进普通 error 分支：写一条 errorMessage、**不置 ended**，
+于是 `onclose` 一直退避重连——**对着一个定义上就在拒绝运行的 agent**。房间显示
+「Couldn't load the process」，客户端在后面循环重试。
+
+现在它是终局帧，并保留 `circuitReason`（`paused:auth` / `paused:quota` / `cooling`）。
+**没有折叠成 `failed`**：三种原因分别要求换 key、充值、或仅仅等待，
+「失败」等于告诉用户什么也别做。
+
+**`isTerminalErrorFrame` 抽成导出的纯函数不是为了整洁。** 决定重试阶梯的是 `fatalRef`，
+它由这个判定设置，而**任何 reducer 测试都碰不到它**——reducer 永远看不到 `onclose`。
+这正是熔断能无限重连而全部测试保持绿色的原因，而「观察 socket 不无限重连」是 PRD 明写的验收标准。
+抽出来之后，同一个变异立刻变红。

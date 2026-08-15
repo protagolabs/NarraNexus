@@ -173,7 +173,16 @@
         },
         "turnOff": "Désactiver",
         "turnOn": "Activer"
-      }
+      },
+      "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
+      "uploadFailed": "Impossible d’envoyer « {{name}} ».",
+      "uploadFailedGeneric": "Impossible d’envoyer le fichier.",
+      "loadingOlder": "Chargement des messages plus anciens…",
+      "leadBadge": "référent",
+      "expand": "Afficher plus",
+      "collapse": "Afficher moins",
+      "today": "Aujourd’hui",
+      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée."
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -717,7 +726,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — discussion de groupe",
       "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents"
+      "agentCount_other": "{{count}} agents",
+      "unread": "Messages non lus"
     },
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
@@ -2093,6 +2103,13 @@
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
     "doneTitle": "Terminé"
+  },
+  "toast": {
+    "view": "Voir",
+    "completed": "Terminé",
+    "roomSpoke": "Nouvelle activité dans le salon",
+    "agent": "Agent",
+    "room": "Salon"
   },
   "webAnalyticsNotice": {
     "body": "Ceci est la version web cloud de NarraNexus. Elle utilise Google Tag Manager, un service d'analyse tiers, pour collecter des données anonymes d'interaction avec les pages (pages vues, clics, référent). Aucun contenu de conversation n'est collecté. Vous pouvez désactiver cette option à tout moment dans Paramètres → Confidentialité.",

@@ -355,6 +355,7 @@ class MessageBusTrigger:
         mentions: Optional[List[str]] = None,
         msg_type: str = "text",
         event_id: Optional[str] = None,
+        segments: Optional[List[dict]] = None,
     ) -> None:
         """Put a message in a room and tell the poll loop to look again.
 
@@ -385,6 +386,13 @@ class MessageBusTrigger:
         # Parameters listed explicitly rather than **kwargs: a passthrough
         # signature hides a misspelled kwarg from pyright and only surfaces it
         # as a runtime TypeError — on the patrol path, an unhandled one.
+        #
+        # Which is exactly what an explicit list costs if it falls behind: this
+        # funnel and the segments-carrying reply landed in parallel branches, and
+        # for one merge every team reply raised TypeError here, got caught by the
+        # caller's "the room will never show this" handler, and was announced as
+        # a delivery failure instead of being posted. Anything `send_message`
+        # accepts and a room caller passes has to appear here too.
         await self._bus.send_message(
             from_agent=from_agent,
             to_channel=to_channel,
@@ -392,6 +400,7 @@ class MessageBusTrigger:
             mentions=mentions,
             msg_type=msg_type,
             event_id=event_id,
+            segments=segments,
         )
         # Unconditional rather than "only when mentions is non-empty": an
         # owner-addressed reply can also make the room's lead due, and one extra
@@ -1176,6 +1185,26 @@ class MessageBusTrigger:
                 room_post: list[tuple[str, Exception | None]] = [
                     (POST_NOT_ATTEMPTED, None)
                 ]
+                # What the hop cap dropped, if it fired. Captured here because
+                # the capping now happens INSIDE the turn while the notice is
+                # posted after it: the room has to read "agent speaks, then the
+                # platform explains what it declined to do", and a notice posted
+                # mid-turn would land above the reply it is about.
+                capped: dict[str, object] = {"names": [], "everyone": False}
+                # Segments accumulate as the run streams, and `_deliver_reply`
+                # is called after the last delta of the reply — so by post time
+                # this holds the boundary for exactly the text being posted.
+                # Shared with the collector rather than read off `turn`, which
+                # does not exist until the run returns; the post is now inside
+                # it (see `_deliver_reply`).
+                live_segments: list[dict] = []
+
+                # Imported here rather than at module scope to match the other
+                # agent_runtime imports in this file, which are deferred so the
+                # bus can be imported without the runtime present.
+                from xyz_agent_context.agent_runtime.run_collector import (
+                    joined_segments,
+                )
 
                 async def _deliver_reply(text: str) -> bool:
                     """Put the agent's plain text into the room. True if it landed.
@@ -1212,6 +1241,18 @@ class MessageBusTrigger:
                                     f"{MAX_TEAM_AGENT_HOPS} in {channel_id}; "
                                     f"dropping @mentions to break the loop"
                                 )
+                                # `_extract_team_mentions` returns EITHER
+                                # ["@everyone"] OR a list of ids, never a mix —
+                                # so an @all that hits the cap leaves the named
+                                # list empty. Kept as its own flag rather than
+                                # dropped: @all is the commonest way a room
+                                # reaches the cap, and it was the silent one.
+                                capped["everyone"] = "@everyone" in mentions
+                                capped["names"] = [
+                                    member_map.get(m, m)
+                                    for m in mentions
+                                    if m != "@everyone"
+                                ]
                                 mentions = []
                         # Through `_post_to_room`, never `_bus.send_message`:
                         # posting and waking the poll loop must not be
@@ -1226,6 +1267,11 @@ class MessageBusTrigger:
                             # Stamp the reply with the turn that produced it, so
                             # the transcript can open this turn's full event_log.
                             event_id=watched_run_id[0] or None,
+                            # The monologue/reply boundary, which `content`
+                            # loses by concatenation and nothing downstream can
+                            # recover. Only a team turn has one
+                            # (`include_monologue=is_team`).
+                            segments=joined_segments(live_segments) or None,
                         )
                     except Exception as post_err:  # noqa: BLE001
                         # Returning False keeps the books honest: the turn did
@@ -1270,6 +1316,9 @@ class MessageBusTrigger:
                     # the inbox, and handing that lane a deliverer would post
                     # it into the channel as well.
                     on_plain_text_delivery=_deliver_reply if is_team else None,
+                    # Filled as the run streams, so `_deliver_reply` can post
+                    # the boundary with the text it belongs to.
+                    segments_sink=live_segments,
                     # Same fact, module-side consumer: the team room must NOT
                     # advertise bus tools as its reply surface (plain text
                     # auto-posts; the prompt forbids delivery tools), so the
@@ -1397,6 +1446,28 @@ class MessageBusTrigger:
                                 "the runtime did not deliver this turn to "
                                 "the room",
                             )
+                    if post_state == POST_OK and (capped["names"] or capped["everyone"]):
+                        # Posted after the reply, so the room reads in the order
+                        # things happened: the agent speaks, then the platform
+                        # explains what it declined to do. A log line left the
+                        # user thinking the teammate had ignored the request.
+                        #
+                        # Only when the reply itself landed: narrating "I did
+                        # not pull anyone in" next to a reply nobody can see
+                        # would explain the wrong absence.
+                        from xyz_agent_context.message_bus.team_notices import (
+                            post_cascade_capped,
+                        )
+                        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                        await post_cascade_capped(
+                            await get_db_client(),
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            dropped=list(capped["names"]),  # type: ignore[arg-type]
+                            dropped_everyone=bool(capped["everyone"]),
+                            depth=MAX_TEAM_AGENT_HOPS,
+                        )
                 else:
                     # Write response to inbox
                     await self._write_to_inbox(
@@ -2883,9 +2954,20 @@ class MessageBusTrigger:
         cancellation=None,
         root_run_id: str = "",
         on_plain_text_delivery=None,
+        segments_sink: Optional[list] = None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
+
+        Returns a ``TurnResult``.
+
+        ``segments_sink`` — the caller's list, filled by the collector AS THE RUN
+        STREAMS. The monologue/reply boundary used to ride back on the result,
+        which stopped working the moment the room post moved inside the turn:
+        the deliverer needs the boundary for the text it is posting, and the
+        result does not exist yet. The field on ``TurnResult`` outlived its last
+        reader by one merge and has been removed rather than left as a channel
+        that writes to nobody.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE
@@ -2957,6 +3039,7 @@ class MessageBusTrigger:
             # reply — which is why every team turn used to file as "no reply
             # sent" and start the next one cold.
             on_plain_text_delivery=on_plain_text_delivery,
+            segments_sink=segments_sink,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,

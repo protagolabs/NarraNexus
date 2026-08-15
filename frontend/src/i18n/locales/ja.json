@@ -173,7 +173,16 @@
         },
         "turnOff": "オフ",
         "turnOn": "オン"
-      }
+      },
+      "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
+      "uploadFailed": "「{{name}}」をアップロードできませんでした。",
+      "uploadFailedGeneric": "ファイルをアップロードできませんでした。",
+      "loadingOlder": "過去のメッセージを読み込み中…",
+      "leadBadge": "リード",
+      "expand": "もっと見る",
+      "collapse": "折りたたむ",
+      "today": "今日",
+      "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -716,7 +725,8 @@
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",
-      "agentCount_other": "{{count}} 体のエージェント"
+      "agentCount_other": "{{count}} 体のエージェント",
+      "unread": "未読メッセージ"
     },
     "teamRowMenu": {
       "options": "グループチャットのオプション",
@@ -2092,6 +2102,13 @@
     "savedTo": "{{path}} に保存しました",
     "downloadFailed": "ダウンロードに失敗しました: {{error}}",
     "doneTitle": "完了"
+  },
+  "toast": {
+    "view": "表示",
+    "completed": "完了",
+    "roomSpoke": "ルームに新しい動き",
+    "agent": "エージェント",
+    "room": "ルーム"
   },
   "webAnalyticsNotice": {
     "body": "これは NarraNexus のクラウドウェブ版です。第三者の分析サービスである Google Tag Manager を使用して、匿名のページ操作データ（ページビュー、クリック、リファラー）を収集します。会話内容は収集されません。設定 → プライバシー でいつでもオフにできます。",

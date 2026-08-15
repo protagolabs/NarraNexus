@@ -1,15 +1,24 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
-## 2026-08-13 — TeamChatMessage.msg_type 增加两种投递通知
 
-取值清单补上 `system_undelivered` / `system_delivery_failed`（与已有的
-`system_stop` / `patrol` / `system_bulletin` 同属房间级系统行，统一由
-[[TeamChatPanel]] 渲染）。语义见 [[delivery_notice]]：前者是「一轮 turn 没投递
-任何东西」，后者是「回复存在、上墙失败」。两者存在，是为了让「agent 无视了你」
-和「回复丢了」不再对用户不可区分。
+## 2026-08-14 — TeamChatMessage.is_platform
+
+"这一行是平台在自述吗"，由服务端回答（见 [[teams.py]]）。前端不再维护
+`PLATFORM_MSG_TYPES` 的第二份拷贝：线上传的是字符串，一个前端不认识的类型会被渲染成成员
+发言——带身份色、头像，名字位置是 `team_<id>`。`msg_type` 仍然说的是**哪一种**，用来选文案。
+
+## 2026-08-14 — TeamWithMembers 带上房间活动
+
+`last_message_at` / `last_message_preview` / `last_message_author`：房间上一次说了
+什么、谁说的。这是未读标记的**服务端那一半**——客户端那一半（水位线）在
+[[unread.ts]]，逐设备存在 localStorage 里，服务端无从知道，所以它只回答"这个房间
+上次说话是什么时候"。
+
+三个字段对以下房间都是 null：还不存在的房间；以及只有用户自己的消息和平台自己的
+通知的房间——两者都不算数，否则发一条消息就会给自己发消息的那个房间打上标记。
 
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
 
@@ -96,3 +105,8 @@ TeamManagementModal picker → `updateTeam`. See backend [[teams]].
 
 `source` 驱动权限与渲染，`author_id` 只驱动「由谁添加」标签、自动总结为 null。
 `TeamBulletin` 把 usage/limits 一起带上，见 [[api]]。
+
+## 2026-08-12 — `TeamChatMessage.segments`
+
+可选。缺失表示「没有记录边界」——本改动之前写入的每一条消息、以及任何没有独白的路径。
+气泡把这类消息按整块渲染，也就是它此前的样子。**不回填、不猜**（铁律 #2）。

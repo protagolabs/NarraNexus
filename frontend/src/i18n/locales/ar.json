@@ -177,7 +177,16 @@
         },
         "turnOff": "إيقاف",
         "turnOn": "تشغيل"
-      }
+      },
+      "sendFailed": "تعذّر الإرسال. نصّك لا يزال هنا — حاول مرة أخرى.",
+      "uploadFailed": "تعذّر رفع «{{name}}».",
+      "uploadFailedGeneric": "تعذّر رفع الملف.",
+      "loadingOlder": "جارٍ تحميل الرسائل الأقدم…",
+      "leadBadge": "القائد",
+      "expand": "عرض المزيد",
+      "collapse": "عرض أقل",
+      "today": "اليوم",
+      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب."
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",
@@ -725,7 +734,8 @@
       "agentCount_two": "وكيلان",
       "agentCount_few": "{{count}} وكلاء",
       "agentCount_many": "{{count}} وكيلًا",
-      "agentCount_other": "{{count}} وكيل"
+      "agentCount_other": "{{count}} وكيل",
+      "unread": "رسائل غير مقروءة"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
@@ -2101,6 +2111,13 @@
     "savedTo": "تم الحفظ في {{path}}",
     "downloadFailed": "فشل التنزيل: {{error}}",
     "doneTitle": "تم"
+  },
+  "toast": {
+    "view": "عرض",
+    "completed": "اكتمل",
+    "roomSpoke": "نشاط جديد في الغرفة",
+    "agent": "وكيل",
+    "room": "غرفة"
   },
   "webAnalyticsNotice": {
     "body": "هذه هي نسخة الويب السحابية من NarraNexus. تستخدم Google Tag Manager، وهي خدمة تحليلات تابعة لجهة خارجية، لجمع بيانات مجهولة عن التفاعل مع الصفحة (مرات المشاهدة والنقرات والمُحيل). لا يُجمع أي محتوى للمحادثات. يمكنك إيقاف ذلك في أي وقت من الإعدادات → الخصوصية.",

@@ -173,7 +173,16 @@
         },
         "turnOff": "Desactivar",
         "turnOn": "Activar"
-      }
+      },
+      "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
+      "uploadFailed": "No se pudo subir «{{name}}».",
+      "uploadFailedGeneric": "No se pudo subir el archivo.",
+      "loadingOlder": "Cargando mensajes anteriores…",
+      "leadBadge": "líder",
+      "expand": "Ver más",
+      "collapse": "Ver menos",
+      "today": "Hoy",
+      "agentPaused": "Este agente está en pausa ({{reason}}). Usa «Reanudar» en el aviso de arriba cuando se resuelva la causa."
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -717,7 +726,8 @@
     "teamChatRow": {
       "groupChatTitle": "{{name}} — chat grupal",
       "agentCount_one": "{{count}} agente",
-      "agentCount_other": "{{count}} agentes"
+      "agentCount_other": "{{count}} agentes",
+      "unread": "Mensajes no leídos"
     },
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
@@ -2093,6 +2103,13 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "toast": {
+    "view": "Ver",
+    "completed": "Completado",
+    "roomSpoke": "Nueva actividad en la sala",
+    "agent": "Agente",
+    "room": "Sala"
   },
   "webAnalyticsNotice": {
     "body": "Esta es la versión web en la nube de NarraNexus. Utiliza Google Tag Manager, un servicio de análisis de terceros, para recopilar datos anónimos de interacción con la página (vistas, clics, referente). No se recopila ningún contenido de las conversaciones. Puedes desactivarlo en cualquier momento en Configuración → Privacidad.",

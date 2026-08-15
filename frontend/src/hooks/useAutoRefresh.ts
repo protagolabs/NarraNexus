@@ -5,7 +5,7 @@
  * @description: Smart auto-refresh hook for background data polling
  *
  * Features:
- * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): jobs/awareness/socialNetwork
+ * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): teams/jobs/awareness/socialNetwork
  * 2. Background message detection (15s): polls chat history to detect new messages from jobs/lark
  * 3. Visibility API — pauses all polling when the tab is hidden, refreshes immediately on re-focus
  * 4. Exposes refreshAll() for full data reload after agent execution completes
@@ -17,8 +17,10 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore } from '@/stores';
+import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
+import { teamHasUnread } from '@/lib/unread';
+import type { ToastItem } from '@/stores/chatStore';
 
 // ── Polling interval config ─────────────────────
 
@@ -68,6 +70,11 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   // Track the latest known chat history timestamp per agent for new-message detection
   const latestTimestampRef = useRef<Record<string, string>>({});
 
+  // Was each team room unread at the previous tick? An absent entry means
+  // "never observed", which is deliberately distinct from `false` — see
+  // notifyWokenRooms.
+  const roomUnreadRef = useRef<Record<string, boolean>>({});
+
   // ── Full refresh (call after agent execution, NOT silent — user sees loading) ──
 
   const refreshAll = useCallback(async () => {
@@ -88,7 +95,48 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   // ── Polling scheduler (all polls are silent) ──
 
   useEffect(() => {
-    if (!agentId || !userId) return;
+    // Only userId is required. The polls that need an agent guard on one
+    // themselves, and gating the whole scheduler on a selected agent left a
+    // user sitting in a team room with no background refresh at all.
+    if (!userId) return;
+
+    /**
+     * Toast the rooms that just woke up.
+     *
+     * The trigger is the EDGE — a room the user had caught up on has started
+     * talking — not the level. A toast per new message in a room where six
+     * agents answer at once is a notification people turn off, and a feature
+     * users turn off is worse than one that was never built. Once a room is
+     * unread it stays unread until they open it, and says nothing more.
+     *
+     * "Is the user reading it right now" needs no route knowledge: the open
+     * room advances its own watermark every 3s (see TeamChatPanel), so by the
+     * time this 30s tick sees a new message it is already read. `teamHasUnread`
+     * is the same question the sidebar dot asks, answered from the same place.
+     */
+    const notifyWokenRooms = () => {
+      const teams = useTeamsStore.getState().teams;
+      const woken: ToastItem[] = [];
+      for (const t of teams) {
+        const id = t.team.team_id;
+        const nowUnread = teamHasUnread(t.last_message_at, id);
+        const before = roomUnreadRef.current[id];
+        roomUnreadRef.current[id] = nowUnread;
+        // undefined = never observed: a team created, joined, or seen for the
+        // first time this session. Treating that as "was caught up" would
+        // announce the entire backlog of a room the user just gained access to,
+        // and would make every unread room shout on app start.
+        if (before === undefined || before || !nowUnread) continue;
+        woken.push({
+          kind: 'team',
+          teamId: id,
+          teamName: t.team.name || id,
+          timestamp: Date.now(),
+        });
+      }
+      if (!woken.length) return;
+      useChatStore.setState((state) => ({ toastQueue: [...state.toastQueue, ...woken] }));
+    };
 
     // High-freq tick: agentInbox (silent — no loading flicker, no re-render if unchanged)
     const tickHigh = () => {
@@ -98,12 +146,23 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       refreshAgentInbox(aid, true);
     };
 
-    // Mid-freq tick: jobs + awareness + agent list (silent)
+    // Mid-freq tick: teams + jobs + awareness + agent list (silent)
     const tickMid = () => {
       if (document.hidden) return;
       const aid = agentIdRef.current;
       const uid = userIdRef.current;
-      if (!aid || !uid) return;
+      if (!uid) return;
+      // Teams carry the room-activity mark the sidebar shows for a room the
+      // user has left. Without this the mark would only ever appear on a full
+      // reload, which is indistinguishable from it not working.
+      //
+      // Ahead of the agent guard on purpose: a team room needs no agent
+      // selected, and the sidebar's team rows exist whether one is or not.
+      void useTeamsStore
+        .getState()
+        .refresh()
+        .then(() => notifyWokenRooms());
+      if (!aid) return;
       refreshJobs(aid, undefined, undefined, true);
       refreshAwareness(aid, true);
       refreshSocialNetwork(aid, true);
@@ -150,6 +209,7 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
                 useChatStore.setState((state) => ({
                   completedAgentIds: [...state.completedAgentIds, aid],
                   toastQueue: [...state.toastQueue, {
+                    kind: 'agent' as const,
                     agentId: aid,
                     agentName: agent.name || aid,
                     timestamp: Date.now(),

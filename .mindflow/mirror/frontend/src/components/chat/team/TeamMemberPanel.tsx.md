@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMemberPanel.tsx
-last_verified: 2026-08-07
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -78,3 +78,19 @@ chrome 头条（LiveDot 呼吸灯 + `name · process` + ops/elapsed）、
   额外亮 amber 的 silentFor 行。
 - elapsed 用父级共享 `now` 时钟 + poll 的 started_at —— 屏上所有
   时长同一口径（v1 决策沿袭）。
+
+## 2026-08-12 — 暂停的 agent 说自己暂停了
+
+此前熔断和真正的读取失败**共用同一句文案**（`detailLoadFailed`），两者无法区分，
+而其中一句是假的。现在熔断有自己的文案，并复用 App.tsx 已有的
+`narranexus:agent-circuit-open` 横幅（带一键 Resume）。
+
+**为什么宣告在这里而不在 hook 里**：hook 只有 `runId`，拿不到 agentId；而且在 data hook 里
+发全局事件是把副作用放在没人预期的位置。这个组件正好既知道是哪个 agent、又是显示误导文案的地方。
+
+**复用既有事件而不另造横幅**：熔断原因的词表只该有一处。这个仓库刚为「一条规则两份实现」
+付过学费（调色板色序已漂移）。
+
+> 中间写过一个 `announced` ref 去防重复宣告，**变异验证反复活着——最后发现是那段代码本身多余**：
+> `useEffect` 的依赖数组已经提供了「每个 (reason, agent) 一次」，`now` 变化根本不重跑 effect。
+> 那个 ref 唯一的真实作用是压掉「熔断解除后又打开」时本该发生的再次宣告。**删掉，而不是为它补断言。**

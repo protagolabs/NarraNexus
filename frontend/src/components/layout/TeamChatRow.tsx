@@ -32,6 +32,20 @@ export interface TeamChatRowProps {
   onAddAgent: (teamId: string) => void;
   /** True while an agent create is in flight — disables the Add-agent item. */
   addingAgent?: boolean;
+  /**
+   * The room has said something the user has not seen.
+   *
+   * A dot rather than a count, and that follows from where the data is: the
+   * sidebar never loads a transcript, and the server cannot count "unread on
+   * this device" without a per-team watermark it has no way to know. What it
+   * answers instead is when the room last spoke; the comparison lives in
+   * `lib/unread`.
+   */
+  unread?: boolean;
+  /** What was last said in the room, and by whom — the line that makes the row
+   *  worth reading without opening it, like the agent rows below it. */
+  preview?: string | null;
+  authorName?: string | null;
 }
 
 export function TeamChatRow({
@@ -45,6 +59,9 @@ export function TeamChatRow({
   onClearData,
   onAddAgent,
   addingAgent,
+  unread,
+  preview,
+  authorName,
 }: TeamChatRowProps) {
   const { t } = useTranslation();
   const [renaming, setRenaming] = useState(false);
@@ -130,6 +147,35 @@ export function TeamChatRow({
               >
                 {t('layout.teamChatRow.agentCount', { count: agentCount })}
               </span>
+
+              {/* The room has spoken since the user last looked. A dot, not a
+                  count — see the prop docs. */}
+              {unread && (
+                <span
+                  data-testid={`team-unread-${teamId}`}
+                  title={t('layout.teamChatRow.unread')}
+                  aria-label={t('layout.teamChatRow.unread')}
+                  className="shrink-0 w-2 h-2 rounded-full allow-circle"
+                  style={{ background: 'var(--accent-primary)' }}
+                />
+              )}
+            </div>
+          )}
+
+          {/* What was last said. Second line, like an agent row's preview: the
+              row belongs to the ROOM, so it previews what the room said, not
+              what the user typed into it. */}
+          {!renaming && preview && (
+            <div
+              className="flex items-baseline gap-1 min-w-0 text-[11px] leading-tight"
+              style={{ color: 'var(--nm-ink50)' }}
+            >
+              {authorName && (
+                <span className="shrink-0 truncate max-w-[40%]" style={{ color: 'var(--nm-ink70)' }}>
+                  {authorName}:
+                </span>
+              )}
+              <span className="min-w-0 truncate">{preview}</span>
             </div>
           )}
         </div>

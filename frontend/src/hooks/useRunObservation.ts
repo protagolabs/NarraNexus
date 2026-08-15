@@ -26,6 +26,34 @@ import { useConfigStore } from '@/stores';
 import { translateReconnectFrame } from '@/services/wsManager';
 import type { Step, TurnEvent } from '@/types';
 
+/**
+ * Whether an error frame ends the socket's life, as opposed to being a
+ * run-level event the run continues past.
+ *
+ * A named predicate rather than an inline condition because the retry ladder is
+ * the thing it governs, and a retry loop is invisible in any test that only
+ * folds frames: the reducer never sees `onclose`. This exact gap let the
+ * breaker case reconnect forever while every reducer test stayed green — the
+ * acceptance criterion says "the observation socket does not reconnect
+ * endlessly", and nothing was checking it.
+ *
+ *   - Forbidden / NotFound / DBError: the server closes right after these.
+ *   - agent_circuit_open: retrying is a loop against a refusal. The agent is
+ *     not down, it is declining to run until a human fixes a key, a balance, or
+ *     waits out a cooldown.
+ *
+ * Anything else is a run-level event (a failed tool call mid-run); settling on
+ * those would end runs that are still going.
+ */
+export function isTerminalErrorFrame(errorType: unknown): boolean {
+  return (
+    errorType === 'Forbidden' ||
+    errorType === 'NotFound' ||
+    errorType === 'DBError' ||
+    errorType === 'agent_circuit_open'
+  );
+}
+
 export interface RunObservationSnapshot {
   /** connecting → live (frames flowing) → ended (terminal frame seen). */
   status: 'connecting' | 'live' | 'ended';
@@ -39,6 +67,15 @@ export interface RunObservationSnapshot {
   startedAt: number | null;
   /** Last fatal error surfaced by the run (display-only). */
   errorMessage: string | null;
+  /**
+   * Why the agent's breaker is open: "paused:auth" | "paused:quota" |
+   * "cooling", else null.
+   *
+   * Kept rather than collapsed into `endState: 'failed'`, because the three
+   * reasons ask the user for three different things — a new key, more balance,
+   * or simply to wait. "Failed" tells them to do nothing in particular.
+   */
+  circuitReason: string | null;
   /** Tool calls observed so far (derived; 0 while connecting). */
   opsCount: number;
 }
@@ -50,6 +87,7 @@ const INITIAL: RunObservationSnapshot = {
   steps: [],
   startedAt: null,
   errorMessage: null,
+  circuitReason: null,
   opsCount: 0,
 };
 
@@ -86,6 +124,21 @@ export function applyObservationFrame(
       ...INITIAL,
       status: 'live',
       startedAt: Number.isFinite(startedMs) ? startedMs : null,
+    };
+  }
+  // An open breaker is TERMINAL, not "still loading". Left as a generic error
+  // it wrote a message, never settled the snapshot, and the socket's onclose
+  // then reconnected forever against an agent that is by definition refusing to
+  // run — the room showing "couldn't load" while the client retried in a loop.
+  // The private chat has had the honest path (a banner with Resume) for a long
+  // time; this is the observation socket learning the same thing.
+  if (t === 'error' && raw.error_type === 'agent_circuit_open') {
+    return {
+      ...snap,
+      status: 'ended',
+      endState: 'failed',
+      circuitReason: (raw.cb_reason as string | null) ?? 'cooling',
+      errorMessage: (raw.error_message as string | null) ?? snap.errorMessage,
     };
   }
   if (t === 'run_ended') {
@@ -295,7 +348,7 @@ export function useRunObservation(
             // frames are run-level events — dispatch, but do NOT reset
             // the ladder: an error frame is not progress.
             const et = raw.error_type as string | undefined;
-            if (et === 'Forbidden' || et === 'NotFound' || et === 'DBError') {
+            if (isTerminalErrorFrame(et)) {
               fatalRef.current = true;
               dispatch({ type: 'frame', raw });
               dispatch({
