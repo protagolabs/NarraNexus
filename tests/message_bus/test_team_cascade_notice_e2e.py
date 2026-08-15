@@ -97,6 +97,20 @@ def _db_factory(db_client, monkeypatch):
     monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get_db)
 
 
+async def _assert_turn_survived(db):
+    """No failure was recorded for this turn.
+
+    `_handle_channel_batch` wraps the whole turn in a wide `except`, so any
+    contract drift between these stubs and the real `_invoke_runtime` — a
+    parameter that no longer exists, a return type that changed — is swallowed
+    into `record_failure` and the assertions above stay true. That is not
+    hypothetical: it happened to the sibling file's stub, whose e2e coverage was
+    dead while the test stayed green.
+    """
+    rows = await db.execute("SELECT * FROM bus_message_failures", (), fetch=True)
+    assert not rows, f"the turn raised and was swallowed: {rows}"
+
+
 async def _notices(db):
     rows = await db.execute(
         "SELECT * FROM bus_messages WHERE msg_type = %s ORDER BY created_at",
@@ -114,6 +128,7 @@ async def test_a_named_teammate_dropped_by_the_cap_is_announced(db_client):
 
     await trigger._process_agent(ME)
 
+    await _assert_turn_survived(db_client)
     notices = await _notices(db_client)
     assert len(notices) == 1
     assert "Pat" in notices[0]["content"]
@@ -128,6 +143,7 @@ async def test_an_at_all_dropped_by_the_cap_is_announced(db_client):
 
     await trigger._process_agent(ME)
 
+    await _assert_turn_survived(db_client)
     notices = await _notices(db_client)
     assert len(notices) == 1
     assert "@everyone" not in notices[0]["content"]
@@ -167,6 +183,7 @@ async def test_the_notice_wakes_nobody(db_client):
 
     await trigger._process_agent(ME)
 
+    await _assert_turn_survived(db_client)
     assert (await _notices(db_client))[0]["mentions"] in (None, "")
 
 
@@ -181,4 +198,5 @@ async def test_a_room_below_the_cap_says_nothing(db_client):
 
     await trigger._process_agent(ME)
 
+    await _assert_turn_survived(db_client)
     assert await _notices(db_client) == []

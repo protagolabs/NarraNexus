@@ -49,6 +49,9 @@ import type { TeamChatMessage } from '@/types/teams';
  *  inbox's existing threshold so the two surfaces fold at the same size. */
 export const COLLAPSE_CHARS = 500;
 
+/** Shared empty list for messages with no recorded boundary — see below. */
+const NO_SEGMENTS: Segment[] = [];
+
 export interface TeamMessageBubbleProps {
   message: TeamChatMessage;
   /** Display name for the human, for their own bubble. */
@@ -137,9 +140,12 @@ export function TeamMessageBubble({
   const mentionPlugins = useMemo(() => [rehypeMentions(nameSet)], [nameSet]);
 
   const body = (m.content || '').trim();
+  // NO_SEGMENTS rather than a fresh `[]`: this feeds a useMemo, and a new array
+  // on every render defeats it — the same shape that had the transcript
+  // re-parsing every message once a second before `memberNameMap` was fixed.
   const segments: Segment[] = Array.isArray(m.segments) && m.segments.length
     ? (m.segments as Segment[])
-    : [];
+    : NO_SEGMENTS;
   const tooLong = body.length > COLLAPSE_CHARS;
   const shown = tooLong && !expanded ? `${body.slice(0, COLLAPSE_CHARS)}…` : body;
 

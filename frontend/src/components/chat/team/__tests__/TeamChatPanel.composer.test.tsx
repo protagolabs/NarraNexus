@@ -57,7 +57,13 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 import { TeamChatPanel } from '../TeamChatPanel';
 import { getTeamDraft } from '@/lib/chatDrafts';
 
-const AGENTS = [{ agent_id: 'a1', name: 'Ana' }];
+const AGENTS = [
+  { agent_id: 'a1', name: 'Ana Silva' },
+  { agent_id: 'a3', name: 'Researcher' },
+  // Same display name as a3 — two clones of an agent, or two that kept the
+  // default. The case the name-keyed map silently collapsed.
+  { agent_id: 'a4', name: 'Researcher' },
+];
 const TEAMS = [
   {
     team: { team_id: 't1', name: 'Desk', owner_user_id: 'usr_1', source: 'local' },
@@ -66,6 +72,10 @@ const TEAMS = [
   {
     team: { team_id: 't2', name: 'Lab', owner_user_id: 'usr_1', source: 'local' },
     member_agent_ids: ['a1'],
+  },
+  {
+    team: { team_id: 't3', name: 'Twins', owner_user_id: 'usr_1', source: 'local' },
+    member_agent_ids: ['a3', 'a4'],
   },
 ];
 
@@ -270,5 +280,40 @@ describe('a failure is visible', () => {
     fireEvent.keyDown(composer(), { key: 'Enter' });
 
     await waitFor(() => expect(screen.queryByTestId('composer-error')).toBeNull());
+  });
+});
+
+describe('who a message wakes', () => {
+  test('a mention resolves to the member id, by first name', () => {
+    // The composer's own autocomplete inserts `@Ana Silva`; the token stops at
+    // the space, so this is the ordinary case rather than an edge one.
+    render(<TeamChatPanel teamId="t1" />);
+    type(composer(), 'hey @Ana can you look');
+
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+
+    return waitFor(() => {
+      expect(sendTeamChat).toHaveBeenCalledWith('t1', 'hey @Ana can you look', ['a1'], []);
+    });
+  });
+
+  test('two members sharing a display name are BOTH woken', () => {
+    // Keying the name→id map by display name dropped all but the last, so one
+    // Researcher was woken and the other never learned they had been named —
+    // while the room highlighted the word for both. The server iterates
+    // members, not names; so does this now.
+    render(<TeamChatPanel teamId="t3" />);
+    type(composer(), '@Researcher please take this');
+
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+
+    return waitFor(() => {
+      expect(sendTeamChat).toHaveBeenCalledWith(
+        't3',
+        '@Researcher please take this',
+        ['a3', 'a4'],
+        [],
+      );
+    });
   });
 });

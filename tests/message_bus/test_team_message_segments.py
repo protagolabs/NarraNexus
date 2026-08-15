@@ -283,14 +283,12 @@ async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
         cb = kwargs.get("on_plain_text_delivery")
         if cb is not None:
             await cb("thinkinganswering")
-        return TurnResult(
-            text="thinkinganswering",
-            event_id="evt_seam",
-            segments=[
-                {"kind": "monologue", "text": "thinking"},
-                {"kind": "reply", "text": "answering"},
-            ],
-        )
+        # No `segments=` here: the boundary reaches the post through the SINK,
+        # not through the result. The field on TurnResult was deleted once its
+        # last reader went away, and this stub kept passing it — a TypeError
+        # that `_handle_channel_batch`'s wide `except` swallowed, so the test
+        # below stayed green while the coverage it claims to provide was dead.
+        return TurnResult(text="thinkinganswering", event_id="evt_seam")
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
@@ -310,6 +308,16 @@ async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
         {"kind": "monologue", "text": "thinking"},
         {"kind": "reply", "text": "answering"},
     ]
+
+    # And the turn has to have SURVIVED. The delivery happens before the stub
+    # returns, so a turn that blows up afterwards still leaves a correct row —
+    # which is exactly what happened when this stub kept passing a `segments=`
+    # kwarg that no longer existed: TypeError, swallowed by the batch handler's
+    # wide `except`, every assertion above still true, coverage dead.
+    failures = await db_client.execute(
+        "SELECT * FROM bus_message_failures", (), fetch=True
+    )
+    assert not failures, f"the turn raised after delivering: {failures}"
 
 
 def test_the_room_funnel_carries_everything_a_room_caller_can_send():

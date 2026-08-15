@@ -588,11 +588,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
    *  bug: the reader sees three names lit and two teammates answer, with no way
    *  to tell which half is wrong.
    *
-   *  The RESOLUTION stays loose on purpose — first names and prefixes count,
-   *  because someone typing `@ana` for "Ana Silva" means her, and waking nobody
-   *  is a worse answer than waking her. The renderers ask a stricter question
-   *  (exact member match) for their own good reason: a loose highlight would
-   *  light up email addresses. Same tokens, different questions. */
+   *  The resolution is loose — first names and prefixes count, because someone
+   *  typing `@ana` for "Ana Silva" means her — and the renderers now use the
+   *  same rule through `matchMembers`. They used to be stricter, which meant a
+   *  teammate could be woken while the room drew their name as ordinary text. */
   const resolveMentions = (value: string): string[] => {
     const tokens = mentionTokens(value);
     if (tokens.size === 0) return [];
@@ -601,10 +600,20 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     // matching itself is NOT reimplemented here: this decides who is woken and
     // `isAddressed` decides who is highlighted, and the two disagreeing is the
     // failure this folder repeatedly calls worse than no highlight at all.
-    const byName = new Map(members.map((m) => [m.name || m.agent_id, m.agent_id]));
-    return matchMembers(tokens, byName.keys())
-      .map((name) => byName.get(name))
-      .filter((id): id is string => !!id);
+    // A display name can belong to more than one member — two clones of an
+    // agent, or two that kept a default name. Keying a Map by name would drop
+    // all but the last, so `@Researcher` would wake one of them while the room
+    // highlighted the word for both: a highlight promising a wake that does not
+    // happen, which is the failure this whole rule was unified to prevent. The
+    // server iterates members, not names, and so does this.
+    const byName = new Map<string, string[]>();
+    for (const m of members) {
+      const nm = m.name || m.agent_id;
+      const ids = byName.get(nm);
+      if (ids) ids.push(m.agent_id);
+      else byName.set(nm, [m.agent_id]);
+    }
+    return matchMembers(tokens, byName.keys()).flatMap((name) => byName.get(name) ?? []);
   };
 
   const handlePickFiles = async (files: FileList | null) => {

@@ -4,6 +4,22 @@ last_verified: 2026-08-15
 stub: false
 ---
 
+## 2026-08-15 (三) — 宽 `except` 会把测试桩的契约偏差吞成"绿"
+
+删掉 `TurnResult.segments` 时漏了一个测试桩，它还在传 `segments=`。frozen dataclass 必然
+抛 `TypeError`——而这个异常落进 `_handle_channel_batch` 的宽 `except`，被记成一次
+`record_failure`，**测试仍然是绿的**。
+
+绿得还很有欺骗性：桩的执行顺序是「填 sink → 调 deliverer（房间行已经落库）→ 才 return」，
+所以断言"行存在且 segments 正确"在崩溃之前就已经满足。`_invoke_runtime` 之后的整段——游标
+推进、`post_state` 三分支、fatal 播报、hop 观测——在那条测试里一步都没走过，而它的 docstring
+还写着自己是"唯一一条会自己变红的测试"。
+
+结构性的教训：**只要一个 turn 被宽 `except` 包着，任何 stub 与真实签名的偏差都会静默降级
+成"这一轮失败了"，而断言可能早就满足了**。所以驱动真 turn 的测试现在都加一条
+`_assert_turn_survived`（这一轮没有被记成失败），断言落在 `_invoke_runtime` **之后**的代码
+上。把这条加回去之后，重新引入那个多余参数会让 5 条测试红。
+
 ## 2026-08-15 (二) — `TurnResult.segments` 删掉：一条只有写、没有读的通道
 
 发帖搬进 turn 内之后，边界改从 `segments_sink` 读（见 [[run_collector.py]]），

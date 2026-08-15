@@ -50,7 +50,9 @@ interface HastElement extends Parent {
  * A rehype plugin that wraps team @mentions in a highlight span.
  *
  * @param names - Lowercased member display names. `@all` / `@everyone` are always
- *   recognised; any other word must be a real member, or an email address and a
+ *   recognised; any other word is resolved by `matchMembers` — the same rule the
+ *   send path and the server use, so what lights up is exactly who gets woken.
+ *   A word that addresses nobody stays plain, or an email address and a
  *   decorative `@` would light up and teach the reader to ignore the highlight.
  */
 export function rehypeMentions(names: Set<string>) {

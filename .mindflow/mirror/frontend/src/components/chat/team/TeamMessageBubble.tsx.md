@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMessageBubble.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 — 没有 segments 时用共享的空数组
+
+`segments` 在没有边界时原本每次 render 新建一个 `[]`，而它是 `visibleSegments` 那个
+`useMemo` 的依赖——于是每次 render 都重算。和 `memberNameMap` 那次是同一个形状：一个看起来
+无害的字面量，把三层之外的 memo 打穿。eslint 的 exhaustive-deps 警告说的就是这件事。
 
 ## 2026-08-14 (二) — 纯文本那份高亮也走共享的 pattern
 

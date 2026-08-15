@@ -34,12 +34,12 @@ export function mentionMatcher(): RegExp {
  * agents come from the same sentence, and a reader who sees three names lit up
  * and two teammates answer has no way to tell which half is wrong.
  *
- * What happens NEXT is deliberately not shared. The renderers ask "is this word
- * addressed to a member" (exact match, or it would light up an email address);
- * the send path resolves loosely — first names, prefixes — because a user typing
- * `@ana` for "Ana Silva" means her, and refusing to wake anyone is a worse
- * answer than waking her. Those are different questions about the same tokens,
- * and collapsing them would make one of the two wrong.
+ * What happens next is shared too — see `matchMembers`. It was not, once: the
+ * renderers matched member names exactly while the send path matched first names
+ * and prefixes, on the stated grounds that a loose highlight would light up
+ * email addresses. That reasoning was wrong (the loose rule is a prefix match,
+ * and `example` is not a prefix of any member), and the divergence it defended
+ * meant a teammate could be woken without the room showing they had been named.
  */
 export function mentionTokens(text: string): Set<string> {
   const out = new Set<string>();
