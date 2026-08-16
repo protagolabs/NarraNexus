@@ -5,53 +5,25 @@
 
 The pure resolver has its own tests; this file crosses the seam they
 don't: revert the ``turn_profile = _resolve_turn_profile(...)`` line in
-run() and these go red. RunContext is spied at the module attribute run()
-resolves it through, and construction aborts immediately after capture —
-no DB, no services, no steps run.
+run() and these go red.
+
+The capture itself lives in `conftest.py` (`capture_run_context`). These
+tests deliberately do NOT pass a `db_client` — part of what they cover is
+that the profile reaches RunContext on a run with no database of its own.
 """
 from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.agent_runtime.agent_runtime as agent_runtime_module
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-
-
-class _CtxCaptured(BaseException):
-    # BaseException on purpose: run()'s broad `except Exception` handlers
-    # must not swallow the sentinel, so pytest.raises stays exact.
-    pass
-
-
-async def _capture_ctx_kwargs(monkeypatch, **run_kwargs) -> dict:
-    captured: dict = {}
-
-    class _SpyCtx:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            raise _CtxCaptured()
-
-    monkeypatch.setattr(agent_runtime_module, "RunContext", _SpyCtx)
-
-    runtime = AgentRuntime()
-    gen = runtime.run(
-        agent_id="agent_a", user_id="user_u", input_content="hi", **run_kwargs
-    )
-    with pytest.raises(_CtxCaptured):
-        async for _ in gen:
-            pass
-    assert captured, "RunContext was never constructed"
-    return captured
-
 
 @pytest.mark.asyncio
-async def test_fast_mode_true_reaches_run_context(monkeypatch):
-    captured = await _capture_ctx_kwargs(monkeypatch, fast_mode=True)
+async def test_fast_mode_true_reaches_run_context(capture_run_context):
+    captured, _ = await capture_run_context(fast_mode=True)
     assert captured["turn_profile"] is not None
     assert captured["turn_profile"].name == "chat_fast"
 
 
 @pytest.mark.asyncio
-async def test_default_run_context_has_no_profile(monkeypatch):
-    captured = await _capture_ctx_kwargs(monkeypatch)
+async def test_default_run_context_has_no_profile(capture_run_context):
+    captured, _ = await capture_run_context()
     assert captured["turn_profile"] is None
