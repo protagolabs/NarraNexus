@@ -35,8 +35,8 @@ class UnifiedMatchOutput(BaseModel):
     Used for the output of the llm_judge_unified function.
     """
     reason: str  # Detailed reasoning process
-    matched_category: str  # "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "search", "no_durable_topic", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 
 
 # ===== LLM judgment functions =====
@@ -86,7 +86,10 @@ async def llm_judge_unified(
                 user_input += f"Description: {candidate['description']}\n"
                 user_input += "\n"
 
-        # 1. Default Narratives
+        # 1. Default Narratives — empty under bucket governance (C-1). The
+        # eight category names still reach the model, as VOCABULARY inside the
+        # instructions, so it can still recognise "no durable topic"; what it
+        # can no longer do is file the turn INTO one of them.
         if default_candidates:
             user_input += "## Default Topic Types:\n\n"
             for i, candidate in enumerate(default_candidates):
@@ -158,6 +161,17 @@ async def llm_judge_unified(
                 }
             else:
                 logger.warning(f"LLM returned participant index={output.matched_index} out of range")
+
+        elif output.matched_category == "no_durable_topic":
+            # A verdict about the TURN, carrying no destination. The caller
+            # (retrieval -> NarrativeService.select) decides where it lands;
+            # see the anchor-first rule in select().
+            logger.info(f"LLM: no durable topic this turn — {output.reason[:120]}")
+            return {
+                "matched_id": None,
+                "matched_type": "no_topic",
+                "reason": output.reason,
+            }
 
         elif output.matched_category == "default":
             if 0 <= output.matched_index < len(default_candidates):

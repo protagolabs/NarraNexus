@@ -174,6 +174,29 @@ class NarrativeConfig:
     # Recommended: 6
     MAX_EVENTS_IN_CONTEXT = 6
 
+    # ==================== Default buckets (C-1 governance) ====================
+    # The eight seeded "default" narratives (GreetingAndCourtesy, …) stop being
+    # routing CONTAINERS when this is False — they leave the BM25 pool, leave
+    # the judge's candidate menu, and are no longer seeded for new (agent,user)
+    # pairs. Their eight category names survive as VOCABULARY in the judge's
+    # instructions: the verdict "this turn carries no durable topic" is still
+    # expressed with them, it just no longer names a row to file the turn into.
+    #
+    # Why they had to go (measured, spec 2026-08-14-default-bucket-governance):
+    #   - 26.4% of prod user turns and 27.0% of a real prod slice's chat turns
+    #     had a bucket as their MAIN narrative, and 9080/9080 buckets platform-
+    #     wide still carry their factory summary — a bucket never accumulates a
+    #     retrieval surface, so a topic filed into one can never be recalled.
+    #   - The eight rows also perturbed 9.7% of top-1 BM25 results just by
+    #     sitting in the pool (IDF/avgdl are computed over the set handed in).
+    #
+    # False is the shipping value; flip to True to restore the old behaviour
+    # wholesale (same-harness before/after, or a one-line rollback). Existing
+    # bucket ROWS are never deleted either way — binding rule #6.
+    NARRATIVE_DEFAULT_BUCKETS_ENABLED = (
+        _env("NARRATIVE_DEFAULT_BUCKETS_ENABLED", "0") == "1"
+    )
+
     # ==================== Narrative LLM Dynamic Update ====================
     # Use LLM to update Narrative metadata every N Events (name, current_summary,
     # actors, topic_keywords, dynamic_summary). Default 1 = every Event; raise to

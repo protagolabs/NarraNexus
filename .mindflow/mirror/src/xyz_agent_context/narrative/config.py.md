@@ -1,9 +1,24 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-08-14
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — NARRATIVE_DEFAULT_BUCKETS_ENABLED（C-1 default 桶治理）
+
+八条播种叙事（GreetingAndCourtesy…）**不再是路由容器**。开关为 False（出厂值）
+时它们退出 BM25 池、退出 judge 候选菜单、不再为新 (agent,user) 播种；八个类目名
+**保留在 judge 的 instructions 里当词表**——"这一轮没有可沉淀的话题"这个判断仍然
+用它们表达，只是不再指向一行可以把 event 塞进去的记录。
+
+为什么必须动（实测，spec `2026-08-14-default-bucket-governance-design.md`）：
+prod 用户轮 **26.4%**、prod 真实切片 chat 轮 **27.0%** 的主叙事是桶，而全库
+**9080/9080** 条桶的摘要至今是出厂模板——桶永远不积累检索面，进去的话题**再也召
+不回来**。另外这八行只是待在池子里就扰动了 **9.7%** 的 top-1（IDF/avgdl 按传入集
+合算）。
+
+开关默认 False = 新行为；置 True 整体回滚（同装置 before/after 对照用）。两种取值
+下**都不删除任何存量行**（铁律 #6）——只是路由不再看见它们。
 ## 2026-08-14 — 撤回单位门：持锚点不创建是实测终案（supersede 下一条）
 
 单位门（8 units）上线前实测被否：中文正常延续句 BM25 top-1 落在 1.0-3.2

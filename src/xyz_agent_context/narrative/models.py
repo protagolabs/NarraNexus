@@ -422,6 +422,15 @@ class NarrativeSelectionResult(BaseModel):
     scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
     retrieval_method: str = ""  # Retrieval method: "session" (continuity) | "keyword" (BM25)
 
+    # The judge's "this turn carries no durable topic" verdict (C-1). It is a
+    # LABEL about the turn, not a destination: the retrieval tier returns it
+    # with an EMPTY narrative list and NarrativeService.select decides where the
+    # turn lands (anchor-first — reuse the live thread, else create on durable
+    # surfaces, else run bare). It also travels to step_4, where it means "file
+    # the event but do NOT let this turn rewrite the thread's retrieval
+    # surface" — a greeting must never rename the work it interrupted.
+    no_durable_topic: bool = False
+
     # ===== Routing audit (E1) — transient, never persisted on this object =====
     # The retrieval tier fills the BM25/gate/judge half; NarrativeService.select
     # adds the continuity half and the outcome, then writes one row. Carried

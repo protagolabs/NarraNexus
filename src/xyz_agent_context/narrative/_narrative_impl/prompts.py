@@ -96,9 +96,11 @@ The system has 8 special default Narratives with simplified names and descriptio
    - Characteristic: Fallback container
 
 **Rules for Special Default Narratives**:
-- These Narratives have very strict boundaries; once the user mentions specific objects, tasks, or ongoing topics, it should be judged as **is_continuous = false**
-- Example: Currently in "GreetingAndCourtesy", user says "help me write code" → must switch to new Narrative
-- Example: Currently in "CasualChatOrEmotion", user says "Python decorators" → must switch to new Narrative
+- Judge these the same way you judge any other Narrative: **does the current query continue the same business goal?**
+- Their names describe a SHAPE of message, not a subject, so there is usually little for a substantive query to continue — but that is a conclusion you reach from the content, never a rule you apply because of the container's type
+- If the user is plainly carrying on from the previous turn (a follow-up, a correction, a pronoun referring back, an answer to what the Agent just asked), that is **is_continuous = true** even when the current Narrative is one of these
+- Example: Currently in "GreetingAndCourtesy", user says "help me write code" → a new subject with nothing to continue → false
+- Example: Currently in "UnclassifiedOrGarbage" after the Agent asked "which file?", user says "the layout one" → plainly continuing → true
 
 **Judgment Granularity — Business Intent Level**:
 - Judge at the **business intent / goal** level, NOT at the message-detail level
@@ -115,20 +117,20 @@ The system has 8 special default Narratives with simplified names and descriptio
    - User gives follow-up instructions that serve the same business objective
    - User uses pronouns ("it", "this", "that") clearly referring to content in the current Narrative
    - User's new question is a continuation or extension of content within the current Narrative's scope
-   - **Note**: For the 8 default Narratives, only questions that fully fit their narrow scope belong
+   - **Note**: The 8 default Narratives describe a shape of message rather than a subject, so they rarely have much to continue — but a plain follow-up to the previous turn still belongs
 
 2. **Does Not Belong to Current Narrative** → is_continuous = false
    - User raised a **completely different** new topic from the current Narrative's theme
    - User started a new, independent task/question that serves a different business goal
    - User explicitly indicates wanting to switch topics (e.g., "let's change the subject", "talk about something else")
    - Although conversation is continuous, the topic has jumped to another domain/task
-   - **Note**: When switching from the 8 default Narratives to specific topics, must judge as not belonging
+   - **Note**: A specific topic raised while in one of the 8 default Narratives is usually a new subject — decide that from the content, not from the fact that the current Narrative is a default one
 
 3. **Consider the Narrative's Core Theme** (if provided)
    - First, identify the Narrative's **core business goal** from its name and summary
    - Then ask: does the current query serve this goal? If yes → belongs
    - The Narrative's summary reflects the conversation focus so far
-   - **For the 8 default Narratives**: Prioritize judgment based on name, as summary info may be insufficient
+   - **For the 8 default Narratives**: their name describes a message shape and their summary is a fixed template, so neither states a business goal — fall back to the previous turn to decide whether the user is continuing something
 
 4. **Consider the Agent's Response**
    - If the Agent's response introduced a new sub-topic and the user is following up, this still belongs to the same Narrative
@@ -191,12 +193,12 @@ class UnifiedMatchOutput(BaseModel):
     matched_index: int  # Matched index (0-based), -1 if matched_category="none"
 """
 
-NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. You need to determine which category the user's new query should match:
-1. Match an existing specific topic (a conversation topic already in the database)
-2. Match a default topic type (generic scenarios like greetings, jokes, etc.)
-3. Create a new topic (does not match any existing content)
+NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. You need to decide where the user's new query belongs:
+1. An existing specific topic (a conversation topic already in the database)
+2. No durable topic — the message carries nothing worth remembering as its own thread
+3. A new topic (a real subject that no existing topic covers)
 
-Default topic types:
+Recognising "no durable topic". These eight shapes are what it looks like:
 1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
 2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
 3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
@@ -206,10 +208,20 @@ Default topic types:
 7. GeneralOneShotQuestion: One-time general knowledge Q&A
 8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
 
+These are DESCRIPTIONS, not destinations: they tell you how to recognise a
+turn that should not open or claim a thread. You never file a message "into"
+one of them.
+
+**A message is NOT "no durable topic" if it names something concrete** — a
+file, a project, a tool, an error, a person, a task, a deliverable — or if it
+continues work that is already under way. When a query names a concrete thing,
+it either belongs to an existing topic or deserves a new one. Judge the
+message on what it refers to, not on how short or casual it sounds.
+
 Judgment priority:
 1. First check if it relates to an existing topic — if the query's business domain overlaps with an existing topic's summary/description, prefer matching it even if not an exact match
-2. If it clearly doesn't relate to any existing topic, check if it matches a default topic type
-3. Create a new topic ONLY as a last resort — creating new topics fragments context and should be avoided when a reasonable existing match exists
+2. If it clearly doesn't relate to any existing topic, decide whether it carries a durable topic at all
+3. Create a new topic when the message introduces a real subject no existing topic covers — creating fragments context, so prefer a reasonable existing match, but a genuinely new subject deserves its own thread
 
 **Important**: Judge at the business-intent level. If the query is about the same project, task, or domain as an existing topic, it belongs there even if the specific sub-topic differs.
 
@@ -217,14 +229,14 @@ Requirements:
 - Carefully analyze the user query's intent
 - Provide detailed reasoning
 - If matching an existing topic, return matched_category = "search" with the corresponding index
-- If matching a default type, return matched_category = "default" with the corresponding index
-- If nothing matches, return matched_category = "none"
+- If the message carries no durable topic, return matched_category = "no_durable_topic"
+- If it introduces a genuinely new subject, return matched_category = "none"
 
 Output format:
 class UnifiedMatchOutput(BaseModel):
     reason: str  # Detailed reasoning process
-    matched_category: str  # "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "search", "no_durable_topic", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 """
 
 # ============================================================================

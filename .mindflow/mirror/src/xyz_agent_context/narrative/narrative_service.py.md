@@ -1,9 +1,38 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-14
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — 无持久话题的落点：anchor-first（C-1 方案 ④-A′）
+
+judge 回答的是关于**这一轮**的问题（"这里有没有值得单独成线的东西"），它**不给
+目的地**。目的地由新的 `_land_no_topic_turn` 决定，规则与 `step_1_fast_select`
+早已定稿的形状**刻意保持一致**，避免快慢两条路对"没内容的一轮该去哪"产生分歧：
+
+1. **有真实线锚点 → 复用，且不碰它的检索面**。任务中间的一句"你好"属于那个任务
+   （标注协议 R1），用户也指望 agent 还记得在干什么。关键在"不碰"：
+   `NARRATIVE_LLM_UPDATE_INTERVAL=1`，让 updater 跑起来意味着每句寒暄花一次
+   helper 调用，并且 name/summary/keywords 是**全量覆盖**——一句"你好"足以把工作
+   线改名。
+2. **无锚点 + durable → 建线**。聊天历史端点是按 narrative 取的、ChatModule
+   instance 挂在 narrative 上，这里裸跑会让首次接触的一轮**从用户自己的历史里消
+   失**。新建的线不是垃圾：它成为锚点，随着真实话题浮现由 updater 改名。
+3. **无锚点 + ephemeral（voice/F28）→ 裸跑**。刻意为之：不留痕迹，好让下一条打字
+   消息的连续性判定"就像这轮语音没发生过"。
+
+三种落点在审计里可分辨（`no_topic_anchored` / `new_created` / `no_topic_bare`），
+因为本批次最大的风险是碎片化，而只有 `new_created` 那一支会真的多出一条线。
+
+## 2026-08-16 — 连续性不得锁在 default 桶上（C-1 方案 ⑤）
+
+`select()` 在跑连续性检测**之前**先看锚点：锚点是 `is_special == "default"` 的行
+就直接不跑这一层（不是跑完再忽略——那是一次白花的 helper 往返）。桶是**对某一轮
+的判断**，不是一条线，没有"延续"可言。实测：重演 155 个落桶轮里 **59 个**是被连
+续性按在桶里的，最长连锁 11 轮，而这些轮次全都不可召回。
+
+与 C-2 那条 prompt 改动（`prompts.py`）配套：两者合起来才截断闭环
+`停进桶 → 容器规则判 False → 重走检索 → 冻结模板 raw=0 → 又落回桶`。
 ## 2026-08-14 — 撤回 query_units/新线旗标（supersede 下一条）
 
 `query_units` 与 `FastSelectResult.related/suggests_new_thread` 删除

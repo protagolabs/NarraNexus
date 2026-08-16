@@ -139,7 +139,20 @@ async def step_4_persist_results(
     execution_result = ctx.execution_result
     load_result = ctx.load_result
 
-    if not main_narrative or not execution_result:
+    # Narrative-level bookkeeping. A bare turn (no thread) never enters 4.1 /
+    # 4.2 / 4.4, so these have to carry a truthful "nothing to count" value
+    # into the completion message rather than blow up on it.
+    current_round = 0
+    total_toolcalls = 0
+    unique_narratives: list = []
+
+    # A turn with no narrative is NOT a turn with nothing to save (D-10).
+    # Ephemeral surfaces (voice/F28) and the "no durable topic + no anchor"
+    # landing both finish here with `narrative_list == []`, and their reply,
+    # their memory index and their token cost are all still real. Only "the
+    # agent never produced a result" means there is genuinely nothing to
+    # write; the narrative-level sections guard themselves below.
+    if not execution_result:
         yield ProgressMessage(
             step="4",
             title="Persist Results",
@@ -149,198 +162,204 @@ async def step_4_persist_results(
         )
         return
 
-    # =========================================================================
-    # 4.0 Narrative routing signal (Fix #2 P3)
-    #
-    # The agent may have used switch_narrative / create_narrative (basic_info
-    # MCP tools) to say "this turn actually belongs to thread X" / "...to a NEW
-    # thread". Those tools are signals; we do the re-attribution HERE:
-    #   1. make the target the main narrative (narrative_list[0]) so the event
-    #      (4.4), summary updates, markdown stats (4.2) and the session anchor
-    #      (4.5) all flow to it, and point the session at it for the next turn;
-    #   2. RE-BIND this turn's chat persistence to the target's chat instance —
-    #      step_5's hook persists via the ChatModule object's `self.instance_id`,
-    #      which was bound in step_1 to the ORIGINAL narrative's chat instance.
-    #      We ensure/create the target's chat instance and reset the loaded
-    #      module's instance_id BEFORE step_5 runs, so the message lands in the
-    #      thread it now belongs to (not the original one).
-    # =========================================================================
-    routing = _detect_narrative_routing_signal(execution_result.agent_loop_response)
-    if routing:
-        kind, rargs = routing
-        try:
-            target = None
-            if kind == "switch":
-                tnid = rargs.get("narrative_id")
-                if tnid:
-                    target = await narrative_service.load_narrative_from_db(tnid)
-                    if not target:
-                        logger.warning(f"[NarrativeRouting] switch target {tnid} not found; keeping default")
-            else:  # create
-                target = await narrative_service.create_narrative(
-                    agent_id=ctx.agent_id,
-                    user_id=ctx.user_id,
-                    title=(rargs.get("title") or "New topic"),
-                    description=(rargs.get("description") or ""),
-                )
-            if target and target.id != main_narrative.id:
-                logger.info(
-                    f"[NarrativeRouting] {kind} signal -> {target.id} "
-                    f"(default was {main_narrative.id}); re-attributing this turn"
-                )
-                # main_narrative is a read-only property over narrative_list[0];
-                # override the list head (+ the local var used downstream).
-                if ctx.narrative_list:
-                    ctx.narrative_list[0] = target
-                else:
-                    ctx.narrative_list = [target]
-                main_narrative = target
-                if ctx.session:
-                    ctx.session.current_narrative_id = target.id
-
-                # Re-bind THIS turn's chat persistence to the target thread.
-                # step_5's ChatModule hook writes to the module object's
-                # self.instance_id (bound in step_1 to the ORIGINAL narrative's
-                # chat instance). Ensure/create the target's chat instance and
-                # reset the loaded module(s) BEFORE step_5, so the message lands
-                # in the thread it now belongs to.
-                try:
-                    from .step_1_select_narrative import _ensure_user_chat_instance
-                    target_chat_id = await _ensure_user_chat_instance(
-                        ctx.agent_id, ctx.user_id, target.id
+    # --- narrative-level sections (4.0-4.2) -------------------------------
+    # Skipped, not fatal, when the turn has no thread: routing signals,
+    # trajectory files and markdown stats are all ABOUT a narrative. The
+    # event-level books below (4.3 write-back, 4.6 cost) are not, and used
+    # to be lost with them — see the module docstring.
+    if main_narrative is not None:
+        # =========================================================================
+        # 4.0 Narrative routing signal (Fix #2 P3)
+        #
+        # The agent may have used switch_narrative / create_narrative (basic_info
+        # MCP tools) to say "this turn actually belongs to thread X" / "...to a NEW
+        # thread". Those tools are signals; we do the re-attribution HERE:
+        #   1. make the target the main narrative (narrative_list[0]) so the event
+        #      (4.4), summary updates, markdown stats (4.2) and the session anchor
+        #      (4.5) all flow to it, and point the session at it for the next turn;
+        #   2. RE-BIND this turn's chat persistence to the target's chat instance —
+        #      step_5's hook persists via the ChatModule object's `self.instance_id`,
+        #      which was bound in step_1 to the ORIGINAL narrative's chat instance.
+        #      We ensure/create the target's chat instance and reset the loaded
+        #      module's instance_id BEFORE step_5 runs, so the message lands in the
+        #      thread it now belongs to (not the original one).
+        # =========================================================================
+        routing = _detect_narrative_routing_signal(execution_result.agent_loop_response)
+        if routing:
+            kind, rargs = routing
+            try:
+                target = None
+                if kind == "switch":
+                    tnid = rargs.get("narrative_id")
+                    if tnid:
+                        target = await narrative_service.load_narrative_from_db(tnid)
+                        if not target:
+                            logger.warning(f"[NarrativeRouting] switch target {tnid} not found; keeping default")
+                else:  # create
+                    target = await narrative_service.create_narrative(
+                        agent_id=ctx.agent_id,
+                        user_id=ctx.user_id,
+                        title=(rargs.get("title") or "New topic"),
+                        description=(rargs.get("description") or ""),
                     )
-                    rebound = 0
-                    for m in (getattr(ctx, "module_list", None) or []):
-                        if m.provides_chat_history():
-                            m.instance_id = target_chat_id
-                            m.instance_ids = [target_chat_id]
-                            rebound += 1
-                    if isinstance(getattr(ctx, "user_chat_instances", None), dict):
-                        ctx.user_chat_instances[target.id] = target_chat_id
+                if target and target.id != main_narrative.id:
                     logger.info(
-                        f"[NarrativeRouting] re-bound chat persistence -> instance "
-                        f"{target_chat_id} ({rebound} ChatModule object(s))"
+                        f"[NarrativeRouting] {kind} signal -> {target.id} "
+                        f"(default was {main_narrative.id}); re-attributing this turn"
                     )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(
-                        f"[NarrativeRouting] chat-instance rebind failed "
-                        f"(message will stay in original thread): {e}"
-                    )
+                    # main_narrative is a read-only property over narrative_list[0];
+                    # override the list head (+ the local var used downstream).
+                    if ctx.narrative_list:
+                        ctx.narrative_list[0] = target
+                    else:
+                        ctx.narrative_list = [target]
+                    main_narrative = target
+                    if ctx.session:
+                        ctx.session.current_narrative_id = target.id
 
-                ctx.substeps_4.append(f"[4.0] ✓ Narrative routing ({kind}) -> {target.id}")
-            elif target:
-                logger.info(f"[NarrativeRouting] {kind} signal target == default; no change")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[NarrativeRouting] failed to apply {kind} signal: {e}")
+                    # Re-bind THIS turn's chat persistence to the target thread.
+                    # step_5's ChatModule hook writes to the module object's
+                    # self.instance_id (bound in step_1 to the ORIGINAL narrative's
+                    # chat instance). Ensure/create the target's chat instance and
+                    # reset the loaded module(s) BEFORE step_5, so the message lands
+                    # in the thread it now belongs to.
+                    try:
+                        from .step_1_select_narrative import _ensure_user_chat_instance
+                        target_chat_id = await _ensure_user_chat_instance(
+                            ctx.agent_id, ctx.user_id, target.id
+                        )
+                        rebound = 0
+                        for m in (getattr(ctx, "module_list", None) or []):
+                            if m.provides_chat_history():
+                                m.instance_id = target_chat_id
+                                m.instance_ids = [target_chat_id]
+                                rebound += 1
+                        if isinstance(getattr(ctx, "user_chat_instances", None), dict):
+                            ctx.user_chat_instances[target.id] = target_chat_id
+                        logger.info(
+                            f"[NarrativeRouting] re-bound chat persistence -> instance "
+                            f"{target_chat_id} ({rebound} ChatModule object(s))"
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            f"[NarrativeRouting] chat-instance rebind failed "
+                            f"(message will stay in original thread): {e}"
+                        )
 
-    # =========================================================================
-    # 4.1 Record Trajectory
-    # =========================================================================
-    # Round counter increment
-    main_narrative.round_counter += 1
-    current_round = main_narrative.round_counter
+                    ctx.substeps_4.append(f"[4.0] ✓ Narrative routing ({kind}) -> {target.id}")
+                elif target:
+                    logger.info(f"[NarrativeRouting] {kind} signal target == default; no change")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[NarrativeRouting] failed to apply {kind} signal: {e}")
 
-    # Construct ExecutionState
-    temp_state = ExecutionState(
-        final_output=execution_result.final_output,
-        response_count=execution_result.response_count,
-        tool_call_count=sum(
+        # =========================================================================
+        # 4.1 Record Trajectory
+        # =========================================================================
+        # Round counter increment
+        main_narrative.round_counter += 1
+        current_round = main_narrative.round_counter
+
+        # Construct ExecutionState
+        temp_state = ExecutionState(
+            final_output=execution_result.final_output,
+            response_count=execution_result.response_count,
+            tool_call_count=sum(
+                1 for step in execution_result.execution_steps
+                if step.get("type") == "tool_call"
+            ),
+            thinking_count=sum(
+                1 for step in execution_result.execution_steps
+                if step.get("type") == "thinking"
+            ),
+            all_steps=tuple(execution_result.execution_steps)
+        )
+
+        # Record trajectory
+        await trajectory_recorder.record_round(
+            narrative_id=main_narrative.id,
+            round_num=current_round,
+            user_input=ctx.input_content,
+            instances=(
+                load_result.active_instances
+                if hasattr(load_result, 'active_instances')
+                else []
+            ),
+            relationship_graph=(
+                load_result.relationship_graph
+                if hasattr(load_result, 'relationship_graph')
+                else ""
+            ),
+            execution_state=temp_state,
+            execution_path=ctx.execution_type.value,
+            reasoning=(
+                load_result.changes_explanation.get("reasoning", "")
+                if hasattr(load_result, 'changes_explanation')
+                else ""
+            ),
+            changes_summary=(
+                load_result.changes_summary
+                if hasattr(load_result, 'changes_summary')
+                else {}
+            ),
+            previous_instances=ctx.previous_instances
+        )
+
+        ctx.substeps_4.append(f"[4.1] ✓ Trajectory recorded (Round {current_round})")
+        logger.info(f"Trajectory recorded: Round {current_round}")
+
+        # =========================================================================
+        # 4.2 Update Markdown statistics
+        # =========================================================================
+        # Calculate statistics
+        total_rounds = main_narrative.round_counter
+        total_toolcalls = sum(
             1 for step in execution_result.execution_steps
             if step.get("type") == "tool_call"
-        ),
-        thinking_count=sum(
-            1 for step in execution_result.execution_steps
-            if step.get("type") == "thinking"
-        ),
-        all_steps=tuple(execution_result.execution_steps)
-    )
+        )
 
-    # Record trajectory
-    await trajectory_recorder.record_round(
-        narrative_id=main_narrative.id,
-        round_num=current_round,
-        user_input=ctx.input_content,
-        instances=(
+        # Calculate instance change count
+        instance_changes = 0
+        if hasattr(load_result, 'changes_summary') and load_result.changes_summary:
+            instance_changes = (
+                len(load_result.changes_summary.get("added", [])) +
+                len(load_result.changes_summary.get("removed", [])) +
+                len(load_result.changes_summary.get("updated", []))
+            )
+
+        # Get currently active instances
+        active_instances = (
             load_result.active_instances
             if hasattr(load_result, 'active_instances')
             else []
-        ),
-        relationship_graph=(
-            load_result.relationship_graph
-            if hasattr(load_result, 'relationship_graph')
-            else ""
-        ),
-        execution_state=temp_state,
-        execution_path=ctx.execution_type.value,
-        reasoning=(
-            load_result.changes_explanation.get("reasoning", "")
-            if hasattr(load_result, 'changes_explanation')
-            else ""
-        ),
-        changes_summary=(
-            load_result.changes_summary
-            if hasattr(load_result, 'changes_summary')
-            else {}
-        ),
-        previous_instances=ctx.previous_instances
-    )
-
-    ctx.substeps_4.append(f"[4.1] ✓ Trajectory recorded (Round {current_round})")
-    logger.info(f"Trajectory recorded: Round {current_round}")
-
-    # =========================================================================
-    # 4.2 Update Markdown statistics
-    # =========================================================================
-    # Calculate statistics
-    total_rounds = main_narrative.round_counter
-    total_toolcalls = sum(
-        1 for step in execution_result.execution_steps
-        if step.get("type") == "tool_call"
-    )
-
-    # Calculate instance change count
-    instance_changes = 0
-    if hasattr(load_result, 'changes_summary') and load_result.changes_summary:
-        instance_changes = (
-            len(load_result.changes_summary.get("added", [])) +
-            len(load_result.changes_summary.get("removed", [])) +
-            len(load_result.changes_summary.get("updated", []))
         )
 
-    # Get currently active instances
-    active_instances = (
-        load_result.active_instances
-        if hasattr(load_result, 'active_instances')
-        else []
-    )
+        # Most used Module
+        module_usage = {}
+        for inst in active_instances:
+            module_class = inst.module_class
+            module_usage[module_class] = module_usage.get(module_class, 0) + 1
 
-    # Most used Module
-    module_usage = {}
-    for inst in active_instances:
-        module_class = inst.module_class
-        module_usage[module_class] = module_usage.get(module_class, 0) + 1
+        most_used_module = (
+            max(module_usage.items(), key=lambda x: x[1])[0]
+            if module_usage
+            else "N/A"
+        )
 
-    most_used_module = (
-        max(module_usage.items(), key=lambda x: x[1])[0]
-        if module_usage
-        else "N/A"
-    )
+        # Update Markdown statistics
+        await markdown_manager.update_statistics(
+            narrative_id=main_narrative.id,
+            stats={
+                "total_rounds": total_rounds,
+                "total_toolcalls": total_toolcalls,
+                "instance_changes": instance_changes,
+                "avg_active_instances": len(active_instances),
+                "avg_toolcalls_per_round": total_toolcalls,
+                "most_used_module": most_used_module
+            }
+        )
 
-    # Update Markdown statistics
-    await markdown_manager.update_statistics(
-        narrative_id=main_narrative.id,
-        stats={
-            "total_rounds": total_rounds,
-            "total_toolcalls": total_toolcalls,
-            "instance_changes": instance_changes,
-            "avg_active_instances": len(active_instances),
-            "avg_toolcalls_per_round": total_toolcalls,
-            "most_used_module": most_used_module
-        }
-    )
-
-    ctx.substeps_4.append("[4.2] ✓ Markdown statistics updated")
-    logger.debug("markdown statistics updated")
+        ctx.substeps_4.append("[4.2] ✓ Markdown statistics updated")
+        logger.debug("markdown statistics updated")
 
     # =========================================================================
     # 4.3 Update Event
@@ -400,75 +419,88 @@ async def step_4_persist_results(
     ctx.substeps_4.append(f"[4.3] ✓ Event updated: {ctx.event.id}")
     logger.info(f"Event updated: event_id={ctx.event.id}")
 
-    # =========================================================================
-    # 4.4 Update Narratives
-    #
-    # A turn is AUTHORED into exactly one thread — the head of narrative_list
-    # (post-4.0 routing). The rest of the list are the BM25 neighbours step_1
-    # pulled in only to widen the read-side context (see
-    # `MAX_NARRATIVES_IN_CONTEXT`); they get associated with the SAME event by
-    # id. `narratives.event_ids` is a list, which is where that many-to-many
-    # belongs, so a neighbouring thread can still replay this exchange via
-    # `select_events_for_context`. `events.narrative_id` stays single-valued
-    # and names the one thread the turn was authored into.
-    #
-    # This block used to write a COPY of the event row per auxiliary narrative
-    # (`EventService.duplicate_event_for_narrative`, since deleted). The copy
-    # was made here — at the END of the run — from the in-memory event, whose
-    # `event_log` is never back-filled by 4.3, so every multi-narrative turn
-    # left 1-2 rows carrying `state='completed'`, `started_at IS NULL`,
-    # `tool_call_count=0`, `event_log='[]'` and the turn's `final_output`
-    # (which is the agent's reasoning, not its reply). Replay surfaces that
-    # read the `events` table then rendered the same exchange up to three
-    # times, positioned by the run's FINISH time — an already-answered
-    # question surfacing below newer ones, plus monologue fragments as
-    # standalone entries. That is the 0802 "对话时序错乱" report.
-    # =========================================================================
-    await event_service.update_event_narrative_id(ctx.event.id, main_narrative.id)
+    # --- narrative-level section (4.4) ------------------------------------
+    if main_narrative is not None:
+        # =========================================================================
+        # 4.4 Update Narratives
+        #
+        # A turn is AUTHORED into exactly one thread — the head of narrative_list
+        # (post-4.0 routing). The rest of the list are the BM25 neighbours step_1
+        # pulled in only to widen the read-side context (see
+        # `MAX_NARRATIVES_IN_CONTEXT`); they get associated with the SAME event by
+        # id. `narratives.event_ids` is a list, which is where that many-to-many
+        # belongs, so a neighbouring thread can still replay this exchange via
+        # `select_events_for_context`. `events.narrative_id` stays single-valued
+        # and names the one thread the turn was authored into.
+        #
+        # This block used to write a COPY of the event row per auxiliary narrative
+        # (`EventService.duplicate_event_for_narrative`, since deleted). The copy
+        # was made here — at the END of the run — from the in-memory event, whose
+        # `event_log` is never back-filled by 4.3, so every multi-narrative turn
+        # left 1-2 rows carrying `state='completed'`, `started_at IS NULL`,
+        # `tool_call_count=0`, `event_log='[]'` and the turn's `final_output`
+        # (which is the agent's reasoning, not its reply). Replay surfaces that
+        # read the `events` table then rendered the same exchange up to three
+        # times, positioned by the run's FINISH time — an already-answered
+        # question surfacing below newer ones, plus monologue fragments as
+        # standalone entries. That is the 0802 "对话时序错乱" report.
+        # =========================================================================
+        await event_service.update_event_narrative_id(ctx.event.id, main_narrative.id)
 
-    # One thread must be visited at most once. §4.0 sets narrative_list[0] to
-    # the routing target, which may ALREADY sit at index 1-2 (the agent
-    # switched to a thread that BM25 had also pulled in as a neighbour) — the
-    # loop then hit that narrative twice. Before this change that produced a
-    # second duplicate event row; it still appends a second identical
-    # dynamic_summary entry, so the de-dup stays. Evidence it happens:
-    # evt_f590aef867f14187 in the local DB carries the same narrative_id as
-    # its own primary row.
-    seen_narrative_ids: set[str] = set()
-    unique_narratives = []
-    for narrative in ctx.narrative_list:
-        if narrative.id in seen_narrative_ids:
-            logger.debug(f"narrative {narrative.id} listed twice this turn; visiting once")
-            continue
-        seen_narrative_ids.add(narrative.id)
-        unique_narratives.append(narrative)
+        # One thread must be visited at most once. §4.0 sets narrative_list[0] to
+        # the routing target, which may ALREADY sit at index 1-2 (the agent
+        # switched to a thread that BM25 had also pulled in as a neighbour) — the
+        # loop then hit that narrative twice. Before this change that produced a
+        # second duplicate event row; it still appends a second identical
+        # dynamic_summary entry, so the de-dup stays. Evidence it happens:
+        # evt_f590aef867f14187 in the local DB carries the same narrative_id as
+        # its own primary row.
+        seen_narrative_ids: set[str] = set()
+        unique_narratives = []
+        for narrative in ctx.narrative_list:
+            if narrative.id in seen_narrative_ids:
+                logger.debug(f"narrative {narrative.id} listed twice this turn; visiting once")
+                continue
+            seen_narrative_ids.add(narrative.id)
+            unique_narratives.append(narrative)
 
-    for i, narrative in enumerate(unique_narratives):
-        # Determine Narrative type
-        is_default = narrative.is_special == "default"
-        is_main = (i == 0) and not is_default  # Default Narrative is not treated as main Narrative
+        for i, narrative in enumerate(unique_narratives):
+            # Determine Narrative type
+            # "Metadata-frozen" turns: file the event, touch nothing else.
+            # The condition used to be "is this row a default bucket"; it is
+            # now "does this TURN carry a durable topic" (C-1, plan 4-A').
+            # Same branch, honest trigger — a greeting parked on the user's
+            # active work thread must not spend a helper call rewriting that
+            # thread's name/summary/keywords (NARRATIVE_LLM_UPDATE_INTERVAL is
+            # 1, so every such turn would), because a "你好" is entirely
+            # capable of renaming the work it interrupted.
+            is_default = (
+                narrative.is_special == "default"
+                or getattr(ctx, "no_durable_topic", False)
+            )
+            is_main = (i == 0) and not is_default  # Metadata-frozen turns are not the main Narrative
 
-        if is_default:
-            update_type = "default"
-        elif is_main:
-            update_type = "main"
-        else:
-            update_type = "auxiliary"
+            if is_default:
+                update_type = "no_durable_topic"
+            elif is_main:
+                update_type = "main"
+            else:
+                update_type = "auxiliary"
 
-        logger.debug(f"updating narrative[{i}] ({update_type}) id={narrative.id}")
+            logger.debug(f"updating narrative[{i}] ({update_type}) id={narrative.id}")
 
-        # Update Narrative
-        # is_default_narrative=True: only add event_id (no other updates)
-        # is_main_narrative=True: full update (async LLM summary)
-        # is_main_narrative=False: basic update only (associate Event, update dynamic_summary)
-        await narrative_service.update_with_event(
-            narrative,
-            ctx.event,
-            is_main_narrative=is_main,
-            is_default_narrative=is_default
-        )
-        ctx.substeps_4.append(f"[4.4.{i+1}] ✓ Narrative: {narrative.narrative_info.name} ({update_type})")
-        logger.info(f"Narrative[{i}] ({update_type}) updated with event {ctx.event.id}")
+            # Update Narrative
+            # is_default_narrative=True: only add event_id (no other updates)
+            # is_main_narrative=True: full update (async LLM summary)
+            # is_main_narrative=False: basic update only (associate Event, update dynamic_summary)
+            await narrative_service.update_with_event(
+                narrative,
+                ctx.event,
+                is_main_narrative=is_main,
+                is_default_narrative=is_default
+            )
+            ctx.substeps_4.append(f"[4.4.{i+1}] ✓ Narrative: {narrative.narrative_info.name} ({update_type})")
+            logger.info(f"Narrative[{i}] ({update_type}) updated with event {ctx.event.id}")
 
     # =========================================================================
     # 4.5 Update Session continuity anchor (last_response / narrative)

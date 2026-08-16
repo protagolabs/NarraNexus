@@ -406,6 +406,17 @@ class NarrativeRetrieval:
             agent_id: Agent ID
             user_id: User ID
         """
+        # C-1: buckets are no longer routing containers, so a new (agent,user)
+        # pair must not acquire eight of them. This is the SEEDING half of the
+        # change; existing rows are left untouched (binding rule #6) and simply
+        # stop being loaded into the pool above.
+        if not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED:
+            logger.debug(
+                "Default buckets disabled — skipping seeding for "
+                f"agent {agent_id} + user {user_id}"
+            )
+            return
+
         # Use Repository to check if default Narratives already exist (lazy import to avoid circular dependency)
         from xyz_agent_context.repository import NarrativeRepository
         db_client = await get_db_client()
@@ -516,9 +527,18 @@ class NarrativeRetrieval:
         no history kept.
         """
         narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        keep_buckets = config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
         return [
             (n.id, n.searchable_text(), n.is_special == "default")
             for n in narratives
+            # C-1: a bucket's searchable_text is a frozen factory template, so
+            # it can never legitimately WIN a query — but it still shifts every
+            # other candidate's score through IDF/avgdl, and it can short-
+            # circuit the gate on its own (measured: 2 turns in the replay).
+            # Dropping it from the pool is what makes the rest of the batch
+            # honest. Existing rows stay in the DB; only routing stops seeing
+            # them.
+            if keep_buckets or n.is_special != "default"
         ]
 
     @staticmethod
@@ -661,7 +681,17 @@ class NarrativeRetrieval:
         from xyz_agent_context.repository import NarrativeRepository
         db_client = await get_db_client()
         repo = NarrativeRepository(db_client)
-        default_narratives = await repo.get_default_narratives(agent_id, user_id)
+        # C-1: with buckets governed, the judge gets real threads only. The
+        # eight category names move into the instructions as vocabulary (see
+        # prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS) — a menu of eight fixed
+        # entries WITH worked examples against at most three dynamic ones was a
+        # menu that answered itself (measured: 60% of judge verdicts picked a
+        # bucket, and 63 of those 93 had a real candidate available).
+        default_narratives = (
+            await repo.get_default_narratives(agent_id, user_id)
+            if config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
+            else []
+        )
 
         default_candidates = []
         for narrative in default_narratives:
@@ -776,6 +806,27 @@ class NarrativeRetrieval:
                     retrieval_method=retrieval_method,
                     # evermemos_memories removed — EverMemOS decoupled from narrative selection
                 )
+
+        # 4.5 (C-1) "No durable topic" — a verdict about the TURN, not a
+        # destination. The retrieval tier deliberately stops here with an empty
+        # list instead of creating: where such a turn lands depends on the
+        # session anchor and on whether the surface persists history, and
+        # neither is knowable from inside retrieval. NarrativeService.select
+        # owns that decision (anchor-first). Creating here is exactly the
+        # fragmentation this batch exists to avoid — a "你好" must not open a
+        # thread while the user's real work thread is one lookup away.
+        if llm_result.get("matched_type") == "no_topic":
+            logger.info("LLM: no durable topic this turn — deferring the landing")
+            return NarrativeSelectionResult(
+                narratives=[],
+                selection_reason=f"No durable topic: {llm_result.get('reason', '')}",
+                selection_method="no_topic",
+                is_new=False,
+                no_durable_topic=True,
+                best_score=best_score,
+                scores=all_scores,
+                retrieval_method=retrieval_method,
+            )
 
         # 5. No match, create new Narrative
         logger.info("LLM determined no match with any Narrative, creating new topic")

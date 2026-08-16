@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-14
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — NarrativeSelectionResult.no_durable_topic（C-1）
+
+judge 的"这一轮没有可沉淀话题"是一个**关于轮次的标签**，不是目的地。它带着空的
+narrative 列表从 retrieval 返回，由 `NarrativeService.select` 决定落点
+（anchor-first）；随后一路传到 `step_4`，在那里的含义是**把 event 记上，但不许这
+一轮改写这条线的检索面**——一句寒暄不能给它打断的工作改名。
 ## 2026-08-14 — `RoutingAudit` 新增四个耗时字段
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，默认 `None`（= 这一层

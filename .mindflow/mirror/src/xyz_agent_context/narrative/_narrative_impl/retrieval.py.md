@@ -1,9 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-14
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — default 桶退出路由（C-1 方案 ④）
+
+三处过滤，全部挂 `config.NARRATIVE_DEFAULT_BUCKETS_ENABLED`：
+
+- `load_pool`：桶不再进 BM25 池。它的 `searchable_text()` 是冻结模板、**永远不可能
+  正当地赢下一个查询**，但它照样通过 IDF/avgdl 影响别人的分数，还能自己短路 gate
+  （重演里实测 2 轮）。把它请出池子，后面几件事才谈得上诚实。
+- `_ensure_default_narratives`：不再为新 (agent,user) 播种。存量行不动（铁律 #6）。
+- `_llm_unified_match`：不再向 judge 传 `default_candidates`。八条固定项**还带
+  Examples**、对最多三条动态项——这是一份会自己回答自己的菜单（实测 judge 60% 的
+  裁决选了桶，其中 63/93 次池里明明有真实候选）。
+
+新增第 4.5 段返回分支：judge 判 `no_topic` 时**带空列表返回**，不在这里创建。
+落点取决于 session 锚点与该 surface 是否持久化历史，这两件事在 retrieval 内部不可
+知——决定权在 `NarrativeService.select`（见其 mirror 的 anchor-first 条目）。在这
+里创建，正是本批次要消灭的碎片化。
 ## 2026-08-14 — `_create_narrative` 公开更名 `create_from_query`
 
 行为零变化，纯改名+两处内部调用同步。动机：NarrativeService.create_fast

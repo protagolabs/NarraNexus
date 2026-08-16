@@ -1,9 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-12
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — 没有 narrative 的一轮不等于没有东西要存（D-10）
+
+早退条件从 `not main_narrative or not execution_result` 收窄为
+`not execution_result`，4.0/4.1/4.2/4.4 各自加 `if main_narrative is not None`。
+
+**"没有 narrative"这件事本身是设计**：ephemeral（voice/F28）就是要不留痕迹，好让
+下一条打字消息的连续性判定像这轮没发生过；④-A′ 的"无锚点 + ephemeral"也落在这里。
+**不是设计的**是那条早退顺手带走的两段 event 级记账：
+
+- **4.3** `update_event_in_db(final_output / event_log / module_instances)` +
+  `MemoryEngine.index` —— events 行永远没有回复正文，`remember` 永远搜不到这轮
+- **4.6** `record_cost` —— token 烧了、回复发了、**成本不入账**
+
+这两段跟"这轮属于哪条线"没有任何关系。ephemeral 要的是不留**线**，不是不留**账**。
+（核实过：配额扣减不在这条路上——`record_cost` 只写 `cost_records`，扣减在
+provider driver 层随 LLM 调用发生。所以这是统计/账目缺口，不是收入漏损。）
+
+4.5 保持原样即可：它本来就 `if main_narrative:` 才写 `current_narrative_id`，
+`last_response` 无条件写——正是裸跑轮需要的（有话给下一轮比，锚点不指向不存在的线）。
+
+`current_round` / `total_toolcalls` / `unique_narratives` 提到函数顶部给了"没有可
+数的东西"的默认值，因为它们原来在 4.1/4.2/4.4 里赋值、却在末尾的完成消息里被读。
+
+顺带把 4.4 的冻结触发条件从"这行是不是 default 桶"改成"**这一轮有没有持久话题**"
+（`ctx.no_durable_topic`）——同一个分支，诚实的触发条件。
 ## 2026-08-12 — §4.3 回写 `event_log`，不再只回写 `final_output`
 
 §4.3 一直只把一个字段同步回内存里的 Event：

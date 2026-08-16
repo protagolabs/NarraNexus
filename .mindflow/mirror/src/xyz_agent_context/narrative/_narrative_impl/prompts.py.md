@@ -1,9 +1,27 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-12
+last_verified: 2026-08-16
 stub: false
 ---
 
+## 2026-08-16 — 两条 prompt：judge 的词表化，连续性的去容器化（C-1 + C-2）
+
+**`NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS`**：八个类目从"可选中的目标"降为**识别用
+的词表**，判据出口改成 `matched_category = "no_durable_topic"`。同时补了一条正向
+排除规则：**消息只要点名了具体东西**（文件、项目、工具、报错、人、任务、交付物）
+或在延续已经在做的事，就**不是**"无持久话题"——按它指向什么判，不按它多短多随意。
+这一条针对的是残差类目（GeneralOneShotQuestion / UnclassifiedOrGarbage /
+CasualChatOrEmotion）"定义上永远匹配得上"的结构缺陷。
+
+⚠ 词表**必须留着**。八个名字是 judge 认出"这没有可沉淀话题"的脚手架；连容器带脚
+手架一起拆掉，等于把它的分类学从 8 类压成一个**从未测过**的二元判断。这条风险已
+预注册为 M6（judge 判"无持久话题"里实际是实质话题的比例 ≤10%），
+`test_judge_instructions_keep_the_eight_category_names` 钉住词表不许被顺手删掉。
+
+**`CONTINUITY_DETECTION_INSTRUCTIONS`**：删掉三处"因为当前是 default 所以 must
+判不属于"的**无条件容器规则**，改回判"是否延续同一个业务目标"。C-2 实测：34 条连
+续性漏接里 **21 条（61.8%）**锚点是桶，其中 5 条判词自己承认话题在延续却仍判
+False。与 ⑤ 是同一个闭环的两条边，必须同批上线。
 ## 2026-08-12 — `NARRATIVE_SINGLE_MATCH_INSTRUCTIONS` 删除（消费者已死）
 
 它的唯一消费者是 `_retrieval_llm.llm_confirm`，而那条链路（`retrieval.
