@@ -170,6 +170,10 @@ def _retrieval_with_stubs(monkeypatch, narratives_by_id):
         # goes through _crud.create; the old attribute stub stopped intercepting
         # anything, so the real path runs and needs this edge stubbed instead.
         create=AsyncMock(return_value=_narrative("nar_new", name="new topic")),
+        # create_from_query writes the BM25 surface back after create(), so
+        # the save edge needs stubbing too — the 2026-08-14 repair stopped one
+        # call short and every test in this file died on the second one.
+        save=AsyncMock(),
     )
 
     captured: dict = {}
