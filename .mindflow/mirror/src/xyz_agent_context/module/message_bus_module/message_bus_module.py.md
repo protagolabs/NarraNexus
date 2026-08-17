@@ -39,17 +39,69 @@ stub: false
 `USER_SENDER_PREFIX` 从 `schema.team_schema` import（不是重打字面量）：该前缀全仓
 唯一定义点的约定见 [[team_schema]] 2026-08-11 那两条。
 
+**预审第二轮补掉的（同一 PR 内）**——每一条都是"扫得不够远"，正是上一条 mirror
+记的那个教训本身：
+
+- **物种断言有第二份，还带着行为。** 删掉了 Source Recognition 里的「不是你的
+  owner」，却把十四行之下的「**The other party is another agent, not a human.**
+  Skip pleasantries」留在原地——那是带**后果**的那一半，它自己就把断言重新立了起来。
+  改成「**当**对方是 agent 时…；当发送者是人时，就当人来说话」。brevity 那半句背着
+  ping-pong 的 P0，保留不动。
+- **两个分支同时成立的规则不是规则。** 初稿写的是「给了投递工具就用工具；说了替你
+  上墙就写纯文本」——而 team 轮次上**两个前件都为真**（team gate 只清空
+  expressive **声明**，工具 schema 仍在上下文里，因为本模块没有
+  `get_disallowed_tools`），句子又没给优先级，模型能直接照着工具列表走的恰好是双发
+  那条。改成**例外式**：team 那条放最前、写成禁令，工具那条做兜底。
+- **`[MessageBus · …]` 格式有三份，且示例是错的。** 示例写四段（display name +
+  id），两个渲染点都是三段。以前只是装饰，现在规则要求"读标签里的发送者"，它就成了
+  承重件。抽出 `_bus_tag()`，示例由同一个函数生成，两者再也漂不开。
+- **input 源标签取的是"全局最新未读"，不是本轮频道。** `get_unread` 天生跨频道，
+  `unread_models[-1]` 是任意房间里最后到的那条；team 轮次组装期间来一条 DM，就会把
+  那个 peer 标成"本轮要回的人"。改成按 `extra_data["bus_channel_id"]` 过滤，
+  本频道没有就**不打标签**（"没有标签"现在有确切含义了，打错比不打更贵）。
+- **「没有标签 = 来自 owner 主聊天窗口」在 IM 轮次上为假**，`channel_prompts.py`
+  在同一个上下文窗口里说的正好相反；job 轮次更是压根没有人。改成「没标签只说明它不
+  是从 bus 来的，从哪来由本轮自己的 prompt 说」。同一个三条清单，另外两条本轮已改，
+  漏掉第三条就又是"修一份留一份"（铁律 #8）。
+- 沉默那条补上作用域：「对 **bus 对话** 不留任何回复文本」——四十行外还挂着"绝不压制
+  对 owner 的回报"，无限定的"不留任何文本"会把人在等的答案一起吞掉。
+
 测试：新增 6 条进 `tests/message_bus/test_visibility_wording.py`（该文件的立意就是
-"静态段的每句话必须在它到达的每个房间里成立"）。
+"静态段的每句话必须在它到达的每个房间里成立"），第二轮再补 6 条，其中两条是**跨文件
+契约**：一条断言 `_build_team_prompt` 确实做了本模块规则所依赖的那个承诺（"替你上墙"
++ "禁止用投递工具"），一条断言 input 源标签取的是本轮频道。前者此前无人守——trigger
+那边一次改词就能把本模块的规则重新变成谎话，而那正是本文件存在的意义，只是在隔壁文件。
+
 `tests/module/test_a2a_ask_another_agent_guidance.py` 里那条 `assert "plain text"`
 **锁的是机制**，随之改为锁义务（`has to REACH them`）——它写的时候机制还是普适的，
-team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松。
+team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松（机制断言并未丢失，而是搬到了
+`test_the_delivery_rule_defers_the_mechanism_to_the_surface`）。
 
 **未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
 （`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
 ② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
 `bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
 team 房间，房间消息在 scrollback 之外被二次渲染。
+
+### ⚠️ 这一轮**没有**让 team 房间的矛盾归零 —— [[chat_module/prompts]] 里还有更大的一份
+
+`CHAT_MODULE_INSTRUCTIONS` 无条件进系统提示（`chat_module.py:232` → 基类
+`get_instructions`，**没有任何 team gate**；全仓消费 `BUS_TEAM_ROOM_EXTRA_KEY` 的
+只有 `context_runtime` 和本模块）。它说的是：
+
+> "Your plain text output is your **private self-thinking** — the user CANNOT see it"
+
+而且不是一句，是**一个 CRITICAL 小节 + 一张可见性表格 + 一个"你在隔音房间里"的比喻**，
+反复三遍。**它比本轮删掉的任何一句都长、都响。**
+
+所以本轮的改动 #1 #2 在它们真正针对的那个 surface 上**并未达成目的**：team 房间里的
+agent 仍然被告知写纯文本等于零交付，只是这次说这话的是 ChatModule 而不是本模块。
+`context_runtime.py:1178-1184` 说明这个问题在**回复提醒**那一层已经被认到并处理了，
+但只停在了那一层。
+
+不在本轮修，是因为它属于 ChatModule 自己的文案（铁律 #3），而且那是全产品最吃重的
+一段 prompt，动它该走独立 PR 独立评审。**但不要把本条目读成"矛盾已解决"** —— 本轮
+只拆掉了 bus 模块那一半。这一条比上面三条"未修"都大。
 
 ## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
 

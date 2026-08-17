@@ -27,12 +27,22 @@ from __future__ import annotations
 from xyz_agent_context.module.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
+from xyz_agent_context.schema import WorkingSource
 
 
 def _static_text() -> str:
     module = MessageBusModule.__new__(MessageBusModule)
     module.agent_id = "agent_me"
     return "\n".join(module._static_instruction_parts())
+
+
+def _async_return(value):
+    """A stand-in coroutine function returning ``value``, ignoring arguments."""
+
+    async def _fn(*_args, **_kwargs):
+        return value
+
+    return _fn
 
 
 def test_the_static_rules_do_not_claim_mentions_limit_visibility():
@@ -96,9 +106,11 @@ def test_the_delivery_rule_does_not_claim_plain_text_reaches_nobody():
     a team room, whose turn prompt says the opposite in the same context
     window: the plain text IS the reply, and a delivery tool would double-post.
     """
-    text = _static_text()
+    # Case-folded: a negative assertion that only catches the exact casing it
+    # was written against is a guard the next edit walks straight through.
+    text = _static_text().lower()
 
-    assert "delivers NOTHING" not in text
+    assert "delivers nothing" not in text
     assert "only as plain text" not in text
 
 
@@ -130,6 +142,142 @@ def test_the_delivery_rule_defers_the_mechanism_to_the_surface():
     assert "posted for you" in line
 
 
+def test_the_delivery_rule_states_the_team_case_as_a_prohibition_and_first():
+    """A two-branch rule whose branches BOTH match is not a rule.
+
+    The first draft read "when a bus delivery tool is offered, send with it;
+    when your reply is posted for you, writing it IS delivering". On a team
+    turn both antecedents hold — the team gate empties the expressive
+    declaration, but the tool schemas stay in context because this module has
+    no `get_disallowed_tools` override — and the sentence gave no precedence.
+    The branch a model can act on straight from the tool list is the one that
+    double-posts.
+
+    So the team case comes FIRST and is phrased as a prohibition, and the tool
+    branch is the fallthrough.
+    """
+    line = next(
+        ln for ln in _static_text().splitlines()
+        if "Finished work is never ping-pong" in ln
+    )
+
+    assert "do NOT also call a delivery tool" in line
+    assert line.index("posted for you") < line.index("bus_send_message")
+
+
+def test_no_rule_flatly_calls_the_counterparty_a_machine():
+    """The species claim had a second copy, with the behaviour attached.
+
+    Retracting "the message came from another agent, NOT from your owner" while
+    leaving "The other party is another agent, not a human. Skip pleasantries"
+    fourteen lines below keeps the harm and drops only its justification — the
+    imperative half re-asserts the claim on its own authority, and a team
+    room's owner posts over the bus.
+    """
+    text = _static_text()
+
+    assert "The other party is another agent, not a human." not in text
+    # The brevity half carries the ping-pong P0 and must survive the scoping.
+    assert "Brevity beats politeness" in text
+
+
+def test_absence_of_the_tag_is_not_claimed_to_mean_the_owners_chat_window():
+    """An IM turn says the opposite in the same context window.
+
+    `channel/channel_prompts.py` tells a Lark/Slack/Telegram/Discord turn the
+    message "arrived via {channel}, NOT from your owner's chat window" — and a
+    job turn has no human at all. The absence of a bus tag says exactly one
+    thing: it did not come over the bus.
+    """
+    line = next(
+        ln for ln in _static_text().splitlines()
+        if "When there is no `[MessageBus" in ln
+    )
+
+    assert "did not arrive over the bus" in line
+    assert "is from your owner via the main chat interface" not in line
+
+
+def test_the_worked_example_is_the_tag_the_code_actually_emits():
+    """The example taught a four-field tag; both render sites build three.
+
+    Harmless while the tag was decoration. Once the rules say "read the sender
+    in the tag", an agent following the example hunts for a display name that
+    is never there and finds the CHANNEL in the position it was told holds an
+    id. Generated from the same helper so the two cannot drift again.
+    """
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        _bus_tag,
+    )
+
+    text = _static_text()
+
+    assert _bus_tag("agent_xxx", "ch_yyy") in text
+    assert "[MessageBus · AgentName · agent_xxx · ch_yyy]" not in text
+
+
+def test_the_input_source_tag_names_this_turns_channel_not_the_newest_dm():
+    """`get_unread` is cross-channel; the tag must not be.
+
+    A DM landing while a team turn is being assembled would otherwise name that
+    peer as the sender of the message this turn is answering — and the rules
+    now make the tag the authority on who is speaking.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from xyz_agent_context.schema.context_schema import ContextData
+    from xyz_agent_context.module.message_bus_module import message_bus_module as mod
+
+    module = MessageBusModule.__new__(MessageBusModule)
+    module.agent_id = "agent_me"
+
+    room_msg = SimpleNamespace(
+        message_id="m1", channel_id="ch_team", from_agent="usr_a1b2c3",
+        content="where are we", model_dump=lambda: {
+            "from_agent": "usr_a1b2c3", "channel_id": "ch_team",
+            "content": "where are we",
+        },
+    )
+    # Arrives LAST, in a different room — the old `[-1]` would have named it.
+    dm_msg = SimpleNamespace(
+        message_id="m2", channel_id="ch_dm", from_agent="agent_peer",
+        content="unrelated", model_dump=lambda: {
+            "from_agent": "agent_peer", "channel_id": "ch_dm",
+            "content": "unrelated",
+        },
+    )
+
+    fake_bus = SimpleNamespace(
+        get_unread=_async_return([room_msg, dm_msg]),
+        count_unread=_async_return(2),
+        get_channel_members=_async_return([]),
+        _db=SimpleNamespace(execute=_async_return([])),
+    )
+
+    ctx = ContextData(
+        agent_id="agent_me", user_id="usr_1", input_content="hi",
+        working_source=WorkingSource.MESSAGE_BUS,
+    )
+    ctx.extra_data["working_source"] = WorkingSource.MESSAGE_BUS
+    ctx.extra_data["bus_channel_id"] = "ch_team"
+    # The tagger reads the input out of extra_data (and no-ops on an empty
+    # one), which is how the runtime hands it over.
+    ctx.extra_data["input_content"] = "hi"
+
+    monkey = mod._get_default_bus_async
+    mod._get_default_bus_async = _async_return(fake_bus)
+    try:
+        asyncio.run(module.hook_data_gathering(ctx))
+    finally:
+        mod._get_default_bus_async = monkey
+
+    tagged = ctx.extra_data["input_content"]
+    assert tagged.startswith("[MessageBus · User · ch_team]")
+    assert "agent_peer" not in tagged
+    assert "ch_dm" not in tagged
+
+
 def test_silence_is_producing_nothing_not_merely_calling_nothing():
     """"Just stop the turn" is a tool-call instruction on a text-delivery surface.
 
@@ -142,8 +290,14 @@ def test_silence_is_producing_nothing_not_merely_calling_nothing():
         if "choose silence explicitly" in ln
     )
 
-    assert "Just stop the turn." not in line
-    assert "no reply text" in line.lower()
+    # No trailing period in the negative: re-adding "Just stop the turn" with
+    # any other punctuation would have sailed past the first version of this.
+    assert "just stop the turn" not in line.lower()
+    # And silence is toward the BUS. This same block obliges an owner relay
+    # forty lines down ("never suppresses reporting back to your owner"), so an
+    # unqualified "no reply text at all" can swallow the answer a person is
+    # waiting for.
+    assert "no reply text to the bus conversation" in line
 
 
 def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
@@ -208,3 +362,33 @@ def test_the_unread_header_does_not_repeat_the_retracted_promise():
 
     assert "Ignored messages stay unread" not in text
     assert "Reply Discipline" in text
+
+
+def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
+    """The cross-file contract that makes the rewritten rule TRUE.
+
+    The static block now says "if this turn's prompt tells you your reply is
+    posted for you, writing it IS delivering it". That sentence is only correct
+    while the team prompt actually makes that promise and actually forbids the
+    delivery tools. Nothing pinned that half, so a reword on the trigger side
+    could quietly turn the module's rule back into a lie — which is the exact
+    failure mode this whole file exists to catch, one file over.
+    """
+    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    prompt = trigger._build_team_prompt(
+        "agent_me",
+        [],
+        [{"agent_id": "agent_me", "name": "Me", "description": "", "capabilities": []}],
+        owner_user_id="usr_1",
+        team_id="team_x",
+        trigger_messages=[],
+        bulletin=None,
+    )
+
+    # "posted for you" in the module's words; the room says it its own way.
+    assert "posted to the group" in prompt
+    # And the prohibition the module's rule leans on.
+    assert "Do NOT deliver your answer through a function" in prompt
+    assert "bus_send_message" in prompt
