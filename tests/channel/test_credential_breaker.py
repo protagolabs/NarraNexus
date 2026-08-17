@@ -538,6 +538,12 @@ async def test_heartbeat_carries_isolation_counts():
     # skipped and the assertion below indexed an empty list. Caught by the first
     # CI run that executed pytest at all (2026-08-17). The rest of this file
     # already backdates the same way — see the BREAKER_FAST_DEATH_SECONDS uses.
+    #
+    # As of the same day the constructor's own mark is `float("-inf")`, so the
+    # first beat is unconditionally due and this line is now DEFENSIVE rather
+    # than required. Keep it: it stops this test from silently depending on that
+    # sentinel, which keeps its failure distinguishable from
+    # `test_first_cycle_on_a_fresh_host.py`'s.
     trigger._last_heartbeat_monotonic = (
         time.monotonic() - trigger.HEARTBEAT_INTERVAL_SECONDS - 1
     )

@@ -351,10 +351,24 @@ class LarkTrigger(ChannelTriggerBase):
         # _build_and_run_agent.
         self._cli = LarkCLIClient()
 
-        # Lark-specific lifecycle bookkeeping surfaced via the aggregated
-        # channel health server (channel/channel_health_server.py) through
-        # getattr; other channels simply report 0 for this field.
-        self._last_ws_connected_monotonic: float = 0.0
+        # Lark-specific lifecycle bookkeeping. The WALLCLOCK value is the one
+        # with consumers: `ChannelTriggerBase.health_snapshot()` reads it by
+        # getattr for the aggregated health server's `last_ws_connected_ms`
+        # (other channels report 0), and the H-5 historic-replay filter seeds
+        # its dedup baseline from it on every reconnect.
+        #
+        # A `_last_ws_connected_monotonic` sibling used to sit here (2026-08-17:
+        # removed). It was written on every reconnect and read by NOBODY, while
+        # this comment claimed the health server surfaced it — the snapshot has
+        # always used the wallclock field. It was also the fourth instance of
+        # `0.0`-against-`time.monotonic()` in this codebase, and the only one
+        # that could NOT be repaired the way the other three were: `-inf` is
+        # correct for a mark that is only ever differenced, but this field's
+        # stated purpose was to reach a JSON health payload, where an infinity
+        # serialises to an invalid `-Infinity` and turns "an ugly number" into
+        # "the whole response fails to parse". Deleting it was the only clean
+        # option; anyone adding WS-liveness observability should build on the
+        # wallclock field.
         self._last_ws_connected_wallclock_ms: int = 0
 
         # Per-(agent_id, app_id) bot open_id cache for the 2-layer echo
@@ -1105,7 +1119,6 @@ class LarkTrigger(ChannelTriggerBase):
                 # replay filter (H-5) uses this so a long disconnect followed
                 # by reconnect won't silently let Lark's backlog of old
                 # events through.
-                self._last_ws_connected_monotonic = ws_start_monotonic
                 self._last_ws_connected_wallclock_ms = int(time.time() * 1000)
                 if self._dedup_store is not None:
                     self._dedup_store.update_baseline(

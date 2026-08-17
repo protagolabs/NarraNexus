@@ -22,50 +22,167 @@ None of this is visible on a developer laptop or a long-lived EC2, where uptime
 is measured in weeks: the gate always looks open. It surfaced from the other
 end — `test_credential_breaker.py::test_heartbeat_carries_isolation_counts`
 used the same `0.0` idiom and passed everywhere except on a fresh CI runner,
-where it indexed an empty list (2026-08-17). The test was one instance; these
-three were the same assumption in production.
+where it indexed an empty list (2026-08-17). The test was one instance; the
+three production marks were the same assumption.
 
-Every test here pretends the host just booted. That is the only condition under
-which the difference between `0.0` and `-inf` is observable, which is why
-nothing caught it before.
+**These tests drive the gates rather than reading the source.** An earlier draft
+asserted `'= float("-inf")' in inspect.getsource(...)`, which fails on a
+semantically identical rewrite (extract the sentinel to a constant and it goes
+red for nothing) and — worse — stays GREEN if somebody changes the gate itself
+to seed semantics (`if mark == -inf: mark = now`), which is the one edit the
+mirror doc explicitly warns against. It also claimed a behaviour test needed "a
+live queue, workers and an audit repo"; `_maybe_heartbeat` needs only the audit
+repo, and `test_credential_breaker.py` had been doing exactly this for a whole
+test in the same directory.
+
+The interval is made enormous instead of faking the clock. `-inf` clears any
+finite interval; a `0.0` mark cannot clear 1e12 seconds on any real host. That
+keeps the discriminating power and drops a fixture that moved `time.monotonic`
+BACKWARDS process-wide — harmless only for as long as nobody adds an `await
+asyncio.sleep(...)` here, since `loop.time()` IS `time.monotonic()` and a
+rewound clock makes timers hang instead of fire.
 """
 from __future__ import annotations
 
-import time
+import asyncio
 
 import pytest
 
+from xyz_agent_context.channel.channel_audit_events import EVENT_HEARTBEAT
+from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.services.service_audit import ServiceAuditor
 
 
-@pytest.fixture
-def freshly_booted(monkeypatch):
-    """`time.monotonic()` a few seconds after boot — below every interval here."""
-    real = time.monotonic
-    base = real()
-
-    def _just_booted() -> float:
-        return real() - base + 5.0
-
-    monkeypatch.setattr(time, "monotonic", _just_booted)
-    return _just_booted
+# Seven orders of magnitude past any plausible host uptime, so "the gate opened"
+# can only mean the sentinel cleared it — never "this machine happens to have
+# been up a while".
+_UNREACHABLE_INTERVAL = 1e12
 
 
-def test_the_auditor_sentinel_is_not_a_small_number():
-    """Guarding the idiom itself, not only its effect.
+class _CaptureAuditRepo:
+    """Records what the trigger writes. Same shape as the one in
+    `test_credential_breaker.py`; deliberately re-declared rather than imported,
+    so the two files do not get welded together by a stub that exists to serve
+    the other one's subscriber semantics."""
 
-    A future edit that "tidies" this back to 0.0 reopens a gap that no test on a
-    long-uptime machine can observe, so the spelling is asserted directly.
+    def __init__(self):
+        self.rows: list = []
+
+    async def append(self, event_type, **kwargs):
+        self.rows.append((event_type, kwargs))
+
+    def types(self) -> list:
+        return [t for t, _ in self.rows]
+
+
+class _OneCredentialTrigger(ChannelTriggerBase):
+    """The thinnest concrete trigger that can complete one watcher pass.
+
+    It must report exactly ONE credential, not zero: with nothing active
+    `_credential_watcher` takes its idle branch — sleep, `continue` — and never
+    reaches the two gates at the end of the body. Starting the subscriber is
+    then short-circuited, so no transport, no workers and no queue are involved.
     """
+
+    channel_name = "fresh-host-probe"
+    brand_display = "FreshHostProbe"
+    working_source = WorkingSource.LARK
+
+    # Both gates are unreachable by elapsed time; only the sentinel can open
+    # them. Overridden on the SUBCLASS: patching the base class would leak into
+    # every other channel test in the session.
+    HEARTBEAT_INTERVAL_SECONDS = _UNREACHABLE_INTERVAL
+    CLEANUP_INTERVAL_SECONDS = _UNREACHABLE_INTERVAL
+    CREDENTIAL_POLL_INTERVAL_SECONDS = 0
+    IDLE_POLL_INTERVAL_SECONDS = 0
+
+    def __init__(self):
+        super().__init__()
+        self.cleanup_calls = 0
+
+    # ── abstract surface, all inert ──────────────────────────────────────
+    async def load_active_credentials(self):
+        return [object()]
+
+    def _subscriber_key(self, credential) -> str:
+        return "the-one-key"
+
+    async def _maybe_start_subscriber(self, key, cred) -> None:
+        return  # no transport in a unit test
+
+    async def connect(self, credential):  # pragma: no cover — never reached
+        raise AssertionError("no credentials, so no subscriber should start")
+
+    def parse_event(self, raw):  # pragma: no cover
+        return None
+
+    def is_echo(self, event) -> bool:  # pragma: no cover
+        return False
+
+    async def resolve_sender_name(self, event, credential) -> str:  # pragma: no cover
+        return ""
+
+    def create_context_builder(self, credential):  # pragma: no cover
+        return None
+
+    # ── seams ────────────────────────────────────────────────────────────
+    def _desired_worker_count(self) -> int:
+        return 0  # never spawn real workers
+
+    async def _run_cleanup(self) -> None:
+        """Records the call instead of sweeping. The real sweep reads
+        `self._dedup_store._repo`, which only exists after `start()`."""
+        self.cleanup_calls += 1
+        self._last_cleanup_monotonic = asyncio.get_running_loop().time()
+        self.running = False  # exactly one pass
+
+
+async def _one_watcher_pass(trigger: _OneCredentialTrigger) -> None:
+    trigger.running = True
+    await asyncio.wait_for(trigger._credential_watcher(), timeout=5)
+
+
+def test_the_marks_are_a_real_never_ran_sentinel():
+    """The value, not its spelling.
+
+    Extracting the sentinel into a named constant must keep this green;
+    regressing to 0.0 must turn it red. `inspect.getsource` gets both backwards.
+    """
+    trigger = _OneCredentialTrigger()
+
+    assert trigger._last_heartbeat_monotonic == float("-inf")
+    assert trigger._last_cleanup_monotonic == float("-inf")
     assert ServiceAuditor("svc")._last_heartbeat_at == float("-inf"), (
         "0.0 is not 'never beat' against a monotonic clock — it is 'beat at boot'"
     )
 
 
 @pytest.mark.asyncio
-async def test_a_service_auditor_beats_on_its_very_first_call(freshly_booted):
-    """A 60-second gate must not depend on the host being 60 seconds old."""
-    auditor = ServiceAuditor("svc-under-test")
+async def test_the_first_watcher_pass_beats_and_sweeps():
+    """Drive the gates. This is the half a source-text assertion cannot do:
+    it fails if somebody rewrites either gate into seed semantics, which is the
+    edit that brings the original bug back with the initial values intact.
+    """
+    trigger = _OneCredentialTrigger()
+    trigger._audit_repo = _CaptureAuditRepo()
+
+    await _one_watcher_pass(trigger)
+
+    assert trigger.cleanup_calls == 1, (
+        "the retention sweep did not run on the first pass — a new host would "
+        "wait for its uptime to reach CLEANUP_INTERVAL_SECONDS"
+    )
+    assert EVENT_HEARTBEAT in trigger._audit_repo.types(), (
+        "no heartbeat on the first pass — the L2 liveness signal is missing "
+        "during the window a bad start is most likely (incident lesson #4)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_service_auditor_beats_on_its_very_first_call():
+    """A finite gate must not depend on the host being older than it."""
+    auditor = ServiceAuditor("svc-under-test", heartbeat_interval=_UNREACHABLE_INTERVAL)
     emitted: list = []
 
     async def _capture(event, detail):
@@ -79,38 +196,3 @@ async def test_a_service_auditor_beats_on_its_very_first_call(freshly_booted):
         "the first heartbeat was skipped on a host younger than the interval — "
         "no liveness signal during the window a bad start is most likely"
     )
-
-
-@pytest.mark.asyncio
-async def test_the_channel_trigger_marks_start_open(freshly_booted):
-    """Both channel-trigger gates must be open on the first cycle.
-
-    Asserted on the marks rather than by driving the run loop: the loop needs a
-    live queue, workers and an audit repo, and what rotted here was the initial
-    value, not the loop.
-    """
-    import inspect
-
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-
-    # The class is abstract (six subclass hooks), and what rotted here is the
-    # initial value rather than any behaviour reachable without a live queue,
-    # workers and an audit repo. So: read the value the constructor installs,
-    # then check the gate arithmetic against it with a freshly-booted clock.
-    src = inspect.getsource(ChannelTriggerBase.__init__)
-    assert 'self._last_cleanup_monotonic: float = float("-inf")' in src, (
-        "the retention-sweep mark is no longer a real 'never ran' sentinel"
-    )
-    assert 'self._last_heartbeat_monotonic: float = float("-inf")' in src, (
-        "the heartbeat mark is no longer a real 'never ran' sentinel"
-    )
-
-    now = time.monotonic()  # seconds after boot, per the fixture
-    assert now < ChannelTriggerBase.HEARTBEAT_INTERVAL_SECONDS, (
-        "the fixture is meant to put us inside the interval, or this proves nothing"
-    )
-    assert now - float("-inf") >= ChannelTriggerBase.HEARTBEAT_INTERVAL_SECONDS
-    assert now - float("-inf") >= ChannelTriggerBase.CLEANUP_INTERVAL_SECONDS
-    # The value it replaced would have failed both, which is the whole point.
-    assert not (now - 0.0 >= ChannelTriggerBase.HEARTBEAT_INTERVAL_SECONDS)
-    assert not (now - 0.0 >= ChannelTriggerBase.CLEANUP_INTERVAL_SECONDS)

@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
+
+该字段每次 WS 重连都被赋值，**全仓零读点**；而它旁边的注释声称"经聚合 channel
+health server 通过 getattr 暴露"——健康快照
+（`ChannelTriggerBase.health_snapshot()`）读的一直是它的 wallclock 兄弟
+`_last_ws_connected_wallclock_ms`，H-5 历史回放过滤器的 dedup baseline 也是从
+wallclock 那个字段种下的。所以注释承诺的消费者对 monotonic 这一份并不存在。
+
+顺带记一个已经不重要但说明它有多死的事实：原赋值语句在 `ws_start_monotonic`
+这个**局部变量被赋值之前**执行，所以它写进去的其实是上一轮循环的值（或初始
+`0.0`）。没人读，所以没人被咬。
+
+它同时是本仓 `0.0`-against-`time.monotonic()` 的第四处，也是**唯一不能照另外
+三处那样改成 `-inf`** 的一处：`-inf` 对"只参与差值、从不进 payload"的 mark 是
+正确的（见 [[channel_trigger_base.py]] / [[service_audit.py]] 2026-08-17 条），
+而这个字段声明的用途恰恰是**进 JSON 健康响应**——一旦真有人接上去，无穷会序列化
+成非法的 `-Infinity`，把"数字不好看"升级成"整个响应解析失败"。删除是唯一干净的
+处置。
+
+要做 WS 存活观测的人请建在 wallclock 字段上。
 
 ## 2026-08-07 — 不再手搓 trigger_extra_data；回复记录走共享收口
 
