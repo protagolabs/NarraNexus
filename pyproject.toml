@@ -41,6 +41,15 @@ dependencies = [
     # renamed away SUCCEEDS SILENTLY — the hardening would degrade to a no-op
     # and the 5-minute lock class would come back green. uv.lock pins 0.22.1.
     "aiosqlite>=0.22.1",
+    # A RUNTIME dep, not a test one (2026-08-17). The review that flagged this
+    # spotted `import yaml` in a test, but `skill_module.py:34` imports it
+    # unconditionally at module scope and calls `yaml.safe_load` on skill
+    # frontmatter — pyyaml was only ever in the graph transitively, via
+    # huggingface-hub and jsonschema-path. The day either of those stops
+    # depending on it, the SkillModule stops importing, in production, and the
+    # traceback points at pyyaml rather than at this omission. Same reasoning as
+    # the `regex` entry above.
+    "pyyaml>=6.0",
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
     "numpy>=1.26.0",

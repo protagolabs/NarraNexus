@@ -34,6 +34,7 @@ import pytest
 _REPO = Path(__file__).resolve().parents[1]
 _TESTS = _REPO / "tests"
 _WORKFLOW = _REPO / ".github/workflows/ci.yml"
+_CI_JOB = "backend-tests"
 
 # The single source of truth, by definition: whatever the shared helper says.
 _HELPER = _TESTS / "mysql_dialect.py"
@@ -127,25 +128,62 @@ def test_ci_passes_the_same_env_var_name_the_twins_read():
     `# NARRANEXUS_MYSQL_TEST_URL: injected below` would satisfy this assertion
     permanently while the real env line was gone. A guard that prose can satisfy
     is worse than no guard: without one, somebody would still go and look.
+
+    And the question asked is "can the process that runs pytest SEE this
+    variable", not "does the name appear in some step's env". Those differ in
+    both directions:
+
+    * too wide — step-level `env` reaches only that step, so hanging it on
+      `Install dependencies`, or splitting pytest into two steps and env-ing
+      only one, keeps this green while nine twins skip in the other;
+    * too narrow — lifting the variable to `jobs.backend-tests.env` or the
+      workflow's top-level `env` is a legitimate, tidier refactor that would
+      turn this red for nothing. False red is how guards get "relaxed" away.
+
+    So: find the steps that actually run pytest, and resolve each one's visible
+    environment through Actions' own override order.
     """
     import yaml
 
     canonical = _canonical_env_name()
     workflow = yaml.safe_load(_WORKFLOW.read_text())
-    steps = workflow["jobs"]["backend-tests"]["steps"]
 
-    setters = [
-        step for step in steps
-        if isinstance(step.get("env"), dict) and canonical in step["env"]
-    ]
-    assert setters, (
-        f"no step in the backend-tests job sets {canonical} — the dialect twins "
-        f"would skip in CI, which looks exactly like passing. Steps seen: "
-        f"{[s.get('name') for s in steps]}"
+    # Readable failures instead of KeyError, same as _canonical_env_name(). A
+    # renamed job (say, split into backend-tests-sqlite / -mysql) should tell the
+    # reader what this file was locking, not just which dict key was absent.
+    job = (workflow.get("jobs") or {}).get(_CI_JOB)
+    if job is None:
+        pytest.fail(
+            f"{_WORKFLOW.relative_to(_REPO)} no longer has a {_CI_JOB!r} job — "
+            f"that is where the MySQL service and {canonical} are wired, so the "
+            f"dialect twins have nowhere left to run. Jobs seen: "
+            f"{sorted((workflow.get('jobs') or {}).keys())}"
+        )
+    steps = job.get("steps") or []
+    if not steps:
+        pytest.fail(f"the {_CI_JOB!r} job has no steps")
+
+    pytest_steps = [s for s in steps if "pytest" in str(s.get("run", ""))]
+    assert pytest_steps, (
+        f"no step in the {_CI_JOB!r} job runs pytest any more — the job that "
+        f"exists to execute the suite (and with it the dialect twins) stopped "
+        f"doing so. Steps seen: {[s.get('name') for s in steps]}"
     )
-    # The NAME is what this file locks; the URL itself is environment-specific.
-    # But an empty value gates the twins off just as effectively as a missing one.
-    for step in setters:
-        assert str(step["env"][canonical]).strip(), (
-            f"step {step.get('name')!r} sets {canonical} to an empty value"
+
+    # Actions' precedence: workflow env < job env < step env.
+    workflow_env = workflow.get("env") or {}
+    job_env = job.get("env") or {}
+    for step in pytest_steps:
+        visible = {**workflow_env, **job_env, **(step.get("env") or {})}
+        assert canonical in visible, (
+            f"the pytest step {step.get('name')!r} cannot see {canonical} — the "
+            f"dialect twins would skip in CI, which looks exactly like passing. "
+            f"Visible env keys: {sorted(visible)}"
+        )
+        # The NAME is what this file locks; the URL itself is
+        # environment-specific. But an empty value gates the twins off just as
+        # effectively as a missing one.
+        assert str(visible[canonical]).strip(), (
+            f"the pytest step {step.get('name')!r} sets {canonical} to an empty "
+            f"value"
         )

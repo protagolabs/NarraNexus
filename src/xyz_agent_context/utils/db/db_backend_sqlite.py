@@ -145,7 +145,19 @@ def _resilient_connection_worker_thread(tx) -> None:
 # lock class back with a green suite. Fail at import instead — the version floor
 # in pyproject.toml is the other half of this guard, and two tests assert the
 # patches are installed.
-# All FIVE names `_resilient_connection_worker_thread` resolves at call time.
+# The complete internal surface this module touches: the FOUR names
+# `_resilient_connection_worker_thread` resolves at call time (`LOG`,
+# `set_result`, `_STOP_RUNNING_SENTINEL`, `set_exception`) plus
+# `_connection_worker_thread`, which it never reads — that one is the ASSIGNMENT
+# target below, and is here for the reason the paragraph above gives. Stating it
+# as "the names the function resolves" would send the next person adding an
+# `aiosqlite.core.X` reference looking for reads only, and miss write targets.
+#
+# `Connection.__init__` is deliberately NOT in this tuple: `hasattr(cls,
+# "__init__")` is true for every class in Python, so such a check is a tautology
+# (one was here and was deleted). Its real guard is the `hasattr(self, "_thread")`
+# check inside `_daemon_worker_connection_init`.
+#
 # `set_result` / `set_exception` are the ones that must not be missed: they are
 # READS, so a rename does not degrade quietly — it raises AttributeError inside
 # the worker's `try`, lands in `except BaseException`, and the handler's own
