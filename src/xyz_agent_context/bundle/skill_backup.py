@@ -34,13 +34,11 @@ SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
 
 
 def _user_archive_dir(user_id: str) -> Path:
+    """Path of a user's archive dir. Pure — does NOT create it."""
     # `user_id` is a path segment. It comes from JWT / X-User-Id resolution
     # rather than a form field, but "trusted enough" is how SEC-07 happened
     # one level down — validate it like any other segment.
-    safe_user = sanitize_filename(user_id, label="user id")
-    d = SKILL_ARCHIVES_ROOT / safe_user
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return SKILL_ARCHIVES_ROOT / sanitize_filename(user_id, label="user id")
 
 
 def archive_target(user_id: str, skill_name: str, *, suffix: str = ".zip") -> Path:
@@ -53,6 +51,10 @@ def archive_target(user_id: str, skill_name: str, *, suffix: str = ".zip") -> Pa
     whoever produced the `.nxbundle`, or an LLM-supplied MCP tool argument.
     Splicing it into an f-string let `../` escape the per-user directory and
     write into another user's, which is a proven cross-user file write.
+
+    Pure: validates and computes, touches nothing. That is what lets a caller
+    validate up front and still promise "a rejected request leaves no trace" —
+    use `prepare_archive_target` / `ensure_archive_dir` at the actual write.
 
     Args:
         user_id: Owning user; becomes the parent directory segment.
@@ -71,28 +73,62 @@ def archive_target(user_id: str, skill_name: str, *, suffix: str = ".zip") -> Pa
     target = ensure_within_directory(
         _user_archive_dir(user_id), f"{safe_name}{suffix}", label="skill name"
     )
-    # `ensure_within_directory` anchors on the user dir; if that dir is itself
-    # a symlink pointing out of the tree, the result is "contained" yet
-    # outside. Anchor on the archives root as well so write side and read side
-    # (`is_within_archives_root`) agree on one boundary.
+    # Second, DELIBERATELY DIFFERENT anchor. `ensure_within_directory` above
+    # anchors on the user dir, so a user dir that is itself a symlink out of
+    # the tree yields a path that is "contained" yet outside. This check
+    # anchors on the archives root, which a symlinked user dir cannot satisfy.
+    # Do NOT "unify" it with the per-user read-side check
+    # (`is_within_user_archive_dir`): anchored on the already-resolved user dir
+    # it would be vacuously true and the symlink hole would reopen.
     if not is_within_archives_root(target):
         raise ValueError("Invalid skill name: path escapes the skill archives root")
     return target
 
 
+def ensure_archive_dir(target: Path) -> Path:
+    """Create `target`'s parent dir. Call this at the write, not at validation."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def prepare_archive_target(user_id: str, skill_name: str, *, suffix: str = ".zip") -> Path:
+    """`archive_target` + create the parent dir. For callers about to write."""
+    return ensure_archive_dir(archive_target(user_id, skill_name, suffix=suffix))
+
+
 def is_within_archives_root(archive_path: str | Path) -> bool:
     """
-    Read-side containment check for an `archive_path` DB column.
+    Is `archive_path` anywhere under `skill_archives/`?
 
-    Sealing the write path does not clean rows written before it was sealed
-    (the dev env still carries one `../`-bearing row from the QA repro), and
-    `builder.py` copies whatever `archive_path` names into the bundle it
-    streams back — i.e. a poisoned row is an arbitrary file read. Callers
-    must run every DB-sourced archive path through this before opening it.
+    Write-side use only (see `archive_target`). This is the LOOSER of the two
+    containment checks: it says nothing about *whose* directory the path lands
+    in, so `{root}/{someone_else}/x.zip` and `{root}/stray.zip` both pass. Read
+    sides that know the owning user must use `is_within_user_archive_dir`.
     """
     try:
         resolved = Path(archive_path).resolve(strict=False)
         return resolved.is_relative_to(SKILL_ARCHIVES_ROOT.resolve(strict=False))
+    except (OSError, ValueError):
+        return False
+
+
+def is_within_user_archive_dir(user_id: str, archive_path: str | Path) -> bool:
+    """
+    Read-side containment check for an `archive_path` DB column: does it point
+    inside THIS user's own archive dir?
+
+    Sealing the write path does not clean rows written before it was sealed —
+    the dev env still carries the QA repro's row, whose stored string is
+    `{root}/{uid}/../qa-sec07-oneup-marker.zip` and therefore *resolves into
+    the root* (`{root}/qa-sec07-oneup-marker.zip`). A root-anchored check
+    passes that row, so the per-user anchor is what actually catches it, plus
+    the `{root}/{victim}/x.zip` shape. `builder.py` copies whatever
+    `archive_path` names into the bundle it streams back, so every DB-sourced
+    archive path must come through here before being opened.
+    """
+    try:
+        base = _user_archive_dir(user_id).resolve(strict=False)
+        return Path(archive_path).resolve(strict=False).is_relative_to(base)
     except (OSError, ValueError):
         return False
 
@@ -144,7 +180,7 @@ async def archive_github_tarball(
     # GitHub's API tarball endpoint works for both public AND private repos
     # when paired with an Authorization header. The /archive/refs/heads/...
     # form is public-only.
-    out_path = archive_target(user_id, skill_name, suffix=".tar.gz")
+    out_path = prepare_archive_target(user_id, skill_name, suffix=".tar.gz")
     token = github_token or os.environ.get("GITHUB_TOKEN") or ""
     headers = {"Accept": "application/vnd.github.v3.raw"}
     if token:
@@ -176,7 +212,7 @@ async def archive_md_only(
     skill_md_content: str,
 ) -> Tuple[Path, str]:
     """Wrap a single SKILL.md content into a zip and store it as the archive."""
-    out_path = archive_target(user_id, skill_name)
+    out_path = prepare_archive_target(user_id, skill_name)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("SKILL.md", skill_md_content)
@@ -228,7 +264,7 @@ async def archive_local_zip(
     except zipfile.BadZipFile:
         raise ValueError("Not a valid zip file")
 
-    out_path = archive_target(user_id, skill_name)
+    out_path = prepare_archive_target(user_id, skill_name)
     shutil.copy2(src, out_path)
     sha = file_sha256(out_path)
     logger.info(f"Local-zip archive registered for '{skill_name}': {out_path}")
@@ -304,7 +340,7 @@ async def backup_after_api_install(
             )
             return str(archive_path)
         if source_type == "zip" and original_zip_path and original_zip_path.exists():
-            out = archive_target(user_id, skill_name)
+            out = prepare_archive_target(user_id, skill_name)
             shutil.copy2(original_zip_path, out)
             sha = file_sha256(out)
             await register_archive(

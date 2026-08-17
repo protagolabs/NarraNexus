@@ -19,24 +19,41 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
    `../qa-sec07-oneup-marker` 原件）、3 种 suffix 的正常路径、穿越型
    `user_id`、symlink 出逃。symlink 那条专门盯
    `ensure_within_directory` 锚在用户目录上的盲区。
-2. **不许再手拼**：一条 grep 式断言扫 route / skill_backup / importer 三个
-   文件，禁止出现 `<dir> / f"...skill_name..."` 形状的行。这类 bug 的复发
-   路径就是有人又手拼一次；断言写成"形状"而不是"某一行"才拦得住新增。
-   判据取 `"/ f" 或 "/f"` 且同行含 `skill_name` —— 早期版本只匹配
-   `f"{skill_name}` 会把 `f"{skill_name}@{old_aid}"` 这种纯日志标签误报。
-3. **读侧**：seed 一条 `archive_path` 指向 archives root 之外的
-   `skill_archives` 行（就是 dev 库 id=20 的形状），跑 `build_bundle`，断言
-   canary 字节**没有**出现在导出包里、warning 提到该 skill、manifest 里没
-   有 `archive_ref`。配一条正向用例保证守卫没把正常 zip 导出打死。
+2. **不许再手拼**：一条 grep 式断言扫 bundle 路由 + 整个 `bundle/` 包，
+   禁止出现"看起来在拼路径、且同行提到 `skill_name`"的行（`/`、
+   `.joinpath(`、`os.path.join(`，且赋给 `tgt|out|target|path|dst|dest`
+   之一）。`archive_target` / `prepare_archive_target` 是白名单。这类 bug
+   的复发路径就是有人又手拼一次；断言写成"形状"而不是"某一行"才拦得住新
+   增。早期版本只匹配 `f"{skill_name}`，既漏 `.joinpath` / `os.path.join`
+   / `+ ".zip"` 等写法，又会把 `f"{skill_name}@{old_aid}"` 这种纯日志标签
+   误报，且扫描面写死 3 个文件；docstring 现在如实写明它挡不住什么。
+3. **读侧，三种形状**（初版只有第一种，是个真空档）：
+   - root **之外**的绝对路径 —— `/export` 那条读侧漏洞的形状
+   - root **散装层**（`{root}/marker.zip`）—— **dev 库 id=20 的真实形状**，
+     因为存的字符串 `{root}/{uid}/../marker.zip` resolve 之后就在 root 里
+   - **别人的用户目录**（`{root}/other_user/x.zip`）—— 跨用户读
+
+   后两条在 root 锚点的判据下会放行，初版恰好只测了第一条，所以"读侧兜住
+   id=20"这句话既没被代码实现、也没被测试发现。三条都断言 canary 不进包 +
+   warning 提到该 skill + manifest 无 `archive_ref`；另有正向用例保证守卫
+   没把正常 zip 导出打死。
+4. **导入侧归档登记**：`test_imported_zip_skill_registers_archive` 走完整
+   export → 删行 → preflight → confirm，断言 `skill_archives` 行被重新写
+   出来。钉的是 `SameFileError` 那个既有缺陷（见 [[importer.py]]）。
 
 ## Gotcha
 
 - `archives_root` fixture monkeypatch 的是
   `skill_backup.SKILL_ARCHIVES_ROOT` 模块级常量（`_user_archive_dir` 每次
   调用时才读它），不是 `Path.home()`。真实 `~/.nexusagent` 不会被碰到。
-- 读侧两条用例复用 [[test_skill_import.py]] 那套 `db_client` /
+- 读侧用例复用 [[test_skill_import.py]] 那套 `db_client` /
   `tmp_workspace_root` fixture 组合（隔离 sqlite + 覆盖
   `base_working_path` 和 HOME）。
-- 这两条读侧用例是有牙的：把 builder 里的 `is_within_archives_root` 判断
-  改成 `if False:` 会让 `test_poisoned_archive_path_row_is_not_packed` 失
-  败——加新守卫时可以用同样的方式验证。
+- 三条读侧用例都验过牙口：把 builder 的判断换回
+  `is_within_archives_root`，散装层和跨用户两条**会红**、root 外那条仍绿
+  （这正是初版漏掉差异的原因）；换成 `if False:` 三条全红。导入侧那条把
+  `register_archive` 换回 `backup_after_api_install` 也会红。加新守卫时用
+  同样的方式验。
+- 形状断言的覆盖面写在它自己的 docstring 里，**故意写成"能挡什么、挡不住
+  什么"**：改名变量、跨行拼接它都看不见。它是防复发的窄网，不是不存在
+  的证明——别因为它绿就跳过人工核。

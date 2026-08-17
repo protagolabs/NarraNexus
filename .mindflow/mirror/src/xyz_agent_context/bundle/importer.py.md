@@ -11,11 +11,33 @@ skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和
 谁做的 `.nxbundle` 谁写的——和一个表单字段同级的不可信度。同一个文件里
 1328 行给 skills 目录做了 `sanitize_filename`，唯独归档这两处漏了。
 
-两处改走 [[skill_backup.py]] 的 `archive_target()`，`skill_archives_dir`
+两处改走 [[skill_backup.py]] 的 `prepare_archive_target()`，`skill_archives_dir`
 局部变量随之删除。恶意 manifest 名现在抛 `ValueError`，被 skills 循环既
 有的 `except Exception` 记成**单个 skill 的 install failure**（进
 `skill_install_failures` / warnings），不会中断整份 import——和其他
 per-skill 失败一致。
+
+### 同批修掉的既有缺陷：zip 分支的归档行从来没写进去过
+
+zip 分支把已经就位的 `tgt` 交给 `backup_after_api_install`，而那个 helper
+是为"把外面的 zip 拷进登记处"设计的——它自己又算一次
+`archive_target`，得到同一个路径，`shutil.copy2(tgt, tgt)` 必抛
+`SameFileError`，被它那个宽 `except Exception` 吞成一条 warning，于是
+`register_archive` 永远不执行。**导入含 zip 方式 skill 的 bundle 后，该
+用户的 `skill_archives` 里没有对应行。**
+
+后果不是"导出少一个 skill"（前端在没有归档行时默认走 full_copy，改动前后
+都一样），而是**导入来的 skill 永远无法以 zip 方式再导出，只能 full_copy
+——包更大，且 full 模式会把 secrets 一起带走**。
+
+现在 zip 分支直接 `register_archive(archive_path=str(tgt))`，形状照抄
+full_copy 分支；sha256 优先用 manifest 的（包内 zip 与落盘文件逐字节相
+同），缺失时用 `file_sha256` 重算。回归测试
+`test_imported_zip_skill_registers_archive` 钉住这条，改回旧写法会红。
+
+> 这个缺陷藏了这么久的直接原因是 `skill_backup.py` 那个宽
+> `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
+> 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
 
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 

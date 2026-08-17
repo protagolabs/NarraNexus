@@ -24,6 +24,17 @@ stub: false
 的 `BadZipFile` 误报 500 又犯一次。顺手补上 `enforce_max_bytes`
 （`skills.py` 那条路径一直有，这条一直没有，整包进内存）。
 
+"拒绝时不建目录"这句起初是**假的**：`archive_target` 内部会 `mkdir`，所以
+只有非法 `skill_name` 那条真的零副作用，其余 3 条 400 和整个 github 分支都
+会留下空的 `skill_archives/{user_id}/`——而测试参数表刚好只有非法名，绕开
+了唯一出问题的分支。现已把构造点纯化（见 [[skill_backup.py]]），落盘时才
+`ensure_archive_dir`，并给每条 400 补了"目录也不存在"的断言。
+
+`contents` 的绑定与使用原先跨了分支（只在 zip 分支绑定，却在 github 分支
+return 之后无条件使用），仅因为提前排除了第三种 `source_type` 才安全；已把
+写盘 + upsert + return 整体收进 zip 分支内，将来加第三种 source_type 不会
+变成 `NameError` → 500。
+
 **读侧 —— `/export` 的 `skills[].archive_path`（顺带排查出来的，更重）**
 
 `SkillExportSpec` 原先收 `archive_path` / `manual_zip_path`，前端把
@@ -40,7 +51,14 @@ guard 同一立场。
 > 遗留数据不在代码修复范围内：dev 库 id=20 那行带 `../` 的
 > `archive_path` 仍需人工清理（含实体文件
 > `qa-sec07-oneup-marker.zip`）。在清掉之前，靠 [[builder.py]] 的
-> 读侧 `is_within_archives_root` 兜住。
+> 读侧 `is_within_user_archive_dir` 兜住。
+>
+> **口径修正（2026-08-17 二审）**：初版这里写的是"靠
+> `is_within_archives_root` 兜住"，那是**错的**——id=20 存的字符串是
+> `{root}/{qa_uid}/../qa-sec07-oneup-marker.zip`，`resolve()` 之后落在
+> `{root}/qa-sec07-oneup-marker.zip`，**就在 root 里面**，root 锚点的判据
+> 会放行它。真正兜住它的是 per-user 锚点。写文档时把"我打算实现的边界"
+> 当成了"我实现了的边界"，这类话以后要用测试反证过再写。
 
 ## 2026-08-11 — 500 路径错误文案脱敏（安全审计 P2-2）
 

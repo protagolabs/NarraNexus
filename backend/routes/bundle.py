@@ -31,7 +31,7 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
 from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
-from xyz_agent_context.bundle.skill_backup import archive_target
+from xyz_agent_context.bundle.skill_backup import archive_target, ensure_archive_dir
 from xyz_agent_context.repository import SkillArchiveRepository
 from xyz_agent_context.utils.file_safety import enforce_max_bytes
 from backend.auth import resolve_current_user_id
@@ -585,6 +585,10 @@ async def upload_archive(
     `ValueError` it raises is user-actionable input validation, so it maps to
     400; letting it surface as a 500 would repeat the #113 BadZipFile
     mistake.
+
+    Invariant every 4xx here upholds: no bytes on disk, no directory created,
+    no DB row. `archive_target` is pure precisely so that holds — the parent
+    dir is created at the write (`ensure_archive_dir`), not at validation.
     """
     user_id = await _user_id_for_request(request)
 
@@ -598,27 +602,14 @@ async def upload_archive(
     if source_type not in ("github", "zip"):
         raise HTTPException(status_code=400, detail="source_type must be 'github' or 'zip'")
 
-    if source_type == "zip":
-        if not file:
-            raise HTTPException(status_code=400, detail="file required for zip")
-        contents = await file.read()
-        try:
-            enforce_max_bytes(
-                len(contents),
-                backend_settings.max_upload_bytes,
-                label="Skill archive",
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    db = await get_db_client()
-    repo = SkillArchiveRepository(db)
-
     if source_type == "github":
         if not source_url:
             raise HTTPException(status_code=400, detail="source_url required for github")
+        db = await get_db_client()
         # Defer actual tarball download to lazy time; record source.
-        await repo.upsert(
+        # `target` went unused on this branch — it was computed only to
+        # validate `skill_name`, which still has to happen here.
+        await SkillArchiveRepository(db).upsert(
             user_id=user_id,
             skill_name=skill_name,
             source_type="github",
@@ -628,10 +619,26 @@ async def upload_archive(
         )
         return {"success": True, "skill_name": skill_name, "source_type": "github"}
 
-    target.write_bytes(contents)
+    # source_type == "zip". Bind and use `contents` in one branch: relying on
+    # the check above to guarantee it is bound down here means adding a third
+    # source_type turns into a NameError/500 instead of a clean 400.
+    if not file:
+        raise HTTPException(status_code=400, detail="file required for zip")
+    contents = await file.read()
+    try:
+        enforce_max_bytes(
+            len(contents),
+            backend_settings.max_upload_bytes,
+            label="Skill archive",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    ensure_archive_dir(target).write_bytes(contents)
     from xyz_agent_context.bundle.security import bytes_sha256
     sha = bytes_sha256(contents)
-    await repo.upsert(
+    db = await get_db_client()
+    await SkillArchiveRepository(db).upsert(
         user_id=user_id,
         skill_name=skill_name,
         source_type="zip",

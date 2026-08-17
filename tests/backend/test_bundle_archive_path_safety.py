@@ -121,6 +121,34 @@ def test_upload_rejection_writes_nothing_anywhere(client, archives_root, tmp_pat
     assert _FakeRepo.calls == [], "rejected upload still wrote a DB row"
 
 
+@pytest.mark.parametrize(
+    "data,files",
+    [
+        # Valid skill_name, rejected for another reason. These are the branches
+        # the first version of this suite missed: validation used to mkdir, so a
+        # 400 here still littered `skill_archives/{user_id}/`.
+        ({"skill_name": "legit-skill", "source_type": "svn"}, None),
+        ({"skill_name": "legit-skill", "source_type": "zip"}, None),  # no file
+        ({"skill_name": "legit-skill", "source_type": "github"}, None),  # no url
+    ],
+)
+def test_upload_rejection_creates_no_directory_either(client, archives_root, data, files):
+    """"A 4xx leaves no trace" must hold for EVERY 4xx, not just the bad-name one."""
+    r = client.post("/api/bundle/skills/archives/upload", data=data, files=files)
+    assert r.status_code == 400, r.text
+    assert not archives_root.exists(), "a rejected upload created the archives tree"
+    assert _FakeRepo.calls == []
+
+
+def test_oversize_rejection_creates_no_directory(client, archives_root, monkeypatch):
+    from backend.config import settings as backend_settings
+
+    monkeypatch.setattr(backend_settings, "max_upload_bytes", 16)
+    r = _upload(client, "legit-skill", content=b"x" * 64)
+    assert r.status_code == 400
+    assert not archives_root.exists(), "an oversize upload created the archives tree"
+
+
 def test_upload_happy_path_lands_inside_the_user_directory(client, archives_root):
     r = _upload(client, "legit-skill")
     assert r.status_code == 200, r.text

@@ -10,6 +10,12 @@ stub: false
 服务端按 user 查 `skill_archives` 定 bytes。`SkillArchiveRecord.archive_path`
 保留——那是服务端下发的、只用来显示 basename 的字段，方向相反。
 
+老客户端发上来的 `archive_path` 是被**忽略**（pydantic 默认
+`extra="ignore"`），不是被拒绝。这里**故意不加** `extra="forbid"`：还在用
+旧 DMG 的用户前端仍会发这个字段，forbid 会让他们的导出直接 422，而服务端
+本来就不再读它——忽略掉严格更优。铁律 #2 反对的是留兼容 shim，不是反对
+宽容地忽略一个无关字段。
+
 ## 2026-08-14 — TeamChatMessage.is_platform
 
 "这一行是平台在自述吗"，由服务端回答（见 [[teams.py]]）。前端不再维护

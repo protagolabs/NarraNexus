@@ -71,17 +71,33 @@ Bundle export 想以"URL 安装"或"Zip 安装"方式分享 skill 时，必须�
 现在收敛成一个函数：
 
 - **`archive_target(user_id, skill_name, suffix=".zip")`** —— 唯一合法构造
-  点。`sanitize_filename` 校验 skill_name → `ensure_within_directory` 落
-  地 → 再用 `is_within_archives_root` 复查一次。最后这步不是多余的：
+  点，**纯函数**（只校验和计算，不碰文件系统）。`sanitize_filename` 校验
+  skill_name → `ensure_within_directory` 落地 → 再用
+  `is_within_archives_root` 复查一次。最后这步不是多余的：
   `ensure_within_directory` 锚在**用户目录**上，如果用户目录本身是个指
-  向树外的 symlink，结果"合规却在外面"；锚回 archives root 才能让写侧和
-  读侧共用同一条边界。
+  向树外的 symlink，结果"合规却在外面"；这里锚回 archives root，而
+  symlink 出去的用户目录满足不了它。
+- **`ensure_archive_dir(target)` / `prepare_archive_target(...)`** —— 建父
+  目录的那一半，只在**真的要写**的时候调。拆开的理由：`archive_target`
+  原先内部 `mkdir`，于是 route 里"拒绝时不建目录"的承诺只对非法
+  `skill_name` 成立，另外 3 条 400 分支和整个 github 分支都会留下空目
+  录——而测试参数表刚好只有非法名，绕开了唯一出问题的分支。纯化之后
+  "4xx 零副作用"才是真的。
+- ⚠️ **两个 containment 判据是故意不同的，不要"统一"**：写侧
+  （`archive_target`）锚 archives **root**，因为它要挡的是 symlink 出逃；
+  读侧（`is_within_user_archive_dir`）锚**该用户目录**，因为它要挡的是
+  跨用户和 root 散装层。把写侧换成 per-user 判据会恒真（此时用户目录已
+  被 resolve），symlink 那个洞会重新打开。
 - `_user_archive_dir` 现在也 `sanitize_filename(user_id)`。user_id 来自
   JWT / X-User-Id 而不是表单，但"够可信了"正是 SEC-07 在下一层发生的原
   因。
-- **`is_within_archives_root(path)`** —— 读侧守卫。封住写路径**不会**回
-  溯清理已经写坏的行（dev 库还留着 QA 那条 `../`），而 [[builder.py]] 会
-  把 `archive_path` 指向的文件拷进导出包，所以读的时候必须再判一次。
+- **`is_within_user_archive_dir(user_id, path)`** —— 读侧守卫。封住写路径
+  **不会**回溯清理已经写坏的行（dev 库还留着 QA 那条），而 [[builder.py]]
+  会把 `archive_path` 指向的文件拷进导出包，所以读的时候必须再判一次。
+  **必须用 per-user 锚点**：QA 那行存的是
+  `{root}/{uid}/../marker.zip`，resolve 之后在 `{root}/marker.zip`，root
+  锚点判它"合规"；`{root}/{受害者}/x.zip` 同理。`is_within_archives_root`
+  留着只给写侧用，它的 docstring 现在明写自己是更松的那个。
 
 回归测试 `tests/bundle/test_skill_archive_path_safety.py` 里有一条 grep 式
 断言：这 3 个文件中不允许再出现 `<dir> / f"...skill_name..."` 形状的行。

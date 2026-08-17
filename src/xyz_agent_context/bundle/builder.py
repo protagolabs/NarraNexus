@@ -42,7 +42,7 @@ from .security import (
     scan_zip_for_sensitive,
 )
 from .skill_secrets import dir_is_builtin as _dir_is_builtin
-from .skill_backup import is_within_archives_root
+from .skill_backup import is_within_user_archive_dir
 
 
 BUNDLE_FORMAT_VERSION = "1.1"
@@ -784,24 +784,31 @@ async def build_bundle(
                     warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
                     continue
                 # Rows written before SEC-07 was sealed can still carry a
-                # `../` path (the QA repro left one on the dev env). Refuse to
-                # read anything outside the archives root instead of trusting
-                # the column.
-                if not is_within_archives_root(src_zip):
+                # traversing path (the QA repro left one on the dev env).
+                # Anchor on THIS user's archive dir, not on the archives root:
+                # the QA row's stored string resolves to `{root}/marker.zip`,
+                # i.e. inside the root, so a root-anchored check would wave it
+                # through — as would `{root}/{victim}/x.zip`.
+                if not is_within_user_archive_dir(user_id, src_zip):
                     warnings.append(
                         f"skill {skill_name} on {agent_id}: archive path escapes the "
-                        f"skill_archives root, skipping (row needs cleanup)"
+                        f"user's archive dir, skipping (row needs cleanup)"
                     )
                     logger.warning(
-                        f"SEC-07: refused out-of-root archive_path for "
+                        f"SEC-07: refused out-of-dir archive_path for "
                         f"user={user_id} skill={skill_name}: {src_zip}"
                     )
                     continue
-                # Two skills with the same SKILL.md `name` but different dirs
-                # would collide in the de-dup cache if we keyed by name. Key
-                # on the resolved source path so distinct source bytes get
-                # distinct archive_ref entries in the bundle.
-                cache_key = f"{skill_name}|{src_zip}"
+                # `skill_archives` is unique on (user_id, skill_name), so
+                # `src_zip` is a pure function of `skill_name` — one skill name
+                # means exactly one archive, no matter how many dirs or agents
+                # reference it. They therefore share one archive_ref / one copy
+                # of the bytes. (Pre-SEC-07 the key also carried the client's
+                # path, back when two same-named skills could name different
+                # zips; that distinction is now structurally impossible.)
+                # NOTE: the `skill_dir`-based filename below is a *different*
+                # de-dup layer — bundle-internal filename collisions — keep both.
+                cache_key = skill_name
                 if cache_key in copied_zip_ref:
                     entry["archive_ref"] = copied_zip_ref[cache_key]
                     entry["sha256"] = "shared"

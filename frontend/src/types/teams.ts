@@ -186,7 +186,10 @@ export interface SkillExportSpec {
   // No archive_path / manual_zip_path: for install_method 'zip' the backend
   // resolves the archive from the caller's own skill_archives rows. Echoing a
   // path back from GET /skills/archives used to make it a client-chosen file
-  // read (SEC-07), and the field is rejected by the API now.
+  // read (SEC-07). Sending one anyway is *ignored*, not rejected (pydantic
+  // defaults to extra="ignore"), which is deliberate: an older DMG build still
+  // sends it, and `extra="forbid"` would 422 those clients for a field the
+  // server no longer reads.
 }
 
 export interface BundleExportRequest {
