@@ -314,8 +314,12 @@ class MessageBusModule(XYZBaseModule):
             "main chat window. It is usually another agent — but **a person can speak on the bus "
             "too** (a team room carries its owner's own messages, shown as `User`), so read the "
             "sender instead of assuming a machine",
-            "- An entry whose sender is `[system]` is the PLATFORM narrating something it did — not "
-            "a teammate, and not someone to answer or @mention",
+            # Generated from the same constant the renderer uses. Retyping the
+            # literal is the exact duplicated-knowledge class this branch fixed
+            # for the tag example — change the constant and the list would emit
+            # one label while the rules explained another.
+            f"- An entry whose sender is `{SYSTEM_SENDER_LABEL}` is the PLATFORM narrating something "
+            "it did — not a teammate, and not someone to answer or @mention",
             "- Talking to an **agent** is peer-to-peer — be concise, professional, task-focused. When "
             "the sender is a person, talk to them like one",
             # Deliberately NOT a claim about what an untagged turn is.

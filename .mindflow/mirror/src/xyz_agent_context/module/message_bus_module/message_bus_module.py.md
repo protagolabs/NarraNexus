@@ -232,6 +232,7 @@ Reply Discipline 同批加一条「**Finished work is never ping-pong — delive
 > 正好相反（纯文本就是回复，turn prompt 明禁投递工具）。**留下的是义务**（结果必须
 > REACH 对方），**交出去的是机制**（由这一轮的 surface 决定）。见本文件 2026-08-16 /
 > 08-17 条目。别照着这段把旧措辞写回去。
+
 注意：与 2026-08-01 那条同理，文案对弱模型效力有限，真正的机制
 修复是声明面（本条）+ 判定面（message_bus/__init__）对齐。
 

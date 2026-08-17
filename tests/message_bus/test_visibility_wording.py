@@ -102,11 +102,6 @@ def test_the_delivery_rule_does_not_claim_plain_text_reaches_nobody():
 
     assert "delivers nothing" not in text
     assert "only as plain text" not in text
-    # The silence rule's old tail went with it: "the unread cursor advances
-    # appropriately" was a third, vaguer account of a cursor the resurfacing
-    # rule states precisely and scopes. A deletion nothing asserts is a
-    # deletion that comes back.
-    assert "cursor advances" not in text
 
 
 def test_the_delivery_obligation_itself_survives():
@@ -183,6 +178,10 @@ def test_no_rule_flatly_calls_the_counterparty_a_machine():
     # nothing routes a human sender out of the skip-pleasantries rule.
     assert "When the sender is a PERSON" in text
     assert "see Message Source Recognition" in text
+    # And the thing it points AT. Pinning only the pointer leaves a dangling
+    # in-prompt cross-reference the moment the heading is renamed — green
+    # suite, broken instruction.
+    assert "### Message Source Recognition" in text
 
 
 def test_the_block_infers_nothing_about_the_turn_from_an_absent_tag():
@@ -270,6 +269,23 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # place the claim actually survived is not a guard.
     raw = inspect.getsource(MessageBusModule.hook_data_gathering)
     assert "prefix the input" not in raw
+    # Paired with a POSITIVE, because the negative alone is one possessive away
+    # from banning an honest historical sentence ("a step here used to prefix
+    # the input…"). If someone rewords accurately, this is what should still
+    # hold; if they reinstate the mechanism, this is what disappears.
+    #
+    # Whitespace-normalised: the phrase is wrapped across lines in the
+    # docstring, and an assertion that a reflow can break is a guard that
+    # retires itself the first time someone runs a formatter.
+    assert "never to have executed" in " ".join(raw.split())
+
+    # The MODULE header is the fourth copy, and until now the only one nothing
+    # held: the prompt text has several negatives, this docstring has the two
+    # above, the mirror is held by review. Re-adding the retracted line up there
+    # would have left the suite green.
+    from xyz_agent_context.module.message_bus_module import message_bus_module as mod
+
+    assert "prefixed with [MessageBus" not in (mod.__doc__ or "")
 
 
 def test_the_worked_example_is_the_tag_the_code_actually_emits():
@@ -450,6 +466,12 @@ def test_silence_is_producing_nothing_not_merely_calling_nothing():
     # waiting for. The tightened phrase is the assertion — not the loose
     # "no reply text", which the pre-M1 wording also satisfied.
     assert "no reply text to the bus conversation" in line
+    # This rule's old tail went too: "the unread cursor advances appropriately"
+    # was a third, vaguer account of a cursor the resurfacing rule states
+    # precisely and scopes. Asserted HERE, on the rule it belonged to, so a
+    # failure names the right sentence. Cursor semantics are room-specific, so
+    # by this file's own invariant they may never appear in this block at all.
+    assert "cursor advances" not in _static_text()
 
 
 def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
