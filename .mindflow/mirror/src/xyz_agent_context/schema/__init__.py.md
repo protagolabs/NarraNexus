@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 导出 `normalize_agent_text` / `agent_field_matches`
+
+[[entity_schema]] 新增的「这次写会不会改变什么」判断进公共导出面——`agents` 行的
+两个写入方([[auth.py]] 的 `PUT /api/auth/agents`、[[_awareness_writes]] 的
+`update_agent_profile`)都从 `xyz_agent_context.schema` 引,等价规则只有一份。
+它们此前各写一份且**答案相反**(一个比较 strip 过的值、一个比较原样值),所以
+这次上提不是整理,是修 bug。纯转发。
+
+注:`backend/` 引 `xyz_agent_context` 是合法方向,反向不行——所以共享的那份
+必须落在 package 里,这也是它没被放进 backend 的原因。
 
 ## 2026-08-10 — 导出 `JobUpdateFields`
 
