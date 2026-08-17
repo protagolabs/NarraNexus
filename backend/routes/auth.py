@@ -38,6 +38,7 @@ from xyz_agent_context.repository import (
 )
 from xyz_agent_context.schema import (
     NON_TRANSACTING_USER_STATUSES,
+    Agent,
     LoginRequest,
     LoginResponse,
     NetmindLoginRequest,
@@ -945,6 +946,31 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         )
 
 
+def _agent_field_matches(agent: Agent, field: str, wanted: str | int) -> bool:
+    """Does the stored agent row already hold ``wanted`` for ``field``?
+
+    One predicate serves both sides of :func:`update_agent`: it decides which
+    fields need writing, and afterwards it decides whether the write landed.
+    Sharing it is the point — two separately-written comparisons would
+    eventually disagree, and the disagreement would surface as "saved fine"
+    on one and "did not apply" on the other for the same row.
+
+    Args:
+        agent: the ``Agent`` entity as currently stored.
+        field: column name (``agent_name`` / ``agent_description`` /
+            ``is_public``).
+        wanted: the value the caller asked for.
+
+    Returns:
+        True when no write is needed for this field.
+    """
+    if field == "is_public":
+        return int(bool(agent.is_public)) == int(bool(wanted))
+    # NULL and "" are the same absence of text to a reader, and a caller
+    # clearing a description sends "" against a stored NULL.
+    return (getattr(agent, field, None) or "") == (wanted or "")
+
+
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
 async def update_agent(
     agent_id: str,
@@ -985,62 +1011,109 @@ async def update_agent(
 
         request = body  # preserve old local var name in body below
 
-        # Build update data
-        update_data = {}
+        # What the caller asked for, held next to what the row already stores.
+        requested: dict = {}
         if request.agent_name is not None:
-            update_data["agent_name"] = request.agent_name
+            requested["agent_name"] = request.agent_name
         if request.agent_description is not None:
-            update_data["agent_description"] = request.agent_description
+            requested["agent_description"] = request.agent_description
         if request.is_public is not None:
-            update_data["is_public"] = int(request.is_public)
+            requested["is_public"] = int(request.is_public)
 
-        if not update_data:
+        if not requested:
             return UpdateAgentResponse(
                 success=False,
                 error="No fields to update"
             )
 
-        # Execute update
-        affected_rows = await repo.update_agent(agent_id, update_data)
+        # Only genuine differences become a write. This is not an
+        # optimisation — it is what makes the answer dialect-independent.
+        # ``repo.update_agent`` returns ``cursor.rowcount``, which counts
+        # MATCHED rows on SQLite but CHANGED rows on MySQL, so re-saving the
+        # value already stored looks like "0 rows" on cloud ONLY. This route
+        # used to read that as failure and tell the user their rename had not
+        # applied while the row held exactly what they asked for — so they
+        # retried, and every retry answered the same way (Shenzhen round 2,
+        # P1: DB held the new name, the UI insisted the save had failed).
+        # ``_awareness_writes.update_agent_profile_from_args`` defused this
+        # same trap for the agent-facing tool on 2026-08-05; this is the
+        # user-facing HTTP twin of that fix.
+        update_data = {
+            field: wanted
+            for field, wanted in requested.items()
+            if not _agent_field_matches(agent, field, wanted)
+        }
 
-        if affected_rows > 0:
+        if update_data:
+            affected_rows = await repo.update_agent(agent_id, update_data)
+            # Advisory only — never the verdict. The verdict is the re-read
+            # below, because a rowcount cannot distinguish "nothing to do"
+            # from "did not apply".
+            logger.debug(
+                f"Agent {agent_id} update touched {affected_rows} row(s) "
+                f"(dialect-dependent; outcome verified by re-read)"
+            )
             # Peers must learn the new name / description / visibility now.
             # Before this the discovery row was only rewritten when the agent
             # next took a turn, so an agent edited and left idle stayed
             # undiscoverable — and its row still carried the creation
             # placeholder (P1 section 02). Best-effort: the edit itself has landed.
             await sync_agent_discovery(db_client, agent_id)
-            # Get the updated agent info
-            updated_agent = await repo.get_agent(agent_id)
-            # Check bootstrap_active (Bootstrap.md exists in workspace)
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
-            workspace_path = str(resolve_existing_workspace(
-                agent_id, updated_agent.created_by, settings.base_working_path
-            ))
-            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
 
-            agent_info = AgentInfo(
-                agent_id=updated_agent.agent_id,
-                name=updated_agent.agent_name,
-                description=updated_agent.agent_description,
-                status='active',
-                created_at=format_for_api(updated_agent.agent_create_time),
-                is_public=updated_agent.is_public,
-                created_by=updated_agent.created_by,
-                bootstrap_active=bootstrap_active,
-            )
-            logger.info(f"Agent {agent_id} updated successfully")
-
-            return UpdateAgentResponse(
-                success=True,
-                agent=agent_info,
-            )
-        else:
+        # The outcome is whatever the row now holds. A request whose values
+        # were already stored lands here having issued no write at all, and is
+        # a success: the state the caller asked for is the state that exists.
+        updated_agent = await repo.get_agent(agent_id)
+        if not updated_agent:
             return UpdateAgentResponse(
                 success=False,
-                error="No changes made"
+                error=f"Agent {agent_id} disappeared while being updated",
             )
+
+        unapplied = [
+            field
+            for field, wanted in requested.items()
+            if not _agent_field_matches(updated_agent, field, wanted)
+        ]
+        if unapplied:
+            logger.error(
+                f"Agent {agent_id} update did not persist: {unapplied}"
+            )
+            return UpdateAgentResponse(
+                success=False,
+                error=(
+                    "The update did not persist: "
+                    f"{', '.join(sorted(unapplied))}"
+                ),
+            )
+
+        # Check bootstrap_active (Bootstrap.md exists in workspace)
+        from xyz_agent_context.settings import settings
+        from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+        workspace_path = str(resolve_existing_workspace(
+            agent_id, updated_agent.created_by, settings.base_working_path
+        ))
+        bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+
+        agent_info = AgentInfo(
+            agent_id=updated_agent.agent_id,
+            name=updated_agent.agent_name,
+            description=updated_agent.agent_description,
+            status='active',
+            created_at=format_for_api(updated_agent.agent_create_time),
+            is_public=updated_agent.is_public,
+            created_by=updated_agent.created_by,
+            bootstrap_active=bootstrap_active,
+        )
+        logger.info(
+            f"Agent {agent_id} now holds the requested values "
+            f"({'written' if update_data else 'already stored'})"
+        )
+
+        return UpdateAgentResponse(
+            success=True,
+            agent=agent_info,
+        )
 
     except Exception as e:
         logger.exception(f"Error updating agent: {e}")

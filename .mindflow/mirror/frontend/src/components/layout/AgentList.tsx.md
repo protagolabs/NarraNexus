@@ -1,8 +1,36 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 改名成功后回读列表，别让手打的补丁成为持久化的那份
+
+`doEditAgent` / `handleSaveEdit` 原来只做乐观更新：`setAgents(rawAgents.map(...))`
+把响应里的 `name` 拍进本地数组就完事。两个问题：
+
+1. 写的是 `name: res.agent?.name`——`res.agent` 虽然在 `if` 里判过真，但字段本身
+   可能缺，于是整行的名字被写成 `undefined`。现在是 `?? a.name`，缺字段就保留原值，
+   不把行标题清空。
+2. 更要紧的：`configStore.agents` 是 persist 到 localStorage 的且没有
+   `partialize`（见 [[configStore.ts]]），所以**手打的那份补丁就是下次页面加载
+   显示的那份**。它与服务端真值之间任何差异（后端做了 trim / 长度截断 / 归一化）
+   都会以「改名后来又变回去了」的形态出现。所以成功之后 `await refreshAgents()`
+   ——即工单要求的「失效 agent 列表/详情缓存」。乐观更新保留，给即时反馈；
+   回读负责对账。
+
+第三件：inline 改名（`handleSaveEdit`）失败时原来只 `console.error`，用户那一侧
+**什么都没有**——输入框收起、行标题弹回旧名，和「平台把我的编辑丢了」无法区分，
+于是继续重试。现在与 `doEditAgent` 一致走 `alert(...)`（同一个
+`layout.editAgentDialog.saveFailedTitle`），catch 分支同样弹。
+
+侧栏名字只有一个来源：`configStore.agents`（TopBar / ChatPanel / BookmarkStrip /
+TeamManagementModal 全是 `agents.find(...)` 解析，team 成员存的是 id 不是名字）。
+所以这一条 + [[configStore.ts]] 2026-08-17 条覆盖了前端能显示旧名的全部路径。
+
+工单：深圳线下第二轮 P1。注意**根因不在前端**——见 [[auth.py]] 2026-08-17 条，
+后端把已落库的改名报成了失败（rowcount 方言差异），本条修的是同一条链上前端
+这一段的两个真实缺陷。
 
 ## 2026-08-14 — team 行的未读标记
 

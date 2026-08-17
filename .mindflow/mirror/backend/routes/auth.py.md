@@ -1,8 +1,45 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
+
+`PUT /agents/{agent_id}` 原来是 `affected_rows > 0` 才算成功，否则回
+`success=False, error="No changes made"`。而 `AgentRepository.update_agent`
+返回的是 `cursor.rowcount`——**SQLite 数 MATCHED 行，MySQL 数 CHANGED 行**。
+于是「把值改成它已经是的那个值」在 SQLite 上返 1（成功），在 MySQL 上返 0
+（被判失败）：**只在 cloud 上错**。用户看到「保存失败」，重试，每次都失败，
+而库里一直就是他要的新名字。深圳线下第二轮 P1 就是这个形态（取证：
+`agents.agent_name` 已是「小绿」，前端却说没保存成，测试者反复重试）。
+
+同一个陷阱 [[_awareness_writes]] 在 2026-08-05 已经为 agent 侧的
+`update_agent_profile` 拆过（写前做值相等短路）；本次是**用户侧 HTTP 那一半**，
+当时漏了。两边现在语义一致。
+
+修法（不是给 rowcount 打补丁，是把它从判据里拿掉）：
+
+1. `requested` = 调用方要的字段；`update_data` = 其中**与当前行真的不同**的那些
+   （共用 `_agent_field_matches`，见下）。全都相同 → **一次写都不发**，
+   `sync_agent_discovery` 也不发（没有变化要广播）。
+2. 发过写之后**回读**，再用同一个谓词核对 `requested` 是否都落到行上。
+   rowcount 只进 debug 日志，注明 dialect-dependent、仅供参考。
+3. 回读后仍不符 → 这才是 `success=False`（错误串点名哪些字段没落），
+   并记 ERROR。「幂等成功」和「真没写进去」由此分开——前者是状态已达成，
+   后者是系统出了问题。
+
+`_agent_field_matches(agent, field, wanted)` 是模块级私有谓词，**决定要不要写**
+和**核对写没写成**用的是同一个函数：两份各写一遍的比较迟早会分歧，而分歧的表现
+正是「一边说存好了一边说没生效」。`is_public` 走 `int(bool(...))`（库里可能是
+0/1 也可能是 bool）；文本字段把 NULL 与 `""` 视为同一种「没有文字」，因为清空
+描述的调用方发的是 `""` 而库里存的是 NULL。
+
+测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`。它**强制**
+MySQL 那种 rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对
+no-op 写返回 1，照原样测会在「本来就不会出这个 bug 的方言」上空过。四条：
+no-op 重存=成功且**不发写**、真改动但驱动报 0=成功（回读为准）、
+真的没落库=仍然失败（防止修成「永远成功」）、改名后 list 端点能看到新名。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 

@@ -330,12 +330,19 @@ export function AgentList({ collapsed }: AgentListProps) {
     try {
       const res = await api.updateAgent(editTarget.agent_id, name, description);
       if (res.success && res.agent) {
+        // Paint the server's own values immediately (`?? a.name` so a field the
+        // response omits keeps what we had rather than blanking the row), then
+        // re-read the list so the persisted copy is server truth and not a
+        // locally-patched object. `agents` is persisted to localStorage with no
+        // `partialize`, so a hand-patched row is what a later page load would
+        // show — which is how a rename could appear to revert.
         setAgents(rawAgents.map(a =>
           a.agent_id === editTarget.agent_id
-            ? { ...a, name: res.agent?.name, description: res.agent?.description }
+            ? { ...a, name: res.agent?.name ?? a.name, description: res.agent?.description ?? a.description }
             : a
         ));
         setEditTarget(null);
+        await refreshAgents();
       } else {
         await alert({
           title: t('layout.editAgentDialog.saveFailedTitle'),
@@ -368,18 +375,33 @@ export function AgentList({ collapsed }: AgentListProps) {
     try {
       const res = await api.updateAgent(targetAgentId, editingName.trim());
       if (res.success && res.agent) {
+        // Same contract as doEditAgent: optimistic paint, then invalidate.
         setAgents(rawAgents.map(a =>
           a.agent_id === targetAgentId
-            ? { ...a, name: res.agent?.name }
+            ? { ...a, name: res.agent?.name ?? a.name }
             : a
         ));
         setEditingAgentId(null);
         setEditingName('');
+        await refreshAgents();
       } else {
+        // A rename that did not happen must say so. Console-only meant the row
+        // silently snapped back to the old name, which the user reads as "the
+        // platform lost my edit" — and retries, learning nothing each time.
         console.error('Failed to update agent:', res.error);
+        await alert({
+          title: t('layout.editAgentDialog.saveFailedTitle'),
+          message: res.error || 'Failed to update agent',
+          danger: true,
+        });
       }
     } catch (err) {
       console.error('Error updating agent:', err);
+      await alert({
+        title: t('layout.editAgentDialog.saveFailedTitle'),
+        message: String(err),
+        danger: true,
+      });
     } finally {
       setSavingName(false);
     }
