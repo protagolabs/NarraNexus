@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：zip 归档路径由服务端解析，且读前复查 containment
+
+`install_method="zip"` 分支原先是 `cfg.get("archive_path") or
+cfg.get("manual_zip_path")` —— 这两个值一路来自 **HTTP 请求体**
+（见 [[bundle.py]] 的 `SkillExportSpec`），然后被 `shutil.copy2` 拷进
+导出包并流回调用者。任何登录用户传 `archive_path: "/etc/passwd"` 就能
+读走后端进程能读的任意文件。
+
+改成两道：
+
+1. **服务端解析**：进 skills 循环前一次性把该 `user_id` 的
+   `skill_archives` 行读成 `archive_paths_by_skill`，zip 分支只查这张表。
+   请求里已经没有路径字段可传了。立场和上面那道"内置技能强制走 builtin"
+   的 server-side guard 一致：**客户端选 method，服务端定 bytes**。
+2. **读侧 containment**：DB 里可能还留着修复前写坏的 `../` 行（dev 库
+   id=20 就是），所以打开前过一遍 [[skill_backup.py]] 的
+   `is_within_archives_root`；越界就 skip + warning + `logger.warning`
+   带 user/skill/path，而不是信任这一列。
+
+de-dup 的 `cache_key` 现在用服务端解析出的路径，语义不变（仍是"同源
+bytes 只拷一份"）。
 ## 2026-08-10 — 工作板随 team 一起导出
 
 `_export_work_items`。板子**就是**这个团队欠着的东西,只还原房间不还原欠账,

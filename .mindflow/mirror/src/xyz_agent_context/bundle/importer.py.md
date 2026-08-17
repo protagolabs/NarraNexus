@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：manifest 里的 `skill_name` 也是不可信输入
+
+skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和
+`_full.zip` 两处。这个 `skill_name` 来自**导入的 bundle manifest**，也就是
+谁做的 `.nxbundle` 谁写的——和一个表单字段同级的不可信度。同一个文件里
+1328 行给 skills 目录做了 `sanitize_filename`，唯独归档这两处漏了。
+
+两处改走 [[skill_backup.py]] 的 `archive_target()`，`skill_archives_dir`
+局部变量随之删除。恶意 manifest 名现在抛 `ValueError`，被 skills 循环既
+有的 `except Exception` 记成**单个 skill 的 install failure**（进
+`skill_install_failures` / warnings），不会中断整份 import——和其他
+per-skill 失败一致。
 
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 

@@ -21,6 +21,10 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.repository import SkillArchiveRepository
 from .security import bytes_sha256, file_sha256
 from .skill_secrets import dir_is_builtin as _dir_is_builtin
+from xyz_agent_context.utils.file_safety import (
+    ensure_within_directory,
+    sanitize_filename,
+)
 
 
 SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
@@ -30,9 +34,67 @@ SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
 
 
 def _user_archive_dir(user_id: str) -> Path:
-    d = SKILL_ARCHIVES_ROOT / user_id
+    # `user_id` is a path segment. It comes from JWT / X-User-Id resolution
+    # rather than a form field, but "trusted enough" is how SEC-07 happened
+    # one level down — validate it like any other segment.
+    safe_user = sanitize_filename(user_id, label="user id")
+    d = SKILL_ARCHIVES_ROOT / safe_user
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def archive_target(user_id: str, skill_name: str, *, suffix: str = ".zip") -> Path:
+    """
+    Resolve the on-disk archive path for (user, skill) — the ONLY sanctioned
+    way to build a path under `skill_archives/`.
+
+    SEC-07: `skill_name` always originates outside the process — a multipart
+    Form field (`/skills/archives/upload`), a bundle manifest written by
+    whoever produced the `.nxbundle`, or an LLM-supplied MCP tool argument.
+    Splicing it into an f-string let `../` escape the per-user directory and
+    write into another user's, which is a proven cross-user file write.
+
+    Args:
+        user_id: Owning user; becomes the parent directory segment.
+        skill_name: Untrusted skill name; must be a single path segment.
+        suffix: Extension to append (".zip", ".tar.gz", "_full.zip").
+
+    Returns:
+        Absolute path inside `skill_archives/{user_id}/`.
+
+    Raises:
+        ValueError: On traversal, path separators, empty/dot names, null
+            bytes, or a symlinked user dir that escapes the archives root.
+            Callers exposing HTTP must map this to 4xx, not 500.
+    """
+    safe_name = sanitize_filename(skill_name, label="skill name")
+    target = ensure_within_directory(
+        _user_archive_dir(user_id), f"{safe_name}{suffix}", label="skill name"
+    )
+    # `ensure_within_directory` anchors on the user dir; if that dir is itself
+    # a symlink pointing out of the tree, the result is "contained" yet
+    # outside. Anchor on the archives root as well so write side and read side
+    # (`is_within_archives_root`) agree on one boundary.
+    if not is_within_archives_root(target):
+        raise ValueError("Invalid skill name: path escapes the skill archives root")
+    return target
+
+
+def is_within_archives_root(archive_path: str | Path) -> bool:
+    """
+    Read-side containment check for an `archive_path` DB column.
+
+    Sealing the write path does not clean rows written before it was sealed
+    (the dev env still carries one `../`-bearing row from the QA repro), and
+    `builder.py` copies whatever `archive_path` names into the bundle it
+    streams back — i.e. a poisoned row is an arbitrary file read. Callers
+    must run every DB-sourced archive path through this before opening it.
+    """
+    try:
+        resolved = Path(archive_path).resolve(strict=False)
+        return resolved.is_relative_to(SKILL_ARCHIVES_ROOT.resolve(strict=False))
+    except (OSError, ValueError):
+        return False
 
 
 def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
@@ -82,8 +144,7 @@ async def archive_github_tarball(
     # GitHub's API tarball endpoint works for both public AND private repos
     # when paired with an Authorization header. The /archive/refs/heads/...
     # form is public-only.
-    archive_dir = _user_archive_dir(user_id)
-    out_path = archive_dir / f"{skill_name}.tar.gz"
+    out_path = archive_target(user_id, skill_name, suffix=".tar.gz")
     token = github_token or os.environ.get("GITHUB_TOKEN") or ""
     headers = {"Accept": "application/vnd.github.v3.raw"}
     if token:
@@ -115,8 +176,7 @@ async def archive_md_only(
     skill_md_content: str,
 ) -> Tuple[Path, str]:
     """Wrap a single SKILL.md content into a zip and store it as the archive."""
-    archive_dir = _user_archive_dir(user_id)
-    out_path = archive_dir / f"{skill_name}.zip"
+    out_path = archive_target(user_id, skill_name)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("SKILL.md", skill_md_content)
@@ -168,8 +228,7 @@ async def archive_local_zip(
     except zipfile.BadZipFile:
         raise ValueError("Not a valid zip file")
 
-    archive_dir = _user_archive_dir(user_id)
-    out_path = archive_dir / f"{skill_name}.zip"
+    out_path = archive_target(user_id, skill_name)
     shutil.copy2(src, out_path)
     sha = file_sha256(out_path)
     logger.info(f"Local-zip archive registered for '{skill_name}': {out_path}")
@@ -245,8 +304,7 @@ async def backup_after_api_install(
             )
             return str(archive_path)
         if source_type == "zip" and original_zip_path and original_zip_path.exists():
-            archive_dir = _user_archive_dir(user_id)
-            out = archive_dir / f"{skill_name}.zip"
+            out = archive_target(user_id, skill_name)
             shutil.copy2(original_zip_path, out)
             sha = file_sha256(out)
             await register_archive(

@@ -31,8 +31,11 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
 from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
+from xyz_agent_context.bundle.skill_backup import archive_target
 from xyz_agent_context.repository import SkillArchiveRepository
+from xyz_agent_context.utils.file_safety import enforce_max_bytes
 from backend.auth import resolve_current_user_id
+from backend.config import settings as backend_settings
 
 
 router = APIRouter()
@@ -56,8 +59,12 @@ class SkillExportSpec(BaseModel):
     source_url: Optional[str] = None
     source_type: Optional[str] = "github"
     branch: Optional[str] = "main"
-    archive_path: Optional[str] = None
-    manual_zip_path: Optional[str] = None
+    # SEC-07: there is deliberately NO archive_path / manual_zip_path here.
+    # The client used to echo back the archive path it read from
+    # GET /skills/archives, and the builder copied that path into the zip it
+    # streams out — arbitrary local file read for any authenticated user
+    # (`archive_path: "/etc/passwd"`). The builder now resolves archives
+    # itself from `skill_archives` for the requesting user.
 
 
 class ExportRequest(BaseModel):
@@ -122,8 +129,6 @@ async def export_bundle(payload: ExportRequest, request: Request):
             "source_url": s.source_url,
             "source_type": s.source_type,
             "branch": s.branch,
-            "archive_path": s.archive_path,
-            "manual_zip_path": s.manual_zip_path,
         }
         for s in payload.skills
     ]
@@ -570,13 +575,44 @@ async def upload_archive(
     source_url: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
 ):
-    """Manual archive upload: user provides a zip (or a GitHub URL) for a skill that's missing an archive."""
+    """Manual archive upload: user provides a zip (or a GitHub URL) for a skill that's missing an archive.
+
+    SEC-07: `skill_name` is a client-supplied Form field that used to be
+    spliced straight into the on-disk archive path, so `../` escaped the
+    per-user directory (proven cross-user file write). It is now validated
+    up front — before any DB or filesystem work — via
+    `skill_backup.archive_target`, the single sanctioned path builder. The
+    `ValueError` it raises is user-actionable input validation, so it maps to
+    400; letting it surface as a 500 would repeat the #113 BadZipFile
+    mistake.
+    """
     user_id = await _user_id_for_request(request)
+
+    # Validate first: a rejected request must not create a user directory,
+    # write bytes, or leave a DB row behind.
+    try:
+        target = archive_target(user_id, skill_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if source_type not in ("github", "zip"):
+        raise HTTPException(status_code=400, detail="source_type must be 'github' or 'zip'")
+
+    if source_type == "zip":
+        if not file:
+            raise HTTPException(status_code=400, detail="file required for zip")
+        contents = await file.read()
+        try:
+            enforce_max_bytes(
+                len(contents),
+                backend_settings.max_upload_bytes,
+                label="Skill archive",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     db = await get_db_client()
     repo = SkillArchiveRepository(db)
-
-    archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
-    archives_dir.mkdir(parents=True, exist_ok=True)
 
     if source_type == "github":
         if not source_url:
@@ -592,22 +628,15 @@ async def upload_archive(
         )
         return {"success": True, "skill_name": skill_name, "source_type": "github"}
 
-    if source_type == "zip":
-        if not file:
-            raise HTTPException(status_code=400, detail="file required for zip")
-        target = archives_dir / f"{skill_name}.zip"
-        contents = await file.read()
-        target.write_bytes(contents)
-        from xyz_agent_context.bundle.security import bytes_sha256
-        sha = bytes_sha256(contents)
-        await repo.upsert(
-            user_id=user_id,
-            skill_name=skill_name,
-            source_type="zip",
-            source_url=None,
-            archive_path=str(target),
-            sha256=sha,
-        )
-        return {"success": True, "skill_name": skill_name, "source_type": "zip", "sha256": sha}
-
-    raise HTTPException(status_code=400, detail="source_type must be 'github' or 'zip'")
+    target.write_bytes(contents)
+    from xyz_agent_context.bundle.security import bytes_sha256
+    sha = bytes_sha256(contents)
+    await repo.upsert(
+        user_id=user_id,
+        skill_name=skill_name,
+        source_type="zip",
+        source_url=None,
+        archive_path=str(target),
+        sha256=sha,
+    )
+    return {"success": True, "skill_name": skill_name, "source_type": "zip", "sha256": sha}

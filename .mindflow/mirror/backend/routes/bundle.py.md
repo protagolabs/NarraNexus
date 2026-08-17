@@ -1,8 +1,46 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：两个"客户端字符串决定文件路径"的洞
+
+这条 route 文件里同时存在**写侧**和**读侧**两个同源漏洞，根因是同一句话：
+*把请求里的字符串直接当路径用*。
+
+**写侧 —— `/skills/archives/upload` 的 `skill_name`（已被 QA 实证）**
+
+`skill_name` 是 multipart Form 自由字符串，原先直接拼进
+`skill_archives/{user_id}/{skill_name}.zip`。`skill_name=../x` 跳出用户目录
+（QA 用 `../qa-sec07-oneup-marker` 落到共用父层，dev 库残留 id=20），
+`../{受害者user_id}/x` 就是**跨用户任意文件写**。同 codebase 的
+`skills.py` 早就在用 `file_safety.sanitize_filename()`，这条 route 漏了——
+属于"正确做法已存在但没套用"，和 SEC-01~06 的 IDOR 同模式、不同类型。
+
+现在改走 [[skill_backup.py]] 的 `archive_target()`（唯一合法路径构造点），
+且**先校验再做任何事**：拒绝时不建目录、不写字节、不留 DB 行。
+`ValueError` 是用户可操作的输入校验 → **400**；让它冒成 500 就是把 #113
+的 `BadZipFile` 误报 500 又犯一次。顺手补上 `enforce_max_bytes`
+（`skills.py` 那条路径一直有，这条一直没有，整包进内存）。
+
+**读侧 —— `/export` 的 `skills[].archive_path`（顺带排查出来的，更重）**
+
+`SkillExportSpec` 原先收 `archive_path` / `manual_zip_path`，前端把
+`GET /skills/archives` 拿到的路径原样回传，[[builder.py]] 直接
+`shutil.copy2(src_zip, 包内)` 再流回客户端 —— 任何登录用户传
+`archive_path: "/etc/passwd"` 就能**读走后端进程能读的任意文件**。
+两个字段已从 schema 删除（铁律 #2，不留兼容位），builder 改为自己按
+`user_id` 查 `skill_archives`。客户端只决定 **install_method**，服务端
+决定 **bytes** —— 和 builder 里"内置技能强制 builtin"那道 server-side
+guard 同一立场。
+
+`manual_zip_path` 前端从来没有任何地方赋值过（纯死字段），一并删除。
+
+> 遗留数据不在代码修复范围内：dev 库 id=20 那行带 `../` 的
+> `archive_path` 仍需人工清理（含实体文件
+> `qa-sec07-oneup-marker.zip`）。在清掉之前，靠 [[builder.py]] 的
+> 读侧 `is_within_archives_root` 兜住。
 
 ## 2026-08-11 — 500 路径错误文案脱敏（安全审计 P2-2）
 

@@ -42,6 +42,7 @@ from .security import (
     scan_zip_for_sensitive,
 )
 from .skill_secrets import dir_is_builtin as _dir_is_builtin
+from .skill_backup import is_within_archives_root
 
 
 BUNDLE_FORMAT_VERSION = "1.1"
@@ -197,10 +198,14 @@ class ExportSelection:
         self.team_id = team_id
         self.team_intro_md = team_intro_md or ""
         # skill_methods: list of per-(agent, skill) export specs.
-        # Each entry: {agent_id, skill_name, install_method, source_url?,
-        #              source_type?, branch?, archive_path?, manual_zip_path?}
+        # Each entry: {agent_id, skill_name, skill_dir?, install_method,
+        #              source_url?, source_type?, branch?}
         # The same skill name on N agents = N entries in this list, and the
         # builder serializes one bundle entry per row.
+        # SEC-07: no archive path field by design — for install_method="zip"
+        # the builder resolves the archive from `skill_archives` for the
+        # exporting user. A caller-supplied path here was an arbitrary file
+        # read (the route accepted it straight off the wire).
         self.skill_methods = skill_methods or []
         # social_entity_selection: { agent_id: [entity_id, ...] }
         # If None, default to: per-agent, all entities matching (team-name fuzzy).
@@ -716,6 +721,17 @@ async def build_bundle(
         # point to it. Full-copy is always per-agent (different .skill_meta).
         copied_zip_ref: Dict[str, str] = {}  # skill_name → archive_ref already copied
 
+        # SEC-07: server-side archive resolution. Load THIS user's archive rows
+        # once, and key the zip-method lookup off them — the export request no
+        # longer carries a path for us to open.
+        from xyz_agent_context.repository import SkillArchiveRepository
+
+        archive_paths_by_skill: Dict[str, str] = {
+            a.skill_name: a.archive_path
+            for a in await SkillArchiveRepository(db).list_for_user(user_id)
+            if a.archive_path
+        }
+
         for cfg in selection.skill_methods or []:
             agent_id = cfg.get("agent_id")
             skill_name = cfg.get("skill_name")
@@ -756,14 +772,35 @@ async def build_bundle(
                 entry["source_type"] = cfg.get("source_type", "github")
                 entry["branch"] = cfg.get("branch", "main")
             elif method == "zip":
-                # Two skills with the same SKILL.md `name` but different dirs
-                # would collide in the de-dup cache if we keyed by name. Use
-                # archive_path (or manual_zip) as part of the key so distinct
-                # source bytes get distinct archive_ref entries in the bundle.
-                src_zip = cfg.get("archive_path") or cfg.get("manual_zip_path")
+                # SEC-07: the archive path is resolved HERE, from this user's
+                # own `skill_archives` rows — never taken from the request.
+                # The client used to pass `archive_path` and we copied it
+                # verbatim into the bundle, which made any readable file on
+                # the host exportable. Same stance as the built-in guard
+                # above: the client picks the *method*, the server resolves
+                # the *bytes*.
+                src_zip = archive_paths_by_skill.get(skill_name)
                 if not src_zip or not Path(src_zip).exists():
                     warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
                     continue
+                # Rows written before SEC-07 was sealed can still carry a
+                # `../` path (the QA repro left one on the dev env). Refuse to
+                # read anything outside the archives root instead of trusting
+                # the column.
+                if not is_within_archives_root(src_zip):
+                    warnings.append(
+                        f"skill {skill_name} on {agent_id}: archive path escapes the "
+                        f"skill_archives root, skipping (row needs cleanup)"
+                    )
+                    logger.warning(
+                        f"SEC-07: refused out-of-root archive_path for "
+                        f"user={user_id} skill={skill_name}: {src_zip}"
+                    )
+                    continue
+                # Two skills with the same SKILL.md `name` but different dirs
+                # would collide in the de-dup cache if we keyed by name. Key
+                # on the resolved source path so distinct source bytes get
+                # distinct archive_ref entries in the bundle.
                 cache_key = f"{skill_name}|{src_zip}"
                 if cache_key in copied_zip_ref:
                     entry["archive_ref"] = copied_zip_ref[cache_key]

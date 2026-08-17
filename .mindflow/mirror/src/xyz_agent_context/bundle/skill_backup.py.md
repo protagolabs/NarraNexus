@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/skill_backup.py
-last_verified: 2026-07-14
+last_verified: 2026-08-17
 stub: false
 ---
 
@@ -59,3 +59,30 @@ Bundle export 想以"URL 安装"或"Zip 安装"方式分享 skill 时，必须�
 ## 2026-07-14 — `_dir_is_builtin` 去重
 
 - 原本这里自带一份 `_dir_is_builtin`，和 `skill_module.py` 逐字重复、会漂移。现改为 `from .skill_secrets import dir_is_builtin as _dir_is_builtin`——判定逻辑收敛到 [[skill_secrets.py]] 单一真相源，本文件行为不变（仍是 `list_unbackedup` 的内置过滤器）。
+
+## 2026-08-17 — SEC-07：`archive_target()` 成为唯一的归档路径构造点
+
+`skill_archives/{user_id}/{skill_name}.*` 这个拼接原先散在 **7 处 / 3 个
+文件**：本文件 4 处、[[importer.py]] 2 处、[[bundle.py]] 1 处。每一处的
+`skill_name` 都来自进程外部——Form 字段（route）、bundle manifest（导入方
+写的）、LLM 给的 MCP 工具参数——而全部是裸 f-string。route 那处已被 QA
+实证可以 `../` 跳出用户目录写进别人的目录。
+
+现在收敛成一个函数：
+
+- **`archive_target(user_id, skill_name, suffix=".zip")`** —— 唯一合法构造
+  点。`sanitize_filename` 校验 skill_name → `ensure_within_directory` 落
+  地 → 再用 `is_within_archives_root` 复查一次。最后这步不是多余的：
+  `ensure_within_directory` 锚在**用户目录**上，如果用户目录本身是个指
+  向树外的 symlink，结果"合规却在外面"；锚回 archives root 才能让写侧和
+  读侧共用同一条边界。
+- `_user_archive_dir` 现在也 `sanitize_filename(user_id)`。user_id 来自
+  JWT / X-User-Id 而不是表单，但"够可信了"正是 SEC-07 在下一层发生的原
+  因。
+- **`is_within_archives_root(path)`** —— 读侧守卫。封住写路径**不会**回
+  溯清理已经写坏的行（dev 库还留着 QA 那条 `../`），而 [[builder.py]] 会
+  把 `archive_path` 指向的文件拷进导出包，所以读的时候必须再判一次。
+
+回归测试 `tests/bundle/test_skill_archive_path_safety.py` 里有一条 grep 式
+断言：这 3 个文件中不允许再出现 `<dir> / f"...skill_name..."` 形状的行。
+这类 bug 的复发方式就是有人又手拼了一次路径。

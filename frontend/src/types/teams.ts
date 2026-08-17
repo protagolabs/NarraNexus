@@ -183,8 +183,10 @@ export interface SkillExportSpec {
   source_url?: string | null;
   source_type?: 'github' | 'zip';
   branch?: string | null;
-  archive_path?: string | null;
-  manual_zip_path?: string | null;
+  // No archive_path / manual_zip_path: for install_method 'zip' the backend
+  // resolves the archive from the caller's own skill_archives rows. Echoing a
+  // path back from GET /skills/archives used to make it a client-chosen file
+  // read (SEC-07), and the field is rejected by the API now.
 }
 
 export interface BundleExportRequest {

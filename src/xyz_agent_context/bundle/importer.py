@@ -1289,12 +1289,14 @@ async def _confirm_inner(
     )
 
     # -- Skills (auto-install per-(agent, skill)) --
-    skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
-    skill_archives_dir.mkdir(parents=True, exist_ok=True)
+    # SEC-07: `skill_name` here comes from the imported bundle's manifest, i.e.
+    # from whoever authored the `.nxbundle` — as untrusted as a form field.
+    # Archive paths are built via `archive_target`, never by f-string.
     skill_install_failures: List[Dict[str, str]] = []
 
     from xyz_agent_context.module.skill_module.skill_module import SkillModule
     from xyz_agent_context.bundle.skill_backup import (
+        archive_target,
         backup_after_api_install,
         register_archive,
     )
@@ -1398,7 +1400,7 @@ async def _confirm_inner(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
                     )
                     continue
-                tgt = skill_archives_dir / f"{skill_name}.zip"
+                tgt = archive_target(user_id, skill_name)
                 if not tgt.exists():
                     await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 key = install_cache_key(s)
@@ -1443,7 +1445,7 @@ async def _confirm_inner(
                     )
                     continue
                 # Stash a copy in skill_archives for re-export (uses last-seen).
-                tgt = skill_archives_dir / f"{skill_name}_full.zip"
+                tgt = archive_target(user_id, skill_name, suffix="_full.zip")
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)

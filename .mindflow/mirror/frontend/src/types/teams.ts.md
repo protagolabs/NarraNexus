@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `SkillExportSpec` 去掉 archive_path / manual_zip_path
+
+导出请求里不再有路径字段（SEC-07，见 [[bundle.py]]）：客户端选 method，
+服务端按 user 查 `skill_archives` 定 bytes。`SkillArchiveRecord.archive_path`
+保留——那是服务端下发的、只用来显示 basename 的字段，方向相反。
 
 ## 2026-08-14 — TeamChatMessage.is_platform
 
