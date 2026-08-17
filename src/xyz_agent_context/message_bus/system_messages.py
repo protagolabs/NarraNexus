@@ -54,6 +54,24 @@ PLATFORM_MSG_TYPES = (
 )
 
 
+#: What a platform line is CALLED where an agent reads one.
+#:
+#: Two surfaces render these rows and both must name them the same way: the
+#: team prompt's scrollback (`message_bus_trigger._build_team_prompt`, as a
+#: line prefix) and the module's unread list (`message_bus_module._bus_tag`, as
+#: the sender field). They were independent literals until 2026-08-17, with the
+#: agreement asserted only in a comment — so a rename on one side would have
+#: left the SAME notice carrying two different names in one context window, and
+#: the rule that teaches an agent what the label means ("not a teammate, not
+#: someone to answer or @mention") reads only one of them.
+#:
+#: Lives here for the reason this whole module exists, stated in the header
+#: above: the compiler-free language of string literals stops being the place
+#: where the knowledge is kept. The two call sites keep their own FORMATS —
+#: prefix vs field — and share only the name.
+SYSTEM_SENDER_LABEL = "[system]"
+
+
 # How each platform line should be introduced when an agent is told to respond
 # to one. Keyed by type rather than hard-coded at the call site, which had
 # assumed patrol is the only platform message that can become a trigger — true
@@ -93,4 +111,9 @@ def placeholders(ph: str = "%s") -> str:
     return ", ".join([ph] * len(PLATFORM_MSG_TYPES))
 
 
-__all__ = ["PLATFORM_MSG_TYPES", "placeholders", "trigger_label"]
+__all__ = [
+    "PLATFORM_MSG_TYPES",
+    "SYSTEM_SENDER_LABEL",
+    "placeholders",
+    "trigger_label",
+]

@@ -1,8 +1,196 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-12
+last_verified: 2026-08-17
 stub: false
 ---
+
+## ⚠️ 改这个文件的文案之前，先读这条（常青，不随条目滚动）
+
+**`_static_instruction_parts()` 是逐轮字节稳定的、且对"这轮在哪种房间"一无所知。**
+它进的是可缓存的系统提示前缀（R4），每一个 bus-enabled 轮次都发——owner 私聊、job、
+各 IM 渠道、peer DM、team 房间，一字不差。由此有两条硬规则：
+
+1. **里面每一句都必须在它到达的每一个 surface 上成立。** 只在某类房间为真的话，写进去
+   就是在同一个上下文窗口里制造一对矛盾——而房间自己的 turn prompt 就在几十行外，说着
+   相反的话。
+2. **不许按房间类型分叉。** 分叉毁掉它字节稳定的意义（2026-08-12 定的调子）。正确做法是
+   **把话改成处处成立的说法，把房间特有的事实交给房间自己的 prompt**——它是唯一知道
+   答案的地方。
+
+推论，同样容易踩：
+
+- **别从"某个标记不在"反推这轮从哪来。** 本块只管 bus，它看不见别的触发源。这一条上
+  栽过两次（一次说"没标签 = 来自 owner 主聊天窗口"，IM 轮次为假；一次说"没标签 = 不是
+  从 bus 来的"，100% 的 bus 轮次为假）。
+- **写"XX 会出现在某处"之前，先确认它真的会出现。** 这里曾有一整节规则指着一个从未
+  执行过的输入前缀（见 2026-08-17 条目）。
+- **改完扫一遍同一份文案的其它拷贝**：文件头 `@description`、方法 docstring、MCP 工具
+  docstring（那些也进模型上下文）、以及本 mirror 里的旧条目。同一句话在本文件出现三四份
+  是常态，这个 PR 连着四轮每轮都漏掉一份。
+- **删一条断言就要问它守的是什么**；`tests/message_bus/test_visibility_wording.py`
+  存在的唯一目的就是让上面这些句子不能被悄悄改回去。
+
+## 2026-08-16 — 静态段里最响的那句，正是 team 房间逐字反驳的那句
+
+2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
+**但漏掉了同一段里语气最重的一条**——而它恰恰是矛盾最尖锐的一条：
+
+> "Finished work is never ping-pong... send the result via `bus_send_message`。
+> **纯文本收尾 = 零交付，对方永远看不到**"
+
+在 team 房间里这句正好相反：纯文本**就是**回复（[[message_bus_trigger]] 的
+`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 bus_send_message 投递
+本条回复，否则双发」。两句话同一个上下文窗口，讲同一件事，结论相反；而静态段那句
+因为背着 8/1 briefing squad 的 P0，语气被反复加重，**是更容易赢的那一句**。
+
+修法沿用 8-12 的既定套路（不分叉、说处处成立的话）：**保留义务，交出机制**。
+「干完的活必须 REACH 对方」是普适的，怎么送由这一轮的 surface 决定——给了投递工具
+就用工具，turn prompt 说了替你上墙就写纯文本。两条路都点名，因为两条路都真实存在。
+
+同批扫掉的另外两处（铁律 #8——上一条 mirror 记的教训就是"修一份留一份"）：
+
+- **「Just stop the turn」**：那是一条关于**工具调用**的规则，只在"不调工具就等于
+  没输出"的 surface 上等于沉默。会自动上墙的 surface 上，残留的纯文本仍是一条消息。
+  改成「不调工具**且**不留任何回复文本」，并说明沉默是"什么都不产出"而非"产出得短"。
+  顺手删掉尾巴「unread cursor advances appropriately」——同一个游标下面两行的
+  resurfacing 规则已经讲得又准又有作用域，这是第三份含混说法。
+- **`[MessageBus · …]` = "另一个 agent，不是你的 owner"**：这个标签标的是**路由**，
+  不是发送者的物种。team 房间里用户自己以 `usr_<id>` 发言，会进未读列表（当时也以为
+  会进 input 源标签——**2026-08-17：那条路从未执行，已退役，见下**）——于是**老板本人说的话被声明为"这是台机器"**，还紧挨着一条"跳过寒暄"。
+  改成「usually another agent，但**人也会在 bus 上说话**，读标签里的发送者，别默认是机器」。
+
+配套 `_render_sender()`：`usr_*` 在未读列表里渲染成 `User`。
+「读发送者」这条指令，只有发送者可读时才成立，而 `usr_a1b2c3` 对模型什么都不说。
+命名与 [[message_bus_trigger]] 的 `_sender` 一致——同一行数据，两处露出，一个叫法。
+
+`USER_SENDER_PREFIX` 从 `schema.team_schema` import（不是重打字面量）：该前缀全仓
+唯一定义点的约定见 [[team_schema]] 2026-08-11 那两条。
+
+**预审第二轮补掉的（同一 PR 内）**——每一条都是"扫得不够远"，正是上一条 mirror
+记的那个教训本身：
+
+- **物种断言有第二份，还带着行为。** 删掉了 Source Recognition 里的「不是你的
+  owner」，却把十四行之下的「**The other party is another agent, not a human.**
+  Skip pleasantries」留在原地——那是带**后果**的那一半，它自己就把断言重新立了起来。
+  改成「**当**对方是 agent 时…；当发送者是人时，就当人来说话」。brevity 那半句背着
+  ping-pong 的 P0，保留不动。
+- **两个分支同时成立的规则不是规则。** 初稿写的是「给了投递工具就用工具；说了替你
+  上墙就写纯文本」——而 team 轮次上**两个前件都为真**（team gate 只清空
+  expressive **声明**，工具 schema 仍在上下文里，因为本模块没有
+  `get_disallowed_tools`），句子又没给优先级，模型能直接照着工具列表走的恰好是双发
+  那条。改成**例外式**：team 那条放最前、写成禁令，工具那条做兜底。
+- **`[MessageBus · …]` 格式有三份，且示例是错的。** 示例写四段（display name +
+  id），两个渲染点都是三段。以前只是装饰，现在规则要求"读标签里的发送者"，它就成了
+  承重件。抽出 `_bus_tag()`，示例由同一个函数生成，两者再也漂不开。
+- 沉默那条补上作用域：「对 **bus 对话** 不留任何回复文本」——四十行外还挂着"绝不压制
+  对 owner 的回报"，无限定的"不留任何文本"会把人在等的答案一起吞掉。
+
+### 第三轮（预审 Critical）—— input 源标签**从来没有存在过**
+
+`hook_data_gathering` 第 5 步那段"给输入加 `[MessageBus · …]` 前缀"的代码，**两处
+断链，一次都没跑过**：
+
+1. 它 gate 在 `extra_data["working_source"]` 上——**全仓没人往这个键写**。
+   `working_source` 是 ContextData 的**字段**（`context_runtime.py:147` 播种），而
+   `extra_data` 只装 `trigger_extra_data`。正确读法在同一文件往上八行
+   （`get_expressive_tools` 用 `working_source_matches(ctx_data.working_source, …)`）。
+2. 就算 gate 过了，它写的是 `extra_data["input_content"]`——**全仓唯一的读者就是它
+   自己那两行**。模型真正收到的是**字段** `ctx_data.input_content`
+   （`context_runtime.py:1032`）。
+
+于是这一段里**每一条**指着"输入开头的标签"的规则都指向空处，包括第二轮我刚写的
+「没有标签 = 不是从 bus 来的」——**它在 100% 的 bus 轮次上为假**（第一轮那句在 IM
+轮次上假，第二轮把假搬了个位置，正是 PR#260 那个模式）；还包括"替 owner 去问另一个
+agent"剧本第 4 步的识别信号，也就是唯一把答案回报给 owner 的那一步。
+
+**选择退役而不是接上（铁律 #2：删干净，不留 shim）。** 接上是**两个已发布 prompt 的
+行为变更**——team 轮次的 input 就是整段 `[Team Group Chat]…`，DM 轮次是
+`_build_prompt` 的输出，两者都已经用自己的话交代了发送者，在前面再糊一个机器前缀是
+产品决策，不是 bug 修复。所以：
+
+- 删掉该分支，原地留注释**点名两个死键**，防止下一个读者好心把它接回来；
+- 这一段规则改为描述**真正到达模型的那个标签面**——本模块 turn context 里的
+  **Unread Messages** 列表；
+- 「没有标签」那条不再做任何推断：标签描述的是**未读队列**，本轮由什么触发是**本轮
+  prompt 的事**，本块不得从标签的有无反推（两轮都栽在这个反推上）。
+- 第二轮的 I4（按 `bus_channel_id` 过滤）连同它的测试一并移除——那是在一条从未执行的
+  分支上做的正确性工作。
+
+**连带升级（I8）：退役后未读列表成了规则唯一指向的标签面，它的正确性权重上升。**
+该列表没有 `msg_type` 过滤（未读谓词也没有），所以 patrol / stop / 公告栏通知对每个
+成员都是未读、都会落进来：
+- `team_<id>` 发送者被原样打印 = 凭空造出一个队友，而 `message_bus_trigger._who`
+  正是为此拒绝原样打印它；
+- 公告栏通知由 UI 发出时**不记 actor**，`from_agent` 是 **owner 的 `usr_` id**、
+  `msg_type` 是平台类型——只看发送者会渲染成 `User`，**而本轮新写的规则恰好说
+  "`User` 是个人、要当人说话"**，等于把平台的话署名给了老板。
+
+所以 `_render_sender` 现在收 `msg_type` 且**类型优先于发送者**，平台行统一渲染成
+`[system]`，与 `_build_team_prompt` 给同一批行打的标签一致。`_bus_tag` 的第三个参数
+带默认值，指令里那个示例仍可由两个字面量构造。
+
+**评审管线补的一刀（同一 PR 内）**：上面这句「与 `_build_team_prompt` 一致」当时**只是
+一句注释**——`[system]` 在两个文件里各打了一遍字面量，没有共享常量、也没有任何测试守它。
+**而这正是本 PR 在 mirror 顶部立下「同一份文案的其它拷贝必须一起扫」那条不变量之后，
+自己新增的一份未守卫拷贝。** 已把 `SYSTEM_SENDER_LABEL` 搬到
+[[system_messages]]（那个文件的 header 讲的恰好就是这个论证：别让字面量成为知识的存放
+地），两处 import；两边**只共享名字、不共享格式**（trigger 是行前缀，本模块是 `_bus_tag`
+里的发送者字段）。三条原本硬断言 `"[system]"` 的测试改为断言常量本身——否则重命名时它们
+会以"守卫"的姿态挡住正确的改动，漂移时反而沉默。另加一条**跨文件**测试，断言
+`_build_team_prompt` 的 scrollback 与未读列表对同一条 patrol 行用同一个标签。
+
+同批清掉三处 Minor：`unread_models` 是删掉第 5 步后的残留别名（唯一真实消费者就是被删的
+那一步），已折掉；`_render_sender` 的 docstring「one row, two surfaces, one name」**说过头
+了**——只有 `usr_*` 和平台行两边一致，普通 agent 在 trigger 侧走 `member_map` 渲染成显示名、
+在这里保留原始 `agent_id`（那是 `bus_send_to_agent` 的入参），已如实收窄；静态段那句
+「你的 Unread Messages 列表…」改成条件式，因为零未读时该小节根本不存在——这条正是本 PR
+自己立的「写『XX 会出现在某处』之前先确认它真的会出现」。
+
+测试：`tests/message_bus/test_visibility_wording.py`（该文件的立意就是"静态段的每句话
+必须在它到达的每个房间里成立"）现共 22 条。其中**跨文件契约**一条：断言
+`_build_team_prompt` 确实做了本模块规则所依赖的承诺（"替你上墙" + "禁止用投递工具"）
+——此前无人守，trigger 那边一次改词就能把本模块的规则重新变成谎话。另有一条断言那段
+死分支是**被删掉**而不是留着不可达（只看代码行、跳过注释，因为留下的注释故意点名了
+两个死键；断言用**裸标识符**，否则加个默认值参数就能绕过）。
+
+**并且，本轮一度自己弄丢了三条测试。** 删 I4 测试时是按两个函数名之间切片做的，切走
+了夹在中间的三条无关测试，其中两条的断言**无人接手**：一条守"标签不声称发送者是机器"
+（**本 PR 第一个 commit 的第 3 项头牌修复**），一条守沉默规则（"Just stop the turn" 的
+退场，以及第二轮 M1 收的作用域）。而当时的 commit 与本条目都写着"18 条"，读起来像增长。
+两条已恢复并在文件里标注了来龙去脉。教训与前两轮同源：**这个文件本身就是为了让某些
+句子不能被悄悄改回去而存在的，它的守卫少了两个而没人发现，比句子被改回去更糟。**
+
+`tests/module/test_a2a_ask_another_agent_guidance.py` 里那条 `assert "plain text"`
+**锁的是机制**，随之改为锁义务（`has to REACH them`）——它写的时候机制还是普适的，
+team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松（机制断言并未丢失，而是搬到了
+`test_the_delivery_rule_defers_the_mechanism_to_the_surface`）。
+
+**未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
+（`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
+② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
+`bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
+team 房间，房间消息在 scrollback 之外被二次渲染。
+
+### ⚠️ 这一轮**没有**让 team 房间的矛盾归零 —— [[chat_module/prompts]] 里还有更大的一份
+
+`CHAT_MODULE_INSTRUCTIONS` 无条件进系统提示（`chat_module.py:232` → 基类
+`get_instructions`，**没有任何 team gate**；全仓消费 `BUS_TEAM_ROOM_EXTRA_KEY` 的
+只有 `context_runtime` 和本模块）。它说的是：
+
+> "Your plain text output is your **private self-thinking** — the user CANNOT see it"
+
+而且不是一句，是**一个 CRITICAL 小节 + 一张可见性表格 + 一个"你在隔音房间里"的比喻**，
+反复三遍。**它比本轮删掉的任何一句都长、都响。**
+
+所以本轮的改动 #1 #2 在它们真正针对的那个 surface 上**并未达成目的**：team 房间里的
+agent 仍然被告知写纯文本等于零交付，只是这次说这话的是 ChatModule 而不是本模块。
+`context_runtime.py:1178-1184` 说明这个问题在**回复提醒**那一层已经被认到并处理了，
+但只停在了那一层。
+
+不在本轮修，是因为它属于 ChatModule 自己的文案（铁律 #3），而且那是全产品最吃重的
+一段 prompt，动它该走独立 PR 独立评审。**但不要把本条目读成"矛盾已解决"** —— 本轮
+只拆掉了 bus 模块那一半。这一条比上面三条"未修"都大。
+
 ## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
 
 `create_mcp_server` 除 `_message_bus_mcp_tools` 外,还注册
@@ -55,7 +243,14 @@ working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_age
 
 Reply Discipline 同批加一条「**Finished work is never ping-pong — deliver it**」：
 沉默许可只给"没实质内容"，做完别人求的活必须用 bus 工具送达，纯文本收尾
-= 零交付。注意：与 2026-08-01 那条同理，文案对弱模型效力有限，真正的机制
+= 零交付。
+
+> **2026-08-17 更正**：「纯文本收尾 = 零交付」这半句**已撤回**——它在 team 房间里
+> 正好相反（纯文本就是回复，turn prompt 明禁投递工具）。**留下的是义务**（结果必须
+> REACH 对方），**交出去的是机制**（由这一轮的 surface 决定）。见本文件 2026-08-16 /
+> 08-17 条目。别照着这段把旧措辞写回去。
+
+注意：与 2026-08-01 那条同理，文案对弱模型效力有限，真正的机制
 修复是声明面（本条）+ 判定面（message_bus/__init__）对齐。
 
 ## 2026-08-01 — 指令新增「替 owner 去问另一个 agent」剧本
@@ -115,6 +310,19 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 2. "Substance-empty → 明确选静默" — 没新信息时不要 call `bus_send_*`，
    直接结束这轮；平台按 `[NO_REPLY]` 处理，unread 游标按正常方式推进。
 
+   > **2026-08-17 更正（上面两条都已改，别照着写回去）**：
+   >
+   > 第 1 条的「**显式标注"对方是 agent 不是 human"**」已**收窄成条件式**——team 房间
+   > 里 owner 本人就在 bus 上说话（`usr_<id>`），无条件的物种断言会把"跳过寒暄"对准一个
+   > 人。现写作「**当**对方是 agent 时…；当发送者是人时，就当人来说话」。最小回复形态
+   > 那半句（brevity）背着 ping-pong 的 P0，保留。
+   >
+   > 第 2 条的「直接结束这轮」只在"不调工具就等于没输出"的 surface 上等于沉默——会自动
+   > 上墙的 surface 上残留纯文本仍是一条消息，故现在写作「不调工具**且**不留任何回复
+   > 文本（对 bus 对话）」。「unread 游标按正常方式推进」这条尾巴已删除：同一个游标下面
+   > 两行的 resurfacing 规则讲得又准又有作用域。
+
+
 跟 [[prompts.py]] (chat_module) 配对：chat 路径强调"对人要温暖"，bus
 路径强调"对 agent 要极简"。两边各自收紧自己的边界。
 
@@ -136,13 +344,26 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 
 Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有一个全局共享的 MessageBusModule 实例，不是每个 Narrative 各自一个。这是因为 MessageBus 是 Agent 级别的通信能力，不需要按 Narrative 隔离。
 
-`hook_data_gathering()` 中注入的消息格式以 `[MessageBus · {from_agent}]` 开头（类似 Matrix 的 `[Matrix · ...]` 前缀），让 continuity.py 的 `_extract_core_content()` 能识别并提取核心内容。如果这个前缀格式改变，需要同步更新 `continuity.py` 的处理逻辑。
+未读列表里每一行以 `[MessageBus · {sender} · {channel}]` 开头（类似 Matrix 的
+`[Matrix · ...]` 前缀）。**2026-08-17 更正**：此处原先写的是"`hook_data_gathering()`
+注入的**消息**以该前缀开头"，并声称 `continuity.py` 的 `_extract_core_content()`
+依赖它、改格式要同步改它——**两句都不成立**。给**输入**加前缀的那段代码从未执行过
+（见同日条目，已删除）；`continuity.py` 在本分支不存在，全仓也没有任何解析该标签的
+消费者（`git grep '\[MessageBus'` 只剩生产端和文案）。格式的唯一定义点现在是
+`_bus_tag()`，指令里那个示例由它生成，所以文案与实现不会再分叉。
 
 ~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简。~~
 **2026-08-11 更正:这句是反的,而且从来没实现过。** `hook_data_gathering` 里没有任何
 `working_source` 分支 —— Known Agents / Your Channels / Unread Messages 三份列表对
 **每一个**场景一视同仁地注入,包括 owner 私聊、job、以及各 IM 渠道的轮次。本文件里
 唯一读 `working_source` 的地方只用来给 input 加 `[MessageBus · …]` 源标签。
+
+> **2026-08-17 更正（重要，别照着删代码）**：上面这句现在两半都不成立。给 input 加
+> 源标签的那段**从未执行过、已删除**（见同日条目）。本文件如今读 `working_source`
+> 的是 `owns_working_source` → `get_expressive_tools`——**那是活的**，它让 bus 轮次
+> 的默认回复工具跟着"谁联系的你"走，正是 2026-08-01 briefing squad P0（只声明
+> owner-chat 工具导致干完的活落进 owner 窗口、求助者永远收不到）的修复。看到"源标签
+> 分支已删"就顺手清 `working_source` 读点的话，会把那个 P0 重新打开。
 
 这句反话的代价是它掩盖了真实形状:团队房间的未读因为读游标死锁而无限堆积,再被原样
 灌进该 agent 所有场景的上下文。游标已在 2026-08-11 修复(见 `local_bus` 与
@@ -160,6 +381,10 @@ Module 实例是 Agent-level 的，但 `hook_data_gathering()` 运行时的 `age
 `MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.hook_data_gathering()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
 
 ## 2026-08-11 — 未读注入:窗口取最新、总数单独查、源标签取对头
+
+> **2026-08-17**：本条末尾那段「源标签取对头」（`unread_models[0]` → `[-1]`）描述的
+> 是 input 源标签分支。该分支从未执行过，已删除；这一段仅作历史记录，不要据此推断
+> 今天还有输入前缀。
 
 抓取改为把上限**下推进查询**并取**最新** N 条。此前是拿全量再 Python 切片,切的是
 oldest-first 列表的头部 —— 拿到的是积压里最古老的那些;再叠加 team 房间读游标永不
