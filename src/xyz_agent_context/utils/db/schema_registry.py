@@ -1486,6 +1486,109 @@ _register(
 
 
 # ----------------------------------------------------------------------------
+# 31 / 32. inbox_threads + inbox_messages — the RECORD layer.
+#
+# The inbox is what the user reads about conversations they were not in: IM
+# channel traffic and agent-to-agent DMs. It used to live in `bus_messages` /
+# `bus_channel_members`, which cost two things measured on prod 2026-08-17:
+#
+#   * 86% of `bus_messages` (28,605 of 33,164 rows) was IM inbox content. The
+#     table's name described its minority.
+#   * The writer created a `bus_channel_members` row per agent so the panel
+#     could find the thread — and NOTHING ever advanced its `last_read_at`
+#     (159 of 172 IM memberships, 92%, had a NULL cursor). The bus unread
+#     predicate is `created_at > COALESCE(last_read_at, epoch)`, so 1,364 IM
+#     messages were permanently "unread" and rode into 90 agents' turn context
+#     attributed to pseudo-agents like `lark_user_<id>`.
+#
+# Separate tables end both: the agent's unread injection reads `bus_messages`
+# JOIN `bus_channel_members`, and these rows are simply not there. The
+# containment is structural, not a filter that a future channel can be
+# forgotten from — which is exactly how the 2026-07-03 wechat double-dispatch
+# happened (`im_channel_prefixes` drifted).
+#
+# OPERATIONAL vs OBSERVATIONAL is the line: the bus tables carry delivery
+# mechanics (cursors, pending work, routing); these carry the record a person
+# reads. `inbox_threads.last_read_at` is therefore the USER's read state and
+# has no effect on what any agent is handed — the two were one column before,
+# so clicking "mark read" in the panel changed the agent's next turn.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="inbox_threads",
+        columns=[
+            # `im_<channel>_<chat_id>` / `nx_dm_<peer_agent_id>` — the family
+            # prefix comes first so the namespace says what it is before it
+            # says which one.
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False, primary_key=True),
+            Column("owner_user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # The agent whose conversation this is. A user may own several.
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # "lark" / "wechat" / … / "agent_dm". Matches MessageSourceHandler.name
+            # for IM sources so the record layer and the registry agree.
+            Column("source", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("title", "TEXT", "VARCHAR(255)"),
+            # Who the agent is talking to: the IM sender id, or the peer agent_id.
+            Column("counterpart_id", "TEXT", "VARCHAR(128)"),
+            Column("counterpart_name", "TEXT", "VARCHAR(255)"),
+            Column("last_message_at", "TEXT", "DATETIME(6)"),
+            Column("last_message_preview", "TEXT", "TEXT"),
+            # The USER's read state. Deliberately NOT the agent's context gate —
+            # see the header note.
+            Column("last_read_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # The panel's query: this user's threads, newest first, every poll.
+            Index("idx_inbox_threads_owner", ["owner_user_id", "last_message_at"]),
+            Index("idx_inbox_threads_agent", ["agent_id"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="inbox_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("message_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # "in" = from the counterpart, "out" = from the agent. The pair is
+            # one conversational turn but two rows, and they must sort
+            # inbound-then-reply — see the writer's microsecond stagger.
+            Column("direction", "TEXT", "VARCHAR(8)", nullable=False),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_name", "TEXT", "VARCHAR(255)"),
+            Column("content", "TEXT", "MEDIUMTEXT"),
+            # JSON list of attachment dicts, carried verbatim from the source so
+            # a backfilled row renders the same as a live one.
+            Column("attachments", "TEXT", "TEXT"),
+            # The `bus_messages.message_id` this row was backfilled from. NULL
+            # for anything written live.
+            #
+            # This column IS the backfill's idempotency guarantee. Decision ③
+            # (2026-08-17): history is backfilled and the Owner runs it BY HAND
+            # after deploy, so the live write path is already filling this table
+            # when the script starts and the overlapping window would double
+            # every message in it — in a surface the user looks at. The unique
+            # index below makes the second insert a no-op however many times the
+            # script runs, and whatever time window it guesses. Putting that
+            # guarantee in the script instead would put it somewhere it can be
+            # forgotten.
+            Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_inbox_messages_thread", ["thread_id", "created_at"]),
+            Index("idx_inbox_messages_msgid", ["message_id"], unique=True),
+            Index("idx_inbox_messages_source", ["source_message_id"], unique=True),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
 # lark_seen_messages — persistent dedup of incoming Lark events (Bug 27)
 #
 # Lark's event delivery is at-least-once: WebSocket reconnects or missed

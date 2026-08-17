@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — inbox 拿到自己的两张表（记录层，与 bus 解耦）
+
+`inbox_threads` + `inbox_messages`。inbox 此前住在 `bus_messages` /
+`bus_channel_members` 里，prod 实测两笔代价：
+
+- **`bus_messages` 里 86% 不是 bus 消息**（28,605 / 33,164 行是 IM inbox）。表名描述的
+  是它的少数派。
+- 写入方为了让面板找得到 thread，**给 agent 建了 `bus_channel_members` 成员行**，而
+  **没有任何人推进它的 `last_read_at`**（172 个 IM 成员行里 159 个游标为 NULL，92%）。
+  bus 的未读判据是 `created_at > COALESCE(last_read_at, epoch)`，于是 **1,364 条 IM
+  历史永久「未读」**，以伪 agent `lark_user_<id>` 的名义灌进 **90 个 agent** 每一轮的
+  上下文。
+
+**分表之后这两件事都结束，而且是结构性的**：agent 的未读注入读的是
+`bus_messages JOIN bus_channel_members`，这些行不在那里。**不是过滤器**——过滤器正是
+2026-07-03 wechat 双触发事故的成因（`im_channel_prefixes` 漂了，三个渠道漏掉）。
+
+**分界线是 operational vs observational**：bus 表承载投递机制（游标、待处理、路由），
+这两张承载「人要读的记录」。因此 `inbox_threads.last_read_at` 是**用户的**阅读状态，
+对 agent 拿到什么**毫无影响**——这两件事此前是同一列，所以用户在面板上点一下「已读」
+就改变了 agent 下一轮的上下文。
+
+### `source_message_id` 是回填的幂等保证，不是备注
+
+Owner 决策（2026-08-17）：历史**回填**，且**由 Owner 在部署后手动执行**。于是新写入
+路径在脚本开始前就已经在写这张表了，重叠窗口会让其中每条消息**重复出现在用户看得见的
+界面上**。
+
+唯一索引让第二次插入变成 no-op ——**无论脚本跑几遍、时间窗猜得多离谱**。把这个保证放进
+脚本，就是把它放在一个会被忘记的地方。列可空：只有回填行有值，live 写入没有对应的 bus
+行，NOT NULL 会逼写入方编一个 id，而那个 id 迟早和真的撞上。
+
+→ 完整回填步骤与验证清单：`reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
+→ 设计全文：`reference/self_notebook/specs/2026-08-17-conversation-harness-redesign-design.md`
+
 
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
