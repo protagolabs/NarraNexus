@@ -62,12 +62,19 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
+    # A PR whose whole subject is an invisible multi-minute hang has no business
+    # inheriting the 360-minute default.
+    timeout-minutes: 20
 
     # The SQLite/MySQL dual-dialect contract is only a contract if both halves
-    # execute. Ten `*_mysql.py` dialect twins gate on NARRANEXUS_MYSQL_TEST_URL
-    # and skip without it — so on a developer laptop they always skipped, and
-    # with no pytest in CI they had never once run anywhere. Production is
-    # MySQL: that was the untested half.
+    # execute. NINE `*_mysql.py` dialect twins gate on NARRANEXUS_MYSQL_TEST_URL
+    # (all of them via `tests/mysql_dialect.py`'s shared helper) and skip
+    # without it, so they only ever ran on a laptop with a container up and
+    # never in CI at all. Production is MySQL: that was the unenforced half.
+    #
+    # NOT verified from the authoring machine (no docker socket access there),
+    # so treat the first run of this job as the verification. If a twin has
+    # bit-rotted, fix or quarantine that twin — do not delete the service.
     services:
       mysql:
         image: mysql:8

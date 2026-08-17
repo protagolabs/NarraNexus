@@ -211,8 +211,12 @@ async def test_build_input_for_framework_augments_current_turn_only(
     # means every attribute the runtime later grows is simply absent here, so
     # the test breaks on code it does not test: `self.user_id` was added for
     # the reply-language preference and this went red on 2026-07-31 with an
-    # AttributeError, nothing to do with attachments. The constructor is
-    # dependency-injectable and needs no database for this path.
+    # AttributeError, nothing to do with attachments.
+    #
+    # `db_client` is injected rather than left to default: with
+    # `database_client=None` the constructor falls through to
+    # `get_db_client_sync()`, whose `asyncio.run` refuses to run inside this
+    # already-async test. The in-memory client is the cheap honest answer.
     runtime = ContextRuntime(
         agent_id="agent_x", user_id="user_owner", database_client=db_client
     )

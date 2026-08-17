@@ -76,12 +76,22 @@ async def _seed_agent(db, agent_id="agent_a", created_by=VIEWER):
 # forever — which is what "2026-07-30 08:00:00" did here, red since 2026-08-06
 # with nothing running pytest to say so.
 #
-# One anchor for every row, two hours back: inside the window on any day, and
-# unambiguously ONE daily bucket, which is what the `daily` assertions need.
-# Two rows two hours apart would straddle midnight for anyone running the
-# suite at the wrong moment — the same bug in a smaller size.
-_ANCHOR = datetime.now(timezone.utc) - timedelta(hours=2)
+# Anchored to YESTERDAY NOON UTC: always inside the 7-day window, never in the
+# future (noon today would be, for any run before midday), and far enough from
+# both midnights that a second row an hour later is still the same UTC day.
+#
+# Two DISTINCT times matter. The route buckets by `created_at[:10]` — a string
+# slice, not a date parse (`backend/routes/agents/cost.py`) — so "two different
+# timestamps collapse into one daily bucket" is only proven if the two rows
+# actually carry different timestamps. Seeding both from one anchor made the
+# `(daily,) = ...` assertion pass even against a regression that keyed the
+# bucket on the full timestamp, which is the same silently-green trade this
+# file was being repaired for.
+_ANCHOR = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+    hour=12, minute=0, second=0, microsecond=0
+)
 _ANCHOR_SQL = _ANCHOR.strftime("%Y-%m-%d %H:%M:%S")
+_ANCHOR_LATER_SQL = (_ANCHOR + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
 _ANCHOR_DATE = _ANCHOR.strftime("%Y-%m-%d")
 
 
@@ -126,6 +136,7 @@ async def test_aggregation_includes_cache_buckets(db_client, monkeypatch):
         cache_read_input_tokens=281_434,
         cache_creation_input_tokens=47_003,
         total_cost_usd=0.191,
+        created_at=_ANCHOR_LATER_SQL,
     )
 
     client = _build_client(db_client, monkeypatch)

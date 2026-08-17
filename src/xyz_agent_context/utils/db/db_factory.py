@@ -14,18 +14,25 @@ Problems solved:
 - 40+ direct DatabaseClient() calls in code, each creating a new connection
 - MCP tools cannot accept externally injected db_client (Agent cannot pass it)
 - Uncontrollable connection count, may exhaust database connections
-- Cross-loop pool misuse: a single process-wide singleton breaks when the
-  MCP container runs each module in its own threaded event loop -- the
-  aiomysql pool binds its internal Futures (e.g. Pool._wakeup) to the loop
-  that created it, and reusing that pool from another loop raises
-  "got Future attached to a different loop". The earlier mitigation
-  (evict + recreate on loop change) only pushed the problem around:
+- Cross-loop pool misuse: a single process-wide singleton breaks the moment a
+  second event loop touches it -- the aiomysql pool binds its internal Futures
+  (e.g. Pool._wakeup) to the loop that created it, and reusing that pool from
+  another loop raises "got Future attached to a different loop". The earlier
+  mitigation (evict + recreate on loop change) only pushed the problem around:
   whichever loop lost the race held stale Futures until the next access.
+  (2026-08-17: this used to read "the MCP container runs each module in its own
+  threaded event loop". It does not -- `module_runner.py` gives each module its
+  own PROCESS with one process-lifetime `asyncio.run`. The real multi-loop
+  sources are `get_db_client_sync`'s throwaway `asyncio.run`, `lark_trigger`'s
+  per-reconnect loop, one-shot scripts and the test harness. The mechanism the
+  paragraph describes is unchanged; only the example was wrong, and it was
+  sending readers into MCP code to look for something that is not there.)
 
 Solution:
 - One AsyncDatabaseClient per event loop (keyed by id(loop))
 - Each loop builds its own pool, lives as long as the loop is alive
-- Closed loops are evicted on every access (cheap O(n) over active loops)
+- Closed loops are CLOSED and evicted on every access (O(n) over active
+  loops, under one bounded budget -- see _evict_closed_loops)
 - A per-loop asyncio.Lock serialises concurrent first-call on the same loop
 - Legacy `get_db_client_sync` path preserved as an escape hatch for
   bootstrap code (its returned client must not be reused from async code)
@@ -150,7 +157,7 @@ async def get_db_client() -> "AsyncDatabaseClient":
     - One pool per event loop (no cross-loop Future leaks)
     - Lazy: the pool for a given loop is built on that loop's first call
     - Thread-safe: serialised by a per-loop asyncio.Lock
-    - Self-evicting: closed loops are dropped on every access
+    - Self-evicting: closed loops are closed + dropped on every access
 
     Returns:
         AsyncDatabaseClient instance bound to the current running loop.
@@ -246,17 +253,20 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
     return await AsyncDatabaseClient.create_with_backend(backend)
 
 
-_EVICT_CLOSE_TIMEOUT: float = 5.0
+# One budget for the WHOLE eviction sweep. Per-entry it would be unbounded in
+# aggregate, and this sweep sits in front of `get_db_client()`'s cached-hit
+# return — the hottest DB entry point in the process.
+_EVICT_SWEEP_BUDGET: float = 5.0
 
 
 async def _evict_closed_loops() -> None:
     """Close, then drop, every entry whose loop has been closed.
 
-    Important for long-running processes that spawn short-lived loops
-    (e.g. the MCP container running each module on its own threaded loop,
-    test harnesses, one-shot migration scripts). Without this, the entry
-    would linger and a new loop later allocated at the same memory address
-    could accidentally collide on id().
+    Important for long-running processes that spawn short-lived loops — the
+    test harness, one-shot scripts, `lark_trigger`'s per-reconnect loop, and
+    `get_db_client_sync`'s own `asyncio.run`. Without this, the entry would
+    linger and a new loop later allocated at the same memory address could
+    accidentally collide on id().
 
     **Forgetting the client is not the same as releasing it.** An evicted
     client still owns a live backend connection — for SQLite, an aiosqlite
@@ -270,24 +280,61 @@ async def _evict_closed_loops() -> None:
     shape as a local desktop install wedging its own writes).
 
     The origin loop is closed by definition here, so the close runs on the
-    CURRENT loop — aiosqlite needs *a* running loop to close, not the one
-    that opened the connection (same reasoning as `close_db_client`). It is
-    bounded: if the worker thread is already gone the close would never
-    complete, and a stuck eviction must not become the new hang.
+    CURRENT loop — aiosqlite needs *a* running loop to close, not the one that
+    opened the connection (same reasoning as `close_db_client`).
+
+    Two honest limits, both worth stating because the headline above oversells
+    without them:
+
+    * **Reclamation is effective for SQLite only.** `MySQLBackend.close()` goes
+      through `pool.wait_closed()`, which drives `conn.close()` →
+      `loop.call_soon(...)` on the dead loop and waits on a `Condition` bound to
+      it. On MySQL this reliably fails rather than reclaiming, and the warning
+      below is all you get. Not yet verified against a live MySQL, so no fix is
+      claimed here — for MySQL this function still only stops the id() collision.
+    * **`SYNC_KEY` is out of reach.** `get_db_client_sync()` registers under
+      `_clients_by_loop[SYNC_KEY]` and never touches `_loops_by_id`, which is
+      what `stale_ids` is derived from — so the one client guaranteed to have a
+      dead loop is structurally excluded. Only `close_db_client()` reclaims it.
+      Making it evictable means the first `await get_db_client()` in a process
+      would close the bootstrap client out from under whoever still holds it;
+      that needs its own audit of `get_db_client_sync` callers.
+
+    Bounded by ONE deadline for the whole sweep, not per entry: `stale_ids` is
+    as long as the caller's loop churn made it, and this runs on every
+    acquisition ahead of the cached-hit return — a per-entry timeout would let
+    whoever churns loops set the latency paid by whoever next asks for a client.
     """
     stale_ids = [loop_id for loop_id, loop in _loops_by_id.items() if loop.is_closed()]
+    if not stale_ids:
+        return
+
+    deadline = asyncio.get_running_loop().time() + _EVICT_SWEEP_BUDGET
     for loop_id in stale_ids:
+        # Pop BEFORE awaiting. This is what makes two coroutines on the same
+        # loop safe against double-closing the same client; do not "tidy" these
+        # to after the await.
         client = _clients_by_loop.pop(loop_id, None)
         _locks_by_loop.pop(loop_id, None)
         _loops_by_id.pop(loop_id, None)
-        if client is not None:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if client is not None and remaining > 0:
             try:
-                await asyncio.wait_for(client.close(), timeout=_EVICT_CLOSE_TIMEOUT)
+                await asyncio.wait_for(client.close(), timeout=remaining)
             except Exception as e:  # noqa: BLE001 — best-effort reclamation
                 logger.warning(
                     f"Evicted DB client for closed loop id={loop_id} but could "
                     f"not close its connection: {e!r}"
                 )
+        elif client is not None:
+            # Out of budget: the entry is still dropped (the id() collision is
+            # the part that must not survive), the connection is not reclaimed,
+            # and we say so rather than looking successful.
+            logger.warning(
+                f"Evicted DB client for closed loop id={loop_id} WITHOUT closing "
+                f"it — sweep budget of {_EVICT_SWEEP_BUDGET}s exhausted over "
+                f"{len(stale_ids)} stale loops"
+            )
         logger.info(f"Evicted DB client for closed loop id={loop_id}")
 
 

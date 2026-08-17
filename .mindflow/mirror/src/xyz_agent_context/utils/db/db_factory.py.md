@@ -23,9 +23,32 @@ aiosqlite worker 线程 + 一个打开的文件句柄，如果那个 loop 是在
 同一条推理），并用 `asyncio.wait_for(_EVICT_CLOSE_TIMEOUT=5s)` 兜底：若 worker
 线程已经死了，close 永远不会返回，而卡住的驱逐不能变成新的 hang。
 
+扫描用**一个总预算**（`_EVICT_SWEEP_BUDGET`，5 秒）而不是每条一个超时：
+`stale_ids` 的长度由调用方的 loop churn 决定，没有上限，而这个扫描就压在
+`get_db_client()` 命中缓存的返回路径**前面**——按条计时等于让制造 loop 的人
+决定下一个取 client 的人付多少延迟（调用方可控基数无上限，正是本仓反复中招的
+那个模式）。预算耗尽时条目照样丢弃（id() 冲撞是绝不能留的那一半），连接不回收，
+并且**明说**而不是装作成功。三个 `pop` 都在 `await` 之前，这是同一个 loop 上两
+个协程不会重复 close 同一个 client 的原因，**不要**"顺手整理"到 await 之后。
+
+两条必须写明的边界，否则上面那句标题是在超卖：
+
+- **回收实际只对 SQLite 有效。** `MySQLBackend.close()` 走
+  `pool.wait_closed()`，它会在已死的 loop 上 `call_soon(...)` 并等一个绑在该
+  loop 上的 `Condition`。MySQL 上这会稳定失败而不是回收，你只会拿到一条
+  warning。**尚未对着真 MySQL 验证过，所以这里不声称修好了 MySQL**——对 MySQL
+  而言本函数仍然只解决 id() 冲撞。
+- **`SYNC_KEY` 够不着。** `get_db_client_sync()` 只登记
+  `_clients_by_loop[SYNC_KEY]`，从不写 `_loops_by_id`，而 `stale_ids` 正是从
+  后者推导的——于是**最必然拥有一个死 loop 的那个 client 被结构性排除在外**，
+  只有 `close_db_client()` 会回收它。而 `ContextRuntime.__init__` 在没有注入
+  client 时就走这条路，也就是说真有代码路径在铸造这种孤儿。要让它可驱逐，得先
+  审计 `get_db_client_sync` 的所有调用方——否则进程里第一次
+  `await get_db_client()` 就会把 bootstrap client 从还握着它的人手里关掉。
+
 这条修复只有配合 [[db_backend_sqlite.py]] 的 aiosqlite worker 加固才完整——
-worker 死了的话这里的 close 也没人执行。守卫见
-`tests/utils/db/test_sqlite_orphaned_connections.py`。
+worker 死了的话这里的 close 也没人执行，而那份加固本身也有两半（投递 + daemon
+线程）。守卫见 `tests/utils/db/test_sqlite_orphaned_connections.py`。
 
 ## 2026-07-22 — MySQL pool size env-tunable (MYSQL_POOL_SIZE)
 

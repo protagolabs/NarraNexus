@@ -256,9 +256,16 @@ def enforce_size_cap() -> int:
         # 0 / 400 and draining the flood leaves 400 / 200. The second is what
         # water-leveling means, and it was a coin toss.
         #
-        # More files at the same size is the more spread-out partition, so
-        # taking from it levels harder; the key itself only breaks the
-        # remaining tie, and only to be deterministic.
+        # The load-bearing property is DETERMINISM. The direction is a
+        # heuristic and is stated as one: at equal size, a partition with more
+        # files tends to have a smaller oldest file, so draining it takes a
+        # smaller step and leaves the two partitions closer together — which is
+        # what leveling means. It is not an anti-abuse property: a flooder that
+        # consolidates into fewer, larger files wins every size tie against a
+        # victim holding many small ones. Tightening that needs authentication
+        # (see the DIAG_COLLECT_TOKEN note above), not a better tie-break.
+        # The key itself only settles the remaining tie, and only so the
+        # outcome stops depending on `rglob`.
         key = max(sizes, key=lambda k: (sizes[k], len(partitions[k]), k))
         files = partitions[key]
         if not files:

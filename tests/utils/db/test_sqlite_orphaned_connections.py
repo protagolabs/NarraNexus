@@ -60,6 +60,28 @@ def test_the_aiosqlite_worker_patch_is_actually_installed():
     )
 
 
+def test_the_worker_thread_is_a_daemon(tmp_path):
+    """The other half of the same fix, and the half that is easy to drop.
+
+    Upstream's worker is non-daemon and relied — by accident — on dying to let
+    the process exit. Keeping it alive without this makes `threading._shutdown`
+    join an orphan forever: measured 2026-08-17, a process with one connection
+    orphaned behind a held write lock exits in 1.4s upstream and NEVER with the
+    delivery patch alone. That lands on the desktop build as "quit leaves a
+    zombie holding the DB file" and in containers as a SIGKILL on every stop.
+    """
+    async def _open() -> SQLiteBackend:
+        backend = SQLiteBackend(str(tmp_path / "daemon.db"))
+        await backend.initialize()
+        return backend
+
+    backend = asyncio.run(_open())
+    try:
+        assert backend._ensure_conn()._thread.daemon is True
+    finally:
+        asyncio.run(backend.close())
+
+
 def test_delivering_to_a_closed_loop_is_a_no_op_not_a_raise():
     """Upstream re-raises from its own `except` handler, which is what kills the
     thread. Dropping the result is correct — the coroutine that was awaiting it
@@ -102,49 +124,93 @@ def test_a_write_abandoned_by_its_loop_leaves_the_connection_closable(tmp_path):
     blocker = sqlite3.connect(db_path, isolation_level=None)
     blocker.execute("BEGIN IMMEDIATE")  # holds the write lock
 
+    # Watch the handover directly. `conn._tx.empty()` cannot be the signal: an
+    # empty queue means BOTH "the worker already took it" and "the task never
+    # enqueued it", so waiting on emptiness would let the repro cancel a task
+    # that was never in flight and still pass. Counting `put_nowait` is
+    # unambiguous — and once the statement is handed over, the blocker holding
+    # the write lock guarantees it cannot finish, whether it is still queued or
+    # already in the worker's hands.
+    conn = backend._ensure_conn()
+    handed_over: list = []
+
+    class _WatchedQueue:
+        """Forwards to the SAME queue object the worker thread was started
+        with (aiosqlite passes `_tx` in at construction), so substituting it
+        here observes puts without rerouting anything."""
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def put_nowait(self, item):
+            handed_over.append(item)
+            self._inner.put_nowait(item)
+
+        def get(self, *args, **kwargs):
+            return self._inner.get(*args, **kwargs)
+
+        def empty(self):
+            return self._inner.empty()
+
+    conn._tx = _WatchedQueue(conn._tx)
+
     async def _a_loop_that_dies_mid_write() -> None:
         task = asyncio.create_task(
             backend.execute_write("INSERT INTO t (v) VALUES (?)", ("abandoned",))
         )
-        conn = backend._ensure_conn()
-        await asyncio.sleep(0)  # let the task hand its statement to the worker
-        while not conn._tx.empty():  # ...and let the worker pick it up
+        while not handed_over:
             await asyncio.sleep(0)
         # Walk away exactly like a portal loop shutting down after its
         # response: asyncio.run() cancels what is left and closes the loop.
         task.cancel()
 
-    conn_before = None
-    asyncio.run(_a_loop_that_dies_mid_write())
-    conn_before = backend._ensure_conn()
-    worker = conn_before._thread.name
-
-    # The loop is gone; now let the parked statement complete and be delivered
-    # to it. Unfixed, this is where the worker thread dies.
-    blocker.rollback()
-    blocker.close()
-
-    async def _still_serving() -> None:
-        # A dead worker can never answer this; a live one answers immediately.
-        await asyncio.wait_for(conn_before.execute("SELECT 1"), timeout=5)
-
     try:
-        asyncio.run(_still_serving())
-    except asyncio.TimeoutError:  # pragma: no cover — the regression path
-        pytest.fail(
-            "the aiosqlite worker thread died delivering a result to a closed "
-            "loop; its sqlite3 connection can never be closed now, and holds "
-            "its lock for the life of the process"
+        asyncio.run(_a_loop_that_dies_mid_write())
+        conn_before = backend._ensure_conn()
+        worker = conn_before._thread.name
+
+        # The loop is gone; now let the parked statement complete and be
+        # delivered to it. Unfixed, this is where the worker thread dies.
+        blocker.rollback()
+        blocker.close()
+
+        async def _still_serving() -> None:
+            # A dead worker can never answer this; a live one answers at once.
+            await asyncio.wait_for(conn_before.execute("SELECT 1"), timeout=5)
+
+        try:
+            asyncio.run(_still_serving())
+        except asyncio.TimeoutError:  # pragma: no cover — the regression path
+            pytest.fail(
+                "the aiosqlite worker thread died delivering a result to a "
+                "closed loop; its sqlite3 connection can never be closed now, "
+                "and holds its lock for the life of the process"
+            )
+
+        assert worker in _live_threads()
+
+        # The payoff: the connection is still RECLAIMABLE. That is asserted at
+        # the level this test can speak to — the sqlite3 handle is released and
+        # the worker is gone — not by racing a second connection for the write
+        # lock. Measured 2026-08-17: a sibling connection in the SAME process
+        # can still see "database is locked" here even once this one is fully
+        # closed (a fresh process writes the same file immediately), so that
+        # would be an assertion about SQLite's in-process lock bookkeeping
+        # rather than about the fix. The end-to-end evidence that writes stop
+        # blocking is the suite's own wall clock: 38 minutes to 1.6.
+        asyncio.run(backend.close())
+        # The worker signals the STOP future before it breaks out of its loop,
+        # so the awaiting coroutine can resume a beat ahead of the thread
+        # actually terminating. Join rather than race it.
+        conn_before._thread.join(timeout=5)
+        assert worker not in _live_threads()
+        assert conn_before._connection is None, (
+            "close() returned but the sqlite3 connection is still open"
         )
-
-    assert worker in _live_threads()
-
-    # The real payoff: the connection is still reclaimable, so the lock goes.
-    asyncio.run(backend.close())
-    assert worker not in _live_threads()
-
-    with sqlite3.connect(db_path, timeout=5) as after:
-        after.execute("INSERT INTO t (v) VALUES ('after')")
+    finally:
+        # Every exit path, including `pytest.fail`, gives the write lock back —
+        # a guard that leaks the thing it is testing about is its own hazard.
+        blocker.close()
 
 
 @pytest.mark.asyncio
@@ -175,17 +241,26 @@ async def test_evicting_a_closed_loops_client_closes_its_connection(monkeypatch,
     thread.join()
 
     client = holder["client"]
-    worker = client._backend._ensure_conn()._thread.name
+    worker_thread = client._backend._ensure_conn()._thread
+    worker = worker_thread.name
     assert holder["loop_id"] in db_factory._clients_by_loop
     assert worker in _live_threads()
 
     # Any acquisition on a live loop sweeps the dead one.
-    await db_factory.get_db_client()
+    mine = await db_factory.get_db_client()
 
     assert holder["loop_id"] not in db_factory._clients_by_loop
+    worker_thread.join(timeout=5)  # close() resolves a beat before the thread ends
     assert worker not in _live_threads(), (
         "the evicted client's connection is still open — db_factory forgot it "
         "instead of closing it"
     )
 
-    await db_factory.close_db_client()
+    # Retire only what this test registered. `close_db_client()` would clear all
+    # three process-global registries, including a SYNC_KEY bootstrap client
+    # another module may still be holding — a suite-wide side effect from one
+    # test, and the kind of thing that only shows up once the order changes.
+    await mine.close()
+    db_factory._clients_by_loop.pop(id(asyncio.get_running_loop()), None)
+    db_factory._locks_by_loop.pop(id(asyncio.get_running_loop()), None)
+    db_factory._loops_by_id.pop(id(asyncio.get_running_loop()), None)

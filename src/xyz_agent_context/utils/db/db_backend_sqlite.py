@@ -46,10 +46,22 @@ from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 # `busy_timeout` (30s) on each of `_MAX_WRITE_RETRIES` (10) attempts —
 # ~5 minutes of blocking per collision, then "database is locked".
 #
-# A closed loop is not exotic here: any fire-and-forget task that touches the
-# DB (`schedule_user_no_quota_rearm` on login is one of several) can still be
-# in flight when its loop goes away, and the MCP container runs each module on
-# its own short-lived threaded loop by design.
+# A closed loop is not exotic here. The trigger is a SHORT-LIVED loop, and this
+# codebase mints them on purpose:
+#   * `get_db_client_sync()` builds its client inside `asyncio.run(...)`, whose
+#     loop is dead the instant it returns (`db_factory.py`). `ContextRuntime`
+#     takes that path whenever no client is injected, and `module_runner.py`
+#     already carries two comments about the fallout.
+#   * `lark_trigger.py` makes a fresh loop per WS reconnect.
+#   * The test harness, and any one-shot script or migration.
+# A fire-and-forget DB task caught by its loop's shutdown is the other half
+# (`schedule_user_no_quota_rearm` is one) — though that one rides the uvicorn
+# main loop, so it only bites at server shutdown.
+#
+# NOT the MCP container: `module_runner.py` gives each module its own PROCESS
+# with one process-lifetime `asyncio.run`, no threaded loops. An earlier draft
+# of this comment claimed otherwise and would have sent the next reader into
+# MCP code to look for something that is not there.
 #
 # So: keep the thread alive. If the awaiting coroutine's loop is gone, the
 # result has no one to go to and dropping it is correct — dying is not, because
@@ -62,11 +74,25 @@ def _deliver_to_origin_loop(future, setter, value) -> None:
     still there. A closed loop means the awaiting coroutine died with it."""
     if future is None:
         return
+    loop = future.get_loop()
     try:
-        future.get_loop().call_soon_threadsafe(setter, future, value)
+        loop.call_soon_threadsafe(setter, future, value)
     except RuntimeError:
-        # "Event loop is closed" / "loop is not running" — the caller is gone.
-        pass
+        # A CLOSED loop is the expected case and stays quiet: the coroutine that
+        # was awaiting this died with its loop, so there is nobody to tell.
+        #
+        # A LIVE loop refusing the callback is a different animal, and silence
+        # there would be the alarm-disabling this codebase has been bitten by
+        # (incident lesson #3: a filter must be precise to a class AND a
+        # context). The awaiting `await future` in aiosqlite has no timeout of
+        # its own, so an undelivered result is a permanent, silent stall on a DB
+        # call — the same invisible-symptom shape this whole patch exists to
+        # remove. Upstream at least died loudly.
+        if not loop.is_closed():
+            logger.warning(
+                f"aiosqlite result dropped on a LIVE loop {loop!r} — the "
+                f"awaiting DB call will never resolve"
+            )
 
 
 def _resilient_connection_worker_thread(tx) -> None:
@@ -83,7 +109,41 @@ def _resilient_connection_worker_thread(tx) -> None:
             _deliver_to_origin_loop(future, aiosqlite.core.set_exception, e)
 
 
+# The worker must also be a DAEMON thread, and the two halves are one fix.
+#
+# Upstream creates it with a bare `Thread(target=...)`, i.e. daemon=False, and
+# relied — by accident — on the delivery crash above to reap orphans: a worker
+# that dies lets the process exit. Keeping it alive without this half converts
+# "5 minutes of blocked writes" into "the process never exits at all",
+# because `Py_FinalizeEx` runs `threading._shutdown()` (which JOINS non-daemon
+# threads) BEFORE module teardown, so `Connection.__del__ -> stop()` never gets
+# its chance. Measured on 2026-08-17 with a connection orphaned behind a
+# `BEGIN IMMEDIATE`: upstream exits in 1.4s, delivery-patch-only hangs forever.
+#
+# That regression would have landed on the desktop build (SQLite IS the desktop
+# backend, binding rule #7) as "quit leaves a zombie holding the DB file", and
+# in containers as a SIGKILL on every `docker stop`. Strictly harder to diagnose
+# than the slowness it replaced.
+#
+# Daemon status can only be set before `start()`, and aiosqlite starts the
+# thread in `Connection.__await__` — so it has to happen in the constructor.
+# Setting it in `SQLiteBackend.initialize()` after `await aiosqlite.connect()`
+# raises "cannot set daemon status of active thread".
+#
+# This does NOT license a weaker shutdown path: a daemon worker can be killed
+# mid-write at exit (safe — WAL is crash-safe, same as SIGKILL), but the
+# ORDINARY close must stay explicit. `close_db_client()` and the suite's
+# `pytest_sessionfinish` are still load-bearing.
+_upstream_connection_init = aiosqlite.core.Connection.__init__
+
+
+def _daemon_worker_connection_init(self, *args, **kwargs) -> None:
+    _upstream_connection_init(self, *args, **kwargs)
+    self._thread.daemon = True
+
+
 aiosqlite.core._connection_worker_thread = _resilient_connection_worker_thread
+aiosqlite.core.Connection.__init__ = _daemon_worker_connection_init
 
 
 # Regex for ISO 8601 timestamp detection (covers common SQLite datetime formats)

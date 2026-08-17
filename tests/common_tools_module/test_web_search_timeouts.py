@@ -87,11 +87,17 @@ def test_the_timeout_ladder_keeps_its_order():
     dead code and the incident's "every layer delegated downwards" shape is
     back with extra steps.
 
-    Pinned here because the behavioural tests below scale these constants
-    down to run in milliseconds — the shipped numbers need somewhere to be
-    checked, and their ORDER is the part that carries the design.
+    Pinned here because the behavioural tests below scale these constants down
+    to run in a second — the shipped numbers need somewhere to be checked.
+    Ordering alone would be satisfied by 0.001 < 0.002 < 0.003, so the floors
+    are asserted too: a DDGS call has to get a realistic chance to answer
+    before we call it stuck, or the three-layer defense becomes a three-layer
+    way to fail fast on a slow network.
     """
     assert 0 < ws.DDGS_CLIENT_TIMEOUT_S < ws.PER_QUERY_TIMEOUT_S < ws.OVERALL_TIMEOUT_S
+    assert ws.DDGS_CLIENT_TIMEOUT_S >= 3
+    assert ws.PER_QUERY_TIMEOUT_S >= 10
+    assert ws.OVERALL_TIMEOUT_S >= 20
 
 
 # -------- layer 2 · per-query wait_for on to_thread ---------------------
@@ -101,13 +107,20 @@ def test_the_timeout_ladder_keeps_its_order():
 # 80 of the suite's 178 seconds, for timeouts whose only interesting property
 # is that they fire. Scaled down the same way the Brave twin next door already
 # does it (`test_web_search_brave_tool.py`); the ladder's real values are
-# pinned above, and the blockers sleep just past the cap rather than 25s past
-# it, which is also what stopped them lingering into teardown.
+# pinned above.
+#
+# The blockers still outlive the test — `asyncio.run` joins the default executor
+# at loop close — but they now sleep 1.5s instead of 25s, so teardown went from
+# ~10s to ~1.25s rather than to zero.
 
-# Scaled ~60x, not 300x, on purpose. The assertions have to separate
+# Scaled 100x/60x/50x, not ~300x, on purpose. The assertions have to separate
 # "the cap fired" from "the blocker finished" on a loaded CI runner, and a
 # 50ms budget makes thread-pool startup jitter look like a missing timeout.
 # A flaky guard is worse than a slow one.
+# Inert in practice — DDGS_CLIENT_TIMEOUT_S is only read inside `_search_sync`,
+# which all three tests below monkeypatch away. Kept so the fixture hands over a
+# COMPLETE ladder: a future test that exercises the real `_search_sync` should
+# not have to discover that one rung was missing.
 _FAST_DDGS = 0.05
 _FAST_PER_QUERY = 0.25
 _FAST_OVERALL = 0.6

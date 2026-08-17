@@ -25,10 +25,31 @@ fire-and-forget 任务（登录时的 `schedule_user_no_quota_rearm` 只是其�
 （第三方的 fire-and-forget 同样是雷）落在 aiosqlite 上的具体一例，替换范围刻意
 收窄：只换"投递"那一步，队列协议和 STOP 哨兵仍是上游的。
 
+**这个补丁有两半，缺一半就是把慢变成挂死。** 上游的 worker 是**非 daemon**
+线程，它一直（阴差阳错地）靠"投递失败就死"来回收孤儿——线程死了进程才能退出。
+只加投递加固不加 daemon，`Py_FinalizeEx` 会在模块析构**之前**跑
+`threading._shutdown()` join 掉这条非 daemon 线程，`Connection.__del__ → stop()`
+永远轮不到，于是"5 分钟写阻塞"变成"进程永远退不出"。2026-08-17 实测（连接被
+压在 `BEGIN IMMEDIATE` 后面成为孤儿）：上游 1.4 秒退出，只打投递补丁则永不退出。
+那会落在桌面版上（SQLite 就是桌面后端，铁律 #7）变成"退出后留一个僵尸攥着 DB
+文件"，在容器里变成每次 `docker stop` 都吃 SIGKILL——比它替换掉的那个慢**更难
+诊断**。所以构造函数也被包了一层，把 `_thread.daemon` 设为 True（只能在
+`start()` 之前设，而 aiosqlite 在 `__await__` 里 start，因此不能放
+`initialize()`）。这**不给弱化关闭路径开口子**：daemon worker 在退出时可能被
+中途杀掉（安全，WAL 本身崩溃安全，等同 SIGKILL），但**正常的关闭必须继续显式
+进行**，`close_db_client()` 和测试套件的 `pytest_sessionfinish` 依旧承重。
+
+投递里的 `RuntimeError` **不是无条件吞掉**：loop 已关闭是预期情形，保持安静；
+loop 还活着却拒收回调是另一回事，那意味着 aiosqlite 里那句没有超时的
+`await future` 永远不会完成——一次永久且无声的 DB 停顿，正是本补丁要消灭的那种
+"看不见的症状"。后者打 WARNING（事故清单第 3 条：异常过滤必须精确到类**和**
+上下文）。
+
 配套修复见 [[db_factory.py]]（驱逐时真的关连接）。守卫见
-`tests/utils/db/test_sqlite_orphaned_connections.py`，其中一条专门断言这个
-猴补丁**确实装上了**——它是一个 import 副作用，重构时很容易丢，而丢了不会报错，
-只会让每次碰撞多花 5 分钟。
+`tests/utils/db/test_sqlite_orphaned_connections.py`，其中两条分别断言这两个
+猴补丁**确实装上了**（投递函数被替换、worker 是 daemon）——它们都是 import 副
+作用，重构时很容易丢，而丢了不会报错：一个让每次碰撞多花 5 分钟，另一个让进程
+再也退不出。
 
 顺带记下一个没在本次改动的放大器：`_retry_write` 的 10 次重试与
 `PRAGMA busy_timeout=30000` 是**相乘**的（每次重试都在 SQLite 里等满 30 秒），
