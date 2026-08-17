@@ -13,7 +13,8 @@ Behavior design:
 - Reply Discipline: prevent infinite trigger loops between agents
 - Selective mark_read: a DM the agent ignores stays unread and resurfaces next
   turn. NOT true of a team room, which delivers by rendering its scrollback and
-  advances the read cursor once a turn has run, answered or not
+  advances the read cursor once a turn has rendered the window, answered or not
+  (a backlog reaching below that window holds the cursor — see `_ack_room_seen`)
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
 - Source recognition: entries in the unread list are tagged
   [MessageBus · sender · channel] (see `_bus_tag`). This is the ONLY place the
@@ -582,8 +583,11 @@ class MessageBusModule(XYZBaseModule):
         2. Fetch known agents (filtered + capped)
         3. Fetch unread messages (capped)
         4. Fetch channel list (capped)
-        5. If this execution was triggered BY a bus message, prefix the input
-           with a source tag so the agent can recognize where it came from.
+        5. (nothing) — a step here used to prefix the turn's input with a
+           source tag. It was deleted on 2026-08-17 after it turned out never
+           to have executed; see the comment where it stood, at the end of this
+           method, which names both dead keys. Do not describe an input prefix
+           in this contract again without first checking that one exists.
         """
         try:
             bus = await _get_default_bus_async()

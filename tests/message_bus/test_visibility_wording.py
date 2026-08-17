@@ -102,6 +102,11 @@ def test_the_delivery_rule_does_not_claim_plain_text_reaches_nobody():
 
     assert "delivers nothing" not in text
     assert "only as plain text" not in text
+    # The silence rule's old tail went with it: "the unread cursor advances
+    # appropriately" was a third, vaguer account of a cursor the resurfacing
+    # rule states precisely and scopes. A deletion nothing asserts is a
+    # deletion that comes back.
+    assert "cursor advances" not in text
 
 
 def test_the_delivery_obligation_itself_survives():
@@ -153,6 +158,11 @@ def test_the_delivery_rule_states_the_team_case_as_a_prohibition_and_first():
 
     assert "do NOT also call a delivery tool" in line
     assert line.index("posted for you") < line.index("bus_send_message")
+    # The antecedent is "posted for you WITHOUT A TOOL CALL". Unqualified, it
+    # brushes against narramessenger's "delivered to this room automatically",
+    # where a tool call IS required — and there the prohibition would suppress
+    # a real delivery, which is worse than the double-post it guards.
+    assert "without a tool call" in line
 
 
 def test_no_rule_flatly_calls_the_counterparty_a_machine():
@@ -169,6 +179,10 @@ def test_no_rule_flatly_calls_the_counterparty_a_machine():
     assert "The other party is another agent, not a human." not in text
     # The brevity half carries the ping-pong P0 and must survive the scoping.
     assert "Brevity beats politeness" in text
+    # And the POSITIVE half: retracting the flat claim is only half the fix if
+    # nothing routes a human sender out of the skip-pleasantries rule.
+    assert "When the sender is a PERSON" in text
+    assert "see Message Source Recognition" in text
 
 
 def test_the_block_infers_nothing_about_the_turn_from_an_absent_tag():
@@ -207,6 +221,10 @@ def test_no_rule_promises_a_tag_on_the_turns_input():
     assert "at the start of the input" not in text
     assert "beginning of user input" not in text
     assert "input tagged" not in text
+    # Nor may it name WHERE the list lives: the R4 relocation flag can move
+    # those lists into this very block, and with zero unreads the heading is
+    # absent entirely.
+    assert "MessageBus turn context" not in text
     # And the rules now name the surface that does reach the model.
     assert "Unread Messages" in text
 
@@ -236,8 +254,22 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # `extra_data.get("working_source")` would be defeated by adding a default
     # argument, and `extra_data["input_content"]` by switching to `.get()`.
     # Neither name has any other legitimate use in this method today.
-    assert "input_content" not in code
-    assert "working_source" not in code
+    reinstated = (
+        "the retired input-source-tag branch must not be reinstated; "
+        "see the comment at the end of hook_data_gathering"
+    )
+    assert "input_content" not in code, reinstated
+    assert "working_source" not in code, reinstated
+
+    # The DOCSTRING is checked against the raw source, deliberately.
+    #
+    # The comment-stripped view above cannot see it, and for four rounds the
+    # method's own contract went on listing "5. prefix the input with a source
+    # tag" as a step — the copy physically closest to the deleted code, and the
+    # one this very test was written to make impossible. A guard that skips the
+    # place the claim actually survived is not a guard.
+    raw = inspect.getsource(MessageBusModule.hook_data_gathering)
+    assert "prefix the input" not in raw
 
 
 def test_the_worked_example_is_the_tag_the_code_actually_emits():
@@ -432,3 +464,19 @@ def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
 
     assert "NOT from your owner" not in text
     assert "a person can speak on the bus" in text
+
+
+def test_the_platform_label_is_explained_not_just_rendered():
+    """`[system]` in the list means nothing unless the rules say what it is.
+
+    The renderer is guarded three ways over (platform type, room marker,
+    ordinary senders), but the SENTENCE that tells the agent what a `[system]`
+    entry is — and that it is not someone to answer or @mention — had nothing
+    holding it. A label the agent cannot interpret is a label that gets
+    answered.
+    """
+    text = _static_text()
+
+    line = next(ln for ln in text.splitlines() if "`[system]`" in ln)
+    assert "PLATFORM" in line
+    assert "@mention" in line
