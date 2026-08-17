@@ -4,6 +4,22 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-17（三）— 板子只读一次；docstring 承认它会写库
+
+**三次读降到两次**：`teams_due_for_patrol` 自己读一次板子，传给
+`expire_stale_errands`（新增 `candidates` 参数），再用它返回的 expired id 在内存里
+过滤出回收后的 items。上一版这里每个 team 每个 poll cycle 读两次
+`list_active`——而这条循环是消息派发的串行前缀，团队数是会长的。
+
+顺序仍是硬约束：`has_stalled` 与 `items[0].channel_id` 必须来自**回收之后**的板
+子。在内存里滤而不是重读，因为回收本来就告诉了我们它退休了哪些 id。变异检验：把
+`items` 换成回收前的 `board`，`test_the_recycle_happens_before_the_cadence_is_
+judged` 必红。
+
+**docstring 补「Not a pure query」**：这个函数现在会写库，而且那次写对**不在返回值
+里**的团队也生效（没有 lead 的团队被回收了却不会出现在 `due` 里）。此前这件事只写
+在函数体注释和 mirror 里，光读签名的人不会知道调它会取消工作项。
+
 ## 2026-08-17（二）— 差事回收挂在候选循环里，而不是 stalled 判定里
 
 `expire_stale_errands` 的调用点从 `detect_stalled_items` 移到

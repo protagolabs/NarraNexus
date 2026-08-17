@@ -94,6 +94,16 @@ MAX_HANDOFFS_PER_MESSAGE = 5
 #: make the board lie in the other direction.
 ERRAND_TTL_HOURS = 24
 
+#: How many errands one sweep may retire.
+#:
+#: A DIFFERENT quantity from `MAX_HANDOFFS_PER_MESSAGE` — that one bounds how
+#: many rows a single message creates, this one bounds how many a single sweep
+#: settles. Expiry is bursty (a room busy yesterday comes due all at once) and
+#: the sweep now runs inside the bus poll cycle, ahead of every agent's message
+#: dispatch, at two queries per row. The remainder is retired on the next cycle
+#: a few seconds later — deferred, never dropped.
+MAX_EXPIRIES_PER_SWEEP = 100
+
 #: Addressing the room is not handing work to a person: nobody is late on
 #: `@everyone`, and opening one item per member would flood the board.
 BROADCAST_MENTION = "@everyone"
@@ -314,8 +324,14 @@ async def close_delivered_errands(
     return closed
 
 
-async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
+async def expire_stale_errands(
+    db: Any, team_id: str, *, candidates: Optional[List[Any]] = None
+) -> List[str]:
     """Retire AUTO errands older than the TTL. Returns the ids expired.
+
+    ``candidates`` lets the caller hand in a board it has already read, so the
+    common path (``teams_due_for_patrol``) does not read ``list_active`` twice
+    per team per poll cycle. Omit it and the board is read here.
 
     The recycler that makes automatic opening survivable. Without it an errand
     nobody will ever deliver is permanent, and permanence here is not passive:
@@ -356,7 +372,8 @@ async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
         #
         # The second: it adds no raw SQL. `list_active` is one of the four
         # statements the real-MySQL suite already covers.
-        candidates = await repo.list_active(team_id)
+        if candidates is None:
+            candidates = await repo.list_active(team_id)
     except Exception as e:  # noqa: BLE001 — see docstring
         logger.warning(f"[errand] stale sweep failed team={team_id}: {e}")
         return []
@@ -389,24 +406,50 @@ async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
     # possibly many rows, so keying on the item would turn one sweep into N
     # activity reads.
     stale = []
-    live_by_assignee: dict[str, bool] = {}
+    # Keyed by (assignee, channel), matching the QUERY's own composite key.
+    #
+    # `bus_agent_activity` is one row per (agent_id, channel_id) and `get_one`
+    # is a LIMIT 1 with no ORDER BY, so caching on the agent alone would let a
+    # verdict from one room decide an errand in another — the exact shape
+    # `detect_stalled_items` carries a comment about, from an incident. A team
+    # having a single room makes this unreachable today, but nothing enforces
+    # that (`create_item` takes any channel_id) and the unsafe direction here
+    # is cancelling a row that should have stayed.
+    live_by_owner: dict[tuple, bool] = {}
     for item in aged:
         assignee = item.assignee_id or ""
-        if assignee and assignee not in live_by_assignee:
+        key = (assignee, item.channel_id)
+        if assignee and key not in live_by_owner:
             try:
                 row = await db.get_one(
                     "bus_agent_activity",
                     {"agent_id": assignee, "channel_id": item.channel_id},
                 )
-                live_by_assignee[assignee] = is_live(row)
+                live_by_owner[key] = is_live(row)
             except Exception as e:  # noqa: BLE001 — unreadable activity = unknown
                 # Unknown is not "idle". Treating it as idle would expire rows
                 # on a DB hiccup, which is the irreversible direction here.
                 logger.debug(f"[errand] activity lookup failed for {assignee}: {e}")
-                live_by_assignee[assignee] = True
-        if live_by_assignee.get(assignee, False):
+                live_by_owner[key] = True
+        if live_by_owner.get(key, False):
             continue
         stale.append(item)
+
+    # Bounded per sweep. Expiry arrives in BURSTS — a room that was busy
+    # yesterday can have hundreds of rows come due in the same minute — and
+    # this loop now runs inside the bus poll cycle, whose per-team work sits in
+    # front of every agent's message dispatch. `set_status` is a read then a
+    # write, so an unbounded burst would hold that cycle for about a second.
+    #
+    # Whatever is left is retired next cycle (3-12s later); nothing is dropped,
+    # only deferred. Announced rather than silently trimmed (iron rule #16).
+    if len(stale) > MAX_EXPIRIES_PER_SWEEP:
+        logger.info(
+            f"[errand] {len(stale)} errands due for expiry in team={team_id}; "
+            f"retiring {MAX_EXPIRIES_PER_SWEEP} this sweep, "
+            f"{len(stale) - MAX_EXPIRIES_PER_SWEEP} to follow"
+        )
+        stale = stale[:MAX_EXPIRIES_PER_SWEEP]
 
     expired: List[str] = []
     for item in stale:

@@ -478,6 +478,79 @@ async def test_the_recycle_happens_before_the_cadence_is_judged(db_client, repo)
 
 
 @pytest.mark.asyncio
+async def test_one_sweep_retires_a_bounded_number(db_client, repo):
+    """Expiry arrives in bursts, and this sweep now runs inside the poll cycle.
+
+    A room busy yesterday can have hundreds of rows come due in the same
+    minute, at two queries each, in front of every agent's message dispatch.
+    The remainder is retired on the next cycle — deferred, never dropped, which
+    the second call asserts.
+    """
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        MAX_EXPIRIES_PER_SWEEP,
+        expire_stale_errands,
+    )
+
+    old = utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)
+    total = MAX_EXPIRIES_PER_SWEEP + 3
+    for i in range(total):
+        opened = (await record_handoffs(
+            db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+            mentions=[f"agent_{i}"], text=f"task {i}", message_id=f"m_{i}",
+        ))[0]
+        await db_client.update(
+            "team_work_items", {"item_id": opened}, {"created_at": old}
+        )
+
+    first = await expire_stale_errands(db_client, TEAM)
+    second = await expire_stale_errands(db_client, TEAM)
+
+    assert len(first) == MAX_EXPIRIES_PER_SWEEP
+    assert len(second) == 3
+    assert await repo.list_active(TEAM) == []
+
+
+@pytest.mark.asyncio
+async def test_liveness_in_one_room_does_not_reprieve_another(db_client, repo):
+    """`bus_agent_activity` is keyed by (agent, channel), so the cache must be.
+
+    Unreachable while a team has exactly one room, and nothing enforces that —
+    `create_item` takes any channel_id. The unsafe direction is the one under
+    test: a verdict of "idle over there" cancelling a row here would retire an
+    errand that should have stayed, and the report would read it as expired
+    rather than delivered.
+    """
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        expire_stale_errands,
+    )
+
+    other_room = "ch_second_room"
+    here = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A3, message_id="m_here"))[0]
+    there = (await record_handoffs(
+        db_client, team_id=TEAM, channel_id=other_room, from_agent=LEAD,
+        mentions=[A3], text="the other room", message_id="m_there",
+    ))[0]
+    old = utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)
+    for item_id in (here, there):
+        await db_client.update(
+            "team_work_items", {"item_id": item_id}, {"created_at": old}
+        )
+    # A3 is running HERE and has no activity row for the other room.
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": A3, "channel_id": CHANNEL, "state": "running",
+        "started_at": old, "updated_at": utc_now(),
+    })
+
+    expired = await expire_stale_errands(db_client, TEAM)
+
+    assert expired == [there]
+    assert (await repo.get(here)).status == WorkItemStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
 async def test_a_hand_off_still_being_worked_on_is_not_expired(db_client, repo):
     """Age is the trigger; "nobody is on it" is the question.
 
@@ -806,6 +879,42 @@ def test_the_group_im_protocol_carries_the_same_rule():
 
     assert "Do not promise future work" in COMMUNICATION_PROTOCOL_DIRECT
     assert "Do not promise future work" in COMMUNICATION_PROTOCOL_GROUP
+
+
+def test_the_protocol_does_not_model_the_thing_it_forbids():
+    """The rule and the worked example next to it have to agree.
+
+    They did not: the "conversation is too frequent" bullet offered
+    "Let me work on it and share results when ready" as the sentence to copy,
+    one line under a new rule saying never to promise future work — and
+    `is_promise_only` matches that sentence verbatim (`\\blet me (…|work on)\\b`).
+    A model choosing between an abstract rule and a quoted example copies the
+    example, and this fires in the one situation most likely to produce a
+    promise.
+
+    IM group channels have no work board behind them (`record_handoffs` runs on
+    the team-room path only), so in those channels this prompt is the whole
+    mechanism.
+
+    Asserted with the repository's OWN definition rather than a substring
+    match, so the two cannot drift apart again: whatever the example becomes,
+    it has to pass the same classifier the feature runs on live messages.
+    """
+    import re
+
+    from xyz_agent_context.channel.channel_prompts import (
+        COMMUNICATION_PROTOCOL_GROUP,
+    )
+
+    line = next(
+        ln for ln in COMMUNICATION_PROTOCOL_GROUP.splitlines()
+        if "For example:" in ln
+    )
+    example = re.search(r'For example: "([^"]+)"', line).group(1)
+
+    assert is_promise_only(example) is False, (
+        f"the protocol's worked example is itself a promise: {example!r}"
+    )
 
 
 # ===========================================================================
