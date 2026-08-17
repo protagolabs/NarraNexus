@@ -145,16 +145,26 @@ def _resilient_connection_worker_thread(tx) -> None:
 # lock class back with a green suite. Fail at import instead — the version floor
 # in pyproject.toml is the other half of this guard, and two tests assert the
 # patches are installed.
-for _required in ("_connection_worker_thread", "_STOP_RUNNING_SENTINEL", "LOG"):
+# All FIVE names `_resilient_connection_worker_thread` resolves at call time.
+# `set_result` / `set_exception` are the ones that must not be missed: they are
+# READS, so a rename does not degrade quietly — it raises AttributeError inside
+# the worker's `try`, lands in `except BaseException`, and the handler's own
+# `aiosqlite.core.set_exception` raises again with nobody left to catch it. The
+# worker thread dies holding an open connection, which is the exact failure this
+# whole module exists to remove, now as a daemon thread and therefore quieter.
+for _required in (
+    "_connection_worker_thread",
+    "_STOP_RUNNING_SENTINEL",
+    "LOG",
+    "set_result",
+    "set_exception",
+):
     if not hasattr(aiosqlite.core, _required):
         raise ImportError(
             f"aiosqlite.core.{_required} is gone — the worker-thread hardening in "
             f"{__name__} targets aiosqlite internals and must be re-checked "
             f"against the installed version before this module can be trusted"
         )
-if not hasattr(aiosqlite.core.Connection, "__init__"):  # pragma: no cover
-    raise ImportError("aiosqlite.core.Connection.__init__ is gone")
-
 _upstream_connection_init = aiosqlite.core.Connection.__init__
 
 

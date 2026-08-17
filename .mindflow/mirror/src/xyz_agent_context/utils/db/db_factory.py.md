@@ -129,10 +129,17 @@ reintroduce the exact cross-loop bug we're fixing. When
 `asyncio.run_coroutine_threadsafe(client.close(), loop).result(timeout=5)`.
 If the origin loop is already closed, the client is closed on the
 CURRENT loop instead (2026-07-13). The earlier "drop the entry, process
-exit reclaims it" assumption was wrong for the SQLite backend: aiosqlite
-runs a NON-daemon worker thread per connection, so an unclosed client
-blocks interpreter shutdown forever — this was the "pytest prints its
-summary then hangs" bug. Cross-loop close is safe precisely because the
+exit reclaims it" assumption was wrong for the SQLite backend. It was
+originally wrong because aiosqlite ran a NON-daemon worker thread per
+connection, so an unclosed client blocked interpreter shutdown forever —
+the "pytest prints its summary then hangs" bug. **That is no longer the
+reason (2026-08-17):** [[db_backend_sqlite.py]] now makes that worker a
+daemon thread, so it cannot hold the process open. The assumption is
+still wrong, for the reason that outlived the hang — a daemon thread is
+KILLED wherever it stands at interpreter exit, so this close is the only
+point at which the connection's writes are drained and its SQLite locks
+released on purpose rather than by process death. Do not drop the close
+because the hang stopped happening. Cross-loop close is safe precisely because the
 origin loop is gone: aiosqlite's close() only needs *a* running loop.
 
 **`SYNC_KEY = -1` pseudo-loop-id for the sync bootstrap path.**

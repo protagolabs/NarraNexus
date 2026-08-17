@@ -171,6 +171,20 @@ def test_a_write_abandoned_by_its_loop_leaves_the_connection_closable(tmp_path):
         deadline = asyncio.get_running_loop().time() + 1.0
         while not handed_over:
             if asyncio.get_running_loop().time() > deadline:
+                # The likeliest cause is that `execute_write` already died
+                # BEFORE reaching put_nowait. Re-raise that instead of reporting
+                # the symptom: `task.cancel()` is a no-op on a finished task, so
+                # the real exception would otherwise surface only as a stray
+                # "Task exception was never retrieved" during GC, and this file's
+                # whole complaint is about guards that fail without pointing
+                # anywhere.
+                if task.done() and not task.cancelled():
+                    original = task.exception()
+                    if original is not None:
+                        raise AssertionError(
+                            "execute_write failed before handing its statement "
+                            "to the worker queue"
+                        ) from original
                 task.cancel()
                 pytest.fail(
                     "execute_write never handed its statement to the worker "
