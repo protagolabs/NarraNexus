@@ -530,7 +530,10 @@ class NarrativeService:
 
         if narrative_persistence == "durable":
             created = await self._retrieval.create_from_query(
-                agent_id=agent_id, user_id=user_id, query=query_text
+                query=query_text,
+                user_id=user_id,
+                agent_id=agent_id,
+                narrative_type=NarrativeType.CHAT,
             )
             logger.info(
                 f"[NarrativeSelect] no durable topic and no anchor — created "

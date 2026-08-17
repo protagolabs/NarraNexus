@@ -46,3 +46,27 @@ PR #25 把两处 `OpenAIAgentsSDK()` 直接实例化改成 `get_helper_sdk()`（
 `llm_judge_unified` 各一处）。意图与全仓一致——judge 用的 helper LLM 不绑死在 OpenAI
 Agents SDK 上（铁律 #9），底层可换而本文件不动。`model` / `reasoning_effort` 仍取自
 `config.NARRATIVE_JUDGE_LLM_*`，调用契约不变，无判定逻辑改动。
+
+## 2026-08-16 — 空候选集不再提前返回（C-1 真机暴露的死代码激活）
+
+`llm_judge_unified` 开头那句
+`if not search_candidates and not default_candidates and not participant_candidates: return`
+**在旧世界是死代码**——default 候选恒为 8 条，条件永不成立。C-1 把桶从菜单里
+拿掉，等于**把它激活了**，而且激活在最坏的位置：
+
+无实词的消息（"哈哈哈"）BM25 零重叠 → 池空 → 这句提前返回 →
+`matched_type=None` → 调用方读成"什么都没匹配上，那就新建" → **在会话明明持有
+真实线锚点的情况下开了一条新线**，正是 C-1 要防的碎片化；ephemeral（voice）轮
+也因此建了线，破掉它自己"不留痕"的契约。
+
+**判断依据**："没有候选" ≠ "没有话题"。空池 + 实质首任务**应该**新建，
+空池 + 寒暄**不应该**。这个区分只有模型能做，而空菜单下它的答案恰好就是我们
+需要的二元：`no_durable_topic`（交给 select 的 anchor-first 落点）或 `none`
+（真新主题，值得开线）。多付一次 helper 调用，换掉一个此前一直做错的决策。
+
+配套：`## Existing Topics:` 段**空列表时也渲染**，写明 "(none — …)"。
+不然模型是在一个根本没渲染出来的清单里选。
+
+钉住它的测试：`tests/narrative/test_no_topic_reachability.py`。它 stub 的是
+`get_helper_sdk`（网络边界），**不是** `_llm_judge_unified`（我们自己的逻辑）
+——第一版测试 stub 了后者，于是这条早退从未被执行，14 个测试全绿而功能不可达。

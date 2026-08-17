@@ -133,6 +133,16 @@ def service_no_topic(monkeypatch):
 
     svc = _service(spy)
 
+    # No live helper LLM in a unit test: without this the continuity tier ran
+    # for real (the fixture sets last_query/last_response), so the suite was
+    # quietly billing a provider and inheriting its flakiness.
+    class _NotContinuous:
+        async def detect(self, **kwargs):
+            return SimpleNamespace(is_continuous=False, confidence=1.0,
+                                   reason="stubbed: not continuous")
+
+    svc._get_continuity_detector = lambda: _NotContinuous()
+
     async def _retrieve(**kwargs):
         from xyz_agent_context.narrative.models import NarrativeSelectionResult
 
@@ -141,12 +151,23 @@ def service_no_topic(monkeypatch):
             is_new=False, no_durable_topic=True,
         )
 
-    async def _create(agent_id, user_id, query):
-        spy.created.append(query)
+    # Autospec'd off the REAL method, not hand-written: a hand-written double
+    # with the wrong parameter list is how Bug B (missing `narrative_type`)
+    # survived a fully green suite on 2026-08-16. The double must fail when the
+    # caller is wrong, not agree with it.
+    from unittest.mock import create_autospec
+
+    creator = create_autospec(NarrativeRetrieval, instance=True).create_from_query
+
+    async def _record(*a, **kw):
+        spy.created.append(kw.get("query"))
         return created
 
+    creator.side_effect = _record
+    creator.return_value = created
+
     svc._retrieval = SimpleNamespace(
-        retrieve_top_k=_retrieve, create_from_query=_create
+        retrieve_top_k=_retrieve, create_from_query=creator
     )
 
     def _sync_anchor(*_a, **_k):

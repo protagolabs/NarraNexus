@@ -214,3 +214,22 @@ AgentRuntime 在编排流水线时不应该知道"向量检索是怎么做的"�
 `select()` 返回 `NarrativeSelectionResult`，不是 `List[Narrative]`——新代码如果直接当列表用会报属性错误。正确用法是 `result.narratives[0]` 取主 Narrative。
 
 `session` 参数是**可变引用**：`select()` 内部会直接修改 `session.current_narrative_id`、`session.last_query` 等字段，调用方必须在 `select()` 之后再调用 `session_service.save_session(session)` 来持久化，否则下一次请求看到的 session 还是旧状态。
+
+## 2026-08-16 — `_land_no_topic_turn` 的建线分支签名修正
+
+`create_from_query` 的真实签名是
+`(query, user_id, agent_id, narrative_type)`，`narrative_type` 必填。
+`_land_no_topic_turn` 漏了它 → 每一个走到"无锚点 + durable → 建线"的真实轮次
+都 `TypeError`。真机 2026-08-16 崩在这里。
+
+**为什么单测没抓到**：fixture 手写了一个三参数的 `create_from_query` double，
+**把错的调用形状固化成了"契约"**。现已改为
+`create_autospec(NarrativeRetrieval, instance=True).create_from_query`——
+签名由真实方法强制，调用错了测试就红。
+
+同一次修正还发现 `service_no_topic` fixture 没 stub 连续性检测器，导致这套
+单测**在真打 helper LLM**（110 秒 → 0.09 秒）。单测不得依赖供应商。
+
+一般教训（与 step_4 那条"内存对象撒谎"同源）：**stub 掉的边界就是 bug 的
+藏身处**。只 stub 你不拥有的东西（网络、时钟、DB），永远不要 stub 正在被测的
+那段逻辑；double 的签名要从真实符号推导，不要手写。

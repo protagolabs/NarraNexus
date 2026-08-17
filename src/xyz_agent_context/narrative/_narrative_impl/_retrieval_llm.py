@@ -63,8 +63,23 @@ async def llm_judge_unified(
             "reason": str
         }
     """
-    if not search_candidates and not default_candidates and not participant_candidates:
-        return {"matched_id": None, "matched_type": None, "reason": "No candidates"}
+    # NO early return on an empty candidate set — deliberately.
+    #
+    # It used to bail out here with `matched_type=None`, which the caller reads
+    # as "nothing matched, so create". That was harmless only because eight
+    # default buckets were always in the menu, so the branch was unreachable.
+    # Bucket governance (C-1) emptied the menu and thereby ACTIVATED it, with
+    # the worst possible aim: a contentless message has near-zero term overlap,
+    # so an empty pool is precisely the case where the verdict matters most.
+    # Live probe 2026-08-16: a bare "哈哈哈" opened a new thread while the
+    # session held a good anchor, and an ephemeral voice turn created a
+    # narrative against its own no-trace contract.
+    #
+    # "No candidates" is not an answer to "does this turn carry a durable
+    # topic". Only the model can answer that, and with an empty menu its answer
+    # is exactly the binary we need: `no_durable_topic` (land it anchor-first)
+    # or `none` (a real new subject deserves a thread). The extra helper call
+    # buys the decision that was previously being made wrongly for free.
 
     has_participant_context = participant_candidates and len(participant_candidates) > 0
 
@@ -99,7 +114,15 @@ async def llm_judge_unified(
                     user_input += f"Examples: {', '.join(candidate['examples'][:3])}\n"
                 user_input += "\n"
 
-        # 2. Search results (BM25 keyword candidates)
+        # 2. Search results (BM25 keyword candidates). The header is rendered
+        # even when the list is empty: with nothing to match against, the model
+        # must be told that explicitly rather than left to infer it from a
+        # section that simply is not there.
+        if not search_candidates:
+            user_input += (
+                "## Existing Topics:\n\n(none — this user has no existing "
+                "topics that overlap this message)\n\n"
+            )
         if search_candidates:
             user_input += "## Existing Topics:\n\n"
             for i, candidate in enumerate(search_candidates):
