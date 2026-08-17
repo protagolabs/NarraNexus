@@ -6,21 +6,22 @@
 
 `tests/mysql_dialect.py` exists so that "run this against a real MySQL" is
 described in one place, and its docstring is honest that it did not finish the
-job: only one of the nine twins imports it, the other eight each keep their own
-`MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"`.
+job: at the time of writing exactly one twin imports it and the rest each keep
+their own `MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"`.
 
-Nine copies of a string are fine right up until one of them changes. The
-failure mode is the nasty kind: rename the env var in the helper (or in CI) and
-the eight copies stop matching, their `skipif` fires, and **eight dialect twins
-report green while executing nothing**. That is the exact regression the
+Copies of a string are fine right up until one of them changes. The failure mode
+is the nasty kind: rename the env var in the helper (or in CI) and the copies
+stop matching, their `skipif` fires, and **those dialect twins report green while
+executing nothing**. That is the exact regression the
 `backend-tests` CI job was added to prevent, arriving through the one door the
 job cannot see — a skip is not a failure.
 
 So until the copies are migrated, the invariant is enforced from outside: every
-twin's gate names the same variable, and the CI workflow passes that same name.
+`*_mysql.py` twin's gate names the same variable, and the CI workflow passes that
+same name to the step that runs the suite.
 This test needs no MySQL and no container; it reads files.
 
-Whoever migrates the eight into `tests.mysql_dialect` should keep this test —
+Whoever migrates the copies into `tests.mysql_dialect` should keep this test —
 it then guards the helper against CI drifting away from it, which is the half
 that survives the refactor.
 """
@@ -54,7 +55,7 @@ def _canonical_env_name() -> str:
         pytest.fail(
             f"{_HELPER.relative_to(_REPO)} is gone — it is where the canonical "
             f"MySQL gate env var name is declared, so there is nothing left to "
-            f"check the nine dialect twins against"
+            f"check the dialect twins against"
         )
     found = re.search(r'^MYSQL_URL_ENV\s*=\s*"([^"]+)"', _HELPER.read_text(), re.M)
     if found is None:
@@ -78,13 +79,21 @@ def test_the_helper_still_declares_the_env_var_name():
 def test_there_are_dialect_twins_to_check():
     """A glob that matches nothing passes every assertion about its members. If
     the twins are ever renamed out of the `*_mysql.py` shape, this test is the
-    thing that notices instead of the suite quietly checking nothing."""
-    assert len(_twins()) >= 9, f"expected the nine dialect twins, found {_twins()}"
+    thing that notices instead of the suite quietly checking nothing.
+
+    A floor, not a count: adding a tenth twin must not make anything stale. The
+    prose in this file says "every `*_mysql.py` twin" for the same reason.
+    """
+    found = _twins()
+    assert found, (
+        "no `*_mysql.py` dialect twins found at all — either they were renamed "
+        "out of that shape, or this file is now checking nothing"
+    )
 
 
 def test_every_twin_gates_on_the_canonical_env_var_name():
-    """Eight of the nine hold their own copy of the name. A copy that drifts does
-    not fail — it skips, and a skip is green."""
+    """Most of them hold their own copy of the name. A copy that drifts does not
+    fail — it skips, and a skip is green."""
     canonical = _canonical_env_name()
     offenders: dict[str, list[str]] = {}
 
@@ -100,8 +109,16 @@ def test_every_twin_gates_on_the_canonical_env_var_name():
         # — prose updated, own gate deleted, import not added yet — would be
         # waved through with NO gate at all. This file's own docstring invites
         # exactly that migration, so that state is not hypothetical.
+        # Every real way to import it, including `from tests import
+        # mysql_dialect` — matching only the dotted forms false-reds the exact
+        # migration this file's docstring invites, and a false red is how a guard
+        # gets "relaxed" out of existence.
         imports_helper = re.search(
-            r"^\s*(?:from\s+tests\.mysql_dialect\s+import|import\s+tests\.mysql_dialect)",
+            r"^\s*(?:from\s+tests\.mysql_dialect\s+import"
+            r"|import\s+tests\.mysql_dialect"
+            r"|from\s+tests\s+import\s+[^\n]*\bmysql_dialect\b"
+            r"|from\s+\.+\s*mysql_dialect\s+import"
+            r"|from\s+\.+\s*import\s+[^\n]*\bmysql_dialect\b)",
             text,
             re.M,
         ) is not None
@@ -163,7 +180,13 @@ def test_ci_passes_the_same_env_var_name_the_twins_read():
     if not steps:
         pytest.fail(f"the {_CI_JOB!r} job has no steps")
 
-    pytest_steps = [s for s in steps if "pytest" in str(s.get("run", ""))]
+    # `make test` is this repo's other way of running the suite (its target is
+    # `uv run pytest tests/ -v`), so matching only "pytest" would false-red on a
+    # perfectly good rewrite of the step.
+    pytest_steps = [
+        s for s in steps
+        if re.search(r"pytest|make\s+test", str(s.get("run", "")))
+    ]
     assert pytest_steps, (
         f"no step in the {_CI_JOB!r} job runs pytest any more — the job that "
         f"exists to execute the suite (and with it the dialect twins) stopped "

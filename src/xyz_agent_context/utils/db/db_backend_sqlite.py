@@ -143,8 +143,9 @@ def _resilient_connection_worker_thread(tx) -> None:
 # Assigning to an attribute upstream has renamed away succeeds SILENTLY, which
 # would turn both halves of this hardening into a no-op and bring the 5-minute
 # lock class back with a green suite. Fail at import instead — the version floor
-# in pyproject.toml is the other half of this guard, and two tests assert the
-# patches are installed.
+# in pyproject.toml rules out OLDER releases that never had these names; only
+# this check can catch a NEWER one that renames them, which is why it exists.
+# Two tests additionally assert both patches are installed.
 # The complete internal surface this module touches: the FOUR names
 # `_resilient_connection_worker_thread` resolves at call time (`LOG`,
 # `set_result`, `_STOP_RUNNING_SENTINEL`, `set_exception`) plus
@@ -170,6 +171,11 @@ for _required in (
     "LOG",
     "set_result",
     "set_exception",
+    # The class this module reaches into to wrap its constructor. Losing it is a
+    # bare AttributeError at the patch site rather than the actionable ImportError
+    # promised above. Unlike `Connection.__init__`, whose presence is guaranteed
+    # by inheritance, `Connection` itself can genuinely disappear.
+    "Connection",
 ):
     if not hasattr(aiosqlite.core, _required):
         raise ImportError(

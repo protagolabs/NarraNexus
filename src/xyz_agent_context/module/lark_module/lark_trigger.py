@@ -357,18 +357,10 @@ class LarkTrigger(ChannelTriggerBase):
         # (other channels report 0), and the H-5 historic-replay filter seeds
         # its dedup baseline from it on every reconnect.
         #
-        # A `_last_ws_connected_monotonic` sibling used to sit here (2026-08-17:
-        # removed). It was written on every reconnect and read by NOBODY, while
-        # this comment claimed the health server surfaced it — the snapshot has
-        # always used the wallclock field. It was also the fourth instance of
-        # `0.0`-against-`time.monotonic()` in this codebase, and the only one
-        # that could NOT be repaired the way the other three were: `-inf` is
-        # correct for a mark that is only ever differenced, but this field's
-        # stated purpose was to reach a JSON health payload, where an infinity
-        # serialises to an invalid `-Infinity` and turns "an ugly number" into
-        # "the whole response fails to parse". Deleting it was the only clean
-        # option; anyone adding WS-liveness observability should build on the
-        # wallclock field.
+        # A write-only `_last_ws_connected_monotonic` sibling was removed on
+        # 2026-08-17; why it existed, why nothing read it, and why `-inf` was the
+        # wrong repair for THIS field are in the mirror md. Build WS-liveness
+        # observability on the wallclock value above.
         self._last_ws_connected_wallclock_ms: int = 0
 
         # Per-(agent_id, app_id) bot open_id cache for the 2-layer echo

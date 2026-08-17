@@ -12,9 +12,12 @@ health server 通过 getattr 暴露"——健康快照
 `_last_ws_connected_wallclock_ms`，H-5 历史回放过滤器的 dedup baseline 也是从
 wallclock 那个字段种下的。所以注释承诺的消费者对 monotonic 这一份并不存在。
 
-顺带记一个已经不重要但说明它有多死的事实：原赋值语句在 `ws_start_monotonic`
-这个**局部变量被赋值之前**执行，所以它写进去的其实是上一轮循环的值（或初始
-`0.0`）。没人读，所以没人被咬。
+（2026-08-17 更正：本条最初还写着"原赋值语句在局部变量被赋值之前执行，写进去的
+是上一轮循环的值"——**那是错的**。`git show` 删除前的版本：`ws_start_monotonic`
+在 1101 行赋值，`self._last_ws_connected_monotonic = ws_start_monotonic` 在 1108
+行，同一轮迭代、七行之后，它一直拿的是本次尝试的起始时刻。写下这条时没有去核，
+而 Tier-2 是别人当事实读的那一层，所以留下这段更正而不是静静删掉。真实情况更简单：
+它一直被正确地写入，只是从来没有人读。）
 
 它同时是本仓 `0.0`-against-`time.monotonic()` 的第四处，也是**唯一不能照另外
 三处那样改成 `-inf`** 的一处：`-inf` 对"只参与差值、从不进 payload"的 mark 是

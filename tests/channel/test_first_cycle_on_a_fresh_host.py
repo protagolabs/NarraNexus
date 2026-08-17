@@ -56,8 +56,10 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 
 # Seven orders of magnitude past any plausible host uptime, so "the gate opened"
 # can only mean the sentinel cleared it — never "this machine happens to have
-# been up a while".
-_UNREACHABLE_INTERVAL = 1e12
+# been up a while". An int, because the class attributes it overrides are
+# annotated `: int` (a float there is a reportAssignmentType the moment pyright's
+# `include` grows to cover tests).
+_UNREACHABLE_INTERVAL = 10**12
 
 
 class _CaptureAuditRepo:
@@ -94,15 +96,34 @@ class _OneCredentialTrigger(ChannelTriggerBase):
     # every other channel test in the session.
     HEARTBEAT_INTERVAL_SECONDS = _UNREACHABLE_INTERVAL
     CLEANUP_INTERVAL_SECONDS = _UNREACHABLE_INTERVAL
-    CREDENTIAL_POLL_INTERVAL_SECONDS = 0
-    IDLE_POLL_INTERVAL_SECONDS = 0
+    # Small but non-zero: one pass is all this runs, and a 0 here would turn any
+    # future regression that stops the loop terminating into a hot spin instead
+    # of a wait. No IDLE_POLL override — with one credential the idle branch is
+    # unreachable, and pinning a value nothing reads reads like coverage.
+    CREDENTIAL_POLL_INTERVAL_SECONDS = 0.01
 
     def __init__(self):
         super().__init__()
         self.cleanup_calls = 0
+        self.passes = 0
 
     # ── abstract surface, all inert ──────────────────────────────────────
     async def load_active_credentials(self):
+        # Termination lives HERE, deliberately, and not in a gate.
+        #
+        # It used to live in the stubbed `_run_cleanup`, which made the exit
+        # condition the very thing under test: if the cleanup gate regressed,
+        # the loop never ended, `wait_for` cancelled it, and the only report was
+        # a bare TimeoutError — while `assert cleanup_calls == 1` could not fail
+        # at all, because it was never reached unless cleanup had already run.
+        # A tautology guarding a gate, reporting a timeout. Measured, not
+        # theorised: seed-semantics on the cleanup gate produced
+        # `E TimeoutError` with none of the authored text.
+        #
+        # `while self.running` is re-read only at the top of the body, so
+        # clearing it here still lets THIS pass finish both gates.
+        self.passes += 1
+        self.running = False
         return [object()]
 
     def _subscriber_key(self, credential) -> str:
@@ -112,12 +133,15 @@ class _OneCredentialTrigger(ChannelTriggerBase):
         return  # no transport in a unit test
 
     async def connect(self, credential):  # pragma: no cover — never reached
-        raise AssertionError("no credentials, so no subscriber should start")
+        raise AssertionError(
+            "_maybe_start_subscriber is stubbed out, so no transport is opened; "
+            "reaching connect() means that override was removed"
+        )
 
     def parse_event(self, raw):  # pragma: no cover
         return None
 
-    def is_echo(self, event) -> bool:  # pragma: no cover
+    async def is_echo(self, message, credential) -> bool:  # pragma: no cover
         return False
 
     async def resolve_sender_name(self, event, credential) -> str:  # pragma: no cover
@@ -131,16 +155,34 @@ class _OneCredentialTrigger(ChannelTriggerBase):
         return 0  # never spawn real workers
 
     async def _run_cleanup(self) -> None:
-        """Records the call instead of sweeping. The real sweep reads
-        `self._dedup_store._repo`, which only exists after `start()`."""
+        """Counts, and nothing else.
+
+        Not because the real sweep would fail here — it short-circuits on
+        `self._dedup_store is not None` and would run fine — but because "did
+        the gate open" is the whole question, and a counter answers it without
+        dragging the sweep's own behaviour into the verdict. It also writes no
+        mark: the loop ends after this pass, so maintaining one would be a dead
+        write suggesting multi-pass bookkeeping that does not exist.
+        """
         self.cleanup_calls += 1
-        self._last_cleanup_monotonic = asyncio.get_running_loop().time()
-        self.running = False  # exactly one pass
 
 
 async def _one_watcher_pass(trigger: _OneCredentialTrigger) -> None:
     trigger.running = True
-    await asyncio.wait_for(trigger._credential_watcher(), timeout=5)
+    try:
+        await asyncio.wait_for(trigger._credential_watcher(), timeout=5)
+    except TimeoutError:  # pragma: no cover — the regression path
+        # A timeout here means the loop never came back, and the bare
+        # `TimeoutError` asyncio raises points at `asyncio/timeouts.py`. Dump
+        # what the pass actually managed, or the next reader concludes "flaky
+        # async test" and relaxes the guard — which is how guards die.
+        pytest.fail(
+            "the credential watcher never completed one pass: "
+            f"passes={trigger.passes}, cleanup_calls={trigger.cleanup_calls}, "
+            f"audit={trigger._audit_repo.types()}, "
+            f"marks=(cleanup={trigger._last_cleanup_monotonic}, "
+            f"heartbeat={trigger._last_heartbeat_monotonic})"
+        )
 
 
 def test_the_marks_are_a_real_never_ran_sentinel():
@@ -169,6 +211,7 @@ async def test_the_first_watcher_pass_beats_and_sweeps():
 
     await _one_watcher_pass(trigger)
 
+    assert trigger.passes == 1, "the watcher body ran a number of times it should not"
     assert trigger.cleanup_calls == 1, (
         "the retention sweep did not run on the first pass — a new host would "
         "wait for its uptime to reach CLEANUP_INTERVAL_SECONDS"

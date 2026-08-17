@@ -49,6 +49,17 @@ loop 还活着却拒收回调是另一回事，那意味着 aiosqlite 里那句�
 "看不见的症状"。后者打 WARNING（事故清单第 3 条：异常过滤必须精确到类**和**
 上下文）。
 
+**第三层是 import 期的存在性检查**（这一层此前 mirror 没写，2026-08-17 补）。
+补丁读/写六个 `aiosqlite.core` 内部名：调用时解析的 `LOG` / `set_result` /
+`_STOP_RUNNING_SENTINEL` / `set_exception`，赋值目标 `_connection_worker_thread`，
+以及被包构造函数的 `Connection` 类本身。**给一个上游已经改名的属性赋值是静默成功
+的**，所以模块导入时逐个 `hasattr` 检查，缺任何一个就抛 `ImportError` 而不是让
+加固悄悄降级成 no-op。`Connection.__init__` **故意不在这个元组里**——
+`hasattr(cls, "__init__")` 对任何类恒真，那是条恒真守卫（曾经有过，已删）；它真正
+的兜底是 `_daemon_worker_connection_init` 里的 `hasattr(self, "_thread")`。
+`pyproject.toml` 的 `aiosqlite>=0.22.1` 只排除**更旧**的版本；**更新**的版本改名
+只能靠这一层抓。
+
 配套修复见 [[db_factory.py]]（驱逐时真的关连接）。守卫见
 `tests/utils/db/test_sqlite_orphaned_connections.py`，其中两条分别断言这两个
 猴补丁**确实装上了**（投递函数被替换、worker 是 daemon）——它们都是 import 副
