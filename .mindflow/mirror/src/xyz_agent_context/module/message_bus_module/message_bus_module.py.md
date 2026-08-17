@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-16
+last_verified: 2026-08-17
 stub: false
 ---
 ## 2026-08-16 — 静态段里最响的那句，正是 team 房间逐字反驳的那句
@@ -28,8 +28,8 @@ stub: false
   顺手删掉尾巴「unread cursor advances appropriately」——同一个游标下面两行的
   resurfacing 规则已经讲得又准又有作用域，这是第三份含混说法。
 - **`[MessageBus · …]` = "另一个 agent，不是你的 owner"**：这个标签标的是**路由**，
-  不是发送者的物种。team 房间里用户自己以 `usr_<id>` 发言，会同时进未读列表和 input
-  源标签——于是**老板本人说的话被声明为"这是台机器"**，还紧挨着一条"跳过寒暄"。
+  不是发送者的物种。team 房间里用户自己以 `usr_<id>` 发言，会进未读列表（当时也以为
+  会进 input 源标签——**2026-08-17：那条路从未执行，已退役，见下**）——于是**老板本人说的话被声明为"这是台机器"**，还紧挨着一条"跳过寒暄"。
   改成「usually another agent，但**人也会在 bus 上说话**，读标签里的发送者，别默认是机器」。
 
 配套 `_render_sender()`：`usr_*` 在未读列表里渲染成 `User`。
@@ -103,11 +103,18 @@ agent"剧本第 4 步的识别信号，也就是唯一把答案回报给 owner �
 带默认值，指令里那个示例仍可由两个字面量构造。
 
 测试：`tests/message_bus/test_visibility_wording.py`（该文件的立意就是"静态段的每句话
-必须在它到达的每个房间里成立"）现共 18 条。其中**跨文件契约**一条：断言
+必须在它到达的每个房间里成立"）现共 20 条。其中**跨文件契约**一条：断言
 `_build_team_prompt` 确实做了本模块规则所依赖的承诺（"替你上墙" + "禁止用投递工具"）
 ——此前无人守，trigger 那边一次改词就能把本模块的规则重新变成谎话。另有一条断言那段
 死分支是**被删掉**而不是留着不可达（只看代码行、跳过注释，因为留下的注释故意点名了
-两个死键）。
+两个死键；断言用**裸标识符**，否则加个默认值参数就能绕过）。
+
+**并且，本轮一度自己弄丢了三条测试。** 删 I4 测试时是按两个函数名之间切片做的，切走
+了夹在中间的三条无关测试，其中两条的断言**无人接手**：一条守"标签不声称发送者是机器"
+（**本 PR 第一个 commit 的第 3 项头牌修复**），一条守沉默规则（"Just stop the turn" 的
+退场，以及第二轮 M1 收的作用域）。而当时的 commit 与本条目都写着"18 条"，读起来像增长。
+两条已恢复并在文件里标注了来龙去脉。教训与前两轮同源：**这个文件本身就是为了让某些
+句子不能被悄悄改回去而存在的，它的守卫少了两个而没人发现，比句子被改回去更糟。**
 
 `tests/module/test_a2a_ask_another_agent_guidance.py` 里那条 `assert "plain text"`
 **锁的是机制**，随之改为锁义务（`has to REACH them`）——它写的时候机制还是普适的，
@@ -287,6 +294,13 @@ Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有�
 **每一个**场景一视同仁地注入,包括 owner 私聊、job、以及各 IM 渠道的轮次。本文件里
 唯一读 `working_source` 的地方只用来给 input 加 `[MessageBus · …]` 源标签。
 
+> **2026-08-17 更正（重要，别照着删代码）**：上面这句现在两半都不成立。给 input 加
+> 源标签的那段**从未执行过、已删除**（见同日条目）。本文件如今读 `working_source`
+> 的是 `owns_working_source` → `get_expressive_tools`——**那是活的**，它让 bus 轮次
+> 的默认回复工具跟着"谁联系的你"走，正是 2026-08-01 briefing squad P0（只声明
+> owner-chat 工具导致干完的活落进 owner 窗口、求助者永远收不到）的修复。看到"源标签
+> 分支已删"就顺手清 `working_source` 读点的话，会把那个 P0 重新打开。
+
 这句反话的代价是它掩盖了真实形状:团队房间的未读因为读游标死锁而无限堆积,再被原样
 灌进该 agent 所有场景的上下文。游标已在 2026-08-11 修复(见 `local_bus` 与
 `message_bus_trigger` 的同日条目),注入范围本身保持不变 —— 那是「顺带瞥一眼群里
@@ -303,6 +317,10 @@ Module 实例是 Agent-level 的，但 `hook_data_gathering()` 运行时的 `age
 `MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.hook_data_gathering()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
 
 ## 2026-08-11 — 未读注入:窗口取最新、总数单独查、源标签取对头
+
+> **2026-08-17**：本条末尾那段「源标签取对头」（`unread_models[0]` → `[-1]`）描述的
+> 是 input 源标签分支。该分支从未执行过，已删除；这一段仅作历史记录，不要据此推断
+> 今天还有输入前缀。
 
 抓取改为把上限**下推进查询**并取**最新** N 条。此前是拿全量再 Python 切片,切的是
 oldest-first 列表的头部 —— 拿到的是积压里最古老的那些;再叠加 team 房间读游标永不

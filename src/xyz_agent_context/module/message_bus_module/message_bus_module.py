@@ -11,10 +11,15 @@ Instance level: Agent-level (one per Agent, is_public=True).
 
 Behavior design:
 - Reply Discipline: prevent infinite trigger loops between agents
-- Selective mark_read: messages the agent ignores stay unread (resurface next turn)
+- Selective mark_read: a DM the agent ignores stays unread and resurfaces next
+  turn. NOT true of a team room, which delivers by rendering its scrollback and
+  advances the read cursor once a turn has run, answered or not
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
-- Source recognition: incoming bus messages are prefixed with [MessageBus · ...]
-  so the agent can distinguish them from owner commands
+- Source recognition: entries in the unread list are tagged
+  [MessageBus · sender · channel] (see `_bus_tag`). This is the ONLY place the
+  tag appears — a branch that prefixed the turn's INPUT with it was deleted on
+  2026-08-17 after it turned out never to have executed; do not describe an
+  input prefix here again without checking that one exists
 """
 
 from __future__ import annotations
@@ -290,9 +295,14 @@ class MessageBusModule(XYZBaseModule):
             # two cannot drift — the previous version taught a four-field tag
             # against a three-field renderer, which mattered the moment the
             # rules started telling the agent to READ the sender out of it.
-            "Your **Unread Messages** list (in the MessageBus turn context) tags every entry with "
-            f"its sender and channel, e.g.: `{_bus_tag('agent_xxx', 'ch_yyy')}` — sender first, "
-            "then the channel",
+            # No parenthetical naming WHERE the list lives. It rides
+            # `get_turn_context` only while the R4 relocation flag is on; with
+            # the flag off (a fail-open ops gate) the same lists are appended to
+            # this very block instead, and the heading is absent entirely when
+            # there are no unreads. Naming a section that a config switch can
+            # move is the same class of claim this whole change is removing.
+            "Your **Unread Messages** list tags every entry with its sender and channel, e.g.: "
+            f"`{_bus_tag('agent_xxx', 'ch_yyy')}` — sender first, then the channel",
             # The tag marks the ROUTE, not the species of whoever sent it. A
             # team room carries its owner's own messages over the bus (sender
             # `usr_<id>`), so the old flat "another agent, NOT from your owner"

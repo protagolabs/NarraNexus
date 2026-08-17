@@ -232,8 +232,12 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
         if not ln.lstrip().startswith("#")
     )
 
-    assert 'extra_data["input_content"]' not in code
-    assert 'extra_data.get("working_source")' not in code
+    # Bare identifiers, not the exact call spellings: asserting on
+    # `extra_data.get("working_source")` would be defeated by adding a default
+    # argument, and `extra_data["input_content"]` by switching to `.get()`.
+    # Neither name has any other legitimate use in this method today.
+    assert "input_content" not in code
+    assert "working_source" not in code
 
 
 def test_the_worked_example_is_the_tag_the_code_actually_emits():
@@ -376,3 +380,55 @@ def test_an_ordinary_peer_and_an_ordinary_person_are_unaffected():
     assert "User" in human and "usr_a1b2c3" not in human
     assert "agent_peer" in peer
     assert "[system]" not in human and "[system]" not in peer
+
+
+# ── Restored 2026-08-17 ─────────────────────────────────────────────────────
+#
+# These two were swept away as collateral when the input-source-tag test was
+# removed with its branch (the deletion was done by slicing between two
+# function names, and three unrelated tests sat inside the slice). Nothing
+# took over their assertions, and the round that dropped them reported the
+# file as "18 tests" — growth, not loss.
+#
+# What went unguarded meanwhile is not incidental: these pin change #3 and
+# change #2 of this PR's own first commit, plus the M1 scoping from the
+# second. A file whose entire purpose is "the static rules must be true in
+# every room" cannot silently stop guarding the sentences the PR was opened
+# to fix.
+
+
+def test_silence_is_producing_nothing_not_merely_calling_nothing():
+    """"Just stop the turn" is a tool-call instruction on a text-delivery surface.
+
+    Where the reply auto-posts, ending the turn with any leftover text still
+    sends a message — so "do not call the tool" does not add up to silence and
+    the rule has to say what silence actually costs.
+    """
+    line = next(
+        ln for ln in _static_text().splitlines()
+        if "choose silence explicitly" in ln
+    )
+
+    # No trailing period in the negative: re-adding "Just stop the turn" with
+    # any other punctuation would have sailed past the first version of this.
+    assert "just stop the turn" not in line.lower()
+    # And silence is toward the BUS. This same block obliges an owner relay
+    # forty lines down ("never suppresses reporting back to your owner"), so an
+    # unqualified "no reply text at all" can swallow the answer a person is
+    # waiting for. The tightened phrase is the assertion — not the loose
+    # "no reply text", which the pre-M1 wording also satisfied.
+    assert "no reply text to the bus conversation" in line
+
+
+def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
+    """A team room carries its owner's OWN messages over the bus.
+
+    They reach the unread list as `usr_<id>`, so a flat "this came from another
+    agent, NOT from your owner" is false exactly where a person is waiting for
+    an answer, and it arrives attached to a rule that says to drop the
+    pleasantries.
+    """
+    text = _static_text()
+
+    assert "NOT from your owner" not in text
+    assert "a person can speak on the bus" in text
