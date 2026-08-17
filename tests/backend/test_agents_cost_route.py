@@ -20,6 +20,8 @@ Covers:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 
@@ -69,6 +71,20 @@ async def _seed_agent(db, agent_id="agent_a", created_by=VIEWER):
     })
 
 
+# The endpoint's window is `days=7` back from NOW. Seeding an absolute
+# timestamp therefore writes a test that passes for a week and then fails
+# forever — which is what "2026-07-30 08:00:00" did here, red since 2026-08-06
+# with nothing running pytest to say so.
+#
+# One anchor for every row, two hours back: inside the window on any day, and
+# unambiguously ONE daily bucket, which is what the `daily` assertions need.
+# Two rows two hours apart would straddle midnight for anyone running the
+# suite at the wrong moment — the same bug in a smaller size.
+_ANCHOR = datetime.now(timezone.utc) - timedelta(hours=2)
+_ANCHOR_SQL = _ANCHOR.strftime("%Y-%m-%d %H:%M:%S")
+_ANCHOR_DATE = _ANCHOR.strftime("%Y-%m-%d")
+
+
 async def _seed_cost(db, **overrides):
     row = {
         "agent_id": "agent_a",
@@ -80,7 +96,7 @@ async def _seed_cost(db, **overrides):
         "total_cost_usd": 0.0,
         "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0,
-        "created_at": "2026-07-30 08:00:00",
+        "created_at": _ANCHOR_SQL,
     }
     row.update(overrides)
     await db.insert("cost_records", row)
@@ -110,7 +126,6 @@ async def test_aggregation_includes_cache_buckets(db_client, monkeypatch):
         cache_read_input_tokens=281_434,
         cache_creation_input_tokens=47_003,
         total_cost_usd=0.191,
-        created_at="2026-07-30 09:00:00",
     )
 
     client = _build_client(db_client, monkeypatch)
@@ -135,7 +150,7 @@ async def test_aggregation_includes_cache_buckets(db_client, monkeypatch):
     assert helper["cache_creation_tokens"] == 47_003
 
     (daily,) = summary["daily"]
-    assert daily["date"] == "2026-07-30"
+    assert daily["date"] == _ANCHOR_DATE
     assert daily["cache_read_tokens"] == 1_016_581
     assert daily["cache_creation_tokens"] == 181_074
 
@@ -156,7 +171,7 @@ async def test_rows_without_cache_activity_aggregate_as_zero(db_client, monkeypa
         "input_tokens": 100,
         "output_tokens": 50,
         "total_cost_usd": 0.0,
-        "created_at": "2026-07-30 08:00:00",
+        "created_at": _ANCHOR_SQL,
     })
 
     client = _build_client(db_client, monkeypatch)

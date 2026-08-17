@@ -30,6 +30,62 @@ from loguru import logger
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
+# =============================================================================
+# aiosqlite worker-thread hardening
+# =============================================================================
+#
+# aiosqlite runs every connection on its own worker thread and hands results
+# back with `future.get_loop().call_soon_threadsafe(...)`. If the loop that
+# issued the statement has been closed in the meantime, that call raises
+# RuntimeError — and upstream's handler answers by making the SAME call again
+# from its `except` block, which raises again, uncaught. The worker thread
+# then DIES, silently, still owning an open sqlite3 connection.
+#
+# Nothing reclaims that connection. It keeps its file handle and whatever lock
+# the abandoned statement held, so every later writer waits out
+# `busy_timeout` (30s) on each of `_MAX_WRITE_RETRIES` (10) attempts —
+# ~5 minutes of blocking per collision, then "database is locked".
+#
+# A closed loop is not exotic here: any fire-and-forget task that touches the
+# DB (`schedule_user_no_quota_rearm` on login is one of several) can still be
+# in flight when its loop goes away, and the MCP container runs each module on
+# its own short-lived threaded loop by design.
+#
+# So: keep the thread alive. If the awaiting coroutine's loop is gone, the
+# result has no one to go to and dropping it is correct — dying is not, because
+# this thread is the only one that can ever close the connection. This is the
+# project's incident lesson #2 (third-party fire-and-forget is a mine too)
+# applied to aiosqlite, and it is narrow on purpose: only the delivery step is
+# replaced, the queue protocol and the STOP sentinel are upstream's.
+def _deliver_to_origin_loop(future, setter, value) -> None:
+    """Hand a result/exception back to the loop that asked for it, if it is
+    still there. A closed loop means the awaiting coroutine died with it."""
+    if future is None:
+        return
+    try:
+        future.get_loop().call_soon_threadsafe(setter, future, value)
+    except RuntimeError:
+        # "Event loop is closed" / "loop is not running" — the caller is gone.
+        pass
+
+
+def _resilient_connection_worker_thread(tx) -> None:
+    """Drop-in for `aiosqlite.core._connection_worker_thread` whose result
+    delivery cannot kill the thread. Same protocol, same stop sentinel."""
+    while True:
+        future, function = tx.get()
+        try:
+            result = function()
+            _deliver_to_origin_loop(future, aiosqlite.core.set_result, result)
+            if result is aiosqlite.core._STOP_RUNNING_SENTINEL:
+                break
+        except BaseException as e:  # noqa: B036 — mirrors upstream's contract
+            _deliver_to_origin_loop(future, aiosqlite.core.set_exception, e)
+
+
+aiosqlite.core._connection_worker_thread = _resilient_connection_worker_thread
+
+
 # Regex for ISO 8601 timestamp detection (covers common SQLite datetime formats)
 _ISO_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"

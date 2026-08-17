@@ -163,7 +163,7 @@ async def get_db_client() -> "AsyncDatabaseClient":
     loop_id = id(current_loop)
 
     # Cheap housekeeping — O(n) in number of active loops (typically < 10).
-    _evict_closed_loops()
+    await _evict_closed_loops()
 
     existing = _clients_by_loop.get(loop_id)
     if existing is not None:
@@ -246,19 +246,48 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
     return await AsyncDatabaseClient.create_with_backend(backend)
 
 
-def _evict_closed_loops() -> None:
-    """Drop dict entries whose loop has been closed.
+_EVICT_CLOSE_TIMEOUT: float = 5.0
+
+
+async def _evict_closed_loops() -> None:
+    """Close, then drop, every entry whose loop has been closed.
 
     Important for long-running processes that spawn short-lived loops
-    (e.g. test harnesses, one-shot migration scripts). Without this, the
-    entry would linger and a new loop later allocated at the same memory
-    address could accidentally collide on id().
+    (e.g. the MCP container running each module on its own threaded loop,
+    test harnesses, one-shot migration scripts). Without this, the entry
+    would linger and a new loop later allocated at the same memory address
+    could accidentally collide on id().
+
+    **Forgetting the client is not the same as releasing it.** An evicted
+    client still owns a live backend connection — for SQLite, an aiosqlite
+    worker thread holding an open handle on the database file, and, if the
+    loop died mid-write, an open WRITE transaction that nothing will ever
+    commit or roll back. The WAL write lock is then held for the remaining
+    life of the process, and every later writer pays
+    `_MAX_WRITE_RETRIES` (10) x `busy_timeout` (30s) = ~5 minutes of silent
+    blocking before it finally raises "database is locked" (2026-08-17: this
+    was 92% of the test suite's 38-minute wall clock, and it is the same
+    shape as a local desktop install wedging its own writes).
+
+    The origin loop is closed by definition here, so the close runs on the
+    CURRENT loop — aiosqlite needs *a* running loop to close, not the one
+    that opened the connection (same reasoning as `close_db_client`). It is
+    bounded: if the worker thread is already gone the close would never
+    complete, and a stuck eviction must not become the new hang.
     """
     stale_ids = [loop_id for loop_id, loop in _loops_by_id.items() if loop.is_closed()]
     for loop_id in stale_ids:
-        _clients_by_loop.pop(loop_id, None)
+        client = _clients_by_loop.pop(loop_id, None)
         _locks_by_loop.pop(loop_id, None)
         _loops_by_id.pop(loop_id, None)
+        if client is not None:
+            try:
+                await asyncio.wait_for(client.close(), timeout=_EVICT_CLOSE_TIMEOUT)
+            except Exception as e:  # noqa: BLE001 — best-effort reclamation
+                logger.warning(
+                    f"Evicted DB client for closed loop id={loop_id} but could "
+                    f"not close its connection: {e!r}"
+                )
         logger.info(f"Evicted DB client for closed loop id={loop_id}")
 
 

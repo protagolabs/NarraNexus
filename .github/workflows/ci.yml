@@ -48,6 +48,62 @@ jobs:
       - name: Pyright (undefined names + attribute typos)
         run: uv run pyright
 
+  # ── Backend tests ───────────────────────────────────────────────────────
+  #
+  # Split from `backend` on purpose: lint + pyright are the seconds-long
+  # feedback and should not queue behind a MySQL container.
+  #
+  # Nothing ran pytest in CI before 2026-08-17. 6,266 tests — 128k lines, more
+  # than half the size of the code they cover — were enforced only by whoever
+  # remembered `make test` locally, and it showed: six tests had been failing
+  # on `dev` for weeks (the oldest since 2026-05-22) with nobody to notice.
+  # This is the same lesson the vitest step below already carries; the Python
+  # suite was simply the bigger instance of it.
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    # The SQLite/MySQL dual-dialect contract is only a contract if both halves
+    # execute. Ten `*_mysql.py` dialect twins gate on NARRANEXUS_MYSQL_TEST_URL
+    # and skip without it — so on a developer laptop they always skipped, and
+    # with no pytest in CI they had never once run anywhere. Production is
+    # MySQL: that was the untested half.
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: nxtest
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Pytest
+        env:
+          NARRANEXUS_MYSQL_TEST_URL: mysql://root:root@127.0.0.1:3306/nxtest
+        # `--durations` is not decoration. The one failure mode this suite has
+        # already hit is a test that passes and takes 321 seconds (an aiosqlite
+        # connection orphaned by a closed event loop, wedging the shared SQLite
+        # file for 10 retries x 30s busy_timeout). Green said nothing; the
+        # duration list was the only place it was visible.
+        run: uv run pytest tests/ -q --durations=15
+
   # ── Frontend checks ─────────────────────────────────────────────────────
   frontend:
     name: Frontend Lint & Build

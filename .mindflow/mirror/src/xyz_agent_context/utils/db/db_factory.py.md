@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/utils/db/db_factory.py
-last_verified: 2026-07-22
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 驱逐必须真的关掉连接，否则锁被永久孤儿化
+
+`_evict_closed_loops()` 以前只把 client 从三张表里 `pop` 掉。**忘掉一个 client
+不等于释放它**：被驱逐的 client 仍持有活的 backend 连接——SQLite 情况下是一条
+aiosqlite worker 线程 + 一个打开的文件句柄，如果那个 loop 是在写到一半时消失
+的，还有一笔**永远不会 commit 也不会 rollback 的写事务**。注册表是最后一个引用，
+所以它丢掉而不关掉的东西，按定义就是孤儿。
+
+代价不是"慢"，是一把没人会松开的锁：之后每个 writer 都要在
+`_MAX_WRITE_RETRIES`(10) x `busy_timeout`(30s) 上耗掉 ~321 秒才抛
+"database is locked"。2026-08-17 profile 测试套件时，六次这样的碰撞占了 38 分钟
+里的 92%，而且**六个测试全是绿的**——症状是"慢"，没有任何红色指向它。修完
+38 分钟 → 3 分钟。
+
+因此本函数改为 `async`，驱逐时在**当前** loop 上 `await client.close()`
+（aiosqlite 关闭只需要"某个"在跑的 loop，不必是当初那个——与 `close_db_client`
+同一条推理），并用 `asyncio.wait_for(_EVICT_CLOSE_TIMEOUT=5s)` 兜底：若 worker
+线程已经死了，close 永远不会返回，而卡住的驱逐不能变成新的 hang。
+
+这条修复只有配合 [[db_backend_sqlite.py]] 的 aiosqlite worker 加固才完整——
+worker 死了的话这里的 close 也没人执行。守卫见
+`tests/utils/db/test_sqlite_orphaned_connections.py`。
 
 ## 2026-07-22 — MySQL pool size env-tunable (MYSQL_POOL_SIZE)
 

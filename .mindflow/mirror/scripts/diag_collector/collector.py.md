@@ -1,8 +1,23 @@
 ---
 code_file: scripts/diag_collector/collector.py
 stub: false
-last_verified: 2026-08-12
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 水位找平的平局不能交给文件系统决定
+
+`enforce_size_cap()` 原本用 `max(sizes, key=lambda k: sizes[k])` 挑要排空的
+分区。两个分区**大小相同**时，`max` 返回 dict 里先出现的那个，而顺序来自
+`root.rglob("*.jsonl")` 的遍历——也就是文件系统说了算。
+
+这恰好是最要紧的那一次判断：洪水排到最后，受害者剩 400 字节（一个旧文件）对上
+洪水剩 400 字节（两个较新文件）。排受害者 → 0 / 400；排洪水 → 400 / 200。后者才
+是"水位找平"这个词的意思，而它当时是掷硬币。
+
+改为 `key=lambda k: (sizes[k], len(partitions[k]), k)`：同样大小时取**文件数更多**
+的分区（更分散，排它找平得更狠），key 本身只用来把最后的平局钉死成确定值。
+守卫是既有的 `test_size_cap_treats_unknown_subtree_as_one_partition`——它一直在
+断言这件事，只是此前靠运气通过，在本机上已经红了一段时间。
 
 ## 2026-08-11(十)— 词汇表 +sprite(#286 三审)
 

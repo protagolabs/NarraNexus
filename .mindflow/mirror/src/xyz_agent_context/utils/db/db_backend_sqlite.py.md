@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/utils/db/db_backend_sqlite.py
-last_verified: 2026-08-07
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — aiosqlite worker 线程不许死在"投递结果"这一步
+
+模块导入时把 `aiosqlite.core._connection_worker_thread` 换成
+`_resilient_connection_worker_thread`。上游的写法是：语句执行完用
+`future.get_loop().call_soon_threadsafe(...)` 把结果交回去；如果发起该语句的
+loop 已经关闭，这一句抛 RuntimeError，而它的 `except` 分支**又调了同一个方法**，
+再抛一次，没人接——**worker 线程就此静默死亡，手里还攥着一条打开的 sqlite3
+连接**。
+
+之后没有任何东西能回收它：文件句柄和那笔被放弃的语句持有的锁一直在，后续每个
+writer 都要走满 10 次重试 x 30 秒 busy_timeout（~5 分钟）才等到
+"database is locked"。触发条件一点都不罕见——任何摸数据库的
+fire-and-forget 任务（登录时的 `schedule_user_no_quota_rearm` 只是其中之一）
+都可能在自己的 loop 消失时还在飞，而 MCP 容器**设计上**就是每个 module 一个
+短命的线程 loop。
+
+处理原则：**丢结果可以，死线程不行**。等待它的协程已经随 loop 一起没了，结果
+本来就无人接收；但这条线程是唯一能关掉这条连接的人。这是项目事故清单第 2 条
+（第三方的 fire-and-forget 同样是雷）落在 aiosqlite 上的具体一例，替换范围刻意
+收窄：只换"投递"那一步，队列协议和 STOP 哨兵仍是上游的。
+
+配套修复见 [[db_factory.py]]（驱逐时真的关连接）。守卫见
+`tests/utils/db/test_sqlite_orphaned_connections.py`，其中一条专门断言这个
+猴补丁**确实装上了**——它是一个 import 副作用，重构时很容易丢，而丢了不会报错，
+只会让每次碰撞多花 5 分钟。
+
+顺带记下一个没在本次改动的放大器：`_retry_write` 的 10 次重试与
+`PRAGMA busy_timeout=30000` 是**相乘**的（每次重试都在 SQLite 里等满 30 秒），
+最坏情况一次写阻塞 ~5 分钟。作者多半以为"10 次快速重试"。
+
 ## 2026-08-07 — `get_by_ids` 支持 `fields`
 
 与 MySQL 后端同形，标识符用双引号。见 [[database.py]]。
