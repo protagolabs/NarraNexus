@@ -169,6 +169,100 @@ def test_a_write_that_truly_did_not_land_is_still_a_failure(
     assert _stored_name(db_client) == "小绿"
 
 
+def test_visibility_toggle_really_writes_under_a_zero_rowcount_driver(
+    client, db_client, seeded, monkeypatch
+):
+    """The `is_public` branch, asserted on the WRITE — not on `success`.
+
+    A predicate that wrongly judged the toggle "already equal" would skip the
+    write and then certify the unchanged row, so `success=True` proves
+    nothing here. This is the quietest failure the design allows: no error,
+    no rowcount anomaly, the switch just does not move.
+    """
+    calls: list[dict] = []
+    real_update = AgentRepository.update_agent
+
+    async def _writes_but_reports_zero(self, agent_id, updates):  # noqa: ANN001
+        calls.append(dict(updates))
+        await real_update(self, agent_id, updates)
+        return 0
+
+    monkeypatch.setattr(AgentRepository, "update_agent", _writes_but_reports_zero)
+
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"is_public": True},
+        headers={"X-User-Id": OWNER},
+    )
+
+    assert res.json()["success"] is True, res.json().get("error")
+    assert calls == [{"is_public": 1}], f"toggle issued no write: {calls}"
+
+    async def _read_flag():
+        agent = await AgentRepository(db_client).get_agent(AGENT_ID)
+        return bool(agent.is_public)
+
+    assert asyncio.get_event_loop().run_until_complete(_read_flag()) is True
+
+
+def test_re_toggling_to_the_current_visibility_writes_nothing_and_succeeds(
+    client, db_client, seeded, monkeypatch
+):
+    calls: list[dict] = []
+
+    async def _spy(self, agent_id, updates):  # noqa: ANN001
+        calls.append(dict(updates))
+        return 0
+
+    monkeypatch.setattr(AgentRepository, "update_agent", _spy)
+
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"is_public": False},
+        headers={"X-User-Id": OWNER},
+    )
+
+    assert res.json()["success"] is True
+    assert calls == []
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_an_empty_name_is_refused_the_way_the_agent_facing_tool_refuses_it(
+    client, db_client, seeded, blank
+):
+    """An unnamed agent renders its raw agent_id everywhere.
+
+    `update_agent_profile_from_args` has always rejected this; the HTTP route
+    accepted it, so the same input was refused on one path and stored on the
+    other. Whitespace-only is the same request.
+    """
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": blank},
+        headers={"X-User-Id": OWNER},
+    )
+
+    body = res.json()
+    assert body["success"] is False
+    assert "empty" in body["error"].lower()
+    assert _stored_name(db_client) == "小绿"
+
+
+def test_surrounding_whitespace_is_stripped_before_it_is_stored(
+    client, db_client, seeded
+):
+    """Compare-then-verify only holds if what we compare is what we store."""
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "  小蓝  "},
+        headers={"X-User-Id": OWNER},
+    )
+
+    assert res.json()["success"] is True
+    assert res.json()["agent"]["name"] == "小蓝"
+    assert _stored_name(db_client) == "小蓝"
+
+
 def test_rename_persists_and_is_visible_to_the_list_endpoint(
     client, db_client, seeded
 ):

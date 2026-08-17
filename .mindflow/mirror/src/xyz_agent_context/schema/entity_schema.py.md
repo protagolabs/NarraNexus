@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `normalize_agent_text` / `agent_field_matches`:「这次写会不会改变什么」的唯一定义
+
+新增两个函数,放在 `Agent` 实体旁边,因为它们编码的是**实体字段的等价规则**,
+不属于任何一个调用方。
+
+起因:`agents` 行有两个写入方,它们对同一个输入给出**相反**的答案 ——
+[[_awareness_writes]] 比较 strip 过的值(写入的也是 strip 后的),而
+`PUT /api/auth/agents`([[auth.py]])比较原样值。同一个「名字末尾多个空格」
+的请求,一边判「没变化」,另一边判「要写」。2026-08-17 修 rowcount 那条时
+route 里本来又写了第三份比较 —— review 指出这正是它自己 docstring 警告的事,
+于是上提合一。
+
+- `normalize_agent_text(v)`:**存储形态**。`None`/`""` 都是「没有文字」
+  (老行可能是 NULL,清空字段的调用方发 `""`);首尾空白不是内容 ——
+  `build_discovery_description`([[agent_discovery_sync]])对外本来就再 strip
+  一次,那就在**入口**归一,别把差异留给「哪个读者记得 strip」。
+- `agent_field_matches(agent, field, wanted)`:比较。**调用方必须写归一后的值**,
+  否则「相等」和「行里是什么」会分家 —— 一个 compare-then-verify 的写入方会
+  自己跟自己矛盾(这恰是本轮在修的形态)。
+
+`is_public` 单独一支:列在 MySQL 是 TINYINT、SQLite 是 INTEGER,
+`_row_to_entity` 可能给回 bool 也可能给回 int,所以两边都 `bool()`。
+
+文本字段是**闭集** `_AGENT_TEXT_FIELDS`,不在集合里的字段直接 `raise`。这不是
+洁癖:`getattr` 兜底会让一个拼错的/未登记的字段(尤其是默认 None 的那些)
+比较成「已经相等」,于是**既不写、又判定已落库**,返回成功且不留任何错误 ——
+回读校验对谓词自身的错误是结构性失明的,只有闭集能挡。测试
+`tests/backend/test_agent_field_matches.py` 就是钉这一条的。
 
 ## 2026-08-13 — `UserStatus.BANNED` + `NON_TRANSACTING_USER_STATUSES`（账户停用）
 

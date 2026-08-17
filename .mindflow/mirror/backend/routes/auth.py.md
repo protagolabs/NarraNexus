@@ -16,30 +16,48 @@ stub: false
 
 同一个陷阱 [[_awareness_writes]] 在 2026-08-05 已经为 agent 侧的
 `update_agent_profile` 拆过（写前做值相等短路）；本次是**用户侧 HTTP 那一半**，
-当时漏了。两边现在语义一致。
+当时漏了。两边现在在这个 trap 上同语义——但这是**本次同时改了 agent 侧**才
+成立的：那边当时只拆了 no-op 一支，「真有改动而驱动报 0」仍会答失败，本次一并
+换成回读判定（见 [[_awareness_writes]] 2026-08-17 条）。
 
 修法（不是给 rowcount 打补丁，是把它从判据里拿掉）：
 
-1. `requested` = 调用方要的字段；`update_data` = 其中**与当前行真的不同**的那些
-   （共用 `_agent_field_matches`，见下）。全都相同 → **一次写都不发**，
-   `sync_agent_discovery` 也不发（没有变化要广播）。
+1. `requested` = 调用方要的字段，**并且已经是入库形态**（`normalize_agent_text`）。
+   `update_data` = 其中与当前行真的不同的那些（谓词见下）。全都相同 →
+   **一次写都不发**，`sync_agent_discovery` 也不发（没有变化要广播）。
 2. 发过写之后**回读**，再用同一个谓词核对 `requested` 是否都落到行上。
    rowcount 只进 debug 日志，注明 dialect-dependent、仅供参考。
-3. 回读后仍不符 → 这才是 `success=False`（错误串点名哪些字段没落），
-   并记 ERROR。「幂等成功」和「真没写进去」由此分开——前者是状态已达成，
-   后者是系统出了问题。
+3. 回读后仍不符 → `success=False`（错误串点名哪些字段没落）。日志级别是
+   **WARNING 不是 ERROR**：读—写—回读之间没有 CAS，另一个标签页或 agent 自己的
+   `update_agent_profile` 在窗口内写入，就会在这里表现为「不是我要的值」——
+   良性的 last-write-wins 不该长得像持久化故障。
 
-`_agent_field_matches(agent, field, wanted)` 是模块级私有谓词，**决定要不要写**
-和**核对写没写成**用的是同一个函数：两份各写一遍的比较迟早会分歧，而分歧的表现
-正是「一边说存好了一边说没生效」。`is_public` 走 `int(bool(...))`（库里可能是
-0/1 也可能是 bool）；文本字段把 NULL 与 `""` 视为同一种「没有文字」，因为清空
-描述的调用方发的是 `""` 而库里存的是 NULL。
+谓词 `agent_field_matches` **不在本文件**，在 [[entity_schema]]：它编码的是
+Agent 实体的字段等价规则，而 `agents` 行有两个写入方（本路由 +
+[[_awareness_writes]]），各写一份比较迟早分歧——事实上分歧当时已经存在
+（那边比较 strip 过的值，这边比较原样值）。**决定要不要写**和**核对写没写成**
+共用同一个函数，两者不可能各说各话。
 
-测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`。它**强制**
-MySQL 那种 rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对
-no-op 写返回 1，照原样测会在「本来就不会出这个 bug 的方言」上空过。四条：
-no-op 重存=成功且**不发写**、真改动但驱动报 0=成功（回读为准）、
-真的没落库=仍然失败（防止修成「永远成功」）、改名后 list 端点能看到新名。
+归一化连带的一条：入库前 strip，所以「比较说相等」和「行里是什么」永远同形。
+另外空名（`""` 或纯空格）现在**被拒**，与 agent 侧 `update_agent_profile` 的
+拒绝语义对齐——没有名字的 agent 在所有界面上退回显示裸 `agent_id`，而同一个
+输入原来在一条路径被拒、在另一条被存。不放在 schema 的 `min_length`：`"  "`
+过得去，得在归一之后判。
+
+`sync_agent_discovery` 的返回值现在接住了：它内部吞掉自己的失败并返回 False，
+不接的话「同伴目录还是旧名」与「接口答成功」这两件事事后对不上。
+
+测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`(路由级) +
+`tests/backend/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
+rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op 写返回 1，
+照原样测会在「本来就不会出这个 bug 的方言」上空过。覆盖：no-op 重存=成功且
+**不发写**、真改动但驱动报 0=成功（回读为准）、真的没落库=仍然失败（防止修成
+「永远成功」）、可见性开关在同样条件下**必须真的发写**（断言写调用本身而不是
+`success`——见下）、空名被拒、首尾空格入库前被 strip、改名后 list 端点能看到新名。
+
+⚠ 回读校验对**谓词自身**的错误是结构性失明的：谓词若错判「已经相等」，则既不
+发写、又由同一套逻辑判定「已落库」→ 返回成功、日志无异常。所以谓词必须有自己的
+单测，且路由级用例要断言**写调用**（`calls == [...]`）而不是返回的 `success`。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 

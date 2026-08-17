@@ -217,6 +217,69 @@ class Agent(BaseModel):
 LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"
 
 
+def normalize_agent_text(value: Optional[str]) -> str:
+    """The stored form of an agent's name / description.
+
+    Surrounding whitespace is not content: a description saved with a trailing
+    space is the same description, and ``build_discovery_description`` strips
+    it again before peers ever see it. Normalising on the way IN keeps the
+    stored row and every reader's view of it identical, instead of leaving the
+    difference to whichever reader remembers to strip.
+
+    ``None`` and ``""`` are both "no text" — the DB may hold either (rows
+    created before the empty-string default still carry NULL), and a caller
+    clearing a field sends ``""``.
+    """
+    return (value or "").strip()
+
+
+# Fields whose "unchanged" test is text equivalence. Deliberately a closed
+# set — see the dispatch in agent_field_matches.
+_AGENT_TEXT_FIELDS = frozenset({"agent_name", "agent_description"})
+
+
+def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
+    """Does ``agent`` already hold ``wanted`` for ``field``?
+
+    The single definition of "this write would change nothing", shared by
+    every writer of the ``agents`` row. It lives here, beside the entity whose
+    fields it compares, because the two existing writers reached opposite
+    answers for the same input: the awareness tool compared stripped values
+    while ``PUT /api/auth/agents`` compared raw ones, so one accepted a name
+    the other treated as unchanged.
+
+    Callers must write :func:`normalize_agent_text` values for the text
+    fields, or "equal" here and "what the row holds" drift apart — and a
+    compare-then-verify writer would then contradict itself.
+
+    Args:
+        agent: the entity as currently stored.
+        field: column name (``agent_name`` / ``agent_description`` /
+            ``is_public``).
+        wanted: the value the caller asked for.
+
+    Returns:
+        True when no write is needed for this field.
+    """
+    if field == "is_public":
+        # The column is TINYINT on MySQL and INTEGER on SQLite, and
+        # ``_row_to_entity`` may hand back either a bool or an int.
+        return bool(agent.is_public) == bool(wanted)
+    if field not in _AGENT_TEXT_FIELDS:
+        # Explicitly dispatched, never "whatever getattr returns": an
+        # unlisted field would otherwise compare as text and — for the ones
+        # defaulting to None — answer "already equal", which suppresses the
+        # write and then certifies the unchanged row. Adding a field here is
+        # a deliberate act, with a comparison chosen for it.
+        raise ValueError(
+            f"agent_field_matches: no comparison defined for {field!r}"
+        )
+    current = getattr(agent, field)
+    return normalize_agent_text(current) == normalize_agent_text(
+        wanted if isinstance(wanted, str) else None
+    )
+
+
 def is_agent_description_unset(description: Optional[str]) -> bool:
     """True when an agent has no real self-description yet.
 

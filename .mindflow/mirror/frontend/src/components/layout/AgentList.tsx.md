@@ -19,6 +19,17 @@ stub: false
    ——即工单要求的「失效 agent 列表/详情缓存」。乐观更新保留，给即时反馈；
    回读负责对账。
 
+`name` 与 `description` 取响应的方式**故意不同，别去「统一」它们**：
+`description` 直接取服务端值（`?? ''`）——响应总是带这个 key，清空后回的是
+`''`（已实测；只有从没设过的行才回 `null`），这里回退到本地值等于把用户刚删掉
+的文字放回持久化 store。`name` 保留本地兜底，因为它是行标题，写成 `undefined`
+会让整行退回显示裸 `agent_id`。两支各留一句注释就是为了防止下一个人合并它们。
+
+`handleTogglePublic` 是 `api.updateAgent` 的第三个调用点，一并对齐（成功后
+`refreshAgents()`、失败弹 alert）。它今天走不到——`SHOW_AGENT_PUBLIC_TOGGLE`
+是 false——但那个 flag 的注释自己写着「翻回来只要一行」，翻回来的那一刻本条修掉
+的两个缺陷会在这个入口原样复活，所以现在就对齐比留给未来便宜。
+
 第三件：inline 改名（`handleSaveEdit`）失败时原来只 `console.error`，用户那一侧
 **什么都没有**——输入框收起、行标题弹回旧名，和「平台把我的编辑丢了」无法区分，
 于是继续重试。现在与 `doEditAgent` 一致走 `alert(...)`（同一个

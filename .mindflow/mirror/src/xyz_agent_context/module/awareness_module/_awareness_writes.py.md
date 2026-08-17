@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/_awareness_writes.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 比较上提共享,判据也从 rowcount 换成回读
+
+两处改动,都是和 [[auth.py]] 那半边对齐:
+
+1. 值相等短路改调 [[entity_schema]] 的 `agent_field_matches` /
+   `normalize_agent_text`(行为不变 —— 本文件本来就是 strip 后比较,
+   只是不再自带一份)。原因见那份 md:同一个输入,本文件判「没变化」而
+   HTTP route 判「要写」,两个写入方对 `agents` 行的等价规则不一致。
+2. `affected = await repo.update_agent(...)` / `if affected <= 0` 这对**去掉了**,
+   改成回读 + 同一个谓词核对。短路已经挡掉 no-op 那一支,但「**真有改动而
+   驱动报 0**」这一支原来仍然会答 "Error: the update did not apply" ——
+   `cursor.rowcount` 在 MySQL 上数 CHANGED 行,而 agent 读到这句会去重发一次
+   其实已经成功的改名。这正是 HTTP 侧 2026-08-17 那次修掉的推断。
+
+**返回串一个字没动**:DirectStore 与 HTTP twin 靠这些串保持 byte-identical
+(`backend/routes/agents/profile.py` 直接把它当响应体)。改的是**什么条件下**
+返回那句,不是那句本身。
+
+> 措辞更正:本文件 2026-08-05 那次只拆了 **no-op 短路**这一支,module docstring
+> 里「陷阱已 defused」的说法当时仅对 agent 侧成立,且 HTTP twin 直到 2026-08-17
+> 都还带着原样的 rowcount 判据。现在两条路径在这个 trap 上才真的同语义。
 
 # _awareness_writes.py — update_agent_profile 的共享实现（AgentDataStore seam 单点）
 

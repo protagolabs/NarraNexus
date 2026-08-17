@@ -38,7 +38,8 @@ from xyz_agent_context.repository import (
 )
 from xyz_agent_context.schema import (
     NON_TRANSACTING_USER_STATUSES,
-    Agent,
+    agent_field_matches,
+    normalize_agent_text,
     LoginRequest,
     LoginResponse,
     NetmindLoginRequest,
@@ -946,31 +947,6 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         )
 
 
-def _agent_field_matches(agent: Agent, field: str, wanted: str | int) -> bool:
-    """Does the stored agent row already hold ``wanted`` for ``field``?
-
-    One predicate serves both sides of :func:`update_agent`: it decides which
-    fields need writing, and afterwards it decides whether the write landed.
-    Sharing it is the point — two separately-written comparisons would
-    eventually disagree, and the disagreement would surface as "saved fine"
-    on one and "did not apply" on the other for the same row.
-
-    Args:
-        agent: the ``Agent`` entity as currently stored.
-        field: column name (``agent_name`` / ``agent_description`` /
-            ``is_public``).
-        wanted: the value the caller asked for.
-
-    Returns:
-        True when no write is needed for this field.
-    """
-    if field == "is_public":
-        return int(bool(agent.is_public)) == int(bool(wanted))
-    # NULL and "" are the same absence of text to a reader, and a caller
-    # clearing a description sends "" against a stored NULL.
-    return (getattr(agent, field, None) or "") == (wanted or "")
-
-
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
 async def update_agent(
     agent_id: str,
@@ -1011,12 +987,16 @@ async def update_agent(
 
         request = body  # preserve old local var name in body below
 
-        # What the caller asked for, held next to what the row already stores.
+        # What the caller asked for, in the form it will be STORED in —
+        # `normalize_agent_text` on the way in, so "already equal" below and
+        # "what the row holds" afterwards can never mean different things.
         requested: dict = {}
         if request.agent_name is not None:
-            requested["agent_name"] = request.agent_name
+            requested["agent_name"] = normalize_agent_text(request.agent_name)
         if request.agent_description is not None:
-            requested["agent_description"] = request.agent_description
+            requested["agent_description"] = normalize_agent_text(
+                request.agent_description
+            )
         if request.is_public is not None:
             requested["is_public"] = int(request.is_public)
 
@@ -1024,6 +1004,17 @@ async def update_agent(
             return UpdateAgentResponse(
                 success=False,
                 error="No fields to update"
+            )
+
+        # An agent with no name falls back to rendering its raw agent_id in
+        # every surface. The awareness tool has always refused this; the HTTP
+        # route accepted it, so the same input was rejected on one path and
+        # stored on the other. Whitespace-only is the same request — it is
+        # caught here rather than by a schema `min_length`, which "  " passes.
+        if "agent_name" in requested and not requested["agent_name"]:
+            return UpdateAgentResponse(
+                success=False,
+                error="Agent name cannot be empty",
             )
 
         # Only genuine differences become a write. This is not an
@@ -1041,7 +1032,7 @@ async def update_agent(
         update_data = {
             field: wanted
             for field, wanted in requested.items()
-            if not _agent_field_matches(agent, field, wanted)
+            if not agent_field_matches(agent, field, wanted)
         }
 
         if update_data:
@@ -1058,7 +1049,18 @@ async def update_agent(
             # next took a turn, so an agent edited and left idle stayed
             # undiscoverable — and its row still carried the creation
             # placeholder (P1 section 02). Best-effort: the edit itself has landed.
-            await sync_agent_discovery(db_client, agent_id)
+            #
+            # Best-effort still has to leave a trace. sync_agent_discovery
+            # swallows its own failures and returns False, so without this the
+            # peer directory can keep serving the OLD name while this endpoint
+            # answers success — two facts that are impossible to line up later
+            # from a bare warning inside the sync.
+            if not await sync_agent_discovery(db_client, agent_id):
+                logger.warning(
+                    f"Agent {agent_id}: peer-directory sync failed after a "
+                    f"successful edit — the response says success and peers "
+                    f"may still see the previous name/description"
+                )
 
         # The outcome is whatever the row now holds. A request whose values
         # were already stored lands here having issued no write at all, and is
@@ -1073,11 +1075,19 @@ async def update_agent(
         unapplied = [
             field
             for field, wanted in requested.items()
-            if not _agent_field_matches(updated_agent, field, wanted)
+            if not agent_field_matches(updated_agent, field, wanted)
         ]
         if unapplied:
-            logger.error(
-                f"Agent {agent_id} update did not persist: {unapplied}"
+            # WARNING, not ERROR: there is no CAS between the read, the write
+            # and this re-read, so a concurrent writer (a second tab, or the
+            # agent's own update_agent_profile) landing in that window shows up
+            # here as "not what I asked for" — benign last-write-wins. The
+            # caller is still told no, because the row genuinely is not in the
+            # state they requested; but this must not page anyone.
+            logger.warning(
+                f"Agent {agent_id} does not hold the requested values for "
+                f"{unapplied} after the write — concurrent overwrite, or the "
+                f"write did not land"
             )
             return UpdateAgentResponse(
                 success=False,

@@ -302,14 +302,29 @@ export function AgentList({ collapsed }: AgentListProps) {
     try {
       const res = await api.updateAgent(agent.agent_id, undefined, undefined, newIsPublic);
       if (res.success) {
+        // Same contract as the two rename paths: optimistic paint, then
+        // invalidate. Reached only when SHOW_AGENT_PUBLIC_TOGGLE is flipped
+        // back on — and that flip is a one-line change, so this is kept in
+        // step rather than left as a copy of the pattern this PR removed.
         setAgents(rawAgents.map(a =>
           a.agent_id === agent.agent_id ? { ...a, is_public: newIsPublic } : a
         ));
+        await refreshAgents();
       } else {
         console.error('Failed to toggle public:', res.error);
+        await alert({
+          title: t('layout.editAgentDialog.saveFailedTitle'),
+          message: res.error || 'Failed to update agent',
+          danger: true,
+        });
       }
     } catch (err) {
       console.error('Error toggling public:', err);
+      await alert({
+        title: t('layout.editAgentDialog.saveFailedTitle'),
+        message: String(err),
+        danger: true,
+      });
     }
   };
 
@@ -330,15 +345,22 @@ export function AgentList({ collapsed }: AgentListProps) {
     try {
       const res = await api.updateAgent(editTarget.agent_id, name, description);
       if (res.success && res.agent) {
-        // Paint the server's own values immediately (`?? a.name` so a field the
-        // response omits keeps what we had rather than blanking the row), then
-        // re-read the list so the persisted copy is server truth and not a
-        // locally-patched object. `agents` is persisted to localStorage with no
-        // `partialize`, so a hand-patched row is what a later page load would
-        // show — which is how a rename could appear to revert.
+        // Paint the server's own values immediately, then re-read the list so
+        // the persisted copy is server truth and not a locally-patched object.
+        // `agents` is persisted to localStorage with no `partialize`, so a
+        // hand-patched row is what a later page load would show — which is how
+        // a rename could appear to revert.
+        //
+        // The two fields take the response differently ON PURPOSE; do not
+        // "unify" them. `description` is taken as-is (`?? ''`): the response
+        // always carries the key, and a cleared description comes back as ''
+        // or null — falling back to the local value there would put the text
+        // the user just deleted back into the persisted store. `name` keeps a
+        // local fallback because it is the row title and a null would render
+        // the raw agent_id.
         setAgents(rawAgents.map(a =>
           a.agent_id === editTarget.agent_id
-            ? { ...a, name: res.agent?.name ?? a.name, description: res.agent?.description ?? a.description }
+            ? { ...a, name: res.agent?.name ?? a.name, description: res.agent?.description ?? '' }
             : a
         ));
         setEditTarget(null);
