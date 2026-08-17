@@ -415,29 +415,101 @@ async def test_a_leaders_own_task_is_never_expired(db_client, repo):
 
 
 @pytest.mark.asyncio
-async def test_the_patrol_sweep_recycles_before_it_judges(db_client, repo):
-    """Wiring for the recycler: it has to run somewhere periodic, and patrol is
-    this team's only periodic entry point.
+async def test_a_team_with_no_lead_still_gets_its_errands_recycled(db_client, repo):
+    """The asymmetry that made the recycler miss the teams that need it most.
 
-    Ordering matters — an expired row read as `stalled` would keep feeding the
-    sweep that was supposed to retire it.
+    Opening has no gate; recycling used to sit inside `detect_stalled_items`,
+    downstream of `patrol_is_on` — which requires a lead, and `lead_agent_id`
+    defaults to None. So a team nobody has put in charge (the state every team
+    starts in, and the one least likely to have anyone tidying the board by
+    hand) opened errands from every @mention and recycled none of them.
+
+    `teams_with_active_work()` is the right scope precisely because it looks at
+    neither the lead nor `patrol_enabled`.
     """
-    from datetime import timedelta
-
     from xyz_agent_context.message_bus.errand import ERRAND_TTL_HOURS
-    from xyz_agent_context.message_bus.patrol import detect_stalled_items
-    from xyz_agent_context.utils.timezone import utc_now
+    from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
 
+    await db_client.insert("teams", {
+        "team_id": TEAM, "owner_user_id": "usr_1", "name": "Leaderless",
+        # No lead — the default, not a contrived state.
+    })
     opened = (await _open_errand(db_client, from_agent=LEAD, to_agent=A3))[0]
     await db_client.update(
         "team_work_items", {"item_id": opened},
         {"created_at": utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)},
     )
 
-    stalled = await detect_stalled_items(db_client, TEAM, executor_agent_id=LEAD)
+    due = await teams_due_for_patrol(db_client)
 
-    assert stalled == []
+    # Still not patrolled — the platform does not appoint a lead…
+    assert [t for t in due if t[0] == TEAM] == []
+    # …but the board was cleaned up anyway.
     assert (await repo.get(opened)).status == WorkItemStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_the_recycle_happens_before_the_cadence_is_judged(db_client, repo):
+    """Ordering: an expired row must not still be counted as stalled.
+
+    `has_stalled` decides between the 600s and 180s cadence and `items[0]`
+    decides which room a patrol is aimed at, so reading the board before the
+    recycle would let a row that no longer exists drive both.
+    """
+    from xyz_agent_context.message_bus.errand import ERRAND_TTL_HOURS
+    from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
+
+    await db_client.insert("teams", {
+        "team_id": TEAM, "owner_user_id": "usr_1", "name": "Desk",
+        "lead_agent_id": LEAD,
+    })
+    stale_item = (await _open_errand(db_client, from_agent=LEAD, to_agent=A3))[0]
+    await db_client.update(
+        "team_work_items", {"item_id": stale_item},
+        {"created_at": utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1),
+         "status": WorkItemStatus.STALLED},
+    )
+
+    due = await teams_due_for_patrol(db_client)
+
+    assert (await repo.get(stale_item)).status == WorkItemStatus.CANCELLED
+    # The team's only row is gone, so there is nothing left to patrol for.
+    assert [t for t in due if t[0] == TEAM] == []
+
+
+@pytest.mark.asyncio
+async def test_a_hand_off_still_being_worked_on_is_not_expired(db_client, repo):
+    """Age is the trigger; "nobody is on it" is the question.
+
+    Iron rule #14 makes a hand-off that runs for tens of hours legitimate. If
+    the row were retired at hour 24, the delivery at hour 30 would close
+    nothing and the closure report would book a real hand-off as "expired".
+    `detect_stalled_items` reaches for the same evidence for the same reason.
+    """
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        expire_stale_errands,
+    )
+
+    working = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A3, message_id="msg_working"))[0]
+    gone = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A4, message_id="msg_gone"))[0]
+    old = utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)
+    for item_id in (working, gone):
+        await db_client.update(
+            "team_work_items", {"item_id": item_id}, {"created_at": old}
+        )
+    # A3 has been running for 30 hours and is STILL beating.
+    await db_client.insert("bus_agent_activity", {
+        "agent_id": A3, "channel_id": CHANNEL, "state": "running",
+        "started_at": old, "updated_at": utc_now(),
+    })
+
+    expired = await expire_stale_errands(db_client, TEAM)
+
+    assert expired == [gone]
+    assert (await repo.get(working)).status == WorkItemStatus.IN_PROGRESS
 
 
 def test_the_board_section_declares_what_it_hides():

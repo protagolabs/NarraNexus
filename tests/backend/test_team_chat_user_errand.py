@@ -120,6 +120,42 @@ async def test_addressing_the_room_opens_nothing(db_client, client, room):
 
 
 @pytest.mark.asyncio
+async def test_an_attachment_only_hand_off_gets_a_title_that_says_so(
+    db_client, client, room, monkeypatch
+):
+    """This route is the ONLY entrance that allows an empty body.
+
+    An agent's reply always carries text, so the shared "(untitled hand-off)"
+    fallback in `_title_from` would surface here and nowhere else — and the
+    board is read by every member every turn, so a row naming nothing costs
+    tokens to skip. Only the route knows an attachment is what was handed over.
+
+    The attachment is faked at the sanitiser rather than staged on disk: what
+    is under test is the TITLE, and `_sanitized_attachment`'s own job (rebuild
+    from server-side state, never trust the echo) has its own coverage.
+    """
+    from backend.routes import teams as mod
+
+    monkeypatch.setattr(
+        mod, "_sanitized_attachment",
+        lambda _uid, _att: {"rel_path": "x.png", "mime": "image/png"},
+    )
+
+    r = client.post(
+        f"/api/teams/{TEAM}/chat/messages",
+        json={"content": "", "mentions": [BRUNO],
+              "attachments": [{"rel_path": "x.png"}]},
+        headers={"X-User-Id": OWNER},
+    )
+    assert r.status_code == 200, r.text
+
+    items = await TeamWorkItemRepository(db_client).list_active(TEAM)
+    assert len(items) == 1
+    assert "attachment" in items[0].title
+    assert "untitled" not in items[0].title
+
+
+@pytest.mark.asyncio
 async def test_book_keeping_never_costs_the_user_their_message(
     db_client, client, room, monkeypatch
 ):

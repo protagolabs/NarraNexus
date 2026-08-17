@@ -398,7 +398,16 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
             # Post-routing: a `default_responder` wake-up is the platform
             # picking someone to answer, not the user handing work to them.
             mentions=(payload.mentions and resolved) or None,
-            text=payload.content.strip(),
+            # This is the only entrance that allows an empty body (an agent
+            # reply always has text), so the shared "(untitled hand-off)"
+            # fallback would surface here and nowhere else. Only the route
+            # knows an attachment is what was handed over, so it says so —
+            # the board is read by every member every turn, and a row that
+            # names nothing is a row that costs tokens to skip.
+            text=payload.content.strip() or (
+                f"{len(valid_attachments)} attachment(s)"
+                if valid_attachments else ""
+            ),
             message_id=msg_id,
         )
     except Exception as e:  # noqa: BLE001 — the message is already delivered

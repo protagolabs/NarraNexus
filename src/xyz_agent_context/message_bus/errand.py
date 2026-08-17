@@ -322,6 +322,11 @@ async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
     see ``ERRAND_TTL_HOURS`` for why one stuck row costs this team its patrol
     cadence and its speech budget indefinitely.
 
+    What expires is an errand nobody is working on. Age is the trigger, but a
+    LIVE assignee suspends it: iron rule #14 makes a hand-off that runs for
+    tens of hours legitimate, and cancelling one mid-flight would take the row
+    away from a run that is about to deliver.
+
     Retired as ``cancelled``, never ``done``. ``done`` is what the closure-rate
     report counts as a delivery, so expiring into it would quietly restate
     "nobody ever got to this" as "it was delivered" — and that report is the
@@ -357,9 +362,10 @@ async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
         return []
 
     from xyz_agent_context.agent_runtime.run_recorder import parse_db_utc
+    from xyz_agent_context.message_bus._bus_activity import is_live
 
     cutoff = utc_now() - timedelta(hours=ERRAND_TTL_HOURS)
-    stale = []
+    aged = []
     for item in candidates:
         if item.origin != WorkItemOrigin.AUTO:
             continue
@@ -368,7 +374,39 @@ async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
         # row on the board, which is the same direction every other judgement
         # in this module leans.
         if created is not None and created < cutoff:
-            stale.append(item)
+            aged.append(item)
+
+    # Age alone is not the question — "how long has nobody been working on it"
+    # is. An assignee that is still live is still working, and iron rule #14
+    # makes a hand-off that runs for tens of hours a legitimate shape, not an
+    # anomaly. Expiring one at hour 24 would retire the board row out from
+    # under a run that delivers at hour 30, and the delivery would then close
+    # nothing — the closure-rate report would book a genuine hand-off as
+    # "expired". `detect_stalled_items` reaches for the same evidence for the
+    # same reason ("a 25-minute turn is work").
+    #
+    # Looked up per ASSIGNEE, not per item: a room has a handful of members and
+    # possibly many rows, so keying on the item would turn one sweep into N
+    # activity reads.
+    stale = []
+    live_by_assignee: dict[str, bool] = {}
+    for item in aged:
+        assignee = item.assignee_id or ""
+        if assignee and assignee not in live_by_assignee:
+            try:
+                row = await db.get_one(
+                    "bus_agent_activity",
+                    {"agent_id": assignee, "channel_id": item.channel_id},
+                )
+                live_by_assignee[assignee] = is_live(row)
+            except Exception as e:  # noqa: BLE001 — unreadable activity = unknown
+                # Unknown is not "idle". Treating it as idle would expire rows
+                # on a DB hiccup, which is the irreversible direction here.
+                logger.debug(f"[errand] activity lookup failed for {assignee}: {e}")
+                live_by_assignee[assignee] = True
+        if live_by_assignee.get(assignee, False):
+            continue
+        stale.append(item)
 
     expired: List[str] = []
     for item in stale:

@@ -4,6 +4,15 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-17（二）— 只带附件的交接也有个说得出口的标题
+
+这条路由是**唯一**允许正文为空的开项入口（agent 回帖必有文本），所以
+[[errand]] 里 `_title_from` 的 `(untitled hand-off)` 兜底只会在这儿冒出来。板子
+被注入每个成员每一轮的 prompt，一行读不出内容的项就是纯粹的 token 浪费。
+
+传参而不是改 `_title_from`：兜底文案是共享出口，改它会同时影响 trigger 路径；而
+且只有路由知道被交接的是附件。
+
 ## 2026-08-17 — 用户发的 @ 也进工作板
 
 `POST /{team_id}/chat/messages` 在 `send_message` 之后调 [[errand]] 的

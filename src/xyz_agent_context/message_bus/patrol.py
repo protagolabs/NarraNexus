@@ -113,18 +113,10 @@ async def detect_stalled_items(
     stalled set, so patrol stops chasing someone already working again.
     """
     repo = TeamWorkItemRepository(db)
-    # Retire expired AUTO errands BEFORE reading the board, so a row nobody
-    # will ever deliver stops feeding the very sweep it would otherwise keep
-    # alive: `stalled` is ACTIVE, so one permanent errand pins this team to the
-    # 180s cadence and burns its speech budget indefinitely. Run here because
-    # patrol is already this team's periodic entry point — a second scheduler
-    # for one sweep would be its own maintenance surface.
-    #
-    # Best-effort inside `expire_stale_errands`: a failed recycle must not cost
-    # the stall detection that follows it.
-    from xyz_agent_context.message_bus.errand import expire_stale_errands
-
-    await expire_stale_errands(db, team_id)
+    # The recycle that used to happen here now runs in `teams_due_for_patrol`,
+    # ahead of the gates that would skip a lead-less team entirely — see the
+    # comment there. By the time this function is reached, expired rows are
+    # already out of `ACTIVE`.
     items = await repo.list_active(team_id)
     stalled: List[WorkItem] = []
     for item in items:
@@ -220,6 +212,30 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
     due: List[Tuple[str, str, str]] = []
     for team_id in team_ids:
         try:
+            # Recycle expired errands BEFORE any of the patrol gates.
+            #
+            # This used to live inside `detect_stalled_items`, i.e. downstream
+            # of every gate that decides whether this team is worth an LLM turn
+            # — and two of those gates are permanent, not throttles:
+            # `patrol_is_on` requires a lead, and `lead_agent_id` defaults to
+            # None. So a team nobody has named a lead for (the state every team
+            # is created in) opened errands from every @mention and never
+            # recycled one.
+            #
+            # The opening side has no gate at all, so the two must not be
+            # asymmetric. `teams_with_active_work()` above is the right scope:
+            # it looks at neither the lead nor `patrol_enabled`, so one call
+            # here covers patrolled and unpatrolled teams alike — without
+            # adding a second scheduler for one sweep.
+            #
+            # `expire_stale_errands` swallows its own failures, which matters
+            # more here than it did before: the per-team `except` below would
+            # otherwise let one failed recycle skip this team's whole patrol,
+            # trading a stall detection for a bookkeeping error.
+            from xyz_agent_context.message_bus.errand import expire_stale_errands
+
+            await expire_stale_errands(db, team_id)
+
             team = await db.get_one("teams", {"team_id": team_id})
             if not team:
                 continue
@@ -228,6 +244,10 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
             # patrol", so this single call replaces both checks.
             if not patrol_is_on(team):
                 continue
+            # Read AFTER the recycle, never before: a row cancelled a moment ago
+            # would otherwise still count towards `has_stalled` and drag this
+            # team onto the 180s cadence, and could even be `items[0]` — the row
+            # whose channel the patrol is aimed at.
             items = await repo.list_active(team_id)
             if not items:
                 continue

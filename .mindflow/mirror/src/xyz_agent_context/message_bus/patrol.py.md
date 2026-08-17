@@ -4,16 +4,27 @@ last_verified: 2026-08-17
 stub: false
 ---
 
-## 2026-08-17 — 巡查兼做差事回收
+## 2026-08-17（二）— 差事回收挂在候选循环里，而不是 stalled 判定里
 
-`detect_stalled_items` 在读板子**之前**先调 [[errand]] 的 `expire_stale_errands`。
+`expire_stale_errands` 的调用点从 `detect_stalled_items` 移到
+`teams_due_for_patrol` 的循环内，**且在 `patrol_is_on` 之前**。
 
-顺序是有意的：一条过期的行如果先被读成 `stalled`，它就会继续喂养那次本该把它回
-收掉的 sweep。挂在这里而不是另起调度器，是因为巡查已经是这个团队的周期性入口，
-为一次清扫再养一个调度面不值得。
+第一版挂错了位置：它落在整条「这个团队值不值得烧一次 LLM turn」判定链的下游，而
+那条链里有两道**永久性的门**而非节流——`patrol_is_on` 要求团队已指定 lead，而
+`lead_agent_id` 默认是 `None`。开项那一侧一道门都没有。于是「开」和「回收」的触发
+条件不对称：**任何团队都能开，只有指定了 lead 的团队才会回收**，而从没指定 lead
+的团队恰恰是最不可能有人手工清板子的那批。
 
-不这么做的代价见 [[errand]] 的 `ERRAND_TTL_HOURS`：一行永不交付的差事会把「空板
-子 = 零 run」这条成本保证从整个团队身上撤掉。
+`teams_with_active_work()` 是正确的作用域：它既不看 lead 也不看 `patrol_enabled`，
+所以一处调用同时覆盖巡查团队和非巡查团队，也不用为一次清扫再养一个调度器。
+
+**顺序是硬约束**：`list_active` 必须在 expire **之后**读。`has_stalled` 决定 600s
+还是 180s 节奏，`items[0].channel_id` 决定巡查瞄准哪个房间——先读板子会让一条已经
+不存在的行同时驱动这两件事。
+
+`expire_stale_errands` 内部全吞异常，在新位置上更要紧：本循环的 per-team `except`
+会让一次清扫失败把**这个团队整轮巡查**都跳过，用一次 stall 检测换一个记账错误不
+划算。
 
 ## 2026-08-14 — stalled 按状态迁移记一行日志
 
