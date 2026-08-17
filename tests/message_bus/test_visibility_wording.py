@@ -24,6 +24,7 @@ that knows.
 """
 from __future__ import annotations
 
+from xyz_agent_context.message_bus.system_messages import SYSTEM_SENDER_LABEL
 from xyz_agent_context.module.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
@@ -390,7 +391,7 @@ def test_a_platform_line_is_labelled_not_quoted_as_the_owner():
         }]) if "bulletin updated" in ln
     )
 
-    assert "[system]" in line
+    assert SYSTEM_SENDER_LABEL in line
     assert "User" not in line
 
 
@@ -410,7 +411,7 @@ def test_a_room_marker_sender_does_not_become_a_phantom_teammate():
         }]) if "Checking the board" in ln
     )
 
-    assert "[system]" in line
+    assert SYSTEM_SENDER_LABEL in line
     assert "team_abc123" not in line
 
 
@@ -427,7 +428,7 @@ def test_an_ordinary_peer_and_an_ordinary_person_are_unaffected():
     peer = next(ln for ln in lines if "ping" in ln)
     assert "User" in human and "usr_a1b2c3" not in human
     assert "agent_peer" in peer
-    assert "[system]" not in human and "[system]" not in peer
+    assert SYSTEM_SENDER_LABEL not in human and SYSTEM_SENDER_LABEL not in peer
 
 
 # ── Restored 2026-08-17 ─────────────────────────────────────────────────────
@@ -499,6 +500,49 @@ def test_the_platform_label_is_explained_not_just_rendered():
     """
     text = _static_text()
 
-    line = next(ln for ln in text.splitlines() if "`[system]`" in ln)
+    line = next(ln for ln in text.splitlines() if f"`{SYSTEM_SENDER_LABEL}`" in ln)
     assert "PLATFORM" in line
     assert "@mention" in line
+
+
+def test_both_surfaces_name_a_platform_line_the_same_way():
+    """The label is a cross-file agreement, so it gets a cross-file test.
+
+    The team prompt's scrollback and this module's unread list render the SAME
+    platform rows. They were two independent literals with the agreement stated
+    only in a comment — and this PR added the second one while writing an
+    invariant that says to sweep every copy of a piece of wording. A rename on
+    one side would put the same notice under two names in one context window,
+    and the rule that tells the agent what the label MEANS reads only one.
+
+    Sibling of `test_the_team_prompt_really_does_promise_what_the_static_rule_
+    defers_to`: same class of promise, same reason nothing else can hold it.
+    """
+    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    prompt = trigger._build_team_prompt(
+        "agent_me",
+        [BusMessage(
+            message_id="m1", channel_id="ch_1", from_agent="team_abc123",
+            content="Checking the board.", msg_type=PATROL_MSG_TYPE,
+        )],
+        [{"agent_id": "agent_me", "name": "Me", "description": "", "capabilities": []}],
+        owner_user_id="usr_1",
+        team_id="team_x",
+        trigger_messages=[],
+        bulletin=None,
+    )
+
+    scrollback = next(ln for ln in prompt.splitlines() if "Checking the board" in ln)
+    unread = next(
+        ln for ln in _unread_lines([{
+            "from_agent": "team_abc123", "channel_id": "ch_1",
+            "content": "Checking the board.", "msg_type": PATROL_MSG_TYPE,
+        }]) if "Checking the board" in ln
+    )
+
+    assert SYSTEM_SENDER_LABEL in scrollback
+    assert SYSTEM_SENDER_LABEL in unread

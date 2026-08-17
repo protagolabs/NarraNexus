@@ -61,6 +61,7 @@ from xyz_agent_context.schema.team_schema import (
 )
 from xyz_agent_context.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
+    SYSTEM_SENDER_LABEL,
     placeholders as _platform_placeholders,
     trigger_label as _platform_trigger_label,
 )
@@ -2437,7 +2438,10 @@ class MessageBusTrigger:
             # instruction at nothing. The one sender this filter exists to
             # silence was the only one it broke.
             if (msg.msg_type or "") in PLATFORM_MSG_TYPES:
-                lines.append(f"[system] {msg.content}")
+                # The label is shared with the module's unread list, which
+                # renders the SAME rows; only the shape differs (prefix here,
+                # sender field there). See SYSTEM_SENDER_LABEL.
+                lines.append(f"{SYSTEM_SENDER_LABEL} {msg.content}")
                 continue
             sender = _sender(msg)
             # Who the line was AIMED at. `mentions` has always been on the

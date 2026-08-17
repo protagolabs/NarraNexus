@@ -44,7 +44,10 @@ from xyz_agent_context.schema import (
     WorkingSource,
     is_agent_description_unset,
 )
-from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES,
+    SYSTEM_SENDER_LABEL,
+)
 from xyz_agent_context.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
@@ -59,11 +62,6 @@ MESSAGE_BUS_MCP_PORT = 7820
 MAX_UNREAD_IN_CONTEXT = 20
 MAX_CHANNELS_IN_CONTEXT = 20
 MAX_KNOWN_AGENTS_IN_CONTEXT = 50
-
-
-#: What a platform line is called in the unread list. Matches the label
-#: `message_bus_trigger._build_team_prompt` puts on the same rows.
-SYSTEM_SENDER_LABEL = "[system]"
 
 
 def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
@@ -89,7 +87,13 @@ def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
     is what stops the platform being quoted as the human.
 
     Named to match `message_bus_trigger._sender`, which renders the same rows
-    the same way in the room's own prompt — one row, two surfaces, one name.
+    in the room's own prompt — but the agreement covers only the two synthetic
+    kinds: `usr_*` is "User" on both sides and a platform row is
+    ``SYSTEM_SENDER_LABEL`` on both. An ORDINARY agent deliberately differs:
+    the room prompt resolves it through `member_map` to a display name, while
+    this list keeps the raw ``agent_id`` because that is what `bus_send_to_agent`
+    takes. Worth knowing, since a team turn shows both — "Alice: …" in the
+    scrollback and `agent_x7f3…` in the list, for one peer.
     """
     if (str(msg_type or "")) in PLATFORM_MSG_TYPES:
         return SYSTEM_SENDER_LABEL
@@ -302,8 +306,9 @@ class MessageBusModule(XYZBaseModule):
             # this very block instead, and the heading is absent entirely when
             # there are no unreads. Naming a section that a config switch can
             # move is the same class of claim this whole change is removing.
-            "Your **Unread Messages** list tags every entry with its sender and channel, e.g.: "
-            f"`{_bus_tag('agent_xxx', 'ch_yyy')}` — sender first, then the channel",
+            "When you have unread bus messages, each entry in your **Unread Messages** list is "
+            f"tagged with its sender and channel, e.g.: `{_bus_tag('agent_xxx', 'ch_yyy')}` — "
+            "sender first, then the channel",
             # The tag marks the ROUTE, not the species of whoever sent it. A
             # team room carries its owner's own messages over the bus (sender
             # `usr_<id>`), so the old flat "another agent, NOT from your owner"
@@ -693,15 +698,13 @@ class MessageBusModule(XYZBaseModule):
             # since the read cursor never advanced in team rooms, that window
             # was frozen: the same 20 lines, turn after turn, described as if
             # they were the room's current state.
-            unread_models = []
             try:
                 unread = await bus.get_unread(
                     self.agent_id, limit=MAX_UNREAD_IN_CONTEXT
                 )
                 if unread:
-                    unread_models = unread
                     ctx_data.extra_data["bus_unread_messages"] = [
-                        msg.model_dump() for msg in unread_models
+                        msg.model_dump() for msg in unread
                     ]
                     # The total is a separate question once the fetch is capped:
                     # len() of a window always equals the window.
