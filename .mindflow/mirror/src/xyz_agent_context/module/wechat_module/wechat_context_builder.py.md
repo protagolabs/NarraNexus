@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_context_builder.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 历史改读 inbox 记录
+
+同 [[telegram_context_builder]]：iLink 没有历史 API，历史来自本地记录，该记录已从
+`bus_messages` 搬到 `inbox_thread_messages`，读取方跟着搬。不搬 = 微信失忆。
+
+`is_bot` 判别改用 `direction` 列。微信尤其依赖记录层的时序保证——它的消息**自身没有
+时间戳**（`timestamp_ms == 0`），一轮内 inbound/outbound 的 1 微秒错位是唯一的排序依据。
 
 ## 2026-08-06 — `room_type` 成了行为开关；新增 `reply_kwargs()`
 

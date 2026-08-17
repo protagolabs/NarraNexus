@@ -9,9 +9,15 @@ events they themselves received). To avoid agents replying with zero
 context — observed 2026-05-13 where the agent treated "再试一下" as
 "retry the Telegram channel test" instead of "retry the weather query"
 because no recent turns were in the prompt — we fall back to the local
-``bus_messages`` table, which ``ChannelInboxWriter`` populates for both
-inbound user messages and outbound bot replies under
-``channel_id = f"telegram_{chat_id}"``.
+local inbox record, which ``InboxRecorder`` populates for both inbound user
+messages and outbound bot replies under
+``thread_id = im_thread_id("telegram", chat_id)``.
+
+Note this is one of the two places the inbox record is also OPERATIONAL: for a
+channel with no history API it IS the agent's conversation memory, not just
+something a person reads. The 2026-08-17 decoupling moved this reader with the
+writer — leaving it on ``bus_messages`` would have made Telegram forget every
+conversation.
 """
 
 from __future__ import annotations
@@ -45,8 +51,8 @@ class TelegramContextBuilder(ChannelContextBuilderBase):
         self._message = message
         self._credential = credential
         self._agent_id = agent_id
-        # Optional — when present, ``get_conversation_history`` reads from
-        # ``bus_messages``. None falls back to empty history (tests, or
+        # Optional — when present, ``get_conversation_history`` reads the
+        # inbox record. None falls back to empty history (tests, or
         # process startup before the trigger has set _db).
         self._db = db_client
 
@@ -86,34 +92,37 @@ class TelegramContextBuilder(ChannelContextBuilderBase):
         }
 
     async def get_conversation_history(self, limit: int) -> List[Dict[str, Any]]:
-        """Read recent turns from local ``bus_messages``.
+        """Read recent turns from the local inbox record.
 
-        Telegram Bot API has no equivalent of conversations.history, so
-        we keep our own log: ``ChannelInboxWriter`` writes every inbound
-        user message and every outbound bot reply under
-        ``channel_id = f"telegram_{chat_id}"`` (with ``from_agent`` set
-        to either ``f"telegram_user_{sender_id}"`` for inbound or
-        ``agent_<id>`` for outbound). Query the most recent ``limit + 1``
-        rows and drop the current trigger message itself.
+        Telegram Bot API has no equivalent of conversations.history, so we keep
+        our own log: ``InboxRecorder`` writes every inbound user message and
+        every outbound bot reply under ``im_thread_id("telegram", chat_id)``,
+        each row carrying a ``direction`` of "in" or "out". Query the most
+        recent ``limit + 1`` rows and drop the current trigger message itself.
         """
         if not self._db or not self._message.chat_id:
             return []
 
-        channel_id = f"telegram_{self._message.chat_id}"
+        from xyz_agent_context.channel.inbox_recorder import (
+            OUTBOUND,
+            im_thread_id,
+        )
+
+        thread_id = im_thread_id("telegram", self._message.chat_id)
         # Pull a bit more than `limit` so we can drop the current message
         # without ending up short.
         fetch_n = max(limit + 5, 10)
         try:
             rows = await self._db.get(
-                "bus_messages",
-                {"channel_id": channel_id},
+                "inbox_thread_messages",
+                {"thread_id": thread_id},
                 limit=fetch_n,
                 order_by="created_at DESC",
             )
         except Exception as e:  # noqa: BLE001 — history is best-effort
             logger.warning(
                 f"[telegram:{self._agent_id}] history fetch failed "
-                f"(channel={channel_id}): {type(e).__name__}: {e}"
+                f"(thread={thread_id}): {type(e).__name__}: {e}"
             )
             return []
 
@@ -122,19 +131,18 @@ class TelegramContextBuilder(ChannelContextBuilderBase):
         current_id = self._message.message_id
         normalized: List[Dict[str, Any]] = []
         for row in reversed(rows):
-            from_agent = row.get("from_agent", "") or ""
             content = row.get("content", "") or ""
             row_msg_id = row.get("message_id", "") or ""
             # Skip the current trigger message itself — already rendered
             # as the "Current Message" section in the prompt template.
-            # Match on message_id when available, fall back to content.
             if current_id and row_msg_id == current_id:
                 continue
-            # Inbound rows are written with from_agent = f"telegram_user_{sender_id}"
-            # outbound rows are written with the agent's own agent_id.
-            is_bot = from_agent == self._agent_id
+            # `direction` states whose line this is. The old form compared
+            # `from_agent` against the agent id, which the record layer no
+            # longer stores as a bus sender.
+            is_bot = row.get("direction") == OUTBOUND
             sender = "Me (bot)" if is_bot else (
-                self._message.sender_name or from_agent
+                self._message.sender_name or row.get("sender_name") or ""
             )
             normalized.append({
                 "timestamp": str(row.get("created_at", "")),

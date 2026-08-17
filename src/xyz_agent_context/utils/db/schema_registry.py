@@ -1486,7 +1486,16 @@ _register(
 
 
 # ----------------------------------------------------------------------------
-# 31 / 32. inbox_threads + inbox_messages — the RECORD layer.
+# 31 / 32. inbox_threads + inbox_thread_messages — the RECORD layer.
+#
+# NAMED AROUND AN EXISTING COLLISION: `inbox_table` / `InboxRepository` /
+# `InboxMessage` already exist and are a NOTIFICATION store (system alerts the
+# platform pushes to an owner). Different feature, same word. `inbox_messages`
+# would have read as that feature's table, so the conversation record carries
+# `inbox_thread_messages` — the pairing with `inbox_threads` is then obvious and
+# neither name reaches for `InboxMessage`'s. The deeper fix (the notification
+# store is the one misusing the word) needs a rename of a live table, so it is
+# recorded in todo/ rather than done here.
 #
 # The inbox is what the user reads about conversations they were not in: IM
 # channel traffic and agent-to-agent DMs. It used to live in `bus_messages` /
@@ -1549,7 +1558,7 @@ _register(
 
 _register(
     TableDef(
-        name="inbox_messages",
+        name="inbox_thread_messages",
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
             Column("message_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
@@ -1580,9 +1589,9 @@ _register(
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
-            Index("idx_inbox_messages_thread", ["thread_id", "created_at"]),
-            Index("idx_inbox_messages_msgid", ["message_id"], unique=True),
-            Index("idx_inbox_messages_source", ["source_message_id"], unique=True),
+            Index("idx_inbox_thread_msgs_thread", ["thread_id", "created_at"]),
+            Index("idx_inbox_thread_msgs_msgid", ["message_id"], unique=True),
+            Index("idx_inbox_thread_msgs_source", ["source_message_id"], unique=True),
         ],
     )
 )

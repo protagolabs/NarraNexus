@@ -6,8 +6,14 @@
 
 Mirrors ``telegram_module/telegram_context_builder.py``. iLink, like Telegram's
 Bot API, exposes no server-side history endpoint, so history falls back to the
-local ``bus_messages`` table that ``ChannelInboxWriter`` populates under
-``channel_id = f"wechat_{to_user_id}"``.
+local inbox record that ``InboxRecorder`` populates under
+``thread_id = im_thread_id("wechat", to_user_id)``.
+
+Note this is the ONE place the inbox record is also OPERATIONAL: for channels
+with no history API it is the agent's conversation memory, not just something a
+person reads. The 2026-08-17 decoupling therefore moved this reader with the
+writer — leaving it on ``bus_messages`` would have made WeChat forget every
+conversation.
 
 The reply contract: the agent replies by calling the ``wechat_send`` MCP tool
 with the inbound ``to_user_id`` + ``context_token`` (surfaced here in
@@ -83,37 +89,44 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
         return {"context_token": (self._message.raw or {}).get("context_token", "") or ""}
 
     async def get_conversation_history(self, limit: int) -> List[Dict[str, Any]]:
-        """Read recent turns from local ``bus_messages`` (no iLink history API)."""
+        """Read recent turns from the local inbox record (no iLink history API)."""
         if not self._db or not self._message.chat_id:
             return []
 
-        channel_id = f"wechat_{self._message.chat_id}"
+        from xyz_agent_context.channel.inbox_recorder import (
+            OUTBOUND,
+            im_thread_id,
+        )
+
+        thread_id = im_thread_id("wechat", self._message.chat_id)
         fetch_n = max(limit + 5, 10)
         try:
             rows = await self._db.get(
-                "bus_messages",
-                {"channel_id": channel_id},
+                "inbox_thread_messages",
+                {"thread_id": thread_id},
                 limit=fetch_n,
                 order_by="created_at DESC",
             )
         except Exception as e:  # noqa: BLE001 — history is best-effort
             logger.warning(
                 f"[wechat:{self._agent_id}] history fetch failed "
-                f"(channel={channel_id}): {type(e).__name__}: {e}"
+                f"(thread={thread_id}): {type(e).__name__}: {e}"
             )
             return []
 
         current_id = self._message.message_id
         normalized: List[Dict[str, Any]] = []
         for row in reversed(rows):
-            from_agent = row.get("from_agent", "") or ""
             content = row.get("content", "") or ""
             row_msg_id = row.get("message_id", "") or ""
             if current_id and row_msg_id == current_id:
                 continue
-            is_bot = from_agent == self._agent_id
+            # `direction` says whose line this is directly — the old form
+            # compared `from_agent` against the agent id, which the record
+            # layer no longer stores as a bus sender.
+            is_bot = row.get("direction") == OUTBOUND
             sender = "Me (bot)" if is_bot else (
-                self._message.sender_name or from_agent
+                self._message.sender_name or row.get("sender_name") or ""
             )
             normalized.append({
                 "timestamp": str(row.get("created_at", "")),

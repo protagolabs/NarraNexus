@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_context_builder.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 历史改读 inbox 记录
+
+Telegram Bot API 没有 history 端点，所以历史一直来自本地记录。那份记录 2026-08-17 从
+`bus_messages` 搬到了 `inbox_thread_messages`，**这个读取方必须跟着搬**——留在原地
+Telegram 会失忆（2026-05-13 那个「再试一下」被理解成重试渠道测试的 bug 会复发）。
+
+判别「这行是谁说的」从比对 `from_agent == agent_id` 改成读 `direction` 列：记录层直接
+陈述方向，不再把它编码进一个合成发送者 id。
+
+**这是 inbox 记录同时是 operational 的两处之一**（另一处是 wechat）——对没有历史 API 的
+渠道，它就是 agent 的对话记忆，不只是给人看的。见 [[inbox_recorder]]。
 
 ## 2026-08-06 — `room_type` 现在是行为开关
 

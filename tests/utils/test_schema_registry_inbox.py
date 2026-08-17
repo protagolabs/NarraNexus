@@ -27,7 +27,7 @@ def _tables():
 def test_both_inbox_tables_are_registered():
     tables = _tables()
     assert "inbox_threads" in tables
-    assert "inbox_messages" in tables
+    assert "inbox_thread_messages" in tables
 
 
 def test_a_thread_knows_whose_inbox_it_is_and_what_it_is():
@@ -61,7 +61,7 @@ def test_the_thread_carries_its_own_read_state():
 
 
 def test_a_message_records_its_direction_and_sender():
-    cols = {c.name for c in _tables()["inbox_messages"].columns}
+    cols = {c.name for c in _tables()["inbox_thread_messages"].columns}
     assert {
         "message_id",
         "thread_id",
@@ -87,7 +87,7 @@ def test_backfill_idempotency_is_guaranteed_by_the_database():
     the script runs, or how wrong its time window is. A script-side "have I seen
     this id" check would put the same guarantee somewhere it can be forgotten.
     """
-    table = _tables()["inbox_messages"]
+    table = _tables()["inbox_thread_messages"]
     cols = {c.name for c in table.columns}
     assert "source_message_id" in cols
 
@@ -106,7 +106,7 @@ def test_source_message_id_is_nullable():
     behind it, and a NOT NULL column would force the writer to invent an id —
     which would then collide with a real one at backfill time."""
     col = next(
-        c for c in _tables()["inbox_messages"].columns
+        c for c in _tables()["inbox_thread_messages"].columns
         if c.name == "source_message_id"
     )
     assert col.nullable is not False
@@ -119,14 +119,14 @@ def test_threads_are_indexed_the_way_the_panel_queries_them():
 
 
 def test_messages_are_indexed_by_thread():
-    idx_cols = [idx.columns for idx in _tables()["inbox_messages"].indexes]
+    idx_cols = [idx.columns for idx in _tables()["inbox_thread_messages"].indexes]
     assert any(cols[:1] == ["thread_id"] for cols in idx_cols), idx_cols
 
 
 def test_every_column_declares_both_dialects():
     """`auto_migrate()` picks per backend; a missing half only fails on the
     dialect nobody ran locally — and production is the MySQL one."""
-    for name in ("inbox_threads", "inbox_messages"):
+    for name in ("inbox_threads", "inbox_thread_messages"):
         for col in _tables()[name].columns:
             assert col.sqlite_type, f"{name}.{col.name} has no sqlite_type"
             assert col.mysql_type, f"{name}.{col.name} has no mysql_type"

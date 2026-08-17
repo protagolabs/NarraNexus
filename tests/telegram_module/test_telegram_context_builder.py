@@ -140,8 +140,8 @@ class _FakeDB:
 
 
 @pytest.mark.asyncio
-async def test_get_conversation_history_reads_bus_messages():
-    """Production path: db_client + bus_messages rows → chronological history.
+async def test_get_conversation_history_reads_the_inbox_record():
+    """Production path: db_client + inbox record rows → chronological history.
 
     Reproduces the 2026-05-13 bug where the user asked about weather,
     got "search unavailable", said "再试一下" two turns later, but the
@@ -153,36 +153,39 @@ async def test_get_conversation_history_reads_bus_messages():
     rows_newest_first = [
         {
             "message_id": "m_now",
-            "channel_id": f"telegram_{chat_id}",
-            "from_agent": "telegram_user_8612707834",
+            "thread_id": f"im_telegram_{chat_id}",
+            "direction": "in",
+            "sender_name": "Ada Lovelace",
             "content": "再试一下",  # current trigger — must be filtered out
             "created_at": "2026-05-13 17:31:26",
         },
         {
             "message_id": "m_5",
-            "channel_id": f"telegram_{chat_id}",
-            "from_agent": "agent_a",
+            "thread_id": f"im_telegram_{chat_id}",
+            "direction": "out",
             "content": "抱歉，搜索功能暂时不可用",
             "created_at": "2026-05-13 17:08:54",
         },
         {
             "message_id": "m_4",
-            "channel_id": f"telegram_{chat_id}",
-            "from_agent": "telegram_user_8612707834",
+            "thread_id": f"im_telegram_{chat_id}",
+            "direction": "in",
+            "sender_name": "Ada Lovelace",
             "content": "今天天气怎么样",
             "created_at": "2026-05-13 17:08:54",
         },
         {
             "message_id": "m_3",
-            "channel_id": f"telegram_{chat_id}",
-            "from_agent": "agent_a",
+            "thread_id": f"im_telegram_{chat_id}",
+            "direction": "out",
             "content": "在的，有什么需要帮忙的？",
             "created_at": "2026-05-13 17:06:57",
         },
         {
             "message_id": "m_2",
-            "channel_id": f"telegram_{chat_id}",
-            "from_agent": "telegram_user_8612707834",
+            "thread_id": f"im_telegram_{chat_id}",
+            "direction": "in",
+            "sender_name": "Ada Lovelace",
             "content": "在吗",
             "created_at": "2026-05-13 17:06:57",
         },
@@ -215,8 +218,8 @@ async def test_get_conversation_history_reads_bus_messages():
 
 @pytest.mark.asyncio
 async def test_get_conversation_history_filters_to_chat_id():
-    """The bus_messages filter MUST scope by channel_id — cross-chat
-    bleed would let one user's history leak into another's prompt."""
+    """The history filter MUST scope by thread — cross-chat bleed would let
+    one user's history leak into another's prompt."""
     db = _FakeDB([])
     builder = TelegramContextBuilder(
         message=_msg(chat_id="8612707834", message_id="m_now"),
@@ -229,8 +232,8 @@ async def test_get_conversation_history_filters_to_chat_id():
 
     assert db.calls, "db.get was never called"
     table, filters, _, _ = db.calls[0]
-    assert table == "bus_messages"
-    assert filters == {"channel_id": "telegram_8612707834"}
+    assert table == "inbox_thread_messages"
+    assert filters == {"thread_id": "im_telegram_8612707834"}
 
 
 @pytest.mark.asyncio
@@ -241,7 +244,7 @@ async def test_get_conversation_history_caps_to_limit():
     rows = [
         {
             "message_id": f"m_{i}",
-            "channel_id": "telegram_42",
+            "thread_id": "telegram_42",
             "from_agent": "telegram_user_42",
             "content": f"msg #{i}",
             "created_at": f"2026-05-13 17:00:{i:02d}",
