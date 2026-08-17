@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-15
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 用户发的 @ 也进工作板
+
+`POST /{team_id}/chat/messages` 在 `send_message` 之后调 [[errand]] 的
+`record_handoffs`。
+
+在此之前 [[errand]] 只挂在 [[message_bus_trigger]] 上，也就是**agent 回帖**走的
+路；人发的消息从这个路由直接进 bus，于是「@Bruno 把数拉一下」被无视之后什么痕
+迹都没有。而这恰恰是**用户唯一亲眼看得见**的那类断链——agent 互相无视用户看不
+见，自己被无视看得见。同时也修了闭环率报告的分母：只量 agent→agent 那一半，回答
+的是另一个问题。
+
+三条边界：无 @ 时路由到默认响应者，那是**平台挑人回答**不是用户派活，不开项；
+`@all` 映射成 `@everyone` 后被 helper 自己滤掉；记账失败只记 warning——消息已经
+在房间里了，让用户重打一遍所有人都已看见的东西是最差的结果。
+
+不调 `close_delivered_errands`：用户不是 assignee，没有什么可结的。
 
 ## 2026-08-15 — 时间比较走 `event_time_str`；跨层不变式改成真问两边
 

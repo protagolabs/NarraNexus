@@ -45,9 +45,12 @@ it does not replace it (iron rule #15 — the prompt is not the guard).
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Any, List, Optional, Sequence
 
 from loguru import logger
+
+from xyz_agent_context.utils.timezone import utc_now
 
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
 from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
@@ -55,6 +58,41 @@ from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemSt
 #: An errand title is read by every member every turn, so it is short by
 #: contract rather than by accident.
 TITLE_MAX_CHARS = 80
+
+#: How many hand-offs ONE message may open.
+#:
+#: The input is caller-controlled and previously unbounded: `targets` comes
+#: straight from the @mentions in a model-written reply, and every row it
+#: creates is rendered into every member's prompt on every turn, forever, until
+#: something closes it. `PATROL_SPEECH_MAX` is this repository's own precedent
+#: for capping a platform-generated volume.
+#:
+#: The number is also a latency budget, not only a board-length one. Since the
+#: team reply moved inside the turn (#291/#302) this book-keeping runs while the
+#: runtime waits on the delivery callback, at two indexed queries per target —
+#: so an uncapped "@ twelve people" would sit in the agent's turn.
+#:
+#: A message addressing more people than this is a broadcast, and a broadcast is
+#: `@everyone`, which opens nothing at all.
+MAX_HANDOFFS_PER_MESSAGE = 5
+
+#: How long an unfinished AUTO errand stays on the board.
+#:
+#: Auto errands have exactly two exits: the assignee delivers, or the lead
+#: closes the item by hand — and the second one is the model obedience this
+#: whole layer exists to stop depending on. So an errand that will never be
+#: delivered is otherwise PERMANENT, and it does not merely sit there: `stalled`
+#: counts as ACTIVE, so one stuck row keeps `teams_with_active_work()` returning
+#: this team forever, pins patrol to its 180s stalled cadence forever, and burns
+#: the speech budget every 30 minutes forever. `patrol.py` documents "empty
+#: board = zero runs" as this feature's cost guarantee; without an expiry, one
+#: rhetorical "@Bruno 你怎么看" retires that guarantee for the whole team.
+#:
+#: 24h rather than something tighter because the ceiling has to clear a
+#: legitimately long hand-off — iron rule #14 protects runs that last tens of
+#: hours, and expiring an errand out from under one that is still working would
+#: make the board lie in the other direction.
+ERRAND_TTL_HOURS = 24
 
 #: Addressing the room is not handing work to a person: nobody is late on
 #: `@everyone`, and opening one item per member would flood the board.
@@ -129,7 +167,7 @@ def _title_from(text: str) -> str:
     label for a row a model reads every turn — the message itself stays
     reachable through ``source_message_id``.
     """
-    cleaned = re.sub(r"@[\w一-鿿]+", " ", text or "")
+    cleaned = re.sub(r"@\w+", " ", text or "")
     for line in cleaned.splitlines():
         line = " ".join(line.split())
         if line:
@@ -163,6 +201,17 @@ async def record_handoffs(
     ]
     if not targets or not team_id or not channel_id:
         return []
+    if len(targets) > MAX_HANDOFFS_PER_MESSAGE:
+        # Announced, never silent: a cap that trims without saying so reads
+        # downstream as "those hand-offs were never made" (iron rule #16's
+        # rule for truncation, applied to the board instead of a transcript).
+        dropped = targets[MAX_HANDOFFS_PER_MESSAGE:]
+        logger.warning(
+            f"[errand] {len(targets)} hand-offs in one message from "
+            f"{from_agent} in {channel_id}; opening the first "
+            f"{MAX_HANDOFFS_PER_MESSAGE}, not opening: {', '.join(dropped)}"
+        )
+        targets = targets[:MAX_HANDOFFS_PER_MESSAGE]
 
     repo = TeamWorkItemRepository(db)
     title = _title_from(text)
@@ -235,8 +284,22 @@ async def close_delivered_errands(
         )
         return []
 
+    # ONE delivery settles ONE errand — the oldest.
+    #
+    # Closing everything this agent owed was the first shape of this function
+    # and it was wrong in exactly the way `is_promise_only` is written to avoid:
+    # in a six-stage pipeline an agent routinely owes several things at once, so
+    # delivering one of them would mark all of them done, and the rest would
+    # vanish from the board with nobody chasing them and the panel showing
+    # everything healthy. It also inflated the closure rate — one post, three
+    # `close` lines — and that rate is the evidence PR #230 wants before anyone
+    # decides a stronger fallback is unnecessary.
+    #
+    # The OLDEST rather than the newest: `list_open_errands` orders ascending,
+    # and the one that has been open longest is both the likeliest to be what a
+    # delivery refers to and the one closest to being chased.
     closed: List[str] = []
-    for item in open_items:
+    for item in open_items[:1]:
         try:
             await repo.set_status(item.item_id, WorkItemStatus.DONE)
         except Exception as e:  # noqa: BLE001
@@ -249,3 +312,75 @@ async def close_delivered_errands(
             f"origin={WorkItemOrigin.AUTO}"
         )
     return closed
+
+
+async def expire_stale_errands(db: Any, team_id: str) -> List[str]:
+    """Retire AUTO errands older than the TTL. Returns the ids expired.
+
+    The recycler that makes automatic opening survivable. Without it an errand
+    nobody will ever deliver is permanent, and permanence here is not passive:
+    see ``ERRAND_TTL_HOURS`` for why one stuck row costs this team its patrol
+    cadence and its speech budget indefinitely.
+
+    Retired as ``cancelled``, never ``done``. ``done`` is what the closure-rate
+    report counts as a delivery, so expiring into it would quietly restate
+    "nobody ever got to this" as "it was delivered" — and that report is the
+    whole evidentiary value of the metric work in this change.
+
+    ``tool`` items are untouched: a Leader's task is explicit, and making one
+    disappear on a timer is a different class of accident.
+
+    Best-effort, like the rest of this module — it runs on the patrol path, and
+    a failed sweep must not cost the sweep that follows it.
+    """
+    if not team_id:
+        return []
+    repo = TeamWorkItemRepository(db)
+    try:
+        # Reads the board through `list_active` and ages the rows in PYTHON,
+        # rather than adding a `created_at < %s` predicate to a new statement.
+        #
+        # Two reasons, and the first one is a bug this took: `created_at` holds
+        # two different textual shapes on SQLite — rows written by the schema
+        # default land as `2026-08-17 02:52:40` while anything written from
+        # Python lands as `2026-08-17T02:52:40+00:00`. A string comparison
+        # across the two is wrong at the separator ('T' > ' '), so a SQL-side
+        # cutoff silently matches nothing, and SQLite is the desktop build's
+        # production backend. `patrol_due_at` already ages timestamps in Python
+        # via `parse_db_utc` for the same reason.
+        #
+        # The second: it adds no raw SQL. `list_active` is one of the four
+        # statements the real-MySQL suite already covers.
+        candidates = await repo.list_active(team_id)
+    except Exception as e:  # noqa: BLE001 — see docstring
+        logger.warning(f"[errand] stale sweep failed team={team_id}: {e}")
+        return []
+
+    from xyz_agent_context.agent_runtime.run_recorder import parse_db_utc
+
+    cutoff = utc_now() - timedelta(hours=ERRAND_TTL_HOURS)
+    stale = []
+    for item in candidates:
+        if item.origin != WorkItemOrigin.AUTO:
+            continue
+        created = parse_db_utc(item.created_at)
+        # An unparseable timestamp is not evidence of age. Skipping keeps the
+        # row on the board, which is the same direction every other judgement
+        # in this module leans.
+        if created is not None and created < cutoff:
+            stale.append(item)
+
+    expired: List[str] = []
+    for item in stale:
+        try:
+            await repo.set_status(item.item_id, WorkItemStatus.CANCELLED)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[errand] expire failed item={item.item_id}: {e}")
+            continue
+        expired.append(item.item_id)
+        logger.info(
+            f"[work-item] action=expire item={item.item_id} team={team_id} "
+            f"channel={item.channel_id} assignee={item.assignee_id} "
+            f"origin={WorkItemOrigin.AUTO}"
+        )
+    return expired

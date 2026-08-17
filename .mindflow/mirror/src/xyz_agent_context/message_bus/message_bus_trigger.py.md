@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-15
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 板子进 prompt 加上限（review 🔴3 的第三项）
+
+`TEAM_BOARD_MAX_ITEMS = 15`。板子此前全量渲染进**每个成员每一轮**的 prompt，而
+在 [[errand]] 之前每一行都要 Leader 一次显式工具调用，稀少是天然的；现在行数跟
+着房间流量走。
+
+溢出**明说**（`+N more not shown`）而不是悄悄截断：读起来完整的截断会让 lead 以
+为剩下的已经关掉了——铁律 #16 对用户可见流的要求，同样适用于模型看自己团队的那
+一眼。保持 oldest-first：最可能卡住的就是开得最久的，那正是这一段存在的理由。
 
 ## 2026-08-15（二）— 交接自己上板子 + 团队房禁止承诺
 

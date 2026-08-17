@@ -113,6 +113,18 @@ async def detect_stalled_items(
     stalled set, so patrol stops chasing someone already working again.
     """
     repo = TeamWorkItemRepository(db)
+    # Retire expired AUTO errands BEFORE reading the board, so a row nobody
+    # will ever deliver stops feeding the very sweep it would otherwise keep
+    # alive: `stalled` is ACTIVE, so one permanent errand pins this team to the
+    # 180s cadence and burns its speech budget indefinitely. Run here because
+    # patrol is already this team's periodic entry point — a second scheduler
+    # for one sweep would be its own maintenance surface.
+    #
+    # Best-effort inside `expire_stale_errands`: a failed recycle must not cost
+    # the stall detection that follows it.
+    from xyz_agent_context.message_bus.errand import expire_stale_errands
+
+    await expire_stale_errands(db, team_id)
     items = await repo.list_active(team_id)
     stalled: List[WorkItem] = []
     for item in items:

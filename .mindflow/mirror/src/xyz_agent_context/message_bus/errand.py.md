@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/message_bus/errand.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — review 三条：上限、回收、一次交付结一件
+
+narranexus-review 抓到的都是**「自动开项安全」这个论证只覆盖了会闭的那些**。
+
+**`MAX_HANDOFFS_PER_MESSAGE = 5`**：`targets` 直接来自模型写的 @mention，此前
+无上限。每一行都进每个成员每一轮的 prompt。它同时是**延迟预算**——投递搬进 turn
+内之后（#291/#302），这段记账跑在 runtime 等回调的那段时间里，每个目标两次索引
+查询。超出部分**写日志说明丢了谁**，不静默截断。
+
+**`ERRAND_TTL_HOURS = 24` + `expire_stale_errands`**：一条永远不会被交付的差事
+此前是**永久**的，而且不是躺着——`stalled` 属于 ACTIVE，所以一行卡住就让
+`teams_with_active_work()` 永远返回这个团队、把巡查永久钉在 180s、每 30 分钟烧
+掉 6 次真实 turn。[[patrol]] 把「空板子 = 零 run」写成这个功能的成本保证，而一
+句修辞性的「@Bruno 你怎么看」就足以让整个团队退出那条保证。
+
+过期一律置 `cancelled` 而非 `done`：`done` 会被闭环率报告记成交付，等于把「没人
+管到过期」美化成「交付了」，而那份报告是这批度量工作的全部价值。24h 而不是更短
+——天花板必须容得下一次合法的长交接（铁律 #14 保护跑几十小时的 run）。
+
+**一次交付只结一件（最早的那件）**：此前无差别关掉该 agent 在该房间的全部
+open。六段流水线里同时欠三件是常态，交付一件就把三件都记成 done，另外两件从板
+子上消失、巡查不再追、面板显示一切正常。这就是「被误判为交付」的另一种形态，与
+`is_promise_only` 的偏向同一条论证。它还会系统性高估闭环率（一次投递三行
+close）。取最早：既最可能是这次交付的指向，也最接近该被催的那条。
+
+## TTL 为什么在 Python 侧算年龄
+
+第一版把 `created_at < %s` 写进 SQL，**SQLite 上静默匹配不到任何行**。同一列存
+着两种文本形态：schema 默认写的是 `2026-08-17 02:52:40`，Python 写的是
+`2026-08-17T02:52:40+00:00`，字符串比较在分隔符处就错了（'T' > ' '），而 SQLite
+是桌面版的生产后端。改为复用 [[team_work_repository]] 已有的 `list_active` +
+`parse_db_utc`，与 `patrol_due_at` 同一套做法，**且不新增裸 SQL**。
+`test_expiry_survives_both_timestamp_shapes_in_the_column` 把两种形态都种进去。
 
 # errand.py — 让交接自己上板子
 

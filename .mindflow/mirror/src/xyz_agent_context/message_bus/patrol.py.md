@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/message_bus/patrol.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 巡查兼做差事回收
+
+`detect_stalled_items` 在读板子**之前**先调 [[errand]] 的 `expire_stale_errands`。
+
+顺序是有意的：一条过期的行如果先被读成 `stalled`，它就会继续喂养那次本该把它回
+收掉的 sweep。挂在这里而不是另起调度器，是因为巡查已经是这个团队的周期性入口，
+为一次清扫再养一个调度面不值得。
+
+不这么做的代价见 [[errand]] 的 `ERRAND_TTL_HOURS`：一行永不交付的差事会把「空板
+子 = 零 run」这条成本保证从整个团队身上撤掉。
 
 ## 2026-08-14 — stalled 按状态迁移记一行日志
 

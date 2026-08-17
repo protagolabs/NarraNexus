@@ -25,6 +25,8 @@ to catch.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from xyz_agent_context.message_bus.errand import (
@@ -34,6 +36,7 @@ from xyz_agent_context.message_bus.errand import (
 )
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
 from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
+from xyz_agent_context.utils.timezone import utc_now
 
 
 TEAM = "team_dunhuang"
@@ -52,7 +55,7 @@ def repo(db_client):
 
 
 async def _open_errand(db, *, from_agent, to_agent, text="handle the OCR output",
-                       message_id="msg_1"):
+                       message_id="msg_1"):  # noqa: D103
     return await record_handoffs(
         db,
         team_id=TEAM,
@@ -166,6 +169,35 @@ async def test_delivering_closes_the_errand(db_client, repo):
 
 
 @pytest.mark.asyncio
+async def test_one_delivery_settles_one_errand(db_client, repo):
+    """Owing several things at once is normal in a six-stage pipeline.
+
+    Closing them all on the first delivery is "mistaken for a delivery" in its
+    other form — the same failure `is_promise_only` is biased against, so the
+    same argument decides it. It also inflated the closure rate (one post,
+    three `close` lines), and that rate is the evidence PR #230 wants before
+    anyone concludes a stronger fallback is unnecessary.
+    """
+    first = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A3, text="page 1-400",
+        message_id="msg_1"))[0]
+    second = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A3, text="page 401-800",
+        message_id="msg_2"))[0]
+
+    closed = await close_delivered_errands(
+        db_client, team_id=TEAM, channel_id=CHANNEL, agent_id=A3,
+        text="first batch is in the shared folder — 400 pages",
+    )
+
+    # The OLDEST: it is both the likeliest referent and the one closest to
+    # being chased.
+    assert closed == [first]
+    assert (await repo.get(first)).status == WorkItemStatus.DONE
+    assert (await repo.get(second)).status == WorkItemStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
 async def test_the_dunhuang_promise_does_not_close_anything(db_client, repo):
     """The founding case, as one assertion.
 
@@ -254,6 +286,188 @@ async def test_closing_is_scoped_to_this_room(db_client, repo):
 
     assert closed == []
     assert (await repo.get(opened[0])).status == WorkItemStatus.IN_PROGRESS
+
+
+# ===========================================================================
+# Bounds — what makes automatic opening survivable
+#
+# Before this layer, every board row cost a Leader a deliberate tool call, so
+# the board was short by construction. Now the row count follows room traffic,
+# and every row is rendered into every member's prompt on every turn. Worse,
+# `stalled` counts as ACTIVE: one row nobody will ever deliver keeps the team
+# on patrol's 180s cadence and spending its speech budget indefinitely, which
+# retires the "empty board = zero runs" cost guarantee patrol documents.
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_one_message_cannot_open_unbounded_hand_offs(db_client, repo):
+    """Caller-controlled input, previously unbounded.
+
+    Also a latency bound: since the reply moved inside the turn, this
+    book-keeping runs while the runtime waits on the delivery callback.
+    """
+    from xyz_agent_context.message_bus.errand import MAX_HANDOFFS_PER_MESSAGE
+
+    many = [f"agent_{i}" for i in range(MAX_HANDOFFS_PER_MESSAGE + 4)]
+
+    opened = await record_handoffs(
+        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+        mentions=many, text="everyone take a slice", message_id="m_many",
+        root_run_id="",
+    )
+
+    assert len(opened) == MAX_HANDOFFS_PER_MESSAGE
+    assert len(await repo.list_active(TEAM)) == MAX_HANDOFFS_PER_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_an_undeliverable_errand_does_not_live_forever(db_client, repo):
+    """The recycler. Without it a rhetorical @ costs the team its patrol
+    cadence permanently — `stalled` is ACTIVE, so the team never goes quiet."""
+    from datetime import timedelta
+
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        expire_stale_errands,
+    )
+    from xyz_agent_context.utils.timezone import utc_now
+
+    opened = (await _open_errand(db_client, from_agent=LEAD, to_agent=A3))[0]
+    fresh = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A4, message_id="msg_fresh"))[0]
+    await db_client.update(
+        "team_work_items", {"item_id": opened},
+        {"created_at": utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)},
+    )
+
+    expired = await expire_stale_errands(db_client, TEAM)
+
+    assert expired == [opened]
+    # Retired as CANCELLED, never DONE: `done` is what the closure-rate report
+    # counts as a delivery, so expiring into it would restate "nobody got to
+    # this" as "it was delivered" and corrupt the one metric this work adds.
+    assert (await repo.get(opened)).status == WorkItemStatus.CANCELLED
+    assert (await repo.get(fresh)).status == WorkItemStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_expiry_survives_both_timestamp_shapes_in_the_column(db_client, repo):
+    """`created_at` holds two textual shapes, and a string compare gets it wrong.
+
+    Rows written by the schema default land as `2026-08-17 02:52:40`; anything
+    written from Python lands as `2026-08-17T02:52:40+00:00`. Comparing them as
+    strings breaks at the separator ('T' > ' '), so the first version of this
+    sweep — which put `created_at < %s` in SQL — matched NOTHING on SQLite, the
+    desktop build's production backend, and did so silently.
+
+    Both shapes are seeded here explicitly so the Python-side ageing cannot
+    regress back into a dialect-dependent predicate.
+    """
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        expire_stale_errands,
+    )
+
+    sql_shaped = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A3, message_id="msg_sql"))[0]
+    iso_shaped = (await _open_errand(
+        db_client, from_agent=LEAD, to_agent=A4, message_id="msg_iso"))[0]
+
+    old = utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 2)
+    await db_client.update(
+        "team_work_items", {"item_id": sql_shaped},
+        # What `(datetime('now'))` writes: space separator, no offset.
+        {"created_at": old.strftime("%Y-%m-%d %H:%M:%S")},
+    )
+    await db_client.update(
+        "team_work_items", {"item_id": iso_shaped},
+        {"created_at": old},  # serialised by the backend as ISO 8601
+    )
+
+    expired = await expire_stale_errands(db_client, TEAM)
+
+    assert set(expired) == {sql_shaped, iso_shaped}
+
+
+@pytest.mark.asyncio
+async def test_a_leaders_own_task_is_never_expired(db_client, repo):
+    """A `tool` item is explicit. Making one vanish on a timer is a different
+    class of accident from letting an inferred errand lapse."""
+    from datetime import timedelta
+
+    from xyz_agent_context.message_bus.errand import (
+        ERRAND_TTL_HOURS,
+        expire_stale_errands,
+    )
+    from xyz_agent_context.utils.timezone import utc_now
+
+    item = await repo.create_item(
+        team_id=TEAM, channel_id=CHANNEL, title="the whole pipeline",
+        created_by=LEAD, assignee_id=A3,
+    )
+    await db_client.update(
+        "team_work_items", {"item_id": item.item_id},
+        {"created_at": utc_now() - timedelta(hours=ERRAND_TTL_HOURS * 10)},
+    )
+
+    assert await expire_stale_errands(db_client, TEAM) == []
+    assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_the_patrol_sweep_recycles_before_it_judges(db_client, repo):
+    """Wiring for the recycler: it has to run somewhere periodic, and patrol is
+    this team's only periodic entry point.
+
+    Ordering matters — an expired row read as `stalled` would keep feeding the
+    sweep that was supposed to retire it.
+    """
+    from datetime import timedelta
+
+    from xyz_agent_context.message_bus.errand import ERRAND_TTL_HOURS
+    from xyz_agent_context.message_bus.patrol import detect_stalled_items
+    from xyz_agent_context.utils.timezone import utc_now
+
+    opened = (await _open_errand(db_client, from_agent=LEAD, to_agent=A3))[0]
+    await db_client.update(
+        "team_work_items", {"item_id": opened},
+        {"created_at": utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)},
+    )
+
+    stalled = await detect_stalled_items(db_client, TEAM, executor_agent_id=LEAD)
+
+    assert stalled == []
+    assert (await repo.get(opened)).status == WorkItemStatus.CANCELLED
+
+
+def test_the_board_section_declares_what_it_hides():
+    """Truncation that reads as completeness would have the lead conclude the
+    rest was already closed."""
+    from xyz_agent_context.message_bus.message_bus_trigger import (
+        TEAM_BOARD_MAX_ITEMS,
+        MessageBusTrigger,
+    )
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    board = [
+        {"status": "open", "title": f"task {i}", "assignee_id": A3,
+         "item_id": f"wi_{i}"}
+        for i in range(TEAM_BOARD_MAX_ITEMS + 7)
+    ]
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    msg = BusMessage(
+        message_id="m1", channel_id=CHANNEL, from_agent="usr_u", content="?"
+    )
+    text = trigger._build_team_prompt(
+        LEAD, [msg],
+        [{"agent_id": LEAD, "name": "Ana"}, {"agent_id": A3, "name": "A3"}],
+        owner_user_id="usr_u", team_id=TEAM, trigger_messages=[msg],
+        lead_agent_id=LEAD, work_items=board, bulletin=None,
+    )
+
+    assert "task 0" in text
+    assert f"task {TEAM_BOARD_MAX_ITEMS + 6}" not in text
+    assert "+7 more not shown" in text
 
 
 # ===========================================================================
@@ -387,6 +601,92 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
     rows = await db_client.get("bus_messages", {"channel_id": CHANNEL})
     assert any(r["content"] == "here is the answer" for r in rows), (
         "a board failure swallowed the reply"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_hook_sits_outside_the_delivery_try(db_client, monkeypatch):
+    """Pins the CALL SITE, which the test above cannot.
+
+    That one patches `errand.record_handoffs`, and `_record_errands` swallows
+    everything internally — so it stays green even if the call is moved back
+    inside `_deliver_reply`'s try. Two safeties are in play (position AND the
+    internal swallow) and each needs its own test, because the plausible future
+    change is removing the swallow to make book-keeping failures observable.
+    If the call has drifted inside the try by then, `room_post` is written
+    `POST_FAILED` and a reply that IS in the room gets announced as lost — the
+    accident #302's own comments record.
+
+    So this one patches `_record_errands` itself. What it asserts is the
+    consequence that actually hurts: the room must not grow a "could not
+    deliver this" notice under a reply that is sitting right there. Inside the
+    try, a raising hook writes `POST_FAILED` and produces exactly that notice;
+    outside it, the raise escapes the callback instead — which production never
+    sees, because `_record_errands` swallows its own failures (the test above
+    pins that half).
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.message_bus_trigger import (
+        TEAM_ROOM_OWNER_PREFIX,
+        MessageBusTrigger,
+        TurnResult,
+    )
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+    )
+    await db_client.insert(
+        "agents", {"agent_id": LEAD, "agent_name": "L", "created_by": "usr_1"}
+    )
+
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+
+    async def _boom(**_k):
+        raise RuntimeError("book-keeping blew up loudly")
+
+    monkeypatch.setattr(trigger, "_record_errands", _boom)
+
+    delivered: list = []
+
+    async def _fake(*_a, **_k):
+        result = TurnResult(text="the answer", event_id="evt_1")
+        on_event_id = _k.get("on_event_id")
+        if on_event_id is not None:
+            await on_event_id("evt_1")
+        deliver = _k.get("on_plain_text_delivery")
+        if deliver is not None:
+            try:
+                delivered.append(await deliver(result.text))
+            except RuntimeError:
+                # Outside the try: the hook's failure escapes rather than being
+                # recorded as a delivery outcome. Production cannot reach this
+                # — `_record_errands` never raises — and it is emphatically NOT
+                # `False`, which is the distinction under test.
+                delivered.append("escaped")
+        return result
+
+    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
+
+    msg = BusMessage(
+        message_id="m_in", channel_id=CHANNEL, from_agent="usr_1",
+        content="@Leader hi", mentions=[LEAD],
+    )
+    await trigger._handle_channel_batch(
+        LEAD, CHANNEL, [msg], msg,
+        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}",
+    )
+
+    # Never reported as a failed delivery — that is the whole invariant.
+    assert delivered != [False]
+    rows = await db_client.get("bus_messages", {"channel_id": CHANNEL})
+    assert any(r["content"] == "the answer" for r in rows), "the reply was lost"
+    # And no notice may appear underneath a reply that is sitting right there.
+    assert not [r for r in rows if (r["msg_type"] or "") != "text"], (
+        "a book-keeping failure was announced as a delivery failure"
     )
 
 

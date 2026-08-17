@@ -111,7 +111,7 @@ JOB_EXECUTION_PROMPT_TEMPLATE = """You are executing a background scheduled task
 #
 # The prompt and the delivery code must agree, so both are selected from the
 # SAME recorded origin (`jobs.origin_source`) — see `job_delivery_instructions`
-# and `job_trigger._deliver_job_result`. Telling a room-origin job to call
+# and `job_trigger._deliver_to_origin`. Telling a room-origin job to call
 # `send_message_to_user_directly` would double-deliver into the wrong place;
 # telling an owner-chat job that its plain text auto-posts would lose the
 # answer entirely, since nothing would carry it anywhere.

@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/prompts.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 注释里的函数名修正
+
+`job_trigger._deliver_job_result` → `_deliver_to_origin`。按图索骥的人 grep 不到
+就得重读整个文件；属于铁律 #10 关心的「文档指向不存在的东西」，只是发生在
+Tier-1。
 
 ## 2026-08-14 — 投递指令按来源拆成两份
 

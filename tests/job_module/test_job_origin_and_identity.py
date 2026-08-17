@@ -291,6 +291,138 @@ async def test_an_owner_chat_job_posts_nowhere(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_report_carries_its_provenance(db_client, monkeypatch):
+    """A job report is the THIRD way an agent's words enter a room.
+
+    The other two (a live reply, a patrol line) both stamp `event_id`, which is
+    what the room transcript reads to offer "view reasoning & tools", and
+    `root_run_id`, which is what a cascade stop follows. Nobody in the room
+    watched this turn happen, so an unstamped line is a piece of text with no
+    way back to what produced it.
+    """
+    from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+    from xyz_agent_context.schema.job_schema import JobModel, TriggerConfig
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+    )
+
+    job = JobModel(
+        job_id="job_4", agent_id=AGENT, user_id=OWNER, title="t", description="d",
+        job_type="one_off",
+        trigger_config=TriggerConfig(run_at="2026-08-18T08:00:00",
+                                     timezone="Asia/Shanghai"),
+        payload="p", origin_source=JobOrigin.MESSAGE_BUS, origin_channel_id=ROOM,
+    )
+
+    await JobTrigger.__new__(JobTrigger)._deliver_to_origin(
+        job, "the report", run_event_id="evt_real_run",
+    )
+
+    rows = await db_client.get("bus_messages", {"channel_id": ROOM})
+    assert rows[0]["event_id"] == "evt_real_run"
+    # A job run has no parent — a timer woke it — so it roots its own tree.
+    assert rows[0]["root_run_id"] == "evt_real_run"
+    # A report is a notice, not a request: an @ would wake a team turn AND
+    # open an errand for a hand-off nobody made.
+    assert not rows[0]["mentions"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_room_job_says_so_in_the_room(db_client, monkeypatch):
+    """Silence is the failure mode this whole change exists to remove.
+
+    The owner-chat path has places to surface a failure (the Jobs panel,
+    `job.last_error`); a room has none. Four people watched someone ask for the
+    reminder, and without this they simply never hear about it again — the same
+    broken hand-off, one surface over.
+    """
+    from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+    from xyz_agent_context.schema.job_schema import JobModel, TriggerConfig
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+    )
+
+    job = JobModel(
+        job_id="job_5", agent_id=AGENT, user_id=OWNER, title="t", description="d",
+        job_type="one_off",
+        trigger_config=TriggerConfig(run_at="2026-08-18T08:00:00",
+                                     timezone="Asia/Shanghai"),
+        payload="p", origin_source=JobOrigin.MESSAGE_BUS, origin_channel_id=ROOM,
+    )
+
+    await JobTrigger.__new__(JobTrigger)._deliver_to_origin(
+        job, "⚠️ Scheduled task failed: provider timed out",
+    )
+
+    rows = await db_client.get("bus_messages", {"channel_id": ROOM})
+    assert "Scheduled task failed" in rows[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_run_does_not_put_a_metadata_block_in_the_room(
+    db_client, monkeypatch
+):
+    """The boilerplate is written for an inbox, and a room is not an inbox.
+
+    When a run produces nothing, `_run_agent` synthesises "## Task Completed …
+    Job ID … Tools used: None" — a useful operational record in the owner's
+    chat. Posted into a room it puts a platform-shaped notice in front of four
+    people and reads as a bug rather than as "the job had nothing to say".
+
+    Asserted through `_run_agent` rather than `_deliver_to_origin`, because the
+    thing under test is WHICH text reaches the room — the ordering of the two
+    statements, not the delivery itself. The owner path keeps the boilerplate
+    (PRD acceptance #8), which the return value below pins.
+    """
+    from xyz_agent_context.agent_runtime.run_collector import RunCollection
+    from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+    from xyz_agent_context.schema.job_schema import JobModel, TriggerConfig
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+    )
+
+    job = JobModel(
+        job_id="job_6", agent_id=AGENT, user_id=OWNER, title="Morning digest",
+        description="d", job_type="one_off",
+        trigger_config=TriggerConfig(run_at="2026-08-18T08:00:00",
+                                     timezone="Asia/Shanghai"),
+        payload="p", origin_source=JobOrigin.MESSAGE_BUS, origin_channel_id=ROOM,
+    )
+
+    class _Client:
+        async def run_and_collect(self, **_k):
+            return RunCollection(output_text="", tool_calls=[], event_id="evt_x")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.job_module.job_trigger."
+        "get_agent_runtime_client",
+        lambda: _Client(),
+    )
+
+    trigger = JobTrigger.__new__(JobTrigger)
+    result = await trigger._run_agent(job, "do the thing")
+
+    assert await db_client.get("bus_messages", {"channel_id": ROOM}) == [], (
+        "the room got the inbox's operational boilerplate"
+    )
+    # The owner-facing record is unchanged.
+    assert "Task Completed" in result["content"]
+    assert job.job_id in result["content"]
+
+
+@pytest.mark.asyncio
 async def test_an_undeliverable_report_does_not_fail_the_job(db_client, monkeypatch):
     """The job succeeded — its status and next_run_time are already correct.
 

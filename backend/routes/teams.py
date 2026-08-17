@@ -366,6 +366,44 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
         attachments=valid_attachments or None,
         routed_by=routed_by,
     )
+    # The user's own hand-offs go on the board too.
+    #
+    # `record_handoffs` otherwise only sees agent→agent traffic, because that
+    # is the one path routed through MessageBusTrigger. A user message reaches
+    # the bus straight from here — so "@Bruno pull the numbers", ignored, left
+    # no trace at all, and patrol had nothing to sweep. That is the ONE broken
+    # hand-off a person actually witnesses: an agent ignoring another agent is
+    # invisible to them, being ignored themselves is not.
+    #
+    # It also fixes the denominator. `make work-item-report` is meant to answer
+    # "how many hand-offs never come back", and measuring only the half nobody
+    # watches would answer a different question than the one PR #230's
+    # measure-first position is asking.
+    #
+    # `close_delivered_errands` is deliberately NOT called here: the user is
+    # never an assignee, so there is nothing of theirs to settle.
+    #
+    # Fire-and-forget in spirit but awaited in practice — it is bounded by
+    # MAX_HANDOFFS_PER_MESSAGE, and it swallows its own failures, so it cannot
+    # fail a send that already succeeded (the message id above is returned
+    # either way).
+    try:
+        from xyz_agent_context.message_bus.errand import record_handoffs
+
+        await record_handoffs(
+            db,
+            team_id=team_id,
+            channel_id=channel_id,
+            from_agent=f"{USER_SENDER_PREFIX}{user_id}",
+            # Post-routing: a `default_responder` wake-up is the platform
+            # picking someone to answer, not the user handing work to them.
+            mentions=(payload.mentions and resolved) or None,
+            text=payload.content.strip(),
+            message_id=msg_id,
+        )
+    except Exception as e:  # noqa: BLE001 — the message is already delivered
+        logger.warning(f"Team chat: errand bookkeeping failed for {team_id}: {e}")
+
     logger.info(f"Team chat: user {user_id} -> team {team_id} channel {channel_id} (mentions={resolved})")
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
 

@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 复用 helper + 日志级别提到 warning
+
+自带的那份团队房定位换成 [[team_rooms]] 的 `primary_room_of`——它落地时就丢了兄
+弟实现的兜底分支，两份实现行为已经不一致。
+
+`except` 从 `debug` 提到 `warning`：这个分支正是未来「mcp 容器不再持有 DB 凭据」
+那次迁移会撞上的地方，而症状是**静默的**——room origin 消失，job 悄悄退回 owner
+私聊，也就是这个功能刚修好的那个 bug 原样回来。翻开关的人需要看得见。
+
+`caller_team_id_from_request()` 为空**仍然静默**：那是私聊/peer DM 的正常路径，
+在那儿告警会让每个 owner-chat job 都响一次，然后所有人学会忽略真正要紧的那行。
 
 ## 2026-08-14 — `_caller_job_origin`：来源只能来自注入身份
 

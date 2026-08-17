@@ -50,27 +50,37 @@ async def _caller_job_origin() -> tuple[Optional[str], Optional[str]]:
     """
     try:
         from xyz_agent_context.module._mcp_identity import caller_team_id_from_request
+        from xyz_agent_context.message_bus.team_rooms import primary_room_of
         from xyz_agent_context.utils.db.db_factory import get_db_client
-        from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
         team_id = caller_team_id_from_request()
         if not team_id:
+            # A private-chat or peer-DM turn. The overwhelmingly common case
+            # and entirely normal, so it must stay silent — a warning here
+            # would fire on every owner-chat job and train everyone to ignore
+            # the log line that matters below.
             return (None, None)
-        db = await get_db_client()
-        room = await db.get_one(
-            "bus_channels",
-            {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
-             "channel_type": "group"},
-        )
-        channel_id = (room or {}).get("channel_id") or ""
+        # One implementation of "where is this team's room" (see team_rooms):
+        # this resolver used to carry its own copy, which had already drifted
+        # from its sibling in the work-board tools.
+        channel_id = await primary_room_of(await get_db_client(), team_id)
         # A team whose room does not exist yet resolves to nothing rather than
         # to a source with no channel: recording half of the pair would send
         # execution down the room branch with nowhere to post.
         if not channel_id:
+            logger.warning(
+                f"[job.create] turn carries team={team_id} but its room could "
+                f"not be resolved; this job will report to the owner instead"
+            )
             return (None, None)
         return (JobOrigin.MESSAGE_BUS, channel_id)
     except Exception as e:  # noqa: BLE001 — see docstring
-        logger.debug(f"[job.create] could not resolve origin: {e}")
+        # WARNING, not DEBUG. This except is what a future "the mcp container
+        # holds no DB credentials" migration would start hitting, and the
+        # symptom is silent: room origin disappears and jobs quietly fall back
+        # to the owner's private chat — i.e. the exact bug this feature fixed,
+        # returning with no trace. Whoever flips that switch needs to see it.
+        logger.warning(f"[job.create] could not resolve origin: {e}")
         return (None, None)
 
 

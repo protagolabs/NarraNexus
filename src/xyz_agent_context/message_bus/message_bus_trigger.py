@@ -126,6 +126,13 @@ TEAM_HISTORY_LIMIT = 20
 
 TEAM_INTRO_MAX_CHARS = 1200
 
+#: How many board rows ride the prompt. The board is injected into every
+#: member's context on every turn, and since `message_bus/errand.py` began
+#: opening errands from @mentions its length follows room traffic rather than
+#: a Leader's deliberate tool calls. Overflow is announced, never silently
+#: dropped — see the render site.
+TEAM_BOARD_MAX_ITEMS = 15
+
 #: Outcomes of the in-turn room deliverer, as three states rather than two.
 #: "the runtime never called it" is NOT "it landed" — reading it that way books
 #: an undelivered turn as a completed hop and announces a failure to a room
@@ -2444,11 +2451,32 @@ class MessageBusTrigger:
         # they know what they own); only the lead is given the duty to drive it.
         lines += ["", "[Work board] — tasks that outlive this turn:"]
         if work_items:
-            for item in work_items:
+            # Capped since the board stopped being hand-written. Every row used
+            # to cost a Leader a deliberate tool call; errands now open
+            # themselves from an @mention, so the length of this section became
+            # a function of how chatty the room is — and it is rendered into
+            # EVERY member's prompt on EVERY turn.
+            #
+            # Oldest-first is the order `list_active` already returns, and it is
+            # the right one to keep: the rows most likely to be stuck are the
+            # ones that have been open longest, and they are what this section
+            # exists to surface.
+            shown = work_items[:TEAM_BOARD_MAX_ITEMS]
+            for item in shown:
                 who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
                 lines.append(
                     f"- [{item.get('status')}] {item.get('title')} "
                     f"({who}) · id={item.get('item_id')}"
+                )
+            hidden = len(work_items) - len(shown)
+            if hidden > 0:
+                # Stated, not silent. A truncated board that reads as complete
+                # would have the lead conclude the rest was already closed —
+                # the same rule iron rule #16 states for a user-visible stream,
+                # applied to the model's view of its own team.
+                lines.append(
+                    f"- (+{hidden} more not shown — use the work board tools "
+                    f"to see the rest)"
                 )
         else:
             lines.append("- (no open work items)")
