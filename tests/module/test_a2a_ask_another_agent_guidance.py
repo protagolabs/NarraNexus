@@ -71,14 +71,24 @@ def test_reply_discipline_is_not_read_as_suppressing_the_owner_report():
     assert "never suppresses reporting back to your owner" in text
 
 
-def test_finished_work_must_be_delivered_not_left_as_plain_text():
+def test_finished_work_must_be_delivered():
     """2026-08-01 briefing squad: five analysts researched for real, ended
     their turns with the results as plain text, and delivered nothing. The
-    discipline section must state that completing asked-for work ends with
-    a bus send — plain text delivers nothing."""
+    discipline section must state that completing asked-for work has to reach
+    the asker.
+
+    This used to also assert the MECHANISM ("plain text delivers nothing —
+    call a bus tool"), which held on every surface that existed when it was
+    written and stopped holding when team rooms arrived: there the plain text
+    IS the reply and a bus tool double-posts, so the assertion was pinning a
+    sentence that contradicted the team prompt in the same context window
+    (2026-08-16). The duty is universal and stays pinned here; which surface
+    delivers how is asserted in `tests/message_bus/test_visibility_wording.py`,
+    next to the other rules that may only say what is true everywhere.
+    """
     text = _bus_instructions()
     assert "Finished work is never ping-pong" in text
-    assert "plain text" in text
+    assert "has to REACH them" in text
 
 
 def test_a_missing_target_is_a_question_not_a_refusal():

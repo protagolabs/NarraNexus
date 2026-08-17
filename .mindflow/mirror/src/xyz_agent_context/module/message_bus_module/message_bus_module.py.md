@@ -1,8 +1,56 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-12
+last_verified: 2026-08-16
 stub: false
 ---
+## 2026-08-16 — 静态段里最响的那句，正是 team 房间逐字反驳的那句
+
+2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
+**但漏掉了同一段里语气最重的一条**——而它恰恰是矛盾最尖锐的一条：
+
+> "Finished work is never ping-pong... send the result via `bus_send_message`。
+> **纯文本收尾 = 零交付，对方永远看不到**"
+
+在 team 房间里这句正好相反：纯文本**就是**回复（[[message_bus_trigger]] 的
+`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 bus_send_message 投递
+本条回复，否则双发」。两句话同一个上下文窗口，讲同一件事，结论相反；而静态段那句
+因为背着 8/1 briefing squad 的 P0，语气被反复加重，**是更容易赢的那一句**。
+
+修法沿用 8-12 的既定套路（不分叉、说处处成立的话）：**保留义务，交出机制**。
+「干完的活必须 REACH 对方」是普适的，怎么送由这一轮的 surface 决定——给了投递工具
+就用工具，turn prompt 说了替你上墙就写纯文本。两条路都点名，因为两条路都真实存在。
+
+同批扫掉的另外两处（铁律 #8——上一条 mirror 记的教训就是"修一份留一份"）：
+
+- **「Just stop the turn」**：那是一条关于**工具调用**的规则，只在"不调工具就等于
+  没输出"的 surface 上等于沉默。会自动上墙的 surface 上，残留的纯文本仍是一条消息。
+  改成「不调工具**且**不留任何回复文本」，并说明沉默是"什么都不产出"而非"产出得短"。
+  顺手删掉尾巴「unread cursor advances appropriately」——同一个游标下面两行的
+  resurfacing 规则已经讲得又准又有作用域，这是第三份含混说法。
+- **`[MessageBus · …]` = "另一个 agent，不是你的 owner"**：这个标签标的是**路由**，
+  不是发送者的物种。team 房间里用户自己以 `usr_<id>` 发言，会同时进未读列表和 input
+  源标签——于是**老板本人说的话被声明为"这是台机器"**，还紧挨着一条"跳过寒暄"。
+  改成「usually another agent，但**人也会在 bus 上说话**，读标签里的发送者，别默认是机器」。
+
+配套 `_render_sender()`：`usr_*` 在未读列表和 input 源标签里都渲染成 `User`。
+「读发送者」这条指令，只有发送者可读时才成立，而 `usr_a1b2c3` 对模型什么都不说。
+命名与 [[message_bus_trigger]] 的 `_sender` 一致——同一行数据，两处露出，一个叫法。
+
+`USER_SENDER_PREFIX` 从 `schema.team_schema` import（不是重打字面量）：该前缀全仓
+唯一定义点的约定见 [[team_schema]] 2026-08-11 那两条。
+
+测试：新增 6 条进 `tests/message_bus/test_visibility_wording.py`（该文件的立意就是
+"静态段的每句话必须在它到达的每个房间里成立"）。
+`tests/module/test_a2a_ask_another_agent_guidance.py` 里那条 `assert "plain text"`
+**锁的是机制**，随之改为锁义务（`has to REACH them`）——它写的时候机制还是普适的，
+team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松。
+
+**未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
+（`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
+② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
+`bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
+team 房间，房间消息在 scrollback 之外被二次渲染。
+
 ## 2026-08-10 — 这台 MCP server 上挂了第二套工具族
 
 `create_mcp_server` 除 `_message_bus_mcp_tools` 外,还注册

@@ -38,6 +38,7 @@ from xyz_agent_context.schema import (
     WorkingSource,
     is_agent_description_unset,
 )
+from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
 from xyz_agent_context.settings import settings
 
 
@@ -48,6 +49,24 @@ MESSAGE_BUS_MCP_PORT = 7820
 MAX_UNREAD_IN_CONTEXT = 20
 MAX_CHANNELS_IN_CONTEXT = 20
 MAX_KNOWN_AGENTS_IN_CONTEXT = 50
+
+
+def _render_sender(from_agent: Any) -> str:
+    """How a bus sender is named inside a `[MessageBus · … ]` tag.
+
+    Not every bus sender is an agent. A team room carries its owner's own
+    messages, sent as ``usr_<user_id>``, and those reach both the unread list
+    and the input tag — where the raw synthetic id says nothing at all, least
+    of all that the reader is looking at the person it works for. The rules
+    above tell the agent to read the sender rather than assume a machine, and
+    that instruction is only actionable if the sender is legible.
+
+    The room's own prompt has rendered this sender as "User" all along
+    (`message_bus_trigger._sender`); this is the same row, named the same way,
+    in the one other place it surfaces.
+    """
+    sender = str(from_agent or "unknown")
+    return "User" if sender.startswith(USER_SENDER_PREFIX) else sender
 
 
 class MessageBusModule(XYZBaseModule):
@@ -209,8 +228,19 @@ class MessageBusModule(XYZBaseModule):
             "### Message Source Recognition",
             "Every incoming bus message carries a channel tag at the start of the input, e.g.: "
             "`[MessageBus · AgentName · agent_xxx · ch_yyy]`",
-            "- When you see `[MessageBus · ...]` at the beginning of user input, the message came from **another agent**, NOT from your owner",
-            "- Treat bus messages as **peer-to-peer agent communication** — be concise, professional, task-focused",
+            # The tag marks the ROUTE, not the species of whoever sent it. A
+            # team room carries its owner's own messages over the bus (sender
+            # `usr_<id>`), and they reach both the unread list and this input
+            # tag — so the old flat "another agent, NOT from your owner" was
+            # false exactly where a person is waiting, and it arrived bolted to
+            # a rule that says to drop the pleasantries. The room's own prompt
+            # renders that same sender as "User"; two readings of one row.
+            "- When you see `[MessageBus · ...]` at the beginning of user input, the message arrived "
+            "over the bus rather than through your owner's main chat window. It is usually another "
+            "agent — but **a person can speak on the bus too** (a team room carries its owner's own "
+            "messages), so read the sender in the tag instead of assuming a machine",
+            "- Talking to an **agent** is peer-to-peer — be concise, professional, task-focused. When "
+            "the sender is a person, talk to them like one",
             "- When there is no `[MessageBus · ...]` tag, the message is from your owner via the main chat interface",
             "",
             "### Autonomy — Be Proactive",
@@ -238,13 +268,35 @@ class MessageBusModule(XYZBaseModule):
             # ended their turns with the results as plain text — nothing was
             # delivered. Silence rules are for empty substance; a produced
             # result is the opposite of empty.
+            #
+            # The DUTY is stated here; the MECHANISM is not, because this block
+            # does not know which surface the turn is on and the two surfaces
+            # want opposite things. Naming only the tool made this the loudest
+            # sentence a team room contradicts: there the plain text IS the
+            # reply (the trigger posts it) and calling a delivery tool
+            # double-posts, so "plain text delivers NOTHING" was word-for-word
+            # backwards against the team prompt in the same context window.
+            # Same resolution as the visibility rewrite two rules down — say
+            # what holds everywhere, point at the turn for the rest.
             "- **Finished work is never ping-pong — deliver it.** When you complete something another "
-            "agent asked for (research, an answer, a document), send the result to the asker via "
-            "`bus_send_message` / `bus_send_to_agent`. Ending the turn with the result only as plain text "
-            "delivers NOTHING — the asker never sees it.",
+            "agent asked for (research, an answer, a document), the result has to REACH them — a turn "
+            "that ends with the work sitting only in your own reasoning delivered nothing. HOW you "
+            "deliver is decided by the surface you are on, and this turn tells you which: when a bus "
+            "delivery tool is offered, send the result with it (`bus_send_message` / "
+            "`bus_send_to_agent`); when this turn's prompt says your reply is posted for you, writing "
+            "it IS delivering it and a delivery tool would send it twice.",
             "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
             "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
-            "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`. Just stop the turn. The platform records the choice as `[NO_REPLY]` and the unread cursor advances appropriately.",
+            # "Just stop the turn" is a rule about TOOL CALLS, and it only adds
+            # up to silence on a surface where nothing else delivers. Where the
+            # reply auto-posts, leftover text is still a message the room
+            # receives — so not calling a tool is not the same act as saying
+            # nothing, and the rule has to name the one that is.
+            #
+            # The old tail ("the unread cursor advances appropriately") is gone
+            # rather than rewritten: it was a third vague claim about the same
+            # cursor the resurfacing rule below states precisely and scopes.
+            "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`, and end the turn with no reply text at all. Silence is producing NOTHING, not producing something short: where a surface posts your reply for you, whatever text you leave behind is still a message somebody receives.",
             # Scoped to direct messages on purpose. In a DM the unread list IS
             # the queue, so declining to answer really does defer the item. A
             # team room delivers by rendering its scrollback into the turn, so
@@ -363,10 +415,11 @@ class MessageBusModule(XYZBaseModule):
                 "by that room's own prompt."
             )
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
-                from_agent = m.get("from_agent", "unknown")
                 channel = m.get("channel_id", "")
                 content = (m.get("content") or "")[:200]
-                parts.append(f"- `[MessageBus · {from_agent} · {channel}]` {content}")
+                parts.append(
+                    f"- `[MessageBus · {_render_sender(m.get('from_agent'))} · {channel}]` {content}"
+                )
 
         return parts
 
@@ -551,7 +604,12 @@ class MessageBusModule(XYZBaseModule):
                     trigger = unread_models[-1]
                     from_agent = trigger.from_agent if hasattr(trigger, 'from_agent') else ""
                     channel_id = trigger.channel_id if hasattr(trigger, 'channel_id') else ""
-                    tag = f"[MessageBus · {from_agent} · {channel_id}]"
+                    # Same renderer as the unread list: this tag and that list
+                    # name the same row, and a team turn's newest unread is
+                    # routinely the owner's own message. Printing `usr_a1b2c3`
+                    # here while the room's prompt says "User" is the two-readings
+                    # problem one line wide.
+                    tag = f"[MessageBus · {_render_sender(from_agent)} · {channel_id}]"
                     current = ctx_data.extra_data.get("input_content", "")
                     if current and not current.startswith("[MessageBus"):
                         ctx_data.extra_data["input_content"] = f"{tag} {current}"
