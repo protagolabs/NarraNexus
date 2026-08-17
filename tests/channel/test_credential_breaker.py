@@ -530,7 +530,17 @@ async def test_heartbeat_carries_isolation_counts():
     await _kill_until_tripped(trigger, cred)
     trigger._unstartable_fingerprint["bot2"] = "fp"
 
-    trigger._last_heartbeat_monotonic = 0.0
+    # Relative to now, not 0.0. `_maybe_heartbeat` gates on
+    # `now - _last_heartbeat_monotonic < HEARTBEAT_INTERVAL_SECONDS` (600), and
+    # `time.monotonic()` on Linux counts from BOOT — so 0.0 means "due" only on a
+    # host that has been up longer than ten minutes. Every developer machine
+    # qualifies; a fresh CI runner does not, and there the heartbeat was silently
+    # skipped and the assertion below indexed an empty list. Caught by the first
+    # CI run that executed pytest at all (2026-08-17). The rest of this file
+    # already backdates the same way — see the BREAKER_FAST_DEATH_SECONDS uses.
+    trigger._last_heartbeat_monotonic = (
+        time.monotonic() - trigger.HEARTBEAT_INTERVAL_SECONDS - 1
+    )
     await trigger._maybe_heartbeat()
 
     details = trigger._audit_repo.details_for(EVENT_HEARTBEAT)[-1]
