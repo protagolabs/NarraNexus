@@ -97,15 +97,21 @@ def _deliver_to_origin_loop(future, setter, value) -> None:
 
 def _resilient_connection_worker_thread(tx) -> None:
     """Drop-in for `aiosqlite.core._connection_worker_thread` whose result
-    delivery cannot kill the thread. Same protocol, same stop sentinel."""
+    delivery cannot kill the thread. Same protocol, same stop sentinel, and the
+    same three debug lines — anyone who turns the `aiosqlite` logger up to DEBUG
+    to chase a connection-layer problem should still get their trace, for every
+    connection in the process."""
     while True:
         future, function = tx.get()
         try:
+            aiosqlite.core.LOG.debug("executing %s", function)
             result = function()
             _deliver_to_origin_loop(future, aiosqlite.core.set_result, result)
+            aiosqlite.core.LOG.debug("operation %s completed", function)
             if result is aiosqlite.core._STOP_RUNNING_SENTINEL:
                 break
         except BaseException as e:  # noqa: B036 — mirrors upstream's contract
+            aiosqlite.core.LOG.debug("returning exception %s", e)
             _deliver_to_origin_loop(future, aiosqlite.core.set_exception, e)
 
 
@@ -134,11 +140,31 @@ def _resilient_connection_worker_thread(tx) -> None:
 # mid-write at exit (safe — WAL is crash-safe, same as SIGKILL), but the
 # ORDINARY close must stay explicit. `close_db_client()` and the suite's
 # `pytest_sessionfinish` are still load-bearing.
+# Assigning to an attribute upstream has renamed away succeeds SILENTLY, which
+# would turn both halves of this hardening into a no-op and bring the 5-minute
+# lock class back with a green suite. Fail at import instead — the version floor
+# in pyproject.toml is the other half of this guard, and two tests assert the
+# patches are installed.
+for _required in ("_connection_worker_thread", "_STOP_RUNNING_SENTINEL", "LOG"):
+    if not hasattr(aiosqlite.core, _required):
+        raise ImportError(
+            f"aiosqlite.core.{_required} is gone — the worker-thread hardening in "
+            f"{__name__} targets aiosqlite internals and must be re-checked "
+            f"against the installed version before this module can be trusted"
+        )
+if not hasattr(aiosqlite.core.Connection, "__init__"):  # pragma: no cover
+    raise ImportError("aiosqlite.core.Connection.__init__ is gone")
+
 _upstream_connection_init = aiosqlite.core.Connection.__init__
 
 
 def _daemon_worker_connection_init(self, *args, **kwargs) -> None:
     _upstream_connection_init(self, *args, **kwargs)
+    if not hasattr(self, "_thread"):  # pragma: no cover — upstream rename
+        raise RuntimeError(
+            "aiosqlite Connection has no ._thread — the daemon half of the "
+            "worker hardening cannot be applied; see db_backend_sqlite"
+        )
     self._thread.daemon = True
 
 

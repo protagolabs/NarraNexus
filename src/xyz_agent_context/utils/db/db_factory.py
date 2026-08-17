@@ -309,7 +309,8 @@ async def _evict_closed_loops() -> None:
     if not stale_ids:
         return
 
-    deadline = asyncio.get_running_loop().time() + _EVICT_SWEEP_BUDGET
+    running = asyncio.get_running_loop()
+    deadline = running.time() + _EVICT_SWEEP_BUDGET
     for loop_id in stale_ids:
         # Pop BEFORE awaiting. This is what makes two coroutines on the same
         # loop safe against double-closing the same client; do not "tidy" these
@@ -317,7 +318,7 @@ async def _evict_closed_loops() -> None:
         client = _clients_by_loop.pop(loop_id, None)
         _locks_by_loop.pop(loop_id, None)
         _loops_by_id.pop(loop_id, None)
-        remaining = deadline - asyncio.get_running_loop().time()
+        remaining = deadline - running.time()
         if client is not None and remaining > 0:
             try:
                 await asyncio.wait_for(client.close(), timeout=remaining)
@@ -395,13 +396,21 @@ async def close_db_client() -> None:
     `asyncio.run_coroutine_threadsafe` — closing a client from the wrong
     loop would trigger the same cross-loop errors we're trying to avoid.
     If the origin loop is already closed, we close on the CURRENT loop
-    instead: "resources are reclaimed on process exit" is false for the
-    SQLite backend, whose aiosqlite connection runs a NON-daemon worker
-    thread that blocks interpreter shutdown forever unless the connection
-    is actually closed (observed as pytest printing its summary and then
-    hanging indefinitely). aiosqlite only needs *a* running loop for
-    close(), not the origin loop, so the cross-loop concern doesn't apply
-    once the origin loop is gone.
+    instead. aiosqlite only needs *a* running loop for close(), not the
+    origin loop, so the cross-loop concern doesn't apply once the origin
+    loop is gone.
+
+    **Why this call is still load-bearing (2026-08-17).** It used to be
+    justified by "the aiosqlite worker is a NON-daemon thread and blocks
+    interpreter shutdown forever unless closed" — pytest printing its
+    summary and then hanging. `db_backend_sqlite` now makes that worker a
+    DAEMON thread, so that hang is gone and this call can no longer be
+    defended on those grounds. It is still required for a different and
+    more important reason: a daemon thread is KILLED at interpreter exit,
+    wherever it happens to be. This close is the only point at which the
+    connection's writes get drained and its SQLite locks released on
+    purpose rather than by process death. Do not delete it because the
+    hang stopped happening.
     """
     for loop_id, client in list(_clients_by_loop.items()):
         loop = _loops_by_id.get(loop_id)

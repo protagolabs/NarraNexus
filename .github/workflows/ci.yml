@@ -67,10 +67,21 @@ jobs:
     timeout-minutes: 20
 
     # The SQLite/MySQL dual-dialect contract is only a contract if both halves
-    # execute. NINE `*_mysql.py` dialect twins gate on NARRANEXUS_MYSQL_TEST_URL
-    # (all of them via `tests/mysql_dialect.py`'s shared helper) and skip
-    # without it, so they only ever ran on a laptop with a container up and
-    # never in CI at all. Production is MySQL: that was the unenforced half.
+    # execute. NINE `*_mysql.py` dialect twins gate on the SAME env var NAME,
+    # NARRANEXUS_MYSQL_TEST_URL, and skip without it — so they only ever ran on
+    # a laptop with a container up, and never in CI at all. Production is
+    # MySQL: that was the unenforced half.
+    #
+    # Note WHERE that gate lives, because it is not what `tests/mysql_dialect.py`
+    # looks like it promises: only ONE twin
+    # (tests/backend/test_team_room_activity_mysql.py) imports the shared helper.
+    # The other eight each carry their own
+    # `MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"` copy — exactly as that
+    # helper's own docstring admits ("Migrating the other eight is a matter for
+    # whoever next touches them"). Renaming the env var in the helper alone
+    # would leave eight twins silently skipping, and a skip is green, which is
+    # the regression class this job exists to stop. Held together by
+    # tests/test_mysql_gate_single_source.py until the copies are migrated.
     #
     # NOT verified from the authoring machine (no docker socket access there),
     # so treat the first run of this job as the verification. If a twin has

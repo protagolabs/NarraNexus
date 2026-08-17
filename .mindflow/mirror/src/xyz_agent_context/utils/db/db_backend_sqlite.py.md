@@ -15,10 +15,14 @@ loop 已经关闭，这一句抛 RuntimeError，而它的 `except` 分支**又�
 
 之后没有任何东西能回收它：文件句柄和那笔被放弃的语句持有的锁一直在，后续每个
 writer 都要走满 10 次重试 x 30 秒 busy_timeout（~5 分钟）才等到
-"database is locked"。触发条件一点都不罕见——任何摸数据库的
-fire-and-forget 任务（登录时的 `schedule_user_no_quota_rearm` 只是其中之一）
-都可能在自己的 loop 消失时还在飞，而 MCP 容器**设计上**就是每个 module 一个
-短命的线程 loop。
+"database is locked"。触发条件一点都不罕见，但**不是 MCP 容器**：`module_runner.py` 用
+multiprocessing，每个 module 一个进程 + 一个进程寿命的 `asyncio.run`，零
+`threading.Thread`。真正在造短命 loop 的是 `get_db_client_sync()` 里那个一次性
+`asyncio.run`（`ContextRuntime` 在没有注入 client 时就走这条路）、
+`lark_trigger` 每次重连的 fresh loop、一次性脚本 / migration、以及测试 harness。
+另一半是摸数据库的 fire-and-forget 任务被自己 loop 的关闭撞上——
+`schedule_user_no_quota_rearm` 是一个，不过它跑在 uvicorn 主 loop 上，所以只在
+服务关闭时才咬人。
 
 处理原则：**丢结果可以，死线程不行**。等待它的协程已经随 loop 一起没了，结果
 本来就无人接收；但这条线程是唯一能关掉这条连接的人。这是项目事故清单第 2 条

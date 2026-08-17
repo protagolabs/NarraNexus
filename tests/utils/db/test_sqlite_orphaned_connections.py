@@ -7,9 +7,12 @@ hostage.
 
 The failure this guards (found 2026-08-17 while profiling the suite):
 
-  1. A fire-and-forget task touches the DB — `schedule_user_no_quota_rearm`
-     on login is one of several, and the MCP container runs each module on its
-     own short-lived threaded loop by design.
+  1. A short-lived event loop closes with a DB statement still in flight.
+     This codebase mints such loops on purpose: `get_db_client_sync()` builds
+     its client inside `asyncio.run(...)`, `lark_trigger` makes a fresh loop
+     per WS reconnect, and one-shot scripts / migrations / this very test
+     harness do the same. (NOT the MCP container — `module_runner.py` gives
+     each module its own PROCESS with one process-lifetime `asyncio.run`.)
   2. The loop closes with that statement still in flight.
   3. aiosqlite's worker thread answers by calling `call_soon_threadsafe` on the
      closed loop, which raises; its `except` handler makes the SAME call again,
@@ -158,7 +161,22 @@ def test_a_write_abandoned_by_its_loop_leaves_the_connection_closable(tmp_path):
         task = asyncio.create_task(
             backend.execute_write("INSERT INTO t (v) VALUES (?)", ("abandoned",))
         )
+        # Bounded. An unbounded spin here would make the ONE test that
+        # reproduces the original failure end-to-end fail as a 20-minute CI
+        # timeout with no output — the same "a repro that hangs destroys the
+        # evidence it exists to produce" trap that the daemon-thread half of
+        # this fix was written for. The handover is the first thing
+        # `execute_write` does after an uncontended lock, so a second is
+        # already three orders of magnitude of slack.
+        deadline = asyncio.get_running_loop().time() + 1.0
         while not handed_over:
+            if asyncio.get_running_loop().time() > deadline:
+                task.cancel()
+                pytest.fail(
+                    "execute_write never handed its statement to the worker "
+                    "queue — nothing was ever in flight, so this repro would "
+                    "prove nothing"
+                )
             await asyncio.sleep(0)
         # Walk away exactly like a portal loop shutting down after its
         # response: asyncio.run() cancels what is left and closes the loop.

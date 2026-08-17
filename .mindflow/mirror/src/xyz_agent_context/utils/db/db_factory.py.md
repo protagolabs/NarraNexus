@@ -20,8 +20,7 @@ aiosqlite worker 线程 + 一个打开的文件句柄，如果那个 loop 是在
 
 因此本函数改为 `async`，驱逐时在**当前** loop 上 `await client.close()`
 （aiosqlite 关闭只需要"某个"在跑的 loop，不必是当初那个——与 `close_db_client`
-同一条推理），并用 `asyncio.wait_for(_EVICT_CLOSE_TIMEOUT=5s)` 兜底：若 worker
-线程已经死了，close 永远不会返回，而卡住的驱逐不能变成新的 hang。
+同一条推理）。
 
 扫描用**一个总预算**（`_EVICT_SWEEP_BUDGET`，5 秒）而不是每条一个超时：
 `stale_ids` 的长度由调用方的 loop churn 决定，没有上限，而这个扫描就压在
