@@ -4,6 +4,19 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-14 — 差事层与 job 来源面：三列两索引
+
+`team_work_items.origin`（tool|auto）：owner 2026-08-07 的分层决定第一次可执行，
+语义见 [[team_work_schema]]。默认 `tool`，让历史行保持它本来的含义。同批两条索
+引服务 [[errand]] 仅有的两个热读。
+
+`instance_jobs.origin_source` / `origin_channel_id`：job 记住**它是在哪儿被要求
+的**，好让结果回到那儿——PR #230「回复面跟随来源」在 job 面的延伸。空 = owner 私
+聊，既是历史行为、也是**唯一永远存在**的投递面，所以兜底不需要特例。
+
+拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
+合成一个字段会让每个读者各自再解析一遍。
+
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：

@@ -1,8 +1,34 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-15
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17（二）— 只带附件的交接也有个说得出口的标题
+
+这条路由是**唯一**允许正文为空的开项入口（agent 回帖必有文本），所以
+[[errand]] 里 `_title_from` 的 `(untitled hand-off)` 兜底只会在这儿冒出来。板子
+被注入每个成员每一轮的 prompt，一行读不出内容的项就是纯粹的 token 浪费。
+
+传参而不是改 `_title_from`：兜底文案是共享出口，改它会同时影响 trigger 路径；而
+且只有路由知道被交接的是附件。
+
+## 2026-08-17 — 用户发的 @ 也进工作板
+
+`POST /{team_id}/chat/messages` 在 `send_message` 之后调 [[errand]] 的
+`record_handoffs`。
+
+在此之前 [[errand]] 只挂在 [[message_bus_trigger]] 上，也就是**agent 回帖**走的
+路；人发的消息从这个路由直接进 bus，于是「@Bruno 把数拉一下」被无视之后什么痕
+迹都没有。而这恰恰是**用户唯一亲眼看得见**的那类断链——agent 互相无视用户看不
+见，自己被无视看得见。同时也修了闭环率报告的分母：只量 agent→agent 那一半，回答
+的是另一个问题。
+
+三条边界：无 @ 时路由到默认响应者，那是**平台挑人回答**不是用户派活，不开项；
+`@all` 映射成 `@everyone` 后被 helper 自己滤掉；记账失败只记 warning——消息已经
+在房间里了，让用户重打一遍所有人都已看见的东西是最差的结果。
+
+不调 `close_delivered_errands`：用户不是 assignee，没有什么可结的。
 
 ## 2026-08-15 — 时间比较走 `event_time_str`；跨层不变式改成真问两边
 

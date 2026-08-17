@@ -22,6 +22,7 @@ from xyz_agent_context.module.job_module.prompts import (
     JOB_PROGRESS_SECTION_TEMPLATE,
     JOB_DEPENDENCIES_SECTION_TEMPLATE,
     JOB_EXECUTION_PROMPT_TEMPLATE,
+    job_delivery_instructions,
 )
 
 
@@ -376,6 +377,9 @@ async def build_execution_prompt(
         dependency_section=dependency_section,
         payload=job.payload,
         related_entity_id=job.related_entity_id,
+        # Selected from the SAME field the delivery code reads, so the prompt
+        # can never describe a surface the run will not actually post to.
+        delivery_section=job_delivery_instructions(job.origin_source),
         extra_requirement=extra_requirement,
     )
     return prompt

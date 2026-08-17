@@ -126,6 +126,13 @@ TEAM_HISTORY_LIMIT = 20
 
 TEAM_INTRO_MAX_CHARS = 1200
 
+#: How many board rows ride the prompt. The board is injected into every
+#: member's context on every turn, and since `message_bus/errand.py` began
+#: opening errands from @mentions its length follows room traffic rather than
+#: a Leader's deliberate tool calls. Overflow is announced, never silently
+#: dropped — see the render site.
+TEAM_BOARD_MAX_ITEMS = 15
+
 #: Outcomes of the in-turn room deliverer, as three states rather than two.
 #: "the runtime never called it" is NOT "it landed" — reading it that way books
 #: an undelivered turn as a completed hop and announces a failure to a room
@@ -357,8 +364,14 @@ class MessageBusTrigger:
         msg_type: str = "text",
         event_id: Optional[str] = None,
         segments: Optional[List[dict]] = None,
-    ) -> None:
-        """Put a message in a room and tell the poll loop to look again.
+    ) -> str:
+        """Put a message in a room, tell the poll loop to look again, and
+        return the new message id.
+
+        The id is returned because the errand layer keys its dedup on the
+        MESSAGE (see `repository.team_work_repository.has_errand_for`), and the
+        only alternative — re-reading the room to find the row just written —
+        would race the very poll loop this method just woke.
 
         The ONLY way this process should post to the bus. Not because posting
         needs abstracting — the call is one line — but because "post" and "wake"
@@ -394,7 +407,7 @@ class MessageBusTrigger:
         # caller's "the room will never show this" handler, and was announced as
         # a delivery failure instead of being posted. Anything `send_message`
         # accepts and a room caller passes has to appear here too.
-        await self._bus.send_message(
+        message_id = await self._bus.send_message(
             from_agent=from_agent,
             to_channel=to_channel,
             content=content,
@@ -407,6 +420,64 @@ class MessageBusTrigger:
         # owner-addressed reply can also make the room's lead due, and one extra
         # poll cycle costs a single indexed query.
         self._wake()
+        return message_id or ""
+
+    async def _record_errands(
+        self,
+        *,
+        team_id: str,
+        channel_id: str,
+        agent_id: str,
+        mentions: Optional[List[str]],
+        text: str,
+        message_id: str,
+        root_run_id: str,
+    ) -> None:
+        """Settle and open the room's message-level errands for one post.
+
+        A thin seam over `message_bus.errand` so the delivery path holds one
+        call and one failure policy rather than two of each.
+
+        **Never raises.** By the time this runs the reply is in the room and
+        the hop has succeeded; a board write that could fail that hop would
+        trade a working delivery for bookkeeping. The cost of the swallow is
+        bounded and self-correcting: a missed close leaves an item patrol asks
+        about once, a missed open leaves the room exactly as it was before this
+        layer existed.
+        """
+        if not team_id:
+            return  # errands are a team-room fact; ordinary bus DMs have no board
+        # Imported here, like every other db_factory use in this module: the
+        # trigger is constructed in processes that have no DB yet.
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from xyz_agent_context.message_bus.errand import (
+            close_delivered_errands,
+            record_handoffs,
+        )
+
+        try:
+            await close_delivered_errands(
+                await get_db_client(),
+                team_id=team_id,
+                channel_id=channel_id,
+                agent_id=agent_id,
+                text=text,
+            )
+            await record_handoffs(
+                await get_db_client(),
+                team_id=team_id,
+                channel_id=channel_id,
+                from_agent=agent_id,
+                mentions=mentions,
+                text=text,
+                message_id=message_id,
+                root_run_id=root_run_id,
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.warning(
+                f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
+                f"{type(e).__name__}: {e}"
+            )
 
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
@@ -1260,7 +1331,7 @@ class MessageBusTrigger:
                         # separable, and this is the team reply — the very path
                         # whose next hop is a teammate sitting out a full
                         # adaptive interval if the wake is skipped.
-                        await self._post_to_room(
+                        posted_message_id = await self._post_to_room(
                             from_agent=agent_id,
                             to_channel=channel_id,
                             content=text,
@@ -1282,6 +1353,32 @@ class MessageBusTrigger:
                         room_post[0] = (POST_FAILED, post_err)
                         return False
                     room_post[0] = (POST_OK, None)
+                    # The errand layer, on the far side of a LANDED post — and
+                    # OUTSIDE the try above on purpose: that block answers "did
+                    # this turn reach the room", and book-keeping must never be
+                    # able to make a delivered reply report itself as lost.
+                    # `_record_errands` swallows its own failures for the same
+                    # reason.
+                    #
+                    # Ordering inside it is the whole design: close first, then
+                    # open. On the founding message ("收到…完成后交付 @A4") the
+                    # close is a no-op — it is a promise, not a delivery — and
+                    # the open adds the next link, so BOTH hops stay watched.
+                    # Reversing it would let a hand-off close the errand it just
+                    # created.
+                    #
+                    # `mentions` is the POST-cap list: an @mention the cascade
+                    # cap stripped never reached the teammate, so an errand for
+                    # it would be owed by someone who was never asked.
+                    await self._record_errands(
+                        team_id=team_id,
+                        channel_id=channel_id,
+                        agent_id=agent_id,
+                        mentions=mentions,
+                        text=text,
+                        message_id=posted_message_id,
+                        root_run_id=trigger_message.root_run_id or "",
+                    )
                     return True
 
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
@@ -2354,11 +2451,32 @@ class MessageBusTrigger:
         # they know what they own); only the lead is given the duty to drive it.
         lines += ["", "[Work board] — tasks that outlive this turn:"]
         if work_items:
-            for item in work_items:
+            # Capped since the board stopped being hand-written. Every row used
+            # to cost a Leader a deliberate tool call; errands now open
+            # themselves from an @mention, so the length of this section became
+            # a function of how chatty the room is — and it is rendered into
+            # EVERY member's prompt on EVERY turn.
+            #
+            # Oldest-first is the order `list_active` already returns, and it is
+            # the right one to keep: the rows most likely to be stuck are the
+            # ones that have been open longest, and they are what this section
+            # exists to surface.
+            shown = work_items[:TEAM_BOARD_MAX_ITEMS]
+            for item in shown:
                 who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
                 lines.append(
                     f"- [{item.get('status')}] {item.get('title')} "
                     f"({who}) · id={item.get('item_id')}"
+                )
+            hidden = len(work_items) - len(shown)
+            if hidden > 0:
+                # Stated, not silent. A truncated board that reads as complete
+                # would have the lead conclude the rest was already closed —
+                # the same rule iron rule #16 states for a user-visible stream,
+                # applied to the model's view of its own team.
+                lines.append(
+                    f"- (+{hidden} more not shown — use the work board tools "
+                    f"to see the rest)"
                 )
         else:
             lines.append("- (no open work items)")
@@ -2559,6 +2677,26 @@ class MessageBusTrigger:
             "NOT @mention anyone who is not in that list — they are not in the "
             "channel and cannot see or answer it. If you want someone else "
             "involved, ask the user to add them instead of @mentioning them.",
+            # The Dunhuang rule (2026-06-30). A six-stage pipeline died because
+            # one agent answered "收到，开始处理……完成后交付 @A4": the promise
+            # WAS the run's whole output, so the run ended `completed` and
+            # nothing existed to produce the "完成后".
+            #
+            # Phrased with the alternatives spelled out, not as a bare ban. The
+            # 0802 WeChat report is the other failure mode on this same axis —
+            # a protocol that only says "don't" makes silence the compliant
+            # answer, and silence is what this room can least afford.
+            #
+            # Reduces how often the platform's guard is consulted; it is NOT
+            # the guard (iron rule #15). `message_bus/errand.py` keeps the
+            # hand-off on the board whether or not the model obeys this line.
+            "- **Do not promise future delivery.** Sending this message ENDS "
+            "your turn — nothing of yours keeps running afterwards, so "
+            "\"完成后交给你\" / \"I'll report back when it's done\" is a "
+            "promise nothing will keep. Instead: finish the work in THIS turn "
+            "and reply with the result, or say plainly how far you got and "
+            "what you need, or schedule the follow-up explicitly with "
+            "`job_create` if you have it.",
         ]
         return "\n".join(lines)
 

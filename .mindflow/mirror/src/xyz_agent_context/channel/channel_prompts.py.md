@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 「禁止承诺」和它隔壁的示例句原本互相打架
+
+新加那条规则的**下一行**，既有的「对话太频繁要收住」bullet 给的标准话术就是
+「Let me work on it and share results when ready」——一句承诺未来交付。而这不是主
+观判断：[[errand]] 的 `is_promise_only` 里 `\blet me (…|work on)\b` 逐字命中它，
+按本项目自己的定义那就是承诺。
+
+模型在「抽象规则」和「带引号的示例」之间通常抄示例，而这条 bullet 触发的场景
+（对话过密、该收一收）恰恰最容易脱口而出承诺。示例句改成说清现状、不许诺下一次
+交付。
+
+**保住那条 bullet 的出口语义**：它治的是「对话太频繁」，和承诺是两个问题；而且只
+说「不要」会让沉默成为合规答案（0802 微信那次的教训）。
+
+IM 群聊**没有工作板兜底**（`record_handoffs` 只在团队房与团队聊天 route 上跑），
+所以在这类频道里这段 prompt 就是唯一的机制，它不能自带反例。
+
+`test_the_protocol_does_not_model_the_thing_it_forbids` 用**本仓库自己的判据**
+（`is_promise_only`）而不是子串匹配来断言，这样两者不会再各改各的。DIRECT 那条不
+动——它没有矛盾邻居，且措辞被 voice 那批用例锁着。
+
+## 2026-08-14 — GROUP 协议补上「禁止承诺未来工作」
+
+这条规则 DIRECT 协议里早就有（「Once your reply is sent, this turn is over」），
+GROUP 里一直没有——于是同一句「我稍后回来汇报」在每个群聊频道里都是合规的。
+
+它治的是敦煌形状：模型被人类对话数据训练成「先应答、再干活」，而 runtime 的语
+义是「你这条文本 = 你的交付 = 你的终点」。团队房那份同源规则在
+[[message_bus_trigger]] 的 `_build_team_prompt` 里（团队房 prompt 自己拼，不走
+这两个常量）。
+
+两处都带出口而不是光禁止：只说「不要」会让沉默成为合规答案，那是 0802 微信那
+次的失败形状。
 
 ## 2026-08-13 — 语音模板：通话上人人有回应
 

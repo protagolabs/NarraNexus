@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-08-04
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — origin 两列贯通读写
+
+`create_job` 接 `origin_source` / `origin_channel_id`，`_row_to_entity` /
+`_entity_to_row` 同步。语义与「为什么是两列」见 [[job_schema]] 与
+[[schema_registry]]。
 
 ## 2026-08-04 — get_active_jobs_by_agent 增加 user_id 过滤（W1）
 

@@ -18,7 +18,11 @@ from typing import Any, Dict, List, Optional, Sequence
 from loguru import logger
 
 from .base import BaseRepository
-from xyz_agent_context.schema.team_work_schema import WorkItem, WorkItemStatus
+from xyz_agent_context.schema.team_work_schema import (
+    WorkItem,
+    WorkItemOrigin,
+    WorkItemStatus,
+)
 
 
 class TeamWorkItemRepository(BaseRepository[WorkItem]):
@@ -104,6 +108,48 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
         )
         return [self._row_to_entity(r) for r in rows or []]
 
+    async def has_errand_for(
+        self, source_message_id: str, assignee_id: str
+    ) -> bool:
+        """Has this exact message already opened an errand for this assignee?
+
+        The dedup key is the MESSAGE, not (assignee, title): the poll loop can
+        re-deliver and a retried post keeps its id, while a genuine second
+        hand-off of the same work is a second errand and must be allowed.
+
+        Any status counts, terminal ones included — re-opening what was just
+        delivered would make the assignee permanently late.
+        """
+        if not source_message_id or not assignee_id:
+            return False
+        row = await self._db.get_one(
+            self.table_name,
+            {"source_message_id": source_message_id, "assignee_id": assignee_id},
+        )
+        return row is not None
+
+    async def list_open_errands(
+        self, channel_id: str, assignee_id: str
+    ) -> List[WorkItem]:
+        """One agent's unfinished AUTO items in ONE room, oldest first.
+
+        Two scopes, both deliberate. Per-room because an agent belongs to
+        several teams and speaking here must not settle what it owes there.
+        Per-origin because a `tool` row is a task spanning several errands
+        (owner decision 2026-08-07) and is the Leader's to close.
+        """
+        if not channel_id or not assignee_id:
+            return []
+        marks = ",".join(["%s"] * len(WorkItemStatus.ACTIVE))
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} "
+            f"WHERE channel_id = %s AND assignee_id = %s AND origin = %s "
+            f"AND status IN ({marks}) "
+            f"ORDER BY created_at ASC, id ASC",
+            (channel_id, assignee_id, WorkItemOrigin.AUTO, *WorkItemStatus.ACTIVE),
+        )
+        return [self._row_to_entity(r) for r in rows or []]
+
     async def teams_with_active_work(self) -> List[str]:
         """Teams with at least one unfinished item.
 
@@ -132,6 +178,7 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
         assignee_id: Optional[str] = None,
         source_message_id: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        origin: str = WorkItemOrigin.TOOL,
     ) -> WorkItem:
         item = WorkItem(
             item_id=self.gen_item_id(),
@@ -143,6 +190,7 @@ class TeamWorkItemRepository(BaseRepository[WorkItem]):
             created_by=created_by,
             source_message_id=source_message_id or None,
             root_run_id=root_run_id or None,
+            origin=origin,
         )
         await self._db.insert(self.table_name, self._entity_to_row(item))
         return item

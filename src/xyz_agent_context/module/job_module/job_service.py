@@ -64,6 +64,8 @@ class JobInstanceService:
         related_entity_id: Optional[str] = None,  # Feature 2.2.1 (changed to single value)
         narrative_id: Optional[str] = None,  # Feature 3.1
         monitored_job_ids: Optional[List[str]] = None,  # Monitored Job pattern (2026-01-21)
+        origin_source: Optional[str] = None,  # 2026-08-14: where it was asked for
+        origin_channel_id: Optional[str] = None,
         confirm_new: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -278,6 +280,8 @@ class JobInstanceService:
                 payload=payload,
                 instance_id=instance_id,
                 notification_method=notification_method,
+                origin_source=origin_source,
+                origin_channel_id=origin_channel_id,
                 next_run_time=next_run.utc if next_run else None,
                 next_run_at_local=next_run.local if next_run else None,
                 next_run_tz=next_run.tz if next_run else None,

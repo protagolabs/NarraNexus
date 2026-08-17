@@ -69,6 +69,7 @@ from loguru import logger
 # Schema
 from xyz_agent_context.schema.job_schema import (
     JobModel,
+    JobOrigin,
     JobStatus,
     JobType,
     TriggerConfig,
@@ -907,11 +908,25 @@ class JobTrigger:
                     f"[JobTrigger] Job {job.job_id} failed: "
                     f"{collection.error.error_type}: {collection.error.error_message}"
                 )
+                failure_note = (
+                    f"⚠️ Scheduled task failed: {collection.error.error_message}"
+                )
+                # A room-origin job that fails must not leave the room silent.
+                #
+                # The owner-chat path has somewhere to surface this (the job
+                # row, the Jobs panel, `job.last_error`); a room has nothing —
+                # four people watched someone ask for a reminder and would
+                # simply never hear about it again. That is the same broken
+                # hand-off this whole change is about, one surface over, and
+                # the team room already answers it for a fatal turn (see
+                # `message_bus_trigger`'s `turn.fatal` notice: a teammate
+                # cannot tell "not interested" from "broken").
+                await self._deliver_to_origin(
+                    job, failure_note, run_event_id=collection.event_id
+                )
                 return {
                     "event_id": event_id,
-                    "content": (
-                        f"⚠️ Scheduled task failed: {collection.error.error_message}"
-                    ),
+                    "content": failure_note,
                     "success": False,
                     "error": collection.error.error_message,
                     "error_type": collection.error.error_type,
@@ -920,6 +935,20 @@ class JobTrigger:
 
             content = collection.output_text
             tool_calls = collection.tool_calls
+
+            # Delivered BEFORE the empty-output boilerplate below is synthesised.
+            #
+            # That boilerplate ("## Task Completed … Job ID … Tools used: None")
+            # is written for the owner's inbox, where an operational record is
+            # the right thing to leave. A room is not an inbox: the prompt this
+            # job ran under told it "your reply IS the report, it is posted to
+            # the room", so posting a metadata block on its behalf puts a
+            # platform-shaped notice in front of four people and reads as a bug
+            # rather than as "the job had nothing to say".
+            #
+            # The owner path keeps the boilerplate untouched — PRD acceptance
+            # #8 requires the private-chat behaviour to be unchanged.
+            room_content = content
 
             # Add execution metadata if content is empty
             if not content.strip():
@@ -942,6 +971,10 @@ The task was executed but produced no text output.
 
             logger.info(f"[JobTrigger] AgentRuntime completed for job {job.job_id}, output length: {len(content)}")
 
+            await self._deliver_to_origin(
+                job, room_content, run_event_id=collection.event_id
+            )
+
             return {
                 "event_id": event_id,
                 "content": content,
@@ -962,6 +995,76 @@ The task was executed but produced no text output.
     # =========================================================================
     # Result Processing
     # =========================================================================
+
+    async def _deliver_to_origin(
+        self, job: JobModel, content: str, *, run_event_id: Optional[str] = None
+    ) -> None:
+        """Post a room-origin job's report back into the room that asked.
+
+        The other half of the origin pair: `_job_context_builder` picked the
+        prompt from `job.origin_source`, and this picks the delivery from the
+        same field, so the two can never describe different surfaces. An
+        owner-chat job (empty origin) returns immediately and keeps the
+        historical path — the agent's own `send_message_to_user_directly` call
+        during the run (PRD acceptance #8).
+
+        Posted by the PLATFORM under the agent's own name rather than left to
+        a tool call, for the same reason a team-room reply is: the room's
+        contract is that plain text auto-posts, and the prompt this job ran
+        under says exactly that. Making the model deliver would reintroduce
+        the "did it remember to call the tool" dependency that this whole
+        change is removing (iron rule #15).
+
+        Never raises. The job itself SUCCEEDED — its status, its narrative and
+        its next_run_time are all correct — so a failed post must not turn a
+        completed job into a failed one. It is logged loudly instead: an
+        undeliverable report is a real problem, just not this job's failure.
+        """
+        source = (job.origin_source or "").strip()
+        channel_id = (job.origin_channel_id or "").strip()
+        if source not in JobOrigin.DELIVERABLE or not channel_id or not content.strip():
+            return
+        try:
+            # Imported here: the job process builds its bus service lazily, and
+            # a module-level import would tie job startup to the bus package.
+            from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            await LocalMessageBus(backend=db._backend).send_message(
+                from_agent=job.agent_id,
+                to_channel=channel_id,
+                content=content,
+                # Recorded so the room can tell a scheduled report from a live
+                # reply, and so the recipient's turn-source logic does not read
+                # it as a peer asking a question.
+                sender_turn_source=WorkingSource.JOB,
+                # A job report is the THIRD way an agent's words enter a room,
+                # after a live reply and a patrol line. Both of the others
+                # stamp these, and the room's transcript reads `event_id` to
+                # offer "view reasoning & tools" — without it this line has no
+                # visible provenance, which is worse here than elsewhere
+                # because nobody in the room saw the turn happen.
+                event_id=run_event_id or None,
+                # Lineage. A job execution has no parent run — a timer woke it,
+                # not another agent — so it is the ROOT of its own tree, and
+                # `schema_registry` defines a root as storing its own event id.
+                # Whoever this report wakes next inherits that label and stays
+                # reachable by a cascade stop.
+                root_run_id=run_event_id or None,
+                # Deliberately no `mentions`: a report is a notice, not a
+                # request. An @ would wake a team turn immediately AND open a
+                # fresh errand for a hand-off nobody made.
+            )
+            logger.info(
+                f"[JobTrigger] job {job.job_id} reported into {channel_id} "
+                f"(origin={source})"
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.error(
+                f"[JobTrigger] job {job.job_id} produced a report but could not "
+                f"post it to {channel_id}: {type(e).__name__}: {e}"
+            )
 
     async def _finalize_job_execution(
         self,

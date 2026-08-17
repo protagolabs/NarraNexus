@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_context_builder.py
-last_verified: 2026-06-12
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — `delivery_section` 由 job 的来源决定
+
+`build_execution_prompt` 把投递那段改为 `job_delivery_instructions(
+job.origin_source)`（[[prompts]]），与 [[job_trigger]] 的投递分支读同一个字段
+——提示词因此不可能描述一个这次 run 根本不会投的面。
 
 ## 2026-06-12 — execution identity / task creator resolved to human name
 
