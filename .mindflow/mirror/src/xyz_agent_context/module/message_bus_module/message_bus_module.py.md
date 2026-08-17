@@ -32,7 +32,7 @@ stub: false
   源标签——于是**老板本人说的话被声明为"这是台机器"**，还紧挨着一条"跳过寒暄"。
   改成「usually another agent，但**人也会在 bus 上说话**，读标签里的发送者，别默认是机器」。
 
-配套 `_render_sender()`：`usr_*` 在未读列表和 input 源标签里都渲染成 `User`。
+配套 `_render_sender()`：`usr_*` 在未读列表里渲染成 `User`。
 「读发送者」这条指令，只有发送者可读时才成立，而 `usr_a1b2c3` 对模型什么都不说。
 命名与 [[message_bus_trigger]] 的 `_sender` 一致——同一行数据，两处露出，一个叫法。
 
@@ -55,22 +55,59 @@ stub: false
 - **`[MessageBus · …]` 格式有三份，且示例是错的。** 示例写四段（display name +
   id），两个渲染点都是三段。以前只是装饰，现在规则要求"读标签里的发送者"，它就成了
   承重件。抽出 `_bus_tag()`，示例由同一个函数生成，两者再也漂不开。
-- **input 源标签取的是"全局最新未读"，不是本轮频道。** `get_unread` 天生跨频道，
-  `unread_models[-1]` 是任意房间里最后到的那条；team 轮次组装期间来一条 DM，就会把
-  那个 peer 标成"本轮要回的人"。改成按 `extra_data["bus_channel_id"]` 过滤，
-  本频道没有就**不打标签**（"没有标签"现在有确切含义了，打错比不打更贵）。
-- **「没有标签 = 来自 owner 主聊天窗口」在 IM 轮次上为假**，`channel_prompts.py`
-  在同一个上下文窗口里说的正好相反；job 轮次更是压根没有人。改成「没标签只说明它不
-  是从 bus 来的，从哪来由本轮自己的 prompt 说」。同一个三条清单，另外两条本轮已改，
-  漏掉第三条就又是"修一份留一份"（铁律 #8）。
 - 沉默那条补上作用域：「对 **bus 对话** 不留任何回复文本」——四十行外还挂着"绝不压制
   对 owner 的回报"，无限定的"不留任何文本"会把人在等的答案一起吞掉。
 
-测试：新增 6 条进 `tests/message_bus/test_visibility_wording.py`（该文件的立意就是
-"静态段的每句话必须在它到达的每个房间里成立"），第二轮再补 6 条，其中两条是**跨文件
-契约**：一条断言 `_build_team_prompt` 确实做了本模块规则所依赖的那个承诺（"替你上墙"
-+ "禁止用投递工具"），一条断言 input 源标签取的是本轮频道。前者此前无人守——trigger
-那边一次改词就能把本模块的规则重新变成谎话，而那正是本文件存在的意义，只是在隔壁文件。
+### 第三轮（预审 Critical）—— input 源标签**从来没有存在过**
+
+`hook_data_gathering` 第 5 步那段"给输入加 `[MessageBus · …]` 前缀"的代码，**两处
+断链，一次都没跑过**：
+
+1. 它 gate 在 `extra_data["working_source"]` 上——**全仓没人往这个键写**。
+   `working_source` 是 ContextData 的**字段**（`context_runtime.py:147` 播种），而
+   `extra_data` 只装 `trigger_extra_data`。正确读法在同一文件往上八行
+   （`get_expressive_tools` 用 `working_source_matches(ctx_data.working_source, …)`）。
+2. 就算 gate 过了，它写的是 `extra_data["input_content"]`——**全仓唯一的读者就是它
+   自己那两行**。模型真正收到的是**字段** `ctx_data.input_content`
+   （`context_runtime.py:1032`）。
+
+于是这一段里**每一条**指着"输入开头的标签"的规则都指向空处，包括第二轮我刚写的
+「没有标签 = 不是从 bus 来的」——**它在 100% 的 bus 轮次上为假**（第一轮那句在 IM
+轮次上假，第二轮把假搬了个位置，正是 PR#260 那个模式）；还包括"替 owner 去问另一个
+agent"剧本第 4 步的识别信号，也就是唯一把答案回报给 owner 的那一步。
+
+**选择退役而不是接上（铁律 #2：删干净，不留 shim）。** 接上是**两个已发布 prompt 的
+行为变更**——team 轮次的 input 就是整段 `[Team Group Chat]…`，DM 轮次是
+`_build_prompt` 的输出，两者都已经用自己的话交代了发送者，在前面再糊一个机器前缀是
+产品决策，不是 bug 修复。所以：
+
+- 删掉该分支，原地留注释**点名两个死键**，防止下一个读者好心把它接回来；
+- 这一段规则改为描述**真正到达模型的那个标签面**——本模块 turn context 里的
+  **Unread Messages** 列表；
+- 「没有标签」那条不再做任何推断：标签描述的是**未读队列**，本轮由什么触发是**本轮
+  prompt 的事**，本块不得从标签的有无反推（两轮都栽在这个反推上）。
+- 第二轮的 I4（按 `bus_channel_id` 过滤）连同它的测试一并移除——那是在一条从未执行的
+  分支上做的正确性工作。
+
+**连带升级（I8）：退役后未读列表成了规则唯一指向的标签面，它的正确性权重上升。**
+该列表没有 `msg_type` 过滤（未读谓词也没有），所以 patrol / stop / 公告栏通知对每个
+成员都是未读、都会落进来：
+- `team_<id>` 发送者被原样打印 = 凭空造出一个队友，而 `message_bus_trigger._who`
+  正是为此拒绝原样打印它；
+- 公告栏通知由 UI 发出时**不记 actor**，`from_agent` 是 **owner 的 `usr_` id**、
+  `msg_type` 是平台类型——只看发送者会渲染成 `User`，**而本轮新写的规则恰好说
+  "`User` 是个人、要当人说话"**，等于把平台的话署名给了老板。
+
+所以 `_render_sender` 现在收 `msg_type` 且**类型优先于发送者**，平台行统一渲染成
+`[system]`，与 `_build_team_prompt` 给同一批行打的标签一致。`_bus_tag` 的第三个参数
+带默认值，指令里那个示例仍可由两个字面量构造。
+
+测试：`tests/message_bus/test_visibility_wording.py`（该文件的立意就是"静态段的每句话
+必须在它到达的每个房间里成立"）现共 18 条。其中**跨文件契约**一条：断言
+`_build_team_prompt` 确实做了本模块规则所依赖的承诺（"替你上墙" + "禁止用投递工具"）
+——此前无人守，trigger 那边一次改词就能把本模块的规则重新变成谎话。另有一条断言那段
+死分支是**被删掉**而不是留着不可达（只看代码行、跳过注释，因为留下的注释故意点名了
+两个死键）。
 
 `tests/module/test_a2a_ask_another_agent_guidance.py` 里那条 `assert "plain text"`
 **锁的是机制**，随之改为锁义务（`has to REACH them`）——它写的时候机制还是普适的，
@@ -236,7 +273,13 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 
 Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有一个全局共享的 MessageBusModule 实例，不是每个 Narrative 各自一个。这是因为 MessageBus 是 Agent 级别的通信能力，不需要按 Narrative 隔离。
 
-`hook_data_gathering()` 中注入的消息格式以 `[MessageBus · {from_agent}]` 开头（类似 Matrix 的 `[Matrix · ...]` 前缀），让 continuity.py 的 `_extract_core_content()` 能识别并提取核心内容。如果这个前缀格式改变，需要同步更新 `continuity.py` 的处理逻辑。
+未读列表里每一行以 `[MessageBus · {sender} · {channel}]` 开头（类似 Matrix 的
+`[Matrix · ...]` 前缀）。**2026-08-17 更正**：此处原先写的是"`hook_data_gathering()`
+注入的**消息**以该前缀开头"，并声称 `continuity.py` 的 `_extract_core_content()`
+依赖它、改格式要同步改它——**两句都不成立**。给**输入**加前缀的那段代码从未执行过
+（见同日条目，已删除）；`continuity.py` 在本分支不存在，全仓也没有任何解析该标签的
+消费者（`git grep '\[MessageBus'` 只剩生产端和文案）。格式的唯一定义点现在是
+`_bus_tag()`，指令里那个示例由它生成，所以文案与实现不会再分叉。
 
 ~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简。~~
 **2026-08-11 更正:这句是反的,而且从来没实现过。** `hook_data_gathering` 里没有任何

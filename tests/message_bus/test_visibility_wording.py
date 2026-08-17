@@ -27,22 +27,12 @@ from __future__ import annotations
 from xyz_agent_context.module.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
-from xyz_agent_context.schema import WorkingSource
 
 
 def _static_text() -> str:
     module = MessageBusModule.__new__(MessageBusModule)
     module.agent_id = "agent_me"
     return "\n".join(module._static_instruction_parts())
-
-
-def _async_return(value):
-    """A stand-in coroutine function returning ``value``, ignoring arguments."""
-
-    async def _fn(*_args, **_kwargs):
-        return value
-
-    return _fn
 
 
 def test_the_static_rules_do_not_claim_mentions_limit_visibility():
@@ -181,21 +171,69 @@ def test_no_rule_flatly_calls_the_counterparty_a_machine():
     assert "Brevity beats politeness" in text
 
 
-def test_absence_of_the_tag_is_not_claimed_to_mean_the_owners_chat_window():
-    """An IM turn says the opposite in the same context window.
+def test_the_block_infers_nothing_about_the_turn_from_an_absent_tag():
+    """Twice now this line has guessed the turn's origin from a missing marker.
 
-    `channel/channel_prompts.py` tells a Lark/Slack/Telegram/Discord turn the
-    message "arrived via {channel}, NOT from your owner's chat window" — and a
-    job turn has no human at all. The absence of a bus tag says exactly one
-    thing: it did not come over the bus.
+    v1 said "no tag ⇒ from your owner via the main chat interface" — which an
+    IM turn contradicts in the same context window (`channel_prompts.py`) and a
+    job turn has no human for at all. v2 said "no tag ⇒ did not arrive over the
+    bus", which was false on 100% of bus turns: the input prefix it described
+    never existed (dead guard, dead sink — see the module comment), so no turn's
+    input has ever carried one. Same mistake, moved.
+
+    The tags describe the unread QUEUE. What started the turn is the turn
+    prompt's business, and this block may not claim otherwise in either
+    direction.
     """
-    line = next(
-        ln for ln in _static_text().splitlines()
-        if "When there is no `[MessageBus" in ln
+    text = _static_text()
+
+    assert "is from your owner via the main chat interface" not in text
+    assert "did not arrive over the bus" not in text
+    assert "do not infer it from the presence or absence of a tag" in text
+
+
+def test_no_rule_promises_a_tag_on_the_turns_input():
+    """The prefix these rules described was never emitted.
+
+    Its producer gated on `extra_data["working_source"]` (nothing writes that
+    key — it is a ContextData FIELD) and wrote to `extra_data["input_content"]`
+    (nothing reads that key — the input is the FIELD). Every rule pointing at
+    "the start of the input" aimed the agent at a marker no turn carries, and
+    the errand playbook's step 4 waited on it to close the loop back to the
+    owner.
+    """
+    text = _static_text()
+
+    assert "at the start of the input" not in text
+    assert "beginning of user input" not in text
+    assert "input tagged" not in text
+    # And the rules now name the surface that does reach the model.
+    assert "Unread Messages" in text
+
+
+def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
+    """Deleted, not left dormant behind a guard nobody can satisfy.
+
+    A dead branch that still reads plausible is how the next reader concludes
+    the mechanism exists — which is exactly what happened here, twice, to two
+    separate rounds of this change.
+    """
+    import inspect
+
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        MessageBusModule,
     )
 
-    assert "did not arrive over the bus" in line
-    assert "is from your owner via the main chat interface" not in line
+    # Code lines only — the comment left in its place NAMES both dead keys, to
+    # stop the branch being helpfully reinstated by the next reader.
+    code = "\n".join(
+        ln for ln in
+        inspect.getsource(MessageBusModule.hook_data_gathering).splitlines()
+        if not ln.lstrip().startswith("#")
+    )
+
+    assert 'extra_data["input_content"]' not in code
+    assert 'extra_data.get("working_source")' not in code
 
 
 def test_the_worked_example_is_the_tag_the_code_actually_emits():
@@ -214,129 +252,6 @@ def test_the_worked_example_is_the_tag_the_code_actually_emits():
 
     assert _bus_tag("agent_xxx", "ch_yyy") in text
     assert "[MessageBus · AgentName · agent_xxx · ch_yyy]" not in text
-
-
-def test_the_input_source_tag_names_this_turns_channel_not_the_newest_dm():
-    """`get_unread` is cross-channel; the tag must not be.
-
-    A DM landing while a team turn is being assembled would otherwise name that
-    peer as the sender of the message this turn is answering — and the rules
-    now make the tag the authority on who is speaking.
-    """
-    import asyncio
-    from types import SimpleNamespace
-
-    from xyz_agent_context.schema.context_schema import ContextData
-    from xyz_agent_context.module.message_bus_module import message_bus_module as mod
-
-    module = MessageBusModule.__new__(MessageBusModule)
-    module.agent_id = "agent_me"
-
-    room_msg = SimpleNamespace(
-        message_id="m1", channel_id="ch_team", from_agent="usr_a1b2c3",
-        content="where are we", model_dump=lambda: {
-            "from_agent": "usr_a1b2c3", "channel_id": "ch_team",
-            "content": "where are we",
-        },
-    )
-    # Arrives LAST, in a different room — the old `[-1]` would have named it.
-    dm_msg = SimpleNamespace(
-        message_id="m2", channel_id="ch_dm", from_agent="agent_peer",
-        content="unrelated", model_dump=lambda: {
-            "from_agent": "agent_peer", "channel_id": "ch_dm",
-            "content": "unrelated",
-        },
-    )
-
-    fake_bus = SimpleNamespace(
-        get_unread=_async_return([room_msg, dm_msg]),
-        count_unread=_async_return(2),
-        get_channel_members=_async_return([]),
-        _db=SimpleNamespace(execute=_async_return([])),
-    )
-
-    ctx = ContextData(
-        agent_id="agent_me", user_id="usr_1", input_content="hi",
-        working_source=WorkingSource.MESSAGE_BUS,
-    )
-    ctx.extra_data["working_source"] = WorkingSource.MESSAGE_BUS
-    ctx.extra_data["bus_channel_id"] = "ch_team"
-    # The tagger reads the input out of extra_data (and no-ops on an empty
-    # one), which is how the runtime hands it over.
-    ctx.extra_data["input_content"] = "hi"
-
-    monkey = mod._get_default_bus_async
-    mod._get_default_bus_async = _async_return(fake_bus)
-    try:
-        asyncio.run(module.hook_data_gathering(ctx))
-    finally:
-        mod._get_default_bus_async = monkey
-
-    tagged = ctx.extra_data["input_content"]
-    assert tagged.startswith("[MessageBus · User · ch_team]")
-    assert "agent_peer" not in tagged
-    assert "ch_dm" not in tagged
-
-
-def test_silence_is_producing_nothing_not_merely_calling_nothing():
-    """"Just stop the turn" is a tool-call instruction on a text-delivery surface.
-
-    Where the reply auto-posts, ending the turn with any leftover text still
-    sends a message — so "do not call the tool" does not add up to silence and
-    the rule has to say what silence actually costs.
-    """
-    line = next(
-        ln for ln in _static_text().splitlines()
-        if "choose silence explicitly" in ln
-    )
-
-    # No trailing period in the negative: re-adding "Just stop the turn" with
-    # any other punctuation would have sailed past the first version of this.
-    assert "just stop the turn" not in line.lower()
-    # And silence is toward the BUS. This same block obliges an owner relay
-    # forty lines down ("never suppresses reporting back to your owner"), so an
-    # unqualified "no reply text at all" can swallow the answer a person is
-    # waiting for.
-    assert "no reply text to the bus conversation" in line
-
-
-def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
-    """A team room carries its owner's OWN messages over the bus.
-
-    They reach the unread list — and the input tag — as `usr_<id>`, so a flat
-    "this came from another agent, NOT from your owner" is false exactly where
-    a person is waiting for an answer, and it arrives attached to a rule that
-    says to drop the pleasantries.
-    """
-    text = _static_text()
-
-    assert "NOT from your owner" not in text
-    assert "a person can speak on the bus" in text
-
-
-def test_a_person_on_the_bus_renders_as_one_in_the_unread_list():
-    """The rule "read the sender" only works if the sender is readable.
-
-    The rendering printed the raw `usr_a1b2c3` synthetic id, which tells a
-    model nothing — least of all that it is looking at its owner.
-    """
-    from xyz_agent_context.schema.context_schema import ContextData
-
-    module = MessageBusModule.__new__(MessageBusModule)
-    module.agent_id = "agent_me"
-    ctx = ContextData(agent_id="agent_me", user_id="usr_1", input_content="hi")
-    ctx.extra_data["bus_unread_messages"] = [
-        {"from_agent": "usr_a1b2c3", "channel_id": "ch_1", "content": "where are we"},
-        {"from_agent": "agent_peer", "channel_id": "ch_1", "content": "ping"},
-    ]
-
-    text = "\n".join(module._volatile_context_parts(ctx))
-
-    human_line = next(ln for ln in text.splitlines() if "where are we" in ln)
-    peer_line = next(ln for ln in text.splitlines() if "ping" in ln)
-    assert "User" in human_line
-    assert "usr_a1b2c3" not in human_line
-    assert "agent_peer" in peer_line
 
 
 def test_the_unread_header_does_not_repeat_the_retracted_promise():
@@ -392,3 +307,72 @@ def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
     # And the prohibition the module's rule leans on.
     assert "Do NOT deliver your answer through a function" in prompt
     assert "bus_send_message" in prompt
+
+
+def _unread_lines(rows: list[dict]) -> list[str]:
+    from xyz_agent_context.schema.context_schema import ContextData
+
+    module = MessageBusModule.__new__(MessageBusModule)
+    module.agent_id = "agent_me"
+    ctx = ContextData(agent_id="agent_me", user_id="usr_1", input_content="hi")
+    ctx.extra_data["bus_unread_messages"] = rows
+    return "\n".join(module._volatile_context_parts(ctx)).splitlines()
+
+
+def test_a_platform_line_is_labelled_not_quoted_as_the_owner():
+    """A bulletin notice is stamped with the OWNER's id and is not the owner.
+
+    Posted from the UI, `team_bulletin` records no actor, so `from_agent` is
+    `usr_<owner>` while `msg_type` is a platform type. On the sender alone it
+    renders as `User` — and the rules now say in as many words that a `User`
+    sender is a PERSON and should be talked to like one. The type has to
+    outrank the sender or the platform gets quoted as the human.
+    """
+    from xyz_agent_context.message_bus.team_bulletin import BULLETIN_NOTICE_MSG_TYPE
+
+    line = next(
+        ln for ln in _unread_lines([{
+            "from_agent": "usr_owner1", "channel_id": "ch_1",
+            "content": "Team bulletin updated.",
+            "msg_type": BULLETIN_NOTICE_MSG_TYPE,
+        }]) if "bulletin updated" in ln
+    )
+
+    assert "[system]" in line
+    assert "User" not in line
+
+
+def test_a_room_marker_sender_does_not_become_a_phantom_teammate():
+    """`team_<id>` is the room speaking, and it resolves to no member.
+
+    `message_bus_trigger._who` refuses to print it verbatim for exactly this
+    reason: naming it invents a teammate the agent may then try to @mention
+    back. The unread list was printing it raw.
+    """
+    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+
+    line = next(
+        ln for ln in _unread_lines([{
+            "from_agent": "team_abc123", "channel_id": "ch_1",
+            "content": "Checking the board.", "msg_type": PATROL_MSG_TYPE,
+        }]) if "Checking the board" in ln
+    )
+
+    assert "[system]" in line
+    assert "team_abc123" not in line
+
+
+def test_an_ordinary_peer_and_an_ordinary_person_are_unaffected():
+    """The labelling must not swallow the two senders it was built to name."""
+    lines = _unread_lines([
+        {"from_agent": "usr_a1b2c3", "channel_id": "ch_1",
+         "content": "where are we", "msg_type": "text"},
+        {"from_agent": "agent_peer", "channel_id": "ch_1",
+         "content": "ping", "msg_type": "text"},
+    ])
+
+    human = next(ln for ln in lines if "where are we" in ln)
+    peer = next(ln for ln in lines if "ping" in ln)
+    assert "User" in human and "usr_a1b2c3" not in human
+    assert "agent_peer" in peer
+    assert "[system]" not in human and "[system]" not in peer
