@@ -44,11 +44,15 @@ dependencies = [
     # A RUNTIME dep, not a test one (2026-08-17). The review that flagged this
     # spotted `import yaml` in a test, but `skill_module.py:34` imports it
     # unconditionally at module scope and calls `yaml.safe_load` on skill
-    # frontmatter — pyyaml was only ever in the graph transitively, via
-    # huggingface-hub and jsonschema-path. The day either of those stops
-    # depending on it, the SkillModule stops importing, in production, and the
-    # traceback points at pyyaml rather than at this omission. Same reasoning as
-    # the `regex` entry above.
+    # frontmatter. It had only ever been in the graph transitively, so the day
+    # the resolver stops routing it here, the SkillModule stops importing — in
+    # production — and the traceback points at pyyaml rather than at this
+    # omission. WHICH package supplied it is a property of the resolution, not of
+    # our need for it, so it is deliberately not named here: an earlier draft
+    # said "via huggingface-hub and jsonschema-path" and was already wrong (a
+    # third provider, uvicorn's `standard` extra, is a direct top-level dep of
+    # ours), which is exactly the kind of note that sends the next dependency
+    # trim down a false trail. Same reasoning as the `regex` entry above.
     "pyyaml>=6.0",
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
