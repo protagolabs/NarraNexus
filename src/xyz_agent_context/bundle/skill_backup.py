@@ -320,7 +320,12 @@ async def backup_after_api_install(
     github_token: Optional[str] = None,
 ) -> Optional[str]:
     """Auto-archive immediately after the public install_skill API completes.
-    Returns the resulting archive_path (str), or None if archiving was skipped."""
+    Returns the resulting archive_path (str), or None if archiving was skipped.
+
+    Archiving is best-effort: a failure here must not fail the install the user
+    just did. But "best-effort" is not "silent" — see the handler at the bottom
+    for which failures are expected noise and which are programming errors.
+    """
     try:
         if source_type == "github" and source_url:
             archive_path, sha = await archive_github_tarball(
@@ -352,6 +357,18 @@ async def backup_after_api_install(
                 sha256=sha,
             )
             return str(out)
-    except Exception as e:
+    except (ValueError, OSError, httpx.HTTPError) as e:
+        # Expected, environmental, already-actionable-from-the-message failures:
+        # bad skill name / GitHub URL (ValueError), disk or permission problems
+        # and SameFileError (OSError), tarball download trouble (HTTPError).
+        # These are the ones a warning line genuinely covers.
         logger.warning(f"backup_after_api_install failed for {skill_name}: {e}")
+    except Exception:
+        # Anything else is a bug in THIS code path, not an environment problem.
+        # The previous blanket `except Exception` + warning is exactly how a
+        # guaranteed `copy2(tgt, tgt)` -> SameFileError sat here unnoticed while
+        # the `skill_archives` row was silently never written (see importer.py's
+        # zip branch, fixed in the preceding commit). Log the traceback so the
+        # next one is findable instead of being one grey line in the log.
+        logger.exception(f"backup_after_api_install crashed for {skill_name}")
     return None

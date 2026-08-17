@@ -102,3 +102,21 @@ Bundle export 想以"URL 安装"或"Zip 安装"方式分享 skill 时，必须�
 回归测试 `tests/bundle/test_skill_archive_path_safety.py` 里有一条 grep 式
 断言：这 3 个文件中不允许再出现 `<dir> / f"...skill_name..."` 形状的行。
 这类 bug 的复发方式就是有人又手拼了一次路径。
+
+## 2026-08-17 — `backup_after_api_install` 的宽 `except` 收窄
+
+原先是 `except Exception` + 一行 warning。这正是 [[importer.py]] zip 分支那
+个**必然发生**的 `copy2(tgt, tgt)` → `SameFileError` 能长期无人发现的原因：
+每次导入都抛、每次都被记成一条灰色 warning，而 `register_archive` 一次都没
+执行过。
+
+现在分两支：
+
+- `ValueError / OSError / httpx.HTTPError` —— 环境性、消息本身就够定位的失
+  败（坏 skill 名或 GitHub URL、磁盘/权限、`SameFileError` 也在 `OSError`
+  这一支、tarball 下载问题），保持 warning。
+- 其他一切 —— 是**这段代码自己的 bug**，用 `logger.exception` 带栈打出来。
+
+归档仍是 best-effort（不能让归档失败把用户刚做完的安装弄失败），但
+"best-effort" 不等于"静音"。对应铁律：不要为了日志干净吞异常——吞掉的前提
+是"这个异常已经在别处被处理了"，这里没有。
