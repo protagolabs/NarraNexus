@@ -863,6 +863,25 @@ class MessageBusTrigger:
                     # would fire AgentRuntime a second time and send duplicate
                     # replies. Prefixes derive from MessageSourceRegistry (see
                     # im_channel_prefixes) so new channels can't be forgotten.
+                    # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
+                    #
+                    # `InboxRecorder` (2026-08-17) stopped writing IM turns into
+                    # the bus tables, so no NEW row can arrive here. But the old
+                    # rows and memberships are still in place — iron rule #6
+                    # forbids the destructive migration — and this branch is
+                    # what has been keeping their `last_processed_at` current.
+                    #
+                    # Deleting it now would re-dispatch that history for any
+                    # agent whose cursor is stale, and the circuit-breaker gate
+                    # above is exactly how a cursor goes stale: a paused agent
+                    # never reaches this loop, so its IM channels never got
+                    # acked. Those turns would then run wearing the Owner-Relay
+                    # peer prompt — the 2026-07-03 wechat incident, by a second
+                    # route.
+                    #
+                    # Removal is a POST-MIGRATION step, after the Owner's
+                    # backfill + cleanup. See
+                    # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
                     if channel_id.startswith(im_channel_prefixes()):
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
