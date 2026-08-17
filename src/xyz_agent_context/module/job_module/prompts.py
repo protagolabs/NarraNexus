@@ -5,6 +5,10 @@
 @description: JobModule (JobTrigger) prompt definitions
 """
 
+from typing import Optional
+
+from xyz_agent_context.schema.job_schema import JobOrigin
+
 # ============================================================================
 # Task info section template
 # Used for the task info part of _build_execution_prompt()
@@ -92,16 +96,57 @@ JOB_EXECUTION_PROMPT_TEMPLATE = """You are executing a background scheduled task
 #### Execution Context
 - **Target entity**: {related_entity_id}
 - Your Narrative, memory, and chat history are loaded for this entity
-- When you call `send_message_to_user_directly`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
+{delivery_section}
+{extra_requirement}
+"""
+
+
+# ============================================================================
+# Delivery instructions — one per surface this job can report back to.
+#
+# Split out of the template above on 2026-08-14. It used to hard-code the
+# owner's private chat, which is how "@Leader remind us tomorrow", asked in a
+# team room in front of four people, delivered into one person's DM and the
+# room that asked never heard back.
+#
+# The prompt and the delivery code must agree, so both are selected from the
+# SAME recorded origin (`jobs.origin_source`) — see `job_delivery_instructions`
+# and `job_trigger._deliver_job_result`. Telling a room-origin job to call
+# `send_message_to_user_directly` would double-deliver into the wrong place;
+# telling an owner-chat job that its plain text auto-posts would lose the
+# answer entirely, since nothing would carry it anywhere.
+# ============================================================================
+JOB_DELIVERY_TO_OWNER = """- When you call `send_message_to_user_directly`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
 
 #### Important Requirements
 1. Complete all steps required for the task (search, analyze, organize, etc.)
 2. **After completing the task, you MUST use `send_message_to_user_directly` to send the final report to the user**
 3. The content sent should be the final report — do not include your thinking process
 4. The content should be complete, valuable, and clearly formatted (use Markdown)
-5. Send exactly ONE message with the final report. Do NOT send intermediate progress updates
-{extra_requirement}
-"""
+5. Send exactly ONE message with the final report. Do NOT send intermediate progress updates"""
+
+
+JOB_DELIVERY_TO_ROOM = """- **This task was set up in a group room, and your report goes back to that room** — everyone there will read it, not just one person
+
+#### Important Requirements
+1. Complete all steps required for the task (search, analyze, organize, etc.)
+2. **Your reply below IS the report.** It is posted to the room automatically when this run ends — do NOT deliver it through any function
+3. Write only the report itself — do not include your thinking process
+4. Write it for the room: complete, valuable, clearly formatted (Markdown is fine)
+5. One report. Do NOT post intermediate progress updates"""
+
+
+def job_delivery_instructions(origin_source: Optional[str]) -> str:
+    """The delivery half of the execution prompt, for one origin.
+
+    Unknown or empty origin falls back to the owner's chat: it is the surface
+    that always exists, and an unrecognised value means we do not know where
+    else to put the answer — the safe answer is the one place someone is
+    certain to look.
+    """
+    if origin_source in JobOrigin.DELIVERABLE:
+        return JOB_DELIVERY_TO_ROOM
+    return JOB_DELIVERY_TO_OWNER
 
 
 # ============================================================================

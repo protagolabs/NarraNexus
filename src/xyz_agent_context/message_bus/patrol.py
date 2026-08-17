@@ -152,6 +152,15 @@ async def detect_stalled_items(
             continue
         if item.status != WorkItemStatus.STALLED:
             await repo.set_status(item.item_id, WorkItemStatus.STALLED)
+            # Logged on the TRANSITION only, so the closure report counts
+            # stalls rather than sweeps — a stalled item is re-derived on
+            # every cycle and a line per cycle would make one dead hand-off
+            # look like hundreds. Read by scripts/diag_collector.
+            logger.info(
+                f"[work-item] action=stall item={item.item_id} "
+                f"team={team_id} channel={item.channel_id} "
+                f"assignee={item.assignee_id} origin={item.origin}"
+            )
         item.status = WorkItemStatus.STALLED
         stalled.append(item)
     return stalled

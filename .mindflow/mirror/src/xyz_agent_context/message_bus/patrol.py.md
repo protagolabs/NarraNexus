@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/message_bus/patrol.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — stalled 按状态迁移记一行日志
+
+`detect_stalled_items` 在写入 `status=stalled` 的**那一次**打一条 `[work-item]
+action=stall`。刻意放在 if 里而不是循环里：stalled 每轮巡查都会重新推导，按轮
+记会让一次断链在闭环率报告里读成几百次。
+
+消费端是 `scripts/diag_collector/work_item_report.py`——PR #230 要求的「上更强兜
+底前先测量」，量的就是这条和 [[errand]] 的 open/close 行。
 
 # patrol.py — 让流程有人负责的那一半(平台侧)
 

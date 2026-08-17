@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — `_caller_job_origin`：来源只能来自注入身份
+
+`job_create` 记录这一轮**跑在哪个团队房**。取自服务器注入的 team 身份，**绝不做
+成工具参数**：模型被问「你在哪个房间」只能猜，而猜错的 channel id 会把别人的提
+醒投进别人的房间。与工作板工具对 team_id 的处理同源
+（[[_work_board_mcp_tools]]）。
+
+**没有新增 bearer 字段**：bearer 的字段表是位置固定且冻结的，追加合法但要动协议
+和每个读者；而团队房**确定性地**就是 `created_by` 为 `team_<id>` 标记的那个群频
+道，这个事实已经在线上了。
+
+失败返回 `(None, None)`：报给 owner 是旧行为，而旧行为永远不是「我们没搞清它从
+哪来」的错误答案。
+
 ## 2026-08-11 — create/pause/cancel 迁走 seam，工具彻底弃 db 凭据
 
 job_create/pause/cancel 改为 `get_agent_data_store().job_create|job_pause|job_cancel(...)`，

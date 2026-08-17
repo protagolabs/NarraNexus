@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/prompts.py
-last_verified: 2026-06-12
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — 投递指令按来源拆成两份
+
+`JOB_EXECUTION_PROMPT_TEMPLATE` 里写死 owner 私聊的那段拆出来，成为
+`JOB_DELIVERY_TO_OWNER` / `JOB_DELIVERY_TO_ROOM`，由
+`job_delivery_instructions(origin_source)` 选。
+
+写死那段就是「@Leader 明早提醒我们」投进一个人 DM 的直接原因。两个方向都不能
+错：让房间来源的 job 去调 `send_message_to_user_directly` 会投错地方；让私聊 job
+以为「明文自动上墙」则会**整个丢掉**答案——没有任何东西会去搬运它。
+
+提示词和投递代码读**同一个字段**（`jobs.origin_source`，投递侧见
+[[job_trigger]]），所以两者不可能描述不同的面。未知来源退回 owner 私聊：那是唯
+一永远存在的面，而「不认识的值」意味着我们不知道该往哪投，最安全的答案是一定有
+人会看的那个地方。
 
 ## 2026-06-12 — JOB_TASK_INFO_TEMPLATE renders identities by human name
 

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — GROUP 协议补上「禁止承诺未来工作」
+
+这条规则 DIRECT 协议里早就有（「Once your reply is sent, this turn is over」），
+GROUP 里一直没有——于是同一句「我稍后回来汇报」在每个群聊频道里都是合规的。
+
+它治的是敦煌形状：模型被人类对话数据训练成「先应答、再干活」，而 runtime 的语
+义是「你这条文本 = 你的交付 = 你的终点」。团队房那份同源规则在
+[[message_bus_trigger]] 的 `_build_team_prompt` 里（团队房 prompt 自己拼，不走
+这两个常量）。
+
+两处都带出口而不是光禁止：只说「不要」会让沉默成为合规答案，那是 0802 微信那
+次的失败形状。
 
 ## 2026-08-13 — 语音模板：通话上人人有回应
 

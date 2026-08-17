@@ -1,7 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-30
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — `_deliver_to_origin`：房间来源的 job 回房间
+
+origin 那一对的另一半：[[_job_context_builder]] 按 `job.origin_source` 选提示词，
+这里按**同一个字段**选投递。空 origin 直接返回，保持历史路径（agent 在 run 内自
+己调 `send_message_to_user_directly`）——PRD 验收 #8 要求私聊行为逐字不变。
+
+**由平台以 agent 名义投**，而不是交给模型调工具：房间的契约就是明文自动上墙，
+这次 run 用的提示词也正是这么说的。让模型来投等于把「它记不记得调工具」这个依
+赖又请回来，而这次改动整体就是在拆掉这个依赖（铁律 #15）。
+
+**永不抛**：job 本身**成功了**——状态、narrative、next_run_time 全都是对的——投递
+失败绝不能把一个完成的 job 改写成失败并重新排期，让同一份活再跑一遍。改为大声
+记 ERROR：投不出去的报告是真问题，只是不是这个 job 的失败。
 
 ## 2026-07-30 — `_EDGE_ONLY_RESUME_REASONS` 并入 `OUT_OF_CREDIT_REASONS`
 
