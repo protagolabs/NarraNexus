@@ -133,9 +133,16 @@ ignore = [
     "E741",   # ambiguous variable name
     "F401",   # unused imports (too many false positives with re-exports)
     "F811",   # redefinition of unused name
-    "F821",   # undefined name (false positives with forward refs and method scope)
     "F841",   # local variable assigned but never used
 ]
+# F821 (undefined name) is deliberately NOT ignored. It was, with the stated
+# reason "false positives with forward refs and method scope" — but enabling it
+# across the whole repo produced exactly four hits, all of them real string
+# annotations naming a type the module never imports, and all fixed by a
+# TYPE_CHECKING import. The cost of the ignore was paid on 2026-08-18: four
+# methods in database.py referenced an undefined `fetch` and shipped through
+# lint, CI and three review rounds; the first caller on the lazy path got a
+# NameError.
 
 [tool.ruff.lint.isort]
 known-first-party = ["xyz_agent_context", "backend"]

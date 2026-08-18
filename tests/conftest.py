@@ -28,6 +28,8 @@ Also owns two suite-wide safety nets:
 import asyncio
 import os as _os
 
+import sys
+
 import pytest
 import pytest_asyncio
 
@@ -118,15 +120,18 @@ def _clear_health_cache():
     and `tests/services/test_team_summary_worker.py` both call `main.health()`,
     and whichever ran first left the cache populated for everything after it.
 
-    Imported lazily so collecting tests that never touch the backend does not
-    pull in `backend.main`.
+    Only resets a module that is ALREADY imported. The previous version imported
+    `backend.main` in every test's setup — cheap after the first one, but it
+    made a fixture that most of the suite does not need drag the whole FastAPI
+    app into processes that were never going to touch it (`-k` runs, single-file
+    runs). `sys.modules` costs a dict lookup and is exact: if nothing imported
+    it, nothing cached anything.
     """
-    try:
-        import backend.main as _main
-    except Exception:  # pragma: no cover - backend not importable in this env
-        yield
-        return
+    def _reset() -> None:
+        module = sys.modules.get("backend.main")
+        if module is not None:
+            module._health_cache = None
 
-    _main._health_cache = None
+    _reset()
     yield
-    _main._health_cache = None
+    _reset()

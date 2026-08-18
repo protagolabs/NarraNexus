@@ -20,6 +20,13 @@ from datetime import datetime, timezone
 from typing import Generic, TypeVar, List, Optional, Dict, Any
 from loguru import logger
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-only: importing it at runtime would be a cycle
+    # (database -> repository -> database).
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+
 # Generic type variable
 T = TypeVar('T')
 

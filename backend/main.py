@@ -13,7 +13,6 @@ Usage:
 
 import asyncio
 import time
-import weakref
 import os
 import sys
 from fastapi import FastAPI, Request
@@ -92,17 +91,38 @@ _health_cache: "tuple[float, float, bool, str] | None" = None
 # whole eviction path for it — and a `/health` that raises there becomes a 500,
 # which the container healthcheck turns into unhealthy, which (per the
 # deployment coupling documented on `health`) fails `docker compose up`
-# outright. Keyed weakly so a finished loop takes its lock with it.
-_health_probe_locks: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+# outright.
+#
+# Keyed by `id(loop)` with a strong reference alongside, which is the shape
+# `db_factory._locks_by_loop` already uses for exactly this problem — same data
+# structure, same purpose, same lifetime question. A WeakKeyDictionary would
+# read more neatly and does work today (uvloop 0.22.1's Loop is weakref-able,
+# verified), but production runs uvloop only because `uvicorn[standard]` pulls
+# it in; betting the availability of the whole deployment on an undeclared
+# transitive dependency keeping an undocumented property is not a bet worth
+# taking for the syntax.
+#
+# The `is not` comparison is load-bearing, not defensive: `id()` is reused after
+# a loop is collected, and handing a new loop a lock already pinned to a dead
+# one reproduces the exact RuntimeError this exists to prevent.
+_health_probe_locks: "dict[int, asyncio.Lock]" = {}
+_health_probe_loops: "dict[int, asyncio.AbstractEventLoop]" = {}
 
 
 def _probe_lock() -> asyncio.Lock:
     loop = asyncio.get_running_loop()
-    lock = _health_probe_locks.get(loop)
-    if lock is None:
-        lock = asyncio.Lock()
-        _health_probe_locks[loop] = lock
-    return lock
+    key = id(loop)
+    if _health_probe_loops.get(key) is not loop:
+        # New loop (or a reused id). Drop entries for loops that are gone before
+        # adding: holding them strongly is what makes `id()` safe, but a process
+        # that churns loops — every pytest-asyncio test does — would otherwise
+        # accumulate one lock and one dead loop per loop, forever.
+        for dead in [k for k, lp in _health_probe_loops.items() if lp.is_closed()]:
+            _health_probe_loops.pop(dead, None)
+            _health_probe_locks.pop(dead, None)
+        _health_probe_locks[key] = asyncio.Lock()
+        _health_probe_loops[key] = loop
+    return _health_probe_locks[key]
 
 
 def _detect_bind_host() -> str:
@@ -693,18 +713,53 @@ async def health():
     if cached is not None and time.monotonic() < cached[1]:
         return _health_body(cached[2], cached[3])
 
-    async with _probe_lock():
+    # ONE budget for the whole handler, queue included. `_HEALTH_DB_TIMEOUT_SEC`
+    # exists solely to stay under the container healthcheck's `timeout: 5s`, so
+    # that a failure is recorded as our "503 + reason" rather than replaced by
+    # docker's own "health check timed out" — losing the reason reopens the
+    # blind spot this endpoint was fixed to close. Budgeting only the probe left
+    # the queue wait outside it: a holder cancelled late (a client disconnect
+    # mid-probe, which is the same cancellation this PR handles in
+    # `transaction()`) publishes nothing, and the next waiter would start a
+    # fresh full-length probe on top of what it had already spent.
+    deadline = time.monotonic() + _HEALTH_DB_TIMEOUT_SEC
+    lock = _probe_lock()
+    acquired = False
+    try:
+        try:
+            await asyncio.wait_for(
+                lock.acquire(), timeout=max(0.0, deadline - time.monotonic())
+            )
+            acquired = True
+        except asyncio.TimeoutError:
+            # Spent the whole budget queueing. Probing now would double it, so
+            # answer with the most recent verdict instead — WITHOUT refreshing
+            # its deadline, or one burst of congestion would keep a stale
+            # conclusion alive indefinitely.
+            stale = _health_cache
+            if stale is not None:
+                return _health_body(stale[2], stale[3])
+            logger.error("/health: probe lock wait exhausted the budget with no prior result")
+            return _health_body(False, "timeout")
+
         # Re-check against the CURRENT time: whoever held the lock may have just
         # published, and comparing against a pre-queue timestamp would judge
         # that fresh result stale and defeat the single-flight entirely.
         cached = _health_cache
         if cached is not None and time.monotonic() < cached[1]:
             return _health_body(cached[2], cached[3])
-        return await _run_health_probe()
+        return await _run_health_probe(budget=max(0.0, deadline - time.monotonic()))
+    finally:
+        if acquired:
+            lock.release()
 
 
-async def _run_health_probe():
-    """Probe the database once and publish the result. Caller holds the lock."""
+async def _run_health_probe(budget: float = _HEALTH_DB_TIMEOUT_SEC):
+    """Probe the database once and publish the result. Caller holds the lock.
+
+    `budget` is what remains of the CALLER's total allowance, not a fresh one —
+    see the note in `health`.
+    """
     global _health_cache
 
     # Taken inside the lock so the publish guard below orders by when this probe
@@ -722,14 +777,12 @@ async def _run_health_probe():
             db = await get_db_client()
             await db.probe()
 
-        await asyncio.wait_for(_probe(), timeout=_HEALTH_DB_TIMEOUT_SEC)
+        await asyncio.wait_for(_probe(), timeout=budget)
         db_ok = True
         db_detail = "connected"
     except asyncio.TimeoutError:
         db_detail = "timeout"
-        logger.error(
-            f"/health: database probe timed out after {_HEALTH_DB_TIMEOUT_SEC}s"
-        )
+        logger.error(f"/health: database probe timed out after {budget:.2f}s")
     except Exception as exc:
         # Exception TYPE only. This endpoint is public and unauthenticated
         # (`/health` is on backend.auth's allowlist, reachable at

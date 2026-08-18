@@ -15,9 +15,13 @@ On next app startup, the column is automatically added via ALTER TABLE ADD COLUM
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    # Type-only: keeps the dependency one-directional at runtime.
+    from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # ============================================================================
