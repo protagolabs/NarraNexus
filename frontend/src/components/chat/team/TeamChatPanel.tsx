@@ -35,6 +35,7 @@ import { matchMembers, mentionTokens } from './mentionPattern';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
+import { ArtifactsGlyph } from '@/components/bookmarks';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
@@ -322,6 +323,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [wsLoading, setWsLoading] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsSelected, setWsSelected] = useState<string | null>(null);
+  // The workspace (artifacts/files) drawer — opened from the top bar or by a
+  // message's artifact chip, like the single-chat artifacts panel.
+  const [wsPanelOpen, setWsPanelOpen] = useState(false);
   const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
   // The bulletin lives here, like the workspace: a change posts a system line
   // into the transcript, so the transcript and the panel must agree on when
@@ -858,6 +862,26 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </div>
 
+        {/* Workspace drawer (artifacts + shared files) — same entry pattern as
+            the single-chat header's artifacts button; the standing w-72 column
+            it replaces couldn't actually display an artifact. */}
+        <button
+          type="button"
+          onClick={() => setWsPanelOpen((v) => !v)}
+          aria-pressed={wsPanelOpen}
+          title={t('rail.artifacts')}
+          aria-label={t('rail.artifacts')}
+          className={cn(
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            wsPanelOpen && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
+        >
+          <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
+          {wsArtifacts.length > 0 && (
+            <span className="text-[10px] font-mono">{wsArtifacts.length}</span>
+          )}
+        </button>
+
         {/* Team settings (detail page). */}
         <button
           type="button"
@@ -945,7 +969,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       message={m}
                       turnArtifacts={m.event_id ? (wsTurns[m.event_id] ?? []) : []}
                       artifacts={wsArtifacts}
-                      onOpenArtifact={setWsSelected}
+                      onOpenArtifact={(id) => { setWsSelected(id); setWsPanelOpen(true); }}
                     />
                   )}
                 />
@@ -1247,6 +1271,22 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             className="absolute inset-y-0 right-0 z-20 flex border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
           />
         )}
+
+        {/* Workspace drawer — overlays the content area below the top bar,
+            like the single-chat artifacts drawer. Toggled from the top bar;
+            a message's artifact chip also opens it with that artifact
+            selected. */}
+        {wsPanelOpen && (
+          <TeamWorkspacePanel
+            artifacts={wsArtifacts}
+            files={wsFiles}
+            loading={wsLoading}
+            error={wsError}
+            selectedId={wsSelected}
+            onSelect={setWsSelected}
+            onClose={() => setWsPanelOpen(false)}
+          />
+        )}
       </div>
 
       {/* Voice-input unavailable dialog — mirrors the single-agent ChatPanel. */}
@@ -1326,14 +1366,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           />
         </div>
       )}
-      <TeamWorkspacePanel
-        artifacts={wsArtifacts}
-        files={wsFiles}
-        loading={wsLoading}
-        error={wsError}
-        selectedId={wsSelected}
-        onSelect={setWsSelected}
-      />
     </div>
   );
 }
