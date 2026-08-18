@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_bulletin.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -63,3 +63,13 @@ agent 可以加，可以撤回**它自己写的**；绝不能碰用户的、别�
 
 房间不存在时直接返回，不建房间——公告栏的一次编辑不该凭空变出一个聊天频道。
 写入被拒时不发通知：**宣告一个没发生的变更，比沉默更糟。**
+
+
+## 2026-08-18 — owner 工具改名跟随
+
+`send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`
+（未被问就主动告知）。两者行为相同但纪律相反，合成一个工具就要求模型每轮自己判断该用哪种
+register。本文件里改到的是该 handler 注册的 `user_reply_tool_names` / 相关文案 —— 一两行，
+但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
+`render_origin_declaration` 取 label 的同一条记录。规范解释见
+[[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

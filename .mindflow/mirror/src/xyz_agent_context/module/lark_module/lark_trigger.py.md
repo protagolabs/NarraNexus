@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
@@ -1027,3 +1027,9 @@ respond to Lark messages.
   legitimate fallback for the case where the caller could not parse
   out the reply text from the tool call — that scenario stays a
   placeholder on purpose.
+
+## 2026-08-18 — inbox 写入路径换成 InboxRecorder
+
+从 `_inbox_writer.write(...)` 改为 `_inbox_recorder.record_turn(...)`：inbox 拿到了自己的两张
+表，不再借用 `bus_messages`（见 [[inbox_recorder.py]]）。这是 86% 的 `bus_messages` 行其实是
+IM inbox、92% 的游标从未推进过这个事实的结构性解法 —— 分表让那个泄漏不可达，而不是被过滤掉。

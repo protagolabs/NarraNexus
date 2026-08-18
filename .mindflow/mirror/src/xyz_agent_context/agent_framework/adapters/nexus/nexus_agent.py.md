@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-13
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -55,3 +55,7 @@ _WarmRunnerPool:预 spawn 已完成全部导入(含 litellm 1.8s/215MB)的 runne
 闲置待命;acquire 即用即耗(单回合单进程,隔离不变),取用后后台补位;
 NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 内存的显式取舍)。driver 构造即预热(首回合与导入重叠)。atexit 收割闲置。
+
+## 2026-08-18 — 透传 origin_declaration
+
+与 claude 适配层同理：只透传，不重新措辞。见 [[sdk.py]] 同日条目。
