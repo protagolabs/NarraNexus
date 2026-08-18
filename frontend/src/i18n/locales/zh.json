@@ -1617,7 +1617,7 @@
       "nav": {
         "account": "账户与订阅",
         "providers": "LLM 服务商",
-        "modelDefaults": "模型默认值",
+        "modelDefaults": "模型配置",
         "artifacts": "制品",
         "manageAgents": "管理 Agent",
         "updates": "应用更新",
@@ -1632,7 +1632,7 @@
       },
       "modelDefaults": {
         "frameworkFilteredNote": "这里只列出当前已连接的服务商能驱动的框架。",
-        "label": "模型默认值",
+        "label": "模型配置",
         "hint": "所有 Agent 默认继承的框架和模型。每个 Agent 的单独配置可在对话页面中修改。",
         "thinking": "思考",
         "autoDefault": "自动（默认）",
@@ -2155,7 +2155,7 @@
     "inbox": "收件箱",
     "memory": "记忆",
     "social": "社交网络",
-    "socialShort": "网络",
+    "socialShort": "社交网络",
     "skills": "技能",
     "mcp": "MCP 服务",
     "mcpShort": "MCP",

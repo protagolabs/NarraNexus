@@ -264,7 +264,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-[var(--text-tertiary)]">
           {t('pages.settings.modelDefaults.defaultsDescription')}
