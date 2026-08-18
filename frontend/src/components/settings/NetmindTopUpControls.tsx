@@ -58,12 +58,21 @@ export function NetmindTopUpControls({
   onStopWaiting,
 }: NetmindTopUpControlsProps) {
   const { t } = useTranslation();
+  // Upstream returns money as a high-precision decimal STRING ("67.531480",
+  // "5.0" — measured against dev 2026-08-19), not something display-ready. Every
+  // rendered amount goes through this; the earlier fixtures happened to be
+  // 2-decimal, so the tests were green while the panel showed "¥67.531480".
+  // `rate` is deliberately NOT rounded: an exchange rate's precision is
+  // information, whereas a price with six decimals is just noise.
+  const cny = (v: string | undefined) =>
+    v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : null;
+
   const processing = rechargeState === 'processing';
   const isWechat = paymentMethod === 'wechat';
   // The converted total goes ON the button as well as in the note: the last
   // thing someone reads before committing should be the number their bank will
   // actually take, not the one they typed.
-  const chargeLabel = isWechat && fx?.charge_amount ? `¥${fx.charge_amount}` : '';
+  const chargeLabel = isWechat && cny(fx?.charge_amount) ? `¥${cny(fx?.charge_amount)}` : '';
 
   return (
     <div className="space-y-2">
@@ -126,7 +135,7 @@ export function NetmindTopUpControls({
             <p className="text-xs text-[var(--text-secondary)] tabular-nums">
               {t('settings.netmind.wechatConversion',
                 'WeChat is charged in CNY: {{usd}} ≈ {{cny}}',
-                { usd: `$${Number(fx.amount_usd).toFixed(2)}`, cny: `¥${fx.charge_amount}` })}
+                { usd: `$${Number(fx.amount_usd).toFixed(2)}`, cny: `¥${cny(fx.charge_amount)}` })}
               {fx.rate && (
                 <span className="ml-2 text-[var(--text-tertiary)]">1 USD = {fx.rate} CNY</span>
               )}
@@ -140,7 +149,7 @@ export function NetmindTopUpControls({
             {t('settings.netmind.wechatNote',
               'You still receive the USD amount as credit. The rate is applied when payment starts.')}
             {fx?.min_charge && ` ${t('settings.netmind.wechatMin',
-              'Minimum {{min}} per payment.', { min: `¥${fx.min_charge}` })}`}
+              'Minimum {{min}} per payment.', { min: `¥${cny(fx.min_charge)}` })}`}
           </p>
         </div>
       )}

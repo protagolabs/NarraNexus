@@ -1041,9 +1041,9 @@ test('an unrecognised status value is ignored, not rendered blank', async () => 
 const FX_QUOTE = {
   success: true,
   data: {
-    from: 'USD', to: 'CNY', rate: '7.30',
-    amount_usd: '10', charge_amount: '73.00',
-    min_amount_usd: '0.69', min_charge: '5.00',
+    from: 'USD', to: 'CNY', rate: '6.753148',
+    amount_usd: '10', charge_amount: '67.531480',
+    min_amount_usd: '0.740396', min_charge: '5.0',
   },
 };
 
@@ -1060,10 +1060,10 @@ test('top-up: WeChat quotes the CNY charge next to the USD amount', async () => 
   // The payer must see BOTH numbers IN ONE SENTENCE: they are buying $10 of
   // credit but their bank statement will say CNY. Asserting them separately
   // would pass even if the two ended up in unrelated places.
-  expect(await screen.findByText(/\$10\.00 ≈ ¥73\.00/)).toBeTruthy();
+  expect(await screen.findByText(/\$10\.00 ≈ ¥67\.53/)).toBeTruthy();
   // ...and again on the button, so the last thing read before committing is
   // the amount that actually leaves their account.
-  expect(screen.getByRole('button', { name: /Recharge ¥73\.00/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Recharge ¥67\.53/ })).toBeTruthy();
 });
 
 test('top-up: the chosen payment method reaches the API', async () => {
@@ -1086,7 +1086,7 @@ test('top-up: under the WeChat minimum is stopped here, not by a 400', async () 
   render(<NetmindAccountPanel />);
   await openTopUp();
   await pickMethod(/WeChat/);
-  await screen.findByText(/\$10\.00 ≈ ¥73\.00/);
+  await screen.findByText(/\$10\.00 ≈ ¥67\.53/);
   fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '0.5' } });
   fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
   expect(await screen.findByText(/minimum/i)).toBeTruthy();
@@ -1117,9 +1117,9 @@ test('top-up: switching back to card drops the CNY line', async () => {
   render(<NetmindAccountPanel />);
   await openTopUp();
   await pickMethod(/WeChat/);
-  await screen.findByText(/\$10\.00 ≈ ¥73\.00/);
+  await screen.findByText(/\$10\.00 ≈ ¥67\.53/);
   await pickMethod(/Card/);
-  await waitFor(() => expect(screen.queryByText(/≈ ¥73\.00/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/≈ ¥67\.53/)).toBeNull());
 });
 
 test('top-up: card is the default method and asks for no quote', async () => {
@@ -1265,4 +1265,24 @@ test('a finished renewal does not announce a top-up', async () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('CNY figures are rounded for display, not echoed at upstream precision', async () => {
+  // Upstream returns money as high-precision decimal strings ("67.531480",
+  // "5.0" — measured on dev 2026-08-19). Every earlier fixture here was
+  // 2-decimal because I wrote it that way, so the suite was green while the
+  // real panel would have read "¥67.531480". The exchange RATE keeps its
+  // precision on purpose: that is information, not noise.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  // Two places on purpose — the conversion line and the button.
+  expect((await screen.findAllByText(/¥67\.53(?!\d)/)).length).toBe(2);
+  expect(document.body.textContent).not.toMatch(/67\.531480/);
+  // These two sit as sibling text nodes inside one <p>, so match on the page
+  // text rather than on an element.
+  expect(document.body.textContent).toMatch(/Minimum ¥5\.00 per payment/);
+  expect(document.body.textContent).toMatch(/1 USD = 6\.753148 CNY/);
 });
