@@ -100,7 +100,7 @@ async def test_message_team_stamps_the_calling_turn(monkeypatch):
     """The column's meaning must not depend on which tool wrote the row.
 
     2026-08-17 — this used to compare the two PEER send tools
-    (`bus_send_message` / `bus_send_to_agent`); they are one verb now, so the
+    (`message_team` / `message_agent`); they are one verb now, so the
     pair that has to agree is the peer verb and the ROOM verb. The invariant is
     unchanged: `has_message_from_turn` reads a missing id as "cannot tell", so a
     writer that forgets the stamp makes the team room's failure notice fire at a

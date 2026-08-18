@@ -428,63 +428,6 @@ class MessageBusTrigger:
         self._wake()
         return message_id or ""
 
-    async def _record_errands(
-        self,
-        *,
-        team_id: str,
-        channel_id: str,
-        agent_id: str,
-        mentions: Optional[List[str]],
-        text: str,
-        message_id: str,
-        root_run_id: str,
-    ) -> None:
-        """Settle and open the room's message-level errands for one post.
-
-        A thin seam over `message_bus.errand` so the delivery path holds one
-        call and one failure policy rather than two of each.
-
-        **Never raises.** By the time this runs the reply is in the room and
-        the hop has succeeded; a board write that could fail that hop would
-        trade a working delivery for bookkeeping. The cost of the swallow is
-        bounded and self-correcting: a missed close leaves an item patrol asks
-        about once, a missed open leaves the room exactly as it was before this
-        layer existed.
-        """
-        if not team_id:
-            return  # errands are a team-room fact; ordinary bus DMs have no board
-        # Imported here, like every other db_factory use in this module: the
-        # trigger is constructed in processes that have no DB yet.
-        from xyz_agent_context.utils.db.db_factory import get_db_client
-        from xyz_agent_context.message_bus.errand import (
-            close_delivered_errands,
-            record_handoffs,
-        )
-
-        try:
-            await close_delivered_errands(
-                await get_db_client(),
-                team_id=team_id,
-                channel_id=channel_id,
-                agent_id=agent_id,
-                text=text,
-            )
-            await record_handoffs(
-                await get_db_client(),
-                team_id=team_id,
-                channel_id=channel_id,
-                from_agent=agent_id,
-                mentions=mentions,
-                text=text,
-                message_id=message_id,
-                root_run_id=root_run_id,
-            )
-        except Exception as e:  # noqa: BLE001 — see docstring
-            logger.warning(
-                f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
-                f"{type(e).__name__}: {e}"
-            )
-
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
 
@@ -3049,11 +2992,10 @@ class MessageBusTrigger:
         `collect_run` so the turn's events-row id gets bound onto the
         activity row for the team UI.
 
-        `on_plain_text_delivery` (team branch only) is the room deliverer: the
-        runtime hands it the turn's plain text so the post happens INSIDE the
-        turn, where `hook_persist_turn` can still record it as a reply. DM
-        passes None — a DM reply belongs in the inbox, and handing that lane a
-        deliverer would post it into the channel as well.
+        There is NO plain-text deliverer any more. The room used to be handed
+        the turn's plain text by the runtime; it takes a tool call now, so this
+        method's only remaining question about a team turn is whether the agent
+        posted — which the bus can answer directly.
 
         Raises:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
@@ -3197,10 +3139,11 @@ class MessageBusTrigger:
         the trust this whole change exists to rebuild.
 
         ``MessageSourceRegistry.get`` NEVER raises — it silently falls back to
-        the default handler (owner-chat tool only) for an unregistered source,
+        the default handler (the two owner-facing tools only) for an
+        unregistered source,
         which is a second, quieter failure mode than the exception this
         try/except covers. Both must fail open to True: a downgraded registry
-        that no longer recognises ``bus_send_message`` would otherwise stamp
+        that no longer recognises ``message_team`` would otherwise stamp
         "no reply" under every turn that answered its peer correctly.
         """
         try:

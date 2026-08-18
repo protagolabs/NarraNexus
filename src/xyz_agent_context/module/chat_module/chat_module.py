@@ -28,6 +28,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
 
@@ -181,13 +182,6 @@ def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, 
     return out
 
 
-#: The owner-facing delivery tools. One name, two registers — see
-#: `get_expressive_tools`. Anything that classifies "did this reach the
-#: owner" must accept both; a per-surface list would be wrong on the other
-#: surface, which is how the split can quietly become a delivery bug.
-_OWNER_TOOL_RE = re.compile(r"(?:reply|notify)_owner$")
-
-
 class ChatModule(XYZBaseModule):
     """
     Chat Module - Core module for Agent-user communication
@@ -279,10 +273,6 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
-    #: Last ctx_data seen by `get_expressive_tools`, so the disallow hook
-    #: (which is not handed one) answers about the SAME turn.
-    _last_ctx: Any = None
-
     def owns_working_source(self, working_source: Any) -> bool:
         """Owner web chat originates CHAT turns (and is the origin-first
         default on turns that fall through with no declared origin owner,
@@ -310,7 +300,7 @@ class ChatModule(XYZBaseModule):
         name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"
         return [f"mcp__{config.server_name}__{name}"]
 
-    async def get_disallowed_tools(self) -> list[str]:
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Take the owner tool that does NOT apply this turn off the desk.
 
         The declaration above only decides what the reply REMINDER names. The
@@ -318,24 +308,21 @@ class ChatModule(XYZBaseModule):
         both and has to pick — and the disciplines attached to the two are
         opposites, so picking wrong is not free.
 
-        ``get_disallowed_tools`` takes no ctx_data (base signature), so the turn
-        is read from the same instance state the declaration used.
+        Reads the turn from its own ``ctx_data``, not from state the
+        declaration left behind: the runtime calls THIS hook first.
         """
         config = await self.get_mcp_config()
-        drop = "notify_owner" if self._is_owner_chat_turn(self._last_ctx) else "reply_owner"
+        drop = "notify_owner" if self._is_owner_chat_turn(ctx_data) else "reply_owner"
         return [f"mcp__{config.server_name}__{drop}"]
 
     def _is_owner_chat_turn(self, ctx_data: Any) -> bool:
         """Is the owner the one who started this turn?
 
-        Remembered on the instance because the two hooks above are called
-        separately and only one of them is handed ctx_data — a mismatch between
-        them would put both tools on the desk, or neither.
+        Both hooks that ask this question are handed the turn's own ctx_data,
+        so they cannot disagree about which turn it is — a mismatch would put
+        both tools on the desk, or neither.
         """
-        if ctx_data is not None:
-            self._last_ctx = ctx_data
-        ctx = ctx_data if ctx_data is not None else self._last_ctx
-        source = getattr(ctx, "working_source", None)
+        source = getattr(ctx_data, "working_source", None)
         if not source:
             # No declared origin — ChatModule's own fall-through rule (see
             # `owns_working_source`) says that is the owner's desk. It is also
@@ -457,7 +444,7 @@ class ChatModule(XYZBaseModule):
             # destination, so classification must accept both. Matching only
             # one sends every owner reply on the other surface into the IM
             # bucket, where the chat panel renders it as "Background activity".
-            if _OWNER_TOOL_RE.search(tool_name):
+            if is_owner_tool(tool_name):
                 direct_parts.append(reply)
             else:
                 im_parts.append(reply)

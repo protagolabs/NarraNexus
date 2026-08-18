@@ -80,7 +80,7 @@ Files travel by reference; see [[_bus_attachment_impl]] for the dict contract.
 ## 2026-08-14 — `event_id` 的语义扩了:它不再是「平台代发」的标记(更正 07-31)
 
 上面 07-31 那节写的「set by the trigger on agent replies posted into team
-rooms」现在只说对了一半。agent 自己调 `bus_send_message` / `bus_send_to_agent`
+rooms」现在只说对了一半。agent 自己调 `message_team` / `message_agent`
 发的行**也**盖这个 id(取自身份头,见 [[_message_bus_mcp_tools]])。
 
 扩它是因为团队房要回答「平台没代发的这一轮,房间到底听没听见这个 agent 说话」——

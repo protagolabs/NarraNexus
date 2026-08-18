@@ -326,6 +326,25 @@ class MessageSourceHandler:
         return self.row_prefix_template.format_map(_SafeFormatDict(flat))
 
 
+#: The owner-facing delivery tools — one destination, two registers
+#: (`reply_owner` on the owner's own chat turn, `notify_owner` everywhere else;
+#: see ChatModule.get_expressive_tools). Lives HERE because this module already
+#: has to reason about both — the default handler lists both — and because every
+#: consumer of the distinction is downstream of the registry.
+#:
+#: Anything asking "did this reach the owner" must accept BOTH. Anything asking
+#: "is this the CHANNEL's own tool" must reject both — a filter that named only
+#: one silently let the other through, which is how an IM fallback frame got
+#: tagged `reply_owner` and would have surfaced in the owner's chat panel as if
+#: the agent had addressed them.
+_OWNER_TOOL_RE = re.compile(r"(?:reply|notify)_owner$")
+
+
+def is_owner_tool(tool_name: str | None) -> bool:
+    """True for `reply_owner` / `notify_owner`, bare or MCP-prefixed."""
+    return bool(tool_name) and _OWNER_TOOL_RE.search(tool_name or "") is not None
+
+
 _DEFAULT_HANDLER = MessageSourceHandler(
     name="default",
     # BOTH owner-facing names, and that is not belt-and-braces.

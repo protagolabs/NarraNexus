@@ -5,7 +5,7 @@
 pinned at its REAL consumer, not just the handler data.
 
 2026-08-01 briefing-squad incident: agents that DID deliver via
-``bus_send_message`` were recorded NO-REPLY. The handler's
+``message_team`` were recorded NO-REPLY. The handler's
 ``user_reply_tool_names`` now carries the bus delivery tools, and the
 live consumer is ChatModule's background-persistence split: a bus turn
 that delivered to its origin writes a [DELIVERED-BG] activity row (and
@@ -41,8 +41,8 @@ def _tool_progress(tool_name: str, content: str = "hello") -> ProgressMessage:
 
 
 def test_bus_sends_count_as_delivery_tools():
-    assert _handler().is_user_reply_tool("mcp__message_bus_module__bus_send_message")
-    assert _handler().is_user_reply_tool("mcp__message_bus_module__bus_send_to_agent")
+    assert _handler().is_user_reply_tool("mcp__message_bus_module__message_team")
+    assert _handler().is_user_reply_tool("mcp__message_bus_module__message_agent")
     assert _handler().is_user_reply_tool(
         "mcp__chat_module__notify_owner"
     )
@@ -60,7 +60,7 @@ def test_non_delivery_bus_tools_do_not_count():
 def test_bus_delivery_is_recognized_at_the_persistence_split():
     delivered = bool(ChatModule._origin_delivered_text(
         "message_bus",
-        [_tool_progress("mcp__message_bus_module__bus_send_message", "peer reply")],
+        [_tool_progress("mcp__message_bus_module__message_team", "peer reply")],
     ))
     assert delivered is True
 

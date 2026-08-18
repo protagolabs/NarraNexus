@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_posting.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -21,7 +21,7 @@ stub: false
 
 ## 上限搬家修掉的那个洞
 
-`MAX_TEAM_AGENT_HOPS` 此前**只**实现在 `_deliver_reply` 里，而 `bus_send_message` 可以
+`MAX_TEAM_AGENT_HOPS` 此前**只**实现在 `_deliver_reply` 里，而 `message_team` 可以
 直写 team 房间、完全不受计数约束。**防死循环的保险丝装在被告知不要走的那扇门上。** 搬到
 这里之后它在唯一入口上。
 
@@ -45,3 +45,14 @@ trigger 那侧原来也叙述一遍，两处都留会说两次。
 特性**：它此前之所以存在，只是因为回复和思考是同一段文本。存储层的 `segments` 列语义
 不变（缺失 = 一整块），公告栏与 IM 路径仍可使用。见
 `tests/message_bus/test_team_message_segments.py` 同日条。
+
+## 2026-08-18 — 差事记账抽成具名接缝 `_record_errands`
+
+PR #310 的「交接自动上板」原本挂在 [[message_bus_trigger.py]] `_deliver_reply` 上；房间改成
+工具调用后那条路径消失，记账随之搬到 `post_team_reply`。合并时它落成了一个内联 try/except，
+于是**位置**（必须在 `bus.send_message` 之后）和**吞异常**这两道独立安全网变成同一个构造，
+互相掩护：补丁掉 errand 函数会被吞异常挡下，即使调用已经漂到 post 之前也照样绿。
+
+抽成模块级 `_record_errands` 后，补丁这个名字即可绕开吞异常、单独把位置置于测试之下
+（`test_errand_auto_board.py::test_the_hook_sits_outside_the_post`，已做变异验证）。
+顺序仍是先关后开；`mentions` 取**过级联上限之后**的列表 —— 被截掉的 @ 没送达，不该记账。

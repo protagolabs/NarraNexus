@@ -44,9 +44,9 @@ def _tool_progress(tool_name: str, content: str = "hello") -> ProgressMessage:
 
 def test_bus_handler_counts_bus_send_as_delivered_but_not_owner_visible():
     h = MessageSourceRegistry.get("message_bus")
-    assert h.is_user_reply_tool("mcp__message_bus_module__bus_send_message")
+    assert h.is_user_reply_tool("mcp__message_bus_module__message_team")
     assert not h.is_owner_visible_reply_tool(
-        "mcp__message_bus_module__bus_send_message"
+        "mcp__message_bus_module__message_team"
     )
     assert h.is_owner_visible_reply_tool(
         "mcp__chat_module__notify_owner"
@@ -64,7 +64,7 @@ def test_extract_owner_visible_text_gates_on_owner_list():
     h = MessageSourceRegistry.get("message_bus")
     assert (
         h.extract_owner_visible_text(
-            "mcp__message_bus_module__bus_send_to_agent", {"content": "peer reply"}
+            "mcp__message_bus_module__message_agent", {"content": "peer reply"}
         )
         is None
     )
@@ -83,8 +83,8 @@ def test_bus_only_delivery_does_not_count_as_user_message():
     """A bus turn whose only delivery went to a peer agent must NOT flip
     the proactive-delivery branch — the owner saw nothing."""
     responses = [
-        _tool_progress("mcp__message_bus_module__bus_send_to_agent"),
-        _tool_progress("mcp__message_bus_module__bus_send_message"),
+        _tool_progress("mcp__message_bus_module__message_agent"),
+        _tool_progress("mcp__message_bus_module__message_team"),
     ]
     assert _turn_delivered_user_message(responses, "message_bus") is False
 

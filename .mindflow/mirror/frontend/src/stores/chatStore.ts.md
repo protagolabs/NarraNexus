@@ -193,7 +193,7 @@ Depends on `@/lib/utils` for `generateId` and `@/types` for the `RuntimeMessage`
 
 **No persistence.** Deliberate: in-flight streaming state does not survive a page reload. Conversation history is re-hydrated from `preloadStore` (backed by the server) on mount, not from localStorage.
 
-**`send_message_to_user_directly` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
+**`reply_owner` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
 
 **Rejected: separate stores per agent.** Would require dynamic store creation and explicit cross-store wiring for the toast/badge system. A single store with a session map is easier to subscribe to and requires no lifecycle management for agent removal.
 

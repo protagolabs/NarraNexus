@@ -22,7 +22,7 @@ example slot；动态尾 reminder 把列表平铺，8/13 语音通话实测模�
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
-constitution 例子去静态化:`constitution.md` 里的 `send_message_to_user_directly`
+constitution 例子去静态化:`constitution.md` 里的 `notify_owner`
 硬编码删除,换 `{{DEFAULT_REPLY_TOOL_EXAMPLE}}` 槽位,由 inputs.default_reply_tool
 填充(框架 copy 永不写平台工具名;mute 回合无例子可给)。新增
 `reply_reminder(reply_tools)`(资源 `reply_reminder.md`):assembly 每步从

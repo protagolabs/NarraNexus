@@ -13,7 +13,7 @@ owner-visible 子集继续服务锚点与历史可见性。注释同步改口。
 
 ## 2026-08-04 (review 修正) — handler 增加 owner_visible 子集
 
-`owner_visible_reply_tool_names=("send_message_to_user_directly",)`：
+`owner_visible_reply_tool_names=("notify_owner",)`：
 bus 交付名单（含 bus 工具）只服务「是否回复了来源」；owner 会话锚点与
 chat 历史持久化只认 owner-notify 工具。见 [[message_source_handler]]。
 
@@ -26,8 +26,8 @@ chat 历史持久化只认 owner-notify 工具。见 [[message_source_handler]]�
 
 ## 2026-08-04 — 判定名单补 bus 投递工具
 
-`user_reply_tool_names` 从仅 send_message_to_user_directly 扩为
-+ `bus_send_message` + `bus_send_to_agent`。旧名单把真调了 bus 送达的
+`user_reply_tool_names` 从仅 notify_owner 扩为
++ `message_team` + `message_agent`。旧名单把真调了 bus 送达的
 run 也记 NO-REPLY（8/1 实锤，如 Maestro run_1994fd41）——既错标运行，
 也污染「bus agent 到底多常不交付」的度量（该指标决定要不要加平台侧
 兜底，Owner 2026-08-04 拍板：先测量再定兜底）。与 [[message_bus_module]]

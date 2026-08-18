@@ -821,8 +821,8 @@ _register(
             Column("sender_turn_source", "TEXT", "VARCHAR(32)", nullable=True),
             # events row id of the turn that produced this message. Stamped by
             # BOTH paths an agent reply can take: the trigger's own in-turn
-            # room post, and the agent's `bus_send_message` /
-            # `bus_send_to_agent` (from the identity header, 2026-08-14) —
+            # room post, and the agent's `message_team` /
+            # `message_agent` (from the identity header, 2026-08-14) —
             # so this is NOT a marker of "the platform posted it". NULL for
             # user messages, for rows written before the column existed, and
             # whenever the sender could not tell which turn it was in. Powers

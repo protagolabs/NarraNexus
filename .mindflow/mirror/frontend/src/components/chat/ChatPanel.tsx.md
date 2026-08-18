@@ -158,7 +158,7 @@ routing — no backend change.
 > into Inner Thoughts, on the theory that cross-channel narrations
 > (`owner_notify_content`, "I replied to a Discord user / notified you") were
 > "the agent's own activity". That was wrong: those narrations are emitted via
-> `send_message_to_user_directly` — the agent **deliberately addressed the
+> `reply_owner` — the agent **deliberately addressed the
 > owner**, so they are owner-facing messages and must show in Conversation no
 > matter which channel triggered the turn. Routing now keys on `isActivity`
 > alone; `workingSource` does not move a message out of the direct
@@ -365,7 +365,7 @@ branches:
    spinner-decorated list of in-flight `toolSteps`. **Always visible,
    no click required.**
 
-The instant the agent called `send_message_to_user_directly` for the
+The instant the agent called `reply_owner` for the
 first time, `getUserVisibleResponse()` flipped from `null` to a
 string, branch 2 unmounted, and branch 1 took over. Any subsequent
 thinking deltas or tool calls kept accumulating into
@@ -382,7 +382,7 @@ live preview below provides the always-visible "still working" signal
 until `stopStreaming` flips `isStreaming` to false (at which point the
 bubble persists into history with its data already attached, line
 269-270 of `chatStore.ts`). The `toolSteps` filter (regex
-`/^3\.4\.\d+$/` minus `*.send_message_to_user_directly`) intentionally
+`/^3\.4\.\d+$/` minus `*.reply_owner`) intentionally
 drops the reply tool call so the same action doesn't appear twice
 (once as the bubble, once as a tool step).
 
@@ -423,7 +423,7 @@ custom greeting is rendered verbatim. The same normalization is applied to
 persisted assistant history so the greeting does not switch back to English
 after the first turn.
 
-**`send_message_to_user_directly` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
+**`reply_owner` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
 
 ## Gotcha / 边界情况
 

@@ -379,7 +379,7 @@ class LocalMessageBus(MessageBusService):
         """Did this agent put anything into this channel during that turn?
 
         The turn's own id is the join: both the platform's team-room post and
-        the agent's own ``bus_send_message`` stamp ``event_id``, so one query
+        the agent's own ``message_team`` stamp ``event_id``, so one query
         covers a reply however it was sent. A timestamp window would answer a
         near-enough question with a comparison this codebase has already been
         bitten by once; an identity is exact.

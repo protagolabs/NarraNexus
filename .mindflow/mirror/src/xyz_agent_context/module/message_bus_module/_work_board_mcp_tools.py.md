@@ -6,8 +6,8 @@ stub: false
 
 ## 2026-08-17 — 工作板并入 team 家族命名
 
-`work_add_item` / `work_list_items` / `work_claim_item` / `work_complete_item` /
-`work_update_status` → `team_work_add` / `_list` / `_claim` / `_complete` /
+`team_work_add` / `team_work_list` / `team_work_claim` / `team_work_complete` /
+`team_work_update_status` → `team_work_add` / `_list` / `_claim` / `_complete` /
 `_update_status`（决策 ⑦）。
 
 理由是它们的作用域**就是** team 房间，而此前同一台 MCP server 上有两套命名家族
@@ -45,7 +45,7 @@ Module 要新端口、新 instance 生命周期,还得反过来去查 bus 的表
   这个功能要加的监督
 - `cancelled` —— 用户的决定,不是 agent 的
 
-`team_work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
+`team_team_work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
 不能写,而不是只说不行。
 
 ## `_resolve_team_room` 为什么查 activity 而不是读注入头

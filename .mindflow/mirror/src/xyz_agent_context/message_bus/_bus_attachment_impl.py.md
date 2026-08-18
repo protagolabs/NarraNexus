@@ -85,7 +85,7 @@ claude `bypassPermissions`）。**本地与云端同一条码路**，不分叉�
 
 ## 上下游
 
-- **被谁调用**：`_message_bus_mcp_tools.py`（`bus_send_message` / `bus_send_to_agent`
+- **被谁调用**：`_message_bus_mcp_tools.py`（`message_team` / `message_agent`
   的 `attachment_refs` → `resolve_and_stage_refs`；`bus_share_to_team` → `stage_path_into_team`）；
   `message_bus_trigger.py` 两个 prompt builder → `build_bus_markers`。
 - **依赖谁**：`attachment_storage`（file_id 解析 + `generate_file_id`）、`workspace_paths`

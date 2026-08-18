@@ -161,7 +161,7 @@ async def test_the_mark_read_path_must_see_beyond_the_injection_window(
     module.agent_id = ME
 
     # The frame has to look like what the trace ACTUALLY carries. It named
-    # `bus_send_message` until 2026-08-17; the hook still matched that string
+    # `message_team` until 2026-08-17; the hook still matched that string
     # after the tool was replaced, so nothing counted as a reply and this cursor
     # stopped advancing altogether — the deadlock this test was written to
     # prevent, re-introduced by a rename and invisible because the test carried

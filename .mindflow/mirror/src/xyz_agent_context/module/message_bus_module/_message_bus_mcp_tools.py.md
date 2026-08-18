@@ -17,7 +17,7 @@ stub: false
 `bus_leave_channel` / `bus_kick_member`（成员关系归用户管；后者在 team 房间里
 **结构上永远失败**——creator-only，而 creator 是合成标记）。
 
-**`message_agent` 合并了旧的两个 peer 发送工具。** 回话与主动找人是同一个动作，所以是同一个
+**`message_agent` 合并了旧的两个 peer 发送工具（`bus_send_to_agent` / `bus_reply_to_channel`）。** 回话与主动找人是同一个动作，所以是同一个
 工具；`to` 必填，因为一轮里可能有多个 peer，平台不猜（决策 ⑥）。
 
 **`message_team` 是补上的动词**，落点 [[team_posting]]。`team_id` 必填：agent 可同时在多个
@@ -28,14 +28,14 @@ team。三道门与其它 team 工具同序：agent 存在、team 属于其 owne
 （它此前根本不存在——`message_agent` 一被调用就 `NameError`，被 except 吞成失败。pyright 抓到。）
 
 **`create_team` 的 docstring 原来写着「Create a new MessageBus channel」并推荐
-`bus_send_to_agent`。** 按词表，`MessageBus` 不得出现在任何 agent 可见文本里。
+`message_agent`。** 按词表，`MessageBus` 不得出现在任何 agent 可见文本里。
 ## 2026-08-14 — bus_list_team_files 补上漏掉的 get_db_client 导入
 
 该工具自 2026-08-07 落地起就引用了未导入的 `get_db_client`（本文件的 db 导入全是**函数内局部**——82/396/463/498 各在别的函数作用域，闭包解析不到），每次调用必炸 `NameError`，而 [[test_list_team_files_tool]] 原有测试只测 impl 不过 wrapper，全绿假象。修复=补函数内导入（与兄弟工具同款，保持模块加载期不引 db_factory 的循环导入规避）+ 按兄弟工具惯例整体包 try/except（review Minor-4：此前它是这批 bus_* 里唯一裸抛的——连接池懒构建失败会把原始异常甩给模型；except 只回 `{"success": False, "error": ...}`，**不补 `files: []`**，拒绝≠空文件夹）。新增走 `register_message_bus_mcp_tools` 注册面的 wrapper 回归测试。教训：MCP 工具的测试必须打到注册的 wrapper，不能只打 impl。
 
 ## 2026-08-07 — 两个发送工具盖上 root_run_id
 
-`bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
+`message_team` / `message_agent` 把 `caller_root_run_id()` 写进
 `bus_messages.root_run_id`。这是血缘链**唯一的断点**:工具跑在共享的 MCP
 进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
 run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
@@ -83,7 +83,7 @@ is never ping-pong」)。所以差事延续轮次里顺手回答别的同伴 C �
 
 ## 2026-08-04 — 两个发送工具都记录本轮种类
 
-`bus_send_to_agent` 与 `bus_send_message` 都调 `caller_turn_source()` 并传给
+`message_agent` 与 `message_team` 都调 `caller_turn_source()` 并传给
 bus,让消息自己带上"这是提问还是回复"。**两个都要**:它们写同一张表、
 同一个消费方(`_incoming_is_reply_to_my_errand`),漏一个就让那条路径落降级。
 turn source 同时走显式 header 与 bearer,所以 codex 上也读得到
@@ -91,7 +91,7 @@ turn source 同时走显式 header 与 bearer,所以 codex 上也读得到
 
 ## 2026-07-20 — file attachments + team share
 
-`bus_send_message` / `bus_send_to_agent` gained `attachment_refs` (comma-separated
+`message_team` / `message_agent` gained `attachment_refs` (comma-separated
 `att_` file_ids and/or workspace-relative paths); `_stage_send_attachments` resolves
 the sender's owner (`agents.created_by`, dialect-safe via `get_db_client`) and stages
 the files through [[_bus_attachment_impl]] before send. New `bus_share_to_team`
@@ -137,7 +137,7 @@ from the LLM.
 （模型传 team_id + 三段校验）更强——agent 无法指认自己当前不在的团队，
 于是跨团队写入不是要防的攻击，而是**不可表达的状态**。有测试断言签名里没有 `team_id`。
 
-## 2026-08-14 — `bus_send_message` 补盖 `event_id`:归因缺的那一半
+## 2026-08-14 — `message_team` 补盖 `event_id`:归因缺的那一半
 
 此前只盖 `root_run_id`(触发树的根,用来续 cascade),没有盖**这一轮**的 id。后果不在
 这个文件里显形,而在 trigger:团队房要判断"平台没代发的这一轮,房间到底听没听见这个
@@ -148,9 +148,9 @@ agent 说话",平台自己代发的那条消息盖了 turn id、agent 用本工�
 `event_id` 从 `_mcp_identity` 的请求头取(`caller_event_id_from_request`),不是模型
 参数;artifact 工具早就是这么记归因的,这里只是把同一条路补齐。
 
-## 2026-08-14 (补) — `bus_send_to_agent` 一并盖章,并补上真入口测试
+## 2026-08-14 (补) — `message_agent` 一并盖章,并补上真入口测试
 
-只给 `bus_send_message` 盖 `event_id` 会让 `bus_messages.event_id` 的含义取决于
+只给 `message_team` 盖 `event_id` 会让 `bus_messages.event_id` 的含义取决于
 写它的是哪个工具。两处一起盖。
 
 这半条链此前**零测试**:trigger 侧的用例都是桩里自己写一行带 `event_id` 的消息,

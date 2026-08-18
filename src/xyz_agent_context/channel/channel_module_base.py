@@ -312,7 +312,7 @@ class ChannelModuleBase(XYZBaseModule):
                 self._bound_cache = True
         return self._bound_cache
 
-    async def get_disallowed_tools(self) -> list[str]:
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Unbound → suppress every tool except the setup surface."""
         if await self.is_bound():
             return []

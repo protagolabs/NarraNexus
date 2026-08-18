@@ -149,7 +149,7 @@ Supersedes the 2026-05-19 "仅在人-回复轮写 last_response" rule below. The
 continuity anchor must track the **last message visible in the user's chat
 box** — which includes a message the agent DELIVERED to the user this turn even
 from a background trigger (a scheduled job / heartbeat can call
-`send_message_to_user_directly`; from the user's POV that's the latest
+`notify_owner`; from the user's POV that's the latest
 interaction). New module-level `_turn_delivered_user_message(agent_loop_response,
 working_source)` reuses the `MessageSourceRegistry` reply-tool detection (no
 chat_module import — modules stay hot-pluggable, 铁律 #3). Anchor condition is

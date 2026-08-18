@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -24,7 +24,7 @@ stub: false
 付——而 open 补上下一棒，于是**两跳都还被盯着**。反过来会让一次交接把自己刚创建
 的差事关掉。
 
-在此之前板子的唯一入口是 `work_add_item`，Leader 忘了调板子就是空的，巡查无事
+在此之前板子的唯一入口是 `team_work_add`，Leader 忘了调板子就是空的，巡查无事
 可扫——断链那一轮正是如此。
 
 **挂在 `_deliver_reply` 里，且在它的 `try` 之外**。同批 rebase 上来的 #291 把投
@@ -131,7 +131,7 @@ trigger 发一条团队回复再把行读回来**的测试；把修复的任意�
 **事后记账从「平台投递成功了吗」变成「agent 这一轮在房间里说过话吗」**，而这个问题
 `has_message_from_turn` 本来就能答（它此前只在 `POST_NOT_ATTEMPTED` 那一支被用到）。
 于是整块三态状态机塌成一个布尔。**刻意不用 `turn.delivered`**：那会把
-`send_message_to_user_directly` 也算进去，而只通知了 owner 的 agent 把房间留在沉默里
+`notify_owner` 也算进去，而只通知了 owner 的 agent 把房间留在沉默里
 ——正是通知存在的理由。
 
 **级联上限的叙述从这里移走**（搬到 team_posting，因为施加上限的是它）；两处都留会说两次。
@@ -446,7 +446,7 @@ include_monologue 同形的两端钉死（tests/message_bus/test_team_room_marke
 
 Review round 3 抓到的复发:`sender_turn_source == "message_bus"` 被当成
 「这是回复」的充分条件,但 bus 轮次里也能**提问**——Owner Relay 指令自己就
-教发起方"有澄清问题用 bus_send_to_agent 追问"(路径 A),回答方也可能为了
+教发起方"有澄清问题用 message_agent 追问"(路径 A),回答方也可能为了
 组织答案再问第三个 agent C(路径 B)。两条路径上收件方都会误判成
 Owner Relay,P1 原样复发。
 
@@ -510,13 +510,13 @@ P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_pro
 聊天里等答案"。对收件方这是**假话**:它的 owner 什么都没问。
 
 现场后果(连跑 3 次复现):小雀替 TC 转达问题 → 羽书 收到假的 Owner Relay
-→ 调 `send_message_to_user_directly` 回给自己 owner,并认定差事已了
+→ 调 `notify_owner` 回给自己 owner,并认定差事已了
 (「未回复小雀 — 她是转发…按 Reply Discipline」)→ 小雀(已向用户承诺回报)
 永远等不到回复。**模型是在照做,是 prompt 在骗它。**
 
 修法(2026-08-04 定稿):按**消息上记录的事实**选指令,不再靠 channel 排序推断。
 
-发送方在 `bus_send_to_agent` 时把**自己这一轮的种类**写到消息上
+发送方在 `message_agent` 时把**自己这一轮的种类**写到消息上
 (`bus_messages.sender_turn_source`):owner 面的 turn(chat/job/…)=我在跑
 差事、这条是**提问**;`message_bus` turn = 我本来就在答同伴、这条是**回复**。
 触发侧读进来那批消息的这个字段即可,零历史查询。
@@ -566,7 +566,7 @@ per-MEMBER latest-turn binding on the activity row.
 
 team room 的 prompt（`_build_team_prompt`）明说「你的明文会自动上墙」，所以
 NexusPower 独白在这条分支并入收集文本（`include_monologue=is_team`）；peer
-DM→收件箱分支的 prompt 让 agent 用 `send_message_to_user_directly` 送达、
+DM→收件箱分支的 prompt 让 agent 用 `notify_owner` 送达、
 从未承诺明文落库，独白保持私密（否则 owner 会同时收到润色直发 + 一条原始
 独白的收件箱条目）。语义见 [[run_collector]] 同日条目。
 
@@ -666,8 +666,8 @@ the teammate sees the same room.
 ## 2026-07-22 — team rule: reply-delivery forbidden, action tools allowed
 
 Refined the group-chat tool rule again. It now distinguishes REPLY-DELIVERY functions
-(forbidden — the text reply auto-posts, so `send_message_to_user_directly` /
-`bus_send_message` / `bus_send_to_agent` would double-deliver) from ACTION tools (allowed):
+(forbidden — the text reply auto-posts, so `notify_owner` /
+`message_team` / `message_agent` would double-deliver) from ACTION tools (allowed):
 `Read` opens a file, and **`bus_share_to_team`** publishes a file the agent produced to the
 team folder (it stages bytes, does NOT post a message — the agent then mentions the returned
 path in its reply). The prior blanket "no send/bus" ban blocked "share this file with the
@@ -810,7 +810,7 @@ makes every newer message look unprocessed → the agent loops. Dropped the
 `_build_prompt` gained an `owner_name=""` param. The human-facing relay line now
 reads `Your owner **{owner_name or owner_user_id}** originally asked…` so the LLM
 sees the owner's human name, not the opaque NetMind userSystemCode. The
-`send_message_to_user_directly` routing argument on the same prompt KEEPS
+`notify_owner` routing argument on the same prompt KEEPS
 `user_id="{owner_user_id}"` verbatim — the delivery tool needs the real key, so
 that hex must stay. The caller resolves `owner_name` via
 `UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
@@ -1112,7 +1112,7 @@ prompt 里；一个积压 80 条的团队，每个成员每一轮都要付 80 �
 
 **结论：不给工作板加渲染上限。** 截断会把唯一能触发清理的信号藏起来——积压 80 条不是渲染问题，
 是这个团队真的欠着 80 件事（铁律 #5）。而清理的机制 #259 已经建好了：`done` 由 agent 自己写，
-`cancelled` **明确保留给用户**（`team_work_update_status` 的报错原文：「'cancelled' is the user's
+`cancelled` **明确保留给用户**（`team_team_work_update_status` 的报错原文：「'cancelled' is the user's
 decision」）。所以「agent 自行清理」与「请示 owner 清理」本来就是两条被区分开的路径。
 
 真正缺的只是**没有任何东西会说「这块板子太大了」**——巡查只讲停滞条目，不讲尺寸。补这个信号是
@@ -1194,7 +1194,7 @@ where it stands」），所以它会成为被点名成员这一轮的**触发消
 
 **roster**(`_team_roster` + `_roster_lines`):一行一个成员,格式对齐
 `message_bus_module` 的 Known Agents(`` `id` — name: desc ``)。这不是审美 —— 那份
-列表正是 agent 学到 `bus_send_to_agent` 要什么标识符的地方,两个面用两套标识符等于
+列表正是 agent 学到 `message_agent` 要什么标识符的地方,两个面用两套标识符等于
 逼模型去猜映射。**自己也在名单里并标 `(you)`**;lead 标记挂在**每一行**,于是非 lead
 成员终于知道谁在负责(此前只有 lead 自己被告知)。描述未设置时整段不渲染,和 Known
 Agents 同一条 2026-08-04 的教训。
@@ -1376,9 +1376,9 @@ agent 这一轮确实调过一次投递工具。三个工具打三个地方:
 
 | 打给谁 | 房间听见了什么 | 该不该公告 |
 |---|---|---|
-| `bus_send_message` → 本房间 | agent 的话 | **不该** |
-| `bus_send_to_agent` → 队友私聊 | 什么都没有 | 该 |
-| `send_message_to_user_directly` → 只给 owner | 什么都没有 | 该 |
+| `message_team` → 本房间 | agent 的话 | **不该** |
+| `message_agent` → 队友私聊 | 什么都没有 | 该 |
+| `notify_owner` → 只给 owner | 什么都没有 | 该 |
 
 团队 prompt 禁用投递工具只是**文字规则**,MCP server 在团队 turn 里照常挂着(清空的是
 expressive declaration,不是工具面),按铁律 #15 平台不管模型听不听话 —— 所以第一行不是
@@ -1386,8 +1386,8 @@ expressive declaration,不是工具面),按铁律 #15 平台不管模型听不�
 
 于是这条臂改成先问 `has_message_from_turn(channel_id, agent_id, turn.event_id)`,听见了
 就只记账不公告。**不能用 `turn.delivered` 当门**:它认的名单含
-`send_message_to_user_directly`,用它会把上表第三行那条**正确**的公告一起吞掉,房间又回
-到静默。为让这个问题可回答,MCP 侧的 `bus_send_message` 同批补盖了 `event_id`(见
+`notify_owner`,用它会把上表第三行那条**正确**的公告一起吞掉,房间又回
+到静默。为让这个问题可回答,MCP 侧的 `message_team` 同批补盖了 `event_id`(见
 [[_message_bus_mcp_tools]])。
 
 记账与公告是两个问题:即使房间听见了 agent 自己那句,**平台代发**这件事确实没发生,
@@ -1447,3 +1447,9 @@ worker 池是**进程级、跨用户共享**的,所以后果不局限在这个�
 此前只有 `logger.info`。通知发在**回复之后**，让房间按事情发生的顺序读：
 agent 先说话，然后平台解释它没做什么。名字用 `member_map` 解析成显示名——
 「agent_b 没被拉进来」不是用户能行动的句子。
+
+## 2026-08-18 — 删除 `_record_errands`（合并残留的死代码）
+
+与 dev 的 PR #310 合并后，trigger 侧这份差事记账已无调用者：它原本由 `_deliver_reply` 调用，
+而该方法随「房间改为工具调用」一并移除。活的实现在 [[team_posting.py]]，理由同级联上限——
+这是「把消息放进团队房间」的属性，不是「恰好触发了本轮的循环」的属性。

@@ -36,7 +36,7 @@ stub: false
 
 `test_a_room_job_is_told_its_reply_goes_to_the_room` 钉的是两者读同一个字段
 （`jobs.origin_source`）。两个方向都会坏：房间来源的 job 去调
-`send_message_to_user_directly` 投错地方；私聊 job 以为明文自动上墙则**整个丢
+`notify_owner` 投错地方；私聊 job 以为明文自动上墙则**整个丢
 掉**答案。
 
 ## 关联

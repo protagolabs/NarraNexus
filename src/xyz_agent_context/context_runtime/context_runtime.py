@@ -1228,7 +1228,7 @@ class ContextRuntime:
                 # Failures fail-open — suppression is an optimization, never
                 # worth breaking the turn over.
                 try:
-                    suppressed = await inst.module.get_disallowed_tools()
+                    suppressed = await inst.module.get_disallowed_tools(ctx_data)
                     if suppressed:
                         disallowed_tools.extend(suppressed)
                         logger.debug(

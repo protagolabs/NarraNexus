@@ -33,7 +33,7 @@ owner inbox 写的运维记录；房间不是 inbox，而且这次 run 用的提
 
 origin 那一对的另一半：[[_job_context_builder]] 按 `job.origin_source` 选提示词，
 这里按**同一个字段**选投递。空 origin 直接返回，保持历史路径（agent 在 run 内自
-己调 `send_message_to_user_directly`）——PRD 验收 #8 要求私聊行为逐字不变。
+己调 `notify_owner`）——PRD 验收 #8 要求私聊行为逐字不变。
 
 **由平台以 agent 名义投**，而不是交给模型调工具：房间的契约就是明文自动上墙，
 这次 run 用的提示词也正是这么说的。让模型来投等于把「它记不记得调工具」这个依

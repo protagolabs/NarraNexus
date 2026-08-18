@@ -84,10 +84,10 @@ Telegram:
 - **Registers a ``MessageSourceRegistry`` handler at import time.** This
   is load-bearing: without a registered handler named ``"wechat"`` whose
   ``user_reply_tool_names`` include ``("wechat_send",
-  "send_message_to_user_directly")``, the agent's replies would be
+  "reply_owner")``, the agent's replies would be
   logged as generic **"Background activity"** rather than recorded as
   real user replies. ``_extract_wechat_reply`` pulls the user-visible
-  text (``wechat_send.text`` / ``send_message_to_user_directly.content``)
+  text (``wechat_send.text`` / ``reply_owner.content``)
   and returns ``None`` for any other tool call so non-replies don't
   pollute the inbox. The registration is wrapped in
   ``try/except ValueError`` so the import-time call is idempotent across

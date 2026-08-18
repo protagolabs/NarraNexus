@@ -87,7 +87,7 @@ Part of the outbound send unification (see [[_matrix_send]] / [[_narramessenger_
   sending (only bind/status uses it now).
 - **MessageSourceRegistry handler**: the memory extractor now recognises
   `narra_reply` / `narra_send` (both carry text in the `text` arg) and DROPS
-  `send_message_to_user_directly` — that generic tool is the OWNER channel, not
+  `notify_owner` — that generic tool is the OWNER channel, not
   a room reply, so logging it as a NarraMessenger reply was wrong.
 - **Prompt sweep (behaviour-lied fixes, cf. the group-visibility fix below)**:
   `_BEHAVIOUR` point 3 said "images/files… you cannot open them" — false since
@@ -155,7 +155,7 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
   with the inbound `room_id`; the registry path serves composite/proactive
   sends.
 - **`MessageSourceRegistry` handler** (`name="narramessenger"`, reply tools
-  `narra_send` / `send_message_to_user_directly`) so ChatModule captures
+  `narra_send` / `notify_owner`) so ChatModule captures
   NarraMessenger replies into chat history instead of logging "Background
   activity". Registered at import, idempotent.
 - **`get_instructions` is short (~telegram-sized), NOT lark's 600 lines.**

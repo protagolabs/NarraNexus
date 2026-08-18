@@ -9,7 +9,7 @@ stub: false
 owner 2026-08-07 拍板「工作板与差事分层不合并」，在此之前这个决定只活在注释
 里。`origin` 让它在运行时可执行：
 
-- `tool` —— Leader 用 `work_add_item` / `work_complete_item` 显式维护的**任务**，
+- `tool` —— Leader 用 `team_work_add` / `team_work_complete` 显式维护的**任务**，
   一个任务跨多次差事，所以**任何自动逻辑都不许关它**；
 - `auto` —— 平台从 @mention 记下的**消息级差事**（[[errand]]），交付即自闭，
   而正是这个自闭让自动开项敢做。

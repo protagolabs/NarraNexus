@@ -66,7 +66,7 @@ def test_answering_an_unrelated_peer_in_an_errand_turn_stays_plain():
 
 def test_following_up_with_the_errand_peer_is_stamped_as_an_errand():
     """Path A: the Owner Relay directive itself tells us to ask clarifying
-    questions with bus_send_to_agent. That send is a QUESTION."""
+    questions with message_agent. That send is a QUESTION."""
     with injected(_errand_turn()):
         assert _send_turn_source(to_agent=ERRAND_PEER) == BUS_ERRAND_TURN_SOURCE
         assert _send_turn_source(channel_id=ERRAND_CHANNEL) == BUS_ERRAND_TURN_SOURCE

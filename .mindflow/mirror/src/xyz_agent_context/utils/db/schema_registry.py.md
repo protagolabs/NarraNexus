@@ -780,7 +780,7 @@ Important #1).
 ## 2026-08-14 — `bus_messages.event_id` 的口径扩了(更正 07-31)
 
 07-31 那节写的「stamped by the trigger's team branch at post time」现在只对一半:
-agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份头),DM 频道的行
+agent 自己调 `message_team` / `message_agent` 发的行也盖(身份头),DM 频道的行
 同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
 完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
 

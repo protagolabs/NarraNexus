@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -54,7 +54,7 @@ priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
 origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
 （NexusPower constitution 的 example + claude 适配器 reminder 首位），
 从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
-bus 轮默认 bus_send_message、wechat 轮默认 wechat_send。钩子调用
+bus 轮默认 message_team、wechat 轮默认 wechat_send。钩子调用
 fail-open（无此方法/抛错 → rank 1，纯 priority 序不变），假模块与
 旧路径零影响。
 
@@ -288,7 +288,7 @@ headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skil
 `[SYSPROMPT-BREAKDOWN] agent=… total=… | parts: security/temporal/narrative/modules/bootstrap=各字节 | narrative: nar_summary_chars/nar_dynamic_entries | top_modules: 最大 5 个模块指令`。
 纯诊断、不改行为。**动机**：观测到 system prompt 逐轮增长(app ~100k、dev ~115k 上限
 `MAX_SYSTEM_PROMPT_LENGTH`),逼近上限后历史被驱逐、agent(含原生 opus)停止调
-`send_message_to_user_directly`。此前每 Part 字节只在 `logger.debug`(生产 INFO 级看不到)。
+`notify_owner`。此前每 Part 字节只在 `logger.debug`(生产 INFO 级看不到)。
 新增纯静态 helper `_log_system_prompt_breakdown`(可单测,见
 `tests/context_runtime/test_system_prompt_breakdown.py`)。narrative 的 `current_summary`
 字节 + `dynamic_summary` 条数是增长头号嫌疑,单独打出来量化。
@@ -432,3 +432,9 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `messages = []`. This is not a bug — it is a documented transitional state. Do not "fix" it by restoring `extract_narrative_data()` without understanding that `ChatModule.hook_data_gathering()` in Step 1-2 is now the authoritative source of conversation history. Enabling both simultaneously would produce duplicate message history.
 
 `ContextRuntime.__init__()` accepts a `database_client` parameter but falls back to `get_db_client_sync()` if none is provided. In test environments where no database is available, omitting this parameter produces a `DatabaseClient` that fails on the first `await` rather than at construction time — the same lazy-init gotcha documented in `database.py`.
+
+## 2026-08-18 — 收集环把 `ctx_data` 传给 `get_disallowed_tools`
+
+同环内 **先压制、后声明**，此顺序此前是隐式契约。压制 hook 不带 ctx，需要按轮次决策的模块
+只能读声明 hook 遗留的实例状态 —— 在这个顺序下永远是空的（详见 [[base.py]] 2026-08-18）。
+现在两个 hook 同传 ctx_data，顺序不再有语义。fail-open 姿态不变。

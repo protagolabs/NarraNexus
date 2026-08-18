@@ -19,9 +19,9 @@ properties of POSTING INTO A ROOM, not of the trigger that happened to own the
 old delivery path.
 
 The cap moving here is the fix for a specific hole: it was implemented only in
-``_deliver_reply``, while ``bus_send_message`` could write into a team room with
-no hop counting at all. The loop-breaker was installed on the door the agent was
-told not to use.
+``_deliver_reply``, while the old ``bus_send_message`` could write into a team
+room with no hop counting at all. The loop-breaker was installed on the door the
+agent was told not to use.
 """
 from __future__ import annotations
 
@@ -97,6 +97,90 @@ async def team_cascade_depth(db: Any, channel_id: str) -> int:
     return depth
 
 
+async def _record_errands(
+    db: Any,
+    *,
+    team_id: str,
+    channel_id: str,
+    agent_id: str,
+    mentions: Optional[Sequence[str]],
+    text: str,
+    message_id: str,
+    root_run_id: str,
+) -> None:
+    """Settle and open the room's message-level errands for one landed post.
+
+    A named seam rather than an inline block, and that is the point: two
+    independent safeties protect this call and each needs its own test.
+
+    1. **Position** — it runs on the far side of `bus.send_message`, never
+       wrapped together with it. Inside, a raising hook would make a post that
+       IS in the room report itself as failed, and the room grows a "could not
+       deliver this" notice underneath a reply sitting right there (the
+       accident #302's comments record).
+    2. **The swallow** — it never raises, so production never reaches the
+       failure mode position protects against.
+
+    Folded into one `try` inside `post_team_reply`, the two are the same
+    construct and neither can be tested without the other: patching the errand
+    functions is caught by the swallow, so a call that had drifted above the
+    post would still look green. Patching THIS name bypasses the swallow and
+    leaves only position under test — which is why it has a name.
+
+    It rides in `team_posting` rather than the trigger for the same reason the
+    hop cap does: it is a property of putting a message into a team room, not
+    of the loop that happened to trigger the turn. The trigger owned it while
+    the trigger owned posting; posting is a tool call now, and a book-keeping
+    step left behind would simply stop running (PR #310's hand-off board,
+    silently empty).
+
+    Ordering is the whole design: close first, then open. On a founding message
+    ("收到…完成后交付 @A4") the close is a no-op — it is a promise, not a
+    delivery — and the open adds the next link, so BOTH hops stay watched.
+    Reversing it would let a hand-off close the errand it just created.
+
+    `mentions` is the POST-cap list: an @mention the cascade cap stripped never
+    reached the teammate, so an errand for it would be owed by someone who was
+    never asked.
+
+    **Never raises.** The reply is already in the room and the hop has
+    succeeded; a board write that could fail that hop would trade a working
+    delivery for bookkeeping. The cost is bounded and self-correcting: a missed
+    close leaves an item patrol asks about once, a missed open leaves the room
+    exactly as it was before this layer existed.
+    """
+    if not team_id:  # errands are a team-room fact; ordinary bus DMs have none
+        return
+    try:
+        from xyz_agent_context.message_bus.errand import (
+            close_delivered_errands,
+            record_handoffs,
+        )
+
+        await close_delivered_errands(
+            db,
+            team_id=team_id,
+            channel_id=channel_id,
+            agent_id=agent_id,
+            text=text,
+        )
+        await record_handoffs(
+            db,
+            team_id=team_id,
+            channel_id=channel_id,
+            from_agent=agent_id,
+            mentions=mentions,
+            text=text,
+            message_id=message_id,
+            root_run_id=root_run_id,
+        )
+    except Exception as e:  # noqa: BLE001 — see "Never raises" above
+        logger.warning(
+            f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
+            f"{type(e).__name__}: {e}"
+        )
+
+
 async def post_team_reply(
     *,
     db: Any,
@@ -142,56 +226,16 @@ async def post_team_reply(
         root_run_id=root_run_id,
     )
 
-    # Errand book-keeping, on the far side of a LANDED post. It rides here
-    # rather than in the trigger for the same reason the hop cap does: it is a
-    # property of putting a message into a team room, not of the loop that
-    # happened to trigger the turn. The trigger owned it while the trigger owned
-    # posting; posting is a tool call now, and a book-keeping step left behind
-    # would simply stop running (PR #310's hand-off board, silently empty).
-    #
-    # Ordering is the whole design: close first, then open. On a founding
-    # message ("收到…完成后交付 @A4") the close is a no-op — it is a promise, not
-    # a delivery — and the open adds the next link, so BOTH hops stay watched.
-    # Reversing it would let a hand-off close the errand it just created.
-    #
-    # `mentions` is the POST-cap list: an @mention the cascade cap stripped
-    # never reached the teammate, so an errand for it would be owed by someone
-    # who was never asked.
-    #
-    # Never raises. The reply is already in the room and the hop has succeeded;
-    # a board write that could fail that hop would trade a working delivery for
-    # bookkeeping. The cost is bounded and self-correcting: a missed close
-    # leaves an item patrol asks about once, a missed open leaves the room
-    # exactly as it was before this layer existed.
-    if team_id:  # errands are a team-room fact; ordinary bus DMs have no board
-        try:
-            from xyz_agent_context.message_bus.errand import (
-                close_delivered_errands,
-                record_handoffs,
-            )
-
-            await close_delivered_errands(
-                db,
-                team_id=team_id,
-                channel_id=channel_id,
-                agent_id=agent_id,
-                text=text,
-            )
-            await record_handoffs(
-                db,
-                team_id=team_id,
-                channel_id=channel_id,
-                from_agent=agent_id,
-                mentions=mentions,
-                text=text,
-                message_id=message_id,
-                root_run_id=root_run_id,
-            )
-        except Exception as e:  # noqa: BLE001 — see comment above
-            logger.warning(
-                f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
-                f"{type(e).__name__}: {e}"
-            )
+    await _record_errands(
+        db,
+        team_id=team_id,
+        channel_id=channel_id,
+        agent_id=agent_id,
+        mentions=mentions,
+        text=text,
+        message_id=message_id,
+        root_run_id=root_run_id,
+    )
 
     if capped["names"] or capped["everyone"]:
         # Best-effort: the reply is already in the room and failing to narrate

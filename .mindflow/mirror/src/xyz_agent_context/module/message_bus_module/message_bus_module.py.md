@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -32,12 +32,12 @@ stub: false
 
 ## 2026-08-17 — 指令块整体重写成「两种社交处境」，以及我重写时丢掉的那些保证
 
-工具面从 19 个收到 13 个并全部改名（`bus_send_message`→`message_agent`、
-`bus_send_to_agent` 合并进它、新增 `message_team`、`bus_*_team_*`→`team_*`、
+工具面从 19 个收到 13 个并全部改名（`bus_send_message`→`message_team`、
+`message_agent` 合并进它、新增 `message_team`、`bus_*_team_*`→`team_*`、
 `work_*`→`team_work_*`），指令块随之整体重写：不再教一个叫 MessageBus 的子系统，只教
 **两种处境**——和某个同伴私聊、在某个 team 房间里。
 
-**声明面此前声明的是两个已经不存在的工具**（`bus_send_message` / `bus_send_to_agent`）。
+**声明面此前声明的是两个已经不存在的工具**（`message_team` / `message_agent`）。
 这是「声明死工具就是对模型的错误信息」最严重的形式。现按 surface 给**唯一动词**：
 team → `message_team`，peer → `message_agent`。新增
 `test_exactly_one_verb_per_surface`——那条不变量是整个改造的立论，此前无人守。
@@ -69,7 +69,7 @@ P1——现在一个 surface 一个动词），改为断言它指向本轮；「
 
 ### 一个功能 bug：改名让读游标死锁
 
-`hook_after_event_execution` 靠在 trace 里匹配 `bus_send_message` / `bus_send_to_agent`
+`hook_after_event_execution` 靠在 trace 里匹配 `message_team` / `message_agent`
 判断「这一轮回复了吗」，据此推进 `last_read_at`。两个工具改名后它**仍在匹配旧名**，于是
 **什么都不算回复、游标永不推进**——正是刚在 IM inbox 侧修掉的那种永久未读死锁，被一次改名
 在 peer 侧重新引入。现在匹配 `message_agent` / `message_team`，后者还要把 team 解析成房间
@@ -85,11 +85,11 @@ docstring 里的实现名保留（agent 看不到）。
 2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
 **但漏掉了同一段里语气最重的一条**——而它恰恰是矛盾最尖锐的一条：
 
-> "Finished work is never ping-pong... send the result via `bus_send_message`。
+> "Finished work is never ping-pong... send the result via `message_team`。
 > **纯文本收尾 = 零交付，对方永远看不到**"
 
 在 team 房间里这句正好相反：纯文本**就是**回复（[[message_bus_trigger]] 的
-`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 bus_send_message 投递
+`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 message_team 投递
 本条回复，否则双发」。两句话同一个上下文窗口，讲同一件事，结论相反；而静态段那句
 因为背着 8/1 briefing squad 的 P0，语气被反复加重，**是更容易赢的那一句**。
 
@@ -192,7 +192,7 @@ agent"剧本第 4 步的识别信号，也就是唯一把答案回报给 owner �
 同批清掉三处 Minor：`unread_models` 是删掉第 5 步后的残留别名（唯一真实消费者就是被删的
 那一步），已折掉；`_render_sender` 的 docstring「one row, two surfaces, one name」**说过头
 了**——只有 `usr_*` 和平台行两边一致，普通 agent 在 trigger 侧走 `member_map` 渲染成显示名、
-在这里保留原始 `agent_id`（那是 `bus_send_to_agent` 的入参），已如实收窄；静态段那句
+在这里保留原始 `agent_id`（那是 `message_agent` 的入参），已如实收窄；静态段那句
 「你的 Unread Messages 列表…」改成条件式，因为零未读时该小节根本不存在——这条正是本 PR
 自己立的「写『XX 会出现在某处』之前先确认它真的会出现」。
 
@@ -218,7 +218,7 @@ team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松（
 **未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
 （`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
 ② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
-`bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
+`message_team` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
 team 房间，房间消息在 scrollback 之外被二次渲染。
 
 ### ⚠️ 这一轮**没有**让 team 房间的矛盾归零 —— [[chat_module/prompts]] 里还有更大的一份
@@ -283,7 +283,7 @@ profile needs updating` 有两重问题：工具本身已删（见
 
 P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）
 的声明侧修复。新增 `get_expressive_tools(ctx_data)` 覆写：**只在**
-working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_agent`
+working_source=MESSAGE_BUS 的轮次声明 `message_team` + `message_agent`
 （fully-qualified，派生自 get_mcp_config().server_name）。三重门：
 ① 非 bus 轮不声明（chat 轮广告 bus 工具会诱导经 bus 回 owner）；
 ② team 房（extra_data `bus_team_room`，由 [[message_bus_trigger]] 盖章）不声明——
@@ -306,12 +306,12 @@ Reply Discipline 同批加一条「**Finished work is never ping-pong — delive
 ## 2026-08-01 — 指令新增「替 owner 去问另一个 agent」剧本
 
 P1 段 06:owner 说"问问教学专家在干嘛",agent 答做不了。能力一直都有
-(`bus_send_to_agent` 会触发对方),缺的是**把这类请求认出来并给出路线**。
+(`message_agent` 会触发对方),缺的是**把这类请求认出来并给出路线**。
 新增小节明确:① 这类请求你能做,**不得回答无法联系其他 agent**;
-② 从 Known Agents 取准确 id;③ 用 `bus_send_to_agent` 发问,
+② 从 Known Agents 取准确 id;③ 用 `message_agent` 发问,
 **别用社交网络/联系方式工具**(那返回联系方式,不是答案);
 ④ 告诉 owner 已问、回复会另开一轮;⑤ 对方回复到达时用
-`send_message_to_user_directly` **回报给 owner**——并写明
+`notify_owner` **回报给 owner**——并写明
 Reply Discipline 只管对**同伴**的回复,绝不压制对 owner 的回报
 (不写这句,那条"没实质就沉默"的规则会把用户要的答案吞掉)。
 找不到目标要问清楚,那是澄清问题、不是拒绝。
@@ -475,3 +475,8 @@ owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"�
 
 修一份留一份,正是这次改动开篇要消灭的「同一个上下文窗口里两句矛盾的话」,只是位置
 挪了一百行。铁律 #8 说的"加功能时顺手扫一遍相邻代码",这次没扫到。
+
+## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+
+跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
+留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。

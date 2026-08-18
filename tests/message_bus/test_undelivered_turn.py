@@ -261,7 +261,7 @@ async def test_no_notice_when_the_agent_posted_into_the_room_itself(
 ):
     """The other half of the same branch, and the one that makes it reachable
     at all: `recovered_after_reply` is emitted BECAUSE the agent used a
-    delivery tool, and `bus_send_message` at this room is the most natural one
+    delivery tool, and `message_team` at this room is the most natural one
     to reach for. The prompt forbids it; the platform does not police whether
     the model obeys (CLAUDE.md binding rule #15). The room has already heard the
     agent, so a failure notice on top of its reply is a false ⚠️ — the exact
@@ -437,8 +437,8 @@ async def test_a_notice_never_answers_a_notice(db_client, monkeypatch):
 
 
 def test_delivered_to_anyone_recognises_the_bus_send_tools():
-    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
-    assert MessageBusTrigger._delivered_to_anyone(["mcp__msgbus__bus_send_to_agent"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["message_team"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["mcp__msgbus__message_agent"]) is True
 
 
 def test_delivered_to_anyone_rejects_tools_that_do_not_deliver():
@@ -457,7 +457,7 @@ def test_delivered_to_anyone_fails_open_when_the_registry_downgrades(monkeypatch
     )
 
     monkeypatch.setattr(MessageSourceRegistry, "get", lambda src: _DEFAULT_HANDLER)
-    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["message_team"]) is True
 
 
 def test_delivered_to_anyone_fails_open_when_the_registry_raises(monkeypatch):
@@ -467,7 +467,7 @@ def test_delivered_to_anyone_fails_open_when_the_registry_raises(monkeypatch):
         raise RuntimeError("registry exploded")
 
     monkeypatch.setattr(MessageSourceRegistry, "get", _boom)
-    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["message_team"]) is True
 
 
 # ── the ping-pong guard covers every platform type, not only the notice ─────

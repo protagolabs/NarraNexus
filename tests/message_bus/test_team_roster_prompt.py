@@ -11,7 +11,7 @@ names. Three things followed from that and all three were product problems:
     pull a teammate in by @mentioning them, while giving it nothing to choose
     on. A team degrades into strangers who @ whoever spoke last.
   * **two surfaces, two identifier systems.** The roster hands out display
-    names; `bus_send_to_agent` wants an `agent_id`. The agent had to guess the
+    names; `message_agent` wants an `agent_id`. The agent had to guess the
     mapping between them.
   * **nobody could tell whether a teammate was mid-task.** The activity mirror
     has fed the UI's roster for months; no agent could read it, so "don't
@@ -82,7 +82,7 @@ def _prompt(agent_id: str = "agent_lead", *, roster=None, **kw) -> str:
 
 
 def test_a_member_row_carries_the_id_the_tools_want():
-    """The roster and `bus_send_to_agent` must speak the same identifier."""
+    """The roster and `message_agent` must speak the same identifier."""
     text = _prompt()
 
     assert "`agent_worker`" in text

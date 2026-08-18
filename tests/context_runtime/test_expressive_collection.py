@@ -48,7 +48,7 @@ class _FakeModule:
     async def get_mcp_config(self):
         return None
 
-    async def get_disallowed_tools(self):
+    async def get_disallowed_tools(self, ctx_data=None):
         return []
 
     async def get_expressive_tools(self, ctx_data=None):
@@ -74,14 +74,21 @@ async def _collect(instances, monkeypatch, working_source=None, extra=None) -> l
         ctx.working_source = working_source
     if extra:
         ctx.extra_data.update(extra)
-    _messages, _mcp, _dis, expressive = await runtime.build_input_for_framework(
+    _messages, _mcp, disallowed, expressive = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=instances,
         ctx_data=ctx,
         narrative_list=None,
     )
+    _collect.last_disallowed = disallowed  # the desk's other half, for _desk()
     return expressive
+
+
+async def _desk(instances, monkeypatch, **kw) -> tuple[list[str], list[str]]:
+    """(declared, suppressed) from one real build — the two halves of the desk."""
+    declared = await _collect(instances, monkeypatch, **kw)
+    return declared, list(_collect.last_disallowed or [])
 
 
 CHAT_TOOL = "mcp__chat_module__reply_owner"
@@ -121,7 +128,7 @@ async def test_equal_priority_breaks_ties_by_module_class(monkeypatch):
     assert await _collect(instances, monkeypatch) == ["mcp__a__send", "mcp__z__send"]
 
 
-BUS_TOOL = "mcp__message_bus_module__bus_send_message"
+BUS_TOOL = "mcp__message_bus_module__message_team"
 
 
 @pytest.mark.asyncio
@@ -257,4 +264,81 @@ def test_every_module_expressive_signature_accepts_ctx_data():
             f"{name}.get_expressive_tools must accept ctx_data - a stale "
             f"(self)-only override is silently dropped by the fail-open "
             f"collection site"
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
+    """The two halves of the desk, asserted TOGETHER through the real build.
+
+    Every other guard on this seam calls the two module hooks directly, and that
+    is how the worst version of this bug shipped: suppression is asked FIRST at
+    the call site, so a module that read the turn from state the declaration had
+    left behind answered every team turn on an empty instance — declaring
+    `message_team` while removing its schema. Both hooks were individually
+    correct; the desk was incoherent, and no test looked at the desk.
+
+    `disallowed_tools` strips the schema on both frameworks, so an overlap means
+    the reply reminder names a tool the model cannot see: nothing reaches the
+    room, every turn, silently.
+    """
+    from unittest.mock import MagicMock
+
+    from xyz_agent_context.module.chat_module.chat_module import ChatModule
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        MessageBusModule,
+    )
+    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+
+    for label, source, extra in (
+        ("team room", "message_bus", {BUS_TEAM_ROOM_EXTRA_KEY: True}),
+        ("peer DM", "message_bus", None),
+        ("owner chat", "chat", None),
+    ):
+        # Fresh instances per turn kind: a module that carried the previous
+        # turn's answer would pass a loop that reused them.
+        bus = MessageBusModule(
+            agent_id=AGENT_ID, user_id=None, database_client=MagicMock()
+        )
+        chat = ChatModule(
+            agent_id=AGENT_ID, user_id=None, database_client=MagicMock()
+        )
+        instances = [
+            SimpleNamespace(module_class="ChatModule", module=chat, instance_id="i1"),
+            SimpleNamespace(
+                module_class="MessageBusModule", module=bus, instance_id="i2"
+            ),
+        ]
+        declared, suppressed = await _desk(
+            instances, monkeypatch, working_source=source, extra=extra
+        )
+        assert declared, f"{label}: the turn declared no reply tool at all"
+        overlap = set(declared) & set(suppressed)
+        assert not overlap, (
+            f"{label}: the reply reminder names {sorted(overlap)}, whose schema "
+            f"the same turn removed — the agent is told to call a tool it has "
+            f"no way to call"
+        )
+
+
+def test_every_module_disallow_signature_accepts_ctx_data():
+    """The twin of the expressive-signature guard above, for the same reason.
+
+    `get_disallowed_tools` grew a positional `ctx_data` on 2026-08-18. An
+    override still on the old `(self)` shape raises TypeError at the call site,
+    which fails OPEN — the module suppresses nothing, so both send verbs sit on
+    the desk and the turn's rule is back to arguing with a visible tool.
+    """
+    import inspect
+
+    from xyz_agent_context.module import MODULE_MAP
+
+    for name, cls in MODULE_MAP.items():
+        hook = getattr(cls, "get_disallowed_tools", None)
+        if hook is None:
+            continue
+        params = list(inspect.signature(hook).parameters)
+        assert params[:2] == ["self", "ctx_data"], (
+            f"{name}.get_disallowed_tools{tuple(params)} does not take ctx_data "
+            f"— it will TypeError at the collection site and suppress nothing"
         )

@@ -11,7 +11,7 @@ Two things went wrong in the incident and only one was the agent_id bug
 1. the model reached for ``get_contact_info`` — a contact-details lookup
    that can never answer "what are they doing" — and
 2. when it errored, the agent told the user the task was impossible, even
-   though ``bus_send_to_agent`` exists and triggers the target.
+   though ``message_agent`` exists and triggers the target.
 
 Tool descriptions and module instructions are the only levers that steer
 tool CHOICE, so they are asserted here like any other contract. These are

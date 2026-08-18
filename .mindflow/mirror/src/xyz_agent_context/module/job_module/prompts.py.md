@@ -16,7 +16,7 @@ Tier-1。
 `job_delivery_instructions(origin_source)` 选。
 
 写死那段就是「@Leader 明早提醒我们」投进一个人 DM 的直接原因。两个方向都不能
-错：让房间来源的 job 去调 `send_message_to_user_directly` 会投错地方；让私聊 job
+错：让房间来源的 job 去调 `notify_owner` 会投错地方；让私聊 job
 以为「明文自动上墙」则会**整个丢掉**答案——没有任何东西会去搬运它。
 
 提示词和投递代码读**同一个字段**（`jobs.origin_source`，投递侧见
@@ -47,9 +47,9 @@ is no longer shown as a person in a job's execution prompt.
 
 ## 设计决策
 
-**`JOB_EXECUTION_PROMPT_TEMPLATE` 的关键指令**：提示词对 Agent 有三条硬性要求——必须调用 `send_message_to_user_directly` 发送最终报告，只发一条，不发中间进度。这三条是 Job 执行后"用户能看到 Job 结果"的前提条件。`send_message_to_user_directly` 的输出是 ChatModule 里 `_extract_user_visible_response()` 能识别的唯一信号——Agent 所有其他输出对用户都不可见。
+**`JOB_EXECUTION_PROMPT_TEMPLATE` 的关键指令**：提示词对 Agent 有三条硬性要求——必须调用 `notify_owner` 发送最终报告，只发一条，不发中间进度。这三条是 Job 执行后"用户能看到 Job 结果"的前提条件。`notify_owner` 的输出是 ChatModule 里 `_extract_user_visible_response()` 能识别的唯一信号——Agent 所有其他输出对用户都不可见。
 
-**执行身份说明**：模板里明确告诉 Agent"你的 Narrative、记忆、对话历史是为这个实体加载的"，以及"调用 `send_message_to_user_directly` 时消息会出现在这个实体的对话历史里"。这是关键上下文——JobTrigger 在执行时切换了 user_id（用 `related_entity_id or user_id`），但 Agent 自身不知道自己在"扮演另一个用户的助手"。这段说明消除了这种认知歧义。
+**执行身份说明**：模板里明确告诉 Agent"你的 Narrative、记忆、对话历史是为这个实体加载的"，以及"调用 `notify_owner` 时消息会出现在这个实体的对话历史里"。这是关键上下文——JobTrigger 在执行时切换了 user_id（用 `related_entity_id or user_id`），但 Agent 自身不知道自己在"扮演另一个用户的助手"。这段说明消除了这种认知歧义。
 
 **`ONGOING_CHAT_ANALYSIS_PROMPT` 要求 LLM 返回结构化字段**：`job_id`、`is_end_condition_met`、`end_condition_reason`、`should_continue`、`progress_summary`、`process` 六个字段，与 `_job_lifecycle.py` 里 `OngoingExecutionResult` Pydantic 模型对应。提示词里有举例说明（"客户说'我买了' → 满足"、"客户问'价格是多少' → 未满足"），但这些是通用示例，不是写死的销售场景——Agent 的 Awareness 里定义的具体业务场景会覆盖这类判断。
 

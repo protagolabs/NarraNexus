@@ -139,22 +139,25 @@ async def test_the_desk_holds_exactly_the_verb_for_this_turn():
     that argument: 615 prod calls landed on two tools whose docstrings said "Do
     NOT call".
 
-    The two hooks are called separately and only one is handed ctx_data, so this
-    also pins the instance-state seam between them: a mismatch would put both
-    verbs on the desk, or neither.
+    **Called in the runtime's order, on a fresh instance, deliberately.**
+    `context_runtime` asks for suppression BEFORE declaration. An earlier draft
+    read the turn from state the declaration left on the instance, and this test
+    called declaration first — so it passed while every team turn shipped with
+    `message_team` declared AND suppressed, i.e. a room nobody could speak in.
+    A guard that calls the two hooks in the reverse of production order certifies
+    the bug it exists to catch.
     """
-    module = _module()
-    config = await module.get_mcp_config()
-    q = f"mcp__{config.server_name}__"
-
     for extra, kept, dropped in (
         ({}, "message_agent", "message_team"),
         ({"bus_team_room": True}, "message_team", "message_agent"),
     ):
-        declared = await module.get_expressive_tools(
-            _ctx(WorkingSource.MESSAGE_BUS, **extra)
-        )
-        suppressed = await module.get_disallowed_tools()
+        module = _module()  # fresh per case: no state may carry between turns
+        config = await module.get_mcp_config()
+        q = f"mcp__{config.server_name}__"
+        ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
+
+        suppressed = await module.get_disallowed_tools(ctx)
+        declared = await module.get_expressive_tools(ctx)
 
         assert declared == [q + kept]
         assert suppressed == [q + dropped]
@@ -163,17 +166,18 @@ async def test_the_desk_holds_exactly_the_verb_for_this_turn():
 
 
 @pytest.mark.asyncio
-async def test_suppression_follows_the_turn_it_was_last_told_about():
-    """The seam itself: `get_disallowed_tools` takes no ctx and must not go stale
-    across turns of different kinds."""
+async def test_suppression_reads_the_turn_it_is_given():
+    """One instance, two turns of different kinds, suppression asked first each
+    time — the shape a long-lived module instance actually sees."""
     module = _module()
     config = await module.get_mcp_config()
     q = f"mcp__{config.server_name}__"
 
-    await module.get_expressive_tools(
-        _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
-    )
-    assert await module.get_disallowed_tools() == [q + "message_agent"]
+    team = _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
+    assert await module.get_disallowed_tools(team) == [q + "message_agent"]
 
-    await module.get_expressive_tools(_ctx(WorkingSource.MESSAGE_BUS))
-    assert await module.get_disallowed_tools() == [q + "message_team"]
+    peer = _ctx(WorkingSource.MESSAGE_BUS)
+    assert await module.get_disallowed_tools(peer) == [q + "message_team"]
+
+    # And back, so a stale answer cannot pass by matching the last turn asked.
+    assert await module.get_disallowed_tools(team) == [q + "message_agent"]

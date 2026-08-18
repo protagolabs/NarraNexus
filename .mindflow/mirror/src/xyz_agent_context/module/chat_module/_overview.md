@@ -20,7 +20,7 @@ ChatModule 承担两个职责：
 | 文件 | 职责 |
 |------|------|
 | `chat_module.py` | Module 主体：双轨记忆加载（hook_data_gathering）；对话历史写入（hook_after_event_execution）；MCP 委托给 `_chat_mcp_tools.py` |
-| `_chat_mcp_tools.py` | MCP 工具注册：`send_message_to_user_directly`（唯一的用户可见输出通道）；`get_chat_history`（查询历史） |
+| `_chat_mcp_tools.py` | MCP 工具注册：`reply_owner`（唯一的用户可见输出通道）；`get_chat_history`（查询历史） |
 | `chat_trigger.py` | A2A 协议 API Server：接收外部请求，调用 AgentRuntime，支持同步和 SSE 流式响应 |
 | `prompts.py` | 向 Agent 解释"思考 vs 说话"核心概念和消息发送纪律 |
 

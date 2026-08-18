@@ -91,7 +91,7 @@ def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
     kinds: `usr_*` is "User" on both sides and a platform row is
     ``SYSTEM_SENDER_LABEL`` on both. An ORDINARY agent deliberately differs:
     the room prompt resolves it through `member_map` to a display name, while
-    this list keeps the raw ``agent_id`` because that is what `bus_send_to_agent`
+    this list keeps the raw ``agent_id`` because that is what `message_agent`
     takes. Worth knowing, since a team turn shows both — "Alice: …" in the
     scrollback and `agent_x7f3…` in the list, for one peer.
     """
@@ -200,21 +200,11 @@ class MessageBusModule(XYZBaseModule):
     # Reply surface (origin-aware declaration)
     # =========================================================================
 
-    #: Last ctx_data seen by `get_expressive_tools` — the disallow hook is
-    #: not handed one and must answer about the SAME turn.
-    _last_ctx: Any = None
-
     def owns_working_source(self, working_source: Any) -> bool:
         """This module is the origin of MESSAGE_BUS turns — the collection
         sorts the origin module's declaration first, so the bus delivery
         tool becomes the turn's default reply tool."""
         return working_source_matches(working_source, WorkingSource.MESSAGE_BUS.value)
-
-    #: The turn's ctx, remembered because `get_disallowed_tools` is called
-    #: separately and is handed none. Same seam ChatModule uses, for the same
-    #: reason: if the two hooks disagreed about which turn this is, the desk would
-    #: end up with both send verbs or neither.
-    _last_ctx: Any = None
 
     def _is_team_turn(self, ctx_data: Any = None) -> bool:
         """Is this turn a team room?
@@ -222,10 +212,7 @@ class MessageBusModule(XYZBaseModule):
         Reads the marker MessageBusTrigger stamps into `trigger_extra_data`
         (`bus_team_room`), which reaches `ctx_data.extra_data`.
         """
-        if ctx_data is not None:
-            self._last_ctx = ctx_data
-        ctx = ctx_data if ctx_data is not None else self._last_ctx
-        extra = getattr(ctx, "extra_data", None) or {}
+        extra = getattr(ctx_data, "extra_data", None) or {}
         return bool(extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
@@ -237,7 +224,6 @@ class MessageBusModule(XYZBaseModule):
         like every other surface, so there is no longer a turn whose delivery
         happens without one.
         """
-        self._last_ctx = ctx_data
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
             return []
         config = await self.get_mcp_config()
@@ -245,7 +231,7 @@ class MessageBusModule(XYZBaseModule):
         name = "message_team" if extra.get(BUS_TEAM_ROOM_EXTRA_KEY) else "message_agent"
         return [f"mcp__{config.server_name}__{name}"]
 
-    async def get_disallowed_tools(self) -> list[str]:
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Take the send verb that does NOT apply this turn off the desk.
 
         The declaration above only decides what the reply REMINDER names. The
@@ -259,11 +245,11 @@ class MessageBusModule(XYZBaseModule):
         calls. What decides whether a tool is used is whether its schema is in the
         context.
 
-        Takes no ctx_data (base signature), so the turn is read from the same
-        instance state the declaration used.
+        Reads the turn from its own ``ctx_data``, not from state the
+        declaration left behind: the runtime calls THIS hook first.
         """
         config = await self.get_mcp_config()
-        drop = "message_agent" if self._is_team_turn() else "message_team"
+        drop = "message_agent" if self._is_team_turn(ctx_data) else "message_team"
         return [f"mcp__{config.server_name}__{drop}"]
 
     def _static_instruction_parts(self) -> list:
@@ -792,7 +778,7 @@ class MessageBusModule(XYZBaseModule):
                     # on how the SDK reports them, so match on the substring.
                     #
                     # 2026-08-17 — these MUST track the tool renames. They were
-                    # still matching `bus_send_message` / `bus_send_to_agent`
+                    # still matching `message_team` / `message_agent`
                     # after both tools were replaced, which meant nothing ever
                     # counted as a reply and this cursor never advanced again:
                     # the same permanently-unread deadlock just fixed on the IM
@@ -850,7 +836,7 @@ class MessageBusModule(XYZBaseModule):
                 if m.channel_id in replied_channels:
                     to_mark.append(m.message_id)
                     continue
-                # For bus_send_to_agent: we sent a DM to some agent. Mark read
+                # For message_agent: we sent a DM to some agent. Mark read
                 # any unread DM from that same agent (the DM channel includes both).
                 if m.from_agent in replied_agents:
                     to_mark.append(m.message_id)

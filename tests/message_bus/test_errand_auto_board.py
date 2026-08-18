@@ -621,18 +621,23 @@ def test_the_board_section_declares_what_it_hides():
 
 @pytest.mark.asyncio
 async def test_a_real_team_reply_records_its_errand(db_client, monkeypatch, repo):
-    """Through `_handle_channel_batch`, not through the helpers directly.
+    """Through the production posting path, not through the helpers directly.
 
     Every assertion above would still pass with the module unreferenced. This
     is the one that fails if the delivery path forgets to call it.
+
+    That path moved on 2026-08-17. A team reply used to be the agent's PLAIN
+    TEXT, posted by the trigger, so this test drove `_handle_channel_batch`
+    with a stub that invoked the `on_plain_text_delivery` callback. The room
+    takes a tool call now: `message_team` -> `team_posting.post_team_reply`,
+    which is where the hop cap, @mention resolution and this book-keeping all
+    live. Driving the trigger would exercise a path production no longer
+    takes — the exact failure this test was written to catch, one contract
+    change later.
     """
     from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.message_bus_trigger import (
-        TEAM_ROOM_OWNER_PREFIX,
-        MessageBusTrigger,
-        TurnResult,
-    )
-    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    from ._team_turn import speak_in_room
 
     async def _async_db():
         return db_client
@@ -648,34 +653,10 @@ async def test_a_real_team_reply_records_its_errand(db_client, monkeypatch, repo
             "bus_channel_members", {"channel_id": CHANNEL, "agent_id": aid}
         )
 
-    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
-
-    # A team reply is posted from INSIDE the turn (#291): the chat rows are
-    # written before `run()` returns, so a post made afterwards cannot be
-    # recorded as a reply. A stub therefore has to do what the runtime does —
-    # report the run id, then hand the plain text to the deliverer — or it
-    # exercises a path production no longer takes, which is exactly where the
-    # errand hook now lives.
-    async def _fake(*_a, **_k):
-        result = TurnResult(text="OCR is normalised — @A4 take it from here",
-                            event_id="evt_1")
-        on_event_id = _k.get("on_event_id")
-        if on_event_id is not None:
-            await on_event_id(result.event_id or "evt_stub")
-        deliver = _k.get("on_plain_text_delivery")
-        if deliver is not None:
-            await deliver(result.text)
-        return result
-
-    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
-
-    msg = BusMessage(
-        message_id="m_in", channel_id=CHANNEL, from_agent="usr_1",
-        content="@Leader kick off", mentions=[LEAD],
-    )
-    await trigger._handle_channel_batch(
-        LEAD, CHANNEL, [msg], msg,
-        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}",
+    bus = LocalMessageBus(backend=db_client._backend)
+    await speak_in_room(
+        db=db_client, bus=bus, agent_id=LEAD, team_id=TEAM, channel_id=CHANNEL,
+        text="OCR is normalised — @A4 take it from here", event_id="evt_1",
     )
 
     items = await repo.list_active(TEAM)
@@ -693,12 +674,8 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
     bookkeeping — the opposite of the trade this whole feature is making.
     """
     from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.message_bus_trigger import (
-        TEAM_ROOM_OWNER_PREFIX,
-        MessageBusTrigger,
-        TurnResult,
-    )
-    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    from ._team_turn import speak_in_room
 
     async def _async_db():
         return db_client
@@ -708,6 +685,9 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
     )
     await db_client.insert(
         "agents", {"agent_id": LEAD, "agent_name": "L", "created_by": "usr_1"}
+    )
+    await db_client.insert(
+        "bus_channel_members", {"channel_id": CHANNEL, "agent_id": LEAD}
     )
 
     async def _boom(*_a, **_k):
@@ -717,31 +697,15 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
         "xyz_agent_context.message_bus.errand.record_handoffs", _boom
     )
 
-    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
-
-    async def _fake(*_a, **_k):
-        result = TurnResult(text="here is the answer", event_id="evt_1")
-        on_event_id = _k.get("on_event_id")
-        if on_event_id is not None:
-            await on_event_id(result.event_id or "evt_stub")
-        deliver = _k.get("on_plain_text_delivery")
-        if deliver is not None:
-            # The deliverer must report success: a book-keeping failure that
-            # made this return False would file a landed reply as lost — the
-            # very confusion this test exists to prevent.
-            assert await deliver(result.text) is True
-        return result
-
-    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
-
-    msg = BusMessage(
-        message_id="m_in", channel_id=CHANNEL, from_agent="usr_1",
-        content="@Leader hi", mentions=[LEAD],
+    bus = LocalMessageBus(backend=db_client._backend)
+    # Must REPORT success too: a book-keeping failure that made the tool return
+    # an error would file a landed reply as lost — the confusion this exists to
+    # prevent — and the agent would say it again.
+    result = await speak_in_room(
+        db=db_client, bus=bus, agent_id=LEAD, team_id=TEAM, channel_id=CHANNEL,
+        text="here is the answer", event_id="evt_1",
     )
-    await trigger._handle_channel_batch(
-        LEAD, CHANNEL, [msg], msg,
-        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}",
-    )
+    assert result.get("message_id")
 
     rows = await db_client.get("bus_messages", {"channel_id": CHANNEL})
     assert any(r["content"] == "here is the answer" for r in rows), (
@@ -750,33 +714,28 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_the_hook_sits_outside_the_delivery_try(db_client, monkeypatch):
+async def test_the_hook_sits_outside_the_post(db_client, monkeypatch):
     """Pins the CALL SITE, which the test above cannot.
 
     That one patches `errand.record_handoffs`, and `_record_errands` swallows
-    everything internally — so it stays green even if the call is moved back
-    inside `_deliver_reply`'s try. Two safeties are in play (position AND the
+    everything internally — so it stays green even if the call is moved to the
+    near side of `bus.send_message`. Two safeties are in play (position AND the
     internal swallow) and each needs its own test, because the plausible future
     change is removing the swallow to make book-keeping failures observable.
-    If the call has drifted inside the try by then, `room_post` is written
-    `POST_FAILED` and a reply that IS in the room gets announced as lost — the
-    accident #302's own comments record.
+    If the call has drifted above the post by then, a raising hook takes the
+    post down with it and a reply the room never received is reported as sent —
+    or, with the post wrapped alongside it, a reply that IS in the room gets
+    announced as lost, the accident #302's own comments record.
 
-    So this one patches `_record_errands` itself. What it asserts is the
-    consequence that actually hurts: the room must not grow a "could not
-    deliver this" notice under a reply that is sitting right there. Inside the
-    try, a raising hook writes `POST_FAILED` and produces exactly that notice;
-    outside it, the raise escapes the callback instead — which production never
-    sees, because `_record_errands` swallows its own failures (the test above
-    pins that half).
+    So this one patches `_record_errands` itself, bypassing the swallow and
+    leaving only position under test. What it asserts is the consequence that
+    actually hurts: the message is in the room, and the room grew no notice
+    underneath it. Production cannot reach this — `_record_errands` never
+    raises — which is why the raise is caught here rather than asserted away.
     """
     from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.message_bus_trigger import (
-        TEAM_ROOM_OWNER_PREFIX,
-        MessageBusTrigger,
-        TurnResult,
-    )
-    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    from ._team_turn import speak_in_room
 
     async def _async_db():
         return db_client
@@ -787,46 +746,26 @@ async def test_the_hook_sits_outside_the_delivery_try(db_client, monkeypatch):
     await db_client.insert(
         "agents", {"agent_id": LEAD, "agent_name": "L", "created_by": "usr_1"}
     )
+    await db_client.insert(
+        "bus_channel_members", {"channel_id": CHANNEL, "agent_id": LEAD}
+    )
 
-    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
-
-    async def _boom(**_k):
+    async def _boom(*_a, **_k):
         raise RuntimeError("book-keeping blew up loudly")
 
-    monkeypatch.setattr(trigger, "_record_errands", _boom)
-
-    delivered: list = []
-
-    async def _fake(*_a, **_k):
-        result = TurnResult(text="the answer", event_id="evt_1")
-        on_event_id = _k.get("on_event_id")
-        if on_event_id is not None:
-            await on_event_id("evt_1")
-        deliver = _k.get("on_plain_text_delivery")
-        if deliver is not None:
-            try:
-                delivered.append(await deliver(result.text))
-            except RuntimeError:
-                # Outside the try: the hook's failure escapes rather than being
-                # recorded as a delivery outcome. Production cannot reach this
-                # — `_record_errands` never raises — and it is emphatically NOT
-                # `False`, which is the distinction under test.
-                delivered.append("escaped")
-        return result
-
-    monkeypatch.setattr(trigger, "_invoke_runtime", _fake)
-
-    msg = BusMessage(
-        message_id="m_in", channel_id=CHANNEL, from_agent="usr_1",
-        content="@Leader hi", mentions=[LEAD],
-    )
-    await trigger._handle_channel_batch(
-        LEAD, CHANNEL, [msg], msg,
-        channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}",
+    monkeypatch.setattr(
+        "xyz_agent_context.message_bus.team_posting._record_errands", _boom
     )
 
-    # Never reported as a failed delivery — that is the whole invariant.
-    assert delivered != [False]
+    bus = LocalMessageBus(backend=db_client._backend)
+    try:
+        await speak_in_room(
+            db=db_client, bus=bus, agent_id=LEAD, team_id=TEAM,
+            channel_id=CHANNEL, text="the answer", event_id="evt_1",
+        )
+    except RuntimeError:
+        pass  # escaped the post rather than failing it — the distinction here
+
     rows = await db_client.get("bus_messages", {"channel_id": CHANNEL})
     assert any(r["content"] == "the answer" for r in rows), "the reply was lost"
     # And no notice may appear underneath a reply that is sitting right there.
@@ -834,10 +773,6 @@ async def test_the_hook_sits_outside_the_delivery_try(db_client, monkeypatch):
         "a book-keeping failure was announced as a delivery failure"
     )
 
-
-# ===========================================================================
-# The prompt half — reduces how often the guard is consulted, is not the guard
-# ===========================================================================
 
 def test_the_team_prompt_names_the_alternatives_to_a_promise():
     """A bare ban would make silence the compliant answer.

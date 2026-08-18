@@ -48,5 +48,5 @@ poll 循环搞崩是本末倒置。但「行为上安静」不等于「不可观
 
 ## 顺带修好的
 
-`message_agent`（旧 `bus_send_to_agent`，prod 286 次 / 67 agent）**一直**在等轮询——它
+`message_agent`（当时叫 `bus_send_to_agent`，prod 286 次 / 67 agent）**一直**在等轮询——它
 从来是 MCP 工具，从来没有唤醒。这不是本次改造引入的问题，是本次改造顺带修掉的。

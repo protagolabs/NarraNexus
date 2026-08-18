@@ -351,7 +351,7 @@ async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
     summary wording in isolation and passed, which is how "the row shape
     follows delivery" went unverified. It does not: the branch selector reads
     `is_no_response`, which comes from the OWNER-visible extractor, and that one
-    returns None for `bus_send_message` before it ever looks at
+    returns None for `message_team` before it ever looks at
     `_platform_reply_text`. So a delivered team turn still filed as `activity`,
     and both history loaders still dropped it.
 
@@ -370,7 +370,7 @@ async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
         description="posted",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__message_bus_module__bus_send_message",
+            "tool_name": "mcp__message_bus_module__message_team",
             "arguments": {
                 "content": "the OCR is done",
                 "channel_id": "ch_1",
@@ -411,7 +411,7 @@ async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
         step="3.4.team_room", title="Reply (team room auto-post)",
         description="posted", status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__message_bus_module__bus_send_message",
+            "tool_name": "mcp__message_bus_module__message_team",
             "arguments": {
                 "content": "I finished the OCR and posted the folio table",
                 "channel_id": "ch_1",

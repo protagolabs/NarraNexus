@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
@@ -214,11 +214,11 @@ ruled out this shortcut.
 
 The real no-reply recovery now lives one layer up in
 `step_3_agent_loop._generate_fallback_reply_stream`: when a chat-
-trigger turn ends without `send_message_to_user_directly`, step 3
+trigger turn ends without `reply_owner`, step 3
 calls helper_llm with the agent's reasoning as background, streams a
 user-facing reply through `AgentTextDelta` (frontend renders it like
 any other agent reply), and finally emits a synthetic
-`send_message_to_user_directly` ProgressMessage carrying
+`reply_owner` ProgressMessage carrying
 `details.reply_via="helper_llm_fallback"`.
 
 `hook_after_event_execution` is now a pure consumer:
@@ -360,7 +360,7 @@ lands. Don't uncomment without first reconciling the
 
 ## 2026-04-23 update — 持久化 Agent reasoning 以跨 turn
 
-`hook_after_event_execution` 现在除了保存 `send_message_to_user_directly` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
+`hook_after_event_execution` 现在除了保存 `reply_owner` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
 
 `hook_data_gathering` 在所有 load + sort 完成后，遍历 `all_messages`：对每条 assistant 消息，如果 `meta_data.reasoning` 非空，把 content 包成：
 ```
@@ -386,7 +386,7 @@ lands. Don't uncomment without first reconciling the
 
 ## 为什么存在
 
-ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `send_message_to_user_directly` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
+ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `reply_owner` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
 
 **Hook 实现**：同时实现了 `hook_data_gathering`（双轨记忆加载）和 `hook_after_event_execution`（对话持久化）。
 
@@ -405,7 +405,7 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 **短期记忆移除了时间窗口限制**（2026-02-09 优化）：早期版本限制 30 分钟内的跨 Narrative 消息，但这导致非活跃用户的短期记忆总是空。改为直接取最近 15 条（`SHORT_TERM_MAX_MESSAGES = 15`），不论时间。
 
-**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `send_message_to_user_directly` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
+**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `reply_owner` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
 
 **失败轮隔离（Bug 8）**：当 agent loop 抛错时，`_detect_error_in_agent_loop` 从 `params.agent_loop_response` 扫出 `ErrorMessage`（`step_3_agent_loop.py` 在 catch Exception 分支里把 ErrorMessage 既 yield 也 append，保证下游 hook 看得到），`hook_after_event_execution` 只存 user 消息，`meta_data` 里打 `status="failed"` + `error_type=...`，**不写任何 assistant 行**（partial 输出也丢）。下一轮 `hook_data_gathering` + `_load_short_term_memory` 都会过 `_apply_failed_turn_filter`：失败的 user 行被重写成"Previous turn failed... Do NOT retry"的注解（保留原问题文本，方便代词解析），遗留的失败 assistant 行被丢。目的是让 LLM 看到"那轮断了"而不是"那轮我只说了一半还没说完"——后者正是污染下轮 prompt 让 LLM 重复执行上轮查询的根因。
 
@@ -426,13 +426,13 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 上一批改动让 team turn 的投递被正确判定为"已投递",然后**声称**行类型会随之变成真
 assistant 行。**那是错的。** 分支选择器读的是 `is_no_response`,而它来自
 **owner-visible** 抽取 —— `extract_owner_visible_text` 在读 `PLATFORM_REPLY_TEXT_KEY`
-**之前**就先过 `is_owner_visible_reply_tool`,对 `bus_send_message` 返回 None。于是
+**之前**就先过 `is_owner_visible_reply_tool`,对 `message_team` 返回 None。于是
 `assistant_content` 被兜底成 "(Agent decided no response needed)"、`is_no_response`
 为真、落 `activity` 行、两个加载器照旧丢掉。`delivered_to_origin` 当时的全部作用只是
 换了摘要文案加一个 meta 字段。
 
 **owner-visible 那道门必须继续说 None** —— 它正是拦住"每次团队回复重新锚定 owner
-会话"的东西(PR #230)。所以不能靠提升 `bus_send_message` 来解决。
+会话"的东西(PR #230)。所以不能靠提升 `message_team` 来解决。
 
 真正的问题是把"owner 没看见"读成了"什么都没说"。`_origin_delivered_text` 用
 **origin** 抽取(全量 `user_reply_tool_names`)取回真正说出去的文本,`is_no_response`
@@ -467,3 +467,8 @@ assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_deliver
 
 留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
 做投递分类。
+
+## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+
+跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
+留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。

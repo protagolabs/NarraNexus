@@ -378,9 +378,18 @@ MCPs: {mcp_tools}
         """
         return False
 
-    async def get_disallowed_tools(self) -> list[str]:
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """
         Fully-qualified MCP tool names to suppress for THIS agent THIS turn.
+
+        Takes ``ctx_data`` for the same reason `get_expressive_tools` does:
+        a module that suppresses the counterpart of the verb it declares has
+        to read the SAME turn both hooks are deciding about. It was briefly
+        ctx-less, with the turn remembered on the instance by the
+        declaration — but the runtime calls suppression FIRST, so on a fresh
+        instance that state was always empty and every team turn declared
+        `message_team` while suppressing it. Reading the argument removes
+        the ordering dependency rather than documenting it.
 
         The module's MCP server is a shared process serving every agent, so
         per-agent tool trimming cannot happen server-side. Names returned

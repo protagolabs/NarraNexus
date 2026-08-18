@@ -57,7 +57,7 @@ bus 名单扩容后「bus 交付」被 step_4 误当「给 owner 发过消息」
 - `user_reply_tool_names` = 交付给「联系你的人」（度量/NO-REPLY 判定语义）。
 - `owner_visible_reply_tool_names`（新，默认 None=回落前者）= 输出出现在
   owner web chat。chat/IM 渠道天然两者相同（会话对象就是 owner）；bus
-  override 为仅 send_message_to_user_directly（对端是 agent）。
+  override 为仅 notify_owner（对端是 agent）。
 新方法 `is_owner_visible_reply_tool` / `extract_owner_visible_text`（复用
 extract_reply_text 的自定义 extractor 路径）。消费方：step_4 锚点判定与
 chat_module 的 user-visible split 用 owner-visible；extract_reply_text
@@ -106,7 +106,7 @@ Markdown 链接，但 `openai-codex` Python SDK 0.1.0b3 不暴露那张表
 链接——务实做法是直接剥掉，让用户看到干净文本而不是黏在句尾的天书标记。
 
 为什么剥在**这里**而不在 per-framework translator：这些标记是 model 写进
-`send_message_to_user_directly`（或任意回复工具）`content` 参数里的**纯字符串内容**，
+`notify_owner`（或任意回复工具）`content` 参数里的**纯字符串内容**，
 不是 SDK 协议元数据；在 SDK 边界剥会漏掉 model 写进 `lark_cli` / `slack_cli` /
 `tg_cli` markdown 的同类标记。而**每个 channel 的回复都汇流经过本方法**，一处剥覆盖
 全部 channel。

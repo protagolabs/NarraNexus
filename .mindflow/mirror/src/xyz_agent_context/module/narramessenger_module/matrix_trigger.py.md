@@ -563,7 +563,7 @@ reached the room — logged "agent chose silent reply; nothing sent". Cause:
 `run_collector.collect_run` emits tool calls as **dicts**
 `{"item": {"type":"tool_call_item","tool_name","arguments"}}` (the shape Lark's
 extractor navigates). `getattr(dict, "details")` is always None → no match →
-"" → dropped. The original send_message_to_user_directly version had the same
+"" → dropped. The original notify_owner version had the same
 mismatch but was never exercised (prompt pointed at narra_send), so the bug
 rode along until the reply path actually went through narra_reply. Now mirrors
 Lark: `raw.get("item")` → check `type=="tool_call_item"` → `item.get("tool_name"/
@@ -574,7 +574,7 @@ shape, not a `.details` stand-in.
 
 Sibling to the outbound-send unification (see [[_matrix_send]]). `extract_output`
 now scrapes **`narra_reply`** (the agent's channel-reply marker, ``text`` arg),
-NOT the generic ``send_message_to_user_directly`` — the shared channel prompt
+NOT the generic ``notify_owner`` — the shared channel prompt
 (`channel_prompts.py`) reserves that generic tool for OWNER messages, so keying
 the room reply on it was the bug behind "reply went out via Gateway `/chat/send`
 while the room_send path idled and mislogged 'nothing sent'".
@@ -833,7 +833,7 @@ the same agent set during migration.
   hours; when it finishes, one HTTP POST hands the reply to the
   homeserver, which fans out to every joined client (including the
   user's mobile app opened days later).
-- **`extract_output` reads `send_message_to_user_directly`**. Matches
+- **`extract_output` reads `notify_owner`**. Matches
   the discipline of Lark / Slack / Telegram: only content the agent
   explicitly passed to the reply tool ends up in the room. Never
   falls back to `result.output_text` — that's the agent's internal

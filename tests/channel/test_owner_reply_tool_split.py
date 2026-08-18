@@ -33,7 +33,7 @@ def test_every_other_surface_counts_notify_owner_as_owner_visible():
     for source in ("lark", "slack", "telegram", "wechat", "message_bus", "job"):
         handler = MessageSourceRegistry.get(source)
         assert handler.is_owner_visible_reply_tool(
-            f"mcp__chat_module__notify_owner"
+            "mcp__chat_module__notify_owner"
         ), f"{source} does not recognise notify_owner as owner-visible"
 
 

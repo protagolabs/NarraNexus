@@ -7,7 +7,7 @@ last_verified: 2026-08-10
 
 工具改为 `get_agent_data_store().get_chat_history(agent_id, instance_id, limit)`，实现下沉到
 [[_chat_reads]] `fetch_chat_history`（DirectStore/孪生路由同源）。**三处随迁变化**：
-1) 工具签名加 `agent_id`（LLM 传，同 send_message_to_user_directly），闭掉旧的「任意 instance_id
+1) 工具签名加 `agent_id`（LLM 传，同两个 owner 工具），闭掉旧的「任意 instance_id
    读别人会话」IDOR；prompts 示例同步加 agent_id。
 2) 旧的 `information_schema` MySQL 专用存在性检查 + 裸 SQL 删除（de-raw，双方言安全）——下方
    2026-04-10 Gotcha 里「SQLite 会报错」「直接查表是技术债」两条**已解决**，留作历史。
@@ -22,7 +22,7 @@ last_verified: 2026-08-10
 从 `chat_module.py` 分离出来（2026-03-06），把 MCP 工具注册逻辑与 Module 的 Hook 生命周期逻辑解耦。`chat_module.py` 专注于记忆管理，这个文件专注于"Agent 如何输出给用户"。
 
 提供两个工具：
-- `send_message_to_user_directly`：Agent 向用户说话的**唯一通道**，没有 DB 操作，只返回确认
+- `reply_owner`：Agent 向用户说话的**唯一通道**，没有 DB 操作，只返回确认
 - `get_chat_history`：经 AgentDataStore seam 取会话历史（实现见 [[_chat_reads]]；2026-08-10 前是直查裸表，见 dated section）
 
 ## 上下游关系
@@ -36,7 +36,7 @@ last_verified: 2026-08-10
 
 ## 设计决策
 
-**`send_message_to_user_directly` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
+**`reply_owner` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
 
 **~~`get_chat_history` 直接查表而不走 Repository~~（2026-08-10 已改）**：曾经直查动态命名表 `instance_json_format_memory_chat` 是权宜之计+技术债。现已迁 [[_chat_reads]]，用 `db.get_one`（双方言安全），表名仍是该模块常量但不再有裸 SQL。
 
@@ -49,4 +49,4 @@ last_verified: 2026-08-10
 
 ## 新人易踩的坑
 
-- 以为调用 `send_message_to_user_directly` 就完成了响应——工具本身不推送消息，推送是 `AgentRuntime` 在 agent loop 里监听工具调用并转发给前端 WebSocket 完成的。如果前端没收到消息，先检查 WebSocket 连接，而不是检查这个工具。
+- 以为调用 `reply_owner` 就完成了响应——工具本身不推送消息，推送是 `AgentRuntime` 在 agent loop 里监听工具调用并转发给前端 WebSocket 完成的。如果前端没收到消息，先检查 WebSocket 连接，而不是检查这个工具。

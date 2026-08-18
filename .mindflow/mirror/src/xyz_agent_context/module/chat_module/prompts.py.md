@@ -35,7 +35,7 @@ Discipline 段在 MESSAGE_BUS 触发时强制 brevity + `[NO_REPLY]` 纪律。
 ## 为什么存在
 
 `CHAT_MODULE_INSTRUCTIONS` 的核心使命是建立 Agent 的"思考 vs 说话"认知模型，
-明确**"说话"唯一通道是 MCP 工具 `mcp__chat_module__send_message_to_user_directly`**，
+明确**"说话"唯一通道是 MCP 工具 `mcp__chat_module__reply_owner`**，
 并按 `working_source` 分层规定"应该说话"和"酌情说话"。这是整个系统里最关键的
 prompt 约束之一——如果 Agent 没有正确理解"不调用这个 MCP 工具就等于没说话"，
 用户将永远看不到 Agent 的回复，UI 上只会出现 `(Agent decided no response needed)`。
@@ -53,9 +53,9 @@ prompt 约束之一——如果 Agent 没有正确理解"不调用这个 MCP 工
 
 ## 设计决策
 
-**显式写出 MCP tool 全名**：2026-04-22 之前 prompt 只用裸名 `send_message_to_user_directly`，
+**显式写出 MCP tool 全名**：2026-04-22 之前 prompt 只用裸名 `reply_owner`，
 但 Claude Agent SDK 对 MCP 工具的注册名是 `mcp__<server>__<tool>` 格式，
-真实名字是 `mcp__chat_module__send_message_to_user_directly`。裸名在 ToolSearch /
+真实名字是 `mcp__chat_module__reply_owner`。裸名在 ToolSearch /
 deferred tool loading 机制下会命中不到，LLM 会在 thinking 里抱怨 "tool not
 available" 然后放弃说话。现在 prompt 开头明确给全名，并在 anti-patterns 段
 专门反模式化 "搜裸名得到空结果就放弃"。
@@ -88,16 +88,16 @@ Self-Check 的设计目的。
 这是为了修 Bug T2 (channel-misroute silent turn) 加的：the operator 在 2026-04-27 报告
 EVE agent 在工具链任务（Bash / Read / Write / Glob / lark_status）后，明明
 thinking 里说要 "report back to the user"，最终却用 inline text 收尾，没调
-send_message_to_user_directly，导致 UI 显示 `(Agent decided no response needed)`。
+reply_owner，导致 UI 显示 `(Agent decided no response needed)`。
 分析显示 agent **有**通道意识（其他 run 的 thinking 显式提到该 tool），但工具链
 长 context 后注意力衰减导致遗忘。Self-Check 段在 prompt 末尾给出最后一次 nudge。
 
 **Owner-vs-Sender 区分专门成段**（2026-04-27 强化）：增加了一个独立小节明确说明
-`send_message_to_user_directly` **永远是发给 owner**，无论 working_source 是什么。
+`reply_owner` **永远是发给 owner**，无论 working_source 是什么。
 旧 prompt 只在 trigger source 表格里隐含说"reply on Lark via lark tools"，
 但没有正面说"this tool always goes to the owner, never to the channel sender"。
 现在新增的"Channel routing"表格逐 source 说明这个 tool 做什么，避免 agent 把
-"reply to the Lark sender" 错误地翻译成 send_message_to_user_directly 调用——
+"reply to the Lark sender" 错误地翻译成 reply_owner 调用——
 那会导致 owner 被 channel chatter spam，同时 channel 上的真正发送者一无所知。
 
 **用表格和类比强化核心概念**："你的文本输出用户看不到"是反直觉的（大多数 LLM
@@ -124,7 +124,7 @@ anti-pattern 在 2026-04-27 调整：从"never end chat turn silently"软化为
   MCP server name 会跟着变，所有 `mcp__chat_module__*` 前缀就会失效。改 module
   名称必须同步更新本 prompt 里的 6 处全名引用。
 - **后端兜底是 `endswith` 匹配**：`chat_module.py:256` 用
-  `tool_name.endswith("send_message_to_user_directly")` 检测，所以 prompt 教
+  `tool_name.endswith("reply_owner")` 检测，所以 prompt 教
   LLM 用全名调用不会破坏后端识别——兼容。
 - **"User" 与 "Owner" 用词**：2026-04-27 之后逐步把 prompt 里的"user"改为"owner"
   以消除"用户" 的歧义——在 lark/message_bus 等场景下，触发 turn 的"sender"和
@@ -137,8 +137,8 @@ anti-pattern 在 2026-04-27 调整：从"never end chat turn silently"软化为
 - 给 Agent 添加新的触发场景（`WorkingSource` 枚举加值）时，必须在这个 prompt
   的"By Trigger Source"表格 + "Channel routing" 表格 **两处**都加一行明确
   说明新场景的发送规则，否则 Agent 会 fallback 到"不知道该不该发"而随机发送。
-- 想"简化"prompt 把所有 `mcp__chat_module__send_message_to_user_directly`
-  改回裸名 `send_message_to_user_directly`——会回到 2026-04-22 之前的"find
+- 想"简化"prompt 把所有 `mcp__chat_module__reply_owner`
+  改回裸名 `reply_owner`——会回到 2026-04-22 之前的"find
   tool fails → silent turn"bug。保留全名是刚性要求。
 - 想删掉 Pre-Completion Self-Check 段以"减少 prompt 长度"——这段是 prompt 末尾
   专门用来对抗注意力衰减的，删了会让 Bug T2 复发（EVE 工具链任务后忘调 tool）。
