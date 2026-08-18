@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/inbox_recorder.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -69,3 +69,24 @@ spec 里「operational vs observational」那条划分因此是**不完全**的�
   与 `_write_to_inbox`。
 - **下游**：`inbox_threads` / `inbox_thread_messages`；读取方是 `backend/routes/inbox.py`
   和 wechat / telegram 的 context builder。
+
+## 2026-08-18 — 建会话的竞态：输掉不是错误
+
+`_ensure_thread` 是先查后插，而 `thread_id` 是主键。两轮同时开同一个**新**会话时都读到
+None、都插入；输的一方抛异常，`record_turn` 上抛，调用方记 `EVENT_INBOX_WRITE_FAILED` ——
+用户面板里少一条消息，而那一轮本身完全成功。debounce 批次与多 agent 群聊都会并发投递，
+窗口就是读与插之间的整段间隔。
+
+现在把重复键当作「别人已经建好了」（它本来就是这个意思），刷新走对方那行。**用重读而不是
+匹配驱动异常类型**：aiosqlite 与 aiomysql 的重复键异常类不同，写死一种会在另一个后端上
+静默停止捕获；行在就是竞态，行不在就是真失败、原异常照抛。与 [[wake_signal.py]] 的
+`bump` 同形。
+
+## 2026-08-18 — 沉默不再被写成 agent 自己的发言
+
+`record_turn` 的契约是空 `outbound_text` 不写 outbound 行。托管调用点却传
+`... or CHANNEL_SILENT_SENTINEL`，于是沉默变成一条署名 agent 的 `(stayed silent)`；
+Telegram/WeChat 把 `inbox_thread_messages` 当会话记忆读回，agent 就看到自己"上一句"说了
+这个占位符 —— [[channel_trigger_base.py]] 里 `_platform_reply_text` 的 docstring 亲自
+点名过这个失败模式。哨兵值只应活在发送路径的 `already_replied` 比较里。守卫是源码级的：
+从记录器内部看，哨兵和真实回复都只是非空文本，这正是行为测试一路全绿的原因。

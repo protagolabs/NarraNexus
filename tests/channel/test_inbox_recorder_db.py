@@ -104,3 +104,98 @@ def test_the_recorder_rejects_an_empty_source():
         InboxRecorder("", "Slack")
 
     assert InboxRecorder("slack", "")._brand == "Slack"
+
+
+@pytest.mark.asyncio
+async def test_two_turns_opening_the_same_new_thread_both_land(db_client):
+    """Losing the create race must not lose a message.
+
+    `_ensure_thread` was read-then-insert on a `thread_id` primary key, so two
+    turns opening the same NEW thread both saw `None` and both inserted. The
+    loser raised, `record_turn` re-raised, and the caller booked
+    `EVENT_INBOX_WRITE_FAILED` — the message simply absent from the user's
+    panel, with the turn itself perfectly successful.
+
+    Not a theoretical race: debounce batches and multi-agent group chats deliver
+    concurrently, and the window is the whole gap between the read and the
+    insert. Driven with `asyncio.gather` so both coroutines are inside that
+    window rather than by patching the shape.
+    """
+    import asyncio
+
+    await asyncio.gather(
+        _record(db_client, original="first", response="r1", sender_name="Alice"),
+        _record(db_client, original="second", response="r2", sender_name="Alice"),
+    )
+
+    threads = await db_client.get("inbox_threads", {})
+    assert len(threads) == 1, "the race created a second thread"
+
+    msgs = await db_client.get(
+        "inbox_thread_messages", {"thread_id": im_thread_id("slack", "C_room")}
+    )
+    bodies = {m["content"] for m in msgs}
+    assert {"first", "second", "r1", "r2"} <= bodies, (
+        f"a turn's rows were lost to the create race: {sorted(bodies)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_create_that_fails_for_a_real_reason_still_raises(db_client):
+    """The swallow is scoped to "the row exists now", nothing wider.
+
+    The duplicate-key exception type differs between aiosqlite and aiomysql, so
+    the handler re-reads instead of matching on the driver's error class. That
+    makes it important that a MISSING row still propagates — otherwise the
+    handler would quietly absorb every insert failure and the inbox would lose
+    messages with no audit event at all, which is worse than the bug it fixes.
+    """
+    from xyz_agent_context.channel.inbox_recorder import InboxRecorder
+
+    rec = InboxRecorder("slack", "Slack")
+
+    class _Db:
+        async def get_one(self, *_a, **_k):
+            return None  # never there, before or after
+
+        async def insert(self, *_a, **_k):
+            raise RuntimeError("disk is on fire")
+
+    with pytest.raises(RuntimeError, match="disk is on fire"):
+        await rec._ensure_thread(
+            _Db(), thread_id="t", owner_user_id="u", agent_id="a",
+            counterpart_id="c", counterpart_name="C", now="2026-08-18",
+        )
+
+
+def test_no_call_site_hands_the_silence_sentinel_to_the_recorder():
+    """A silent turn writes no outbound row — asserted at the CALL SITES.
+
+    `record_turn`'s contract is that an empty `outbound_text` writes nothing,
+    and `test_inbox_recorder.py` pins the recorder's half. The defect was one
+    layer up: the managed path passed `(reply_text or "").strip() or
+    CHANNEL_SILENT_SENTINEL`, so silence arrived as a non-empty string and the
+    recorder dutifully wrote `(stayed silent)` as an OUTBOUND row attributed to
+    the agent — while the other call site, three hundred lines away, passed the
+    text as-is. Telegram and WeChat read `inbox_thread_messages` as their
+    conversation memory, so that string came back to the agent as its own
+    previous reply; `_platform_reply_text`'s own docstring names this failure.
+
+    Source-level because the recorder cannot see it: from inside, a sentinel and
+    a real reply are both just non-empty text, which is why the behavioural
+    tests were green throughout.
+    """
+    import inspect
+
+    from xyz_agent_context.channel import channel_trigger_base
+
+    src = inspect.getsource(channel_trigger_base)
+    for line in src.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if "outbound_text=" in stripped:
+            assert "CHANNEL_SILENT_SENTINEL" not in stripped, (
+                f"a call site sends the silence sentinel into the inbox, where "
+                f"the agent reads it back as its own words: {stripped}"
+            )

@@ -162,3 +162,61 @@ async def test_a_send_that_fails_does_not_bump(db_client, monkeypatch):
         await bus.send_message(from_agent=A, to_channel=ch, content="nope")
 
     assert await wake_signal.read(db_client) == before
+
+
+@pytest.mark.asyncio
+async def test_a_bump_during_the_scan_is_not_folded_into_the_baseline(
+    db_client, monkeypatch
+):
+    """The window the whole mechanism was blind to.
+
+    The signal used to be read at SLEEP entry — after the pending-work scan had
+    finished. A `message_team` posted from the MCP server while the scan was
+    running bumped the signal, the sleeper then took that new value as its own
+    baseline, and waited for a FURTHER change: the message sat out the entire
+    adaptive interval (3-12s), which is precisely the dead air this exists to
+    remove. Worse, it is the most likely moment for a bump to land, because the
+    scan is the slowest part of the cycle.
+
+    Driven through the two real seams in cycle order — `_snapshot_wake_baseline`
+    then a scan that bumps — so a future refactor that moves the read back into
+    the sleeper fails here rather than in production.
+    """
+    from xyz_agent_context.message_bus import wake_signal
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+    )
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    trigger._current_interval = 30.0  # so a wrong answer blocks rather than races
+
+    await wake_signal.bump(db_client)      # some earlier traffic
+    await trigger._snapshot_wake_baseline()  # top of the cycle
+
+    # ...the scan runs, and a post from another process lands inside it.
+    await wake_signal.bump(db_client)
+
+    # The sleeper must already see a difference on its first slice.
+    await asyncio.wait_for(trigger._wait_cross_process_wake(), timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_the_baseline_is_taken_before_the_scan_in_the_loop_itself(db_client):
+    """Ordering inside `start`'s poll loop, which the test above cannot reach.
+
+    That one calls the two seams in the right order by hand; this asserts the
+    LOOP does. Reversing them is a one-line change that restores the bug with
+    every unit test still green.
+    """
+    import inspect
+
+    src = inspect.getsource(MessageBusTrigger.start)
+    snap = src.index("_snapshot_wake_baseline()")
+    scan = src.index("await self._poll_cycle()")
+    assert snap < scan, (
+        "the wake baseline is read after the scan again — a bump that lands "
+        "during the scan will be folded into it and waited out"
+    )

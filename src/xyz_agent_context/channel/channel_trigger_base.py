@@ -1934,14 +1934,20 @@ class ChannelTriggerBase(ABC):
         rest are structurally identical. All of them then fall through to
         `CHANNEL_SILENT_SENTINEL`.
 
-        That sentinel is what `InboxRecorder` persists as the turn's
-        agent_response — so a reply that really was delivered gets recorded
-        as "(stayed silent)". On WeChat it is worse than a cosmetic record:
-        `WeChatContextBuilder.get_conversation_history` reads recent turns
-        back out of `bus_messages`, so the NEXT turn's Conversation History
-        would show the bot saying "(stayed silent)" — the same
-        placeholder-poisons-the-context failure this change removes one
+        That sentinel used to be what `InboxRecorder` persisted as the
+        turn's outbound row — so a reply that really was delivered got
+        recorded as "(stayed silent)". On WeChat it is worse than a cosmetic
+        record: `WeChatContextBuilder.get_conversation_history` reads recent
+        turns back out of `inbox_thread_messages`, so the NEXT turn's
+        Conversation History showed the bot saying "(stayed silent)" — the
+        same placeholder-poisons-the-context failure this change removes one
         layer up.
+
+        Closed on 2026-08-18 at the source: the managed call site passes the
+        reply text as-is, and an empty one writes no outbound row at all (the
+        recorder's documented contract, and what the other call site always
+        did). The sentinel now lives only on the send path's
+        `already_replied` comparisons, where nobody reads it back.
 
         Checked BEFORE `extract_output` for exactly the reason the handler
         layer checks it before `extract_reply_fn`: this text is
@@ -2097,7 +2103,18 @@ class ChannelTriggerBase(ABC):
                 counterpart_id=message.sender_id,
                 counterpart_name=message.sender_name,
                 inbound_text=message.content,
-                outbound_text=(reply_text or "").strip() or CHANNEL_SILENT_SENTINEL,
+                # As-is, NOT `or CHANNEL_SILENT_SENTINEL`. The recorder's
+                # contract is that an empty outbound writes no outbound row —
+                # which is what the other call site relies on, and what the
+                # sentinel defeated: it wrote `(stayed silent)` as an OUTBOUND
+                # row attributed to the agent. Telegram and WeChat read
+                # `inbox_thread_messages` as their conversation memory, so the
+                # agent was handed that string back as its own previous reply,
+                # which is exactly what the warning further up this file exists
+                # to prevent. The sentinel's real job is elsewhere — the
+                # `already_replied` comparisons on the send path — not in the
+                # user's transcript.
+                outbound_text=(reply_text or "").strip(),
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

@@ -180,28 +180,53 @@ class InboxRecorder:
         ``sender_name="Unknown"`` falls back to the raw id, and without this the
         panel would show that id forever — for the whole first burst of messages
         from every new contact.
+
+        **The insert may lose a race, and losing is not an error.** `thread_id`
+        is the primary key, so two turns opening the same NEW thread both read
+        `None` and both insert; the loser used to raise, `record_turn` re-raised,
+        and the caller booked `EVENT_INBOX_WRITE_FAILED` — a message simply
+        missing from the user's panel. Reachable in ordinary use: debounce
+        batches and multi-agent group chats deliver concurrently. So a duplicate
+        key is treated as "someone else created it", which is what it means, and
+        the refresh runs against their row. Same shape as `wake_signal.bump`.
         """
-        existing = await db.get_one("inbox_threads", {"thread_id": thread_id})
         title = f"{self._brand}: {counterpart_name}"
-        if existing:
+
+        async def _refresh(existing: dict) -> None:
             if counterpart_name and counterpart_name != existing.get("counterpart_name"):
                 await db.update(
                     "inbox_threads",
                     {"thread_id": thread_id},
                     {"counterpart_name": counterpart_name, "title": title, "updated_at": now},
                 )
+
+        existing = await db.get_one("inbox_threads", {"thread_id": thread_id})
+        if existing:
+            await _refresh(existing)
             return
-        await db.insert("inbox_threads", {
-            "thread_id": thread_id,
-            "owner_user_id": owner_user_id,
-            "agent_id": agent_id,
-            "source": self._source,
-            "title": title,
-            "counterpart_id": counterpart_id,
-            "counterpart_name": counterpart_name,
-            "created_at": now,
-            "updated_at": now,
-        })
+        try:
+            await db.insert("inbox_threads", {
+                "thread_id": thread_id,
+                "owner_user_id": owner_user_id,
+                "agent_id": agent_id,
+                "source": self._source,
+                "title": title,
+                "counterpart_id": counterpart_id,
+                "counterpart_name": counterpart_name,
+                "created_at": now,
+                "updated_at": now,
+            })
+        except Exception:  # noqa: BLE001 — narrowed by the re-read below
+            # Re-read rather than inspect the driver's error: the duplicate-key
+            # exception type differs between aiosqlite and aiomysql, and a
+            # dialect-specific `except` here would silently stop catching the
+            # race on one of the two backends. If the row is there, the race is
+            # what happened; if it is not, the insert failed for a real reason
+            # and the original exception is the honest thing to raise.
+            raced = await db.get_one("inbox_threads", {"thread_id": thread_id})
+            if raced is None:
+                raise
+            await _refresh(raced)
 
     async def _insert_message(
         self,

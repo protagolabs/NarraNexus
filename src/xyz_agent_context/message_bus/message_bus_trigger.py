@@ -308,6 +308,10 @@ class MessageBusTrigger:
         # Wakes the poll loop because WORK just landed, not because we are
         # shutting down. Set by a successful team-room post; see `_wake`.
         self._wake_event = asyncio.Event()
+        #: Cross-process wake signal as of the TOP of the current poll cycle.
+        #: None means "never read" — which reads as a difference on the first
+        #: slice and costs one early scan, the safe direction.
+        self._wake_baseline: Optional[str] = None
         # L2/L3 observability. This trigger was the only long-running worker
         # without its own auditor: the supervisor's aggregate liveness only
         # proves the asyncio task object still exists, so when the poll loop
@@ -343,6 +347,15 @@ class MessageBusTrigger:
 
         while self._running:
             try:
+                # BEFORE the scan, not at sleep entry. A `message_team` posted
+                # from the MCP server while `_poll_cycle` is running bumps the
+                # signal; if the sleeper read its own baseline afterwards it
+                # would fold that bump in and then wait for a FURTHER change,
+                # so the message sat out the whole adaptive interval — the dead
+                # air the cross-process wake exists to remove. The in-process
+                # `_wake_event` has no such hole: it is `.set()` during the scan
+                # and only cleared at the end of the sleep.
+                await self._snapshot_wake_baseline()
                 dispatched = await self._poll_cycle()
                 if dispatched:
                     self._current_interval = POLL_MIN_INTERVAL
@@ -483,6 +496,22 @@ class MessageBusTrigger:
             # return instantly and spin the loop.
             self._wake_event.clear()
 
+    async def _snapshot_wake_baseline(self) -> None:
+        """Remember the signal's value as of the top of this poll cycle.
+
+        Split from the sleeper so the baseline predates the scan. Fails open by
+        leaving the previous value in place — a baseline we could not refresh is
+        stale, and a stale baseline makes the next sleep return early, which
+        costs one wasted scan rather than a message waiting out the interval.
+        """
+        from xyz_agent_context.message_bus import wake_signal
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        try:
+            self._wake_baseline = await wake_signal.read(await get_db_client())
+        except Exception:  # noqa: BLE001 — see docstring
+            pass
+
     async def _wait_cross_process_wake(self) -> None:
         """Return as soon as ANOTHER process reports new work.
 
@@ -507,10 +536,14 @@ class MessageBusTrigger:
 
         try:
             db = await get_db_client()
-            baseline = await wake_signal.read(db)
         except Exception:  # noqa: BLE001 — no signal, no early wake
             await asyncio.sleep(self._current_interval)
             return
+
+        # Taken at the top of the cycle by `_snapshot_wake_baseline`, so a bump
+        # that landed DURING the scan is already a difference when the first
+        # slice reads.
+        baseline = self._wake_baseline
 
         while True:
             await asyncio.sleep(WAKE_SIGNAL_SLICE)
