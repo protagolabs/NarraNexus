@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 选中 artifact 可全屏查看(复用 ArtifactZoomModal)
+
+右下角 288×256 预览盒装不下一个真 artifact(Owner 对照实屏)。角落盒保留
+作速览,预览头部新增 Maximize2 放大钮 → 单聊同款全屏查看器。
 
 ## 2026-08-10 (review 修正) — Files 页可下载（验收 #5 的缺口）
 

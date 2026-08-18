@@ -20,8 +20,10 @@
  */
 
 import { useState } from 'react';
+import { Maximize2 } from 'lucide-react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
+import ArtifactZoomModal from '@/components/artifacts/ArtifactZoomModal';
 import { api } from '@/lib/api';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
@@ -72,6 +74,8 @@ export function TeamWorkspacePanel({
   const [tab, setTab] = useState<Tab>('artifacts');
   // Download failures are the panel's own, not the parent's fetch error.
   const [localError, setLocalError] = useState<string | null>(null);
+  // Fullscreen zoom for the selected artifact (same modal as ArtifactColumn).
+  const [zoomed, setZoomed] = useState(false);
 
   // Rendered in place rather than opened in a new tab: the panel exists so a
   // team's output can be read WHILE reading the conversation that produced it,
@@ -195,10 +199,23 @@ export function TeamWorkspacePanel({
 
       {selected && (
         <div className="shrink-0 h-64 border-t border-[var(--nm-hairline)] flex flex-col min-h-0">
-          <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-[var(--nm-hairline)]">
+          <div className="shrink-0 flex items-center justify-between gap-1 px-3 py-1.5 border-b border-[var(--nm-hairline)]">
             <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
               {selected.title}
             </span>
+            {/* The corner box is a quick look; real reading happens in the
+                fullscreen zoom — same viewer as the single-chat artifact
+                column (Owner 2026-08-18: a whole artifact crammed into
+                288×256px "displays wrong"). */}
+            <button
+              type="button"
+              onClick={() => setZoomed(true)}
+              title="Zoom"
+              aria-label="Zoom artifact"
+              className="shrink-0 p-0.5 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
+            >
+              <Maximize2 className="h-3 w-3" />
+            </button>
             <button
               type="button"
               onClick={() => onSelect(null)}
@@ -211,6 +228,10 @@ export function TeamWorkspacePanel({
             <ArtifactRenderer artifact={selected} />
           </div>
         </div>
+      )}
+
+      {zoomed && (
+        <ArtifactZoomModal artifact={selected} onClose={() => setZoomed(false)} />
       )}
     </div>
   );

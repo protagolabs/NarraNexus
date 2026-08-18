@@ -273,14 +273,10 @@ export default function ArtifactColumn({
             </button>
           )}
           {active && <ArtifactDownloadMenu artifact={active} />}
-          <button
-            onClick={() => setCollapsed(true)}
-            className="text-xs opacity-60 hover:opacity-100 px-2"
-            title={t('artifacts.collapse')}
-            aria-label={t('artifacts.collapseAria')}
-          >
-            ▶
-          </button>
+          {/* No collapse affordance: the only live mount is the v4 drawer
+              (BookmarkPanelHost, forceExpanded), where setCollapsed(true)
+              wrote state nothing read — a dead button, and a solid-glyph
+              '▶' at that (design_system.md §5). The drawer owns closing. */}
         </div>
       </div>
       <div

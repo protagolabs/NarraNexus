@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 摘除死掉的 '▶' 折叠钮
+
+v4 唯一挂载点是 BookmarkPanelHost 抽屉(forceExpanded),setCollapsed(true)
+写的状态无人读——按钮点了没反应,还是实心字符三角(§5 违例)。抽屉自有
+关闭,按钮整体移除;sliver 机制保留未动。
 
 ## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
 
