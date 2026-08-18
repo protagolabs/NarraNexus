@@ -68,9 +68,13 @@ const prefetchDashboard = () => {
 
 // v4 nav row treatment: flat rows, raised bg on hover/active (design mock),
 // ink70 label brightening to ink.
+// Nav rows are LIST ROWS — same interaction ladder as the agent/team rows
+// below them (design_system.md §2.5): hover = --nm-row-hover, current page =
+// --nm-row-active. They used to sit on the warm control family, which put two
+// hue systems inside one sidebar (Owner 2026-08-18).
 const NAV_ROW =
-  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]';
-const NAV_ROW_ACTIVE = 'bg-[var(--nm-raised)] text-[var(--nm-ink)]';
+  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-row-hover)] hover:text-[var(--nm-ink)]';
+const NAV_ROW_ACTIVE = 'bg-[var(--nm-row-active)] text-[var(--nm-ink)]';
 
 export function Sidebar() {
   const [showModePopup, setShowModePopup] = useState(false);

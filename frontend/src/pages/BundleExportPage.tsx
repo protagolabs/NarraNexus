@@ -1455,8 +1455,8 @@ function AgentsTab({
                 className={cn(
                   'text-left p-3 border rounded-[var(--radius-sm)] transition-colors',
                   checked
-                    ? 'bg-[var(--nm-card)] border-[var(--border-strong)]'
-                    : 'bg-[var(--nm-paper)] border-[var(--nm-hairline)] hover:bg-[var(--nm-paper-warm)]'
+                    ? 'bg-[var(--nm-row-active)] border-[var(--border-strong)]'
+                    : 'bg-[var(--nm-paper)] border-[var(--nm-hairline)] hover:bg-[var(--nm-row-hover)]'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -2981,9 +2981,12 @@ function ChoiceCard({
       onClick={onClick}
       className={cn(
         'text-left p-3 min-h-[76px] border rounded-[var(--radius-sm)] transition-colors',
+        // Rest < hover < selected on ONE ladder (design_system.md §2.5): the
+        // old treatment inverted it — selected lifted to white while hover
+        // went warmest, so the chosen card read LIGHTER than a pointed one.
         selected
-          ? 'border-[var(--border-strong)] bg-[var(--nm-card)]'
-          : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)] hover:bg-[var(--nm-paper-warm)]'
+          ? 'border-[var(--border-strong)] bg-[var(--nm-row-active)]'
+          : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)] hover:bg-[var(--nm-row-hover)]'
       )}
     >
       <div className="flex items-center gap-2">
