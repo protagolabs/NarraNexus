@@ -146,13 +146,14 @@ def _resilient_connection_worker_thread(tx) -> None:
 # in pyproject.toml rules out OLDER releases that never had these names; only
 # this check can catch a NEWER one that renames them, which is why it exists.
 # Two tests additionally assert both patches are installed.
-# The complete internal surface this module touches: the FOUR names
-# `_resilient_connection_worker_thread` resolves at call time (`LOG`,
-# `set_result`, `_STOP_RUNNING_SENTINEL`, `set_exception`) plus
-# `_connection_worker_thread`, which it never reads — that one is the ASSIGNMENT
-# target below, and is here for the reason the paragraph above gives. Stating it
-# as "the names the function resolves" would send the next person adding an
-# `aiosqlite.core.X` reference looking for reads only, and miss write targets.
+# The complete internal surface this module touches, in three kinds — say it this
+# way and the next person adding an `aiosqlite.core.X` reference knows which
+# bucket theirs falls in:
+#   * resolved at call time by `_resilient_connection_worker_thread`: `LOG`,
+#     `set_result`, `_STOP_RUNNING_SENTINEL`, `set_exception`;
+#   * the ASSIGNMENT target it replaces: `_connection_worker_thread`, never read
+#     here, and guarded for the reason the paragraph above gives;
+#   * the class whose constructor gets wrapped: `Connection`.
 #
 # `Connection.__init__` is deliberately NOT in this tuple: `hasattr(cls,
 # "__init__")` is true for every class in Python, so such a check is a tautology

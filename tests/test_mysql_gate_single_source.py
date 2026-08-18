@@ -27,6 +27,7 @@ that survives the refactor.
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -36,6 +37,11 @@ _REPO = Path(__file__).resolve().parents[1]
 _TESTS = _REPO / "tests"
 _WORKFLOW = _REPO / ".github/workflows/ci.yml"
 _CI_JOB = "backend-tests"
+
+# Written down, not derived from the glob: deriving it from `_twins()` would make
+# the assertion self-satisfying. Lowering it is the job of whichever commit
+# removes a twin.
+_TWIN_FLOOR = 9
 
 # The single source of truth, by definition: whatever the shared helper says.
 _HELPER = _TESTS / "mysql_dialect.py"
@@ -66,6 +72,27 @@ def _canonical_env_name() -> str:
     return found.group(1)
 
 
+def _imports_the_helper(path: Path, text: str) -> bool:
+    """True iff this module really imports `mysql_dialect`, in any spelling."""
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError as exc:  # pragma: no cover — a broken twin
+        pytest.fail(
+            f"{path.relative_to(_REPO)} does not parse ({exc}), so whether it "
+            f"gates on the canonical env var cannot be established"
+        )
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").endswith("mysql_dialect"):
+                return True
+            if any(a.name == "mysql_dialect" for a in node.names):
+                return True
+        elif isinstance(node, ast.Import):
+            if any(a.name.endswith("mysql_dialect") for a in node.names):
+                return True
+    return False
+
+
 def _twins() -> list[Path]:
     return sorted(_TESTS.rglob("*_mysql.py"))
 
@@ -76,18 +103,30 @@ def test_the_helper_still_declares_the_env_var_name():
     assert _canonical_env_name()
 
 
-def test_there_are_dialect_twins_to_check():
-    """A glob that matches nothing passes every assertion about its members. If
-    the twins are ever renamed out of the `*_mysql.py` shape, this test is the
-    thing that notices instead of the suite quietly checking nothing.
+def test_the_twins_have_not_quietly_left_the_check():
+    """A glob that matches nothing passes every assertion about its members — and
+    a glob that matches SIX when there were nine passes them just as quietly.
 
-    A floor, not a count: adding a tenth twin must not make anything stale. The
-    prose in this file says "every `*_mysql.py` twin" for the same reason.
+    `_TWIN_FLOOR` was briefly replaced by "the list is non-empty", on the stated
+    grounds that a number would go stale when a tenth twin arrives. That reason
+    is false and worth recording: `>=` is a floor, so a tenth twin keeps this
+    green; only the failure *message* would have needed rewording. What the
+    weaker assertion cost was the half that matters — rename three twins out of
+    the `*_mysql.py` shape and `test_every_twin_gates_on_the_canonical_env_var_name`
+    silently checks six files, while the three that escaped can drift their env
+    name and skip in CI, green, forever.
+
+    So: a floor. It fires only when twins LEAVE the shape (renamed, or deleted
+    with their feature), which is a deliberate act — lowering the number belongs
+    in the same commit as the removal, with the reason.
     """
     found = _twins()
-    assert found, (
-        "no `*_mysql.py` dialect twins found at all — either they were renamed "
-        "out of that shape, or this file is now checking nothing"
+    assert len(found) >= _TWIN_FLOOR, (
+        f"expected at least {_TWIN_FLOOR} `*_mysql.py` dialect twins, found "
+        f"{[str(p.relative_to(_REPO)) for p in found]} — either some were renamed "
+        f"out of that shape (silently leaving the canonical-env check below), or "
+        f"one was deleted. If the removal was intended, lower _TWIN_FLOOR here "
+        f"and say why."
     )
 
 
@@ -103,25 +142,15 @@ def test_every_twin_gates_on_the_canonical_env_var_name():
         # A twin that IMPORTS the helper declares nothing of its own, which is
         # the end state we want; it inherits the canonical name by construction.
         #
-        # Matched as a real import, not as a substring. A bare
-        # `"mysql_dialect" in text` also matches a docstring or a `# see
-        # tests/mysql_dialect.py` pointer, so a twin part-way through migration
-        # — prose updated, own gate deleted, import not added yet — would be
-        # waved through with NO gate at all. This file's own docstring invites
-        # exactly that migration, so that state is not hypothetical.
-        # Every real way to import it, including `from tests import
-        # mysql_dialect` — matching only the dotted forms false-reds the exact
-        # migration this file's docstring invites, and a false red is how a guard
-        # gets "relaxed" out of existence.
-        imports_helper = re.search(
-            r"^\s*(?:from\s+tests\.mysql_dialect\s+import"
-            r"|import\s+tests\.mysql_dialect"
-            r"|from\s+tests\s+import\s+[^\n]*\bmysql_dialect\b"
-            r"|from\s+\.+\s*mysql_dialect\s+import"
-            r"|from\s+\.+\s*import\s+[^\n]*\bmysql_dialect\b)",
-            text,
-            re.M,
-        ) is not None
+        # Asked of the parsed imports, not of the text. Enumerating spellings
+        # got this wrong twice in a row: a bare `"mysql_dialect" in text` let a
+        # docstring mention grant amnesty, and the regex that replaced it used
+        # `[^\n]*`, which does not exclude `#` — so
+        # `from tests import conftest  # gate lives in mysql_dialect.py` also
+        # counted, for a twin with no gate at all. It also missed the
+        # parenthesised form. The AST knows all three and cannot be satisfied by
+        # a comment.
+        imports_helper = _imports_the_helper(twin, text)
         if not names and imports_helper:
             continue
         wrong = sorted(n for n in names if n != canonical)

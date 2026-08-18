@@ -56,9 +56,12 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 
 # Seven orders of magnitude past any plausible host uptime, so "the gate opened"
 # can only mean the sentinel cleared it — never "this machine happens to have
-# been up a while". An int, because the class attributes it overrides are
-# annotated `: int` (a float there is a reportAssignmentType the moment pyright's
-# `include` grows to cover tests).
+# been up a while". An int because what it expresses is an order of magnitude of
+# seconds with no fractional meaning — unlike the poll interval below, which is
+# deliberately fractional. Neither spelling is a type error under the current
+# pyright config (`typeCheckingMode: off`, `include` limited to
+# `src/xyz_agent_context/module`, `reportAssignmentType` not promoted), so this
+# is a readability convention, not a lint fix.
 _UNREACHABLE_INTERVAL = 10**12
 
 
@@ -144,7 +147,7 @@ class _OneCredentialTrigger(ChannelTriggerBase):
     async def is_echo(self, message, credential) -> bool:  # pragma: no cover
         return False
 
-    async def resolve_sender_name(self, event, credential) -> str:  # pragma: no cover
+    async def resolve_sender_name(self, sender_id, credential) -> str:  # pragma: no cover
         return ""
 
     def create_context_builder(self, credential):  # pragma: no cover
