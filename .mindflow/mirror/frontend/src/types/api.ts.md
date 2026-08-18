@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/types/api.ts
 last_verified: 2026-08-19
-stub: true
+stub: false
 ---
 
 ## 2026-08-19 — `SubscriptionStatus.payment_method` / `SubscriptionPlan.usd_monthly_price`
