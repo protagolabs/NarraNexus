@@ -307,3 +307,165 @@ async def test_normalizing_a_stale_row_is_not_a_rename(db_client):
     row = await db_client.get_one("agents", {"agent_id": AGENT_ID})
     assert row["agent_name"] == "小绿", "the stale row was left unrenameable"
     assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)
+
+
+@pytest.mark.asyncio
+async def test_manyfold_provisioning_a_brand_new_agent_publishes_it(
+    db_client, manyfold_client
+):
+    """The create branch owes the directory a row too.
+
+    An agent Manyfold provisions and nobody talks to yet does not exist in
+    ``bus_agent_registry`` until its first turn creates instances — peers can
+    neither list it nor send to it. That is P1 section 02's "an idle agent
+    cannot self-heal", on the creation side of the same if/else whose rename
+    side this change fixed.
+    """
+    resp = manyfold_client.post(
+        "/manyfold/agents",
+        json={
+            "agent_id": "agent_brand_new",
+            "agent_name": "新来的",
+            "manyfold_user_id": "shenzhen-tester",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["agent_created"] is True
+
+    row = await db_client.get_one(
+        "bus_agent_registry", {"agent_id": "agent_brand_new"}
+    )
+    assert row is not None, "a freshly provisioned agent is invisible to peers"
+    assert row["description"].startswith("新来的")
+
+
+@pytest.mark.asyncio
+async def test_manyfold_post_maps_not_found_like_the_patch_does(
+    db_client, manyfold_client, monkeypatch
+):
+    """Both manyfold endpoints must answer one error_kind with one status code,
+    or the caller needs two mappings for the same failure."""
+    import backend.routes.manyfold.agents as mf_mod
+    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    async def _vanished(_db, _agent_id, **_kwargs):  # noqa: ANN001
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_found",
+            error="Error: Agent vanished",
+        )
+
+    monkeypatch.setattr(mf_mod, "apply_agent_profile_change", _vanished)
+
+    resp = manyfold_client.post(
+        "/manyfold/agents",
+        json={
+            "agent_id": AGENT_ID,
+            "agent_name": "小绿",
+            "manyfold_user_id": "shenzhen-tester",
+        },
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_the_description_repair_branch_is_symmetric_with_the_name_one(
+    db_client,
+):
+    """The description side repairs pre-normalization text too.
+
+    Its `or _stored_text_is_unnormalized(...)` reads like a redundant `or` next
+    to the equality check; without this test, deleting it as cleanup leaves
+    those rows unrepaired and the suite green.
+    """
+    from xyz_agent_context.module.awareness_module import (
+        apply_agent_profile_change,
+    )
+
+    await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
+    await db_client.update(
+        "agents", {"agent_id": AGENT_ID}, {"agent_description": "  推荐美食  "}
+    )
+
+    result = await apply_agent_profile_change(
+        db_client, AGENT_ID, new_description="推荐美食"
+    )
+
+    assert result.ok
+    assert result.renamed_from is None
+    row = await db_client.get_one("agents", {"agent_id": AGENT_ID})
+    assert row["agent_description"] == "推荐美食"
+    assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)
+
+
+@pytest.mark.asyncio
+async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
+    """``renamed_to`` follows "did this rename", not "was the column written".
+
+    A normalization repair writes agent_name, so a result built from the write
+    list alone reports renamed_to on legacy rows — a false positive for the
+    next caller that tests it, and one that never raises.
+    """
+    from xyz_agent_context.module.awareness_module import (
+        apply_agent_profile_change,
+    )
+
+    await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
+    await db_client.update(
+        "agents", {"agent_id": AGENT_ID}, {"agent_name": "  小绿  "}
+    )
+
+    result = await apply_agent_profile_change(
+        db_client, AGENT_ID, new_name="小绿"
+    )
+
+    assert result.updated_fields == ("agent_name",), "the repair did write"
+    assert result.renamed_from is None and result.renamed_to is None
+    assert result.identity_note_recorded is False
+
+
+@pytest.mark.asyncio
+async def test_a_real_rename_reports_that_its_note_landed(db_client):
+    """The note is the point of the whole transaction, and it degrades
+    silently — so the result has to say whether it landed."""
+    from xyz_agent_context.module.awareness_module import (
+        apply_agent_profile_change,
+    )
+
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    result = await apply_agent_profile_change(
+        db_client, AGENT_ID, new_name="小绿"
+    )
+
+    assert result.renamed_from == "美食家" and result.renamed_to == "小绿"
+    assert result.identity_note_recorded is True
+
+
+@pytest.mark.asyncio
+async def test_a_rename_with_no_awareness_instance_says_the_note_did_not_land(
+    db_client,
+):
+    """An agent with no AwarenessModule instance has nowhere to file the
+    correction. The rename still succeeds — reporting failure for a name that
+    IS stored would be the worse lie — but the degradation must be visible."""
+    from xyz_agent_context.module.awareness_module import (
+        apply_agent_profile_change,
+    )
+
+    await db_client.insert("agents", {
+        "agent_id": "agent_no_aware", "agent_name": "美食家",
+        "created_by": OWNER, "agent_description": "x", "is_public": 0,
+    })
+
+    result = await apply_agent_profile_change(
+        db_client, "agent_no_aware", new_name="小绿"
+    )
+
+    assert result.ok and result.renamed_from == "美食家"
+    assert result.identity_note_recorded is False, (
+        "a rename whose identity correction went nowhere looks identical to a "
+        "complete one — that state IS the incident"
+    )

@@ -39,7 +39,7 @@ different.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from loguru import logger
 
@@ -148,7 +148,7 @@ async def _same_owner_name_holder(
 
 async def _record_identity_change(
     db, agent_id: str, old_name: str, new_name: str
-) -> None:
+) -> bool:
     """File the rename into the agent's Awareness profile.
 
     Best-effort by design: the name change itself has already been written,
@@ -165,7 +165,7 @@ async def _record_identity_change(
                 f"_record_identity_change: no AwarenessModule instance for "
                 f"{agent_id}; identity memory not corrected"
             )
-            return
+            return False
         instance_id = instances[0].instance_id
         awareness_repo = InstanceAwarenessRepository(db)
         current = await awareness_repo.get_by_instance(instance_id)
@@ -176,8 +176,10 @@ async def _record_identity_change(
                 profile, build_identity_change_note(old_name, new_name)
             ),
         )
+        return True
     except Exception as e:  # noqa: BLE001 — see docstring
         logger.warning(f"_record_identity_change failed for {agent_id}: {e}")
+        return False
 
 
 @dataclass(frozen=True)
@@ -191,8 +193,10 @@ class AgentProfileWrite:
     are carried structurally and the prose is derived from them, never parsed.
     """
 
-    #: ``"updated"`` | ``"unchanged"`` | ``"error"``
-    status: str
+    #: Spelled out rather than left as ``str``: a caller comparing against a
+    #: typo'd literal type-checks fine and then silently takes the fallback
+    #: branch, handing a model-facing sentence to a UI.
+    status: Literal["updated", "unchanged", "error"]
     #: Which of ``agent_name`` / ``agent_description`` / extras were written.
     #: Non-empty only when ``status == "updated"``.
     updated_fields: tuple[str, ...] = ()
@@ -204,14 +208,28 @@ class AgentProfileWrite:
     unapplied_fields: tuple[str, ...] = ()
     #: The previous name, set only when this write renamed the agent.
     renamed_from: Optional[str] = None
-    #: The name now stored, set only when this write renamed the agent.
+    #: The name now stored, set only when this write renamed the agent — so it
+    #: is None for a normalization repair, which writes agent_name without the
+    #: name having changed. Tied to ``renamed_from``, never to "was it written":
+    #: the field name reads as "did this rename", and a caller testing it that
+    #: way would get a false positive on every legacy unnormalized row.
     renamed_to: Optional[str] = None
     #: agent_id of another agent of the same owner now sharing the new name.
     name_clash_with: Optional[str] = None
-    #: Machine-readable failure, so routes can map it to a status code:
-    #: ``nothing_to_update`` | ``not_found`` | ``empty_name`` | ``too_long``
-    #: | ``not_applied``.
-    error_kind: Optional[str] = None
+    #: Did the Awareness identity correction actually land? Only meaningful when
+    #: ``renamed_from`` is set. The write is best-effort on purpose (the name is
+    #: already stored; failing the caller afterwards would report a rename that
+    #: happened as one that did not) — but that silent degradation IS the
+    #: incident this transaction exists for, so it must at least be visible.
+    identity_note_recorded: bool = False
+    #: Machine-readable failure, so routes can map it to a status code. Same
+    #: reason as ``status`` for pinning the spellings in the type.
+    error_kind: Optional[
+        Literal[
+            "nothing_to_update", "not_found", "empty_name", "too_long",
+            "not_applied",
+        ]
+    ] = None
     #: The same failure as a sentence written for a model to read.
     error: Optional[str] = None
 
@@ -421,8 +439,9 @@ async def apply_agent_profile_change(
     # tool happened to be the writer, and Shenzhen round 2 is what the other
     # writers produced — a stale correction is worse than none, because it
     # speaks in the platform's voice and the agent believes it.
+    note_recorded = False
     if renamed_from:
-        await _record_identity_change(
+        note_recorded = await _record_identity_change(
             db, agent_id, renamed_from, updates["agent_name"]
         )
 
@@ -433,8 +452,9 @@ async def apply_agent_profile_change(
         status="updated",
         updated_fields=tuple(sorted(updates)),
         renamed_from=renamed_from,
-        renamed_to=updates.get("agent_name"),
+        renamed_to=updates.get("agent_name") if renamed_from else None,
         name_clash_with=clash,
+        identity_note_recorded=note_recorded,
     )
 
 

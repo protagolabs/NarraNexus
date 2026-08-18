@@ -35,6 +35,7 @@ from xyz_agent_context.schema import (
     normalize_agent_text,
 )
 from xyz_agent_context.module.awareness_module import apply_agent_profile_change
+from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
@@ -227,7 +228,14 @@ async def create_agent_for_manyfold(
             extra_updates={"created_by": nx_user_id},
         )
         if not result.ok:
-            raise HTTPException(status_code=400, detail=result.error)
+            # Same error_kind → same status code as the PATCH below, so the
+            # Manyfold side needs one mapping rather than one per verb. Not 409
+            # for not_applied for the reason spelled out there: 409 invites a
+            # retry and this contract is that a failure aborts the rename.
+            raise HTTPException(
+                status_code=404 if result.error_kind == "not_found" else 400,
+                detail=result.error,
+            )
         agent_created = False
     else:
         await db.insert("agents", normalize_agent_row_text({
@@ -239,6 +247,21 @@ async def create_agent_for_manyfold(
             "is_public": 0,
         }))
         agent_created = True
+        # Publish it to the peer directory NOW. This branch is the only writer
+        # of the agents row that reached neither `sync_agent_discovery` nor the
+        # shared transaction, so a Manyfold-provisioned agent nobody had talked
+        # to yet did not exist in `bus_agent_registry` at all — peers could
+        # neither list it nor send to it until its first turn created instances
+        # (InstanceFactory syncs there). "Its next turn will fix it" is exactly
+        # what P1 section 02 rejected: an idle agent is the case that cannot
+        # self-heal. Best-effort, like every other caller — provisioning must
+        # not fail because discovery metadata could not be refreshed.
+        #
+        # Deliberately NOT routed through apply_agent_profile_change: that
+        # function's precondition is that the row already exists, and a brand
+        # new agent has no previous name, so it has no identity correction to
+        # record either.
+        await sync_agent_discovery(db, body.agent_id)
 
     logger.info(
         f"[manyfold-create] agent {body.agent_id!r} "

@@ -21,7 +21,10 @@ stub: false
   `update_agent_profile` 三条路都走那一个事务，由它调本函数。所以本函数的改名侧
   调用方**只剩一个**，不再是三处各自记得调。
 
-创建（[[auth]] / [[provision]]）、技能安装、技能对账、每轮 hook 这几支不变。
+创建那一侧的清单**当时是错的**：二改写着「创建（[[auth]] / [[provision]]）……不变」，
+但 manyfold 的建号分支既不走 provision 也不自己调，第二轮审查抓出来了。已补上
+（见 [[agents]] 三改）。现在创建侧是：[[auth]] / [[provision]] / migration applier /
+arena provisioning / **manyfold 建号**；技能安装、技能对账、每轮 hook 不变。
 
 # agent_discovery_sync.py — agent 对同伴那一面的唯一真相点
 

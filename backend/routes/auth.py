@@ -1019,6 +1019,18 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         )
 
 
+def _not_persisted(fields) -> str:
+    """The one wording for "the row is not what you asked for".
+
+    Two checks reach it — the shared transaction's "did my write land" and this
+    route's "is the row what the caller requested" (they are different
+    questions; see update_agent). The user-facing sentence is the same one, and
+    duplicating the literal is how the two drift into two phrasings for one
+    failure.
+    """
+    return f"The update did not persist: {', '.join(fields)}"
+
+
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
 async def update_agent(
     agent_id: str,
@@ -1130,10 +1142,7 @@ async def update_agent(
             if result.error_kind == "not_applied":
                 return UpdateAgentResponse(
                     success=False,
-                    error=(
-                        "The update did not persist: "
-                        f"{', '.join(result.unapplied_fields)}"
-                    ),
+                    error=_not_persisted(result.unapplied_fields),
                 )
             return UpdateAgentResponse(success=False, error=result.error)
 
@@ -1169,10 +1178,7 @@ async def update_agent(
             )
             return UpdateAgentResponse(
                 success=False,
-                error=(
-                    "The update did not persist: "
-                    f"{', '.join(sorted(unapplied))}"
-                ),
+                error=_not_persisted(sorted(unapplied)),
             )
 
         # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,

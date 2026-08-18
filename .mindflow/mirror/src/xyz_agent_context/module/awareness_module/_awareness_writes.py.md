@@ -37,14 +37,41 @@ stub: false
 
 同日第一版声称「三个写入方收敛成一个」，独立审查发现是**四个**：
 `POST /manyfold/agents` 的 upsert 分支同样覆盖 `agent_name`（见 [[agents]]
-二改条目）。断言写在验证之前，正是本仓栽过的同一类毛病。现在可以一条命令重推：
+二改条目）。断言写在验证之前，正是本仓栽过的同一类毛病。
+
+**护栏（第二轮审查修正过一次）**——第一版贴的是
+`git grep -nE '(insert|update)\(\s*"agents"'`，它有两个毛病：按原样跑只有一处
+命中而正文说两处（正文是照另一条含 `_ins` 的命令写的），更要命的是这个字面量
+pattern **完全看不见 Repository 路径**，谁将来写一句
+`AgentRepository(db).update_agent(aid, {"agent_name": ...})`，跑它仍然零命中、
+审计"通过"，而深圳第二轮 P1 原样复现。护栏失效，等于本节末尾那条 ⚠ 禁令退化成
+一句期望——而这条 bug 已经用两次事故证明期望不管用。现在用：
 
 ```bash
-git grep -nE '(insert|update)\(\s*"agents"' -- backend src
-# → 只剩两处，都是 INSERT（建 agent），没有 update：
-#   backend/routes/manyfold/agents.py（新建分支）
-#   src/xyz_agent_context/bundle/importer.py（bundle 导入）
+git grep -nE 'add_agent\(|update_agent\(|(insert|update)\(\s*"agents"|_ins\("agents"' \
+  -- backend src \
+  | grep -vE 'repository/agent_repository\.py|async def update_agent'
 ```
+
+（两个 `grep -v`：前者是 Repository 自身的定义，后者是 [[auth]] 路由处理函数的
+`async def update_agent(` —— pattern 连函数定义一起扫，不排掉就会多出一处，让下一个
+人以为有漏网的写入方。）
+
+允许的命中共 **8** 处，任何**新增**即为违规（不记行号，行号会漂）：
+
+| 文件 | 写法 | 为什么允许 |
+|---|---|---|
+| `bootstrap/provision.py` | `add_agent` | 建 agent |
+| `migration/applier.py` | `add_agent` | 建 agent（迁移导入） |
+| `arena/arena_provisioning_service.py` | `add_agent` | 建 agent |
+| `manyfold/agents.py` | `db.insert("agents"` | 建 agent（该分支另刷名录，见 [[agents]] 三改） |
+| `bundle/importer.py` | `_ins("agents"` | 建 agent（bundle 导入） |
+| `arena/arena_provisioning_service.py` | `update_agent` | **只写 `agent_metadata`**，不碰名字 |
+| `bootstrap/profiles.py` | `update_agent` | 同上，只写 `agent_metadata` |
+| `_awareness_writes.py`（本文件） | `repo.update_agent` | **就是那个事务本身** |
+
+前五处是创建，名字在建号那一刻确定，没有"旧名"可更正；中间两处不碰
+`agent_name`。所以：
 
 改名**没有**不经过 `apply_agent_profile_change` 的路径了。
 

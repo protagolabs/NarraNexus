@@ -4,6 +4,25 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+
+## 2026-08-18 (三改) — 建号分支补刷名录
+
+第二轮审查发现：同一个 `if/else` 里，改名那半被三个 commit 修得很仔细，**建号
+那半 insert 完直接 return，从来不刷名录**。它既不走 [[provision]]（那里建完会
+`sync_agent_discovery`），也不自己调；全仓唯一能兜住它的是 `InstanceFactory`，
+而那要等**第一轮 run**。于是一个 Manyfold 刚 provision 出来、还没人跟它说过话的
+agent，在 `bus_agent_registry` 里根本不存在——同伴列不出它、也发不到它。
+
+这正是 P1 段02 那条「闲着的 agent 无法自愈」，只是发生在建号侧。本次改动把「每个
+写入方都欠名录一次刷新」立成了不变量，却在紧挨着的三行里留着唯一的例外。已补
+`await sync_agent_discovery(db, body.agent_id)`（best-effort，与事务内同语义：
+失败只 warning，不回滚建号）。
+
+**不要**为了复用把建号也塞进 `apply_agent_profile_change`：那个函数的前置是
+**行已存在**（读不到就 `not_found`），塞进去要么加建号分支、要么两次写行，两条都
+会毁掉它现在"单次行写"的性质。也**不要**给建号补身份更正——新建 agent 没有旧名，
+那条 note 的全部价值是 agent 会相信它。
+
 ## 2026-08-18 (二改) — `POST /manyfold/agents` 的 upsert 分支也是改名
 
 第一版只把 `PATCH` 收进事务，独立审查一条 `git grep` 就证伪了同日写下的
@@ -23,10 +42,18 @@ Manyfold 只要走重新 provision 而不是 PATCH，深圳第二轮 P1 原样�
   它（只有渲染成字符串的工具路径会读），所以这个陈旧范围在这里没有后果——换个
   会消费 note 的调用方就不成立了，别照抄。
 
-失败映射：`not_found` 保留本端点 docstring 承诺的 **404**，其余 400。**故意不用
-409**——`not_applied` 语义上确实是并发覆盖，但 409 邀请重试，而本端点的契约是
-「失败必须让整个改名中止」；Manyfold 侧是否重试 409 是那边的策略，不该从这里替它
-假设。要改得先和 Manyfold 对齐。
+**（三改更正）** 二改这段原文把两个端点的状态码说反了：写在 POST 小节里的
+「`not_found` → 404」当时其实只有 PATCH 做了，POST 是无条件 400；而 PATCH 小节
+写的却是「恒 400」。第二轮审查逐行对照代码抓出来。现在两个端点**一致**：
+`404 if error_kind == "not_found" else 400`，Manyfold 侧对同一个 `error_kind`
+只需要一套映射。
+
+**故意不用 409**——`not_applied` 语义上确实是并发覆盖，但 409 邀请重试，而本端点
+的契约是「失败必须让整个改名中止」；Manyfold 侧是否重试 409 是那边的策略，不该
+从这里替它假设。要改得先和 Manyfold 对齐。
+
+一段写反的 mirror 比没有 mirror 贵：没有 mirror 的人会去读代码，读到写反的
+mirror 的人不会——他会拿它当真相，把正确的代码「改回」错的。
 
 ## 2026-08-18 — `PATCH /manyfold/agents/{id}` 补上改名的另外两件事
 
