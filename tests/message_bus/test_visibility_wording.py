@@ -155,10 +155,16 @@ def test_the_delivery_rule_names_no_surface_specific_tool():
     auto-posts any more, so that hazard is gone and the prohibition would now be
     describing a mechanism that does not exist (P5).
 
-    What replaces it is the constraint that made the prohibition unnecessary:
-    the block must not name a per-surface tool at all, because there is exactly
-    one send verb per turn and the platform hands it over. The "exactly one" half
-    is pinned in test_bus_expressive_declaration.
+    What replaces it is narrower than the sentence that used to sit here, which
+    claimed "the block must not name a per-surface tool at all" while checking a
+    single line. The block DOES name both send verbs — it has to, since it is
+    where their disciplines are taught and it cannot branch on the turn (R4
+    byte-stability). What it must not do is attach a per-surface tool to the
+    GENERAL delivery rule, which is the line this checks: that rule applies to
+    every surface, so naming one surface's verb in it is false on the others.
+
+    The "exactly one per turn" half is pinned in test_bus_expressive_declaration
+    (the desk) and by the test below (the text that has to admit it).
     """
     line = next(
         ln for ln in _static_text().splitlines()
@@ -170,6 +176,30 @@ def test_the_delivery_rule_names_no_surface_specific_tool():
             f"{surface_tool} is surface-specific; naming it in the byte-stable "
             f"block is the P1 violation this file exists to catch"
         )
+
+def test_the_block_admits_that_only_one_send_verb_is_on_the_desk():
+    """The block teaches both verbs; the turn holds one. It has to say so.
+
+    `get_disallowed_tools` removes the other verb's SCHEMA, so an agent that
+    reads the team-rooms section on an owner-chat turn and reaches for
+    `message_team` finds nothing there. Teaching both while implying both are
+    callable is "the prompt names a tool that isn't there" — the failure this
+    redesign exists to remove — occurring in the redesign's own introduction.
+
+    Byte-stability (R4) rules out branching, so the only fix available is a true
+    sentence, and this pins that the sentence is present. Without it the block is
+    silently wrong on every turn.
+    """
+    text = _static_text()
+
+    assert "exactly ONE of these two calls per turn" in text, (
+        "the block documents both send verbs without saying that only one is "
+        "ever on the desk"
+    )
+    # And it must say what to do about the other one, or the agent is left with
+    # a dead end instead of a next step.
+    assert "finish this turn" in text.lower()
+
 
 def test_no_rule_flatly_calls_the_counterparty_a_machine():
     """The species claim had a second copy, with the behaviour attached.

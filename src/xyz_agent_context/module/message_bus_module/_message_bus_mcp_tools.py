@@ -324,16 +324,12 @@ def register_message_bus_mcp_tools(
             team = await db.get_one("teams", {"team_id": team_id})
             if not team or team.get("owner_user_id") != agent_row.get("created_by"):
                 return {"success": False, "error": "team not found for this owner"}
-            membership = await db.get_one(
-                "team_members", {"team_id": team_id, "agent_id": agent_id}
-            )
-            if not membership:
-                return {"success": False, "error": "you are not a member of this team"}
-
-            # Membership is checked against `team_members` — the source of
-            # truth for who belongs to a team. NOT against the channel, which is
-            # the delivery mirror and lags a roster edit until the next chat
-            # send or open.
+            # Checked against `team_members` — the source of truth for who
+            # belongs to a team. NOT against the channel, which is the delivery
+            # mirror and lags a roster edit until the next chat send or open.
+            #
+            # Once, verbatim: this was two identical queries with two identical
+            # guards, i.e. two round-trips on every `message_team` for one fact.
             member = await db.get_one(
                 "team_members", {"team_id": team_id, "agent_id": agent_id}
             )

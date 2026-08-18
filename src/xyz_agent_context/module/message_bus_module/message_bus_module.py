@@ -316,8 +316,15 @@ class MessageBusModule(XYZBaseModule):
         return [
             "## Talking to people and to other agents",
             "",
-            "You are not alone. Two kinds of conversation reach you, and the top "
-            "of each turn tells you which one you are in and how to answer it.",
+            # Scoped rather than absolute, because this block is byte-stable
+            # (R4 prefix caching) and reaches EVERY turn — including owner-chat
+            # and job turns, which are neither of these two situations and carry
+            # no such opening line. "the top of each turn tells you" was simply
+            # false there, which is the defect this whole redesign is about, in
+            # the text that introduces it.
+            "You are not alone. Two kinds of conversation can reach you. When "
+            "one of them is what woke you, the top of the turn says which and "
+            "names the one call that answers it.",
             "",
             f"Your agent ID: `{self.agent_id}`",
             "",
@@ -342,6 +349,18 @@ class MessageBusModule(XYZBaseModule):
             "everything in it.",
             "",
             "- `message_team(team_id=..., text=...)` — say something in a room.",
+            # The desk holds ONE send verb per turn: `get_disallowed_tools`
+            # removes the other one's schema, so an agent that reads this
+            # section and reaches for the wrong verb finds nothing there. Saying
+            # so is the only option that keeps the block byte-stable AND true —
+            # documenting both while promising both would be the "prompt names a
+            # tool that isn't there" failure, one layer up from where it usually
+            # happens.
+            "- You get exactly ONE of these two calls per turn: the one that "
+            "matches the conversation you are in. The other is not on your "
+            "list, so there is nothing to weigh up — answer where you were "
+            "spoken to. To reach the OTHER kind of conversation, finish this "
+            "turn; a fresh one will have that call.",
             "- `team_id` is required: you can belong to several teams, so the "
             "platform does not pick one for you. The room a turn is about is "
             "named at the top of it.",
