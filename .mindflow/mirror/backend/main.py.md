@@ -35,8 +35,9 @@ user 'x'@'<内网IP>'`）。故障期恰恰是它最可能被扫到的时候。�
 异常，所以 503 会让容器转 unhealthy——这正是让容器状态监控**能看见**数据库故障的
 机制（2026-08-17 它看不见）。但 compose 里有若干服务声明
 `depends_on: backend: condition: service_healthy`，**前端也在其中**。后果：在数据库
-不可用期间执行 `docker compose up`，前端不会启动（80 端口无响应），而不是起来之后
-API 报错。冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
+不可用期间执行 `docker compose up`，前端容器不会启动，ops 侧 Caddy 因此失去上游，
+公网入口返 **502**——而不是起来之后 API 报错。（前端自己没有 host 端口映射，Caddy
+反代到 `narranexus-frontend:80`。）冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
 非首次启动；已经在跑的栈会继续服务，直到探针在 `retries: 5 x interval: 30s` 后翻转。
 
 这是**有意接受**的代价：另一条路（healthcheck 改指浅探针 `/healthz`）会把本次要关掉

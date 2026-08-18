@@ -680,3 +680,24 @@ async def test_writes_outside_any_transaction_are_unaffected():
 
     written = sorted(q for c in pool.created for q in c.queries)
     assert written == ["DELETE FROM t WHERE id = 1", "DELETE FROM t WHERE id = 2"]
+
+
+@pytest.mark.asyncio
+async def test_the_shutdown_budget_stays_under_the_evict_sweep_budget():
+    """`db_factory._evict_closed_loops` wraps `client.close()` in a `wait_for`
+    whose timeout is what remains of its own sweep budget. If the inner budget
+    is not smaller, the outer timeout always wins: `close()` is cancelled inside
+    its own `wait_for`, its `except asyncio.TimeoutError` never runs (a
+    cancellation is a BaseException), `terminate()` never fires, and the pool
+    leaks in exactly the path the fallback exists for.
+
+    The relationship lives in two files, so it is asserted rather than left to a
+    comment — the comment was already there when the two constants were equal.
+    """
+    from xyz_agent_context.utils.db import db_backend_mysql, database, db_factory
+
+    assert db_backend_mysql._POOL_CLOSE_TIMEOUT_SEC < db_factory._EVICT_SWEEP_BUDGET
+    assert database._POOL_CLOSE_TIMEOUT_SEC < db_factory._EVICT_SWEEP_BUDGET
+    assert (
+        db_backend_mysql._POOL_CLOSE_TIMEOUT_SEC == database._POOL_CLOSE_TIMEOUT_SEC
+    ), "the two backends must agree, or shutdown behaviour depends on which path ran"

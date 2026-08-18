@@ -20,6 +20,8 @@ import asyncio
 
 import pytest
 
+from loguru import logger
+
 import backend.main as main
 
 
@@ -153,3 +155,55 @@ async def test_team_summary_failures_still_do_not_fail_the_probe(monkeypatch):
 
     assert body["status"] == "healthy"
     assert body["team_summary"]["failed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_the_driver_message_survives_in_the_log(monkeypatch):
+    """The other half of the promise above: the detail the response withholds
+    has to actually reach the log, or withholding it is just data loss.
+
+    This exists because that half regressed once already. The log call sat in
+    the `if not db_ok:` branch — outside the `except` — where `logger.exception`
+    has no active exception to render and prints a literal "NoneType: None".
+    Moving it back out would look tidier and every other test here would stay
+    green, which is exactly how it shipped the first time.
+    """
+
+    async def dead():
+        raise RuntimeError(
+            "Can't connect to MySQL server on 'rds-x.internal' "
+            "(Access denied for user 'nexus'@'172.31.0.4')"
+        )
+
+    _install(monkeypatch, dead)
+
+    records: list[str] = []
+    sink_id = logger.add(records.append, level="ERROR")
+    try:
+        response = await main.health()
+    finally:
+        logger.remove(sink_id)
+
+    logged = "".join(records)
+    assert "rds-x.internal" in logged, (
+        "the driver's own message is the only place the real cause survives"
+    )
+    # The load-bearing assertion. The class name appears in the f-string either
+    # way, so asserting on it would pass even with the call back outside the
+    # except block; only a rendered traceback distinguishes the two.
+    assert "Traceback" in logged, (
+        "logged outside the except block — renders 'NoneType: None', no cause"
+    )
+    # And the response still says nothing.
+    assert "rds-x.internal" not in response.body.decode()
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_is_also_logged():
+    """`asyncio.TimeoutError` carries no message, so without its own log line a
+    timed-out probe leaves not one word behind."""
+    import inspect
+
+    src = inspect.getsource(main.health)
+    timeout_branch = src.split("except asyncio.TimeoutError:")[1].split("except Exception")[0]
+    assert "logger" in timeout_branch

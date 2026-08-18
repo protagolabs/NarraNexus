@@ -595,8 +595,10 @@ async def health():
     on 2026-08-17. But several services declare
     ``depends_on: backend: condition: service_healthy`` — the **frontend** among
     them. Consequence: running ``docker compose up`` *while the database is
-    unreachable* leaves the frontend unstarted (port 80 dead) instead of serving
-    a page whose API calls fail. Cold start already required the database
+    unreachable* leaves the frontend container unstarted, so the ops Caddy loses
+    its upstream and the public entrypoint returns 502 — instead of serving a
+    page whose API calls fail. (The frontend has no host port binding of its
+    own; Caddy proxies to ``narranexus-frontend:80``.) Cold start already required the database
     (lifespan builds the pool), so this changes redeploy-during-an-outage, not
     first boot; a stack that is already running keeps serving until the probe
     flips after ``retries: 5 x interval: 30s``.

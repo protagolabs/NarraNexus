@@ -4,6 +4,44 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-17 — 已知缺陷：事务归属与 commit 失败（**尚未修复**，方案已验证）
+
+记在这里是因为修复曾经写出来又被撤回，两条缺陷都**已复现**，而复现的成本不该随
+commit message 一起沉底。源码目前仍是有缺陷的版本。
+
+**缺陷 1 —— 无关写入被并进别人的事务。** `_in_transaction` 是实例属性，而
+`db_factory` 每 loop 只发一个 backend，所以它是进程级共享状态。任一 task 在事务中
+期间，其他 task 的写入命中 `if not self._in_transaction` 为假 → 跳过 commit → 被并进
+一个它毫不知情的事务；那个事务一回滚，这笔写入跟着消失，而调用方已拿到成功返回。
+复现：A 开事务写 'a'，B 写 'b' 返回成功，A 回滚 → 读到 `[]`，'b' 一起没了。
+
+**缺陷 2 —— 一次 commit 失败后此后每次写都跳过 commit。** `commit()` 是
+`await conn.commit()` 成功后才清标志且无 `finally`，失败即永久卡在 True，直到重启。
+
+这是 [[db_backend_mysql.py]] 那条 prod 事故的孪生版。MySQL 有连接可以被打死所以炸成
+500；SQLite 只有一条连接，什么都不会坏，代价直接变成**静默数据丢失**——而桌面 / DMG
+与本地 `run.sh` 跑的就是 SQLite（铁律 #7）。
+
+**修的时候不要用 `current_task()` / ContextVar 做归属——已验证会卡死 proxy。**
+`sqlite_proxy_server` 的 `/transaction/begin`、写端点、`/transaction/commit` 是三个
+独立 HTTP 请求，uvicorn 每请求一个 task，begin 那个 task 的 context 随请求结束即消失，
+此后归属判断恒为 False。真 uvicorn 实测：写请求死锁在事务独占的写锁上，commit 报
+"No active transaction"，watchdog 的 rollback 同样撞 RuntimeError 被 `except Exception`
+吞掉，锁和 BEGIN 都不释放 → **该 proxy 进程内所有写入永久阻塞，只能重启**。
+
+**正确方向**：proxy 早就把跨请求事务做对了——它有一套 server 发放的 `txn_id` token 和
+`_await_txn_turn(txn_id)` 门禁。归属应当改成**可显式传递的 token**（缺省取
+`current_task()` 以保持应用内调用不变，proxy 传它自己的 `txn_id`），两层对齐而不是在
+下面再发明一套隐式机制。commit/rollback 加 `finally`，且 commit 失败时补一次
+`rollback()`（与 MySQL 侧 `broken=True` 先 `close()` 让服务端回滚的语义对齐）。
+
+**测试必须避开这次绕开过的两个坑**：(1) 用**独立 `sqlite3` 连接读已提交数据**来断言，
+而不是断言锁状态——上一版验证了锁被释放，却对紧随其后那笔把脏数据提交掉的写入零断言；
+(2) proxy 用例必须把 begin/write/commit 各自包进 `asyncio.create_task(...)` 并带
+`asyncio.wait_for` 上限，现有 `test_sqlite_proxy_txn.py` 用 `httpx.ASGITransport`，
+ASGI app 在调用方同一个 task 内执行，ContextVar 天然可见，所以这个 Critical 在一整套
+绿灯里完全隐形。
+
 ## 2026-08-17 — aiosqlite worker 线程不许死在"投递结果"这一步
 
 模块导入时把 `aiosqlite.core._connection_worker_thread` 换成
