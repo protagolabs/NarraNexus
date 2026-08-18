@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -148,3 +148,18 @@ Markdown 链接，但 `openai-codex` Python SDK 0.1.0b3 不暴露那张表
   （主要是 `response_processor` 给 live UI 流式构建 ProgressMessage 时）复用同一套剥离。
 - `extract_reply_text` 被重写成：先从 `extract_reply_fn` 或默认 `content` 取出
   `text`，统一过一遍剥离再返回——无论哪个 extractor 产出，剥离都一致生效。
+
+## 2026-08-18 — `render_origin_declaration` 新增 `reply_is_plain_text`
+
+这行的前提是「origin-first 排序把来源模块的工具放在位置 0」—— 只在来源模块**确实声明了
+东西**时成立。patrol 轮声明为空（回复就是纯文本、由平台以房间 marker 张贴），位置 0 于是
+落到排在后面的 `notify_owner`，而那行会写成「回复请用 notify_owner」：把 lead 推去给 owner
+发消息，而不是写房间状态行 —— 既是错的动作，也正是 patrol 提示花一整段禁止的动作。
+
+registry 分不出这件事，因为 `notify_owner` **确实**是 message_bus 的合法回复工具之一（用
+「告诉 owner」来应答一个 bus 轮次是允许的）。我一度想用 `is_user_reply_tool(tools[0])` 判，
+那条不变量是错的，且会在未注册来源上把覆盖缺口变成静音轮次。所以改由调用方传入这个事实 ——
+平台本来就把它标成了 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`（见 [[hook_schema.py]]）。
+
+其他模块在这种轮次上保留自己的工具（巡检中向 owner 升级是合理动作）；不该发生的只是「用一句
+话把其中之一说成本轮的应答方式」。

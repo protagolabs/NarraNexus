@@ -41,6 +41,7 @@ from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
 from xyz_agent_context.channel.channel_sender_registry import (
     ChannelSenderRegistry,
 )
+from xyz_agent_context.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
 from xyz_agent_context.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
     MessageSourceRegistry,
@@ -1409,7 +1410,16 @@ async def step_3_agent_loop(
             # working_source to every driver and trusting each to phrase it the
             # same way, which is the drift this line replaced.
             origin_declaration=render_origin_declaration(
-                ctx.working_source or "", context.expressive_tools
+                ctx.working_source or "",
+                context.expressive_tools,
+                # A turn whose reply is its plain text has no tool answer, and
+                # origin-first ordering would otherwise present some other
+                # module's tool as one. Read here because this is the layer that
+                # holds both halves; the marker is set by whoever knows the turn
+                # is that kind (today: patrol).
+                reply_is_plain_text=bool(
+                    _turn_extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY)
+                ),
             ),
             turn_profile=ctx.turn_profile,
             extra_accessible_roots=extra_accessible_roots,

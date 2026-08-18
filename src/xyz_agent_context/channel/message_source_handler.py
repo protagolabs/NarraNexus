@@ -440,6 +440,7 @@ ORIGIN_DECLARATION_TEMPLATE = (
 def render_origin_declaration(
     working_source: str,
     expressive_tools: "Sequence[str]",
+    reply_is_plain_text: bool = False,
 ) -> str:
     """One line naming where this turn came from and what answers it.
 
@@ -462,7 +463,25 @@ def render_origin_declaration(
     Empty tools → empty string. A turn with no declared reply surface must not
     be handed a sentence claiming one; inventing a tool name here would be the
     exact failure the declaration exists to prevent.
+
+    ``reply_is_plain_text`` is the other empty case, and it is not derivable
+    from the tools. The line's premise is that origin-first ordering puts the
+    origin module's tool at position 0 — true only while the origin module
+    declares something. A patrol turn declares nothing (its reply IS the agent's
+    plain text, posted by the platform), so position 0 becomes whatever ranked
+    next — `notify_owner`, which the registry legitimately lists as a way to
+    answer a bus turn. "reply with `notify_owner`" would then tell the lead to
+    message its owner instead of writing the room's status line: the wrong act,
+    and the one the patrol prompt spends a paragraph forbidding.
+
+    The registry cannot tell these apart — `notify_owner` really is one of this
+    source's reply tools — so the caller passes the fact, which the platform
+    already stamps as `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`. Other modules keep their
+    own tools on such a turn (escalating to the owner mid-sweep is legitimate);
+    what must not happen is a sentence presenting one of them as how to answer.
     """
+    if reply_is_plain_text:
+        return ""
     tools = tuple(expressive_tools or ())
     if not tools:
         return ""
