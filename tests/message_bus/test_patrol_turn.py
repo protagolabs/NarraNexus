@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.message_bus.team_posting import team_cascade_depth
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
@@ -183,14 +184,14 @@ async def test_a_patrol_message_does_not_raise_the_cascade_depth(db_client):
         await bus.send_message(from_agent="agent_worker", to_channel=CHANNEL,
                                content=f"hop {i}")
     trigger = MessageBusTrigger(bus=bus)
-    before = await trigger._team_cascade_depth(CHANNEL)
+    before = await team_cascade_depth(db_client, CHANNEL)
 
     await bus.send_message(
         from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}", to_channel=CHANNEL,
         content="@Bruno still there?", msg_type=PATROL_MSG_TYPE,
     )
 
-    assert await trigger._team_cascade_depth(CHANNEL) == before
+    assert await team_cascade_depth(db_client, CHANNEL) == before
 
 
 @pytest.mark.asyncio
@@ -202,12 +203,18 @@ async def test_a_user_message_still_resets_the_depth(db_client):
     await bus.send_message(from_agent="usr_1", to_channel=CHANNEL, content="hi")
     trigger = MessageBusTrigger(bus=bus)
 
-    assert await trigger._team_cascade_depth(CHANNEL) == 0
+    assert await team_cascade_depth(db_client, CHANNEL) == 0
 
 
 @pytest.mark.asyncio
 async def test_patrol_lines_do_not_eat_the_depth_window(db_client):
     """Skipping patrol rows in Python was not enough — they still ate the window.
+
+    Re-pointed 2026-08-18 from `MessageBusTrigger._team_cascade_depth` to
+    `team_posting.team_cascade_depth`. The trigger's copy had no production
+    caller once posting became a tool call, so this file was asserting the
+    invariant against dead code: the SQL exclusion could have been deleted from
+    the LIVE query and the suite would have stayed green.
 
     The depth query is a fixed `LIMIT MAX_TEAM_AGENT_HOPS + 2`. A skipped row
     still consumed one of those slots, so with enough patrol lines interleaved
@@ -229,10 +236,13 @@ async def test_patrol_lines_do_not_eat_the_depth_window(db_client):
         )
     trigger = MessageBusTrigger(bus=bus)
 
-    from xyz_agent_context.message_bus.message_bus_trigger import MAX_TEAM_AGENT_HOPS
+    from xyz_agent_context.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
 
-    # All four agent hops must still be visible, so the cap can fire.
-    assert await trigger._team_cascade_depth(CHANNEL) >= MAX_TEAM_AGENT_HOPS
+    # EXACTLY four: `>=` was satisfied by counting the patrol rows themselves,
+    # so it passed with the SQL exclusion deleted. The reading that distinguishes
+    # them is the count, not a threshold — 3 patrol + 3 hops also clears any
+    # bound the four real hops clear.
+    assert await team_cascade_depth(db_client, CHANNEL) == MAX_TEAM_AGENT_HOPS
 
 
 @pytest.mark.asyncio

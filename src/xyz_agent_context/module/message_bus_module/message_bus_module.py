@@ -36,6 +36,7 @@ from xyz_agent_context.module.base import (
     working_source_matches,
 )
 from xyz_agent_context.schema import (
+    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
     BUS_TEAM_ROOM_EXTRA_KEY,
     ModuleConfig,
     MCPServerConfig,
@@ -224,6 +225,17 @@ class MessageBusModule(XYZBaseModule):
         extra = getattr(ctx_data, "extra_data", None) or {}
         return bool(extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
 
+    @staticmethod
+    def _is_plain_text_turn(ctx_data: Any = None) -> bool:
+        """Does this turn deliver by SPEAKING rather than by calling a tool?
+
+        Only patrol. Kept separate from `_is_team_turn` because a patrol turn is
+        also a team-room turn — it carries both markers — and the room marker on
+        its own would declare `message_team`, which the patrol prompt forbids.
+        """
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
+
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The peer/room tools this turn can deliver through.
 
@@ -234,6 +246,12 @@ class MessageBusModule(XYZBaseModule):
         happens without one.
         """
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
+            return []
+        if self._is_plain_text_turn(ctx_data):
+            # Nothing to declare: the turn's reply IS its plain text. Declaring
+            # `message_team` here is what made both frameworks' reply reminders
+            # name the one tool the patrol prompt forbids — and on NexusPower
+            # the mute-turn nudge then told a correctly-silent lead to call it.
             return []
         config = await self.get_mcp_config()
         extra = getattr(ctx_data, "extra_data", None) or {}
@@ -258,6 +276,15 @@ class MessageBusModule(XYZBaseModule):
         declaration left behind: the runtime calls THIS hook first.
         """
         config = await self.get_mcp_config()
+        if self._is_plain_text_turn(ctx_data):
+            # Both. The prompt says "write it as plain text, do NOT call
+            # message_team", and leaving the schema on the desk is precisely how
+            # a prose prohibition loses: the two tools whose docstrings said "Do
+            # NOT call" took 615 prod calls.
+            return [
+                f"mcp__{config.server_name}__message_agent",
+                f"mcp__{config.server_name}__message_team",
+            ]
         drop = "message_agent" if self._is_team_turn(ctx_data) else "message_team"
         return [f"mcp__{config.server_name}__{drop}"]
 

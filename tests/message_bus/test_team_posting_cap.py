@@ -94,3 +94,62 @@ async def test_a_human_word_resets_the_count(db_client):
     await bus.send_message(from_agent=USER, to_channel=CHANNEL, content="carry on")
 
     assert await team_cascade_depth(db_client, CHANNEL) == 0
+
+
+@pytest.mark.asyncio
+async def test_platform_rows_are_excluded_in_the_query_not_after_it(db_client):
+    """The invariant the hop cap actually rests on, on the LIVE implementation.
+
+    The depth query reads a fixed `LIMIT MAX_TEAM_AGENT_HOPS + 2` newest-first
+    and counts agent rows until it meets a human one. Platform notices inside
+    that window do two things at once: they pad the count, and they push the
+    human message — the reset — out of the window entirely. So filtering them
+    out AFTER the fetch cannot work; the exclusion has to be in the WHERE.
+
+    Laid out so the two readings differ by a definite number rather than by a
+    threshold. One user message, three real hops, then four platform notices:
+
+      * exclusion in SQL   -> hop3, hop2, hop1, usr  -> depth 3 (correct)
+      * filtered afterwards -> 4 notices + hop3, hop2 -> depth 6, and the user
+        message is never reached, so the reset is invisible
+
+    Six is over the cap, so the room would start stripping @mentions off a
+    three-hop chain the user had just restarted. The previous version of this
+    test asserted `depth >= MAX_TEAM_AGENT_HOPS`, which BOTH readings satisfy —
+    it was green on the mutation, and so was the copy of it that used to live in
+    `test_patrol_turn.py` against the trigger's now-deleted `_team_cascade_depth`.
+    The invariant was documented, not tested.
+
+    There is a MySQL twin in `test_team_posting_mysql.py` — the exclusion is
+    written in SQL, so it is dialect-visible — and this is the lane that runs on
+    every commit.
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+    from xyz_agent_context.message_bus.team_posting import (
+        MAX_TEAM_AGENT_HOPS,
+        team_cascade_depth,
+    )
+
+    await _room(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    await bus.send_message(from_agent=USER, to_channel=CHANNEL, content="restart")
+    for i in range(3):
+        await bus.send_message(
+            from_agent=A, to_channel=CHANNEL, content=f"hop{i}"
+        )
+    for i, mt in enumerate(sorted(PLATFORM_MSG_TYPES)[:4]):
+        await bus.send_message(
+            from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}", to_channel=CHANNEL,
+            content=f"notice{i}", msg_type=mt,
+        )
+
+    depth = await team_cascade_depth(db_client, CHANNEL)
+    assert depth == 3, (
+        f"expected the three real hops, got {depth} — platform rows are being "
+        f"counted as agent hops and hiding the human reset behind them"
+    )
+    assert depth < MAX_TEAM_AGENT_HOPS, (
+        "a chain the user had just restarted would have its @mentions stripped"
+    )

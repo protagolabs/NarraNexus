@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -1453,3 +1453,18 @@ agent 先说话，然后平台解释它没做什么。名字用 `member_map` 解
 与 dev 的 PR #310 合并后，trigger 侧这份差事记账已无调用者：它原本由 `_deliver_reply` 调用，
 而该方法随「房间改为工具调用」一并移除。活的实现在 [[team_posting.py]]，理由同级联上限——
 这是「把消息放进团队房间」的属性，不是「恰好触发了本轮的循环」的属性。
+
+## 2026-08-18 — 删掉级联上限的三个重复符号与死常量
+
+`MAX_TEAM_AGENT_HOPS`、`_extract_team_mentions`、`_team_cascade_depth` 在
+[[team_posting.py]] 落地后是**复制**而非移动，trigger 侧仍留着一份；`_team_cascade_depth`
+已无生产调用者，而「平台行必须在 SQL 的 WHERE 里排除、不能取回后再过滤」这条上限真正依赖
+的不变量，测试只钉在这份死代码上 —— 从活的查询里删掉排除子句，整个测试套照样全绿。
+
+删除前先把断言搬到活实现上，并发现搬过去的断言本身也钉不住：`depth >= MAX_TEAM_AGENT_HOPS`
+在两种读法下都成立（平台行自己就把计数凑满了）。改成精确值构造 —— 一条用户发言 + 三个真实
+hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确），取回后再过滤得 6，且用户那条
+「重置点」被挤出窗口从此不可见，于是刚被用户重启的三跳链会被误判超限、@ 被剥掉。两条测试
+均做过变异验证。
+
+顺带删除三态 `POST_OK`/`POST_FAILED`/`POST_NOT_ATTEMPTED`（铁律 #2）。

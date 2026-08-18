@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/patrol.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -180,3 +180,20 @@ lead 换成 B。此后每轮都跳过。
 一处来自「这行对巡查者无信息」的论证)。方向不同,写入相同,原则也相同:
 **stalled 是推导出来的事实,它只应该活到支持它的证据消失为止**。抽成一处之后,
 「跳过巡查者」那个分支只剩它真正想表达的 `continue`。
+
+## 2026-08-18 — patrol 轮的表达面：声明为空、两个发送动词都撤下桌、不装静音催促
+
+patrol 提示要求 lead 把房间状态行写成**纯文本**并明确禁止 `message_team`（平台会以房间
+自己的 marker 张贴，lead 调用就变成它在房间里聊天、并计入级联跳数）。但 patrol 走的是
+`_invoke_runtime(team_room=True)`，于是同一轮里 `message_team` 被宣告为默认回复工具、被
+两个框架的回复提醒点名 —— 和三行之上的提示直接冲突。NexusPower 上更糟：`expression_nudge`
+在「本轮没调任何回复工具就收尾」时触发静音修复，而这**正是** patrol 的正确结局，催促文案
+则让 lead 去做被禁止的事。
+
+新增 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`（见 [[hook_schema.py]]）：本轮的回复就是它的纯文本。
+带这个标记时 [[message_bus_module.py]] 声明为空、并把两个发送动词一起撤下桌 —— 用散文禁止
+一个可见工具正是这次改造要终结的争论方式（615 次调用打在两个写着「Do NOT call」的工具上）。
+`expression_nudge` 收窄为 `team_room and not patrol`。
+
+守卫：`test_expressive_collection.py` 两条（桌面形态 + 源码钉住 nudge 收窄与 `patrol=True`
+自我声明）。

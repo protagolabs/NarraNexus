@@ -342,3 +342,73 @@ def test_every_module_disallow_signature_accepts_ctx_data():
             f"{name}.get_disallowed_tools{tuple(params)} does not take ctx_data "
             f"— it will TypeError at the collection site and suppress nothing"
         )
+
+
+@pytest.mark.asyncio
+async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeypatch):
+    """Patrol's reply IS its plain text, so its desk holds no send verb.
+
+    A patrol turn carries the team-room marker too — it happens in a room — and
+    on that marker alone `message_team` is declared as the turn's default reply
+    tool and named by both frameworks' reply reminders. The patrol prompt, three
+    lines up, says "write it as plain text (do NOT call message_team)". On
+    NexusPower it got worse than a contradiction: the mute-turn nudge fires when
+    a turn closes with no reply-tool call, which for patrol is the SPECIFIED
+    outcome, and the nudge's text tells the lead to call the forbidden tool. If
+    obeyed, the status line posts as the lead chatting in the room, counted as a
+    cascade hop.
+
+    So the marker turns the declaration off rather than the prompt asking nicely
+    — and the schemas come off the desk with it, because a prose prohibition
+    beside a visible tool is the argument this redesign exists to stop having.
+    """
+    from unittest.mock import MagicMock
+
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        MessageBusModule,
+    )
+    from xyz_agent_context.schema import (
+        BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
+        BUS_TEAM_ROOM_EXTRA_KEY,
+    )
+
+    bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
+    instances = [
+        SimpleNamespace(module_class="MessageBusModule", module=bus, instance_id="i1")
+    ]
+    declared, suppressed = await _desk(
+        instances, monkeypatch, working_source="message_bus",
+        extra={BUS_TEAM_ROOM_EXTRA_KEY: True, BUS_PLAIN_TEXT_TURN_EXTRA_KEY: True},
+    )
+
+    assert declared == [], f"patrol declared a reply tool: {declared}"
+    assert set(suppressed) == {
+        "mcp__message_bus_module__message_agent",
+        "mcp__message_bus_module__message_team",
+    }, suppressed
+
+
+def test_patrol_does_not_arm_the_mute_turn_nudge():
+    """The other half, and the half that cannot be read off the desk.
+
+    `expression_nudge` is a turn-profile field, not a declaration, so the desk
+    test above stays green if patrol keeps arming it — and an armed nudge on a
+    turn with an empty declaration is not harmless either: it is gated on
+    `a.expression.names()` today, and the plausible future change is naming a
+    generic fallback when the list is empty.
+    """
+    import inspect
+
+    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+
+    src = inspect.getsource(MessageBusTrigger._invoke_runtime)
+    assert "if team_room and not patrol else None" in src, (
+        "patrol arms the mute-turn nudge again — on a surface whose correct "
+        "outcome is closing with plain text or in silence"
+    )
+
+    body = inspect.getsource(MessageBusTrigger._patrol_body)
+    assert "patrol=True" in body, (
+        "the patrol lane stopped declaring itself as one, so its turn looks "
+        "like an ordinary team-room turn to every hook downstream"
+    )

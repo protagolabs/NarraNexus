@@ -66,7 +66,15 @@ from xyz_agent_context.message_bus.system_messages import (
     trigger_label as _platform_trigger_label,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
+from xyz_agent_context.message_bus.team_posting import (
+    MAX_TEAM_AGENT_HOPS,
+    extract_team_mentions,
+)
+from xyz_agent_context.schema import (
+    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
+    BUS_TEAM_ROOM_EXTRA_KEY,
+    WorkingSource,
+)
 from xyz_agent_context.schema.turn_profile import TurnProfile
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.timezone import utc_now
@@ -114,7 +122,6 @@ WAKE_SIGNAL_SLICE = 0.5
 # @-mention cascade alive without a human message. Past this, an agent reply's
 # @mentions are dropped so two agents can't @ each other forever. A user
 # message resets the chain.
-MAX_TEAM_AGENT_HOPS = 4
 
 # Team group chat: how many recent room messages to feed a triggered agent as
 # context (oldest→newest). The agent replies to the latest message addressed to
@@ -143,9 +150,6 @@ TEAM_BOARD_MAX_ITEMS = 15
 #: "the runtime never called it" is NOT "it landed" — reading it that way books
 #: an undelivered turn as a completed hop and announces a failure to a room
 #: that may already have heard the agent.
-POST_OK = "ok"
-POST_FAILED = "failed"
-POST_NOT_ATTEMPTED = "not_attempted"
 
 # Owned by local_bus (whose `get_pending_messages` enforces the filter) and
 # imported here so the two can't drift. Once a message's failure_count reaches
@@ -1974,6 +1978,7 @@ class MessageBusTrigger:
             retrieval_anchor="team patrol",
             include_monologue=True,
             team_room=True,
+            patrol=True,
             on_progress=act.on_progress,
             on_event_id=on_event_id,
             cancellation=cancellation,
@@ -1998,7 +2003,7 @@ class MessageBusTrigger:
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             to_channel=channel_id,
             content=text,
-            mentions=self._extract_team_mentions(text, member_map) or None,
+            mentions=extract_team_mentions(text, member_map) or None,
             msg_type=PATROL_MSG_TYPE,
         )
         await note_patrol_spoke(db, team_id)
@@ -2538,65 +2543,6 @@ class MessageBusTrigger:
         ]
         return "\n".join(lines)
 
-    def _extract_team_mentions(
-        self, text: str, member_map: Dict[str, str]
-    ) -> List[str]:
-        """Resolve @mentions in an agent's reply to channel-member agent_ids
-        (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
-        tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
-        if not tokens:
-            return []
-        if "all" in tokens or "everyone" in tokens:
-            return ["@everyone"]
-        out: List[str] = []
-        for aid, name in member_map.items():
-            nm = (name or aid).lower()
-            first = nm.split()[0] if nm.split() else nm
-            if nm in tokens or first in tokens or any(
-                len(t) >= 2 and nm.startswith(t) for t in tokens
-            ):
-                out.append(aid)
-        return out
-
-    async def _team_cascade_depth(self, channel_id: str) -> int:
-        """How many consecutive agent (non-user) messages end the channel — i.e.
-        how many agent hops have happened since the last human message. A user
-        message resets this to 0 on its next turn."""
-        ph = self._bus._db.placeholder
-        # Platform lines are excluded IN SQL, not skipped after the fact.
-        #
-        # A patrol line is the PLATFORM taking stock, not an agent taking a
-        # turn, so it must not count toward the cap (owner decision
-        # 2026-08-07, option a) — otherwise the exemption is self-defeating:
-        # patrol speaks into a room that is already at the cap precisely
-        # because the flow broke, and its own line would push every later
-        # chase @ out of reach.
-        #
-        # The same sentence is true word for word of the stop notice and the
-        # bulletin notice, which were left in when this was written because
-        # patrol was the only one that existed. They are now all excluded
-        # through one shared tuple, so the next platform message type cannot
-        # be forgotten here (see `system_messages`).
-        #
-        # Filtering in Python was not enough. The window is a fixed LIMIT, so
-        # a skipped row still consumed a slot in it: with 3 patrol lines among
-        # the last 6 messages, only 3 countable hops fit, `depth` could never
-        # reach MAX_TEAM_AGENT_HOPS, and the runaway-@ cap silently stopped
-        # applying — in exactly the rooms patrol frequents, since it only
-        # speaks where a chain is already looping.
-        rows = await self._bus._db.execute(
-            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders(ph)})) "
-            f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id, *PLATFORM_MSG_TYPES),
-        )
-        depth = 0
-        for r in rows or []:
-            if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
-                break
-            depth += 1
-        return depth
-
     async def _incoming_is_reply_to_my_errand(
         self,
         agent_id: str,
@@ -2706,7 +2652,7 @@ class MessageBusTrigger:
             rows = await self._bus._db.execute(
                 # No human-sender filter here on purpose: from_agent is bound
                 # to agent_id, so a usr_-prefixed sender cannot match anyway.
-                # (_team_cascade_depth needs one because it reads EVERY message
+                # (team_posting.team_cascade_depth needs one because it reads EVERY message
                 # in the channel.) A dead predicate would be worse than none —
                 # 'usr_%' is not even precise, since _ is a LIKE wildcard.
                 f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
@@ -2929,6 +2875,7 @@ class MessageBusTrigger:
         on_progress=None,
         on_event_id=None,
         team_room: bool = False,
+        patrol: bool = False,
         include_monologue: bool = False,
         team_id: str = "",
         cancellation=None,
@@ -3035,9 +2982,15 @@ class MessageBusTrigger:
             # A minimal profile, not `fast_for(...)`: every other field's default
             # preserves current behaviour, and `narrative_persistence` is read
             # only on the `bm25_top1` fast path, which this does not take.
+            # `expression_nudge` is the MESSAGE lane's, not patrol's. It fires
+            # NexusPower's mute-turn repair when a turn closes having called no
+            # reply tool — correct when the room expects `message_team`, exactly
+            # wrong on patrol, where closing with plain text (or in silence) is
+            # the specified outcome and the nudge would name a tool the patrol
+            # prompt forbids.
             turn_profile=(
                 TurnProfile(name="team_room", expression_nudge=True)
-                if team_room else None
+                if team_room and not patrol else None
             ),
             on_progress=on_progress,
             on_event_id=on_event_id,
@@ -3062,6 +3015,10 @@ class MessageBusTrigger:
                 # reminders. MessageBusModule's own gate is a second line
                 # of defense on its declaration.
                 BUS_TEAM_ROOM_EXTRA_KEY: team_room,
+                # Patrol delivers by speaking: the platform posts the composed
+                # line under the room's own marker. The module reads this to
+                # declare nothing and clear both send verbs off the desk.
+                BUS_PLAIN_TEXT_TURN_EXTRA_KEY: patrol,
                 # Errand scope — empty unless this turn continues our own
                 # errand. sender_agent_id is the peer whose reply triggered us,
                 # i.e. exactly who a follow-up would go to.
