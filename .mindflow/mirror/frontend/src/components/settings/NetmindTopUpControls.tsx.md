@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/settings/NetmindTopUpControls.tsx
-last_verified: 2026-07-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 支付方式 + 微信的人民币换算
+
+顶部多了 [[PaymentMethodChoice]]，微信选中时在金额行下方多一块换算说明。两个
+拿捏过的细节：
+
+- **换算金额同时印在按钮上**（`充值 ¥73.00`）。提交前最后读到的那个数，应该是
+  银行真正划走的那个，而不是他自己敲进去的那个。
+- **本组件不判断报价是否新鲜**。面板只会把「和当前金额匹配」的报价传进来，
+  不匹配时传 `null`。职责边界没变（见下方原有条目）：涉及钱的守卫全在面板。
+
+`fxLoading` 单独一个 prop 而不是用 `fx === null` 推断：「还没开始查」和「查完了
+但没有结果」要显示的东西不一样。
 
 # NetmindTopUpControls.tsx — 充值("Add credits")控件
 

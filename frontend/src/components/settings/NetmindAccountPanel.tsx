@@ -39,7 +39,9 @@ import { platform } from '@/lib/platform';
 import type {
   FeeInfo,
   FinanceRecord,
+  FxQuote,
   QuotaMeResponse,
+  RechargePaymentMethod,
   SubscriptionMe,
   SubscriptionPlan,
 } from '@/types';
@@ -63,6 +65,9 @@ type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
 
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
+// A custom amount is typed a digit at a time; without this every keystroke is
+// its own exchange-rate request.
+const FX_DEBOUNCE_MS = 400;
 
 // Whether the user's NetMind account is wired in as a provider (module F).
 // Auto-registered by the backend on login, so this is a read-only status:
@@ -123,6 +128,17 @@ export function NetmindAccountPanel() {
   const [custom, setCustom] = useState<string>('');
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
+  // Card is the default rail because it is the one that needs no explanation
+  // and no currency conversion. All three stay offered regardless of locale.
+  const [payMethod, setPayMethod] = useState<RechargePaymentMethod>('default');
+  // The quote is kept WITH the amount it describes. Two different lifetimes
+  // live in one reply: the conversion ("$10 ≈ ¥73") expires the moment the
+  // amount changes, while the minimum is a property of the WeChat rail and
+  // does not. Clearing the whole thing on every keystroke dropped the floor
+  // too, and a fast typist could then submit an under-minimum amount straight
+  // into an upstream 400 — which is the exact thing the floor exists to avoid.
+  const [fx, setFx] = useState<{ quote: FxQuote; forAmount: number } | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
   const [linkBusy, setLinkBusy] = useState(false); // use-subscription link in flight
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -380,6 +396,50 @@ export function NetmindAccountPanel() {
   // docstring for why. Declared after them so neither is read before init.
   const returnNotice = useNetmindPaymentReturn(isPowerUser, load, pollUntilActive);
 
+  // The amount the top-up controls currently describe. ONE derivation, read by
+  // both the quote effect and the submit handler, so the number we quote and
+  // the number we charge can never come from two different rules.
+  // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
+  const selectedAmount = custom.trim() ? Number(custom.trim()) : tier;
+
+  // WeChat settles in CNY, so the payer needs to see what their bank will
+  // actually take before they commit. Two rules make this safe:
+  //   * the quote is stored WITH the amount it was fetched for, and only the
+  //     render path requires those to match (see the `fx` prop below). A stale
+  //     "$10 ≈ ¥73" therefore never sits under a $25 input, while the rail's
+  //     minimum — which does not depend on the amount — survives the change.
+  //   * a failed quote is swallowed. It is a display helper — refusing to let
+  //     someone pay because it 502'd would turn a cosmetic outage into a
+  //     revenue one, and upstream converts and enforces its own minimum anyway.
+  useEffect(() => {
+    if (payMethod !== 'wechat') {
+      setFx(null); // leaving the rail drops the floor with it, correctly
+      setFxLoading(false);
+      return;
+    }
+    if (!Number.isFinite(selectedAmount) || selectedAmount <= 0) {
+      setFxLoading(false);
+      return;
+    }
+    setFxLoading(true);
+    let cancelled = false;
+    // Debounced: a custom amount is typed a digit at a time and each keystroke
+    // would otherwise be its own request.
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api.fxRate(selectedAmount);
+        if (!cancelled && mounted.current && r.data) {
+          setFx({ quote: r.data, forAmount: selectedAmount });
+        }
+      } catch {
+        /* quote unavailable — see above; the payment path stays open */
+      } finally {
+        if (!cancelled && mounted.current) setFxLoading(false);
+      }
+    }, FX_DEBOUNCE_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [payMethod, selectedAmount]);
+
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
   // tags this loop; if rechargeGenRef moves on (user stopped waiting or started
@@ -429,13 +489,24 @@ export function NetmindAccountPanel() {
 
   const handleRecharge = useCallback(async () => {
     if (rechargeRef.current) return; // synchronous double-submit guard
-    // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
-    const raw = custom.trim();
-    const amount = raw ? Number(raw) : tier;
+    const amount = selectedAmount;
     if (!Number.isFinite(amount) || amount <= 0) {
       setRechargeState('failed');
       setRechargeError(
         t('settings.netmind.rechargeInvalidAmount', 'Enter an amount greater than 0.'),
+      );
+      return;
+    }
+    // WeChat has a floor upstream rejects with a 400. When we have a quote,
+    // stop it here instead: a payer who clicked through to a QR code only to be
+    // bounced has already lost trust in the flow.
+    const minUsd = Number(fx?.quote.min_amount_usd);
+    if (payMethod === 'wechat' && Number.isFinite(minUsd) && amount < minUsd) {
+      setRechargeState('failed');
+      setRechargeError(
+        t('settings.netmind.rechargeBelowMinimum',
+          'WeChat has a minimum of about ${{min}} per payment.',
+          { min: minUsd.toFixed(2) }),
       );
       return;
     }
@@ -444,7 +515,7 @@ export function NetmindAccountPanel() {
     setRechargeState('processing');
     setRechargeError(null);
     try {
-      const r = await api.recharge(amount);
+      const r = await api.recharge(amount, payMethod);
       const url = r.data?.checkout_url;
       const sid = r.data?.session_id;
       if (!url || !sid) throw new Error('No checkout URL returned');
@@ -457,7 +528,7 @@ export function NetmindAccountPanel() {
       }
       rechargeRef.current = false;
     }
-  }, [custom, tier, t, pollRechargeStatus]);
+  }, [selectedAmount, payMethod, fx, t, pollRechargeStatus]);
 
   // User closed the payment window / doesn't want to keep waiting: invalidate
   // the in-flight poll (bump the generation) and return to idle so they can
@@ -590,6 +661,10 @@ export function NetmindAccountPanel() {
       custom={custom}
       rechargeState={rechargeState}
       rechargeError={rechargeError}
+      paymentMethod={payMethod}
+      fx={fx && fx.forAmount === selectedAmount ? fx.quote : null}
+      fxLoading={fxLoading}
+      onChangePaymentMethod={setPayMethod}
       onSelectTier={(v) => { setTier(v); setCustom(''); }}
       onChangeCustom={setCustom}
       onRecharge={handleRecharge}

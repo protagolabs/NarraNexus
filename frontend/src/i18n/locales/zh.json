@@ -1005,7 +1005,16 @@
       "cancelConfirmKeep": "保留订阅",
       "reactivateConfirmTitle": "恢复自动续费？",
       "reactivateConfirmAction": "恢复",
-      "reactivateConfirmDismiss": "暂不"
+      "reactivateConfirmDismiss": "暂不",
+      "payMethodLabel": "支付方式",
+      "payCard": "信用卡",
+      "payAlipay": "支付宝",
+      "payWechat": "微信支付",
+      "wechatConversion": "微信按人民币扣款：{{usd}} ≈ {{cny}}",
+      "wechatConverting": "换算中…",
+      "wechatNote": "到账仍是对应的美元额度。汇率在发起支付时确定。",
+      "wechatMin": "单笔最低 {{min}}。",
+      "rechargeBelowMinimum": "微信单笔最低约 ${{min}}。"
     },
     "modal": {
       "title": "设置",

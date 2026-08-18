@@ -48,6 +48,7 @@ const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
 const mockRecharge = vi.fn();
 const mockRechargeStatus = vi.fn();
+const mockFxRate = vi.fn();
 const mockGetProviders = vi.fn();
 const mockUseSubscription = vi.fn();
 vi.mock('@/lib/api', () => ({
@@ -62,6 +63,7 @@ vi.mock('@/lib/api', () => ({
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
     recharge: (...a: unknown[]) => mockRecharge(...a),
     rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
+    fxRate: (...a: unknown[]) => mockFxRate(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
     useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
   },
@@ -180,6 +182,7 @@ beforeEach(() => {
   mockReactivate.mockReset();
   mockRecharge.mockReset();
   mockRechargeStatus.mockReset();
+  mockFxRate.mockReset();
   mockGetProviders.mockReset();
   mockUseSubscription.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
@@ -848,7 +851,7 @@ test('recharge: default tier → api.recharge(10) + openExternal(checkout_url)',
   render(<NetmindAccountPanel />);
   await openTopUp();
   fireEvent.click(screen.getByRole('button', { name: /^Recharge$/ }));
-  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'default'));
   await waitFor(() =>
     expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/x'),
   );
@@ -865,7 +868,7 @@ test('recharge: custom amount overrides the preset tier', async () => {
   await openTopUp();
   fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '25' } });
   fireEvent.click(screen.getByRole('button', { name: /^Recharge$/ }));
-  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(25));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(25, 'default'));
 });
 
 test('recharge: non-positive amount → validation error, no api call', async () => {
@@ -1028,3 +1031,102 @@ test('an unrecognised status value is ignored, not rendered blank', async () => 
   expect(screen.queryByText(/not been charged/i)).toBeNull();
 });
 
+
+
+// ── Alipay / WeChat top-up (nexus Stripe account) ──────────────────────────
+// WeChat settles in CNY while the credit being bought is denominated in USD,
+// so the panel has to quote the real charge before the payer commits. Card and
+// Alipay are both USD and share the plain flow.
+
+const FX_QUOTE = {
+  success: true,
+  data: {
+    from: 'USD', to: 'CNY', rate: '7.30',
+    amount_usd: '10', charge_amount: '73.00',
+    min_amount_usd: '0.69', min_charge: '5.00',
+  },
+};
+
+async function pickMethod(name: RegExp) {
+  fireEvent.click(await screen.findByRole('radio', { name }));
+}
+
+test('top-up: WeChat quotes the CNY charge next to the USD amount', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  // The payer must see BOTH numbers IN ONE SENTENCE: they are buying $10 of
+  // credit but their bank statement will say CNY. Asserting them separately
+  // would pass even if the two ended up in unrelated places.
+  expect(await screen.findByText(/\$10\.00 ≈ ¥73\.00/)).toBeTruthy();
+  // ...and again on the button, so the last thing read before committing is
+  // the amount that actually leaves their account.
+  expect(screen.getByRole('button', { name: /Recharge ¥73\.00/ })).toBeTruthy();
+});
+
+test('top-up: the chosen payment method reaches the API', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/Alipay/);
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'alipay'));
+});
+
+test('top-up: under the WeChat minimum is stopped here, not by a 400', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  await screen.findByText(/\$10\.00 ≈ ¥73\.00/);
+  fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '0.5' } });
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  expect(await screen.findByText(/minimum/i)).toBeTruthy();
+  expect(mockRecharge).not.toHaveBeenCalled();
+});
+
+test('top-up: a failed quote must not block the payment', async () => {
+  // The quote is informational. Refusing to let someone pay because a display
+  // helper 502'd would turn a cosmetic outage into a revenue outage; upstream
+  // does its own conversion and enforces its own minimum.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockRejectedValue(new Error('fx unavailable'));
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'wechat'));
+});
+
+test('top-up: switching back to card drops the CNY line', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  await screen.findByText(/\$10\.00 ≈ ¥73\.00/);
+  await pickMethod(/Card/);
+  await waitFor(() => expect(screen.queryByText(/≈ ¥73\.00/)).toBeNull());
+});
+
+test('top-up: card is the default method and asks for no quote', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  const card = await screen.findByRole('radio', { name: /Card/ });
+  expect(card.getAttribute('aria-checked')).toBe('true');
+  expect(mockFxRate).not.toHaveBeenCalled();
+});

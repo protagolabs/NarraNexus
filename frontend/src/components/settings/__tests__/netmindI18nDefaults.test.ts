@@ -18,10 +18,16 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Every component that authors settings.netmind.* copy. NetmindTopUpControls
+// and PaymentMethodChoice were added 2026-08-18: the former had been carrying
+// t() defaults with no en.json coverage since it was extracted, which is the
+// exact drift this file exists to catch.
 const componentFiles = [
   'NetmindActionZone.tsx',
   'NetmindAccountPanel.tsx',
   'NetmindUpsellCard.tsx',
+  'NetmindTopUpControls.tsx',
+  'PaymentMethodChoice.tsx',
 ].map((f) => resolve(here, '..', f));
 
 const enJson = JSON.parse(

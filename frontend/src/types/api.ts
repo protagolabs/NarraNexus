@@ -1137,10 +1137,19 @@ export interface PlanListResponse extends ApiResponse {
   data?: PlanList;
 }
 
+// Which Pro product to start. `stripe` is a card subscription that renews
+// itself; `alipay` / `wechat` cannot pay a Stripe subscription at all and are
+// therefore a ONE-TIME purchase of N months that ends when the period does.
+export type SubscribePaymentMethod = 'stripe' | 'alipay' | 'wechat';
+
 // POST /api/billing/subscribe -> Stripe checkout to redirect the user to.
 export interface SubscribeCheckout {
   session_id: string;
   checkout_url: string;
+  // Only on a CNY (WeChat) one-time purchase; see RechargeCheckout.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
 }
 
 export interface SubscribeResponse extends ApiResponse {
@@ -1213,12 +1222,45 @@ export interface RecordsResponse extends ApiResponse {
   has_next?: boolean;
 }
 
+// Which rail the payer picked. `default` is the card page (Stripe shows Alipay
+// alongside the card form there too); the explicit values force one rail.
+// WeChat is the only one that settles in a foreign currency — see FxQuote.
+export type RechargePaymentMethod = 'default' | 'alipay' | 'wechat';
+
 // POST /api/billing/recharge -> hosted Stripe checkout for a top-up (module E).
 export interface RechargeCheckout {
   recharge_id?: string;
   session_id: string;
   checkout_url: string;
   status?: string; // pending at creation
+  // Present only when the charge is not in USD (WeChat). `charge_amount` is
+  // what the payer's bank actually takes; the credit they receive is still the
+  // USD `amount` they asked for.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
+}
+
+// GET /api/billing/fx-rate -> what a CNY charge would cost right now.
+//
+// Every field is a STRING (upstream sends money as text to avoid float drift)
+// and every field is optional: the backend proxies the upstream body without
+// schema validation, so a partial 200 is possible and call sites must not
+// assume presence — the same rule FeeInfo carries.
+export interface FxQuote {
+  from?: string;
+  to?: string;
+  rate?: string;
+  amount_usd?: string;
+  charge_amount?: string;
+  // The floor below which upstream rejects the payment outright. Shown and
+  // enforced before checkout so the user never meets that 400.
+  min_amount_usd?: string;
+  min_charge?: string;
+}
+
+export interface FxQuoteResponse extends ApiResponse {
+  data?: FxQuote;
 }
 
 export interface RechargeResponse extends ApiResponse {

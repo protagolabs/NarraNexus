@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: true
 ---
+
+## 2026-08-18 — 支付方式与汇率报价的类型
+
+`RechargePaymentMethod`（`default | alipay | wechat`）与
+`SubscribePaymentMethod`（`stripe | alipay | wechat`）**故意分成两个类型**：同一条
+"刷卡"通道，上游在两个接口里的拼写就是不一样的，合并成一个联合类型会让调用点在
+编译期看起来合法、运行期被上游 400。
+
+`FxQuote` 的每个字段都是 `string` 且都可选 —— 金额用文本传（避免浮点漂移），
+且后端逐字代理上游、不做 schema 校验，所以**部分字段缺失的 200 是可能的**，
+读取点必须可选链 + 兜底。与 [[FeeInfo]] 同一条规矩。
+
+`RechargeCheckout` / `SubscribeCheckout` 多了 `charge_currency` / `charge_amount`
+/ `fx_rate`：**只有非美元（微信）才有**。`charge_amount` 是银行真正划走的钱，
+用户拿到的额度仍是他请求的那个美元数 —— 两者不是一回事，别混用。
 
 ## 2026-08-11 — ApiResponse 加可选 `message`
 

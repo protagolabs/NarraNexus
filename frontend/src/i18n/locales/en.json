@@ -1005,7 +1005,16 @@
       "cancelConfirmKeep": "Keep subscription",
       "reactivateConfirmTitle": "Resume auto-renew?",
       "reactivateConfirmAction": "Resume",
-      "reactivateConfirmDismiss": "Not now"
+      "reactivateConfirmDismiss": "Not now",
+      "payMethodLabel": "Payment method",
+      "payCard": "Card",
+      "payAlipay": "Alipay",
+      "payWechat": "WeChat Pay",
+      "wechatConversion": "WeChat is charged in CNY: {{usd}} ≈ {{cny}}",
+      "wechatConverting": "Converting…",
+      "wechatNote": "You still receive the USD amount as credit. The rate is applied when payment starts.",
+      "wechatMin": "Minimum {{min}} per payment.",
+      "rechargeBelowMinimum": "WeChat has a minimum of about ${{min}} per payment."
     },
     "modal": {
       "title": "Settings",
