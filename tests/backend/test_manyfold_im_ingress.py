@@ -458,7 +458,6 @@ async def test_stream_fallback_keeps_legacy_text_for_plain_turn(compat_app):
 from types import SimpleNamespace  # noqa: E402
 
 from xyz_agent_context.channel.channel_trigger_base import (  # noqa: E402
-    CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
 )
 from xyz_agent_context.module import managed_channel_ingress as ingress_mod  # noqa: E402
@@ -741,7 +740,21 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
         agent_id="a1", message=msg, db=object(), reply_text="", error_text="boom"
     )
     assert "text" in sent
-    assert calls["inbox"]["outbound_text"] == CHANNEL_SILENT_SENTINEL
+    # Was `== CHANNEL_SILENT_SENTINEL` until 2026-08-18. The sentinel reached the
+    # recorder, which wrote `(stayed silent)` as an OUTBOUND row attributed to the
+    # agent — and Telegram/WeChat read `inbox_thread_messages` back as their
+    # conversation memory, so the agent was handed that string as its own previous
+    # reply. The recorder's contract is that an empty outbound writes no row at
+    # all, which is what the other call site always passed.
+    #
+    # The panel is not worse off: it showed "(stayed silent)" before and shows no
+    # reply row now, both meaning "the agent did not answer". What the user DID
+    # receive on this path is the platform's error fallback (asserted just above
+    # via `sent`), which is the platform speaking, not the agent — recording it as
+    # the agent's words is the confusion this removes.
+    assert calls["inbox"]["outbound_text"] == ""
+    # The inbound half must still be recorded: a failed turn that loses the
+    # incoming message from the panel is the failure this test was written for.
     assert calls["inbox"]["inbound_text"] == "hi"
     assert calls["audit"][0] == "managed_ingress_processed"
 
