@@ -99,6 +99,14 @@ def format_stats_result(sort_by: str, stats: list) -> dict:
 # is what makes create-with-a-random-id parity-able at all.
 CREATE_AGENT_NO_OWNER_MSG = "Cannot determine your owner (created_by). Aborting."
 
+# A nameless agent renders its raw agent_id in every surface, and a
+# whitespace-only one renders as blank — less identifiable still. The rename
+# paths (update_agent_profile and PUT /api/auth/agents) both refuse this
+# already; creation used to accept it, which meant the same value was legal to
+# create and illegal to change to. Shared between the two create paths for the
+# same byte-parity reason as the message above.
+CREATE_AGENT_EMPTY_NAME_MSG = "agent_name cannot be empty. Aborting."
+
 
 def format_create_agent_success(agent_name: str, new_agent_id: str, warnings: list | None = None) -> dict:
     """Build the create_agent success dict. Any non-fatal provisioning warning

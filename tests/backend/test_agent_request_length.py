@@ -70,3 +70,36 @@ def test_manyfold_update_overlong_rejected(field):
 def test_manyfold_update_at_limit_accepted(field):
     obj = ManyfoldUpdateAgentRequest(**{field: AT_LIMIT})
     assert getattr(obj, field) == AT_LIMIT
+
+
+# --- The cap measures the STORED form (2026-08-17) ----------------------------
+# `AgentRepository` strips on the way in, so a value whose only overflow is
+# trailing whitespace is not overflow at all. Measuring the raw string made
+# `"x"*255 + " "` a 422 on the HTTP path while the agent-facing
+# `update_agent_profile` — which measures after stripping — accepted the same
+# input: one more "same input, two answers" split between the two writers of
+# the agents row.
+
+AT_LIMIT_PADDED = AT_LIMIT + "   "
+
+
+@pytest.mark.parametrize("model", [CreateAgentRequest, UpdateAgentRequest])
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_trailing_whitespace_does_not_push_a_legal_value_over_the_cap(model, field):
+    obj = model(**{field: AT_LIMIT_PADDED})
+    assert getattr(obj, field) == AT_LIMIT
+
+
+@pytest.mark.parametrize("model", [CreateAgentRequest, UpdateAgentRequest])
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_genuine_overflow_is_still_rejected_after_stripping(model, field):
+    with pytest.raises(ValidationError):
+        model(**{field: OVER + "   "})
+
+
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_none_is_not_turned_into_empty_text(field):
+    """On the update path None means "not supplied" and "" means "clear it" —
+    the strip validator must not collapse that distinction."""
+    assert getattr(UpdateAgentRequest(**{field: None}), field) is None
+    assert getattr(UpdateAgentRequest(**{field: "   "}), field) == ""

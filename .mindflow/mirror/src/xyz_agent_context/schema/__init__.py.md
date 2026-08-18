@@ -15,6 +15,10 @@ stub: false
 注:`backend/` 引 `xyz_agent_context` 是合法方向,反向不行——所以共享的那份
 必须落在 package 里,这也是它没被放进 backend 的原因。
 
+同日追加:`AGENT_TEXT_MAX_LENGTH` 也进了门面。此前它只能从
+`xyz_agent_context.schema.entity_schema` 深引(`_awareness_writes` 就是那么引的),
+而 [[api_schema]] 与写边校验都需要它;放进门面后不必再绕过门面伸手进子模块。纯转发。
+
 ## 2026-08-10 — 导出 `JobUpdateFields`
 
 [[job_schema]] 新增的 job_update 可变字段集合进公共导出面——两个 backend 路由

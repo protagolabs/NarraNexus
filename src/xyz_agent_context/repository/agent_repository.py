@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 from loguru import logger
 
 from .base import BaseRepository
-from xyz_agent_context.schema import Agent
+from xyz_agent_context.schema import Agent, normalize_agent_text
 
 
 class AgentRepository(BaseRepository[Agent]):
@@ -82,14 +82,24 @@ class AgentRepository(BaseRepository[Agent]):
         agent_type: Optional[str] = None,
         agent_metadata: Optional[Dict[str, Any]] = None
     ) -> int:
-        """Add a new Agent"""
+        """Add a new Agent.
+
+        Text fields are stored in their normalized form (see
+        :func:`normalize_agent_text`). Enforced HERE because this is the only
+        point every creation path passes through — the two routes and the MCP
+        tool arrive via ``provision_new_agent``, while arena provisioning and
+        the migration applier call this directly. A caller that stores an
+        unstripped name leaves a row that can never be normalized afterwards:
+        the update path compares normalized values, so saving the "same" name
+        without the stray space is judged a no-op and never written.
+        """
         logger.debug(f"    → AgentRepository.add_agent({agent_id})")
 
         agent = Agent(
             agent_id=agent_id,
-            agent_name=agent_name,
+            agent_name=normalize_agent_text(agent_name),
             created_by=created_by,
-            agent_description=agent_description,
+            agent_description=normalize_agent_text(agent_description),
             agent_type=agent_type,
             agent_metadata=agent_metadata,
         )
@@ -97,8 +107,20 @@ class AgentRepository(BaseRepository[Agent]):
         return await self.insert(agent)
 
     async def update_agent(self, agent_id: str, updates: Dict[str, Any]) -> int:
-        """Update Agent information"""
+        """Update Agent information.
+
+        Text fields are normalized on the way in, same as :meth:`add_agent`,
+        so "the stored form" is a property of the table rather than of whoever
+        happened to write it. Callers that compare before writing (the update
+        route, the awareness tool) normalize too — that is what lets them trust
+        "already equal" and then verify by re-reading.
+        """
         logger.debug(f"    → AgentRepository.update_agent({agent_id})")
+
+        updates = {
+            k: normalize_agent_text(v) if k in ("agent_name", "agent_description") else v
+            for k, v in updates.items()
+        }
 
         # Serialize JSON fields
         if "agent_metadata" in updates and not isinstance(updates["agent_metadata"], str):

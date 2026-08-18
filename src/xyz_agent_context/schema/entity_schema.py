@@ -248,9 +248,12 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
     while ``PUT /api/auth/agents`` compared raw ones, so one accepted a name
     the other treated as unchanged.
 
-    Callers must write :func:`normalize_agent_text` values for the text
-    fields, or "equal" here and "what the row holds" drift apart — and a
-    compare-then-verify writer would then contradict itself.
+    The text fields are compared in their normalized form, which is also the
+    form :class:`AgentRepository` stores (both ``add_agent`` and
+    ``update_agent`` normalize on the way in). That is what lets a
+    compare-then-verify writer trust "already equal" — if the row could hold an
+    unnormalized value, "equal" and "what the row holds" would drift apart and
+    the writer would contradict itself.
 
     Args:
         agent: the entity as currently stored.
@@ -274,9 +277,18 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
         raise ValueError(
             f"agent_field_matches: no comparison defined for {field!r}"
         )
-    current = getattr(agent, field)
-    return normalize_agent_text(current) == normalize_agent_text(
-        wanted if isinstance(wanted, str) else None
+    if not isinstance(wanted, str):
+        # Same reasoning as the closed field set above, one level down: a
+        # non-str coerced to "" would answer "already equal" for an empty
+        # row — suppressing the write and then certifying it. The two
+        # mistakes (wrong field name, wrong value type) fail identically and
+        # are equally invisible, so they are refused identically.
+        raise TypeError(
+            f"agent_field_matches: {field!r} takes a str, got "
+            f"{type(wanted).__name__}"
+        )
+    return normalize_agent_text(getattr(agent, field)) == normalize_agent_text(
+        wanted
     )
 
 

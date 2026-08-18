@@ -48,7 +48,7 @@ Agent 实体的字段等价规则，而 `agents` 行有两个写入方（本路�
 不接的话「同伴目录还是旧名」与「接口答成功」这两件事事后对不上。
 
 测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`(路由级) +
-`tests/backend/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
+`tests/schema/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
 rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op 写返回 1，
 照原样测会在「本来就不会出这个 bug 的方言」上空过。覆盖：no-op 重存=成功且
 **不发写**、真改动但驱动报 0=成功（回读为准）、真的没落库=仍然失败（防止修成
@@ -58,6 +58,16 @@ rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op �
 ⚠ 回读校验对**谓词自身**的错误是结构性失明的：谓词若错判「已经相等」，则既不
 发写、又由同一套逻辑判定「已落库」→ 返回成功、日志无异常。所以谓词必须有自己的
 单测，且路由级用例要断言**写调用**（`calls == [...]`）而不是返回的 `success`。
+
+**创建路径同日补齐(review 第二轮)**:`create_agent` 的默认值改成在归一**之后**
+判 —— `agent_name = normalize_agent_text(request.agent_name) or "New Agent"`。
+`"   "` 是 truthy,先 `or` 会漏过默认串把纯空格存成名字,侧栏行标题直接空白
+(比空名退回显示 `agent_id` 还难认)。描述同理走 `normalize_agent_text`。
+
+长度上限**不在本文件判**:它在 [[api_schema]] 的 `_StrippedText` 上,归一之后量,
+所以本路由与 agent 侧对同一输入的验收集合一致,且 422 契约不变。中途试过把 cap
+搬进路由,打破了「四个写边模型统一 422」那条既有契约,被
+`tests/backend/test_agent_request_length.py` 当场抓住 —— 别再往这个方向走。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 

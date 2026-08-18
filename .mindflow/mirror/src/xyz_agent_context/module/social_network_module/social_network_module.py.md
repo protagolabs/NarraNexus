@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 新增 CREATE_AGENT_EMPTY_NAME_MSG
+
+与 `CREATE_AGENT_NO_OWNER_MSG` 并排的第二个共享串:两条建 agent 路径
+(DirectStore [[store.py]] 与 [[social_network.py]] 路由)拒绝空名时必须逐字节
+同串 —— 与那条注释里写的 byte-parity 理由完全一样。
+
+为什么建 agent 也要拒空名:没有名字的 agent 在所有界面退回显示裸 `agent_id`,
+纯空格的更糟(名字 truthy,连 `agent_id` 兜底都不触发,行标题直接空白)。
+改名两条路径([[_awareness_writes]] 与 [[auth.py]])本来就拒,而创建侧一直收 ——
+同一个值**可以创建、不可以改成**,这是本轮修掉的不对称之一。
 
 ## 2026-08-10 (PR-6) — 新增 `format_create_agent_success` + `CREATE_AGENT_NO_OWNER_MSG`
 

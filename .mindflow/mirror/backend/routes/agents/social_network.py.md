@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/agents/social_network.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — create-agent 归一名字/描述,并拒绝空名(与 DirectStore 同构)
+
+`POST /{agent_id}/social-network/create-agent`:`normalize_agent_text` 名字与描述,
+空名回 `CREATE_AGENT_EMPTY_NAME_MSG`(共享串)。理由与陷阱见 [[store.py]]
+2026-08-17 条 —— 两边是 byte-parity 孪生,必须一起改。
+
+连带一处:成功回执与日志改用**归一后**的 `agent_name`,不再是 `body.agent_name`。
+否则回给 agent 的名字与 [[agent_repository]] 实际写进行里的不同形。
 
 ## 2026-08-11 — 三个 GET 读端点补 owner-only（安全审计 IDOR/P0-1）
 

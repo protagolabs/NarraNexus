@@ -26,6 +26,11 @@ stub: false
 > 里「陷阱已 defused」的说法当时仅对 agent 侧成立,且 HTTP twin 直到 2026-08-17
 > 都还带着原样的 rowcount 判据。现在两条路径在这个 trap 上才真的同语义。
 
+补记(同日 review 第二轮):回读判失败那条分支现在**记一行 WARNING**(字段名 +
+「并发覆盖或没落库」),与 [[auth.py]] 同分支对齐。原来一个日志都没有 ——
+真发生时唯一的记录是递给模型的那句话,若是并发写造成的,日志与 DB 里没有任何
+东西能和它对上(踩着 CLAUDE.md 事故教训 #5 的反面)。**返回串一个字没动**。
+
 # _awareness_writes.py — update_agent_profile 的共享实现（AgentDataStore seam 单点）
 
 ## 为什么存在（PR-9）

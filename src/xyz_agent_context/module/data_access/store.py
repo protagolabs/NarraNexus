@@ -539,13 +539,23 @@ class DirectStore:
         from xyz_agent_context.module.social_network_module import (
             format_create_agent_success,
             CREATE_AGENT_NO_OWNER_MSG,
+            CREATE_AGENT_EMPTY_NAME_MSG,
         )
+        from xyz_agent_context.schema import normalize_agent_text
 
         try:
             db = await self._db()
             caller = await AgentRepository(db).get_agent(creator_agent_id)
             if not caller or not caller.created_by:
                 return {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
+            # Normalize BEFORE the checks below: the row is stored normalized
+            # (AgentRepository.add_agent), so an unnormalized name here would
+            # make the success echo disagree with what was written, and the
+            # `or` fallback would be skipped by a whitespace-only description.
+            agent_name = normalize_agent_text(agent_name)
+            if not agent_name:
+                return {"success": False, "message": CREATE_AGENT_EMPTY_NAME_MSG}
+            agent_description = normalize_agent_text(agent_description)
             result = await provision_new_agent(
                 db,
                 agent_id=new_agent_id,

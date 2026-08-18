@@ -278,10 +278,27 @@ async def update_agent_profile_from_args(
     # already happened. Same predicate as the comparison above, so "needed a
     # write" and "the write landed" cannot mean different things.
     stored = await repo.get_agent(agent_id)
-    if stored is None or any(
-        not agent_field_matches(stored, field, wanted)
-        for field, wanted in updates.items()
-    ):
+    unapplied = (
+        list(updates)
+        if stored is None
+        else [
+            field
+            for field, wanted in updates.items()
+            if not agent_field_matches(stored, field, wanted)
+        ]
+    )
+    if unapplied:
+        # Leave a trace, exactly as the HTTP twin does on its identical branch
+        # (auth.py). Without one, the only record that this happened is the
+        # sentence the model was handed — and if a concurrent writer caused it,
+        # nothing in the logs or the DB can be lined up with it afterwards.
+        # The returned string is deliberately unchanged: DirectStore and the
+        # /profile/update route must stay byte-identical.
+        logger.warning(
+            f"[update_agent_profile] {agent_id} does not hold the requested "
+            f"values for {unapplied} after the write — concurrent overwrite, "
+            f"or the write did not land"
+        )
         return "Error: the update did not apply; nothing was changed"
 
     # A rename is not complete until the memory that asserts the old identity

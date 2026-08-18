@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/store.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — create_agent 归一名字/描述,并拒绝空名
+
+`DirectStore.create_agent` 在 owner 校验之后、`provision_new_agent` 之前:
+`normalize_agent_text` 名字与描述,空名回 `CREATE_AGENT_EMPTY_NAME_MSG`
+(共享串,见 [[social_network_module.py]])。
+
+三个理由,都不是洁癖:
+1. 行是归一后存的([[agent_repository]]),不先归一的话回执里 echo 给 agent 的
+   名字与库里那行**不同形** —— 又一个"一边说存好了一边不一致"。
+2. `agent_description or f"Agent created by …"` 这个兜底必须在 strip **之后**判,
+   否则 `"  "` 绕过兜底存成空描述。
+3. 空名在改名路径一直被拒,创建侧收 —— 同一个值可以创建、不可以改成。
+
+[[social_network.py]] 路由那半边逐行同构(byte-parity 孪生),两边一起改。
 
 ## 2026-08-11 — job_create / job_pause / job_cancel 迁入 seam（job 写收尾）
 

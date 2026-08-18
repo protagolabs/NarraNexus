@@ -31,7 +31,19 @@ route 里本来又写了第三份比较 —— review 指出这正是它自己 d
 洁癖:`getattr` 兜底会让一个拼错的/未登记的字段(尤其是默认 None 的那些)
 比较成「已经相等」,于是**既不写、又判定已落库**,返回成功且不留任何错误 ——
 回读校验对谓词自身的错误是结构性失明的,只有闭集能挡。测试
-`tests/backend/test_agent_field_matches.py` 就是钉这一条的。
+`tests/schema/test_agent_field_matches.py` 就是钉这一条的。
+
+两点补记(同日 review 第二轮):
+
+- **契约方向反了过来**。原来写的是「调用方必须写归一后的值」——那是一条只有部分
+  写入方遵守的承诺(创建路径一处都没做)。现在归一由 [[agent_repository]] 在
+  `add_agent` / `update_agent` 里强制,所以这里改成陈述事实:**行里存的就是归一形态**,
+  谓词因此可以被 compare-then-verify 的写入方信任。
+- **文本分支拿到非 str 也 raise**(TypeError)。闭集挡住了「字段名写错」,却没挡住
+  「值类型写错」:`None` 被 coerce 成 `""` 会对一个空描述的行答「已相等」——与字段名
+  写错完全同一种不可观测的失败。两者现在同样被拒。今天不可达(两个调用方都只传
+  归一后的 str),纯粹是把防御面补齐。`wanted` 的标注保持 `object`:`is_public` 要收
+  bool/int,收紧成 `str` 会打断那一支。
 
 ## 2026-08-13 — `UserStatus.BANNED` + `NON_TRANSACTING_USER_STATUSES`（账户停用）
 

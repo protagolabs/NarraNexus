@@ -83,3 +83,19 @@ def test_an_unknown_field_is_refused_rather_than_silently_equal():
     the failure mode the predicate cannot otherwise surface."""
     with pytest.raises(ValueError):
         agent_field_matches(_agent(), "agent_metadata", "x")
+
+
+@pytest.mark.parametrize("wanted", [None, 3, b"x", ["x"]])
+def test_a_non_str_for_a_text_field_is_refused_too(wanted):
+    """Same failure mode one level down: coerced to "" it would answer
+    'already equal' for an empty row, suppressing the write and certifying it.
+    """
+    with pytest.raises(TypeError):
+        agent_field_matches(_agent(agent_description=""), "agent_description", wanted)
+
+
+def test_is_public_still_takes_bool_and_int():
+    """The type guard is on the TEXT branch only — narrowing the signature
+    would break this one."""
+    assert agent_field_matches(_agent(is_public=True), "is_public", True)
+    assert agent_field_matches(_agent(is_public=True), "is_public", 1)

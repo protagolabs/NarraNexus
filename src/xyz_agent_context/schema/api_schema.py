@@ -14,10 +14,27 @@ Includes:
 - Files related: FileInfo, FileListResponse, etc.
 """
 
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
-
+from typing import Annotated, Optional, List, Dict, Any
+from pydantic import BaseModel, BeforeValidator, Field
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+
+
+def _strip_if_text(value: Any) -> Any:
+    """Strip a supplied string; pass everything else through untouched.
+
+    ``None`` must survive as ``None``: on the update path it is the only thing
+    that distinguishes "field not supplied" from ``""`` ("clear this field").
+    Non-str values are left for pydantic to reject with its own message.
+    """
+    return value.strip() if isinstance(value, str) else value
+
+
+# A request-body string that is normalized before any other validation runs, so
+# length caps measure what will actually be stored (AgentRepository strips on
+# the way in). Without this, trailing whitespace could push an otherwise-legal
+# value over the cap on the HTTP path while the agent-facing writer, which
+# measures after stripping, accepted it.
+_StrippedText = Annotated[str, BeforeValidator(_strip_if_text)]
 
 
 # ===== Auth Schemas =====
@@ -126,8 +143,12 @@ class CreateAgentRequest(BaseModel):
     # Length-capped at the write edge so an over-long name/description is
     # rejected as 422 here, never reaching the DB — the same ceiling the
     # Agent entity model enforces on read (see AGENT_TEXT_MAX_LENGTH).
-    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
-    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    # Stripped first, so the cap measures the string that will be stored —
+    # see UpdateAgentRequest for why that distinction is load-bearing.
+    agent_name: Optional[_StrippedText] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[_StrippedText] = Field(
+        None, max_length=AGENT_TEXT_MAX_LENGTH
+    )
     # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
     # behavior). Scenario creators (e.g. Arena) use their own profile instead.
     bootstrap: Optional[str] = None
@@ -147,8 +168,19 @@ class CreateAgentResponse(BaseModel):
 class UpdateAgentRequest(BaseModel):
     """Request model for updating agent"""
     # See CreateAgentRequest — same write-edge length cap (422 on overflow).
-    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
-    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    #
+    # The cap is measured AFTER stripping (`_StrippedText`), because the value
+    # that gets stored is the stripped one: `AgentRepository` normalizes on the
+    # way in. Measuring the raw string made ``"x"*255 + " "`` a 422 here while
+    # the agent-facing `update_agent_profile` — which measures after stripping
+    # — accepted it, one more "same input, two answers" split between the two
+    # writers of this row. `None` still means "field not supplied" and is
+    # passed through untouched; only that distinguishes it from `""`, which
+    # means "clear this field".
+    agent_name: Optional[_StrippedText] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[_StrippedText] = Field(
+        None, max_length=AGENT_TEXT_MAX_LENGTH
+    )
     is_public: Optional[bool] = None
 
 

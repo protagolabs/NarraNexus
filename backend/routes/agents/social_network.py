@@ -44,8 +44,10 @@ from xyz_agent_context.module.social_network_module import (
     format_stats_result,
     format_create_agent_success,
     CREATE_AGENT_NO_OWNER_MSG,
+    CREATE_AGENT_EMPTY_NAME_MSG,
 )
 from xyz_agent_context.schema import (
+    normalize_agent_text,
     SocialNetworkEntityInfo,
     SocialNetworkResponse,
     SocialNetworkListResponse,
@@ -552,6 +554,16 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         owner_user_id = caller.created_by
         new_agent_id = body.new_agent_id  # minted by the caller (parity — see body doc)
 
+        # Normalized before the checks below, exactly as the DirectStore twin
+        # does it: the row is stored normalized (AgentRepository.add_agent), so
+        # an unnormalized name here would make the success echo disagree with
+        # what was written, and the `or` fallback would be skipped by a
+        # whitespace-only description.
+        agent_name = normalize_agent_text(body.agent_name)
+        if not agent_name:
+            return {"success": False, "error": CREATE_AGENT_EMPTY_NAME_MSG}
+        agent_description = normalize_agent_text(body.agent_description)
+
         # Canonical provisioning seam (pre-open review #3): agent row +
         # default module instances + peer-discovery registration + bootstrap
         # profile + default-skill install + awareness seed, all in one call.
@@ -562,12 +574,12 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
             db_client,
             agent_id=new_agent_id,
             user_id=owner_user_id,
-            agent_name=body.agent_name,
-            agent_description=body.agent_description or f"Agent created by {caller.agent_name or agent_id}",
+            agent_name=agent_name,
+            agent_description=agent_description or f"Agent created by {caller.agent_name or agent_id}",
             awareness=body.awareness,
         )
-        logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
-        return format_create_agent_success(body.agent_name, new_agent_id, result.warnings)
+        logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {owner_user_id}")
+        return format_create_agent_success(agent_name, new_agent_id, result.warnings)
 
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")

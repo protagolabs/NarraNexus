@@ -11,6 +11,7 @@ from .social_network_module import (
     format_stats_result,
     format_create_agent_success,
     CREATE_AGENT_NO_OWNER_MSG,
+    CREATE_AGENT_EMPTY_NAME_MSG,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "format_stats_result",
     "format_create_agent_success",
     "CREATE_AGENT_NO_OWNER_MSG",
+    "CREATE_AGENT_EMPTY_NAME_MSG",
 ]

@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 入库前归一 agent_name / agent_description
+
+`add_agent` 与 `update_agent` 现在都对两个文本字段跑 [[entity_schema]] 的
+`normalize_agent_text`(首尾空白剥掉,`None`≡`""`)。
+
+**为什么落在 repository 而不是各调用方**:它是全部 5 条创建路径唯一都经过的点 ——
+`POST /api/auth/agents`、social-network 建 agent 路由、MCP `create_agent` 工具三条
+走 [[provision]] `provision_new_agent`,arena 供给与迁移 applier 则直接调 `add_agent`
+(applier 绕过了 provision,所以"放 provision 里"覆盖不到)。
+
+**不归一会怎样**:改名路径([[auth.py]])比较的是归一后的值。所以一行存着
+「小绿␣」的 agent,owner 在侧栏把它改成「小绿」时会被判"没变化"→ 一次写都不发 →
+**这行永远归一不了**。存进来的形态因此不是调用方的自由,是表的性质。
+
+调用方那一半仍有各自的责任:`or "New Agent"` 这类默认串必须在**归一之后**判
+(`"   "` 是 truthy,先 `or` 就漏过默认值,存下纯空格名 → 侧栏行标题空白)。
+见 [[auth.py]] / [[social_network.py]] / [[store.py]] 各自那一条。
 
 ## 2026-08-10 — resolve_owner 区分 ""(不存在) 与 None(查询失败)
 

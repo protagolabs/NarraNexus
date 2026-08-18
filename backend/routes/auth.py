@@ -862,15 +862,18 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # Generate unique agent_id
         agent_id = f"agent_{uuid4().hex[:12]}"
 
-        # Set default name if not provided
-        agent_name = request.agent_name or "New Agent"
+        # Set default name if not provided. Normalized FIRST: "   " is truthy,
+        # so an `or` on the raw value lets whitespace through as the name and
+        # the default never fires — the row then renders a blank sidebar title
+        # (worse than the agent_id fallback, which at least identifies it).
+        agent_name = normalize_agent_text(request.agent_name) or "New Agent"
         # No placeholder: an agent with nothing said about it yet has an EMPTY
         # description. The old filler ("A new agent ready for configuration")
         # was snapshotted into the bus registry and reported to peers as fact,
         # so a configured agent looked unconfigured and askers refused to send
         # (P1 section 02). Peers now see the name + machine-derived capabilities, and
         # the agent records a real description during bootstrap.
-        agent_description = request.agent_description or ""
+        agent_description = normalize_agent_text(request.agent_description)
 
         # Provisioning (agent row + default instances + peer-discovery
         # registration + bootstrap profile + default skills) is the
