@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-08-07
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -113,3 +113,9 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
   legacy (pre-pointer-model) rows that never had these columns populated — such
   rows won't render but won't crash the list query either. They are hand-migrated
   per the cleanup TODO.
+
+## 2026-08-18 — `content_hash` 贯通行↔实体转换与 update_pointer
+
+`_row_to_entity`/`_entity_to_row` 是显式枚举字段的(新列默认会被静默丢掉——本次
+就踩了:写入成功读回 None),加列必须同步补这两处。`update_pointer` 增
+`content_hash` 参数,语义为 as-given 直写(含 None)。

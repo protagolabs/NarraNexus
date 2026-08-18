@@ -70,6 +70,10 @@ class Artifact(BaseModel):
     team_id: Optional[str] = None
     file_path: str  # entry file, relative to settings.base_working_path
     size_bytes: int = 0  # recursive size of the artifact root directory
+    # sha256 hex of the entry file at last registration. Heal uses it to
+    # verify a candidate is the same content (rename detection). None =
+    # unknown: legacy rows, or hashing failed — hashing never blocks a write.
+    content_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

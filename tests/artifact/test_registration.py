@@ -319,3 +319,58 @@ async def test_session_scoped_register_same_entry_not_deduped(env):
         title="Two", description=None, target_artifact_id=None,
     )
     assert r2.artifact_id != r1.artifact_id
+
+
+# ---------------------------------------------------------------------------
+# content_hash (2026-08-18): registration fingerprints the entry file so heal
+# can verify a rename candidate is the same content (spec artifact-events §5).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_register_stores_content_hash(env):
+    import hashlib
+
+    result = await ArtifactService(env["db"]).register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="My report", description=None, target_artifact_id=None,
+    )
+    row = await env["repo"].get_by_id(result.artifact_id)
+    expected = hashlib.sha256(env["entry"].read_bytes()).hexdigest()
+    assert row.content_hash == expected
+
+
+@pytest.mark.asyncio
+async def test_reregister_refreshes_content_hash(env):
+    import hashlib
+
+    svc = ArtifactService(env["db"])
+    result = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="My report", description=None, target_artifact_id=None,
+    )
+    env["entry"].write_text("<p>v2 content</p>", encoding="utf-8")
+    await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="My report", description=None,
+        target_artifact_id=result.artifact_id,
+    )
+    row = await env["repo"].get_by_id(result.artifact_id)
+    assert row.content_hash == hashlib.sha256(b"<p>v2 content</p>").hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_hash_failure_never_blocks_registration(env, monkeypatch):
+    import xyz_agent_context.artifact._artifact_impl.registration as reg
+
+    monkeypatch.setattr(reg, "compute_entry_hash", lambda p: None)
+    result = await ArtifactService(env["db"]).register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="My report", description=None, target_artifact_id=None,
+    )
+    row = await env["repo"].get_by_id(result.artifact_id)
+    assert row is not None          # registration succeeded
+    assert row.content_hash is None  # hash simply absent

@@ -23,6 +23,7 @@ to convert into caller-readable errors.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 from datetime import datetime, timezone
@@ -107,6 +108,26 @@ def _build_url(agent_id: str, artifact_id: str) -> str:
     """Directory-serving URL. The trailing slash makes the entry file's relative
     references (./style.css, ./data.json) resolve under the same path."""
     return f"/api/agents/{agent_id}/artifacts/{artifact_id}/raw/"
+
+
+def compute_entry_hash(abs_entry: str) -> Optional[str]:
+    """sha256 hex of the entry file; None on any IO error.
+
+    Best-effort by contract: the fingerprint upgrades heal's rename
+    detection from an extension guess to a verified identity, but a hashing
+    failure must never block the registration it accompanies. Entry files
+    are capped at MAX_ARTIFACT_BYTES (25 MB), so streaming in 1 MB chunks
+    keeps this a sub-perceptible cost on the register path.
+    """
+    try:
+        digest = hashlib.sha256()
+        with open(abs_entry, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError as e:
+        logger.warning(f"content_hash skipped for {abs_entry}: {e}")
+        return None
 
 
 def _dir_size(path: str) -> int:
@@ -340,6 +361,7 @@ async def register_artifact(
         )
 
     rel_path = _relative_to_base(abs_entry)
+    content_hash = compute_entry_hash(abs_entry)
     now = datetime.now(timezone.utc)
 
     if target_artifact_id is not None:
@@ -380,6 +402,7 @@ async def register_artifact(
             size_bytes=size_bytes,
             title=title[:200],
             description=description,
+            content_hash=content_hash,
         )
         await _record_history(
             repo, artifact_id=target_artifact_id, agent_id=agent_id,
@@ -449,6 +472,7 @@ async def register_artifact(
             team_id=team_id,
             file_path=rel_path,
             size_bytes=size_bytes,
+            content_hash=content_hash,
             created_at=now,
             updated_at=now,
         )

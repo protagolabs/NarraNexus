@@ -65,6 +65,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
         size_bytes: int,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        content_hash: Optional[str] = None,
     ) -> None:
         """
         Overwrite an artifact's pointer (and optionally title/description) in place.
@@ -79,10 +80,14 @@ class ArtifactRepository(BaseRepository[Artifact]):
             size_bytes: New artifact root directory size in bytes.
             title: New title if provided.
             description: New description if provided.
+            content_hash: sha256 of the new entry, or None when hashing
+                failed — written as given (a stale fingerprint is worse than
+                an absent one, so no keep-old fallback).
         """
         data: Dict[str, Any] = {
             "file_path": file_path,
             "size_bytes": size_bytes,
+            "content_hash": content_hash,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if title is not None:
@@ -365,6 +370,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             team_id=row.get("team_id"),
             file_path=row.get("file_path") or "",
             size_bytes=int(row.get("size_bytes") or 0),
+            content_hash=row.get("content_hash"),
             created_at=parse_dt(row["created_at"]),
             updated_at=parse_dt(row["updated_at"]),
         )
@@ -383,6 +389,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             "team_id": entity.team_id,
             "file_path": entity.file_path,
             "size_bytes": entity.size_bytes,
+            "content_hash": entity.content_hash,
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }
