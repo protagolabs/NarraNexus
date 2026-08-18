@@ -204,11 +204,14 @@ class MessageSourceHandler:
     dedicated_trigger: bool = False
     """True when this source has its own long-running trigger process
     (LarkTrigger, WeChatTrigger, ...) that already runs AgentRuntime for
-    every inbound message. ChannelInboxWriter persists those turns to
-    ``bus_messages`` under ``{name}_{chat_id}`` purely for history/Inbox
-    display; MessageBusTrigger uses this flag to derive the channel-id
-    prefixes it must NOT re-dispatch (a second run would send duplicate
-    replies — 2026-07-03 wechat double-dispatch incident). Every module
+    every inbound message. Until 2026-08-17 `ChannelInboxWriter` mirrored those
+    turns into ``bus_messages`` under ``{name}_{chat_id}`` for history/Inbox
+    display; the inbox has its own tables now and nothing writes them, but the
+    rows survive on deployed databases. `im_channel_prefixes()` derives the
+    channel-id prefixes from this flag for two consumers: MessageBusTrigger must
+    NOT re-dispatch them (a second run sends duplicate replies — 2026-07-03
+    wechat double-dispatch incident) and `LocalMessageBus._unread_where` must not
+    inject them into agent context. Every module
     that ships a ``run_*_trigger.py`` entrypoint must set this; enforced
     by tests/message_bus/test_bus_channel_inbox_skip.py."""
 
@@ -435,6 +438,42 @@ class MessageSourceRegistry:
 ORIGIN_DECLARATION_TEMPLATE = (
     "[Origin] {label} · reply with {default_tool}{others_clause}"
 )
+
+
+def im_channel_prefixes() -> tuple[str, ...]:
+    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
+
+    Two consumers, and they guard different things:
+
+    * `MessageBusTrigger` must not RE-DISPATCH these channels — their own trigger
+      already ran AgentRuntime for the message.
+    * `LocalMessageBus._unread_where` must not INJECT them into agent context.
+
+    Both are about the same rows: pre-2026-08-17 IM history that the retired
+    `ChannelInboxWriter` wrote into `bus_messages` under `{channel}_{chat_id}`.
+    Nothing writes them any more — the inbox has its own tables — but they
+    survive on every deployed database, so this is not dead code and must not be
+    deleted as such under 铁律 #2. It can retire once those rows are purged; the
+    runbook that purges them says so.
+
+    The set used to be a hand-maintained tuple ("lark_", "telegram_", "slack_")
+    and it silently drifted — wechat, narramessenger and discord were missing, so
+    every message on those channels fired a SECOND agent run wearing the
+    Owner-Relay peer-agent prompt (2026-07-03 wechat incident: fabricated
+    context_token sends + bogus "我已经在微信上回复你啦" platform DMs). Deriving
+    from `dedicated_trigger` keeps a future channel covered the moment it
+    registers; computed per call because channel modules register at import time
+    and import order is not guaranteed.
+
+    Lives here rather than in `message_bus_trigger` because this is where the
+    registry it reads lives, and because `local_bus` — a lower layer than the
+    trigger — now needs it too.
+    """
+    return tuple(sorted(
+        f"{name}_"
+        for name, handler in MessageSourceRegistry.handlers().items()
+        if handler.dedicated_trigger
+    ))
 
 
 def render_origin_declaration(

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -286,3 +286,22 @@ caller keeps the default None」已经失效。** 现在 agent 自己调
 - 空列表存 NULL：它看起来像数据，会诱使读者相信「这轮确实没有分段」；NULL 明确表示「没有记录边界」。
 - **坏 JSON 不炸整个房间**：一行手改坏了只丢那条消息的排版（降级），
   而不是让整个 transcript 打不开（故障）。会记 warning，否则就是静默降级。
+
+## 2026-08-18 — 未读谓词排除旧 IM 频道，注入在部署当天就停
+
+2026-08-17 之前 `ChannelInboxWriter` 把每一轮 IM 都镜像进 `bus_messages` 供 Inbox 显示，
+而那个频道从没人标记已读。prod 实测后果：1,364 条永久未读，每一轮都随上下文进入 90 个
+agent，署名 `lark_user_<id>` 这类伪 agent。
+
+inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已部署的库里，而 `_unread_where`
+正是把它们交给模型的地方 —— 所以不加这道过滤，这次改造会带着「containment 是结构性的」
+的注释上线，而 90 个 agent 之后照旧被投毒。清理是部署后的手动步骤（owner 的决定），
+但**注入必须在部署当天就停**，这就是过滤加在读侧的理由。
+
+诚实的措辞是「一道盖在退役写入器遗留行上的前缀过滤」，不是结构性隔离。它可存活的原因有两个：
+由 registry 推导而非手工维护（手工那版漂移过，代价是 2026-07-03 事故），以及它是临时的 ——
+旧行清理完即可退休。注意 `MessageBusTrigger` 侧那道**不能**退休，它防的是重复派发。
+
+加在 `_unread_where` 而不是三个读方法里：`get_unread` / `has_unread_before` /
+`count_unread` 共用它正是为了不会互相矛盾 —— 「N unread (showing M)」对自己的列表说谎就是
+分歧的产物。

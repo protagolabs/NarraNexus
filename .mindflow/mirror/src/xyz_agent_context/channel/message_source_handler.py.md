@@ -163,3 +163,15 @@ registry 分不出这件事，因为 `notify_owner` **确实**是 message_bus �
 
 其他模块在这种轮次上保留自己的工具（巡检中向 owner 升级是合理动作）；不该发生的只是「用一句
 话把其中之一说成本轮的应答方式」。
+
+## 2026-08-18 (二) — `im_channel_prefixes` 搬到数据所在处
+
+它原本住在 [[message_bus_trigger.py]]，但读的是本文件的 registry；而
+[[local_bus.py]]（比 trigger 更低的层）现在也需要它，让 bus import trigger 是错的依赖方向。
+搬过来后两个消费者读同一份定义。
+
+两个消费者防的是不同的东西：trigger 防**重复派发**（旧 IM 频道的消息它们自己的 trigger 已经
+跑过 AgentRuntime），`_unread_where` 防**注入**。同一批行，两种伤害。
+
+它不是死代码，不能按铁律 #2 删：写入器没了，但行还在每个已部署的库里。可退休的条件写在
+回填 runbook 里 —— 而且只有 `_unread_where` 那道能退，trigger 那道与行是否还在无关。

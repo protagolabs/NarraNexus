@@ -18,11 +18,20 @@ things that cost, both measured on prod 2026-08-17:
   pseudo-agents like ``lark_user_<id>`` that no Source-Recognition rule
   describes.
 
-The rows now live in ``inbox_threads`` / ``inbox_thread_messages``, and the
-agent's unread injection reads ``bus_messages JOIN bus_channel_members`` — so
-the containment is structural. Not a prefix filter: a filter is what
-``im_channel_prefixes()`` was, and it drifted (2026-07-03 wechat double
-dispatch, three channels missing from a hand-maintained tuple).
+The rows now live in ``inbox_threads`` / ``inbox_thread_messages``, which the
+agent's unread injection does not read at all — so for everything written from
+2026-08-17 on, the containment IS structural: there is no row in
+``bus_messages`` to leak.
+
+For rows written BEFORE that, it is a filter, and saying otherwise was the
+comment's mistake. Every deployed database still holds the IM history the old
+writer put in ``bus_messages``, and `_unread_where` would still hand it to the
+model — so `LocalMessageBus._unread_where` excludes the dedicated-trigger channel
+prefixes. That is honestly a prefix filter, of the same kind that drifted in
+2026-07-03; what makes it survivable is that it is derived from the registry
+rather than hand-maintained, and that it is temporary: it retires when the legacy
+rows are purged. `reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
+owns that step.
 
 WHAT THIS IS NOT: the notification store. ``InboxRepository`` / ``inbox_table``
 is a different feature that shares the word — system alerts the platform pushes

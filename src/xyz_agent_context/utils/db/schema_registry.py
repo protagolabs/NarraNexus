@@ -1609,15 +1609,28 @@ _register(
             # The `bus_messages.message_id` this row was backfilled from. NULL
             # for anything written live.
             #
-            # This column IS the backfill's idempotency guarantee. Decision ③
-            # (2026-08-17): history is backfilled and the Owner runs it BY HAND
-            # after deploy, so the live write path is already filling this table
-            # when the script starts and the overlapping window would double
-            # every message in it — in a surface the user looks at. The unique
-            # index below makes the second insert a no-op however many times the
-            # script runs, and whatever time window it guesses. Putting that
-            # guarantee in the script instead would put it somewhere it can be
+            # This column is where the backfill's idempotency key BELONGS.
+            # Decision ③ (2026-08-17): history is backfilled by hand after
+            # deploy, so the live write path is already filling this table when
+            # the script starts and the overlapping window would otherwise double
+            # every message — in a surface the user looks at. Keeping the key in
+            # the schema rather than in the script keeps it somewhere it cannot be
             # forgotten.
+            #
+            # Two things this does NOT yet do, stated plainly because an
+            # optimistic comment here is worse than none:
+            #
+            #   * Nothing populates it. `_insert_message`'s parameter defaults to
+            #     None and no caller passes it, so today the unique index below
+            #     sits over an all-NULL column (legal in both dialects: multiple
+            #     NULLs do not collide). The backfill script is what fills it —
+            #     and the script does not exist yet, by the Owner's decision that
+            #     the migration is manual and post-deploy.
+            #   * A unique index does not make a repeat insert a no-op. It makes
+            #     it RAISE. An earlier version of this comment claimed otherwise;
+            #     the script has to catch the duplicate and re-read, the same
+            #     shape `InboxRecorder._ensure_thread` uses for its create race.
+            #     The runbook carries that requirement.
             Column("source_message_id", "TEXT", "VARCHAR(64)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

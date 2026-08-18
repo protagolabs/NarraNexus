@@ -66,6 +66,9 @@ from xyz_agent_context.message_bus.system_messages import (
     trigger_label as _platform_trigger_label,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
+from xyz_agent_context.channel.message_source_handler import (
+    im_channel_prefixes,
+)
 from xyz_agent_context.message_bus.team_posting import (
     MAX_TEAM_AGENT_HOPS,
     extract_team_mentions,
@@ -201,33 +204,6 @@ class TurnResult:
     def reached_nobody(self) -> bool:
         """No text for the owner AND no tool that reached anyone."""
         return not self.text and not self.delivered
-
-
-def im_channel_prefixes() -> tuple[str, ...]:
-    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
-
-    ChannelInboxWriter persists IM turns to ``bus_messages`` under
-    ``{channel}_{chat_id}`` purely for history/Inbox display; the channel's
-    own trigger already ran AgentRuntime for them. Those rows must never be
-    re-dispatched here. The set used to be a hand-maintained tuple
-    ("lark_", "telegram_", "slack_") that silently drifted — wechat,
-    narramessenger and discord were missing, so every message on those
-    channels fired a SECOND agent run wearing the Owner-Relay peer-agent
-    prompt (2026-07-03 wechat incident: fabricated context_token sends +
-    bogus "我已经在微信上回复你啦" platform DMs). Deriving from
-    ``MessageSourceHandler.dedicated_trigger`` keeps a future channel
-    covered the moment it registers; computed per call because channel
-    modules register at import time and import order isn't guaranteed.
-    """
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
-
-    return tuple(sorted(
-        f"{name}_"
-        for name, handler in MessageSourceRegistry.handlers().items()
-        if handler.dedicated_trigger
-    ))
 
 
 def build_bus_anchor(messages: List[BusMessage]) -> str:
@@ -396,7 +372,15 @@ class MessageBusTrigger:
         only alternative — re-reading the room to find the row just written —
         would race the very poll loop this method just woke.
 
-        The ONLY way this process should post to the bus. Not because posting
+        The only way THIS PROCESS's own posts should reach the bus — the trigger's
+        two of them. It is no longer the only post path in the system: a team
+        reply is a `message_team` tool call that goes through
+        `team_posting.post_team_reply` -> `bus.send_message` from the MCP server,
+        and that is correct rather than an oversight. What replaced this method's
+        guarantee for that path is `wake_signal`, bumped inside `send_message`
+        itself, i.e. at the write seam where it cannot be skipped.
+
+        Still worth keeping for the two local callers, and not because posting
         needs abstracting — the call is one line — but because "post" and "wake"
         must not be separable. They were, and the second of two call sites was
         already missing the wake: the leader patrol posts under the room's own
@@ -413,8 +397,10 @@ class MessageBusTrigger:
         never show it" case, and the patrol site is content to let a failure
         surface.
 
-        Three callers now, not two: the team reply moved INSIDE the turn
-        (`_deliver_reply`), and the team-room failure notice posts here too.
+        Two callers: the team-room failure notice and the leader patrol line. The
+        team reply was a third while the trigger posted it (`_deliver_reply`);
+        that method is gone and the reply arrives via the tool now.
+
         The notice's wake finds nothing to dispatch — a platform line mentions
         nobody — so it costs one indexed query and is left in rather than
         special-cased, because "post and wake are inseparable" is worth more
@@ -459,11 +445,18 @@ class MessageBusTrigger:
         Cheap and idempotent: an Event that is already set stays set, and the
         sleep clears it on the way out.
 
-        **Only covers posts made by this process.** An agent that replies via
-        the `bus_send` MCP tool posts from the MCP server, where an in-process
-        Event cannot reach; that path still waits for the poll. Making it
-        cross-process means a DB signal and a reader for it — worth doing if
-        peer-DM latency ever becomes the complaint, not needed for team relay.
+        **Only covers posts made by this process** — which is now the smaller
+        half. An agent's reply is a tool call from the MCP server, where an
+        in-process Event cannot reach. That gap is covered by `wake_signal`: a
+        row bumped inside `send_message` and polled by
+        `_wait_cross_process_wake`, 40 lines below. This Event remains the
+        cheaper shortcut for the trigger's own two posts, not the only mechanism.
+
+        (An earlier version of this paragraph said a cross-process signal was
+        "worth doing if peer-DM latency ever becomes the complaint, not needed
+        for team relay". It became needed the moment the team reply itself moved
+        to the MCP server, and it exists — the sentence outlived the design it
+        described by one commit.)
         """
         self._wake_event.set()
 
@@ -499,10 +492,16 @@ class MessageBusTrigger:
     async def _snapshot_wake_baseline(self) -> None:
         """Remember the signal's value as of the top of this poll cycle.
 
-        Split from the sleeper so the baseline predates the scan. Fails open by
-        leaving the previous value in place — a baseline we could not refresh is
-        stale, and a stale baseline makes the next sleep return early, which
-        costs one wasted scan rather than a message waiting out the interval.
+        Split from the sleeper so the baseline predates the scan.
+
+        Fails open, but not by keeping the old value: `wake_signal.read` swallows
+        its own errors and returns `""`, so an unreadable signal CLOBBERS the
+        baseline to the empty string. The `except` here is reachable only via
+        `get_db_client()`. The direction is still the safe one — an empty baseline
+        differs from any real value, so the next sleep returns early and costs one
+        wasted scan rather than leaving a message to wait out the interval — but
+        the mechanism is a clobber, not a retention, and a reader reasoning from
+        the old wording would expect the opposite failure.
         """
         from xyz_agent_context.message_bus import wake_signal
         from xyz_agent_context.utils.db.db_factory import get_db_client

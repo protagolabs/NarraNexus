@@ -22,6 +22,9 @@ from typing import List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.message_source_handler import (
+    im_channel_prefixes,
+)
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
 from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
@@ -301,19 +304,42 @@ class LocalMessageBus(MessageBusService):
         return [self._row_to_message(row) for row in reversed(rows)]
 
     def _unread_where(self, ph: str) -> str:
-        """The unread predicate, shared by the fetch and the count.
+        """The unread predicate, shared by the fetch, the probe and the count.
+
+        Shared deliberately: `get_unread`, `has_unread_before` and `count_unread`
+        must agree, or "N unread (showing M)" starts lying about its own list.
 
         ``from_agent != agent`` matches ``get_pending_messages``, which has
         always had it. Its absence here meant an agent read its own posts back
         as unanswered items — loudest exactly where it hurts, a room the agent
         talks in a lot.
+
+        **Legacy IM channels are excluded.** Until 2026-08-17 `ChannelInboxWriter`
+        mirrored every IM turn into `bus_messages` for the Inbox to display, under
+        a channel nobody ever marked read — so 1,364 messages were permanently
+        unread and rode into 90 agents' context every turn, attributed to
+        pseudo-agents like `lark_user_<id>`. Moving the inbox to its own tables
+        stops NEW rows being written, but the deployed rows are still there and
+        this predicate is what feeds them to the model. Filtering the read is what
+        actually ends the injection, on the deploy rather than on the day someone
+        runs the purge.
+
+        Not "structural containment" — the honest description is a filter over
+        rows a retired writer left behind. It retires when those rows are purged;
+        `reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md` owns
+        that step.
         """
+        prefixes = im_channel_prefixes()
+        legacy = "".join(
+            f" AND m.channel_id NOT LIKE '{p}%'" for p in prefixes
+        )
         return (
             f"FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
             f"WHERE cm.agent_id = {ph} "
             f"AND m.from_agent != {ph} "
             f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
+            f"{legacy}"
         )
 
     async def get_unread(
