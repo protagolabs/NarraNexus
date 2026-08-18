@@ -386,6 +386,20 @@ class LocalMessageBus(MessageBusService):
         # text; only its LENGTH goes into the SQL, and that is an int derived from
         # a registry key. LIKE-with-ESCAPE would work too, but the escape
         # character is one more thing that has to mean the same on both dialects.
+        #
+        # Two verified properties, both on SQLite: a channel id SHORTER than the
+        # prefix yields the whole (shorter) string, which correctly compares
+        # unequal and is kept; an exact-prefix id is excluded.
+        #
+        # One known dialect difference, recorded rather than engineered around:
+        # our MySQL DDL uses `utf8mb4_unicode_ci`, so `<>` there is
+        # case-INSENSITIVE, while SQLite's default TEXT comparison is not. A
+        # `LARK_oc_1` would therefore be excluded on MySQL and kept on SQLite. It
+        # cannot occur — the writer built ids as `{registry_name}_{chat_id}` and
+        # registry names are lowercase — and both readings only ever exclude a
+        # channel that does not exist. `test_unread_cursor_mysql.py` exercises
+        # this predicate on real MySQL, so a dialect error in the CLAUSE (as
+        # opposed to this collation nuance) fails in CI rather than in prod.
         legacy = "".join(
             f" AND SUBSTR(m.channel_id, 1, {len(pfx)}) <> {ph}" for pfx in prefixes
         )
