@@ -4,6 +4,21 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 定价链接搬到主域名
+
+`PRICING_URL`: `https://website.narra.nexus/pricing` → `https://narra.nexus/pricing`
+（Owner 指定）。下方 2026-07-18 条目里的那个 `website.` 子域值**已作废**，换链接
+的理由和"链接只出现在决策时刻"的判断都没变。
+
+**它是构建期常量，不是部署配置** —— 改了要重新构建前端才生效。查过 `openExternal`
+这条路上**没有域名白名单**（Tauri 侧是无 scope 的 `shell:allow-open`），所以换域名
+不会在桌面端静默打不开。注释里留了话：如果这个 URL 开始反复变（官网改版、按语言
+分中英文定价页），就把它提升到 `window.__NARRANEXUS_CONFIG__`，别再回来改这一行。
+
+注意 `website.narra.nexus` 在 [[bundle]] 的允许域名清单里还有一份，那是归档导入
+用的、与本链接无关 —— 但真要下线那个子域时它得一起看。
+
+
 ## 2026-08-19 — 第四个状态 `pro_onetime`（支付宝/微信一次性订阅）
 
 ⚠ **作废下方那张 state × runway 表**：它只列了 free / pro_active / pro_cancelled

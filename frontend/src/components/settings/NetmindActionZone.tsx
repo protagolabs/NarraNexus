@@ -33,11 +33,15 @@ import { NetmindUpsellCard } from './NetmindUpsellCard';
 import type { Runway } from './netmindRunway';
 import type { SubscriptionPlan } from '@/types';
 
-// NarraNexus website pricing page (plans + model pricing in product terms;
-// replaced the raw NetMind pricing page 2026-07-18) — the "learn more" depth
-// that doesn't belong
-// in the panel.
-const PRICING_URL = 'https://website.narra.nexus/pricing';
+// NarraNexus pricing page (plans + model pricing in product terms; replaced the
+// raw NetMind pricing page 2026-07-18, moved off the website. subdomain to the
+// apex 2026-08-19) — the "learn more" depth that doesn't belong in the panel.
+//
+// Build-time constant, NOT deploy config: changing it needs a frontend rebuild.
+// If this URL starts moving (a relaunch, per-language pricing pages), promote it
+// to window.__NARRANEXUS_CONFIG__ alongside mode/apiUrl instead of editing here
+// again — that is the mechanism that already exists for values a deploy sets.
+const PRICING_URL = 'https://narra.nexus/pricing';
 
 interface NetmindActionZoneProps {
   state: 'free' | 'pro_active' | 'pro_cancelled' | 'pro_onetime';
