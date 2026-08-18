@@ -41,18 +41,13 @@ dependencies = [
     # renamed away SUCCEEDS SILENTLY — the hardening would degrade to a no-op
     # and the 5-minute lock class would come back green. uv.lock pins 0.22.1.
     "aiosqlite>=0.22.1",
-    # A RUNTIME dep, not a test one (2026-08-17). The review that flagged this
-    # spotted `import yaml` in a test, but `skill_module.py:34` imports it
-    # unconditionally at module scope and calls `yaml.safe_load` on skill
-    # frontmatter. It had only ever been in the graph transitively, so the day
-    # the resolver stops routing it here, the SkillModule stops importing — in
-    # production — and the traceback points at pyyaml rather than at this
-    # omission. WHICH package supplied it is a property of the resolution, not of
-    # our need for it, so it is deliberately not named here: an earlier draft
-    # said "via huggingface-hub and jsonschema-path" and was already wrong (a
-    # third provider, uvicorn's `standard` extra, is a direct top-level dep of
-    # ours), which is exactly the kind of note that sends the next dependency
-    # trim down a false trail. Same reasoning as the `regex` entry above.
+    # A RUNTIME dep, not a test one (2026-08-17): `skill_module.py` imports yaml
+    # unconditionally at module scope. Before this line it was in the graph only
+    # transitively, so the day the resolver stopped routing it here the
+    # SkillModule would have stopped importing — in production, with a traceback
+    # pointing at pyyaml rather than at the missing declaration. Which packages
+    # supply it transitively is a property of the resolution, not of our need for
+    # it, so they are deliberately not named here. Same reasoning as `regex`.
     "pyyaml>=6.0",
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
