@@ -104,3 +104,42 @@ async def test_every_dedicated_channel_prefix_is_excluded_not_just_the_first(
 
     assert await bus.get_unread(AGENT) == []
     assert await bus.count_unread(AGENT) == 0
+
+
+@pytest.mark.asyncio
+async def test_the_prefix_match_is_not_a_like_wildcard(db_client):
+    """`_` is a single-character LIKE wildcard, and every prefix ends in one.
+
+    The first version of this filter used `NOT LIKE 'lark_%'`, which also excludes
+    `larkX_…` and `larky_…` — any channel whose id starts with "lark" plus any one
+    character. Verified on SQLite at the time: with ids
+    (lark_oc_1, larkX_oc_2, larky_room, ch_team_1, lark) the unescaped pattern kept
+    only (ch_team_1, lark).
+
+    Current id formats make the over-match unreachable, which is precisely why it
+    would have survived until someone changed an id format — and this filter
+    decides what reaches the model, so an over-match is silent context loss rather
+    than an error. `SUBSTR(...) <> ?` has no wildcard semantics and lets the prefix
+    be a bound parameter.
+    """
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    prefixes = im_channel_prefixes()
+    prefix = prefixes[0]                    # e.g. "lark_"
+    stem = prefix.rstrip("_")               # "lark"
+    assert prefix.endswith("_"), f"fixture assumes a trailing underscore: {prefix}"
+
+    legacy = f"{prefix}oc_1"                # must be excluded
+    lookalikes = [f"{stem}X_oc_2", f"{stem}y_room"]  # must NOT be excluded
+
+    for cid in (legacy, *lookalikes):
+        await _seed_channel(db_client, cid, AGENT)
+        await bus.send_message(
+            from_agent="someone_else", to_channel=cid, content=f"from {cid}",
+        )
+
+    got = {m.content for m in await bus.get_unread(AGENT)}
+    assert got == {f"from {c}" for c in lookalikes}, (
+        f"the prefix match is behaving as a wildcard: kept {got}"
+    )
+    assert await bus.count_unread(AGENT) == len(lookalikes)

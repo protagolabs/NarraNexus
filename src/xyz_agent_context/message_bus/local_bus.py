@@ -336,6 +336,15 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
+    def _unread_params(self) -> tuple:
+        """The prefixes bound by `_unread_where`, in the SAME order it emits them.
+
+        Returned separately rather than folded into each caller by hand: three
+        callers build their own parameter tuples, and a predicate whose parameter
+        count is invisible from the call site is how a fourth one gets it wrong.
+        """
+        return im_channel_prefixes()
+
     def _unread_where(self, ph: str) -> str:
         """The unread predicate, shared by the fetch, the probe and the count.
 
@@ -363,8 +372,22 @@ class LocalMessageBus(MessageBusService):
         that step.
         """
         prefixes = im_channel_prefixes()
+        # SUBSTR, not LIKE. `_` is a single-character LIKE wildcard and every one
+        # of these prefixes ENDS in `_`, so `NOT LIKE 'lark_%'` also excluded
+        # `larkX_…` and `larky_…` — any channel whose id starts with "lark" plus
+        # any one character. Verified on SQLite: with ids
+        # (lark_oc_1, larkX_oc_2, larky_room, ch_team_1, lark), the unescaped
+        # pattern kept only (ch_team_1, lark). Current id formats make the
+        # over-match unreachable, which is exactly why it would have survived to
+        # bite whoever changes an id format later — and this filter decides what
+        # reaches the model.
+        #
+        # SUBSTR also lets the prefix be a BOUND parameter instead of interpolated
+        # text; only its LENGTH goes into the SQL, and that is an int derived from
+        # a registry key. LIKE-with-ESCAPE would work too, but the escape
+        # character is one more thing that has to mean the same on both dialects.
         legacy = "".join(
-            f" AND m.channel_id NOT LIKE '{p}%'" for p in prefixes
+            f" AND SUBSTR(m.channel_id, 1, {len(pfx)}) <> {ph}" for pfx in prefixes
         )
         return (
             f"FROM bus_messages m "
@@ -397,12 +420,12 @@ class LocalMessageBus(MessageBusService):
         if limit is None:
             rows = await self._db.execute(
                 f"SELECT m.* {where} ORDER BY m.created_at ASC",
-                (agent_id, agent_id),
+                (agent_id, agent_id, *self._unread_params()),
             )
             return [self._row_to_message(row) for row in rows]
         rows = await self._db.execute(
             f"SELECT m.* {where} ORDER BY m.created_at DESC LIMIT {int(limit)}",
-            (agent_id, agent_id),
+            (agent_id, agent_id, *self._unread_params()),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
@@ -428,7 +451,10 @@ class LocalMessageBus(MessageBusService):
         rows = await self._db.execute(
             f"SELECT 1 AS hit {self._unread_where(ph)} "
             f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
-            (agent_id, agent_id, channel_id, canonical_ts(before)),
+            # Prefix params sit BETWEEN the predicate's own and this query's
+            # extras, because that is the order the placeholders appear in.
+            (agent_id, agent_id, *self._unread_params(),
+             channel_id, canonical_ts(before)),
         )
         return bool(rows)
 
@@ -474,7 +500,7 @@ class LocalMessageBus(MessageBusService):
         ph = self._db.placeholder
         rows = await self._db.execute(
             f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
-            (agent_id, agent_id),
+            (agent_id, agent_id, *self._unread_params()),
         )
         return int(rows[0].get("n") or 0) if rows else 0
 
