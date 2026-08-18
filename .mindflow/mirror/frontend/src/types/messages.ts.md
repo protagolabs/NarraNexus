@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-08-01
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -82,3 +82,11 @@ agent_response / agent_thinking / tool_call / error / complete …），WS 层�
 
 这类失败（上下文太小/余额/模型 ID）确定性、可自助修复，后端不再让 helper
 兜底掩盖，前端据此给可操作引导。
+
+
+## 2026-08-18 — 已退役工具名的跟随
+
+`bus_share_to_team` → `team_share_file`（用户可见的提示文案，此前指向一个不存在的工具名）、
+`send_message_to_user_directly` → `reply_owner` / `notify_owner`。后者在前端不只是措辞：
+按工具名挑气泡内容的三处只匹配旧名字时，回复是真的、内容在那儿、气泡就是不渲染 —— 同一条
+规则现在收在 `lib/ownerTools.ts`，镜像见 [[ownerTools.ts]]。
