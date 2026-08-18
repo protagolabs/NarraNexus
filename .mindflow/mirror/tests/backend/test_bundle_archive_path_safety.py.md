@@ -33,6 +33,11 @@ stub: false
 - happy path 落在 `{root}/{user_id}/{name}.zip`，且 DB 记的是**解析后**的
   路径而不是原始客户端串。
 - 超过 `max_upload_bytes` → 400，且不落盘。
+- **上传的字节必须真的是 zip**（2026-08-18 新增）：假 zip 头、纯文本、空文件
+  三种 → 400 且文案含 "zip"，磁盘和 DB 都不留痕。配一条断言校验**顺序**：
+  超大 + 非 zip 同时成立时报的是"太大了"，因为那条更可操作。
+  注意本文件的 `_upload` 现在默认发**真 zip**（`_zip_bytes()`）——原来用
+  `b"PK\x03\x04payload"` 冒充，正是被修掉的那个洞让它当时能绿。
 - `/export`：请求体里带 `archive_path` / `manual_zip_path` 时，进 builder 的
   `skill_methods` 条目里**不含**这两个 key，且整条 repr 里不出现那个路径。
 

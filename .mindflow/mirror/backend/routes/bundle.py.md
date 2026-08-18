@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 归档上传验 zip：坏输入不再跨接口炸成 500
+
+`upload_archive` 此前对 `source_type=zip` 只校验大小和 `skill_name`，**不看
+字节到底是不是 zip**。坏包被原样落盘 + 登记（200），直到 `/export` 在
+[[builder.py]] 的 `scan_zip_for_sensitive` 打开它才抛 `BadZipFile` → **500**，
+错误文案 "Failed to build the export" 既不说哪个 skill 也不说哪份归档。
+
+这是 2026-08-18 在 dev 环境验证 SEC-07 修复时实测撞到的（用假 zip 头的测试
+文件上传成功，随后导出 500）。属**既有缺陷**，不是 SEC-07 引入；也是工单
+#113「BadZipFile 误回 500」在另一条路径上的重现。
+
+现在落盘前 `zipfile.ZipFile(io.BytesIO(contents)).testzip()` 验一次，坏包
+→ **400** 且文案告诉用户传什么（"Upload the .zip you installed the skill
+from."）。校验顺序是**先大小后 zip**：两者都会 fire 时，"太大了"是更可操作
+的那条消息。
+
+> 又是「正确做法已存在但这条 route 没套用」：`skills.py` 的安装路径一直在
+> 收到 zip 时就验。和 SEC-07 本身同一个模式，所以这次连测试的假数据一起改
+> 了——原来的用例用 `b"PK\x03\x04payload"` 当 zip，正是这个洞让它能绿。
 
 ## 2026-08-17 — SEC-07：两个"客户端字符串决定文件路径"的洞
 

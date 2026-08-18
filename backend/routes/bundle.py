@@ -15,6 +15,7 @@ Subproject 2 endpoints (under /api/bundle):
 import io
 import json
 import os
+import zipfile
 import shutil
 import tempfile
 from pathlib import Path
@@ -626,11 +627,26 @@ async def upload_archive(
         raise HTTPException(status_code=400, detail="file required for zip")
     contents = await file.read()
     try:
+        # Size first: it is the cheap check, and "too big" is the more
+        # actionable message when both would fire.
         enforce_max_bytes(
             len(contents),
             backend_settings.max_upload_bytes,
             label="Skill archive",
         )
+        # Then: are these bytes actually a zip? Accepting anything here used to
+        # push the failure one endpoint away — `/export` opened the archive in
+        # `scan_zip_for_sensitive`, raised `BadZipFile`, and returned a 500 that
+        # named neither the skill nor the file. `skills.py` has validated its
+        # uploads all along; this route never did.
+        try:
+            with zipfile.ZipFile(io.BytesIO(contents)) as zf:
+                zf.testzip()
+        except (zipfile.BadZipFile, OSError) as e:
+            raise ValueError(
+                f"Skill archive is not a readable zip file ({e}). "
+                "Upload the .zip you installed the skill from."
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

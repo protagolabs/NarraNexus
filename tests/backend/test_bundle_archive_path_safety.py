@@ -22,6 +22,8 @@ Two attack surfaces, both "user-supplied string used in path composition":
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -74,11 +76,21 @@ def client(monkeypatch):
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _upload(client, skill_name: str, content: bytes = b"PK\x03\x04payload"):
+def _zip_bytes(name: str = "SKILL.md", body: str = "---\nname: x\n---\n") -> bytes:
+    """A REAL zip. The archive routes now verify the bytes really are one, so
+    `b"PK\\x03\\x04..."` stand-ins no longer stand in."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(name, body)
+    return buf.getvalue()
+
+
+def _upload(client, skill_name: str, content: bytes | None = None):
     return client.post(
         "/api/bundle/skills/archives/upload",
         data={"skill_name": skill_name, "source_type": "zip"},
-        files={"file": ("whatever.zip", content, "application/zip")},
+        files={"file": ("whatever.zip", content if content is not None else _zip_bytes(),
+                        "application/zip")},
     )
 
 
@@ -149,12 +161,44 @@ def test_oversize_rejection_creates_no_directory(client, archives_root, monkeypa
     assert not archives_root.exists(), "an oversize upload created the archives tree"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"PK\x03\x04not-really-a-zip",   # right magic bytes, garbage after
+        b"just some text",               # no magic at all
+        b"",                             # empty upload
+    ],
+)
+def test_upload_rejects_bytes_that_are_not_a_zip(client, archives_root, content):
+    """A corrupt archive used to be accepted here (200) and only blow up later in
+    /export as a 500 out of `scan_zip_for_sensitive` — a user-controlled bad
+    input surfacing as a server error on a different endpoint, one endpoint
+    removed from the cause. Reject it at the door, like skills.py does."""
+    r = _upload(client, "legit-skill", content=content)
+    assert r.status_code == 400, r.text
+    assert "zip" in r.json()["detail"].lower()
+    assert not archives_root.exists(), "a rejected upload created the archives tree"
+    assert _FakeRepo.calls == [], "a rejected upload still wrote a DB row"
+
+
+def test_upload_size_limit_is_checked_before_zip_validity(client, archives_root, monkeypatch):
+    """An oversized payload should say so, not complain about zip structure —
+    the cheap check runs first and gives the actionable message."""
+    from backend.config import settings as backend_settings
+
+    monkeypatch.setattr(backend_settings, "max_upload_bytes", 16)
+    r = _upload(client, "legit-skill", content=b"x" * 64)
+    assert r.status_code == 400
+    assert "maximum size" in r.json()["detail"].lower()
+
+
 def test_upload_happy_path_lands_inside_the_user_directory(client, archives_root):
-    r = _upload(client, "legit-skill")
+    payload = _zip_bytes()
+    r = _upload(client, "legit-skill", content=payload)
     assert r.status_code == 200, r.text
     target = archives_root / "victim_neighbour" / "legit-skill.zip"
     assert target.exists(), f"archive not at {target}"
-    assert target.read_bytes() == b"PK\x03\x04payload"
+    assert target.read_bytes() == payload, "stored bytes must be the upload, verbatim"
     # DB row must record the resolved path, not the raw client string.
     assert len(_FakeRepo.calls) == 1
     assert _FakeRepo.calls[0]["archive_path"] == str(target)

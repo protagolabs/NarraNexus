@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 坏归档降级成 warning，不再整份导出失败
+
+`scan_zip_for_sensitive(Path(src_zip))` 原先裸调用，`BadZipFile` 一路冒到路
+由变成 500。上传侧现在会挡住新的坏包（见 [[bundle.py]]），但**已经在库里的
+坏行**挡不住：早于上传校验写入的、写了一半被截断的、磁盘上损坏的。
+
+现在捕 `(BadZipFile, OSError)` → warning 带 skill 名 + `logger.warning` 带
+user/skill/path → `continue`。形状照抄它上面那条 `zip not found, skipping`，
+这样 manifest 里的约定只有一种：**跳过的 skill 直接不出现在 skills 列表
+里**（不是出现但没有 `archive_ref`）。
+
+关键不是"别 500"，是**一份坏归档不该让整份导出失败**——一个用户的一条脏数
+据会把他所有导出都堵死，而错误信息指不到是哪一份。
 
 ## 2026-08-17 — SEC-07：zip 归档路径由服务端解析，且读前复查 containment
 

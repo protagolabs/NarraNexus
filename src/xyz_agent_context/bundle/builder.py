@@ -813,7 +813,24 @@ async def build_bundle(
                     entry["archive_ref"] = copied_zip_ref[cache_key]
                     entry["sha256"] = "shared"
                 else:
-                    hits = scan_zip_for_sensitive(Path(src_zip))
+                    try:
+                        hits = scan_zip_for_sensitive(Path(src_zip))
+                    except (zipfile.BadZipFile, OSError) as e:
+                        # Rows that predate the upload-time zip check, or an
+                        # archive truncated on disk. One unreadable file must
+                        # not fail the whole export — the caller loses this
+                        # skill and is told which one, same as "zip not found"
+                        # right above. Before this, `BadZipFile` escaped to the
+                        # route and became a 500 naming neither skill nor file.
+                        warnings.append(
+                            f"skill {skill_name} on {agent_id}: archive is not a "
+                            f"readable zip ({e}), skipping"
+                        )
+                        logger.warning(
+                            f"corrupt skill archive for user={user_id} "
+                            f"skill={skill_name}: {src_zip} ({e})"
+                        )
+                        continue
                     if hits:
                         zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
                     # Use dir-based filename to disambiguate same-named-different-dir
