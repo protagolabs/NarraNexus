@@ -4,18 +4,25 @@
 @date: 2026-08-15
 @description: One place to describe "run this against a real MySQL".
 
-Nine dialect-twin test files each carry their own copy of a `mysql://` URL
-parser and their own phrasing of the skip reason. The parser is nine lines of
-string splitting that nobody will ever change — which is exactly why nine copies
-went unnoticed — but the skip GATE is worth having once: a twin that reads the
-env var by a slightly different name, or forgets the skipif entirely, fails on
-every machine that has no MySQL and looks like a broken test rather than a
-missing service.
+Most dialect-twin test files carry their own copy of a `mysql://` URL parser
+and their own phrasing of the skip reason. The parser is a few lines of string
+splitting that nobody will ever change — which is exactly why the copies went
+unnoticed — but the skip GATE is worth having once: a twin that reads the env
+var by a slightly different name, or forgets the skipif entirely, fails on every
+machine that has no MySQL and looks like a broken test rather than a missing
+service.
 
-This is the canonical home. Migrating the other eight is a matter for whoever
-next touches them; nothing here changes their behaviour, and a shared helper
-with one user is still better than a ninth copy, because the next person has
-somewhere obvious to put theirs.
+This is the canonical home. Migrating the remaining copies is a matter for
+whoever next touches them; nothing here changes their behaviour, and a shared
+helper with one user is still better than one more copy, because the next person
+has somewhere obvious to put theirs.
+
+(Counts deliberately absent: this docstring used to say "nine"/"the other eight",
+which went stale as soon as a tenth twin was written on another branch. There is
+no number anywhere now — `tests/test_mysql_gate_single_source.py` asserts by
+CONTENT that nothing gates on this env var from outside `*_mysql.py`, which is
+the fact a count was standing in for, and it needs no maintenance when the set
+of twins changes.)
 """
 
 from __future__ import annotations
