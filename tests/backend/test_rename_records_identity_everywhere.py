@@ -276,3 +276,34 @@ async def test_manyfold_patch_keeps_its_documented_404(db_client, manyfold_clien
         "/manyfold/agents/agent_does_not_exist", json={"agent_name": "小绿"}
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_normalizing_a_stale_row_is_not_a_rename(db_client):
+    """Repairing pre-normalization text writes, but records no identity change.
+
+    A row holding `"  小绿  "` must be rewritten as `"小绿"` — left alone, every
+    future comparison reads it as already equal and the agent can never be
+    renamed again. But that write changes nothing the agent should be told
+    about: an identity record saying it was renamed from 「小绿」 to 「小绿」 is
+    noise in the one section whose whole value is that the agent believes it.
+    """
+    from xyz_agent_context.module.awareness_module import (
+        apply_agent_profile_change,
+    )
+
+    await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
+    # Bypass the repository (it normalizes on write) to plant the stale shape.
+    await db_client.update(
+        "agents", {"agent_id": AGENT_ID}, {"agent_name": "  小绿  "}
+    )
+
+    result = await apply_agent_profile_change(
+        db_client, AGENT_ID, new_name="小绿"
+    )
+
+    assert result.ok
+    assert result.renamed_from is None, "a normalization repair is not a rename"
+    row = await db_client.get_one("agents", {"agent_id": AGENT_ID})
+    assert row["agent_name"] == "小绿", "the stale row was left unrenameable"
+    assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)

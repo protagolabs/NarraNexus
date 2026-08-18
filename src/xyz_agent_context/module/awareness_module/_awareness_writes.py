@@ -220,6 +220,27 @@ class AgentProfileWrite:
         return self.status != "error"
 
 
+def _stored_text_is_unnormalized(agent, field: str) -> bool:
+    """Does the row still hold text that normalization would change?
+
+    ``agent_field_matches`` compares the NORMALIZED forms, so a row written
+    before normalization existed (or by a pre-fix bundle import) holding
+    `"  old  "` reads as already equal to the `"old"` it would be rewritten to.
+    The write is suppressed, the row keeps the unstripped value, and every
+    future comparison answers the same way — that row can never be renamed
+    again. The manyfold upsert wrapper used to be the one place that repaired
+    such rows on the way past; folding that path into this transaction moved the
+    obligation here, which also extends it from one caller to all of them.
+
+    Deliberately NOT merged into ``agent_field_matches``: that predicate answers
+    "are these the same value", which is the right question for the caller
+    deciding whether it got what it asked for. This one answers "would writing
+    change the bytes in the row", and only the writer needs it.
+    """
+    stored = getattr(agent, field, None) or ""
+    return stored != normalize_agent_text(stored)
+
+
 async def apply_agent_profile_change(
     db, agent_id: str, *, new_name: Optional[str] = None,
     new_description: Optional[str] = None,
@@ -301,8 +322,16 @@ async def apply_agent_profile_change(
                     f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
                 ),
             )
-        if not agent_field_matches(agent, "agent_name", wanted):
+        # Two different questions, and conflating them costs either the repair
+        # or a bogus identity record: "is this a rename" decides whether the
+        # agent's memory must be corrected, while "would this write change the
+        # row" decides whether to write at all. A stored `"  old  "` normalizes
+        # to the same value it would be rewritten to, so it is NOT a rename —
+        # but it still needs the write, or the row stays unrenameable forever.
+        is_rename = not agent_field_matches(agent, "agent_name", wanted)
+        if is_rename or _stored_text_is_unnormalized(agent, "agent_name"):
             updates["agent_name"] = wanted
+        if is_rename:
             renamed_from = old_name
             # Duplicate names are ALLOWED — the owner may deliberately hand a
             # name from one agent to another. What is forbidden is doing it
@@ -334,7 +363,9 @@ async def apply_agent_profile_change(
         # identical description would therefore report "Error: the update did
         # not apply" on cloud only — for a write that was simply a no-op — and
         # the §5 prompt invites exactly those repeat calls (review 2026-08-05).
-        if not agent_field_matches(agent, "agent_description", wanted_desc):
+        if not agent_field_matches(
+            agent, "agent_description", wanted_desc
+        ) or _stored_text_is_unnormalized(agent, "agent_description"):
             updates["agent_description"] = wanted_desc
 
     if not updates:
