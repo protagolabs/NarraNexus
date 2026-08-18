@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -480,3 +480,23 @@ owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"�
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
+
+## 2026-08-18 — 从 agent 词汇里清掉 channel：删列表、消息标签改用团队名
+
+`### Your Channels` 块把裸 `channel_id` 和 `channel_type` 印进每一轮上下文 —— 正是本次
+改造要拿掉的词汇（spec §3.1「没有 channel」/ §8 验收标准）。它存在的唯一理由是让
+`read_history(channel_id=...)` 可调用；该工具改成按把手取（`with_agent` / `team_id`，见
+[[_message_bus_mcp_tools.py]]）之后，这个列表没有读者了，连带 `hook_data_gathering` 里
+那条每轮白跑的 top-20 查询和 `MAX_CHANNELS_IN_CONTEXT` 一并删除。
+
+更硬的一处是 `_bus_tag`：它的第二个字段原本是 `channel_id`，出现在**每一条**未读消息行上，
+比那个列表更不可回避。现在是团队自己的名字，且只在团队房间出现 —— 私聊里 sender 就是
+conversation，第二个字段会是同一事实说两遍。空标签渲染短形式。
+
+标注来源 `_room_labels`：只解析未读**窗口**里出现的房间（有界，且每一行都会被打印，与被删
+的 top-N 列表相反），永不抛异常、永不猜测 —— 解析不到就缺席、退回私聊形式。把私聊误标成
+房间比缺标签更糟，因为两者的回复纪律不同。
+
+守卫：`test_visibility_wording.py` 的「示例必须由渲染同一个函数生成」保留，改为同时断言
+两种形态并禁止 `ch_yyy` 出现；`test_turn_context_split.py` 新增团队名形态的覆盖，且故意
+继续喂 `bus_channels` fixture —— 停止喂它会让「渲染器已丢弃」的断言变成空断言。

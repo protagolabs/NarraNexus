@@ -347,7 +347,7 @@ async def test_job_turn_context_fail_open_on_bare_ctx(flag_on):
 
 
 # =========================================================================
-# MessageBusModule — volatile spans: Known Agents / Your Channels / Unread
+# MessageBusModule — volatile spans: Known Agents / Unread
 # =========================================================================
 
 def _bus_module():
@@ -362,6 +362,8 @@ def _bus_ctx(n_unread: int = 1) -> ContextData:
         "bus_known_agents": [
             {"agent_id": "agent_peer", "agent_name": "Peer", "agent_description": "helper"},
         ],
+        # Deliberately still fed: the renderer must DROP it, and a fixture that
+        # stopped supplying it would make that assertion vacuous.
         "bus_channels": [
             {"channel_id": "ch_1", "name": "Sync", "channel_type": "group"},
         ],
@@ -399,8 +401,16 @@ async def test_bus_turn_context_carries_lists(flag_on):
     assert block.startswith("### Who is around, and what is waiting")
     assert "### Known Agents (top 1)" in block
     assert "- `agent_peer` — Peer: helper" in block
-    assert "### Your Channels (top 1)" in block
-    assert "- `ch_1` — Sync (group)" in block
+    # The channel list is gone on purpose, and `bus_channels` is still fed in
+    # above so this asserts the RENDERER dropped it rather than the fixture.
+    # It printed raw `channel_id`s and a `channel_type` into every turn — the
+    # vocabulary the redesign removes — and it existed only to make
+    # `read_history(channel_id=...)` callable. That tool takes `with_agent` /
+    # `team_id` now, so the list has no reader.
+    assert "Your Channels" not in block
+    assert "ch_1" not in block.split("### Unread")[0], (
+        "a channel id reached the agent outside the message rows"
+    )
     assert "### Unread Messages: 2 (showing 2)" in block
     # Tag renamed with the heading above, same reason. Built from the helper so
     # this assertion cannot drift from what the renderer emits.
@@ -408,9 +418,40 @@ async def test_bus_turn_context_carries_lists(flag_on):
         _bus_tag,
     )
 
-    assert f"- `{_bus_tag('agent_peer', 'ch_1')}` ping 0" in block
+    assert f"- `{_bus_tag('agent_peer')}` ping 0" in block
     # Nothing live → no block.
     assert await mod.get_turn_context(_ctx()) == ""
+
+
+@pytest.mark.asyncio
+async def test_a_team_rooms_messages_are_tagged_with_the_team_name(flag_on):
+    """The other half of the tag, and the reason the raw id could go.
+
+    A message from a room and a private message from the same agent are two
+    different situations with two different reply disciplines, so the row has to
+    distinguish them — that was the honest job the `channel_id` field was doing
+    badly. The team's own name does it in the agent's own vocabulary.
+
+    An UNRESOLVED room falls back to the private form rather than printing the
+    id: a label we could not look up is not evidence, and inventing a room is
+    worse than omitting one.
+    """
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        _bus_tag,
+    )
+
+    mod = _bus_module()
+    ctx = _bus_ctx(n_unread=1)
+    ctx.extra_data["bus_unread_messages"].append(
+        {"from_agent": "agent_peer", "channel_id": "ch_room", "content": "in the room"}
+    )
+    ctx.extra_data["bus_room_labels"] = {"ch_room": "Ops"}
+
+    block = await mod.get_turn_context(ctx)
+
+    assert f"`{_bus_tag('agent_peer', 'Ops')}` in the room" in block
+    assert f"`{_bus_tag('agent_peer')}` ping 0" in block
+    assert "ch_room" not in block and "ch_1" not in block
 
 
 @pytest.mark.asyncio

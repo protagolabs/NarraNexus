@@ -313,8 +313,16 @@ def test_the_worked_example_is_the_tag_the_code_actually_emits():
 
     text = _static_text()
 
-    assert _bus_tag("agent_xxx", "ch_yyy") in text
+    # BOTH forms, because the tag now has two: a private conversation prints
+    # the sender alone, a team room prefixes the team's name. An example that
+    # showed only one would teach the agent to expect a field that is absent
+    # half the time — the same defect as the four-field example, one shape on.
+    assert _bus_tag("agent_xxx") in text
+    assert _bus_tag("agent_xxx", "Ops") in text
     assert "[MessageBus · AgentName · agent_xxx · ch_yyy]" not in text
+    # And no channel id may appear in the example, whatever its shape: the
+    # field it used to occupy is a team NAME now.
+    assert "ch_yyy" not in text
 
 
 def test_the_unread_header_does_not_repeat_the_retracted_promise():

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -160,3 +160,21 @@ agent 说话",平台自己代发的那条消息盖了 turn id、agent 用本工�
 断掉都不会有测试变红,症状却是团队房里偶发的假 ⚠️。
 `test_bus_send_event_id_stamp.py` 走注册后的真工具函数 + 伪造 ambient request 头,
 并把「无头 → None」这条降级契约也钉住(实测过去掉盖章四条全红)。
+
+## 2026-08-18 — `read_history` 改按会话把手；错误文案不再点名子系统
+
+签名从 `(agent_id, channel_id, limit)` 改为 `(agent_id, with_agent, team_id, limit)`：
+agent 的世界里是私聊和团队，一个收 channel_id 的工具是它唯一必须知道别的东西的地方 ——
+而为了能调用它，那个 id 就得被印进上下文，词汇于是又回来了（见 [[message_bus_module.py]]
+同日条目）。恰好给一个，两个都不给或都给都是明确报错。
+
+新增 `_resolve_conversation`：**成员资格由查询本身保证**，不是查完再检查 —— 私聊那条
+join 以调用者自己的 id 为连接条件之一，团队那条要求 `team_members` 行。先找频道后授权的
+形状，离「漏一个分支就能读到别人的会话」只有一步，而那种分支往往是修别的东西时顺手加的。
+`%s` 而非 `db.placeholder`（调用者持 AsyncDatabaseClient，见 [[team_posting.py]] 的教训）。
+
+`"MessageBus not available"`（5 处，返回给 agent）改成不点名子系统的文案：让模型对一个它
+没有心智模型的组件做推理没有意义，而唯一有用的下一步（本轮别再试着发）两种写法都一样。
+`find_agent` 的 docstring（模型会读的工具描述）同改。
+
+MySQL twin：`tests/message_bus/test_team_posting_mysql.py` 覆盖这条三表 join 与团队分支。
