@@ -3,6 +3,19 @@ code_file: src/xyz_agent_context/module/job_module/job_trigger.py
 last_verified: 2026-08-17
 ---
 
+## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
+
+此前它是唯一路径：房间的契约是 job 的纯文本自动上墙，prompt 也这么写。那个契约没了
+（见 [[step_3_agent_loop]]），所以房间版 prompt 改成让 job 调 `message_team`，主路径
+和其他所有表面一致。
+
+**当初的保证没有变**：问过的房间一定收得到回音。`has_message_from_turn` 用 event id
+（不是时间窗）精确回答「这一轮有没有往那个房间放过东西」，只有答案是否时平台副本才发出。
+自己发过报告的 job 不会被发第二遍；产出了报告却哪里都没送的 job，等它的四个人仍然收得到。
+
+没有 event id 时选择投递：重复是噪音，缺失才是这个兜底存在的理由。
+
+
 ## 2026-08-17 — review 三条：失败也投、不投运维样板、带上溯源
 
 **失败也要投回房间**。错误分支此前在 `_deliver_to_origin` 之前就 return 了，于

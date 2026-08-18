@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-10 (PR-6) — create_agent 迁走 seam，社交模块全部迁完

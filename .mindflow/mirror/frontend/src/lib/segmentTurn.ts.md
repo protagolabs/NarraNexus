@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/segmentTurn.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 回放路径的 reply 判定同样走 `isOwnerReplyTool`
+
+和直播路径（[[chatStore]]）用同一个判定。两条路径对「哪次工具调用是 owner 回复」必须给
+同一个答案，否则重载一轮之后气泡会消失。判定见 [[ownerTools]]。
+
 
 # segmentTurn.ts — 一轮事件按「用户可见片段」切段的纯函数
 

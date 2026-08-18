@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/prompts/library.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
 

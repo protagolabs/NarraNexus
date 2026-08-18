@@ -3,6 +3,19 @@ code_file: src/xyz_agent_context/module/job_module/prompts.py
 last_verified: 2026-08-17
 ---
 
+## 2026-08-17 — 房间版 delivery 段改写：不再承诺自动上墙
+
+`JOB_DELIVERY_TO_ROOM` 原文是「你下面的正文就是报告，运行结束时自动发到房间——不要通过
+任何函数投递」。这句话只在 team 房间收纯文本的那段时间里为真，而那正是全平台唯一
+「纯文本谁也到不了」为假的表面。改造后若原样不动，等于告诉 job 写完报告就停，房间一个字
+也收不到。
+
+现在：**用 `message_team` 把报告发到房间；你的纯文本谁也到不了，房间也不例外；运行结束
+时不会有人替你发。** 平台侧仍有兜底，但那是兜底不是契约，见 [[job_trigger]]。
+
+`JOB_DELIVERY_TO_OWNER` 里的工具名同步改为 `notify_owner`——job 的桌上就是它。
+
+
 ## 2026-08-17 — 注释里的函数名修正
 
 `job_trigger._deliver_job_result` → `_deliver_to_origin`。按图索骥的人 grep 不到

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-04 (review 修正) — working_source_matches 公共谓词

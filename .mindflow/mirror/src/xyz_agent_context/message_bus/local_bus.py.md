@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
 

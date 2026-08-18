@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
+
+**删除** `_team_room_delivery_phase` / `_should_deliver_team_reply` /
+`_post_team_room_reply` / `_team_room_reply_frame`（共 155 行）及其调用点，
+`AgentRuntime.run` 的 `on_plain_text_delivery` 参数与 `StepContext` 上的同名字段一并删除。
+
+team 房间此前是**唯一**「agent 的纯文本就是回复、由平台代发」的表面。这个例外关不住：
+框架 constitution、ChatModule instruction、bus module 规则都在陈述通则，而三者里每轮
+只能关掉一个——PR #311 被评审打了六轮，打的全是由此长出来的矛盾。房间现在收工具调用
+（`message_team`），本步骤因此无事可判：agent 有没有在房间里说话是 bus 里的一个事实，
+由 trigger 直接读（`has_message_from_turn`）。原来这里权衡的 @mention 解析、级联上限
+及其播报、errand 记账，全部搬到 [[team_posting]]——它们是「往房间发帖」的属性，而不是
+「恰好拥有投递权的那一步」的属性。
+
+**新增**：`origin_declaration=render_origin_declaration(ctx.working_source, ...)`。
+
+`_im_reply_tool_name` 的过滤改用 `is_owner_tool`：它此前只写死排除 `notify_owner`，
+默认 handler 开始同时列出两个名字的那一刻 `reply_owner` 就溜了过去。
+
 
 ## 2026-08-13 — 平台来源绑定：stamp identity 上 provider 配置
 

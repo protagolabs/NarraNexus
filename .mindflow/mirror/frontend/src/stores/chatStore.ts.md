@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 气泡提取改用 `isOwnerReplyTool`
+
+三处按工具名挑 owner 回复内容的地方（`stopStreaming` 的拼接、内联时间线的 reply 事件、
+`complete` 的 `hasReply`）改用 [[ownerTools]] 的共享判定。
+
+后端把一个 owner 工具拆成了 `reply_owner` / `notify_owner`，每轮桌上只有一个。前端只匹配
+其中一个名字时，另一条表面上的回复内容是真的、字也在，**气泡就是不渲染**——一个不报错的
+静默失败。
+
 
 ## 2026-08-14 — ToastItem 成为可辨识联合
 

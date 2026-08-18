@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名

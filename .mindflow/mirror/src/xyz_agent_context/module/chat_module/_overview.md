@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/module/chat_module/
-last_verified: 2026-04-10
+last_verified: 2026-08-17
 ---
 
 # chat_module/ — 对话与外部接入模块

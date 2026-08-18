@@ -2851,7 +2851,7 @@ class MessageBusTrigger:
             lines.append(
                 "1. If you can answer → reply to the asker with "
                 "`message_agent(to=<the sender above>, "
-                "content=<your answer>)`. This is the point of the turn."
+                "text=<your answer>)`. This is the point of the turn."
             )
             lines.append(
                 "2. If you need something clarified before you can answer → ask "

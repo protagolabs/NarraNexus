@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam

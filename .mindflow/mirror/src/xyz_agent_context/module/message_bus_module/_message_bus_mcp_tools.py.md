@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
 

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 stub: false
 ---
 

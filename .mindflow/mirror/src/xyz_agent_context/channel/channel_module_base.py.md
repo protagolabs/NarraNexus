@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-04 — owns_working_source：channel_name 即来源名

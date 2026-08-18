@@ -60,7 +60,6 @@ MESSAGE_BUS_MCP_PORT = 7820
 
 # Context-injection caps to prevent pollution
 MAX_UNREAD_IN_CONTEXT = 20
-MAX_CHANNELS_IN_CONTEXT = 20
 MAX_KNOWN_AGENTS_IN_CONTEXT = 50
 
 
@@ -464,7 +463,7 @@ class MessageBusModule(XYZBaseModule):
         ]
 
     def _volatile_context_parts(self, ctx_data: ContextData) -> list:
-        """The three live data lists (Known Agents / Your Channels / Unread
+        """The two live data lists (Known Agents / Unread
         Messages) — changed mid-session by bus tools and consumed unreads,
         so they are per-turn volatile. Rendering (caps, order, wording) is
         unchanged from the pre-R4 in-instruction rendering; only the
@@ -497,17 +496,12 @@ class MessageBusModule(XYZBaseModule):
                     line += " (teammate)"
                 parts.append(line)
 
-        # Channels (capped)
-        channels = ctx_data.extra_data.get("bus_channels", [])
-        if channels:
-            parts.append("")
-            parts.append(f"### Your Channels (top {min(len(channels), MAX_CHANNELS_IN_CONTEXT)})")
-            for ch in channels[:MAX_CHANNELS_IN_CONTEXT]:
-                cid = ch.get("channel_id", "")
-                cname = ch.get("name", "unnamed")
-                ctype = ch.get("channel_type", "group")
-                parts.append(f"- `{cid}` — {cname} ({ctype})")
-
+        # The channel list that used to sit here is gone on purpose. It printed
+        # raw `channel_id`s and a `channel_type` into the agent's context, which
+        # is the vocabulary this redesign removes: an agent has private
+        # conversations and teams, and both are already named above by handles
+        # it can actually use. The list existed to make `read_history` callable
+        # — that tool now takes `with_agent` / `team_id`, so nothing needs it.
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
@@ -556,7 +550,7 @@ class MessageBusModule(XYZBaseModule):
         return "\n".join(parts)
 
     async def get_turn_context(self, ctx_data: ContextData) -> str:
-        """Per-turn volatile span: the Known Agents / Your Channels /
+        """Per-turn volatile span: the Known Agents /
         Unread Messages lists, under a stable heading."""
         volatile = self._volatile_context_parts(ctx_data)
         if not volatile:
@@ -697,21 +691,13 @@ class MessageBusModule(XYZBaseModule):
             except Exception as e:
                 logger.debug(f"Failed to fetch unread messages: {e}")
 
-            # --- 4. Fetch channels (capped) ---
-            try:
-                rows = await bus._db.execute(
-                    "SELECT c.* FROM bus_channels c "
-                    "JOIN bus_channel_members cm ON c.channel_id = cm.channel_id "
-                    "WHERE cm.agent_id = %s "
-                    "ORDER BY c.created_at DESC "
-                    "LIMIT %s",
-                    (self.agent_id, MAX_CHANNELS_IN_CONTEXT),
-                )
-                if rows:
-                    ctx_data.extra_data["bus_channels"] = [dict(r) for r in rows]
-            except Exception as e:
-                logger.debug(f"Failed to load bus channels: {e}")
-
+            # --- 4. (removed) channel list ---
+            #
+            # A per-turn query used to load this agent's channels here so the
+            # instruction could print them. Nothing renders them any more (see
+            # the note where that list used to be), and the tool that needed
+            # the ids takes handles now — so this was a round-trip per turn for
+            # data no reader had.
             # --- 5. (removed) input source tag ---
             #
             # A branch used to sit here prefixing `[MessageBus · sender ·

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/_tool_policy_guard.py
-last_verified: 2026-04-20
+last_verified: 2026-08-17
 stub: false
 ---
 

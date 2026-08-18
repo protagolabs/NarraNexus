@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 stub: false
 ---
 

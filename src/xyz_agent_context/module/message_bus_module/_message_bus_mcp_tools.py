@@ -2,7 +2,7 @@
 @file_name: _message_bus_mcp_tools.py
 @author: Bin Liang
 @date: 2026-04-02
-@description: MCP atomic tools for MessageBus operations (bus_* prefix)
+@description: MCP atomic tools for the agent's messaging surface.
 
 These tools map to the MessageBusService interface methods.
 The bus_ prefix avoids collision with lark_*, slack_*, etc.
@@ -125,6 +125,57 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
     )
 
 
+#: What the agent is told when the messaging backend is down. It never names
+#: the subsystem: "MessageBus not available" asks the model to reason about a
+#: component it has no model of, and the only useful next step — stop trying to
+#: send this turn — is the same either way.
+_UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
+
+
+async def _resolve_conversation(
+    agent_id: str, *, with_agent: str, team_id: str
+) -> tuple[Optional[str], Optional[str]]:
+    """One conversation handle -> (channel_id, error). Never raises for "not found".
+
+    Membership is enforced BY the query rather than checked after it: the DM
+    lookup joins on both members, so a channel the caller does not belong to
+    cannot come back, and the team lookup requires a `team_members` row. A
+    resolver that found the channel first and authorised second would be one
+    forgotten branch away from letting an agent read a conversation it is not in.
+
+    `%s` rather than `db.placeholder`: callers hold an `AsyncDatabaseClient`,
+    which translates `%s` per dialect and has no `.placeholder` attribute at all
+    (the bug that took every `message_team` down — see `team_posting`).
+    """
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+
+    db = await get_db_client()
+    if team_id:
+        member = await db.get_one(
+            "team_members", {"team_id": team_id, "agent_id": agent_id}
+        )
+        if not member:
+            return None, f"you are not in team {team_id}"
+        from xyz_agent_context.message_bus.team_rooms import primary_room_of
+
+        channel_id = await primary_room_of(db, team_id)
+        if not channel_id:
+            return None, f"team {team_id} has no room yet"
+        return channel_id, None
+
+    rows = await db.execute(
+        "SELECT c.channel_id FROM bus_channels c "
+        "JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id AND m1.agent_id = %s "
+        "JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id AND m2.agent_id = %s "
+        "WHERE c.channel_type = 'direct'",
+        (agent_id, with_agent),
+        fetch=True,
+    )
+    if not rows:
+        return None, f"you have no private conversation with {with_agent} yet"
+    return rows[0]["channel_id"], None
+
+
 def register_message_bus_mcp_tools(
     mcp: Any,
     get_message_bus_fn: Callable,
@@ -176,7 +227,7 @@ def register_message_bus_mcp_tools(
         """
         bus = await get_message_bus_fn()
         if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
+            return {"success": False, "error": _UNAVAILABLE}
         if not (to or "").strip():
             return {
                 "success": False,
@@ -247,7 +298,7 @@ def register_message_bus_mcp_tools(
         """
         bus = await get_message_bus_fn()
         if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
+            return {"success": False, "error": _UNAVAILABLE}
         if not (team_id or "").strip():
             return {
                 "success": False,
@@ -351,7 +402,7 @@ def register_message_bus_mcp_tools(
         """
         bus = await get_message_bus_fn()
         if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
+            return {"success": False, "error": _UNAVAILABLE}
 
         try:
             member_list = [m.strip() for m in members.split(",") if m.strip()]
@@ -373,7 +424,7 @@ def register_message_bus_mcp_tools(
         query: str,
     ) -> dict:
         """
-        Search for agents in the MessageBus registry by capability or description.
+        Search for agents you can reach by capability or description.
 
         Only agents in YOUR OWN account are returned — you cannot discover
         another user's agents via the bus. Use this when you need to find one
@@ -390,7 +441,7 @@ def register_message_bus_mcp_tools(
         """
         bus = await get_message_bus_fn()
         if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
+            return {"success": False, "error": _UNAVAILABLE}
 
         try:
             results = await bus.search_agents(query=query, requester_agent_id=agent_id)
@@ -571,26 +622,52 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def read_history(agent_id: str, channel_id: str, limit: int = 50) -> dict:
+    async def read_history(
+        agent_id: str,
+        with_agent: str = "",
+        team_id: str = "",
+        limit: int = 50,
+    ) -> dict:
         """
-        Get recent message history from a channel.
+        Look further back in one of your conversations.
 
-        Use this to read prior conversation context in a channel you belong to,
-        for example before replying to a new message or when you need to
-        understand how a discussion evolved.
+        Name the conversation the way you would to write in it: `with_agent`
+        for a private conversation, `team_id` for a team. Exactly one.
 
-        Do NOT call this for channels whose recent messages are already in
-        your context. Do NOT call this repeatedly in a loop.
+        Use it when you need how a discussion evolved and the messages you were
+        given are not enough. Do NOT call it for a conversation whose recent
+        messages are already in front of you, and do NOT call it in a loop.
 
         Args:
             agent_id: Your agent ID
-            channel_id: Channel to retrieve messages from
+            with_agent: the agent id of the peer, for a private conversation
+            team_id: the team, for a team conversation
             limit: Maximum number of messages (default 50)
         """
+        # Handles, not channel ids, and that is the point rather than a
+        # convenience: an agent's world is a private conversation or a team,
+        # and a tool that took a raw channel id would be the one place it had
+        # to know otherwise — after which the id has to be printed into its
+        # context to be usable, and the vocabulary is back.
+        bus = await get_message_bus_fn()
+        if bus is None:
+            return {"success": False, "error": _UNAVAILABLE}
+
+        with_agent = (with_agent or "").strip()
+        team_id = (team_id or "").strip()
+        if bool(with_agent) == bool(team_id):
+            return {
+                "success": False,
+                "error": "name exactly one conversation: `with_agent` for a "
+                         "private one, `team_id` for a team.",
+            }
+
         try:
-            bus = await get_message_bus_fn()
-            if bus is None:
-                return {"success": False, "error": "MessageBus not available"}
+            channel_id, err = await _resolve_conversation(
+                agent_id, with_agent=with_agent, team_id=team_id
+            )
+            if err:
+                return {"success": False, "error": err}
             messages = await bus.get_messages(channel_id, limit=limit)
             return {"success": True, "messages": [
                 {"from": m.from_agent, "content": m.content, "time": str(m.created_at), "mentions": m.mentions}

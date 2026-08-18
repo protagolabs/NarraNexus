@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-05
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 「在用户聊天里可见」按该轮桌上的那个 owner 工具判定
+
+owner 面的工具有两个名字，判据从写死一个改成「这个来源的桌上carry 的那个」：owner 聊天
+是 `reply_owner`，其余全是 `notify_owner`。写死任一个，都会在用另一个的表面上把成功的
+回复读成「没回复」。
+
 
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 

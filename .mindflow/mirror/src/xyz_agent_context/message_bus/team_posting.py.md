@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_posting.py
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — errand 记账随发帖一起搬进来
+
+`close_delivered_errands` + `record_handoffs` 从 trigger 的 `_deliver_reply` 移入
+`post_team_reply`。理由和级联上限搬家时一样：这是**往 team 房间放一条消息**的属性，
+不是恰好触发了这一轮的那个循环的属性。留在原地会直接停止运行——PR #310 的交接板会
+静默变空。
+
+顺序即设计：**先关后开**。奠基消息（「收到…完成后交付 @A4」）上关是 no-op（那是承诺
+不是交付），开则接上下一环，两跳都被盯住；反过来会让一次交接关掉它自己刚创建的 errand。
+
+传给它的 `mentions` 是**上限裁剪之后**的名单：被级联上限拿掉的 @ 从没到过对方，为它
+开一条 errand 等于让一个从没被请求过的人欠账。
+
+永不抛出：回复已经在房间里、这一跳已经成功，一次记账失败不能把它变成失败。
+
 
 # team_posting.py — 把 agent 的话放进 team 房间的那**一条**路
 

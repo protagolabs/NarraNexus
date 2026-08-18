@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-10 — send_to_agent 改走 wechat_outbound 路由

@@ -1,7 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
+
+`get_expressive_tools` 现在按轮次返回 `reply_owner`（owner 自己的聊天轮）或
+`notify_owner`（其余全部），**永远只有一个**；新增的 `get_disallowed_tools` 把另一个的
+schema 也从模型上下文里移走。
+
+只声明不移除是不够的：声明只决定回复提醒**念**哪个名字，schema 是另一条路进上下文的。
+两个工具挂着相反的纪律（一个是「几乎每轮都该用」，一个是「默认别用」），模型同时看得见
+就得自己挑，而挑错不是免费的。prod 实测：两个明写 "Do NOT call" 的工具被调用了 615 次
+——散文劝阻不管用，这是这次改造的直接依据。
+
+`_is_owner_chat_turn` 在**没有 working_source** 时返回 True。两个猜错方向不对等：把
+bus 轮猜成 owner 聊天只是语气偏了；把 owner 聊天猜成 `notify_owner`，桌上那条纪律写着
+「默认别用」，用户刚说完话可能一个字都收不到。
+
+`_split_user_visible_response` 的分流改用 `is_owner_tool`（见 [[message_source_handler]]）。
+只匹配其中一个名字，会让另一条表面上的 owner 回复全部落进 IM 桶，在聊天面板里渲染成
+「Background activity」。
+
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
 

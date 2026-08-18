@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_reads.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
 

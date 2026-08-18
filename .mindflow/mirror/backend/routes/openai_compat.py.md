@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
 

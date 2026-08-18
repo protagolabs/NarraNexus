@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-08-07
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 来源声明从这里渲染；owner 工具判定收归一处
+
+新增三样：
+
+1. `display_label` + `label` 属性——面向 **agent** 的来源名。用 agent 的世界模型措辞：
+   平台内部一律 `NarraNexus`（bus 是它看不见的基础设施，冒出「Message Bus」等于凭空
+   多一个概念），各渠道用自己的品牌大小写。
+2. `render_origin_declaration(working_source, expressive_tools)`——设计 §6.1 的那一行。
+   两半都来自平台已经算好的数据：label 来自本 registry（决定哪些调用算回复的同一条
+   记录），工具来自该轮 `get_expressive_tools` 的**同一个 tuple**。所以这句话不可能和
+   桌子矛盾——没有第二份副本可以漂。工具为空时返回空串：没有回复面的轮次不能被塞一句
+   声称有回复面的话。
+3. `is_owner_tool()`——`reply_owner` / `notify_owner` 的统一判定。放这里是因为本模块
+   已经必须同时推理这两个名字（默认 handler 两个都列）。**问「到没到 owner」的必须两个
+   都认；问「是不是渠道自己的工具」的必须两个都拒**——只写死一个的过滤器让另一个溜了
+   过去，IM 兜底帧因此被标成 `reply_owner`，会在 owner 聊天面板里显示成 agent 在跟他
+   说话。
+
+默认 handler 的 `user_reply_tool_names` 现在两个 owner 名字都列。owner 自己的聊天轮
+落到这个 handler（没有显式的 "chat" 注册），它桌上是 `reply_owner`；只列一个会让
+`_has_organic_reply` 在用另一个的表面上瞎掉——回答得完美的聊天轮读成「从没说话」，
+helper-LLM 兜底会在每一轮成功的对话上再写一条回复。
+
+各 trigger prompt 里对「怎么回复」的重述随之删除，见 [[channel_prompts]]。
+
 
 ## 2026-08-07 — `PLATFORM_REPLY_TEXT_KEY`：平台自己写的回复优先于渠道抽取器
 
