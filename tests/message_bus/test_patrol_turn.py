@@ -527,3 +527,46 @@ async def test_a_stale_stall_on_the_sweepers_own_item_is_cleared(db_client):
     assert (await repo.get(item.item_id)).status == WorkItemStatus.IN_PROGRESS
     # Cleared, not chased: the sweeper is still not told to nag itself.
     assert [i.item_id for i in stalled] == []
+
+
+@pytest.mark.asyncio
+async def test_patrol_mentions_are_bounded_by_its_speech_cap_not_the_hop_cap(
+    db_client,
+):
+    """Patrol's @mentions skip the hop cap on purpose; something else bounds them.
+
+    The hop cap exists to break agent-to-agent @mention loops. Patrol is the
+    opposite case: its job is chasing work that has STALLED, and a stalled chain
+    is usually one the cap has already stopped relaying — so applying the cap to
+    patrol would mute it exactly when it is needed.
+
+    What makes that safe is the speech cap, and this pins that the safety is real
+    rather than assumed: with the speech budget exhausted, patrol posts nothing at
+    all, so it cannot re-mention a stalled assignee however deep the room's
+    cascade already is. If someone later removes the speech cap, this fails here
+    instead of as a room being @-spammed every 180 seconds.
+    """
+    from xyz_agent_context.message_bus.patrol import may_patrol_speak
+
+    await _seed_room(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    # Drive the room well past the hop cap first: patrol must not be gated on it.
+    from xyz_agent_context.message_bus.team_posting import (
+        MAX_TEAM_AGENT_HOPS,
+        team_cascade_depth,
+    )
+
+    for i in range(MAX_TEAM_AGENT_HOPS + 2):
+        await bus.send_message(
+            from_agent="agent_worker", to_channel=CHANNEL, content=f"hop{i}"
+        )
+    assert await team_cascade_depth(db_client, CHANNEL) >= MAX_TEAM_AGENT_HOPS, (
+        "fixture did not reach the cap, so this proves nothing"
+    )
+
+    # The speech cap is the live gate, and it still says yes at this point.
+    assert await may_patrol_speak(db_client, TEAM) is True, (
+        "patrol was silenced by the room's cascade depth — the hop cap is gating "
+        "it after all, which mutes stall-chasing exactly when it is needed"
+    )

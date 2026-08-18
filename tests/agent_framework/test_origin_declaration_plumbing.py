@@ -88,3 +88,48 @@ def test_nexus_options_carry_the_line():
         .origin_declaration
         == "[Origin] Lark · reply with `x`"
     )
+
+
+def test_step_3_reads_the_plain_text_marker_from_the_turns_own_extras():
+    """The one input to the origin line that is not derivable from the tools.
+
+    `render_origin_declaration` refuses to name a default when the turn's reply IS
+    its plain text — otherwise origin-first ordering presents some other module's
+    tool as the way to answer, and on patrol that means telling the lead to message
+    its owner instead of writing the room's status line.
+
+    `test_surface_matrix.py` re-derives that flag inside the test and comments "the
+    same three inputs step_3 composes it from" — so nothing asserted that step_3
+    reads it from the right place. This is exactly the failure shape this file's
+    own docstring describes: a dropped or misspelled kwarg produces a turn that
+    runs fine and quietly loses the guarantee.
+
+    Asserted from the source because reaching this line means standing up a whole
+    run, and the property under test is which dict the value comes from, not what
+    the model then does with it. `trigger_extra_data` is what
+    `MessageBusTrigger._invoke_runtime` stamps and what `agent_runtime` carries
+    onto the context; reading `ctx.extra_data` — which `RunContext` does not even
+    have — was the first version of this line and pyright caught it.
+    """
+    import inspect
+
+    from xyz_agent_context.agent_runtime._agent_runtime_steps import (
+        step_3_agent_loop,
+    )
+    from xyz_agent_context.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
+
+    src = inspect.getsource(step_3_agent_loop)
+
+    assert "reply_is_plain_text=" in src, (
+        "step_3 stopped passing the plain-text fact, so a patrol turn gets an "
+        "origin line naming a tool its own prompt forbids"
+    )
+    assert "BUS_PLAIN_TEXT_TURN_EXTRA_KEY" in src
+
+    # The value must come from the turn's extras, not from a module-level default
+    # or a re-derivation. `_turn_extra` is `ctx.trigger_extra_data or {}`.
+    call = src[src.index("reply_is_plain_text="):][:200]
+    assert "_turn_extra" in call, (
+        f"the marker is not read from the turn's own extras: {call!r}"
+    )
+    assert BUS_PLAIN_TEXT_TURN_EXTRA_KEY == "bus_plain_text_turn"

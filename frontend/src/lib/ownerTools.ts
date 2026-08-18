@@ -13,8 +13,10 @@
  * content is there, and the bubble simply never renders.
  *
  * Mirrors `_OWNER_TOOL_RE` in
- * `src/xyz_agent_context/module/chat_module/chat_module.py` — the two must
- * move together.
+ * `src/xyz_agent_context/channel/message_source_handler.py` — the two must move
+ * together. (This comment said `chat_module/chat_module.py` until 2026-08-18; a
+ * dangling pointer in the one comment whose whole job is keeping two copies in
+ * sync is worse than no pointer, because it is followed.)
  */
 const OWNER_TOOL_RE = /(?:reply|notify)_owner$/;
 

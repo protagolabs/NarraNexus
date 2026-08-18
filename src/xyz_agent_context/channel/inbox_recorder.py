@@ -175,14 +175,21 @@ class InboxRecorder:
                 at=now + timedelta(microseconds=1),
             )
             preview = outbound_text
+            last_at = now + timedelta(microseconds=1)
         else:
             preview = inbound_text
+            # The inbound row's own timestamp, not the reply slot's. A silent turn
+            # has no row at `now + 1µs`, so stamping the thread there put its
+            # "last message" one microsecond after the only message it has — and
+            # the panel sorts threads on this column, so a silent turn sorted
+            # ahead of a turn that actually answered at the same instant.
+            last_at = now
 
         await db.update(
             "inbox_threads",
             {"thread_id": thread_id},
             {
-                "last_message_at": now + timedelta(microseconds=1),
+                "last_message_at": last_at,
                 "last_message_preview": (preview or "")[:200],
                 "updated_at": now,
             },

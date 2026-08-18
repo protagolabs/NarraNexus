@@ -206,6 +206,21 @@ class TurnResult:
         return not self.text and not self.delivered
 
 
+def _log_wake_task_failure(task: "asyncio.Task") -> None:
+    """Surface a cross-process wake task that died, and swallow the cancel.
+
+    Cancellation is the normal path — `_sleep_until_due` cancels the loser of
+    every cycle — so only a real exception is worth a line.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning(
+            f"[bus-wake] cross-process waiter died: {type(exc).__name__}: {exc}"
+        )
+
+
 def build_bus_anchor(messages: List[BusMessage]) -> str:
     """Build the clean retrieval anchor for a bus turn.
 
@@ -471,6 +486,13 @@ class MessageBusTrigger:
         stop_task = asyncio.create_task(self._stop_event.wait())
         wake_task = asyncio.create_task(self._wake_event.wait())
         cross_task = asyncio.create_task(self._wait_cross_process_wake())
+        # Every create_task pairs with a done callback (incident lesson #2). This
+        # one is internally guarded, so the callback should never fire — which is
+        # exactly why it is here: if it ever does, the `.cancel()` in `finally`
+        # is a no-op on an already-failed task and asyncio would otherwise log
+        # "Task exception was never retrieved" once per poll cycle, i.e. a real
+        # fault reported as recurring noise nobody reads.
+        cross_task.add_done_callback(_log_wake_task_failure)
         try:
             await asyncio.wait(
                 {stop_task, wake_task, cross_task},
@@ -2031,6 +2053,20 @@ class MessageBusTrigger:
         # Posted under the ROOM's marker, not the lead's id: that is what
         # keeps the line out of the agent-hop count, and it reads honestly
         # — this is the platform taking stock, not the lead chatting.
+        #
+        # These @mentions DELIBERATELY skip `team_cascade_depth`. Patrol's whole
+        # job is to chase work that has stalled, and a chain that stalled is a
+        # chain the cap has usually already stopped relaying — so applying the cap
+        # here would silence the mechanism precisely when it is needed. What
+        # bounds patrol instead is its own speech cap (`may_patrol_speak`, 6 per
+        # 30 min per team), which is a budget on the platform's voice rather than
+        # on a relay depth.
+        #
+        # Stated explicitly because `team_posting`'s docstring says the cap moved
+        # so that "the loop-breaker was installed on the door the agent was told
+        # not to use" — and this is a door with no counting on it. The difference
+        # is who walks through: an agent relaying an @mention can loop, the
+        # platform posting a status line every 180s at most cannot.
         await self._post_to_room(
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             to_channel=channel_id,
