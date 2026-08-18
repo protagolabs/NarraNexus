@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/skill_backup.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -98,6 +98,10 @@ Bundle export 想以"URL 安装"或"Zip 安装"方式分享 skill 时，必须�
   `{root}/{uid}/../marker.zip`，resolve 之后在 `{root}/marker.zip`，root
   锚点判它"合规"；`{root}/{受害者}/x.zip` 同理。`is_within_archives_root`
   留着只给写侧用，它的 docstring 现在明写自己是更松的那个。
+  读侧**两道锚点同时成立**才放行（per-user + root）：`base` 自己也是
+  resolve 过的，所以 `{root}/{user_id}` 若是指向树外的 symlink，"在 base 里
+  面"会恒真。今天写侧已经拒绝这种用户目录，读侧这一层是纵深——等哪天有第二
+  条写入路径能写这一列，它就是唯一还在的网。
 
 回归测试 `tests/bundle/test_skill_archive_path_safety.py` 里有一条 grep 式
 断言：这 3 个文件中不允许再出现 `<dir> / f"...skill_name..."` 形状的行。

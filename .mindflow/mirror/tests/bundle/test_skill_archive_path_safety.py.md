@@ -1,6 +1,6 @@
 ---
 code_file: tests/bundle/test_skill_archive_path_safety.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -21,12 +21,17 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
    `ensure_within_directory` 锚在用户目录上的盲区。
 2. **不许再手拼**：一条 grep 式断言扫 bundle 路由 + 整个 `bundle/` 包，
    禁止出现"看起来在拼路径、且同行提到 `skill_name`"的行（`/`、
-   `.joinpath(`、`os.path.join(`，且赋给 `tgt|out|target|path|dst|dest`
-   之一）。`archive_target` / `prepare_archive_target` 是白名单。这类 bug
-   的复发路径就是有人又手拼一次；断言写成"形状"而不是"某一行"才拦得住新
-   增。早期版本只匹配 `f"{skill_name}`，既漏 `.joinpath` / `os.path.join`
-   / `+ ".zip"` 等写法，又会把 `f"{skill_name}@{old_aid}"` 这种纯日志标签
-   误报，且扫描面写死 3 个文件；docstring 现在如实写明它挡不住什么。
+   `.joinpath(`、`os.path.join(`）。**实参位置的拼接也算**——
+   `copy2(src, base / f"{skill_name}.zip")` 会被抓到，不只是赋值语句。
+   豁免只有两类、按形状不按行号：sanctioned builder（`archive_target` /
+   `prepare_archive_target`）和日志/标签行（`logger.` 开头，或 f-string 喂
+   给 `append(`，`f"{skill_name}@{old_aid}"` 就在这一类）。
+   演化史（两次都是"守卫比它自称的窄"）：v1 只匹配 `f"{skill_name}`，漏
+   `.joinpath` / `os.path.join`，且扫描面写死 3 个文件；v2 放宽了这些但**新
+   加了一道"必须赋给 tgt/out/target/…"的过滤**，反而对实参位置和无空格
+   `base/f"…"` 比 v1 更窄，而 docstring 没写这道过滤（mirror 写了，两边打
+   架）。v3 去掉赋值要求、改成排除已知误报，docstring 与本文件同步。
+   验过：往 importer 注入一行实参位置的拼接，v3 会红。
 3. **读侧，三种形状**（初版只有第一种，是个真空档）：
    - root **之外**的绝对路径 —— `/export` 那条读侧漏洞的形状
    - root **散装层**（`{root}/marker.zip`）—— **dev 库 id=20 的真实形状**，

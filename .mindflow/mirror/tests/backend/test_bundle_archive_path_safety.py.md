@@ -1,6 +1,6 @@
 ---
 code_file: tests/backend/test_bundle_archive_path_safety.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -24,6 +24,11 @@ stub: false
 - **拒绝时不留痕**：比对 `tmp_path` 下的文件集合前后一致，且 fake repo 的
   `upsert` 调用列表为空。这条比"返回 400"更重要——校验必须发生在建目录 /
   写字节 / 写库之前。
+- **每一条 4xx 都不建目录**，不只是非法 `skill_name` 那条：非法
+  `source_type` / zip 缺 file / github 缺 url / 超大，四条都断言
+  `archives_root` 整棵树不存在。初版的参数表恰好只有非法名，而
+  `archive_target` 当时内部会 `mkdir`——**唯一会出问题的分支正好被绕开**。
+  这个不变式是二审之后才真正成立的（见 [[skill_backup.py]] 的纯化）。
 - github 分支（不写盘）同样校验 `skill_name`。
 - happy path 落在 `{root}/{user_id}/{name}.zip`，且 DB 记的是**解析后**的
   路径而不是原始客户端串。

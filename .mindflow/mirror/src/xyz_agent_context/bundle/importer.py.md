@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -31,9 +31,29 @@ zip 分支把已经就位的 `tgt` 交给 `backup_after_api_install`，而那个
 ——包更大，且 full 模式会把 secrets 一起带走**。
 
 现在 zip 分支直接 `register_archive(archive_path=str(tgt))`，形状照抄
-full_copy 分支；sha256 优先用 manifest 的（包内 zip 与落盘文件逐字节相
-同），缺失时用 `file_sha256` 重算。回归测试
-`test_imported_zip_skill_registers_archive` 钉住这条，改回旧写法会红。
+full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉住这
+条，改回旧写法会红。
+
+**sha256 一律由落盘文件现算，不取 manifest 的值**（2026-08-17 二审修正）。
+初版写的是"优先用 manifest 的，因为包内 zip 与落盘文件逐字节相同"——这句
+有两个反例：
+
+1. **de-dup 哨兵**：[[builder.py]] 对同一个 skill 的第 2..N 条 entry 写的是
+   `sha256: "shared"`（它们共用一个 `archive_ref`）。importer 对每条 entry
+   都 upsert 一次、后写覆盖先写，于是"两个 agent 共用一个 zip skill"的
+   bundle 导入后，`skill_archives.sha256` 就是字面量 `"shared"`。`or` 只兜
+   `None` / 空串，兜不住哨兵。
+2. **`tgt` 已存在时不拷贝**：上面那句 `if not tgt.exists()` 意味着用户此前
+   自己传过同名归档时保留旧字节，而 manifest 的 digest 描述的是新 zip。
+
+这一列的唯一用途就是完整性，写进一个已知有时为假的值比多算一次 hash 差得
+多。`test_shared_skill_import_records_a_real_sha` 用**两个 agent**的 bundle
+钉住它（单 agent 复现不出来），断言 `re.fullmatch(r"[0-9a-f]{64}", ...)`，
+并先断言 manifest 里确实带了 `"shared"` 哨兵——否则用例会因为错误的理由变
+绿。
+
+> `full_copy` 分支的 `s.get("sha256", "imported")` 是同一类哨兵，但不在本次
+> 改动面上，要改单独一条 commit + 自己的用例。
 
 > 这个缺陷藏了这么久的直接原因是 `skill_backup.py` 那个宽
 > `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的

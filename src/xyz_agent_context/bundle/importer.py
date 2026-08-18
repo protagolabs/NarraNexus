@@ -1435,15 +1435,21 @@ async def _confirm_inner(
                 # zip-method skill could never be re-exported as `zip` (it
                 # silently degraded to full_copy, which ships secrets under full
                 # mode). Verified by `test_imported_zip_skill_registers_archive`.
-                # The manifest sha256 describes the bundle's copy of the zip,
-                # which is byte-identical to `tgt`; recompute when absent.
+                # sha256 is computed from the file on disk, NOT taken from the
+                # manifest. The manifest value is unreliable in two ways: it is
+                # the de-dup sentinel `"shared"` for entries 2..N when several
+                # agents reference one skill (see builder's copied_zip_ref), and
+                # when `tgt` already existed we kept the old bytes above and
+                # never copied, so the manifest digest describes a different
+                # file. This column's only job is integrity — a value that is
+                # sometimes a literal word is worse than an extra hash.
                 await register_archive(
                     user_id=user_id,
                     skill_name=skill_name,
                     source_type="zip",
                     source_url=None,
                     archive_path=str(tgt),
-                    sha256=s.get("sha256") or await asyncio.to_thread(file_sha256, tgt),
+                    sha256=await asyncio.to_thread(file_sha256, tgt),
                 )
                 written_summary["skills_imported"] += 1
 

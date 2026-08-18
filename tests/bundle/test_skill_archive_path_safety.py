@@ -102,6 +102,26 @@ def test_archive_target_rejects_a_traversing_user_id(archives_root):
     assert "user id" in str(exc.value).lower()
 
 
+def test_read_guard_rejects_symlinked_user_dir(archives_root):
+    """Read side keeps the archives-root anchor too, so a `{root}/{uid}` symlink
+    pointing out of the tree cannot make "inside the user's dir" vacuously true.
+    Today the write side already refuses such a dir — this is the depth that
+    stops mattering the moment some other path learns to write the column."""
+    from xyz_agent_context.bundle.skill_backup import is_within_user_archive_dir
+
+    outside = archives_root.parent / "outside"
+    outside.mkdir(parents=True, exist_ok=True)
+    archives_root.mkdir(parents=True, exist_ok=True)
+    (archives_root / "u3").symlink_to(outside, target_is_directory=True)
+    escaped = outside / "loot.zip"
+    escaped.write_bytes(b"x")
+
+    assert not is_within_user_archive_dir("u3", escaped)
+    # …while an ordinary user dir still passes.
+    (archives_root / "u4").mkdir()
+    assert is_within_user_archive_dir("u4", archives_root / "u4" / "ok.zip")
+
+
 def test_archive_target_rejects_symlink_escape(archives_root):
     """A symlinked user dir must not become a way out of the archives root."""
     from xyz_agent_context.bundle.skill_backup import archive_target
@@ -121,28 +141,32 @@ def test_archive_target_rejects_symlink_escape(archives_root):
 def test_no_site_composes_an_archive_path_by_hand():
     """Regression guard on the SHAPE of the bug, not on a known line.
 
-    Scope, stated honestly so nobody over-trusts a green run: it flags lines
-    that both (a) look like path composition — `/`, `.joinpath(`,
-    `os.path.join(` — and (b) mention `skill_name`, across the bundle package
-    and the bundle route. It cannot see composition that renames the variable
-    (`name = s.get("name")`) or splits across lines. It exists because this bug
-    class recurs by someone hand-rolling the path again, and that is the shape
-    it recurs in — it is not a proof of absence.
+    Scope, stated honestly so nobody over-trusts a green run. It flags a line
+    that mentions `skill_name` AND looks like path composition (`/`, with or
+    without spaces; `.joinpath(`; `os.path.join(`), anywhere in the bundle
+    package or the bundle route. Composition in argument position counts —
+    `copy2(src, base / f"{skill_name}.zip")` is caught, not just assignments.
+    Exemptions are narrow and by shape, never by line number: the sanctioned
+    builders (`archive_target` / `prepare_archive_target`) and log/label lines
+    (`logger.…`, or an f-string fed to `append(`), which is where
+    `f"{skill_name}@{old_aid}"` lives.
+
+    What it still cannot see: composition that renames the variable first
+    (`name = s.get("name")`), or that splits across lines. It catches the shape
+    this bug class actually recurs in — it is not a proof of absence, so do not
+    skip a manual sweep because it is green.
     """
     suspects = [
         REPO_ROOT / "backend" / "routes" / "bundle.py",
         *sorted((REPO_ROOT / "src" / "xyz_agent_context" / "bundle").glob("*.py")),
     ]
-    # `archive_target` / `prepare_archive_target` ARE the sanctioned builders,
-    # and log/label lines like f"{skill_name}@{old_aid}" are not paths.
+
     def _is_path_composition(line: str) -> bool:
-        if "archive_target(" in line:
+        if "archive_target(" in line:  # the sanctioned builders
             return False
-        composes = (" / " in line) or (".joinpath(" in line) or ("os.path.join(" in line)
-        assigns_path = any(
-            f"{v} =" in line for v in ("tgt", "out", "out_path", "target", "path", "dst", "dest")
-        )
-        return composes and assigns_path
+        if line.startswith("logger.") or "append(" in line:  # log / label lines
+            return False
+        return ("/" in line) or (".joinpath(" in line) or ("os.path.join(" in line)
 
     offenders = []
     for f in suspects:
@@ -433,3 +457,68 @@ async def test_imported_zip_skill_registers_archive(
     assert row is not None, "import left no skill_archives row (SameFileError swallowed?)"
     assert row.archive_path and Path(row.archive_path).exists()
     assert row.sha256 and row.sha256 != "pending"
+
+
+async def test_shared_skill_import_records_a_real_sha(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """Two agents sharing one zip skill: the imported row must carry a real
+    digest, not the bundle's de-dup sentinel.
+
+    `builder` emits one manifest entry per (agent, skill) and marks entries
+    2..N `sha256: "shared"` because they point at one already-copied
+    archive_ref. The importer registers every entry (upsert, last write wins),
+    so taking the manifest value verbatim persisted the literal `"shared"` into
+    `skill_archives.sha256` — a column whose only job is integrity.
+    """
+    import re
+
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    uid = "test_user"
+    aids = ["agent_sec07004", "agent_sec07005"]
+    for i, aid in enumerate(aids):
+        await _seed_agent(db_client, aid, f"SharedAgent{i}", uid)
+        _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    src = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(src, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nlegit\n")
+    repo = SkillArchiveRepository(db_client)
+    await repo.upsert(
+        user_id=uid, skill_name="arena", source_type="zip", sha256="cafebabe",
+        archive_path=str(src),
+    )
+
+    bundle = tmp_path / "shared.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=aids,
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
+                 "install_method": "zip"}
+                for aid in aids
+            ],
+        ),
+        bundle,
+    )
+
+    # Precondition: the bundle really does carry the sentinel we're guarding
+    # against — otherwise this test would pass for the wrong reason.
+    shas = [s.get("sha256") for s in _manifest(bundle).get("skills", [])
+            if s.get("name") == "arena"]
+    assert "shared" in shas, f"expected a de-dup sentinel in the manifest, got {shas}"
+
+    await repo.remove(uid, "arena")
+    pre = await preflight(bundle, uid)
+    await confirm(pre["preflight_token"], uid)
+
+    row = await repo.get(uid, "arena")
+    assert row is not None
+    assert re.fullmatch(r"[0-9a-f]{64}", row.sha256 or ""), (
+        f"skill_archives.sha256 is not a digest: {row.sha256!r}"
+    )

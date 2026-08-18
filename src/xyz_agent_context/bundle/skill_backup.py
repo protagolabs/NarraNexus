@@ -125,10 +125,18 @@ def is_within_user_archive_dir(user_id: str, archive_path: str | Path) -> bool:
     the `{root}/{victim}/x.zip` shape. `builder.py` copies whatever
     `archive_path` names into the bundle it streams back, so every DB-sourced
     archive path must come through here before being opened.
+
+    Both anchors must hold. The per-user one does the real work here; the root
+    one is kept because `base` is itself resolved, so a `{root}/{user_id}`
+    symlink pointing out of the tree would make "inside base" true while being
+    outside everything. The write side rejects such a user dir, but read-side
+    depth should not depend on that staying true.
     """
     try:
         base = _user_archive_dir(user_id).resolve(strict=False)
-        return Path(archive_path).resolve(strict=False).is_relative_to(base)
+        return is_within_archives_root(archive_path) and Path(
+            archive_path
+        ).resolve(strict=False).is_relative_to(base)
     except (OSError, ValueError):
         return False
 
