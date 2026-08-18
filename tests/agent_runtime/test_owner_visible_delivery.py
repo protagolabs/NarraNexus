@@ -147,7 +147,12 @@ def test_owner_visible_texts_tolerates_malformed_responses():
 
 def test_boolean_predicate_agrees_with_the_list_on_every_case():
     """The equivalence the merge relies on, asserted directly rather than
-    argued in a comment."""
+    argued in a comment.
+
+    The one input where the merged version does NOT match the pre-merge
+    loop — a handler raising after a hit — needs a stubbed handler to
+    reach, so it lives in its own test below rather than as a case here.
+    """
     cases = [
         ([], "chat"),
         ([_tool_progress("mcp__chat_module__send_message_to_user_directly")], "chat"),
@@ -158,3 +163,59 @@ def test_boolean_predicate_agrees_with_the_list_on_every_case():
         assert _turn_delivered_user_message(responses, source) == bool(
             _owner_visible_reply_texts(responses, source)
         ), (responses, source)
+
+
+def test_non_progress_message_elements_are_filtered_not_fatal():
+    """Junk in the response list is skipped by the isinstance guard — it does
+    NOT reach the except, so a real reply beside it still counts."""
+    responses = [
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "real reply"),
+        object(),
+    ]
+    assert _owner_visible_reply_texts(responses, "chat") == ["real reply"]
+    assert _turn_delivered_user_message(responses, "chat") is True
+
+
+def test_a_raise_after_a_real_reply_reads_as_not_delivered(monkeypatch):
+    """The one documented divergence from the pre-merge short-circuit.
+
+    The old loop returned True at the first hit and never touched what came
+    after. The merged version walks the whole response, so a handler that
+    raises on a LATER element sends the traversal into its `except` and the
+    predicate reports False.
+
+    That is the intended choice: "the response could not be read cleanly"
+    resolves to "not delivered", which is the conservative side for both
+    consumers — the session anchor stays put, the guard skips a turn. Pinned
+    here so the next person does not "fix" the except into `return texts` to
+    salvage the partial list; that is what would let the anchor and the guard
+    actually disagree.
+
+    Reaching the except needs the handler itself to raise (`resp.details` is
+    already isinstance-guarded), so the handler is stubbed rather than the
+    input malformed — otherwise this test would silently assert nothing, the
+    way a `ProgressMessage`-shaped fake would.
+    """
+    real = MessageSourceRegistry.get("chat")
+    calls = {"n": 0}
+
+    class _RaisesOnSecondCall:
+        """Handlers are frozen dataclasses, so the stub replaces the whole
+        handler via the registry rather than patching an attribute on one."""
+
+        def extract_owner_visible_text(self, tool_name, arguments):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise RuntimeError("handler blew up on a later element")
+            return real.extract_owner_visible_text(tool_name, arguments)
+
+    monkeypatch.setattr(
+        MessageSourceRegistry, "get", staticmethod(lambda _src: _RaisesOnSecondCall())
+    )
+
+    responses = [
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "real reply"),
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "second"),
+    ]
+    assert _owner_visible_reply_texts(responses, "chat") == []
+    assert _turn_delivered_user_message(responses, "chat") is False

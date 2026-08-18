@@ -93,10 +93,23 @@ def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bo
     (``send_message_to_user_directly`` for any source; plus the per-channel
     reply tools like ``lark_cli`` for IM sources).
 
-    Value-identical to the hand-rolled loop this used to be: that loop
+    Value-identical to the hand-rolled loop this used to be — that loop
     returned True on the first truthy `extract_owner_visible_text` and False
-    otherwise, which is exactly `bool()` of the list above, including the
-    empty-string case and the exception path.
+    otherwise, which is exactly `bool()` of the list above — with ONE
+    documented exception, so nobody reads the equivalence as unconditional:
+
+    the old loop short-circuited on the first hit and so never touched later
+    elements. The list version walks the whole response, so a malformed
+    element AFTER a real reply now sends the traversal down its `except` and
+    flips this predicate from True to False. That is deliberate: "we could
+    not read the response cleanly" resolves to "treat as not delivered",
+    which is the safe side for both consumers (the anchor stays put, the
+    guard skips a turn). Do NOT "improve" the except into `return texts` to
+    salvage what was collected — that is exactly what would let the two
+    readings diverge on a partially-broken response.
+
+    Pinned by `test_boolean_predicate_agrees_with_the_list_on_every_case`,
+    including the hit-then-malformed input.
     """
     return bool(_owner_visible_reply_texts(agent_loop_response, working_source))
 

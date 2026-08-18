@@ -22,6 +22,7 @@ import pytest
 
 from xyz_agent_context.module.basic_info_module._narrative_reads import (
     fetch_event_view,
+    fetch_narrative_view,
     narrative_chat_history,
 )
 
@@ -168,3 +169,84 @@ async def test_every_rendered_time_carries_an_offset(db_client):
     })
     out = await fetch_event_view(db_client, "agent_all", "evt_all")
     assert re.search(r"[+-]\d{2}:\d{2}$", out["time"]), out["time"]
+
+
+@pytest.mark.asyncio
+async def test_view_narrative_history_uses_the_owner_timezone(db_client):
+    """Lock the WIRING, not just the renderer.
+
+    `narrative_chat_history` takes `user_tz` with a `DEFAULT_TIMEZONE`
+    default, so dropping the `user_tz=user_tz` argument in
+    `fetch_narrative_view` fails silently: every message time becomes bare
+    UTC while `view_event` and the timeline stay on the owner's zone. Same
+    off-by-one as the original bug, relocated to "tool A vs tool B" — and
+    invisible, because both tools still return success and both times still
+    carry an offset.
+
+    Hence the assertion is the exact +08:00 value. "carries an offset" would
+    also be satisfied by the broken +00:00 output, i.e. would not test
+    anything.
+    """
+    await _seed_agent(db_client, "agent_nv")
+    await db_client.insert("narratives", {
+        "narrative_id": "nar_nv",
+        "agent_id": "agent_nv",
+        "type": "chat",
+    })
+    await db_client.insert("instance_narrative_links", {
+        "instance_id": "chat_nv",
+        "narrative_id": "nar_nv",
+    })
+    await db_client.insert("instance_json_format_memory_chat", {
+        "instance_id": "chat_nv",
+        "memory": (
+            '{"messages": ['
+            '{"role": "user", "content": "hi", '
+            '"meta_data": {"timestamp": "2026-07-30T16:30:00Z", "event_id": "e1"}}'
+            ']}'
+        ),
+    })
+
+    out = await fetch_narrative_view(db_client, "agent_nv", "nar_nv")
+    # Ownership check runs first; without this the next line KeyErrors on a
+    # not-found payload instead of reporting what actually broke.
+    assert out["success"] is True, out
+    assert out["messages"][0]["time"] == "2026-07-31 00:30 +08:00"
+
+
+@pytest.mark.asyncio
+async def test_both_views_agree_on_the_zone_for_one_agent(db_client):
+    """The invariant behind the previous test: view_narrative and view_event
+    must never resolve different zones for the same agent."""
+    await _seed_agent(db_client, "agent_both")
+    await db_client.insert("narratives", {
+        "narrative_id": "nar_both",
+        "agent_id": "agent_both",
+        "type": "chat",
+    })
+    await db_client.insert("instance_narrative_links", {
+        "instance_id": "chat_both",
+        "narrative_id": "nar_both",
+    })
+    await db_client.insert("instance_json_format_memory_chat", {
+        "instance_id": "chat_both",
+        "memory": (
+            '{"messages": ['
+            '{"role": "user", "content": "hi", '
+            '"meta_data": {"timestamp": "2026-07-30T16:30:00Z", "event_id": "evt_both"}}'
+            ']}'
+        ),
+    })
+    await db_client.insert("events", {
+        "event_id": "evt_both",
+        "agent_id": "agent_both",
+        "created_at": "2026-07-30T16:30:00Z",
+        "trigger": "chat",
+        "trigger_source": "chat",
+    })
+
+    nv = await fetch_narrative_view(db_client, "agent_both", "nar_both")
+    ev = await fetch_event_view(db_client, "agent_both", "evt_both")
+    assert nv["success"] is True and ev["success"] is True
+    # Same instant, same event, reached by two different tools.
+    assert nv["messages"][0]["time"] == ev["time"] == "2026-07-31 00:30 +08:00"

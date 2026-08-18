@@ -4,6 +4,19 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 「同一份 prompt 一个时区」这条保证的**适用范围**
+
+上一条注释把它写成了无条件保证，实际只在 relocation 开启时成立（默认开启）。关掉
+`PROMPT_TURN_CONTEXT_RELOCATION_ENABLED` 时，`build_complete_system_prompt` 会自己查一次
+时区渲染 User Temporal Context，跟 `build_input_for_framework` 的 `turn_tz` 是两次独立查询。
+
+**没有统一**，是因为这两个块在两个先后调用的方法里，唯一能跨过去的办法是 per-turn 缓存——
+而缓存会在用户改时区时持有过期值，那比多一次主键查询糟得多。两者能不一致的窗口是：用户在
+同一轮的两个 await 之间改了自己的时区。
+
+注释已改成准确的说法并写明了为什么不统一。那个 flag 的定位是 fail-open ops gate（出事会
+被真的关掉），所以"关掉之后保证降一档"这件事必须写在纸面上。
+
 ## 2026-08-18 (review 修正) — 同一份 prompt 里不能有两个 frame
 
 上一条只修了时间线行。但 `_build_recent_actions_section` 还在用同样的 `[:16]` 裸 UTC 切片，

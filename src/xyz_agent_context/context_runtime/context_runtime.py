@@ -755,10 +755,20 @@ class ContextRuntime:
         """
         parts: List[str] = [TURN_CONTEXT_HEADER]
 
-        # Resolved once for the whole block: the temporal section names this
-        # zone and the recent-activity section renders its timestamps in it.
-        # Two lookups could return different zones for one prompt, which is
-        # the failure this change set is about.
+        # Resolved once for this block: the temporal section names this zone
+        # and the recent-activity section renders its timestamps in it.
+        #
+        # Scope of that guarantee, stated exactly (2026-08-18): it covers the
+        # blocks assembled HERE, and — with relocation enabled, the default —
+        # that is every dated block in the turn. With the relocation gate OFF,
+        # `build_complete_system_prompt` emits its own User Temporal Context
+        # from a separate lookup, so the prompt carries two resolutions rather
+        # than one. Not unified because the two live in different methods
+        # called in sequence, and the only way to span them is a per-turn
+        # cache — which would hold a stale zone if the user changed theirs,
+        # a worse failure than one redundant primary-key read. The window for
+        # them to disagree is a user editing their timezone between two
+        # awaits of the same turn.
         block_tz = await self._resolve_user_timezone(ctx_data.user_id)
 
         # 1. Temporal block (relocated Part 0 — same wording, same heading)

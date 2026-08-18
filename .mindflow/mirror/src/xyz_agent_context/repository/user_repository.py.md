@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/repository/user_repository.py
-last_verified: 2026-07-13
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `get_user_timezone` 的实现追上它的 docstring
+
+原来 docstring 写着「returns 'UTC' if user does not exist」，实现却是用户存在就
+`return user.timezone` 原样返回——空串、非法时区串一律透出。**兜底责任因此散在每个调用方
+身上**：靠他们各自记得包一层 `resolve_timezone`。到 2026-08-18 有 6 个调用点，其中 3 个没包。
+
+大部分没包的没炸，是因为下游又兜了一次（`step_4` 靠 `scan_reply_for_date_claims` 内部救回、
+`basic_info_module` 靠 `format_now_for_agent` 内部救回）。**唯一没有第二道网的是
+`services/instance_sync_service.py`**：它把这个值冻进 Job 的 `trigger_config`，于是一个非法
+时区串被**持久化**，之后每次算调度都读它，最终在 `ZoneInfo()` 处抛。
+
+所以规则现在收在源头：返回值永远是可用的 IANA 时区。已经包了 `resolve_timezone` 的调用点
+不受影响（幂等），没包的自动补齐。`resolve_timezone` 的 docstring 说自己是
+"Centralised so that a missing or malformed users.timezone degrades the same way
+everywhere" —— 这次才真的 centralised。
+
+**行为变更**：`instance_sync_service` 从此把 `"UTC"` 而不是原始非法值写进 `trigger_config`。
+已确认下游安全——job 侧全部是 `(... .timezone if ... else None) or "UTC"` 的形状，空串和
+`"UTC"` 对它们等价；而 `_job_scheduling.compute_next_run` 反而要求 `timezone` 非空，写
+`"UTC"` 比写空串更合它的意。
+
+新增 import：`utils.timezone.resolve_timezone`。方向是 repository → utils，向下不倒置；
+`utils/timezone.py` 只依赖 stdlib + loguru，不成环。
 
 ## 2026-07-13 — upsert_netmind_user upgrades a pre-existing local row (B4)
 

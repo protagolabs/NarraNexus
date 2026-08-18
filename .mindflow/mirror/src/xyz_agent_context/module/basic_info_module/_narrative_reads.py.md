@@ -4,6 +4,21 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — event 路径**故意**不用 `events.user_id`
+
+`_agent_owner_timezone` 原来的注释理由是「`narratives` 没有 user 列」——这对 narrative 路径
+成立，**对 event 路径不成立**：`events` 表是有 `user_id` 的。
+
+理由写不对防不住下一次"优化"：看到 `fetch_event_view` 为拿时区多查两次（`agents` + `users`）、
+而手上 `row` 里就有 `user_id`，很自然会改成 `row.get("user_id")`——于是 `view_event` 和
+`view_narrative` 可能对同一段对话报出不同时区，把本 PR 的 bug 换个地方复现。
+
+真实理由已写进 docstring：**两个 view 必须跟时间线共用同一个 frame，而时间线按 turn owner
+算**，所以两条路径都走 agent owner。
+
+`test_both_views_agree_on_the_zone_for_one_agent` 把这条锁住了：同一个 event 分别通过
+`view_narrative` 的 messages 和 `view_event` 取到，断言两个 `time` 相等。
+
 ## 2026-08-18 — `view_narrative` / `view_event` 的 `time` 改成带 frame
 
 时间线导言明确写着「pass it to `view_event()` to fetch that turn's full detail」——这两个

@@ -53,9 +53,17 @@ async def _agent_owner_timezone(db, agent_id: str) -> str:
     the model two different dates for one event and told it to walk from the
     framed one to the bare one.
 
-    `narratives` has no user column, so the owner comes from
-    `agents.created_by`. Fail-open to UTC — a view that renders beats a view
-    that raises, and these helpers promise never to raise.
+    The owner comes from `agents.created_by`. For the narrative path that is
+    the only option — `narratives` has no user column. For the EVENT path it
+    is a deliberate choice: `events` DOES carry `user_id`, and reading it
+    would save two queries, but then `view_event` and `view_narrative` could
+    resolve different zones for the same conversation and report dates a day
+    apart for the same message. Both views must share the frame the history
+    timeline uses, and the timeline keys off the turn owner. Please do not
+    "optimise" the event path onto `row["user_id"]`.
+
+    Fail-open to UTC — a view that renders beats a view that raises, and
+    these helpers promise never to raise.
     """
     try:
         from xyz_agent_context.repository import UserRepository
