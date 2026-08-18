@@ -1,7 +1,47 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-30
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — review 三条：失败也投、不投运维样板、带上溯源
+
+**失败也要投回房间**。错误分支此前在 `_deliver_to_origin` 之前就 return 了，于
+是房间**永远沉默**：没人知道它跑过、更没人知道它挂了。owner 私聊那条路有 Jobs
+面板和 `job.last_error` 兜着，房间什么都没有——四个人看着有人要了个提醒，然后再
+没下文。这就是本功能要治的断链，换到了 job 面；团队房自己已经为 `turn.fatal` 发
+失败通知，理由同源（队友分不清「不感兴趣」和「坏了」）。
+
+**空输出不投运维样板**。`## Task Completed … Job ID … Tools used: None` 是给
+owner inbox 写的运维记录；房间不是 inbox，而且这次 run 用的提示词明确告诉模型
+「你的回复就是报告，会自动上墙」。所以投的是 `room_content`（合成之前的真实产
+出），owner 那条路的样板**一字未动**（PRD 验收 #8）。
+
+**报告带 `event_id` / `root_run_id`**。job 报告是 agent 的话进入房间的**第三条**
+路径，另外两条（实时回帖、巡查行）都盖了这两个戳。房间 transcript 靠 `event_id`
+提供「view reasoning & tools」，而这条线**没人看见它发生**，缺了溯源就是一段没有
+来路的文字。
+
+用的是 `collection.event_id` 而不是本函数开头 `uuid4()` 生成的那个局部
+`event_id`——后者不是 events 行的 id，挂上去是个悬空引用，比不挂更糟。
+`root_run_id` 同值：job 执行没有父 run（叫醒它的是定时器），按
+[[schema_registry]] 的定义，根 run 存自己的 event_id。
+
+刻意不带 `mentions`：报告是通报不是请求，一个 @ 会立刻唤起一轮团队房 turn，还会
+被 [[errand]] 再开一条没人交接过的差事。
+
+## 2026-08-14 — `_deliver_to_origin`：房间来源的 job 回房间
+
+origin 那一对的另一半：[[_job_context_builder]] 按 `job.origin_source` 选提示词，
+这里按**同一个字段**选投递。空 origin 直接返回，保持历史路径（agent 在 run 内自
+己调 `send_message_to_user_directly`）——PRD 验收 #8 要求私聊行为逐字不变。
+
+**由平台以 agent 名义投**，而不是交给模型调工具：房间的契约就是明文自动上墙，
+这次 run 用的提示词也正是这么说的。让模型来投等于把「它记不记得调工具」这个依
+赖又请回来，而这次改动整体就是在拆掉这个依赖（铁律 #15）。
+
+**永不抛**：job 本身**成功了**——状态、narrative、next_run_time 全都是对的——投递
+失败绝不能把一个完成的 job 改写成失败并重新排期，让同一份活再跑一遍。改为大声
+记 ERROR：投不出去的报告是真问题，只是不是这个 job 的失败。
 
 ## 2026-07-30 — `_EDGE_ONLY_RESUME_REASONS` 并入 `OUT_OF_CREDIT_REASONS`
 

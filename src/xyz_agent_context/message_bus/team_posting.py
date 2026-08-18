@@ -142,6 +142,57 @@ async def post_team_reply(
         root_run_id=root_run_id,
     )
 
+    # Errand book-keeping, on the far side of a LANDED post. It rides here
+    # rather than in the trigger for the same reason the hop cap does: it is a
+    # property of putting a message into a team room, not of the loop that
+    # happened to trigger the turn. The trigger owned it while the trigger owned
+    # posting; posting is a tool call now, and a book-keeping step left behind
+    # would simply stop running (PR #310's hand-off board, silently empty).
+    #
+    # Ordering is the whole design: close first, then open. On a founding
+    # message ("收到…完成后交付 @A4") the close is a no-op — it is a promise, not
+    # a delivery — and the open adds the next link, so BOTH hops stay watched.
+    # Reversing it would let a hand-off close the errand it just created.
+    #
+    # `mentions` is the POST-cap list: an @mention the cascade cap stripped
+    # never reached the teammate, so an errand for it would be owed by someone
+    # who was never asked.
+    #
+    # Never raises. The reply is already in the room and the hop has succeeded;
+    # a board write that could fail that hop would trade a working delivery for
+    # bookkeeping. The cost is bounded and self-correcting: a missed close
+    # leaves an item patrol asks about once, a missed open leaves the room
+    # exactly as it was before this layer existed.
+    if team_id:  # errands are a team-room fact; ordinary bus DMs have no board
+        try:
+            from xyz_agent_context.message_bus.errand import (
+                close_delivered_errands,
+                record_handoffs,
+            )
+
+            await close_delivered_errands(
+                db,
+                team_id=team_id,
+                channel_id=channel_id,
+                agent_id=agent_id,
+                text=text,
+            )
+            await record_handoffs(
+                db,
+                team_id=team_id,
+                channel_id=channel_id,
+                from_agent=agent_id,
+                mentions=mentions,
+                text=text,
+                message_id=message_id,
+                root_run_id=root_run_id,
+            )
+        except Exception as e:  # noqa: BLE001 — see comment above
+            logger.warning(
+                f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
+                f"{type(e).__name__}: {e}"
+            )
+
     if capped["names"] or capped["everyone"]:
         # Best-effort: the reply is already in the room and failing to narrate
         # the cap must not undo that.

@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-17 — inbox 拿到自己的两张表（记录层，与 bus 解耦）
 
-`inbox_threads` + `inbox_messages`。inbox 此前住在 `bus_messages` /
+`inbox_threads` + `inbox_thread_messages`。inbox 此前住在 `bus_messages` /
 `bus_channel_members` 里，prod 实测两笔代价：
 
 - **`bus_messages` 里 86% 不是 bus 消息**（28,605 / 33,164 行是 IM inbox）。表名描述的
@@ -39,6 +39,19 @@ Owner 决策（2026-08-17）：历史**回填**，且**由 Owner 在部署后手
 → 完整回填步骤与验证清单：`reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
 → 设计全文：`reference/self_notebook/specs/2026-08-17-conversation-harness-redesign-design.md`
 
+
+## 2026-08-14 — 差事层与 job 来源面：三列两索引
+
+`team_work_items.origin`（tool|auto）：owner 2026-08-07 的分层决定第一次可执行，
+语义见 [[team_work_schema]]。默认 `tool`，让历史行保持它本来的含义。同批两条索
+引服务 [[errand]] 仅有的两个热读。
+
+`instance_jobs.origin_source` / `origin_channel_id`：job 记住**它是在哪儿被要求
+的**，好让结果回到那儿——PR #230「回复面跟随来源」在 job 面的延伸。空 = owner 私
+聊，既是历史行为、也是**唯一永远存在**的投递面，所以兜底不需要特例。
+
+拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
+合成一个字段会让每个读者各自再解析一遍。
 
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 

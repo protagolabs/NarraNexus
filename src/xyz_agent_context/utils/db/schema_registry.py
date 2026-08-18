@@ -431,6 +431,19 @@ _register(
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("related_entity_id", "TEXT", "VARCHAR(64)"),
             Column("narrative_id", "TEXT", "VARCHAR(64)"),
+            # WHERE this job was asked for, so its answer can go back there.
+            #
+            # Empty = the owner's chat, which is both the historical behaviour
+            # and the only surface that always exists — so the fallback needs
+            # no special case. Populated (currently `message_bus` + a team room
+            # channel) makes the result land in the room that asked, which is
+            # PR #230's "the reply follows its origin" applied to jobs.
+            #
+            # Two columns rather than one opaque string: the source picks the
+            # delivery code path, the channel is its argument, and a single
+            # "message_bus:ch_x" field would have every reader re-parsing it.
+            Column("origin_source", "TEXT", "VARCHAR(32)"),
+            Column("origin_channel_id", "TEXT", "VARCHAR(64)"),
             Column("monitored_job_ids", "TEXT", "JSON"),
             Column("iteration_count", "INTEGER", "INT", default="0"),
             # 2026-06-01: resilience / backoff state (job-scheduler redesign).
@@ -1838,6 +1851,16 @@ _register(
             Column("status", "TEXT", "VARCHAR(16)", nullable=False, default="'open'"),
             Column("created_by", "TEXT", "VARCHAR(64)", nullable=False),
             Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            # tool | auto — which layer put this row here (see WorkItemOrigin).
+            #
+            # Load-bearing, not descriptive: `auto` rows are the message-level
+            # errands the platform opens from an @mention, and they are the
+            # only ones the platform may close by itself. A `tool` row is a
+            # TASK that spans several errands (owner decision 2026-08-07), so
+            # auto-closing it would collapse the two layers that decision
+            # separated. Defaults to `tool` so pre-existing rows keep their
+            # meaning.
+            Column("origin", "TEXT", "VARCHAR(16)", nullable=False, default="'tool'"),
             # The trigger tree that was running when this item was created, so a
             # cascade stop can pause the items it silenced. Shipped by #252.
             Column("root_run_id", "TEXT", "VARCHAR(128)"),
@@ -1850,6 +1873,11 @@ _register(
             Index("idx_work_items_team_status", ["team_id", "status"]),
             # Stop → pause, by tree.
             Index("idx_work_items_root", ["root_run_id"]),
+            # The errand layer's two hot reads, both per-ROOM rather than per-
+            # team: an agent belongs to several teams, and speaking in one room
+            # must not settle what it owes in another.
+            Index("idx_work_items_channel_assignee", ["channel_id", "assignee_id"]),
+            Index("idx_work_items_source_msg", ["source_message_id"]),
         ],
     )
 )

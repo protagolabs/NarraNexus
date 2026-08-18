@@ -81,15 +81,12 @@ async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional
     try:
         injected = caller_team_id_from_request()
         if injected:
-            channel = await db.get_one(
-                "bus_channels",
-                {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{injected}",
-                 "channel_type": "group"},
-            )
-            channel_id = (channel or {}).get("channel_id") or ""
+            from xyz_agent_context.message_bus.team_rooms import primary_room_of
+
             # A team whose room does not exist yet resolves to nothing rather
             # than to a team with no channel: every write needs a channel_id,
             # and half an answer would land items in an empty string.
+            channel_id = await primary_room_of(db, injected)
             return (injected, channel_id) if channel_id else (None, None)
 
         row = await db.get_one(

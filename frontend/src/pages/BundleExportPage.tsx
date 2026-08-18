@@ -516,11 +516,9 @@ export default function BundleExportPage() {
             branch: 'main',
           };
         } else if (arch?.archive_path) {
-          newChoices[key] = {
-            ...base,
-            install_method: 'zip',
-            archive_path: arch.archive_path,
-          };
+          // The path is display-only — the backend resolves the archive from
+          // the caller's own skill_archives rows (SEC-07).
+          newChoices[key] = { ...base, install_method: 'zip' };
         } else {
           newChoices[key] = { ...base, install_method: 'full_copy' };
         }
@@ -1684,14 +1682,10 @@ function SkillsTab({
                       />
                       <RadioCard
                         label={t('pages.bundleExport.skills.zipInstall')}
-                        desc={hasZip ? t('pages.bundleExport.skills.archivePrefix', { name: arch?.archive_path?.split('/').pop() }) : (choice?.install_method === 'zip' && choice.manual_zip_path ? t('pages.bundleExport.skills.manualPrefix', { value: choice.manual_zip_path }) : t('pages.bundleExport.skills.noArchive'))}
+                        desc={hasZip ? t('pages.bundleExport.skills.archivePrefix', { name: arch?.archive_path?.split('/').pop() }) : t('pages.bundleExport.skills.noArchive')}
                         disabled={isReadOnly}
                         active={choice?.install_method === 'zip'}
-                        onClick={() => setMethod({
-                          skill_name: sk.name, install_method: 'zip',
-                          archive_path: arch?.archive_path || choice?.archive_path || undefined,
-                          manual_zip_path: choice?.manual_zip_path,
-                        })}
+                        onClick={() => setMethod({ skill_name: sk.name, install_method: 'zip' })}
                       />
                       <RadioCard
                         label={t('pages.bundleExport.skills.fullCopy')}

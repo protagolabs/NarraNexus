@@ -388,11 +388,12 @@ class LocalMessageBus(MessageBusService):
         failure, and the message body has no bearing on that.
 
         No dedicated index, on purpose: ``idx_bus_msg_channel_time`` already
-        makes this one channel's rows the scan, and the one caller runs it at
-        most once per turn on a branch that needs a provider failure to be
-        reached at all. A third index on the busiest table in the bus would be
-        paid for by every insert, forever, to speed up a query that rarely
-        runs. Revisit if a second, hotter caller appears.
+        makes this one channel's rows the scan. Two callers, both cold: the bus
+        trigger runs it on a branch that needs a provider failure to be reached
+        at all, and the job trigger once per room-origin job run. A third index
+        on the busiest table in the bus would be paid for by every insert,
+        forever, to speed up a query that rarely runs. Revisit if a HOT caller
+        appears — per-turn on the delivery path would be one.
         """
         if not channel_id or not from_agent or not event_id:
             return False

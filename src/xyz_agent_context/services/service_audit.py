@@ -46,7 +46,12 @@ class ServiceAuditor:
         self.service = service
         self.heartbeat_interval = heartbeat_interval
         self._repo: Optional[ServiceAuditRepository] = None
-        self._last_heartbeat_at: float = 0.0
+        # -inf, not 0.0: the gate below is
+        # `time.monotonic() - _last_heartbeat_at < heartbeat_interval`, and
+        # monotonic() counts from BOOT on Linux — so 0.0 reads as "beat at
+        # boot", and on a host younger than the interval the first beat is
+        # silently skipped. Same bug shape as the channel trigger's two marks.
+        self._last_heartbeat_at: float = float("-inf")
 
     async def _get_repo(self) -> ServiceAuditRepository:
         if self._repo is None:

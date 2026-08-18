@@ -136,6 +136,50 @@ async def update_job_from_args(
         return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
 
 
+async def _resolve_job_owner(db, agent_id: str, supplied: str) -> str:
+    """Whose job this is — ``agents.created_by``, not whoever asked.
+
+    A job's owner has a ground truth, and the supplied value often is not it.
+    On a bus turn ``user_id`` is the SENDER (``message_bus_trigger`` passes
+    ``sender_agent_id``), so a job asked for in a team room arrived here as
+    ``usr_<uid>`` or a peer's ``agent_id`` — an owner that does not exist. The
+    job was then filed under it: the owner's Jobs list stayed empty, and
+    execution loaded a context belonging to nobody, while the agent reported
+    success.
+
+    Fixed HERE rather than in ``_mcp_identity.resolve_caller_user_id``, which
+    overrides placeholders only and documents why a mismatching REAL value can
+    be legitimate on the generic path. That judgement is about identity in
+    general; "whose job is this" is a narrower question with an answer in the
+    database, so it is answered where the row is written — one site, covering
+    the local MCP process and the cloud seam route alike.
+
+    Fails open. ``resolve_owner`` returns "" for "no such agent" and None for
+    "the query failed"; neither is evidence the caller was wrong, and blanking
+    the field would lose the job outright. Divergences are logged rather than
+    silently corrected — that log line is the measurement the generic path's
+    comment asks for before anyone widens this.
+
+    ``related_entity_id`` is untouched: it answers "about whom", which is a
+    different question and a supported shape.
+    """
+    from xyz_agent_context.repository import AgentRepository
+
+    try:
+        owner = await AgentRepository(db).resolve_owner(agent_id)
+    except Exception as e:  # noqa: BLE001 — see docstring
+        logger.warning(f"[job.create] owner lookup failed for {agent_id!r}: {e}")
+        return supplied
+    if not owner:
+        return supplied
+    if owner != supplied:
+        logger.info(
+            f"[job.create] owner corrected agent={agent_id} "
+            f"supplied={supplied!r} owner={owner!r}"
+        )
+    return owner
+
+
 async def create_job_from_args(
     db,
     agent_id: str,
@@ -151,6 +195,8 @@ async def create_job_from_args(
     depends_on_job_ids: Optional[list] = None,
     related_entity_id: Optional[str] = None,
     narrative_id: Optional[str] = None,
+    origin_source: Optional[str] = None,
+    origin_channel_id: Optional[str] = None,
     confirm_new: bool = False,
 ) -> dict:
     """Create a Job + its ModuleInstance (the job_create tool body, shared).
@@ -176,7 +222,7 @@ async def create_job_from_args(
         await setup_mcp_llm_context(agent_id)
         result = await JobInstanceService(db).create_job_with_instance(
             agent_id=agent_id,
-            user_id=user_id,
+            user_id=await _resolve_job_owner(db, agent_id, user_id),
             title=title,
             description=description,
             job_type=job_type,
@@ -186,6 +232,8 @@ async def create_job_from_args(
             dependencies=depends_on_job_ids,
             related_entity_id=related_entity_id,
             narrative_id=narrative_id,
+            origin_source=origin_source,
+            origin_channel_id=origin_channel_id,
             confirm_new=confirm_new,
         )
         if result.get("success") and task_key:

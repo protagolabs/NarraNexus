@@ -2,7 +2,7 @@
 @file_name: team_rooms.py
 @author:
 @date: 2026-08-17
-@description: Provisioning a team's room — the one implementation.
+@description: One answer to "where is this team's room", and one way to open it.
 
 A team room IS a bus group channel whose ``created_by`` is the synthetic
 ``team_<id>`` marker. That marker is load-bearing: it is a NON-AGENT value, so
@@ -10,15 +10,32 @@ A team room IS a bus group channel whose ``created_by`` is the synthetic
 activated" rule can never match a member, and delivery in a team room stays
 purely @-mention driven.
 
-This lived inline in ``backend/routes/teams.py``. It moved here when agents
-gained ``create_team``: a core-package MCP tool cannot import from ``backend``
-without inverting the layering, and copying the provisioning would have given
-the codebase two implementations of the marker convention — the exact shape
-that keeps producing drift elsewhere in this subsystem.
+The convention had grown four independent implementations — the work-board
+tools, the bulletin notifier, the teams route, and (newest) the job origin
+resolver. Four copies of a convention is three chances for them to disagree the
+day it changes: give a team a second room, or add an ``is_primary`` flag, and
+whoever misses a copy ships a feature that resolves to a different room than the
+rest of the product. The newest copy had already drifted before it landed, which
+is what prompted the consolidation.
+
+Provisioning joined it here for a different reason: agents gained ``create_team``,
+and a core-package MCP tool cannot import from ``backend`` without inverting the
+layering. Keeping the lookup and the creation in one file also means the marker
+is written in exactly one place and read in exactly one place.
+
+## What is NOT folded in here
+
+``backend/routes/teams.py`` resolves rooms for MANY teams in ONE query
+(``created_by IN (...)``). It looks like another copy and is not: it answers a
+different question, and rewriting it in terms of ``primary_room_of`` would turn
+one indexed query into N — the N+1 shape this repository's repository layer
+exists to avoid. It shares the CONVENTION, via ``team_room_marker``; it does not
+share the code.
 """
+
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from loguru import logger
 
@@ -26,8 +43,44 @@ from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 
 def team_room_marker(team_id: str) -> str:
-    """The synthetic ``created_by`` that identifies a team's room."""
+    """The synthetic ``created_by`` that identifies a team's room.
+
+    The one place the marker string is composed. Batched callers that cannot
+    use ``primary_room_of`` (see module docstring) still build their ``IN (...)``
+    list from this, so the convention stays single-sourced even where the query
+    cannot be.
+    """
     return f"{TEAM_ROOM_OWNER_PREFIX}{team_id}"
+
+
+async def primary_room_of(db: Any, team_id: str) -> Optional[str]:
+    """The channel id of ``team_id``'s room, or None.
+
+    The single-team form of the convention, and the ONLY read path — callers
+    that need a falsy-string shape normalise at their own call site rather than
+    getting a second function here, because two names for one lookup is how the
+    four copies started.
+
+    None means "no room", never an empty string: every caller uses the result
+    as a write target, and half an answer would send a row to ``""``. A team
+    whose room does not exist yet is a normal state, not an error — the room is
+    created lazily by ``get_or_create_team_room``.
+
+    Never raises: the callers all treat "no room" as a reason to decline quietly
+    (no board, no bulletin notice, no job origin, no post), and none of them can
+    do anything useful with an exception.
+    """
+    if not team_id:
+        return None
+    try:
+        row = await db.get_one(
+            "bus_channels",
+            {"created_by": team_room_marker(team_id), "channel_type": "group"},
+        )
+    except Exception as e:  # noqa: BLE001 — see docstring
+        logger.warning(f"[team-rooms] lookup failed for {team_id}: {e}")
+        return None
+    return (row or {}).get("channel_id") or None
 
 
 async def get_or_create_team_room(
@@ -46,12 +99,8 @@ async def get_or_create_team_room(
     reconciled.
     """
     marker = team_room_marker(team_id)
-    existing = await db.get_one(
-        "bus_channels", {"created_by": marker, "channel_type": "group"}
-    )
-    if existing:
-        channel_id = existing["channel_id"]
-    else:
+    channel_id = await primary_room_of(db, team_id)
+    if not channel_id:
         # `create_channel` sets created_by = members[0]; rewrite it immediately
         # to the non-agent marker so no member becomes the always-activated
         # channel owner.
@@ -71,19 +120,6 @@ async def get_or_create_team_room(
         await bus.leave_channel(aid, channel_id)
 
     return channel_id
-
-
-async def resolve_team_room(db: Any, team_id: str) -> str:
-    """The team's channel_id, or "" when the room has never been opened.
-
-    A read-only counterpart for callers that must not create anything — posting
-    a notice into a team that has no room yet would be the tail wagging the dog.
-    """
-    row = await db.get_one(
-        "bus_channels",
-        {"created_by": team_room_marker(team_id), "channel_type": "group"},
-    )
-    return (row or {}).get("channel_id", "") or ""
 
 
 async def room_roster(db: Any, bus: Any, channel_id: str) -> list[dict]:
@@ -108,7 +144,7 @@ async def room_roster(db: Any, bus: Any, channel_id: str) -> list[dict]:
 
 __all__ = [
     "team_room_marker",
+    "primary_room_of",
     "get_or_create_team_room",
-    "resolve_team_room",
     "room_roster",
 ]

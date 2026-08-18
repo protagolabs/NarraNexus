@@ -39,7 +39,7 @@ from xyz_agent_context.message_bus.attachments import (
 )
 from xyz_agent_context.message_bus.team_rooms import (
     get_or_create_team_room,
-    resolve_team_room,
+    primary_room_of,
     team_room_marker,
 )
 from xyz_agent_context.message_bus.system_messages import (
@@ -343,6 +343,53 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
         attachments=valid_attachments or None,
         routed_by=routed_by,
     )
+    # The user's own hand-offs go on the board too.
+    #
+    # `record_handoffs` otherwise only sees agent→agent traffic, because that
+    # is the one path routed through MessageBusTrigger. A user message reaches
+    # the bus straight from here — so "@Bruno pull the numbers", ignored, left
+    # no trace at all, and patrol had nothing to sweep. That is the ONE broken
+    # hand-off a person actually witnesses: an agent ignoring another agent is
+    # invisible to them, being ignored themselves is not.
+    #
+    # It also fixes the denominator. `make work-item-report` is meant to answer
+    # "how many hand-offs never come back", and measuring only the half nobody
+    # watches would answer a different question than the one PR #230's
+    # measure-first position is asking.
+    #
+    # `close_delivered_errands` is deliberately NOT called here: the user is
+    # never an assignee, so there is nothing of theirs to settle.
+    #
+    # Fire-and-forget in spirit but awaited in practice — it is bounded by
+    # MAX_HANDOFFS_PER_MESSAGE, and it swallows its own failures, so it cannot
+    # fail a send that already succeeded (the message id above is returned
+    # either way).
+    try:
+        from xyz_agent_context.message_bus.errand import record_handoffs
+
+        await record_handoffs(
+            db,
+            team_id=team_id,
+            channel_id=channel_id,
+            from_agent=f"{USER_SENDER_PREFIX}{user_id}",
+            # Post-routing: a `default_responder` wake-up is the platform
+            # picking someone to answer, not the user handing work to them.
+            mentions=(payload.mentions and resolved) or None,
+            # This is the only entrance that allows an empty body (an agent
+            # reply always has text), so the shared "(untitled hand-off)"
+            # fallback would surface here and nowhere else. Only the route
+            # knows an attachment is what was handed over, so it says so —
+            # the board is read by every member every turn, and a row that
+            # names nothing is a row that costs tokens to skip.
+            text=payload.content.strip() or (
+                f"{len(valid_attachments)} attachment(s)"
+                if valid_attachments else ""
+            ),
+            message_id=msg_id,
+        )
+    except Exception as e:  # noqa: BLE001 — the message is already delivered
+        logger.warning(f"Team chat: errand bookkeeping failed for {team_id}: {e}")
+
     logger.info(f"Team chat: user {user_id} -> team {team_id} channel {channel_id} (mentions={resolved})")
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
 
@@ -1195,7 +1242,7 @@ async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None
     """
     from xyz_agent_context.message_bus.team_notices import post_roster_change
 
-    channel_id = await resolve_team_room(db, team_id)
+    channel_id = await primary_room_of(db, team_id) or ""
     if not channel_id:
         return
     agent = await db.get_one("agents", {"agent_id": agent_id})

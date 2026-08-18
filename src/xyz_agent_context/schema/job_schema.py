@@ -63,6 +63,25 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"    # Cancelled (reserved)
 
 
+class JobOrigin:
+    """Surfaces a job can be asked for on, and report back to.
+
+    Deliberately a small closed set rather than "any WorkingSource": every
+    value here needs delivery code that actually exists, and a source we can
+    record but not deliver to is worse than no record — it would route the
+    answer at execution time into a branch that silently does nothing.
+
+    ``MESSAGE_BUS`` currently means a TEAM ROOM. A peer DM is not included: a
+    job reporting into an agent-to-agent channel has no human reader, and the
+    owner-chat fallback is the honest destination for it.
+    """
+
+    MESSAGE_BUS = "message_bus"
+
+    #: Origins with a delivery path. Anything else falls back to owner chat.
+    DELIVERABLE = (MESSAGE_BUS,)
+
+
 class JobUpdateFields(BaseModel):
     """The single source of truth for the job_update tool's MUTABLE field set.
 
@@ -381,6 +400,25 @@ class JobModel(BaseModel):
     notification_method: str = Field(
         default="inbox",
         description="Notification method: none / inbox / future extensions"
+    )
+
+    # === Origin (2026-08-14) — where this job was asked for ===
+    origin_source: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "WorkingSource-shaped label for the surface that asked for this "
+            "job (see JobOrigin). Empty = the owner's chat, which is both the "
+            "historical behaviour and the fallback that always exists."
+        ),
+    )
+    origin_channel_id: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "The room within origin_source to report back to. Meaningless "
+            "without origin_source, which is why the two travel together."
+        ),
     )
 
 

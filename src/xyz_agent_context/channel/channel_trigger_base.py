@@ -311,10 +311,29 @@ class ChannelTriggerBase(ABC):
             history_max_chars=3000,
         )
 
-        # Lifecycle bookkeeping
+        # Lifecycle bookkeeping.
+        #
+        # The two "last ran at" marks are -inf, not 0.0, and the difference is
+        # not cosmetic. Both gates are `time.monotonic() - mark >= interval`,
+        # and `time.monotonic()` counts from BOOT on Linux — so 0.0 does not
+        # mean "never ran", it means "ran at boot". On a host whose uptime is
+        # below the interval the gate silently stays shut:
+        #   * heartbeat (600s): no L2 liveness row for the first 10 minutes of
+        #     a freshly booted host — precisely the window where a failing
+        #     start is most likely, and precisely what incident lesson #4 asks
+        #     these beats to cover.
+        #   * cleanup (24h): `_run_cleanup`'s own docstring says "once at
+        #     startup + daily", which a new EC2 instance did not get; the first
+        #     sweep waited for uptime to reach a day.
+        # -inf makes "never ran" a real sentinel, so the first cycle always
+        # runs. On a long-uptime machine (`now - 0.0` already huge) behaviour is
+        # unchanged — this only fixes the freshly-booted case. Neither mark is
+        # ever reported, only differenced, so an infinity cannot leak into a
+        # payload; `uptime_seconds` in the heartbeat is built from
+        # `_startup_time_ms` (wall clock) and is untouched.
         self._startup_time_ms: int = 0
-        self._last_cleanup_monotonic: float = 0.0
-        self._last_heartbeat_monotonic: float = 0.0
+        self._last_cleanup_monotonic: float = float("-inf")
+        self._last_heartbeat_monotonic: float = float("-inf")
 
     # ────────────────────────────────────────────────────────────────────
     # Subclass-implemented hooks (PULL mode)

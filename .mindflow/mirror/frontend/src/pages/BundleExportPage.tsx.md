@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：不再回传归档路径
+
+zip 方式的 `SkillExportSpec` 原先带 `archive_path`（从
+`GET /skills/archives` 读到再原样回传）和 `manual_zip_path`。后端已把这两
+个字段删掉——客户端提供的路径是任意文件读的入口（见 [[bundle.py]]），现在
+由 builder 自己按 user 查 `skill_archives`。
+
+前端只剩**展示**用途：`hasZip` 判断有没有归档、`archivePrefix` 显示
+basename。`manual_zip_path` 全前端从来没有任何地方赋值过，一并删除；
+`manualPrefix` 这个 i18n key 仍被 url 方式那张卡用着，保留。
 
 ## 2026-07-13 — full-mode checkbox also carries skill secrets
 

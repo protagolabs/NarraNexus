@@ -23,7 +23,13 @@ SocialNetworkModule 让 Agent 具备"认识人"的能力——记录与之交互
 | `_social_mcp_tools.py` | MCP 工具注册：`extract_entity_info`、`search_social_network`、`get_contact_info`、`get_agent_social_stats` |
 | `_entity_updater.py` | LLM 驱动的实体更新管道：会话摘要、描述追加、向量更新、Persona 推断、批量实体提取 |
 | `prompts.py` | 系统指令模板（`SOCIAL_NETWORK_MODULE_INSTRUCTIONS`）；四个 LLM 更新用提示词（摘要、压缩、Persona 推断、批量提取） |
-| `test_persona.py` | Persona 功能手动测试脚本 |
+
+> 2026-08-17：删掉了本表里 `test_persona.py` 一行。那是个手工 demo 脚本
+> （print + 需要真 LLM key + 真 DB + `__main__` 驱动），却叫 `test_*.py`：
+> `make test` 只跑 `tests/` 所以它从不执行，裸跑 `pytest` 会收集到并失败，
+> 而它断言的 `_should_update_persona` 早已重构进 `_entity_updater`，只能永远
+> 失败。纯逻辑部分移到
+> `tests/social_network_module/test_persona_refresh.py`。
 
 ## 和外部目录的协作
 

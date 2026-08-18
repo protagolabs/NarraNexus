@@ -1289,13 +1289,15 @@ async def _confirm_inner(
     )
 
     # -- Skills (auto-install per-(agent, skill)) --
-    skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
-    skill_archives_dir.mkdir(parents=True, exist_ok=True)
+    # SEC-07: `skill_name` here comes from the imported bundle's manifest, i.e.
+    # from whoever authored the `.nxbundle` — as untrusted as a form field.
+    # Archive paths are built via `prepare_archive_target`, never by f-string.
     skill_install_failures: List[Dict[str, str]] = []
 
     from xyz_agent_context.module.skill_module.skill_module import SkillModule
     from xyz_agent_context.bundle.skill_backup import (
         backup_after_api_install,
+        prepare_archive_target,
         register_archive,
     )
 
@@ -1398,7 +1400,7 @@ async def _confirm_inner(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
                     )
                     continue
-                tgt = skill_archives_dir / f"{skill_name}.zip"
+                tgt = prepare_archive_target(user_id, skill_name)
                 if not tgt.exists():
                     await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 key = install_cache_key(s)
@@ -1422,12 +1424,32 @@ async def _confirm_inner(
                     await asyncio.to_thread(
                         _copy_skill_to_agent, cached_dir, new_aid, skill_name
                     )
-                await backup_after_api_install(
+                # `tgt` is ALREADY the archive location (we copied the bundle's
+                # zip there above), so register it directly — same shape as the
+                # full_copy branch below. Routing this through
+                # `backup_after_api_install` was a latent bug: that helper is
+                # for "copy an incoming zip INTO the registry", so it recomputed
+                # the same `archive_target` and did `copy2(tgt, tgt)` →
+                # `SameFileError` → swallowed by its broad `except` → the
+                # `skill_archives` row was never written. Effect: an imported
+                # zip-method skill could never be re-exported as `zip` (it
+                # silently degraded to full_copy, which ships secrets under full
+                # mode). Verified by `test_imported_zip_skill_registers_archive`.
+                # sha256 is computed from the file on disk, NOT taken from the
+                # manifest. The manifest value is unreliable in two ways: it is
+                # the de-dup sentinel `"shared"` for entries 2..N when several
+                # agents reference one skill (see builder's copied_zip_ref), and
+                # when `tgt` already existed we kept the old bytes above and
+                # never copied, so the manifest digest describes a different
+                # file. This column's only job is integrity — a value that is
+                # sometimes a literal word is worse than an extra hash.
+                await register_archive(
                     user_id=user_id,
                     skill_name=skill_name,
                     source_type="zip",
                     source_url=None,
-                    original_zip_path=tgt,
+                    archive_path=str(tgt),
+                    sha256=await asyncio.to_thread(file_sha256, tgt),
                 )
                 written_summary["skills_imported"] += 1
 
@@ -1443,7 +1465,7 @@ async def _confirm_inner(
                     )
                     continue
                 # Stash a copy in skill_archives for re-export (uses last-seen).
-                tgt = skill_archives_dir / f"{skill_name}_full.zip"
+                tgt = prepare_archive_target(user_id, skill_name, suffix="_full.zip")
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)

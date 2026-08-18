@@ -257,7 +257,7 @@ def register_message_bus_mcp_tools(
         try:
             from xyz_agent_context.message_bus.team_posting import post_team_reply
             from xyz_agent_context.message_bus.team_rooms import (
-                resolve_team_room,
+                primary_room_of,
                 room_roster,
             )
             from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -289,7 +289,10 @@ def register_message_bus_mcp_tools(
             if not member:
                 return {"success": False, "error": "you are not a member of this team"}
 
-            channel_id = await resolve_team_room(db, team_id)
+            # None → this team has never opened a room; posting would have to
+            # create one as a side effect of sending a message, which is the
+            # tail wagging the dog.
+            channel_id = await primary_room_of(db, team_id) or ""
             if not channel_id:
                 return {
                     "success": False,
