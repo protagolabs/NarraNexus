@@ -51,7 +51,7 @@ T = TypeVar('T', bound=BaseModel)
 # Shutdown budget for draining borrowed connections before forcing them closed.
 # Mirrors MySQLBackend._POOL_CLOSE_TIMEOUT_SEC; a container that will not exit
 # is a redeploy that hangs until docker SIGKILLs it.
-_POOL_CLOSE_TIMEOUT_SEC = 5.0
+_POOL_CLOSE_TIMEOUT_SEC = 2.0
 
 
 def parse_database_url(url: str) -> Dict[str, Any]:
@@ -790,6 +790,8 @@ class AsyncDatabaseClient:
         pool = self._pool
 
         txn = self._own_txn()
+        if not txn:
+            self._reject_inherited_write()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -860,6 +862,8 @@ class AsyncDatabaseClient:
         pool = self._pool
 
         txn = self._own_txn()
+        if not txn:
+            self._reject_inherited_write()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -914,6 +918,8 @@ class AsyncDatabaseClient:
         pool = self._pool
 
         txn = self._own_txn()
+        if not txn:
+            self._reject_inherited_write()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -992,6 +998,8 @@ class AsyncDatabaseClient:
         pool = self._pool
 
         txn = self._own_txn()
+        if not txn:
+            self._reject_inherited_write()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -1099,6 +1107,17 @@ class AsyncDatabaseClient:
         owner, conn = entry
         return conn if owner is asyncio.current_task() else None
 
+    def _reject_inherited_write(self) -> None:
+        """See `MySQLBackend._reject_inherited_write`."""
+        entry = self._txn_conn.get()
+        if entry is not None and entry[0] is not asyncio.current_task():
+            raise RuntimeError(
+                "write issued from a task that inherited an enclosing transaction: "
+                "it cannot join that transaction and would autocommit outside it "
+                "(the enclosing rollback would not undo it). Do the write in the "
+                "task that opened the transaction, or open a transaction here."
+            )
+
     def _owned_or_raise(self) -> aiomysql.Connection:
         entry = self._txn_conn.get()
         if entry is None:
@@ -1123,6 +1142,10 @@ class AsyncDatabaseClient:
         if broken and not conn.closed:
             conn.close()
         if self._pool is None:
+            # No pool to return it to (closed already). Still close it, or the
+            # socket leaks for the life of the process.
+            if not conn.closed:
+                conn.close()
             return
         self._pool.release(conn)
         if broken:

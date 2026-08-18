@@ -44,10 +44,18 @@ from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 _DEADLOCK_ERRNO = 1213
 
 # How long shutdown waits for borrowed connections before terminating them.
-# Short on purpose: an in-flight transaction that is still running at shutdown
-# is going to be rolled back by the server anyway, and a container that will not
-# exit is a redeploy that hangs until docker SIGKILLs it.
-_POOL_CLOSE_TIMEOUT_SEC = 5.0
+#
+# Must stay STRICTLY BELOW the caller's own budget. `db_factory._evict_closed_loops`
+# wraps `client.close()` in `wait_for(..., remaining)` where `remaining` is what
+# is left of a 5s sweep — always < 5s. With both at 5s the outer timeout always
+# won, `close()` was cancelled inside its own `wait_for`, and the `terminate()`
+# fallback below never ran: the pool leaked instead of being reclaimed, which is
+# exactly the path this fallback exists for.
+#
+# Short is also right on its own terms: an in-flight transaction still running
+# at shutdown is going to be rolled back by the server anyway, and a container
+# that will not exit is a redeploy that hangs until docker SIGKILLs it.
+_POOL_CLOSE_TIMEOUT_SEC = 2.0
 
 
 async def _retry_on_deadlock(
@@ -277,6 +285,28 @@ class MySQLBackend(DatabaseBackend):
         owner, conn = entry
         return conn if owner is asyncio.current_task() else None
 
+    def _reject_inherited_write(self) -> None:
+        """Refuse a WRITE issued from a task that inherited someone's transaction.
+
+        Such a write cannot join the transaction (that would be two coroutines
+        on one socket), and letting it silently take a pooled connection is
+        worse than failing: it autocommits, so the enclosing rollback does not
+        undo it, and the caller is never told its write escaped the transaction
+        it appeared to be inside.
+
+        Reads are deliberately allowed through to the pool — `gather`-ing
+        queries inside a transaction body is ordinary and harmless; they simply
+        do not observe the uncommitted rows.
+        """
+        entry = self._txn_conn.get()
+        if entry is not None and entry[0] is not asyncio.current_task():
+            raise RuntimeError(
+                "write issued from a task that inherited an enclosing transaction: "
+                "it cannot join that transaction and would autocommit outside it "
+                "(the enclosing rollback would not undo it). Do the write in the "
+                "task that opened the transaction, or open a transaction here."
+            )
+
     def _ensure_pool(self) -> aiomysql.Pool:
         """Return the pool, raising if not initialized."""
         if self._pool is None:
@@ -326,6 +356,8 @@ class MySQLBackend(DatabaseBackend):
         pool = self._ensure_pool()
 
         txn = self._own_txn()
+        if txn is None:
+            self._reject_inherited_write()
         if txn is not None:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params or ())
@@ -452,6 +484,8 @@ class MySQLBackend(DatabaseBackend):
         pool = self._ensure_pool()
 
         txn = self._own_txn()
+        if txn is None:
+            self._reject_inherited_write()
         if txn is not None:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -501,6 +535,8 @@ class MySQLBackend(DatabaseBackend):
         pool = self._ensure_pool()
 
         txn = self._own_txn()
+        if txn is None:
+            self._reject_inherited_write()
         if txn is not None:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -537,6 +573,8 @@ class MySQLBackend(DatabaseBackend):
         pool = self._ensure_pool()
 
         txn = self._own_txn()
+        if txn is None:
+            self._reject_inherited_write()
         if txn is not None:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -591,6 +629,8 @@ class MySQLBackend(DatabaseBackend):
         pool = self._ensure_pool()
 
         txn = self._own_txn()
+        if txn is None:
+            self._reject_inherited_write()
         if txn is not None:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -626,21 +666,43 @@ class MySQLBackend(DatabaseBackend):
             conn.close()
         pool = self._pool
         if pool is None:
+            # No pool to return it to (closed already). Still close it, or the
+            # socket leaks for the life of the process.
+            if not conn.closed:
+                conn.close()
             return
         pool.release(conn)
         if broken:
             self._wake_pool_waiters(pool)
 
     def _wake_pool_waiters(self, pool: aiomysql.Pool) -> None:
+        # `_wakeup` is private to aiomysql. Reached via getattr because this runs
+        # from an `except BaseException:` path: after an upgrade renames it, a
+        # bare attribute access would raise AttributeError and REPLACE the real
+        # database error the caller is about to see.
+        wakeup = getattr(pool, "_wakeup", None)
+        if wakeup is None:  # pragma: no cover - only after an aiomysql upgrade
+            logger.warning(
+                "[MySQLBackend] aiomysql has no _wakeup(); pool waiters may stall "
+                "after a broken connection is returned. Re-check the release path."
+            )
+            return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:  # pragma: no cover - no loop during teardown
             return
         # Keep a reference: a bare create_task can be garbage-collected before
         # it runs (a lesson this repo has already paid for once).
-        task = loop.create_task(pool._wakeup())
+        task = loop.create_task(wakeup())
         self._wakeup_tasks.add(task)
-        task.add_done_callback(self._wakeup_tasks.discard)
+        task.add_done_callback(self._on_wakeup_done)
+
+    def _on_wakeup_done(self, task: "asyncio.Task") -> None:
+        self._wakeup_tasks.discard(task)
+        # M2: read the result, or a failure surfaces later as the unhelpful
+        # "Task exception was never retrieved" during GC.
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning(f"[MySQLBackend] pool wake-up failed — {task.exception()}")
 
     def _owned_or_raise(self) -> aiomysql.Connection:
         """The connection this task may commit/roll back, or an explanation."""

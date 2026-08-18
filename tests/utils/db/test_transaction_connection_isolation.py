@@ -618,3 +618,65 @@ async def test_close_terminates_connections_that_never_come_back():
 
     assert pool.terminated is True
     assert stranded.closed is True
+
+
+@pytest.mark.asyncio
+async def test_a_child_tasks_write_fails_loudly_instead_of_escaping_the_transaction():
+    """A child task cannot join the parent's transaction (that is the
+    two-coroutines-one-socket bug). Letting it quietly take a pooled connection
+    is worse than refusing: the write autocommits, so the enclosing rollback
+    does not undo it, and nobody is told the write left the transaction it
+    appeared to be inside."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    parent_conn = checked_out(pool)
+
+    async def child():
+        with pytest.raises(RuntimeError, match="inherited an enclosing transaction"):
+            await backend.execute_write("DELETE FROM events WHERE id = 1")
+        with pytest.raises(RuntimeError, match="inherited an enclosing transaction"):
+            await backend.insert("events", {"event_id": "e1"})
+
+    await asyncio.create_task(child())
+
+    assert parent_conn.queries == []
+    assert not any(c.queries for c in pool.created if c is not parent_conn), (
+        "a rejected write still touched a pooled connection"
+    )
+    await backend.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_child_tasks_read_is_still_allowed():
+    """Reads are the common, harmless case — `gather`-ing queries inside a
+    transaction body must keep working. They simply do not see uncommitted
+    rows, which is what taking a pooled connection means."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    parent_conn = checked_out(pool)
+
+    async def child():
+        return await backend.execute("SELECT 1")
+
+    rows = await asyncio.create_task(child())
+
+    assert rows == [{"1": 1}]
+    assert parent_conn.queries == []
+    await backend.commit()
+
+
+@pytest.mark.asyncio
+async def test_writes_outside_any_transaction_are_unaffected():
+    """The rejection must key on 'inherited a transaction', not on 'is not the
+    owner' — with no transaction anywhere, every task writes normally."""
+    backend, pool = make_backend()
+
+    async def writer(n: int):
+        await backend.execute_write(f"DELETE FROM t WHERE id = {n}")
+
+    await asyncio.gather(writer(1), writer(2))
+
+    written = sorted(q for c in pool.created for q in c.queries)
+    assert written == ["DELETE FROM t WHERE id = 1", "DELETE FROM t WHERE id = 2"]

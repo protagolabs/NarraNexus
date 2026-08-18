@@ -3,6 +3,7 @@ code_file: src/xyz_agent_context/utils/db/db_backend_sqlite.py
 last_verified: 2026-08-17
 stub: false
 ---
+
 ## 2026-08-17 — aiosqlite worker 线程不许死在"投递结果"这一步
 
 模块导入时把 `aiosqlite.core._connection_worker_thread` 换成
@@ -69,34 +70,7 @@ loop 还活着却拒收回调是另一回事，那意味着 aiosqlite 里那句�
 `PRAGMA busy_timeout=30000` 是**相乘**的（每次重试都在 SQLite 里等满 30 秒），
 最坏情况一次写阻塞 ~5 分钟。作者多半以为"10 次快速重试"。
 
-## 2026-08-17 — 事务标志从实例级布尔改为 task 归属 + 事务期独占写锁（与上一条独立）
-
-MySQL 那条事故（见 [[db_backend_mysql.py]]）的 SQLite 孪生版。**同一个缺陷，但这里是
-静默的** —— MySQL 有连接可以被打死，所以炸成 500；SQLite 只有一条连接，什么都不会
-坏，代价直接变成数据丢失。而桌面 / DMG 跑的就是 SQLite，用户看到的形态是「提示保存
-成功，重启后数据没了」。
-
-两个缺陷同构：
-
-1. **隔离缺失**：`_in_transaction` 是实例属性，而 `db_factory` 每 loop 只发一个
-   backend。任一 task 在事务中期间，其他 task 的写入命中 `if not self._in_transaction`
-   为假 → **跳过 commit**，被并进一个它不知道的事务。那个事务一回滚，这笔写入跟着消失，
-   而调用方已经被告知成功。
-2. **不自愈**：`commit()` 是 `await conn.commit()` 成功后才清标志，且无 `finally`。
-   一次 commit 失败 → 标志永远为 True → 此后进程内**每一次写都跳过 commit**，直到重启。
-
-**修法与 MySQL 不同，因为模型不同。** MySQL 是连接池，每个 task 可以拿自己的连接；
-SQLite 只有一条连接，第二个 `BEGIN` 会被 SQLite 直接拒绝。所以这里是
-**ContextVar 记 owner task + 事务期间独占 `_write_lock`**：第二个事务、以及任何无关
-写入，都会**等待**而不是被并进来。持有者自己的写入必须绕过 `_write_lock`
-（`asyncio.Lock` 不可重入，否则事务第一条写就自己把自己锁死），顺带也跳过
-`_retry_write` 的重试——理由和 MySQL 侧一致：调用方拥有事务边界，重跑单条语句会让前面
-的语句处于未回滚状态。
-
-**代价要知道**：事务体内不能 await 另一个**会写库的 task**——那个 task 会阻塞在本事务
-持有的锁上，而本事务在等它。await 普通协程没问题（同一个 task）。
-
-`commit`/`rollback` 通过 `_end_txn()` 无条件清 owner 并释放锁。
+## 2026-08-07 — `get_by_ids` 支持 `fields`
 
 与 MySQL 后端同形，标识符用双引号。见 [[database.py]]。
 
@@ -105,7 +79,6 @@ SQLite 只有一条连接，第二个 `BEGIN` 会被 SQLite 直接拒绝。所�
 对返回行下标就会 `TypeError`，而如果调用方外面套了 advisory except，整批会被静默
 吞掉。
 
-## 2026-08-07 — `get_by_ids` 支持 `fields`
 
 ## 2026-05-22 — initialize() guards the parent dir (clear error, not cryptic)
 
@@ -156,4 +129,3 @@ The Tauri desktop migration needed a file-based database that runs without a ser
 **WAL files accumulate after a crash.** If the process is killed mid-write, the `-wal` and `-shm` sidecar files remain on disk. SQLite handles recovery automatically on the next open, but the presence of these files can confuse backup scripts that copy only the main `.db` file.
 
 **New-contributor trap.** `aiosqlite` runs SQLite in a thread pool under the hood. Calling a synchronous SQLite operation on the `aiosqlite` connection object directly (without `await`) will block the event loop thread. Always use `async with conn.execute(...)` patterns.
-

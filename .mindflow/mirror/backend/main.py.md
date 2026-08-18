@@ -23,6 +23,26 @@ stub: false
 之下：探测若比 healthcheck 活得久，docker 记录的是超时，我们那句「unhealthy + 原因」
 就丢了。改这个常量前先看 `stacks/narranexus-app/compose.yml`（deploy 仓）。
 
+**失败原因只回异常类名，原文只进日志。** 这个端点在 `backend/auth.py` 的公开白名单
+里，线上是 `https://<app domain>/health`，无鉴权；而 pymysql 的错误串带 RDS 端点
+（`Can't connect to MySQL server on '<endpoint>'`）和库用户名（`Access denied for
+user 'x'@'<内网IP>'`）。故障期恰恰是它最可能被扫到的时候。类名仍能区分「连不上 /
+认证失败 / 池子死了」，这正是 on-call 需要的粒度。**日志那行必须写在 `except` 块
+内**——`logger.exception` 在离开 except 后调用没有活跃异常可渲染，只会打出字面量
+`NoneType: None`，真正的原因哪里都不剩，比改造前的可观测性更差。
+
+**部署耦合（改 503 之前必读）。** healthcheck 用 `urllib.request.urlopen`，5xx 会抛
+异常，所以 503 会让容器转 unhealthy——这正是让容器状态监控**能看见**数据库故障的
+机制（2026-08-17 它看不见）。但 compose 里有若干服务声明
+`depends_on: backend: condition: service_healthy`，**前端也在其中**。后果：在数据库
+不可用期间执行 `docker compose up`，前端不会启动（80 端口无响应），而不是起来之后
+API 报错。冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
+非首次启动；已经在跑的栈会继续服务，直到探针在 `retries: 5 x interval: 30s` 后翻转。
+
+这是**有意接受**的代价：另一条路（healthcheck 改指浅探针 `/healthz`）会把本次要关掉
+的盲区原样装回去。不要用「DB 失败仍返回 200、只把 status 置 unhealthy」来绕开耦合——
+一个永远不可能为假的健康字段不承载信息，原 bug 就是这么活下来的。
+
 ## 2026-08-13 — admin_suspend_router 注册
 
 新增 `from backend.routes.admin.suspend import router as admin_suspend_router` 和

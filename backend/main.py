@@ -586,6 +586,26 @@ async def health():
     so ``status`` does not depend on it. The database check is the exception:
     it *does* decide the status, because a backend that cannot reach its
     database cannot serve any authenticated request.
+
+    DEPLOYMENT COUPLING — read before changing the 503.
+    The container healthcheck (deploy repo, ``stacks/narranexus-app/compose.yml``)
+    fetches this endpoint with ``urllib.request.urlopen``, which raises on 5xx,
+    so a 503 turns the container unhealthy. That is the point: it is what lets
+    container-state monitoring see a database outage at all, which it could not
+    on 2026-08-17. But several services declare
+    ``depends_on: backend: condition: service_healthy`` — the **frontend** among
+    them. Consequence: running ``docker compose up`` *while the database is
+    unreachable* leaves the frontend unstarted (port 80 dead) instead of serving
+    a page whose API calls fail. Cold start already required the database
+    (lifespan builds the pool), so this changes redeploy-during-an-outage, not
+    first boot; a stack that is already running keeps serving until the probe
+    flips after ``retries: 5 x interval: 30s``.
+
+    Accepted deliberately: the alternative — pointing the healthcheck at the
+    shallow ``/healthz`` — restores the exact blind spot this endpoint was fixed
+    to close. Do not "fix" the coupling by making this return 200 with an
+    unhealthy body; a health field that cannot fail carries no information,
+    which is how the original bug survived.
     """
     db_ok = False
     db_detail = "unknown"
@@ -604,6 +624,9 @@ async def health():
         db_detail = "connected"
     except asyncio.TimeoutError:
         db_detail = "timeout"
+        logger.error(
+            f"/health: database probe timed out after {_HEALTH_DB_TIMEOUT_SEC}s"
+        )
     except Exception as exc:
         # Exception TYPE only. This endpoint is public and unauthenticated
         # (`/health` is on backend.auth's allowlist, reachable at
@@ -617,6 +640,12 @@ async def health():
         # distinction the on-call actually needs; the full message goes to the
         # log below.
         db_detail = type(exc).__name__
+        # Logged HERE, inside the except block. `logger.exception` outside one
+        # has no active exception to render — it prints a literal
+        # "NoneType: None" and the driver's message, the only place the real
+        # cause survives, is lost. That would leave the on-call with strictly
+        # less than before this endpoint was made truthful.
+        logger.opt(exception=exc).error(f"/health: database probe failed — {exc}")
 
     body = {
         "status": "healthy" if db_ok else "unhealthy",
@@ -630,8 +659,6 @@ async def health():
         }
 
     if not db_ok:
-        # Full detail here, never in the response.
-        logger.exception(f"/health: database probe failed — {db_detail}")
         return JSONResponse(status_code=503, content=body)
     return body
 

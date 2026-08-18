@@ -34,7 +34,22 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 
 **为什么存 owner 而不是裸连接。** ContextVar 的语义是「**task 创建时拷贝一份父 context**」，不是「只有开启者可见」。事务开启**之后**创建的子 task 会继承那条连接，于是 `async with db.transaction():` 里写一个 `asyncio.gather(...)` 就会让子协程重新挤回同一条连接 —— 正是本文件要修的 two-coroutines-one-socket 条件，只是范围从「全进程」缩到「该请求的子树」；更糟的是子 task 调 `commit()` 会把父 task 还在用的连接归还，父 task 随后 commit 撞上 aiomysql 的 `assert conn in self._used`。
 
-比较 task 身份把这层继承变成两种明确行为：**语句**（子 task 走连接池拿自己的连接）、**commit/rollback**（子 task 直接 `RuntimeError`）。子 task 仍可以 `begin_transaction()` 开自己的事务——继承来的值不算「已在事务中」。
+比较 task 身份把这层继承变成三种明确行为：
+
+- **读**（`execute` / `get` 等）：子 task 走连接池拿自己的连接。`gather` 一堆查询是
+  日常且无害的，代价只是读不到未提交的行。
+- **写**（`execute_write` / `insert` / `update` / `delete` / `upsert`）：直接
+  `RuntimeError`。它加入不了那个事务（那正是要修的 bug），而**悄悄换一条连接比报错更
+  糟**——写会自动提交，外层 rollback 撤不掉它，调用方也永远不知道自己的写溜出了那个
+  看起来正把它包住的事务。
+- **commit / rollback**：子 task 直接 `RuntimeError`。结束别人的事务会归还父 task 还在
+  写的连接，父 task 随后 commit 会撞上 aiomysql 的 `assert conn in self._used`。
+
+子 task 仍可以 `begin_transaction()` 开自己的事务——继承来的值不算「已在事务中」。
+
+**注意 sqlite 后端不是这个语义**（它单连接、且 `sqlite_proxy_server` 的事务本来就跨
+请求跨 task，用的是服务端发的 `txn_id` token）。那边的同型缺陷单独处理，见
+[[db_backend_sqlite.py]]。
 
 The ContextVar is not a stylistic choice; it is the correctness boundary. `db_factory` hands out **one backend per event loop**, shared by every request, so instance-level transaction state was process-global state — see the 2026-08-17 section below.
 
