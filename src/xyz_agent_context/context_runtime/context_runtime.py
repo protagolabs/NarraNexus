@@ -28,6 +28,11 @@ from xyz_agent_context.narrative import Narrative, Event, EventService, Narrativ
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
+from xyz_agent_context.utils.timezone import (
+    DEFAULT_TIMEZONE,
+    format_timestamp_for_agent,
+    resolve_timezone,
+)
 
 # Settings (leaf module, safe to import at module level)
 from xyz_agent_context.settings import settings
@@ -676,24 +681,48 @@ class ContextRuntime:
             f"ctx_sha256={ctx_sha256}" + (f" {pfx_str}" if pfx_str else "")
         )
 
+    async def _resolve_user_timezone(self, user_id: Optional[str]) -> str:
+        """Read `users.timezone`, degrading to UTC rather than failing.
+
+        Single entry point for "what timezone should this turn render in",
+        used by both the temporal block and the history timeline so the two
+        can never end up in different frames — which is the exact defect
+        `_format_timeline_tag` documents.
+        """
+        if not user_id:
+            return DEFAULT_TIMEZONE
+        try:
+            from xyz_agent_context.repository import UserRepository
+            return resolve_timezone(
+                await UserRepository(self.db).get_user_timezone(user_id)
+            )
+        except Exception as e:  # noqa: BLE001 — a tz lookup must not kill a turn
+            logger.warning(f"        Timezone lookup failed for {user_id}: {e}; using UTC")
+            return DEFAULT_TIMEZONE
+
     async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
         """
         Build the User Temporal Context block (v2 timezone protocol).
 
         Reads users.timezone (falls back to UTC for users who have never
-        synced their browser timezone) and produces a prompt section telling
-        the LLM the user's IANA timezone and current local time.
+        synced their browser timezone) and states the user's IANA timezone
+        plus the protocol for expressing times back to them.
+
+        It deliberately does NOT restate the current time (2026-08-18). It
+        used to, as `now_local_dt.replace(tzinfo=None).isoformat()` — naive,
+        no offset, no weekday — which is the exact shape
+        `utils/timezone.format_now_for_agent` exists to replace, and it sat
+        in the same turn-context block as the correctly-framed "Real World
+        Information" value. Two "now"s, one of them in the format a prior
+        incident was traced to, is worse than one: there is no reading of the
+        prompt where the second one is the authority, so it can only add
+        doubt. The ground truth now has exactly one renderer and one site.
         """
         if not user_id:
             return ""
-        from xyz_agent_context.repository import UserRepository
-        from xyz_agent_context.utils.timezone import utc_now, to_user_timezone
-        user_tz = await UserRepository(self.db).get_user_timezone(user_id)
-        now_local_dt = to_user_timezone(utc_now(), user_tz)
-        if now_local_dt is None:
-            return ""
-        now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
-        return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
+        return USER_TEMPORAL_CONTEXT.format(
+            user_tz=await self._resolve_user_timezone(user_id)
+        )
 
     async def _build_turn_context_block(
         self,
@@ -986,12 +1015,16 @@ class ContextRuntime:
         )
         cross_count = 0
         replayed_count = 0
+        # Resolved ONCE per turn: every row's timestamp is rendered in this
+        # frame, and a per-row lookup would be N identical queries. Fail-open
+        # to UTC — a history that renders is worth more than one that doesn't.
+        timeline_tz = await self._resolve_user_timezone(ctx_data.user_id)
         for msg in timeline:
             meta = msg.get("meta_data") or {}
             ws = meta.get("working_source", "chat")
             handler = MessageSourceRegistry.get(ws)
             src_prefix = handler.format_row_prefix(msg)
-            tag = self._format_timeline_tag(meta)
+            tag = self._format_timeline_tag(meta, timeline_tz)
             if meta.get("memory_type") == "short_term":
                 cross_count += 1
             if msg.get("role") == "assistant":
@@ -1389,20 +1422,37 @@ class ContextRuntime:
         return replays
 
     @staticmethod
-    def _format_timeline_tag(meta: Dict[str, Any]) -> str:
+    def _format_timeline_tag(meta: Dict[str, Any], user_tz: str = "UTC") -> str:
         """Render the per-message timeline tag
         `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`.
 
-        - time: the message's stored timestamp (compact YYYY-MM-DD HH:MM).
+        - time: the message's stored timestamp, converted to the USER's
+          timezone and stamped with an explicit UTC offset
+          (`2026-07-30 23:00 +08:00`).
         - topic: the resolved narrative alias (name); falls back to the id.
         - nar=<narrative_id>: full id — the agent needs it for switch/view tools.
         - evt=<event_id>: the event that produced this message — the agent can
           pass it to view_event() to fetch that turn's full agent-loop +
           reasoning detail (only the sent message is in the timeline).
+
+        The timezone conversion is NOT cosmetic (2026-08-18). `meta.timestamp`
+        is written as `utc_now().isoformat()` by every producer, and this tag
+        used to render it with `ts[:16]` — a raw string slice, so the frame
+        was silently discarded. The same prompt then carried "Real World
+        Information" in the user's local time WITH an offset, and the model
+        had no way to know the two disagreed by the user's UTC offset. For a
+        +08:00 user every message sent between local 00:00 and 08:00 was
+        tagged with the PREVIOUS day, which is enough to make "下周五" /
+        "next Friday" resolve to the wrong date and enough to make an
+        already-past date read as still upcoming.
+
+        The offset rides on every row rather than being declared once in the
+        preamble: it costs ~7 chars a line and it makes each row comparable
+        to the ground-truth "now" without the model holding a frame
+        declaration in mind across thirty lines.
         """
         meta = meta or {}
-        ts = (meta.get("timestamp") or "")
-        t = ts[:16].replace("T", " ") if ts else "??"
+        t = format_timestamp_for_agent(meta.get("timestamp"), user_tz)
         nid = meta.get("narrative_id") or "unknown"
         topic = meta.get("narrative_alias") or nid
         eid = meta.get("event_id") or "?"

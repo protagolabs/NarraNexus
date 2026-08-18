@@ -1,3 +1,32 @@
+---
+code_file: src/xyz_agent_context/utils/timezone.py
+last_verified: 2026-08-18
+stub: false
+---
+
+## 2026-08-18 — 新增 agent-facing 渲染层
+
+原来这个文件只管两件事：内部存 UTC、对外/对前端转用户时区。这次补上第三件 —— **agent
+读到的每一个时间，都必须从这里渲染出去**。
+
+背后的规律是踩出来的：模型没法比较两个时间戳，除非它能看出这两个在**同一个 frame**。
+一个值渲染成用户本地、另一个渲染成裸 UTC，在语言模型眼里读不出"这是两个坐标系"，只读得出
+"这里有矛盾"，然后它会把矛盾合理化掉。所以这一节的渲染器**一律**带显式 UTC 偏移。
+
+新增：
+
+- `resolve_timezone(tz)` —— 统一的降级点。`users.timezone` 缺失或非法时，时间仍然正确
+  （UTC），而且**标签写 "UTC"**，不会把不可用的字符串原样回显给 agent。
+- `format_now_for_agent(tz)` —— `2026-04-21 17:45:08 +08:00 (Tuesday, Asia/Shanghai)`。
+  从 `basic_info_module` 搬过来的：现在有三个互不相关的消费者需要同样的字节
+  （BasicInfo 的 ground truth、date MCP 工具的参考点、[[temporal_guard.py]] 的比对基准），
+  留在 Module 里会逼另外两个去 import 一个 Module（铁律 #3）。
+- `format_timestamp_for_agent(dt, tz)` —— 渲染**已存储**的时间戳，分钟精度（每行历史都要
+  带，秒是噪音）但**保留偏移**。丢掉偏移正是 UTC 存储的聊天历史被当成用户本地墙钟读的
+  原因，见 [[context_runtime.py]] 2026-08-18 条目。
+
+`WEEKDAY_NAMES` 也提到这里：星期几标签和日期必须来自同一份计算，两边各写一份迟早会飘。
+
 # timezone.py
 
 Timezone utilities — a consistent layer for UTC storage, user-timezone display, and LLM-friendly time formatting.

@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 时间线时间戳过去是 UTC，而且没标 frame
+
+`_format_timeline_tag` 用 `ts[:16]` 切字符串渲染每条历史消息的时间。`meta_data.timestamp`
+的所有写入方都是 `utc_now().isoformat()`，所以切出来的是 **UTC**，而且切完什么标记都不剩。
+
+同一份 prompt 里，「Real World Information」给的是用户本地时间**带 `+08:00` 偏移**。两个
+不同 frame 的时间摆在一起，对模型来说读不出"这是两个坐标系"，只读得出"这里有矛盾"，
+而它处理矛盾的方式是合理化过去。
+
+对 +08:00 的用户，本地 00:00–08:00 之间发的每条消息都被打上**前一天**的日期。据此解析
+「下周五」会整体错位，已经过去的日期会读成还没到 —— 就是线上报的那个现象。
+
+现在时间戳走 `utils/timezone.format_timestamp_for_agent`，转成用户时区并带显式偏移
+（`2026-07-30 23:00 +08:00`），跟 ground truth 同一个 frame，可以直接比。偏移放在**每一行**
+而不是在导言里声明一次：每行多约 7 个字符，换来模型不需要跨三十行记住一个 frame 声明。
+
+时区一轮只查一次（`_resolve_user_timezone`），逐行查就是 N 次同样的查询。
+
+顺带收掉 `_build_user_temporal_block` 里的第二个 "now"：它渲染的是
+`replace(tzinfo=None).isoformat()` —— naive、无偏移、无星期，正是
+`format_now_for_agent` 当初为了取代而写的那个格式，还跟正确的那个躺在同一个 turn context
+块里。两个 "now" 不可能都是真值，形状错的那个只能增加疑虑。现在 ground truth 只有一个
+渲染器、一个落点，这个块只留时区和协议。
 
 ## 2026-08-12 — PR #284 review 轮
 

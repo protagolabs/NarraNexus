@@ -23,6 +23,7 @@ from xyz_agent_context.narrative import EventLogEntry
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 from xyz_agent_context.utils.cost_tracker import record_cost
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.timezone import DEFAULT_TIMEZONE
 
 if TYPE_CHECKING:
     from .context import RunContext
@@ -71,6 +72,42 @@ def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bo
         logger.warning(f"_turn_delivered_user_message: detection failed ({e}); treating as not delivered")
         return False
     return False
+
+
+def _owner_visible_reply_texts(agent_loop_response, working_source: str) -> list:
+    """Every piece of text the OWNER actually saw this turn.
+
+    Same traversal and same source-of-truth registry as
+    `_turn_delivered_user_message` — that one answers "was there a delivery",
+    this one hands back what was delivered. Kept separate rather than
+    generalising the existing helper because its boolean contract is used on
+    a path (the session anchor) where a shape change would be expensive to
+    get wrong.
+
+    Owner-visible specifically: a bus reply to a peer agent is a delivery,
+    but no human read it, so it is not something to measure human-facing
+    accuracy against.
+    """
+    texts: list = []
+    try:
+        from xyz_agent_context.schema import ProgressMessage
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
+        )
+
+        handler = MessageSourceRegistry.get(working_source)
+        for resp in agent_loop_response or []:
+            if not (isinstance(resp, ProgressMessage) and resp.details):
+                continue
+            text = handler.extract_owner_visible_text(
+                resp.details.get("tool_name", ""),
+                resp.details.get("arguments", {}),
+            )
+            if text:
+                texts.append(text)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"_owner_visible_reply_texts: extraction failed ({e})")
+    return texts
 
 
 def _detect_narrative_routing_signal(agent_loop_response):
@@ -555,6 +592,56 @@ async def step_4_persist_results(
     # there is no handle to store and no anchor to keep aligned — which is also
     # why a mid-turn narrative switch can no longer cost a cold start. See
     # adapters/claude/transcript.py.
+
+    # =========================================================================
+    # 4.8 Temporal guard — DIAGNOSTIC ONLY (2026-08-18)
+    #
+    # Reads the replies the owner already received and records a signal when
+    # the agent asserted a date or weekday for "today" that contradicts the
+    # clock. It does not rewrite the reply, does not re-prompt, does not stop
+    # anything: the message has already been delivered by the time we get
+    # here, and 铁律 #15/#16 put "the platform corrects the model's output"
+    # firmly out of bounds.
+    #
+    # Its purpose is to answer a question we could not otherwise answer
+    # honestly — how often the prompt rules and date tools are actually
+    # failing on real traffic. Per the incident lessons (§4 L3, §5), that
+    # belongs in a queryable table rather than in log archaeology.
+    #
+    # Placed last, after every persistence step, so that even a pathological
+    # failure inside it cannot cost the turn any real work.
+    # =========================================================================
+    if delivered_user_message:
+        try:
+            reply_texts = _owner_visible_reply_texts(
+                execution_result.agent_loop_response, src_str or "chat"
+            )
+            if reply_texts:
+                from xyz_agent_context.repository import UserRepository
+                from xyz_agent_context.utils.temporal_guard import (
+                    record_date_claim_mismatches,
+                )
+
+                db = await get_db_client()
+                user_tz = (
+                    await UserRepository(db).get_user_timezone(ctx.user_id)
+                    if ctx.user_id else DEFAULT_TIMEZONE
+                )
+                mismatches = await record_date_claim_mismatches(
+                    db,
+                    "\n".join(reply_texts),
+                    user_tz,
+                    agent_id=ctx.agent_id,
+                    user_id=ctx.user_id or "",
+                    event_id=ctx.event.id if ctx.event else "",
+                )
+                if mismatches:
+                    ctx.substeps_4.append(
+                        f"[4.8] ⚠ Temporal guard: {len(mismatches)} date claim(s) "
+                        f"disagree with the clock (recorded, reply untouched)"
+                    )
+        except Exception as e:  # noqa: BLE001 — a probe must never cost a turn
+            logger.warning(f"Temporal guard failed (non-blocking): {e}")
 
     # =========================================================================
     # Complete

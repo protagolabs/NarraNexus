@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-05
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 新增 4.8：temporal guard（纯诊断）
+
+读本轮**已经投递给 owner** 的回复，把"今天是 X"这类对当下日期的断言跟时钟对一遍，不一致
+就往 `service_audit` 记一行。实现见 [[temporal_guard.py]]。
+
+**不改回复、不重新提示、不打断任何东西。** 铁律 #15/#16 把"平台修正模型输出"划在界外；
+而且从时序上也来不及 —— 走到这里时消息早就发出去了。
+
+放在整个 step 的**最后**，在所有持久化之后：即使它内部出现病态失败，也不会让这一轮已经
+做完的真实工作付出代价。全程 try/except + fail-open。
+
+取文本用的是 `_owner_visible_reply_texts`，跟 `_turn_delivered_user_message` 走同一个
+`MessageSourceRegistry` 真值来源，所以"用户看到了什么"这个判断不会在两处分叉。没有合并成
+一个函数：那个的 boolean 契约挂在 session anchor 这条路径上，改形状的代价不对称。
 
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 
