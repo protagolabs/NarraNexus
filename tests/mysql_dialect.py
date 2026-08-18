@@ -4,7 +4,7 @@
 @date: 2026-08-15
 @description: One place to describe "run this against a real MySQL".
 
-The dialect-twin test files each carry their own copy of a `mysql://` URL parser
+Most dialect-twin test files carry their own copy of a `mysql://` URL parser
 and their own phrasing of the skip reason. The parser is a few lines of string
 splitting that nobody will ever change — which is exactly why the copies went
 unnoticed — but the skip GATE is worth having once: a twin that reads the env
@@ -18,9 +18,10 @@ helper with one user is still better than one more copy, because the next person
 has somewhere obvious to put theirs.
 
 (Counts deliberately absent: this docstring used to say "nine"/"the other eight",
-which went stale as soon as a tenth twin landed. `_TWIN_FLOOR` in
-`tests/test_mysql_gate_single_source.py` is the one statement of that number
-under any pressure to stay right.)
+which went stale as soon as a tenth twin was written on another branch.
+`_TWIN_FLOOR` in `tests/test_mysql_gate_single_source.py` is where that number
+belongs, because a test can enforce it — and it is enforced in both directions,
+so adding a twin without raising it fails there rather than rotting here.)
 """
 
 from __future__ import annotations
